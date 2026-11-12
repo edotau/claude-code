@@ -4,25 +4,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// pinScratch isolates CLAUDE_CONFIG_DIR, credential env vars and PATH so pin writes never touch real machine state.
-func pinScratch(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", providers.EnvSessionProfile} {
-		t.Setenv(k, "")
-	}
-}
-
 // ApplyModelPins qualifies a bare model spec with --provider when it differs from the session's
 // subscribed provider, so the pin resolves against the provider it was validated for.
 func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
-	pinScratch(t)
+	hosttest.PinScratch(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +29,7 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 
 // --provider equal to the session's own subscribed provider stores the bare spec, unqualified.
 func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
-	pinScratch(t)
+	hosttest.PinScratch(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +46,7 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 // qualifyPinSpec passes an already-qualified "provider:model" spec through unchanged, even when
 // --provider names a different provider than the one in the spec.
 func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
-	pinScratch(t)
+	hosttest.PinScratch(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +59,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 
 // --pin all=... qualifies CLAUDE_MODEL the same way a per-alias pin does.
 func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
-	pinScratch(t)
+	hosttest.PinScratch(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

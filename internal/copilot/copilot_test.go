@@ -128,7 +128,7 @@ const runGHToken = "plainRunToken123456" // no token shape, so only Run's creden
 // runScratch routes copilot to gh user "work" (fake gh/copilot, free credits), stubs the SDK; returns the hand-off dir.
 func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []string) (sdkResult, error)) string {
 	t.Helper()
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
 	gh := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", gh)
@@ -263,7 +263,7 @@ func TestRunCredentialsIgnoresNonSecretEnv(t *testing.T) {
 }
 
 func TestQuotaHandoffWriteFailureKeepsPartialAnswer(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	blocked := filepath.Join(t.TempDir(), "not-a-directory")
 	regressionWrite(t, blocked, "blocked")
 	old := handoffDir

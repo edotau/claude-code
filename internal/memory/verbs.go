@@ -256,7 +256,7 @@ func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Digest(ctx, Dir(root), claude)
+	return digest(ctx, Dir(root), claude)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.

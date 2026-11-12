@@ -24,7 +24,7 @@ import (
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
 func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 	t.Helper()
-	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
+	t.Setenv("CLAUDE_PROFILE", "fake") // embedQuery reads the session profile's cache
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Input []string }
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -105,7 +105,7 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
 	t.Cleanup(func() { openEmbedClient = openDatabricksEmbed })
-	sem, err := NewSemantic("gamma gamma")
+	sem, err := embedQuery("gamma gamma")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
 	before := calls
-	if _, err := NewSemantic("q"); err == nil {
+	if _, err := embedQuery("q"); err == nil {
 		t.Error("a client from a different namespace must not score the cache")
 	}
 	if calls != before {
@@ -219,7 +219,7 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
 	}
-	if _, err := NewSemantic("q"); err == nil {
+	if _, err := embedQuery("q"); err == nil {
 		t.Error("a 4-dim query against 3-dim cached vectors must be refused")
 	}
 }
@@ -410,12 +410,12 @@ func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
 		}}, nil
 	}
 	seed("dev")
-	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "dev" {
+	if _, err := embedQuery("q"); err != nil || len(opened) != 1 || opened[0] != "dev" {
 		t.Fatalf("qa cache miss: opened %v err %v, want the pinned dev profile", opened, err)
 	}
 	seed("qa")
 	opened = nil
-	if _, err := NewSemantic("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
+	if _, err := embedQuery("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
 		t.Fatalf("qa cache present: opened %v err %v, want the session's own qa profile", opened, err)
 	}
 	if saveEmbedCache("../escape", vectorRecord{}) == nil {
@@ -445,11 +445,11 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 			return nil, ctx.Err()
 		}}, nil
 	}
-	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "exceeded") {
+	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "exceeded") {
 		t.Fatalf("first query: err %v, want the timeout", err)
 	}
 	start := time.Now()
-	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "paused") {
+	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Fatalf("second query: err %v, want the backoff", err)
 	}
 	if opens.Load() != 1 || time.Since(start) > embedRecallWait/2 {
