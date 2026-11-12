@@ -128,7 +128,7 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	if dead[origin] {
 		return false
 	}
-	rules, ok := robotsBody(ctx, origin)
+	rules, ok := robotsRules(ctx, origin)
 	if !ok && dead != nil {
 		dead[origin] = true
 	}
@@ -136,8 +136,8 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	return ok && !blocked
 }
 
-// robotsBody is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched, parsed and cached.
-func robotsBody(ctx context.Context, origin string) ([]robotsRule, bool) {
+// robotsRules is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched, parsed and cached.
+func robotsRules(ctx context.Context, origin string) ([]robotsRule, bool) {
 	robotsCache.Lock()
 	e, ok := robotsCache.m[origin]
 	robotsCache.Unlock()
