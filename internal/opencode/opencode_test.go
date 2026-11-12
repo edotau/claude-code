@@ -312,7 +312,7 @@ func TestOpencodeToolsOffPinsPermission(t *testing.T) {
 // TestOpencodeChildMarksHostedRuns: a hook host adds the hosted marker; none (memory child) leaves env and argv alone.
 func TestOpencodeChildMarksHostedRuns(t *testing.T) {
 	bin, argv, dir := "/bin/echo", []string{"run", "hi"}, t.TempDir()
-	req := agent.RunOptions{WorkDir: dir, SafeMode: true}
+	req := agent.RunOptions{WorkDir: dir}
 	cmd, _, host, err := opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
 	if err != nil || host == nil {
 		t.Fatalf("opencodeChild = host %v, err %v; want a safety-gate host", host, err)

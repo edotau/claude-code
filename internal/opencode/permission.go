@@ -162,6 +162,9 @@ func opencodeCommand(arg string) string {
 
 // opencodeApplyPermissions pins config and permission env over global policy; no policy leaves env unchanged.
 func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, error) {
+	if err := refusePureGates(req); err != nil {
+		return nil, err
+	}
 	if !req.Tools {
 		return env, nil
 	}
@@ -175,9 +178,6 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 	}
 	if req.Permissions.IsZero() {
 		return env, nil
-	}
-	if err := refusePureBashDeny(req); err != nil {
-		return nil, err
 	}
 	if opencodeReadOnly(req) {
 		req.Permissions.Mode = "plan"
@@ -206,11 +206,18 @@ func refusePolicyEnv(req agent.RunOptions) error {
 	return nil
 }
 
-// refusePureBashDeny: --pure loads no plugin, so nothing covers the `bash -c` bypass of a Bash Deny.
-func refusePureBashDeny(req agent.RunOptions) error {
+// refusePureGates: --pure loads no plugin, so a gate hook or a Bash Deny could not stop a call.
+func refusePureGates(req agent.RunOptions) error {
+	if !req.SafeMode {
+		return nil
+	}
+	if gates := pureGates(); len(gates) > 0 {
+		return retry.Fatal("opencode", fmt.Errorf("cannot run under --safe-mode: --pure loads no plugin, so gate hook(s) %s could not stop a call; run without --safe-mode",
+			strings.Join(gates, ", ")))
+	}
 	if r, ok := agent.SafeModeDeny(req, func(r agent.Rule) bool { return r.Tool == "Bash" }); ok {
 		return retry.Fatal("opencode",
-			fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher)", r))
+			fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher); run without --safe-mode", r))
 	}
 	return nil
 }
