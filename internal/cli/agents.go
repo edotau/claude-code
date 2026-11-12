@@ -530,7 +530,7 @@ func cmdAgentVerb(name string, args []string) int {
 	case args[0] == "--":
 		return ask.Launch(name, args[1:])
 	case args[0] == "ask":
-		return ask.AgentCmd(name, args[1:])
+		return ask.Run(append([]string{"--agent", name}, args[1:]...), false, name)
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
 	case len(args) == 1 && isHelpVerb(args[0]):
@@ -578,7 +578,7 @@ func agentResume(name string, args []string) int {
 		return helptext.Fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
 	}
 	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
-		return ask.Run(append([]string{"--agent", name}, args...), true)
+		return ask.Run(append([]string{"--agent", name}, args...), true, "")
 	}
 	return ask.Cmd(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }

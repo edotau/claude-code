@@ -114,22 +114,25 @@ func confineLine(agentName string, req agent.RunOptions) (agent.RunOptions, erro
 	if req.Lead != "" || (profile == req.Provider && provider == "") {
 		return req, nil
 	}
-	return lineLead(agentName, req, profile, provider)
+	q := agent.RouteReq{Agent: agentName, Model: req.Model, Profile: profile, Provider: provider, Fallback: req.Fallback}
+	lead, prov, err := routedLead(q, agentName == "claude")
+	if err != nil {
+		return req, err
+	}
+	req.Lead, req.Provider = lead, prov
+	return req, nil
 }
 
-// lineLead sets a batch line's lead from the confinement's profile or provider (agent.LeadFor).
-func lineLead(agentName string, req agent.RunOptions, profile, provider string) (agent.RunOptions, error) {
-	q := agent.RouteReq{Agent: agentName, Model: req.Model, Profile: profile, Provider: provider, Fallback: req.Fallback}
+// routedLead is q's lead and provider (agent.LeadFor); readsProvider pins the lead on the provider instead.
+func routedLead(q agent.RouteReq, readsProvider bool) (lead, provider string, err error) {
 	lead, pin, err := agent.LeadFor(q)
 	switch {
-	case err != nil && !pin:
-		return req, err
-	case lead == "" || agentName == "claude": // claude reads Provider, never Lead
-		req.Provider = cmp.Or(lead, profile)
-	default:
-		req.Lead, req.Provider = lead, ""
+	case err != nil && !pin: // a bad pin fails at Prepare like any other backend error
+		return "", q.Profile, err
+	case lead == "" || readsProvider: // claude and --live holders read Provider, never Lead
+		return "", cmp.Or(lead, q.Profile), nil
 	}
-	return req, nil
+	return lead, "", nil
 }
 
 // applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks the row and exports it.

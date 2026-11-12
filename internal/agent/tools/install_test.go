@@ -156,9 +156,10 @@ func installOpencodeFromFakeServer(t *testing.T, version, dir string) error {
 	return installOpencode(context.Background(), &bytes.Buffer{}, dir, false)
 }
 
-// TestInstallOpencodeRefusesMajorV2 pins the guard against opencode 2.x: never a real network install.
+// TestInstallOpencodeRefusesMajorV2 pins the guard against opencode 2.x; with no prior binary it leaves none, no aside.
 func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
-	setupToolsTestEnv(t)
+	env := setupToolsTestEnv(t)
+	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
 	dir := t.TempDir()
 	err := installOpencodeFromFakeServer(t, "2.0.0", dir)
 	if err == nil {
@@ -170,6 +171,11 @@ func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "opencode")); !os.IsNotExist(statErr) {
 		t.Errorf("opencode 2.0.0 must not be linked into %s", dir)
+	}
+	for _, p := range []string{priorPath, priorPath + ".prev"} {
+		if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
+			t.Errorf("refusal with no prior binary must leave nothing at %s", p)
+		}
 	}
 }
 
@@ -200,23 +206,6 @@ func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
 	}
 }
 
-// TestInstallOpencodeRefusalWithNoPriorLeavesNone confirms a refusal with no pre-existing binary
-// leaves none at ~/.opencode/bin/opencode (no stray 2.x, no stray aside copy).
-func TestInstallOpencodeRefusalWithNoPriorLeavesNone(t *testing.T) {
-	env := setupToolsTestEnv(t)
-	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
-	dir := t.TempDir()
-	if err := installOpencodeFromFakeServer(t, "2.0.0", dir); err == nil {
-		t.Fatal("installOpencode: want refusal for opencode 2.0.0, got nil error")
-	}
-	if _, statErr := os.Stat(priorPath); !os.IsNotExist(statErr) {
-		t.Errorf("refusal with no prior binary must leave none at %s", priorPath)
-	}
-	if _, statErr := os.Stat(priorPath + ".prev"); !os.IsNotExist(statErr) {
-		t.Errorf("aside copy %s.prev must not remain", priorPath)
-	}
-}
-
 // TestInstallOpencodeSuccessLeavesNoAsideCopy confirms a successful install cleans up the
 // aside copy it made of the prior binary, rather than leaving it behind.
 func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
@@ -230,18 +219,6 @@ func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
 	}
 	if _, statErr := os.Stat(priorPath + ".prev"); !os.IsNotExist(statErr) {
 		t.Errorf("successful install must not leave an aside copy at %s.prev", priorPath)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
-		t.Errorf("opencode 1.9.0 must be linked into %s: %v", dir, err)
-	}
-}
-
-// TestInstallOpencodeAllowsMajorV1 confirms the guard does not block versions at or below the pin.
-func TestInstallOpencodeAllowsMajorV1(t *testing.T) {
-	setupToolsTestEnv(t)
-	dir := t.TempDir()
-	if err := installOpencodeFromFakeServer(t, "1.9.0", dir); err != nil {
-		t.Fatalf("installOpencode: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "opencode")); err != nil {
 		t.Errorf("opencode 1.9.0 must be linked into %s: %v", dir, err)

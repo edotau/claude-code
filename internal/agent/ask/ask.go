@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -46,12 +45,8 @@ var askPage = helptext.Page{
 	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
 }
 
-func Cmd(args []string) int { return Run(args, false) }
-
-// AgentCmd is `<agent> ask`: Cmd with --agent preset, and -h printing the page under the agent's own verb.
-func AgentCmd(name string, args []string) int {
-	return run(append([]string{"--agent", name}, args...), false, name)
-}
+// Cmd is `agents ask` with no session id and the `agents ask` page.
+func Cmd(args []string) int { return Run(args, false, "") }
 
 // retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
 func retargetPage(fs *flag.FlagSet, name string) {
@@ -85,11 +80,8 @@ type askRun struct {
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 }
 
-// Run is Cmd; resume makes the first positional the session id (`<agent> resume [flags] <id> <task>`).
-func Run(args []string, resume bool) int { return run(args, resume, "") }
-
-// run is Run; verb names the agent whose `<agent> ask` page -h prints, "" for `agents ask`.
-func run(args []string, resume bool, verb string) int {
+// Run is `agents ask`; resume makes the first positional the session id, verb names the `<verb> ask` page -h prints.
+func Run(args []string, resume bool, verb string) int {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
@@ -118,15 +110,11 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 
 // config loads the overlay once and folds its routing keys under the typed flags; a bad value is a usage error.
 func (r *askRun) config() (int, bool) {
-	f := r.f
-	if src := cmp.Or(f.overlay, os.Getenv(agentconfig.OverlayVar)); src == "-" && r.stdinTaken() {
-		from := "--overlay -"
-		if f.overlay == "" {
-			from = agentconfig.OverlayVar + "=-"
-		}
-		return r.fail(errors.New(from+": stdin is the overlay, so give the task as an argument"), 2)
+	busy := ""
+	if r.stdinTaken() {
+		busy = "stdin is the overlay, so give the task as an argument"
 	}
-	ov, err := agentconfig.LoadOverlay(agentconfig.DispatchOverlay(f.overlay), os.Stdin)
+	ov, err := LoadOverlay(r.f.overlay, busy)
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -139,6 +127,18 @@ func (r *askRun) config() (int, bool) {
 	}
 	ov.Fold(r.fs)
 	return 0, false
+}
+
+// LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
+func LoadOverlay(value, busy string) (agentconfig.Overlay, error) {
+	if busy != "" && cmp.Or(value, os.Getenv(agentconfig.OverlayVar)) == "-" {
+		from := "--overlay -"
+		if value == "" {
+			from = agentconfig.OverlayVar + "=-"
+		}
+		return agentconfig.Overlay{}, errors.New(from + ": " + busy)
+	}
+	return agentconfig.LoadOverlay(agentconfig.DispatchOverlay(value), os.Stdin)
 }
 
 // remoteWithHost refuses an overlay remote on a run that goes to --host (typed, or restored from a record).
@@ -236,7 +236,7 @@ func (r *askRun) checkArm() (int, bool) {
 	}
 	// exported here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the env
 	if err := ApplyCoworker(value, f.provider, agentName, f.model, f.fallback); err != nil {
-		return r.fail(err, applyCode(err))
+		return r.fail(err, ApplyCode(err))
 	}
 	if err := cmp.Or(checkNative(f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
@@ -247,8 +247,8 @@ func (r *askRun) checkArm() (int, bool) {
 	return 0, false
 }
 
-// applyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
-func applyCode(err error) int {
+// ApplyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
+func ApplyCode(err error) int {
 	if _, ok := errors.AsType[*agent.PreflightError](err); ok {
 		return 1
 	}
@@ -576,17 +576,11 @@ func (r *askRun) resolveLead() (int, bool) {
 		fallback = router.FallbackNone
 	}
 	q := agent.RouteReq{Agent: r.ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
-	lead, pin, err := agent.LeadFor(q)
-	if err != nil && !pin { // a bad pin fails at Prepare like any other backend error
+	lead, provider, err := routedLead(q, r.ag == "claude" || f.live)
+	if err != nil {
 		return r.fail(err, 2)
 	}
-	switch {
-	case lead == "":
-	case r.ag == "claude" || f.live: // claude and --live holders read Provider, never Lead: pin the resolved lead
-		f.provider = lead
-	default:
-		r.lead, f.provider = lead, ""
-	}
+	r.lead, f.provider = cmp.Or(lead, r.lead), provider
 	return 0, false
 }
 
@@ -688,20 +682,10 @@ func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []stri
 	return extra
 }
 
-// printJSONLine writes v to stdout as one compact JSON line.
-func printJSONLine(v any) error {
-	body, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Println(string(body))
-	return err
-}
-
 // reportBackgroundStart tells the caller how to track a detached job.
 func reportBackgroundStart(format string, rec agent.Record) error {
 	if format == helptext.JSON {
-		return printJSONLine(struct {
+		return agent.WriteJSONLine(os.Stdout, struct {
 			ID  string `json:"id"`
 			Log string `json:"log"`
 		}{rec.ID, rec.Log})
@@ -725,7 +709,7 @@ func printAskFailure(format, agentName string, err error) {
 	var werr error
 	switch format {
 	case helptext.JSON:
-		werr = printJSONLine(wire.FailureEnvelope(agentName, err))
+		werr = agent.WriteJSONLine(os.Stdout, wire.FailureEnvelope(agentName, err))
 	case agent.FormatStreamJSON:
 		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}
@@ -744,7 +728,7 @@ func reportAskResult(format string, res wire.Result, err error) error {
 		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
 	}
 	if format == helptext.JSON {
-		return printJSONLine(wire.NewEnvelope(res, err, res.DispatchID))
+		return agent.WriteJSONLine(os.Stdout, wire.NewEnvelope(res, err, res.DispatchID))
 	}
 	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope

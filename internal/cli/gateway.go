@@ -293,14 +293,11 @@ func resolveGatewayRoute(q agent.RouteReq, format string) int {
 
 // gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
 func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
-	if cmp.Or(value, os.Getenv(agentconfig.OverlayVar)) == "-" && proc.IsTerminal(os.Stdin) {
-		from := "--overlay -"
-		if value == "" {
-			from = agentconfig.OverlayVar + "=-"
-		}
-		return agentconfig.Overlay{}, errors.New(from + ": stdin is a terminal; pipe the JSON document in, or pass a file")
+	busy := ""
+	if proc.IsTerminal(os.Stdin) {
+		busy = "stdin is a terminal; pipe the JSON document in, or pass a file"
 	}
-	cfg, err := agentconfig.LoadOverlay(agentconfig.DispatchOverlay(value), os.Stdin)
+	cfg, err := ask.LoadOverlay(value, busy)
 	if err == nil {
 		cfg.Fold(fs)
 	}
@@ -310,10 +307,8 @@ func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error)
 // checkCoworkerFlags applies the overlay's confinement and validates the flags; nonzero is the exit (preflight: 1).
 func checkCoworkerFlags(name, confinement, profile, format, fallback, want, model string) int {
 	if err := ask.ApplyCoworker(confinement, profile, want, model, fallback); err != nil {
-		if _, ok := errors.AsType[*agent.PreflightError](err); ok {
-			return helptext.Fail(name+": %v", err)
-		}
-		return helptext.FailUsage(name+": %v", err)
+		helptext.Fail(name+": %v", err)
+		return ask.ApplyCode(err)
 	}
 	if err := helptext.CheckFormat(format); err != nil {
 		return helptext.BadFormat(name, err)

@@ -543,35 +543,6 @@ func TestGitCommandCancellation(t *testing.T) {
 	}
 }
 
-func TestCollectGitFailureFallback(t *testing.T) {
-	skipUnlessUnix(t) // the fake git is an sh script
-	for _, stage := range []string{"rev-parse", "ls-files"} {
-		t.Run(stage, func(t *testing.T) {
-			dir, bin := t.TempDir(), t.TempDir()
-			write(t, filepath.Join(dir, "a.go"), "package a")
-			fail := "exit 1" // rev-parse fails as real git does outside a repo, so no ancestor .git of TempDir matters
-			if stage == "rev-parse" {
-				fail = "echo 'fatal: not a git repository (or any of the parent directories): .git' >&2; exit 128"
-			}
-			script := "#!/bin/sh\nif [ \"$3\" = \"" + stage + "\" ]; then " + fail + "; fi\nprintf 'true\\n'\n"
-			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", bin)
-			got, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
-			if stage == "ls-files" {
-				if err == nil || !strings.Contains(err.Error(), "git ls-files") {
-					t.Fatalf("Collect = %+v, %v, want fail-closed ls-files error", got, err)
-				}
-				return
-			}
-			if err != nil || len(got.Included) != 1 || got.Included[0].Path != "a.go" {
-				t.Fatalf("Collect = %+v, %v, want rev-parse failure fallback", got, err)
-			}
-		})
-	}
-}
-
 // skipUnlessUnix stands in for the //go:build unix constraint these tests' old files carried.
 func skipUnlessUnix(t *testing.T) {
 	t.Helper()

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Kind is the failure class; it alone decides retryability.
@@ -69,18 +70,11 @@ func (e *Error) Error() string {
 		msg += ": " + strings.TrimPrefix(e.Err.Error(), e.Agent+": ") // an engine error may lead with its own agent name
 	}
 	if e.Kind == KindRateLimit && e.Attempts > 0 && e.Waited > 0 {
-		msg += fmt.Sprintf(" (gave up after %d %s over %s; requeue this dispatch later, do not re-ask now)", e.Attempts, plural(e.Attempts, "try", "tries"), roundWaited(e.Waited))
+		msg += fmt.Sprintf(" (gave up after %d %s over %s; requeue this dispatch later, do not re-ask now)", e.Attempts, textutil.PluralWord(e.Attempts, "try", "tries"), roundWaited(e.Waited))
 	} else if e.Attempts > 1 {
 		msg += fmt.Sprintf(" (after %d attempts)", e.Attempts)
 	}
 	return msg
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 // roundWaited rounds to whole seconds, or to milliseconds under one second.

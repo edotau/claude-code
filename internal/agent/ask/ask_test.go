@@ -513,7 +513,7 @@ func TestAskHostForwardsFallback(t *testing.T) {
 // A rejected --env must never echo its value: the flag parser prints the value of a failing Set.
 func TestAskEnvRejectionNeverEchoesValue(t *testing.T) {
 	for _, arg := range []string{"ANTHROPIC_API_KEY=supersecret", "HARNESS_VAULT_KEY=supersecret", "supersecret"} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--env", arg, "hi"}, false) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--env", arg, "hi"}) })
 		if code == 0 || strings.Contains(stdout+stderr, "supersecret") {
 			t.Errorf("--env %s: code=%d, value leaked or accepted:\nstdout=%q\nstderr=%q", arg, code, stdout, stderr)
 		}
@@ -1099,8 +1099,8 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 		argv []string
 		code int
 	}{
-		{"conflicting tools flags", []string{"ask", "--format", "json", "--tools", "--no-tools", "hi"}, 1},
-		{"invalid fallback", []string{"ask", "--format", "json", "--fallback", "bogus", "hi"}, 1},
+		{"conflicting tools flags", []string{"ask", "--format", "json", "--tools", "--no-tools", "hi"}, 2},
+		{"invalid fallback", []string{"ask", "--format", "json", "--fallback", "bogus", "hi"}, 2},
 		{"missing prompt", []string{"ask", "--format", "json"}, 2},
 		{"retry of unknown id", []string{"ask", "--format", "json", "--retry", "no-such-id"}, 1},
 	}
@@ -1109,11 +1109,8 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 			cliEnv(t)
 			cliFakes(t)
 			code, out, stderr := runCLI(t, c.argv...)
-			if code == 0 {
-				t.Fatalf("exit = 0, want a failure\nstdout: %s", out)
-			}
-			if c.code == 2 && code != 2 {
-				t.Errorf("exit = %d, want 2\nstderr: %s", code, stderr)
+			if code != c.code {
+				t.Fatalf("exit = %d, want %d\nstdout: %s\nstderr: %s", code, c.code, out, stderr)
 			}
 			env := decodeEnvelope(t, out)
 			if env["status"] != "error" {

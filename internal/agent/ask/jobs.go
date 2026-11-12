@@ -41,33 +41,60 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 
 // PrintResult prints a dispatch's log, its ask line and resume command, or with json its envelope.
 func PrintResult(rec agent.Record, format string) int {
+	return printResult("agents result", rec.Agent, rec.ID, format, true)
+}
+
+// PrintAgentResult is `<agent> result`: a job's log, session and resume hint, or with json {id, session, resume, log}.
+func PrintAgentResult(name, ref, format string) int {
+	return printResult(name+" result", name, ref, format, false)
+}
+
+// printResult loads agentName's job ref and prints it; full adds the ask line, and json prints the envelope.
+func printResult(prefix, agentName, ref, format string, full bool) int {
 	cwd, err := os.Getwd()
-	if err != nil {
-		return helptext.Fail("agents result: %v", err)
+	var rec agent.Record
+	var log string
+	if err == nil {
+		rec, log, err = agent.JobResult(context.Background(), agentName, cwd, ref)
 	}
-	rec, log, err := agent.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 	if err != nil {
-		return helptext.Fail("agents result: %v", err)
+		return helptext.Fail("%s: %v", prefix, err)
 	}
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, rec.ResultEnvelope(os.Stderr)); err != nil {
-			return helptext.Fail("agents result: %v", err)
+		if err := helptext.WriteJSON(os.Stdout, resultJSON(rec, agentName, log, full)); err != nil {
+			return helptext.Fail("%s: %v", prefix, err)
 		}
 		return resultExit(rec)
 	}
 	out := &textutil.ErrWriter{W: os.Stdout}
 	printLog(out, log)
-	if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
-		fmt.Fprintln(out, "ask:", line)
+	if full {
+		if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
+			fmt.Fprintln(out, "ask:", line)
+		}
 	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(out, "session: %s\n", rec.SessionID)
-		fprintResumeHint(out, rec.Agent, rec.SessionID)
+		fprintResumeHint(out, agentName, rec.SessionID)
 	}
 	if out.Err != nil {
-		return helptext.Fail("agents result: write output: %v", out.Err)
+		return helptext.Fail("%s: write output: %v", prefix, out.Err)
 	}
 	return resultExit(rec)
+}
+
+// resultJSON is the dispatch envelope when full, else `<agent> result`'s {id, session, resume, log}.
+func resultJSON(rec agent.Record, agentName, log string, full bool) any {
+	if full {
+		return rec.ResultEnvelope(os.Stderr)
+	}
+	s, _ := agent.LookupSchema(agentName)
+	return struct {
+		ID      string `json:"id"`
+		Session string `json:"session,omitempty"`
+		Resume  string `json:"resume,omitempty"`
+		Log     string `json:"log"`
+	}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}
 }
 
 // printLog writes a job log, adding a trailing newline when it lacks one.
@@ -76,36 +103,6 @@ func printLog(w io.Writer, log string) {
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		fmt.Fprintln(w)
 	}
-}
-
-// PrintAgentResult is `<agent> result`: a job's log, session and resume hint, or with json {id, session, resume, log}.
-func PrintAgentResult(name, ref, format string) int {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return helptext.Fail("%s result: %v", name, err)
-	}
-	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
-	if err != nil {
-		return helptext.Fail("%s result: %v", name, err)
-	}
-	if format == helptext.JSON {
-		s, _ := agent.LookupSchema(name)
-		if err := helptext.WriteJSON(os.Stdout, struct {
-			ID      string `json:"id"`
-			Session string `json:"session,omitempty"`
-			Resume  string `json:"resume,omitempty"`
-			Log     string `json:"log"`
-		}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}); err != nil {
-			return helptext.Fail("%s result: %v", name, err)
-		}
-		return resultExit(rec)
-	}
-	printLog(os.Stdout, log)
-	if rec.SessionID != "" {
-		fmt.Printf("session: %s\n", rec.SessionID)
-		fprintResumeHint(os.Stdout, name, rec.SessionID)
-	}
-	return resultExit(rec)
 }
 
 // TailJob prints a job's log (json: its events); exit 1 for an errored job or a followed job that was lost.
@@ -188,7 +185,7 @@ func Send(id, task, format string) int {
 // printLiveEnvelope writes the turn's envelope (one JSON line) or closing newline (text), returning any write failure.
 func printLiveEnvelope(env wire.Envelope, format string) error {
 	if format == helptext.JSON {
-		return printJSONLine(env)
+		return agent.WriteJSONLine(os.Stdout, env)
 	}
 	if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
 		_, err := fmt.Println()
@@ -256,7 +253,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
 	}
 	if format == helptext.JSON {
-		if err := printJSONLine(struct {
+		if err := agent.WriteJSONLine(os.Stdout, struct {
 			ID     string `json:"id"`
 			Socket string `json:"socket"`
 			Log    string `json:"log"`
