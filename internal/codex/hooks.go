@@ -271,13 +271,8 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 		state, depth = agentconfig.TOMLLineState(line, state, depth)
 	}
 	flushCodexTrust(&out, remaining, active)
-	keys := make([]string, 0, len(remaining))
-	for key := range remaining {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
 	next := out.String()
-	for _, key := range keys {
+	for _, key := range slices.Sorted(maps.Keys(remaining)) {
 		section := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", key, remaining[key])
 		next = agentconfig.AppendTOML(next, section)
 	}

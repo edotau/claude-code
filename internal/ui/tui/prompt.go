@@ -32,15 +32,12 @@ func Confirm(question string, def bool) bool {
 	}
 	line = strings.ToLower(strings.TrimSpace(line))
 	switch {
-	case line == "":
-		return def
 	case strings.HasPrefix(line, "y"):
 		return true
 	case strings.HasPrefix(line, "n"):
 		return false
-	default:
-		return def
 	}
+	return def
 }
 
 // yesNoHint is the "[Y/n]" or "[y/N]" suffix that marks def.
@@ -72,7 +69,6 @@ func SecretHint(hint, prompt string, preview func(string) string) (string, error
 		}
 		return strings.TrimRight(line, "\r\n"), err
 	}
-	var onChange func([]byte)
 	hintShown := hint != "" && StdoutIsTerminal()
 	if preview == nil { // inline prompt: the hint goes above it; with a preview the hint sits under the prompt line
 		if hintShown {
@@ -85,7 +81,7 @@ func SecretHint(hint, prompt string, preview func(string) string) (string, error
 			fmt.Fprintln(os.Stdout, hint)
 		}
 	}
-	onChange = func(b []byte) {
+	onChange := func(b []byte) {
 		if hintShown && len(b) > 0 {
 			fmt.Fprint(os.Stdout, "\x1b[1A\x1b[M") // up onto the hint line, delete it: the input line moves up
 			hintShown = false

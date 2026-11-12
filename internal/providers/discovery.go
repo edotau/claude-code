@@ -300,14 +300,10 @@ func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, e
 
 // authorizeDiscovery sets the credential headers on a catalog GET; errors name no secret.
 func authorizeDiscovery(ctx context.Context, p *Provider, h http.Header, source string) error {
-	if p.Auth.Type == AuthCLI {
-		tok := HeadlessOAuthToken()
-		if tok == "" {
+	if err := authorizeCatalog(ctx, p, h); err != nil {
+		if p.Auth.Type == AuthCLI {
 			return errors.New("no harness-readable subscription credential")
 		}
-		h.Set("Authorization", "Bearer "+tok)
-		h.Set("anthropic-beta", anthropicOAuthBeta)
-	} else if err := Authorize(ctx, p, h); err != nil {
 		return errors.New("catalog authentication unavailable; check profile credentials")
 	}
 	if source == "gemini-models" && p.Auth.Type == AuthKey {

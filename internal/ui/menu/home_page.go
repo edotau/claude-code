@@ -25,7 +25,7 @@ func toolsRows(d *dialog) []homeRow {
 	return []homeRow{databricksRow(d), tailscaleRow(), webSearchRow()}
 }
 
-func settingsRows(d *dialog) []homeRow {
+func settingsRows() []homeRow {
 	n := len(providers.CustomEnv())
 	return []homeRow{
 		{Name: "secrets", State: "vault", Check: "API keys & tokens", Run: func(d *dialog) { secretsLoop(d) }},

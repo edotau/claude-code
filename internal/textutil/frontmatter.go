@@ -81,7 +81,7 @@ func (p *fmParser) continuation(line string) {
 	}
 }
 
-// stripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters included) from source; prefix is nil if absent.
+// stripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters kept) from source; prefix is nil if absent.
 func stripFrontMatter(source []byte) (prefix, content []byte) {
 	delim := []byte("---\n")
 	if !bytes.HasPrefix(source, delim) {

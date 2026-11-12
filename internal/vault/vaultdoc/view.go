@@ -212,7 +212,7 @@ func discoveryName(label, kind string) string {
 	return up + "_" + kind
 }
 
-// discoveryAge is "  <age>" (30s, 5m, 3h, 2d) since a snapshot was sealed (its discovery time), "" when unknown; fits 80 columns.
+// discoveryAge is "  <age>" (30s, 5m, 3h, 2d) since a snapshot was sealed, "" when unknown; fits 80 columns.
 func discoveryAge(sealed time.Time) string {
 	d := time.Since(sealed)
 	switch {

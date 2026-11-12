@@ -92,8 +92,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
-	rt := &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}
-	return rt, nil
+	return &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}, nil
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
@@ -543,7 +542,7 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 	if (!errors.Is(err, errUnknownModel) && !errors.Is(err, errSavedModelGone)) || !fromSnapshot {
 		return r, ref, err
 	}
-	fresh, listErr := copilotRelist(ctx, reg, p)
+	fresh, listErr := relistCopilotEndpoints(ctx, reg, p)
 	if listErr != nil {
 		fmt.Fprintf(os.Stderr, "copilot: %s relist failed: %s\n", p.Name, serving.TruncateMsg([]byte(listErr.Error())))
 		return r, "", err

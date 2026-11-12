@@ -107,8 +107,8 @@ func lowSignal(p string, paths int) string {
 	return ""
 }
 
-// EffortTierSignal is the exported seam onto classifyPromptSignal plus the short rule name that fired (e.g. "keyword:refactor",
-// "paths>=2", "open-search"), for a hook that wants to say WHY it picked a tier.
+// EffortTierSignal is classifyPromptSignal as an effort tier plus the rule that fired ("keyword:refactor", "paths>=2",
+// "open-search"), for a hook that says WHY it picked a tier.
 func EffortTierSignal(prompt string) (tier, signal string) {
 	c, signal := classifyPromptSignal(prompt)
 	switch c {

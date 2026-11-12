@@ -352,12 +352,7 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 2, 4), 0))
 }
 
-func dash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
+func dash(s string) string { return cmp.Or(s, "-") }
 
 // agyUsageCmd is the agy exec seam; tests replace it with a fake binary so none of this reaches agy.
 var agyUsageCmd = func(ctx context.Context) ([]byte, error) {

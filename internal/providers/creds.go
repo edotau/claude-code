@@ -220,11 +220,7 @@ func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
 			return "", err
 		}
 	}
-	exp := time.Time{}
-	if e, ok := JWTExp(v); ok {
-		exp = time.Unix(e, 0)
-	}
-	if err := finishCredential(p, v, exp); err != nil {
+	if err := finishCredential(p, v, time.Time{}); err != nil {
 		return "", err
 	}
 	return v, nil
@@ -421,11 +417,7 @@ func CredentialPresent(p *Provider) bool {
 	if slices.ContainsFunc(keyNames(p), func(n string) bool { return HasSecret(n) != "" }) {
 		return true
 	}
-	if p.Auth.File != "" {
-		b, err := os.ReadFile(paths.ExpandHome(p.Auth.File))
-		return err == nil && strings.TrimSpace(string(b)) != ""
-	}
-	return false
+	return fileCredential(p) != ""
 }
 
 // sealedPresent reports a stored credential authCredential would mint from (user secret, or the SP's per identity).

@@ -146,11 +146,6 @@ func seedDefaults(d *dialog) map[string]string {
 	return out
 }
 
-// seedPick opens agent's picker; ok is false when dismissed.
-func seedPick(d *dialog, agent, cur string) (profile string, ok bool) {
-	return pickProfileName(d, agent, agentProfileChoices(d, agent), cur)
-}
-
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
 func runSeed(d *dialog) bool {
 	choice, agents, saved := seedDefaults(d), seedAgents(), false
@@ -158,7 +153,7 @@ func runSeed(d *dialog) bool {
 		rows := make([]shellRow, 0, len(agents)+1)
 		for _, a := range agents {
 			rows = append(rows, shellRow{Name: displayLabel(a), Detail: seedLabel(a, choice[a]), Run: func() bool {
-				if p, ok := seedPick(d, a, choice[a]); ok {
+				if p, ok := pickProfileName(d, a, agentProfileChoices(d, a), choice[a]); ok {
 					choice[a] = p
 				}
 				return false

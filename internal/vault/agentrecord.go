@@ -69,7 +69,7 @@ func (r AgentRecord) IsZero() bool {
 
 var legacyAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
-// parseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL); ok=false else.
+// parseAgentPin splits a legacy pin key into agent and field (PROFILE, MODEL, ..., claude's <TIER>_MODEL).
 func parseAgentPin(key string) (agent, field string, ok bool) {
 	for _, a := range agentid.All() {
 		f, found := strings.CutPrefix(key, strings.ToUpper(a)+"_")
@@ -269,7 +269,7 @@ func maxToUltra(p string) string {
 	return p
 }
 
-// PoolOverlay is the stored discovery pool JSON, reading a pre-schema-6 "byok-models" entry until the migration moves it.
+// PoolOverlay is the stored discovery pool JSON, reading a pre-schema-6 "byok-models" entry until it is migrated.
 func (t *Tx) PoolOverlay() (string, bool) {
 	if raw, ok := t.Get(Overlay, PoolKey); ok && raw != "" {
 		return raw, true
@@ -287,13 +287,6 @@ func foldAgentPins(recs map[string]AgentRecord, pins map[string]string) (folded 
 				continue
 			}
 			recs[a] = recs[a].WithPin(f, pins[k])
-			if !active {
-				folded = append(folded, k)
-			}
-		}
-	}
-	for _, k := range keys {
-		if _, f, ok := parseAgentPin(k); ok && f == "ACTIVE" {
 			folded = append(folded, k)
 		}
 	}

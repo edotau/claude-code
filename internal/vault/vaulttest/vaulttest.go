@@ -41,7 +41,7 @@ func Put(t testing.TB, bucket, key, val string) {
 	}
 }
 
-// SetRecord sets one field of agent's record (profile, model, effort, context, account or aliases.<alias>); "" clears it.
+// SetRecord sets one field of agent's record (profile, model, effort, context, account, aliases.<alias>); "" clears it.
 func SetRecord(t testing.TB, agent, field, val string) {
 	t.Helper()
 	err := vault.Update(func(tx *vault.Tx) error {

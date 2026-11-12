@@ -265,7 +265,7 @@ func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
 	printFixRows(w, Check(reg, now))
 }
 
-// RefreshPinned force re-lists every pinned Databricks profile's endpoints; returns the registry load failure or each profile's listing error.
+// RefreshPinned force re-lists every pinned Databricks profile's endpoints; returns the load or listing errors.
 func RefreshPinned(ctx context.Context) []error {
 	reg, err := providers.Load()
 	if err != nil {
@@ -288,12 +288,10 @@ func notOK(ps []Pin) []Pin {
 }
 
 func anyCredential(reg *providers.Registry, ps []Pin) bool {
-	for _, p := range ps {
-		if prov := reg.Providers[p.Profile]; prov != nil && providers.CredentialPresent(prov) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ps, func(p Pin) bool {
+		prov := reg.Providers[p.Profile]
+		return prov != nil && providers.CredentialPresent(prov)
+	})
 }
 
 // StaticLine is the session-start line for a down proxy or a bad pin, from cached listings only; "" when all is well.

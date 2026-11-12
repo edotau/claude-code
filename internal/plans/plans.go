@@ -250,32 +250,17 @@ func claimNamesWorktree(claim, worktree string) bool {
 
 // claimsWorktree reports whether an open task's claim names worktree ("· worktree <w>").
 func claimsWorktree(plan Plan, worktree string) bool {
-	for _, t := range plan.Tasks {
-		if !t.Done && claimNamesWorktree(t.Claim, worktree) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && claimNamesWorktree(t.Claim, worktree) })
 }
 
 // hasLiveClaim reports whether an open task carries a claim.
 func hasLiveClaim(plan Plan) bool {
-	for _, t := range plan.Tasks {
-		if !t.Done && t.Claim != "" {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && t.Claim != "" })
 }
 
 // hasOpenOwnedTask reports whether plan still has a task to land.
 func hasOpenOwnedTask(plan Plan) bool {
-	for _, t := range plan.Tasks {
-		if !t.Done && len(t.Owns) > 0 {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && len(t.Owns) > 0 })
 }
 
 // spliceOwn expands an entry abbreviated against the previous one (a bare name takes its directory); an entry a
@@ -466,7 +451,7 @@ func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []da
 	return all, newestOpen
 }
 
-// bestCandidates returns the plans tied on the best score of the newest touched date, with whether each claims worktree.
+// bestCandidates returns the plans tied on the newest touched date's best score, and which claim worktree.
 func bestCandidates(all []datedPlan, newestOpen, worktree string, files []string) (cands []string, claimed map[string]bool) {
 	var best planScore
 	var bestDate string

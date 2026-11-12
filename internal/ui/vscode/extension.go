@@ -57,10 +57,8 @@ func linkExtension(claudeHome, extensionsDir string, check bool) (extensionResul
 	if err := os.MkdirAll(extensionsDir, 0o755); err != nil {
 		return extensionResult{}, err
 	}
-	if _, err := os.Lstat(target); err == nil {
-		if err := os.RemoveAll(target); err != nil {
-			return extensionResult{}, err
-		}
+	if err := os.RemoveAll(target); err != nil { // nil when target is absent
+		return extensionResult{}, err
 	}
 	if err := symlinkOrSame(source, target); err != nil {
 		return extensionResult{}, err

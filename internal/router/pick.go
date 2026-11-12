@@ -92,7 +92,7 @@ func (o PickOpts) codexModel(t providers.Target) providers.Target {
 	return o.CodexModel(t)
 }
 
-// modelPin is model, except a dry pass drops a Discovery pin: same account, and only the real pick advances the rotation.
+// modelPin is model, except a dry pass drops a Discovery pin: only the real pick advances the rotation.
 func (o PickOpts) modelPin(model string) string {
 	if o.dry && model == DiscoveryModel {
 		return ""

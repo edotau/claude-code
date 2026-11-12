@@ -42,7 +42,7 @@ func nukeFloor(dir string) error {
 		return nil
 	}
 	home = paths.Canon(home)
-	if rel, err := filepath.Rel(abs, home); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if paths.Within(home, abs) {
 		return errNotConfigDir
 	}
 	return nil
@@ -349,7 +349,7 @@ func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
 }
 
 func tarWriteFile(tw *tar.Writer, dir, rel string) error {
-	// Untracked symlinks (dir links, dangling links) are skipped like regularFilesUnder does: the target lives elsewhere.
+	// Untracked symlinks (dir or dangling links) are skipped like regularFilesUnder does: the target lives elsewhere.
 	if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}

@@ -237,7 +237,7 @@ var ErrLockTimeout = errors.New("timed out waiting for file lock")
 // lockTimeout bounds how long WithFileLock waits for a peer to release the lock.
 var lockTimeout = 2 * time.Minute
 
-// TryLock takes the exclusive lock on f without blocking; false means another holder has it (or locking is unsupported).
+// TryLock takes the exclusive lock on f without blocking; false means another holder has it or locking is unsupported.
 func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
 
 // lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.

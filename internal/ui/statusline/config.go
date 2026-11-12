@@ -57,11 +57,12 @@ func defaultConfig() config {
 // Decoded on first use: this package links into every claude-code exec, only `statusline` reads it.
 var embeddedConfig = sync.OnceValue(defaultConfig)
 
-func (c config) seg(key string, def bool) bool {
+// seg reports whether segment key is on: enabled unless config.json sets it false.
+func (c config) seg(key string) bool {
 	if v, ok := c.Segments[key]; ok {
 		return v
 	}
-	return def
+	return true
 }
 
 func (c config) sep(key, def string) string {

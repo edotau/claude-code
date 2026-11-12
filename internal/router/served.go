@@ -33,7 +33,7 @@ func servedKey(p *providers.Provider, model string) string {
 	return p.WireModel(models.Strip1M(strings.TrimSpace(model)))
 }
 
-// unservedMarked reports whether wire carries an unexpired mark in the profile account's entry e.
+// unservedMarked reports whether model carries an unexpired mark in the profile account's entry e.
 func unservedMarked(e Entry, p *providers.Provider, model string, now time.Time) bool {
 	at, ok := e.Unserved[servedKey(p, model)]
 	return ok && now.Sub(at) < unservedTTL

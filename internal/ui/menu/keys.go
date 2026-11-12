@@ -305,7 +305,6 @@ func secretsLoop(d *dialog) int {
 		defer confirmPageKeys(d, before)
 	}
 	reg := d.reg
-	store := "the vault"
 	for {
 		list := configure.TrackedSecrets(reg)
 		rows := make([][2]string, 0, len(list)+2)
@@ -313,9 +312,9 @@ func secretsLoop(d *dialog) int {
 			rows = append(rows, [2]string{s.Name, fmt.Sprintf("%-16s %s", sourceLabel(s.Source, s.Shadowed), s.Users)})
 		}
 		rows = append(rows, [2]string{"+ New", "custom NAME, then paste"}, enterRow("save and go back"))
-		title := "secrets — pick one to set (stores in " + store + ")"
+		title := "secrets — pick one to set (stores in the vault)"
 		if d.pending != nil {
-			title = "secrets — pick one to set (Submit saves to " + store + ")"
+			title = "secrets — pick one to set (Submit saves to the vault)"
 		}
 		idx, err := d.shell().pickPlain(title, rows)
 		if err != nil {
@@ -499,11 +498,6 @@ func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 		_ = os.Setenv(name, prev.val)
 		return
 	}
-	k := d.pending[name]
-	if k.had {
-		_ = os.Setenv(name, k.prev)
-	} else {
-		_ = os.Unsetenv(name)
-	}
+	d.pending[name].restore(d, name)
 	delete(d.pending, name)
 }

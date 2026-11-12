@@ -248,8 +248,8 @@ func currentBranch(main string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// asExitErr extracts a process exit code, so inspect can tell merge-base's clean "not an ancestor"
-// (exit 1) apart from a real failure (anything else, including a non-ExitError like a missing binary).
+// asExitErr extracts a process exit code, so callers tell git's clean exit 1 ("no") from a real failure
+// (anything else, including a non-ExitError like a missing binary).
 func asExitErr(err error) (int, bool) {
 	type exitCoder interface{ ExitCode() int }
 	if ee, ok := err.(exitCoder); ok {

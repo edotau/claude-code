@@ -94,7 +94,7 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 
 // extraSections is the tools and settings blocks; a seam so menu tests stay free of live probes.
 var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
-	return sections([]block{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows(d)}})
+	return sections([]block{{Title: "tools", Rows: toolsRows(d)}, {Title: "settings", Rows: settingsRows()}})
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.

@@ -117,7 +117,7 @@ const twoShade = 0.8
 func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB, mode string) string {
 	total := 0
 	for _, s := range row {
-		total += len([]rune(s.text))
+		total += utf8.RuneCountInString(s.text)
 	}
 	var b strings.Builder
 	i := 0

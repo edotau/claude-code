@@ -286,7 +286,7 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 }
 
 // PlanOrResolve runs Preflight and shows the plan; a predicted conflict with ResolveAgent set goes to resolveWithAgent
-// and re-Preflights. A nil plan with a nil error means blocked and already shown: dry-run, no agent, or a non-conflict Issue.
+// and re-Preflights. A nil plan with a nil error means blocked and already shown (dry-run, no agent, other Issue).
 func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun bool) (*MergePlan, error) {
 	plan, err := Preflight(ctx, repo, req.Name, req.Target)
 	if err != nil {
@@ -395,7 +395,7 @@ func issueCodes(issues []Issue) string {
 // `worktree merge` runs. It coordinates this harness's own operations only, never an external writer.
 const mergeLockFile = "worktree-merge.lock"
 
-// mergeLockWait is how long acquire waits for the lock (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
+// mergeLockWait is how long acquire waits (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
 var mergeLockWait = 5 * time.Second
 
 // errMergeBusy is returned when the merge lock is not granted within the wait.

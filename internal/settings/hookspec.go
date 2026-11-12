@@ -83,7 +83,7 @@ var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regex
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.
 var foreignRTKHook = regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`)
 
-// IsHarness reports whether a hook command belongs to this harness, including agent-marked commands and the stale foreign rtk hook.
+// IsHarness reports whether a hook command is this harness's: plain, agent-marked, or the stale foreign rtk hook.
 func IsHarness(command string) bool {
 	return harnessCommand.MatchString(strings.TrimSpace(command)) || foreignRTKHook.MatchString(strings.TrimSpace(command))
 }
@@ -154,7 +154,7 @@ var Registry = []Group{
 		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
 		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
-		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt, so it stays cheap.
+		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-mode", Event: EventSessionStart, Budget: 5 * sec},
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each landed commit sha) appends to this session's claims ledger; never blocks.

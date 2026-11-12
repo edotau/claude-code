@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -171,7 +172,7 @@ func parseMountinfo(text string) []Mount {
 	var out []Mount
 	for line := range strings.SplitSeq(text, "\n") {
 		f := strings.Fields(line)
-		sep := indexOf(f, "-")
+		sep := slices.Index(f, "-")
 		if len(f) < 7 || sep < 6 || len(f) < sep+3 {
 			continue
 		}
@@ -216,15 +217,6 @@ func parseDarwinMount(text string) []Mount {
 		out = append(out, m)
 	}
 	return out
-}
-
-func indexOf(f []string, s string) int {
-	for i, v := range f {
-		if v == s {
-			return i
-		}
-	}
-	return -1
 }
 
 // unescapeOctal decodes the kernel's \040-style escapes in mountinfo fields.

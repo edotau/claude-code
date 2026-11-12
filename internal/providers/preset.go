@@ -212,7 +212,7 @@ var WipeKeys = append(slices.Clone(proc.AnthropicStripEnv), []string{
 
 // harnessEnvRE and harnessEnvKeys add the harness-owned names WipeKeys does not list.
 var (
-	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_|CLAUDE_PROFILE$|CLAUDE_(MODEL|OPUS_MODEL|SONNET_MODEL|HAIKU_MODEL|FABLE_MODEL)$)`)
+	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_)`)
 	harnessEnvKeys = []string{"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 )
 

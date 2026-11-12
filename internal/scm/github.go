@@ -138,15 +138,14 @@ func (h *gitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 }
 
 func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
-	if id != "" {
+	if id == "" {
+		if !hexRe.MatchString(sha) {
+			return nil, fmt.Errorf("invalid sha %q: want hex", sha)
+		}
+	} else { // `gh pr checks --json` needs gh >= 2.51 (Ubuntu ships 2.46): read the PR head's check runs instead
 		if err := checkDigits("PR id", id); err != nil {
 			return nil, err
 		}
-	}
-	if id == "" && !hexRe.MatchString(sha) {
-		return nil, fmt.Errorf("invalid sha %q: want hex", sha)
-	}
-	if id != "" { // `gh pr checks --json` needs gh >= 2.51 (Ubuntu ships 2.46): read the PR head's check runs instead
 		pr, err := h.View(ctx, id)
 		if err != nil {
 			return nil, err

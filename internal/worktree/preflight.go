@@ -43,7 +43,6 @@ type MergePlan struct {
 	CommonDir      string
 	MainGitDir     string // main checkout's own git-dir, resolved once by Preflight ("" = look it up)
 	WorktreeGitDir string // the worktree's own git-dir, resolved once by Preflight ("" = look it up)
-	MainPath       string
 	WorktreePath   string
 	TargetRef      string
 	TargetOID      string
@@ -130,7 +129,7 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 			return nil, err
 		}
 	}
-	plan := &MergePlan{CommonDir: commonDir, MainPath: repo.Main, WorktreePath: worktreePath, AfterResolution: trackedOnlyWorktree}
+	plan := &MergePlan{CommonDir: commonDir, WorktreePath: worktreePath, AfterResolution: trackedOnlyWorktree}
 	if plan.MainGitDir, err = gitDirOf(ctx, repo.Main); err != nil {
 		return nil, err
 	}
@@ -215,7 +214,7 @@ func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 		return nil
 	}
 
-	conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, plan.SourceOID, plan.TargetOID, true)
+	conflicts, err := simulateMerge(ctx, repo.Main, plan.CommonDir, plan.SourceOID, plan.TargetOID)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -233,20 +232,16 @@ func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 // simulateMerge runs `git merge-tree --write-tree --name-only -z` for source into target and reports
 // the conflicted paths (nil = clean). A non-nil error means the simulation itself could not be
 // trusted — a capability failure or an exit code outside {0,1} — and is never a signal to proceed as
-// if it were clean. dryRun isolates every object the write side effect produces into a throwaway
+// if it were clean. It isolates every object the write side effect produces into a throwaway
 // alternate object directory, removed before return, so repoPath's real store is never touched.
 // commonDir is repoPath's common dir when already known ("" = look it up).
-func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOID string, dryRun bool) (conflicts []string, err error) {
+func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOID string) (conflicts []string, err error) {
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
-	var env []string
-	if dryRun {
-		extraEnv, cleanup, isoErr := isolatedObjectDir(ctx, repoPath, commonDir)
-		if isoErr != nil {
-			return nil, fmt.Errorf("merge-tree dry-run isolation: %w", isoErr)
-		}
-		defer func() { err = errors.Join(err, cleanup()) }()
-		env = extraEnv
+	env, cleanup, isoErr := isolatedObjectDir(ctx, repoPath, commonDir)
+	if isoErr != nil {
+		return nil, fmt.Errorf("merge-tree dry-run isolation: %w", isoErr)
 	}
+	defer func() { err = errors.Join(err, cleanup()) }()
 	out, err := runGit(ctx, repoPath, env, args...)
 	switch code, isExit := asExitErr(err); {
 	case err == nil:
@@ -454,9 +449,8 @@ func markerExists(gitDir, name string) (bool, error) {
 	}
 }
 
-// inProgressOp reports the name of a mid-operation marker found under path's own git-dir ("" = look it up), if any. Only
-// a confirmed os.IsNotExist counts as "no marker" — any other stat error (e.g. permission denied) is an
-// unknown state and must propagate, never be read as clean.
+// inProgressOp reports the mid-operation marker under path's own git-dir ("" = look it up), if any. Only a
+// confirmed os.IsNotExist counts as "no marker"; any other stat error is an unknown state and propagates.
 func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bool, err error) {
 	if gitDir == "" {
 		if gitDir, err = gitDirOf(ctx, path); err != nil {
@@ -491,8 +485,8 @@ func requireBranch(ctx context.Context, path string) (string, error) {
 // errDetachedHead is requireBranch's only "not on a branch" verdict; every other git failure is a real error.
 var errDetachedHead = errors.New("HEAD is detached, not on a branch")
 
-// unrelatedHistories reports whether source and target share no common ancestor, using the same
-// exit-code contract list.go's inspect already relies on (1 = clean "no", anything else = a failure).
+// unrelatedHistories reports whether source and target share no common ancestor, using asExitErr's
+// contract (exit 1 = clean answer, anything else = a failure).
 func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
 	_, err := runGit(ctx, repoPath, nil, "merge-base", sourceOID, targetOID)
 	if err == nil {

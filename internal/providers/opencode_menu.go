@@ -192,7 +192,7 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 		if m.ID == "" || seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue
 		}
-		if p.Preset == PresetDatabricks && !m.Gateway && (m.Ready != "READY" || m.Task != "llm/v1/chat") {
+		if p.Preset == PresetDatabricks && !m.Gateway && !m.ReadyChat() {
 			continue
 		}
 		seen[p.WireModel(models.Strip1M(m.ID))] = true
@@ -281,11 +281,7 @@ func OpencodeMenuFor(p *Provider) ([]OpencodeModel, error) {
 		if seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue
 		}
-		label := m.Name
-		if label == "" {
-			label = m.ID
-		}
-		out = append(out, OpencodeModel{ID: m.ID, Label: label, Responses: models.ResponsesOnly(m.ID)})
+		out = append(out, OpencodeModel{ID: m.ID, Label: cmp.Or(m.Name, m.ID), Responses: models.ResponsesOnly(m.ID)})
 		seen[p.WireModel(models.Strip1M(m.ID))] = true
 	}
 	return out, nil

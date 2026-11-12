@@ -30,7 +30,7 @@ import (
 // TestInstallMigrationFailureKeepsOldBinary). Making settings.json itself unreadable is the seam that
 // actually reaches installSettings without disturbing Migrate.
 func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	self := filepath.Join(t.TempDir(), "claude-code")
 	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func shortTempDir(t *testing.T) string {
 // line prints on any machine unless a test sets the env.
 func setupCompactFixture(t *testing.T, linked []string) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	root := shortTempDir(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	home := filepath.Join(root, "home")
@@ -235,7 +235,7 @@ var historySnapshotHash = regexp.MustCompile(`history  [0-9a-f]+ \(pre-install s
 // self-binary path so the caller can normalize the two fixtures' distinct temp-dir names away.
 func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, self string) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	root = os.Getenv("CLAUDE_CONFIG_DIR")
 	self = filepath.Join(t.TempDir(), "claude-code")
 	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
@@ -312,7 +312,7 @@ func assertSettingsSkipOrder(t *testing.T, verbose bool) {
 
 // Install must re-render agent configs so a stale harness hook in codex's hooks.json is purged.
 func TestInstallRendersAgentConfigs(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	home := os.Getenv("HOME")
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	hooksFile := filepath.Join(home, ".codex", "hooks.json")

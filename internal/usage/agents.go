@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,13 +89,8 @@ type dayCount struct{ tokens, turns int }
 
 // dailyFromCounts turns a date->totals map into an ascending, date-sorted []dailyBucket.
 func dailyFromCounts(counts map[string]*dayCount) []dailyBucket {
-	dates := make([]string, 0, len(counts))
-	for d := range counts {
-		dates = append(dates, d)
-	}
-	slices.Sort(dates)
-	out := make([]dailyBucket, 0, len(dates))
-	for _, d := range dates {
+	out := make([]dailyBucket, 0, len(counts))
+	for _, d := range slices.Sorted(maps.Keys(counts)) {
 		c := counts[d]
 		out = append(out, dailyBucket{Date: d, Tokens: c.tokens, Turns: c.turns})
 	}

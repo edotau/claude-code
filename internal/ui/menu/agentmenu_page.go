@@ -482,30 +482,25 @@ const copilotContextBaseline = 200_000
 // back to the fixed list (today's behavior) since there is nothing to check eligibility against.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := vault.GetAgentRecord("copilot").Effort
-	m, ok := copilotCatalogModel(d, modelID)
-	if !ok {
-		desc := "reasoning effort on every launch " + bracket(cur != "", cur, "unset")
-		r := billingRow{"Effort", desc, "", func() bool {
-			return pickCopilotPin(d, "effort", "EFFORT", copilotEffortChoices, cur)
-		}}
-		return &r
-	}
-	if !m.ReasoningEffort || len(m.Efforts) == 0 {
-		return nil
-	}
-	def := "default"
-	if m.DefaultEffort != "" {
-		def += " (" + m.DefaultEffort + ")"
-	}
-	desc := "reasoning effort on every launch " + bracket(cur != "", cur, def)
-	choices := make([][2]string, len(m.Efforts))
-	for i, e := range m.Efforts {
-		label := choiceLabel(copilotEffortChoices, e)
-		if e != "" && e == m.DefaultEffort {
-			label += " (default)"
+	choices, unset := copilotEffortChoices, "unset"
+	if m, ok := copilotCatalogModel(d, modelID); ok {
+		if !m.ReasoningEffort || len(m.Efforts) == 0 {
+			return nil
 		}
-		choices[i] = [2]string{label, e}
+		unset = "default"
+		if m.DefaultEffort != "" {
+			unset += " (" + m.DefaultEffort + ")"
+		}
+		choices = make([][2]string, len(m.Efforts))
+		for i, e := range m.Efforts {
+			label := choiceLabel(copilotEffortChoices, e)
+			if e != "" && e == m.DefaultEffort {
+				label += " (default)"
+			}
+			choices[i] = [2]string{label, e}
+		}
 	}
+	desc := "reasoning effort on every launch " + bracket(cur != "", cur, unset)
 	r := billingRow{"Effort", desc, "", func() bool {
 		return pickCopilotPin(d, "effort", "EFFORT", choices, cur)
 	}}
@@ -619,17 +614,15 @@ func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	if err != nil || idx < 0 {
 		return false
 	}
-	switch n := len(gh); {
-	case idx < n:
-		u := gh[idx]
-		if tok := copilot.GHToken(u); tok == "" || copilot.GitHubLogin(tok) != u {
-			d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
-			return false
-		}
-		return pinCopilotProfile(d, u)
-	default:
+	if idx >= len(gh) {
 		return signIn(d, "gh", []string{"gh", "auth", "login"})
 	}
+	u := gh[idx]
+	if tok := copilot.GHToken(u); tok == "" || copilot.GitHubLogin(tok) != u {
+		d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
+		return false
+	}
+	return pinCopilotProfile(d, u)
 }
 
 // ghUserRows is one picker row per GitHub account, marked when it is gh's active account or the one in use.

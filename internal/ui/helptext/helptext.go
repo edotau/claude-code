@@ -286,8 +286,7 @@ func isTableHead(l string) bool {
 	if m == nil || m[3] == "" || len(m[1]) > 4 {
 		return false
 	}
-	t := strings.TrimSpace(l)
-	return allCaps(t)
+	return allCaps(strings.TrimSpace(l))
 }
 
 // allCaps: ToUpper leaves t unchanged and t holds an ASCII capital.

@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// EachLine calls fn per line of r (oversized joined, EOF partial kept); slice valid in fn only; returns non-EOF read errors.
+// EachLine calls fn per line of r (oversized joined, EOF partial kept); slice valid in fn only; returns read errors.
 func EachLine(r io.Reader, fn func([]byte)) error {
 	_, err := textutil.ScanRawLines(r, false, fn)
 	return err
@@ -49,7 +49,7 @@ const dispatchIDExpr = `\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+`
 var dispatchIDPattern = regexp.MustCompile(
 	`ask: dispatch (` + dispatchIDExpr + `)|job (` + dispatchIDExpr + `) started|\\*"(?:id|dispatch_id)\\*":\s*\\*"(` + dispatchIDExpr + `)\\*"`)
 
-// DispatchIDs lists the dispatch ids a transcript's tool results printed, deduped, in first-seen order; nil if unreadable.
+// DispatchIDs lists the dispatch ids a transcript's tool results printed, deduped in first-seen order.
 func DispatchIDs(path string) []string {
 	f, err := os.Open(path)
 	if err != nil {

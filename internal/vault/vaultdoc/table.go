@@ -382,7 +382,7 @@ func vaultOverlayAgents(raw json.RawMessage) (top, vs map[string]any, err error)
 }
 
 // vaultRecordCells is one agent record as table cells; claude's aliases fold into MODEL as alias=id.
-func vaultRecordCells(name string, r vault.AgentRecord) map[string]string {
+func vaultRecordCells(r vault.AgentRecord) map[string]string {
 	cells := map[string]string{"PROFILE": r.Profile, "MODEL": r.Model, "EFFORT": r.Effort, "CONTEXT": r.Context, "ACCOUNT": r.Account}
 	for _, alias := range models.AliasNames {
 		if v := r.Aliases[alias]; v != "" {
@@ -418,7 +418,7 @@ func vaultAgentCells(names []string, recs map[string]vault.AgentRecord) ([]map[s
 	per := make([]map[string]string, len(names))
 	extra := map[string]bool{}
 	for i, n := range names {
-		per[i] = vaultRecordCells(n, recs[n])
+		per[i] = vaultRecordCells(recs[n])
 		for k := range per[i] {
 			if !slices.Contains(vaultAgentCols, k) {
 				extra[k] = true
