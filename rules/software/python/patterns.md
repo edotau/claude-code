@@ -35,7 +35,7 @@ class CreateUserRequest:
 - `module.Attr` is not a valid type expression when `module` is a *variable* (e.g. an absent-SDK stub
   instance). Import the type itself instead of annotating through the variable.
 - **Never blanket-replace a type name across a file.** `client.CoreV1Api` -> `CoreV1Api` also rewrote a
-  runtime constructor call and turned 154 tests into `NameError`. Restrict such rewrites to annotation
+  runtime constructor call. Restrict such rewrites to annotation
   positions, then grep for `Name(` call sites before running the suite.
 
 ## Never Mutate `os.environ` to Steer a Library

@@ -1,6 +1,6 @@
 # Security Standards
 
-Language specifics: `rules/software/<lang>/security.md`. Harness credentials: CLAUDE.md hard rule 2.
+Language specifics: `rules/software/<lang>/security.md`, where one exists. Harness credentials: CLAUDE.md hard rule 2.
 
 1. **No secrets in code** — env vars or a secret manager; `.env`, `credentials.json`, `*.pem` stay out of git; scan
    before committing (`claude-code doctor --scan`). A secret in a tracked file is urgent: rotate it at the source,

@@ -26,8 +26,8 @@ paths:
 - Agent settings are vault-only, one record per agent (`vault` AGENT table); `--model` beats them.
   `switch` writes claude's record too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
-- Agents run on their pins (gemini on Google); the all-Databricks arm is a launch flag only: `--profile dev|qa|prod` /
-  `--provider databricks` on a dispatch, `profile`/`provider` on a workflow call. Nothing stores an arm default.
+- Agents run on their pins (gemini on Google); per-call routes use `agents ask --route databricks[:<profile>|:auto]`.
+  Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract; nothing stores an arm default.
 
 ## Model selection
 

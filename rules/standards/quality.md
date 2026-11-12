@@ -4,7 +4,8 @@ Language specifics: `rules/software/<lang>/`.
 
 ## Rules
 
-1. **Immutability (CRITICAL)** — return a new copy (`update(orig, k, v)`); never mutate in place.
+1. **Immutability (CRITICAL)** — return a new copy (`update(orig, k, v)`); never mutate in place; language-specific
+  rules win where idioms differ.
 2. **Handle every error** — user-friendly in UI code, detailed context server-side, never swallowed. Validate
    external input (user, API, file content) at the boundary and fail fast.
 3. **Clean breaks in internal code** — a renamed command, flag or symbol changes outright, every caller fixed in the
@@ -55,7 +56,7 @@ Live first, test scope, what makes a test a guard, and the test agent: `testing-
 
 ## Completion
 
-Review done (`/code-review`), tests green, manual check for user-facing
+Review done (`/code-review`), applicable scoped checks green, manual check for user-facing
 changes, docs and links current; approve when no CRITICAL/HIGH remains. Severity scale:
 `skills/evaluate-code/references/completion-criteria.md`.
 MEDIUM+ findings are fixed in the same round; LOW goes to the tech-debt report.

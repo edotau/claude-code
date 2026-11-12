@@ -6,14 +6,17 @@ paths:
 ---
 # Agent Authoring and Commands
 
+Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay policy:
+`skills/subagent-workflows/SKILL.md`. The commands below are relay, script and owner conveniences.
+
 ## Commands
 
 | To… | Run |
 | --- | --- |
-| Ask another agent (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
+| Relay or explicitly requested script (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
 | Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--remote <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
-| Same from the prompt box | `@agent-<name>` for a subagent (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the Agent tool with `subagent_type` set to that name; `/<agent>` and `/coworker` (Slash commands below) |
+| Owner prompt-box syntax | `@agent-<name>` selects a subagent; owner-only `/<agent>` and `/coworker` shortcuts below |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
@@ -23,7 +26,7 @@ paths:
 
 | Command | Does |
 | --- | --- |
-| `/codex` · `/copilot` · `/gemini` · `/opencode` `[--remote <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on this machine, on its own pin: ONE Agent tool call (`subagent_type` = the name, description `<label>: <task>`, label from `claude-code agents label <type>`) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
+| `/codex` · `/copilot` · `/gemini` · `/opencode` `[--remote <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on this machine, on its own pin: ONE Agent tool call (`subagent_type` = the name, dispatch per `CLAUDE.md` guideline 3) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
 | `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [same flags] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code --host auto agents ask --agent <type> --route databricks:auto --tools`. `--host <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
 
 All five are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
@@ -51,7 +54,8 @@ tool input unchanged (context notes only). What `auto` resolves to: `rules/harne
   vs editing `claude`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
   that only picks a different agent is the leaf type of that agent (`codex`, `copilot`…), not a new file.
 - **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
-  dated id — `internal/router/table.json` maps aliases to models. Docs accept aliases (incl. `fable`), full ids or
+  dated id — provider aliases resolve through `internal/models` and `internal/providers/defaults.json`. Docs accept
+  aliases (incl. `fable`), full ids or
   `inherit`; pinning is for third-party providers. **Tools:** list them; a read-only role gets none
   that write.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields

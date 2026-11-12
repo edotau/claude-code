@@ -30,8 +30,8 @@ The import rule, in Python: `grep -nE '^(import|from)' <test> | grep <module>` â
 
 ## A unit test must not leave the box
 
-A cloud client built with its default credential chain reaches the network (boto3 with `session=None` probed
-`169.254.169.254`, 2.15s per test). Pass a stub session (`session=MagicMock()`) or inject the client.
+A cloud client built with its default credential chain can reach the network. Pass a stub session
+(`session=MagicMock()`) or inject the client.
 
 Audit only when asked: a conftest plugin wrapping `socket.socket.connect`/`connect_ex`/`socket.getaddrinfo` (loopback
 allowed) that RECORDS each connection per `item.nodeid` names every offender in one run without failing it. The same

@@ -1,9 +1,7 @@
 ---
 name: Plan
 description: |
-  Read-only planner on the session's own model: explores the code, weighs trade-offs, returns a plan in `docs/templates/plan.md` form ending in `## Tasks`; overrides the built-in Plan so plan mode follows this harness's rules.
-  Dispatch: subagent_type Plan, description "<session model>: plan <topic>" (e.g. "claude-opus-5-5: plan profile fold").
-  Use for: plan mode research, "plan this" / "how should we build", any MEDIUM+ change before code is written.
+  Read-only planning on the session model; return docs/templates/plan.md with a tickable Tasks checklist.
 tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
 model: inherit
 ---
@@ -44,8 +42,8 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 - **`claude` leaves** — implementation of the approved plan's phases on your pin; dispatched by the
   manager, not by Plan itself.
 - **`copilot` / `opencode` leaves (experimental)** — a phase that should run on another agent or account (`Agent:`,
-  `Profile:`), e.g. to spread quota or get another model family; name a `claude` fallback in the same phase,
-  since an external account can fail to connect back.
+  `Profile:`), e.g. to spread quota or get another model family; name a fallback for the manager to choose if the
+  external agent is unavailable.
 - **`codex`** — review of the drafted plan, dispatched by the caller, not Plan: the checklist is
   `skills/evaluate-code/references/task-review.md#plan-review`; the brief is
   `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
@@ -147,11 +145,12 @@ Every phase is:
 - **Dispatch shape:** `skills/subagent-workflows/SKILL.md` (caps, fan-out) — disjoint-package code steps run in
   parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a
   feature or bug fix (`skills/subagent-workflows/SKILL.md` → Test agent). Many leaf-sized tasks across disjoint
-  packages: weigh a lane plan (`skills/subagent-workflows/references/lane-orchestrator.md`, one lane subagent per
-  package set fanning out `agents ask --batch`) against a saved workflow, and say which and why.
+  packages: weigh a lane plan (`skills/subagent-workflows/references/lane-orchestrator.md`, one scheduling lane per
+  package set, dispatched by the manager) against a saved workflow, and say which and why.
 - **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;
   Claude keeps judgement, integration and verification.
-- **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once at the end; commit by area
+- **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once with owner approval; commit
+  by area
   with explicitly named files.
 - **Docs:** where new documentation goes — `~/.claude/rules/harness/docs-placement.md`.
 

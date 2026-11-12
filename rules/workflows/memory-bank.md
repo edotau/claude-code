@@ -24,7 +24,7 @@ point to it, and on a disagreement the earlier one wins.
 
 ## Verbs
 
-`claude-code memory -h` lists the eight menu verbs; the plumbing verbs are dispatchable but off that menu.
+`claude-code memory -h` lists the menu verbs; the plumbing verbs are dispatchable but off that menu.
 `memory <verb> -h` lists a verb's flags.
 
 | Verb | Does |
@@ -71,8 +71,8 @@ Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a genera
 | `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
 | `decisionLog.md` | 200 lines | `fileCaps` |
 | `sessionHistory.md` | 30 entries (rotates, not a line cap) | `sessionHistoryMaxEntries` |
-| Generated bank region of `MEMORY.md` | 40 lines / 4 KB, markers included | `BankRegionMaxLines`, `BankRegionMaxBytes` |
-| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | `NativeIndexMaxLines`, `NativeIndexMaxBytes` |
+| Generated bank region of `MEMORY.md` | 40 lines / 4 KB, markers included | `bankRegionMaxLines`, `bankRegionMaxBytes` |
+| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code native loader limits |
 
 The 40-line region and the 200-line index are different things: the region is the harness's slice, the index is
 everything the native loader reads. Past a `fileCaps` limit `memory dream` archives the overflow.

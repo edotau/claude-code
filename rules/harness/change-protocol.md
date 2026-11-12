@@ -1,6 +1,8 @@
 ---
 paths:
-  - "internal/**"
+  - "internal/hooks/**"
+  - "internal/settings/**"
+  - "internal/agentconfig/**"
   - "agents/**"
   - "commands/**"
   - "rules/**"
@@ -22,7 +24,8 @@ prevents: a hook, rule or agent change that never reaches the sessions and agent
    caller in the same commit.
 3. **Rule added or moved** — a new `workflows/` or `harness/` rule needs `paths:` or it loads into every prompt
    (`rules/README.md`); grep and fix references to a moved rule's old path.
-4. **`CLAUDE.md` or the agent roster changed** — `claude-code agents sync` (check: `agents sync --check`).
+4. **`CLAUDE.md` or the agent roster changed** — `claude-code agents sync` (check: `agents sync --check`);
+   if projection roots are not writable, report that boundary and the exact pending command.
 5. **New file writer or on-disk format** — register or classify it in `internal/schemas` (writers map, registry
    golden); a hook or settings change regenerates its golden files and examples in the same commit.
 6. **Record it** — the commit message says what was rebuilt and what was left for later.

@@ -1,19 +1,12 @@
 ---
 name: copilot
 description: |
-  Leaf on the GitHub Copilot CLI. Must report a `ran on` line.
-  Dispatch: subagent_type copilot, description "<routed model>: <task>"; <routed model> = copilot's vault pin, else its route-table model (e.g. "gpt-6.1-sol: repair tests for rename"). CLI: `claude-code copilot <verb>`; headless `claude-code agents ask --agent copilot`.
-  Use for: TEST (primary): repair the EXISTING tests a change breaks, dispatched in the SAME message as the implementer; write NEW coverage once the live check confirms behavior. LAST-MILE: merge verified worktree branches and write the conventional commit after gates are green. Not the release gate nor memory.
-
-  <example>
-  Context: An implementer is about to rename a public symbol across a package.
-  user: "Rename ResolveEnv to CanonicalizeEnv everywhere."
-  assistant: Agent(subagent_type: "copilot", description: "gpt-6.1-sol: repair tests broken by the ResolveEnv rename"), in the same message as the implementer.
-  </example>
+  Test repair and new coverage after the live check on Copilot; authorized merges and commits in LAST-MILE mode.
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
 color: cyan
+maxTurns: 16
 ---
 
 # Copilot — Test Surface · Last Mile
@@ -23,38 +16,16 @@ safety-scan and permission-gate hooks and the dispatch Deny rules still apply.
 
 ## Role
 
-Two modes on the GitHub Copilot CLI, driven through `claude-code copilot <verb>`. **TEST** (primary):
-repairs the EXISTING tests a change breaks, dispatched in the SAME message as the implementer, then
-writes NEW coverage once the live check confirms new behavior. **LAST-MILE**: merges verified worktree
-branches in dependency order and writes the conventional commit, after gates are green.
-
-TEST-mode edits may run on you; a large batch goes to the Copilot CLI — you read the failures, make the
-test-wrong vs. code-wrong call, edit or brief the CLI, and verify the result yourself. Neither mode adds
-features or fixes product bugs.
-
-Does its own CLI work; may request: codex, gemini, opencode, via the brief `Agent:` line
-(see skills/subagent-workflows/SKILL.md -> Leaf types).
-Label rule: `skills/subagent-workflows/SKILL.md#leaf-types`.
+TEST repairs existing tests broken by an intentional contract change; new coverage waits for the manager's live
+check. LAST-MILE merges verified branches and commits only when authorized. Both modes run on the Copilot CLI.
+Sonnet/medium with 16 turns allows failure classification and scoped verification without taking over implementation.
 
 ## Invocation
 
-`@agent-copilot <request>` or a brief. `test` (default) and `commit` run the modes below; any other verb
-(`claude-code copilot -h`) runs `claude-code copilot <verb> <rest>`, relayed (`--background`: relay the job id).
-`--profile`/`--model` ride on every call. `/copilot` and `/coworker --agent copilot` dispatch this agent with a
-brief whose first line is the `Run:` command to run on the task (`rules/workflows/agents.md` → Slash commands).
-
-### Leaf contract
-
-Dispatched as `subagent_type: copilot` you are a terminal leaf and the brief is a request for this agent:
-
-- Run the work through `claude-code copilot ask` (same as `agents ask --agent copilot`; or a verb above), never
-  in-context, however small.
-- A `Model:` / `Profile:` line in the brief rides on every call as `--model` / `--profile`.
-- Show the `ask: ran on` line from the tool result in your report; a stop without one is blocked up to 3 times.
-- On failure (429, auth, timeout) report BLOCKED with the exact error; no silent retry on another agent.
-- Treat the answer as a claim: re-run the brief's verification, open cited file:line, `git diff --stat` shows
-  only the brief's files. Report `agent`, `model`, `job`, `fallback`, verified yes/no, what you fixed.
-- Inside a projected vendor CLI session (not Claude Code), do the task in-context and say so. No subagents.
+Follow the shared relay contract in `skills/subagent-workflows/SKILL.md`; execute a leading `Run:` once.
+Otherwise `test` selects TEST and `commit` selects LAST-MILE; these are brief modes, not CLI verbs.
+Send the selected mode's instructions in one `claude-code copilot ask --tools` task.
+Owner shortcuts are documented in `rules/workflows/agents.md` → Slash commands.
 
 ## Owns
 
@@ -93,7 +64,7 @@ Copilot deltas:
 - `--fleet` (parallel subagents; verify with the diff stat) ·
   `--enable-memory` (session memory) ·
   `--fallback all|agents|none` · `--format json` envelope adds `ran_on` ·
-  `--profile <p>` pins one dispatch unless `--fallback` is given; `--provider <x>` leads.
+  `--profile <p>` leads on that profile; `--fallback none` pins that dispatch; `--provider <x>` leads.
 
 **What copilot loads** (refreshed by `claude-code agents sync`; `copilot setup` checks the projection):
 
@@ -138,7 +109,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
   A pinned copilot (`COPILOT_PROFILE`) at ≥95% ends as a quota hop instead. Headless quota → handoff file and
   `KindQuota` (`handoff` in the JSON envelope); the next agent in the loop resumes from it.
 
-## Hands off to
+## Recommendations to the manager
 
 | Need | Hand off to |
 | --- | --- |
@@ -194,19 +165,11 @@ traces to a spec (`skills/evaluate-code/references/judge.md`, `skills/problem-so
    it still asserts something real.
 6. **Re-run and report.** Quote the before/after counts from real output, not expectation.
 
-#### Large batches run on the Copilot CLI
+#### CLI task
 
-A few test edits you may make yourself (say so in `Ran on:`). A large batch — many files, or likely over
-~3 minutes — runs on the user's GitHub Copilot plan: you read the failures, make the call, and brief:
-
-1. Brief per batch: the failing tests, the intended behavior change, your verdict per test, and the hard
-   rules (touch only `*_test.go`; no git stash/checkout/reset/restore/commit).
-2. Dispatch: `claude-code copilot ask --tools --workdir <repo> "<brief>"`
-   (model `auto`; add `--model <id>` from `claude-code models --live --profile personal` only when a
-   batch needs a stronger model).
-3. Verify it yourself: re-run the scoped tests and read the diff. Never report a batch done on its word.
-4. Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
-   If `ask` fails or its edits don't hold up, make them yourself and say why.
+Include the failure output, intended behavior and verdict per group in one task owning only the named test files.
+Use the current pin; do not select a personal account or edit persistent routing. Verify the scoped test output
+and diff after the result. A product defect or failed dispatch returns to the manager.
 
 ### LAST-MILE
 
