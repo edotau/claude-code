@@ -79,7 +79,8 @@ func TestTokenUnavailableAndNotRunning(t *testing.T) {
 	})
 	tokenEnsure = func(context.Context) (string, error) { return "", errors.New("unavailable") }
 	if token, err := Token(context.Background(), "dev"); token != "" || err == nil ||
-		err.Error() != "proxy unavailable; run gateway proxy --start" {
+		!strings.HasPrefix(err.Error(), "proxy unavailable") || !strings.Contains(err.Error(), "unavailable)") ||
+		!strings.HasSuffix(err.Error(), "run gateway proxy --start") {
 		t.Fatalf("token %q err %v", token, err)
 	}
 	tokenEnsure = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
