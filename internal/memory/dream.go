@@ -201,9 +201,8 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
-	_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks
-	_ = os.Setenv(dreamChildEnv, "1")  // lets this run's own `memory promote --to claude-md` through the gate
-	who, err := o.Run(ctx, prompt, o.CWD)
+	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
+	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory dream: ran on", who)
 	return err, archiveErr
 }

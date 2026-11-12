@@ -378,10 +378,22 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	if err != nil {
 		return err
 	}
-	_ = os.Setenv(UpdateChildEnv, "1") // a Claude fallback dispatch must not re-trigger hooks; cannot fail for a fixed key
-	who, err := o.Run(ctx, prompt, o.CWD)
+	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
 	return err
+}
+
+type childEnvKey struct{}
+
+// withChildEnv attaches KEY=VALUE markers that the AgentFunc's child process must carry; the parent env stays untouched.
+func withChildEnv(ctx context.Context, env ...string) context.Context {
+	return context.WithValue(ctx, childEnvKey{}, env)
+}
+
+// ChildEnv returns the markers the run's child process must carry, for an AgentFunc to layer onto its exec env.
+func ChildEnv(ctx context.Context) []string {
+	env, _ := ctx.Value(childEnvKey{}).([]string)
+	return env
 }
 
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.
