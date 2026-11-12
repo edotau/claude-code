@@ -133,13 +133,8 @@ func loadConfig(path string, doc any, bad *[]string) bool {
 // readFlatScoped reads flat {"mcpServers": {...}} files, deduped by resolved path, scoping each server prefix+path.
 func readFlatScoped(files []string, prefix string, bad *[]string) []def {
 	var out []def
-	seen := map[string]bool{}
-	for _, f := range files {
+	for _, f := range dedupExisting(files) {
 		rp := resolvedPath(f)
-		if seen[rp] {
-			continue
-		}
-		seen[rp] = true
 		var doc struct {
 			MCPServers map[string]serverDef `json:"mcpServers"`
 		}

@@ -65,7 +65,7 @@ func (s *credentialProbeTest) probe(_ context.Context, p *providers.Provider) (s
 }
 
 func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	names := []string{"p-0", "p-1", "p-2", "p-3", "p-4", "p-5", "p-6", "p-7"}
 	reg := &providers.Registry{Default: "elsewhere", Providers: map[string]*providers.Provider{}}
 	state := &credentialProbeTest{gate: make(chan struct{}), over: make(chan struct{}), byPtr: map[*providers.Provider]string{}}
@@ -202,7 +202,7 @@ func TestDoctorVendorRows(t *testing.T) {
 }
 
 func TestDoctorAgentVersionRows(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	pathstest.FakeVendor(t, "copilot", "echo 'GitHub Copilot CLI 1.0.100.'")
 	checks, _ := runChecks()
 	c := findCheck(checks, "agent version copilot")
@@ -212,7 +212,7 @@ func TestDoctorAgentVersionRows(t *testing.T) {
 	if !strings.HasPrefix(c.Detail, "warn 1.0.100 below 1.0.104") || c.Hard {
 		t.Errorf("row = %+v, want detail `warn 1.0.100 below 1.0.104...` and Hard=false", *c)
 	}
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv("PATH", t.TempDir())
 	checks, _ = runChecks()
 	c = findCheck(checks, "agent version copilot")
@@ -222,7 +222,7 @@ func TestDoctorAgentVersionRows(t *testing.T) {
 }
 
 func TestToolPATHVersionProbesUnchangedBinaryOnce(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "count")
 	bin := filepath.Join(dir, "fake")
@@ -680,7 +680,7 @@ func TestToolDoctorRejectsLstatFailure(t *testing.T) {
 }
 
 func TestToolHealthPreservesExhaustedQuotaFailure(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv("PATH", t.TempDir())
 	now := time.Now()
 	if err := router.Record("github·regression", 100, "test", now.Add(time.Hour), now); err != nil {
@@ -699,13 +699,10 @@ func TestToolHealthPreservesExhaustedQuotaFailure(t *testing.T) {
 	}
 }
 
-// hermetic isolates config and the env a doctor row reads; userProviders is an optional vault overlay/providers document.
-func hermetic(t *testing.T, userProviders string) {
+// hermetic isolates config and the env a doctor row reads.
+func hermetic(t *testing.T) {
 	t.Helper()
 	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG
-	if userProviders != "" {
-		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
-	}
 }
 
 // rtkFixture installs a pinned rtk under a temp CLAUDE_CONFIG_DIR and returns it with an empty user bin dir.

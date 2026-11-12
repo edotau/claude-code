@@ -311,12 +311,9 @@ func printCheckLines(w io.Writer, checks []check) {
 	}
 }
 
-// nestedLocalFile is the disposable "always allow" file Claude Code writes into the nested dir; clean sweeps it.
-const nestedLocalFile = "settings.local.json"
-
 // onlyWorktrees reports a nested dir holding linked worktrees and nothing but the disposable local settings file.
 func onlyWorktrees(n setup.Nested) bool {
-	n.Files = slices.DeleteFunc(slices.Clone(n.Files), func(f string) bool { return f == nestedLocalFile })
+	n.Files = slices.DeleteFunc(slices.Clone(n.Files), func(f string) bool { return f == "settings.local.json" })
 	return n.OnlyWorktrees()
 }
 
@@ -427,9 +424,6 @@ func hasStaticKey(in opencode.OpencodeIntegration) bool {
 
 // opencodeProviderByID finds the registry provider whose OpencodeID matches id, or nil.
 func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provider {
-	if reg == nil {
-		return nil
-	}
 	for _, p := range reg.Providers {
 		if p.OpencodeID == id {
 			return p
