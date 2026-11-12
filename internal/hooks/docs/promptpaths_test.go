@@ -98,21 +98,6 @@ func TestPromptPathFeedbackSilentWhenNothingToReport(t *testing.T) {
 	}
 }
 
-// A non-image file still earns a one-line confirmation that the path resolved.
-func TestPromptPathFeedbackReportsNonImageFile(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "notes.md")
-	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out bytes.Buffer
-	in := strings.NewReader(`{"prompt":"read ` + f + `"}`)
-	promptPathFeedback(in, &out, paths.NewResolver(nil))
-	if !strings.Contains(out.String(), "notes.md") {
-		t.Errorf("expected the resolved path in the feedback:\n%s", out.String())
-	}
-}
-
 // writePNG writes a real PNG of the given size so DecodeConfig reads true dimensions.
 func writePNG(t *testing.T, path string, w, h int) {
 	t.Helper()

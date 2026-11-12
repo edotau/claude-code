@@ -26,10 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md (plans/ is gitignored).
-// PostToolUse only fires on approval; prefer approved input text, then the response, then their scratch files.
-// When the approved plan traces back to an undated draft the plan-mirror hook already filed, its recorded
-// destination is reused (the date stays the draft's creation date) instead of minting a new one for today.
+// Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md, reusing a mirrored dest.
 func Save(in *core.Input, stderr io.Writer) int {
 	responsePath := in.Nested("tool_response", "filePath")
 	inputPath := in.Nested("tool_input", "planFilePath")
@@ -416,10 +413,7 @@ func skeletonOrHeadings() string {
 	return b.String()
 }
 
-// Mirror is a PostToolUse(Write|Edit) hook: every write to an undated draft under <config>/plans/ is
-// copied to its dated, repo-tagged file (Save's own slug/title/dest logic), so the draft is never the
-// file of record. The first mirror picks the destination (and never clobbers an unrelated existing dated
-// file, via planDestination's collision check); it is then recorded so a later H1 change keeps the same file.
+// Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.
 func Mirror(in *core.Input, stderr io.Writer) int {
 	path, content, ok := mirrorSource(in)
 	if !ok {
@@ -435,15 +429,14 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 				return err
 			}
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-			dropEmptyClaim(dest)
-			return err
+		err := os.MkdirAll(filepath.Dir(dest), 0o700)
+		if err == nil {
+			err = plans.WriteFile(dest, content)
 		}
-		if err := plans.WriteFile(dest, content); err != nil {
+		if err != nil {
 			dropEmptyClaim(dest)
-			return err
 		}
-		return nil
+		return err
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)

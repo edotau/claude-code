@@ -287,8 +287,6 @@ var quotedWinPathRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`"(` + foreignHead + `[^"]+)"`)
 })
 
-const winTrim = ".,;:!?)]}'\""
-
 func scanWinTokens(text string) []pathToken {
-	return scanTokens(text, quotedWinPathRE(), winPathRE(), winTrim)
+	return scanTokens(text, quotedWinPathRE(), winPathRE(), ".,;:!?)]}'\"")
 }
