@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/discovery"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -168,20 +168,20 @@ func (o *catalogOpts) done(err error) int {
 }
 
 // syncMode is the discovery mode for a sync: --refresh always lists live.
-func syncMode(refresh bool) discovery.Mode {
+func syncMode(refresh bool) configure.ModelMode {
 	if refresh {
-		return discovery.Refresh
+		return configure.RefreshModels
 	}
-	return discovery.Verified
+	return configure.VerifiedModels
 }
 
 // discover runs the unified model discovery for name on profile.
-func discover(name, profile string, mode discovery.Mode) (discovery.Result, error) {
-	return discovery.Models(context.Background(), discovery.Query{Agent: name, Profile: profile, Mode: mode})
+func discover(name, profile string, mode configure.ModelMode) (configure.ModelResult, error) {
+	return configure.DiscoverModels(context.Background(), configure.ModelQuery{Agent: name, Profile: profile, Mode: mode})
 }
 
 func listCatalog(name string, p *providers.Provider, format string) error {
-	res, err := discover(name, p.Name, discovery.Recall)
+	res, err := discover(name, p.Name, configure.RecallModels)
 	if err != nil {
 		return err
 	}
@@ -196,7 +196,7 @@ func (o *catalogOpts) check(p *providers.Provider, dialects, ids []string) int {
 	if o.all && len(ids) > 0 {
 		return helptext.FailUsage("%s catalog check: --all and explicit ids are exclusive", o.name)
 	}
-	res, err := discover(o.name, p.Name, discovery.Recall)
+	res, err := discover(o.name, p.Name, configure.RecallModels)
 	if err != nil {
 		return o.done(err)
 	}
@@ -245,10 +245,10 @@ func writeOpencodeMenu(w io.Writer, next []providers.OpencodeModel, msg string) 
 }
 
 func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
-	var res discovery.Result
+	var res configure.ModelResult
 	if live {
 		var err error
-		if res, err = discover("opencode", provider, discovery.Recall); err != nil {
+		if res, err = discover("opencode", provider, configure.RecallModels); err != nil {
 			return err
 		}
 	}
@@ -276,7 +276,7 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {
 	id, next, err := catalog.MenuAddServed(arg, responses, responsesSet, force,
 		func() (*providers.Provider, []providers.ModelInfo, error) {
-			res, err := discover("opencode", provider, discovery.Recall)
+			res, err := discover("opencode", provider, configure.RecallModels)
 			return res.Provider, res.Raw, err
 		})
 	if err != nil {
@@ -309,7 +309,7 @@ func importOpencodeMenu(w io.Writer, file string, apply bool) error {
 }
 
 func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	res, err := discover("opencode", provider, discovery.Recall)
+	res, err := discover("opencode", provider, configure.RecallModels)
 	if err != nil {
 		return err
 	}

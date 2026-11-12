@@ -201,7 +201,7 @@ var writers = map[string]string{
 	"internal/agentconfig/vendorfile.go:backupAndWrite":      unversioned("foreign: vendor config plus its backup"),
 	"internal/agentconfig/vendorfile.go:RevertOne":           unversioned("foreign: vendor config revert"),
 	"internal/agentconfig/vendorfile.go:writeBaseline":       "vendor-baseline",
-	"internal/history/history.go:stageFile":                  unversioned("text: session history snapshot of a transcript"),
+	"internal/configure/history.go:stageFile":                unversioned("text: session history snapshot of a transcript"),
 	"internal/hosttest/capture.go:ClosedStdout":              unversioned("test helper: an empty temp file standing in for a closed stdout"),
 	"internal/hosttest/git.go:WriteRel":                      unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:contextCheckpoint": unversioned("marker: context-checkpoint flag file"),

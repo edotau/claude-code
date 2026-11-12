@@ -1,4 +1,4 @@
-package history
+package configure
 
 import (
 	"bytes"
@@ -32,7 +32,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	vaulttest.Put(t, vault.Pins, "HARNESS_OPUS_MODEL", "a")
 	files := vaultConfigFiles(t)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	first, err := s.Snapshot(files, "first")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestSnapshotVaultConfigAndPinDiff(t *testing.T) {
 }
 
 // assertPinDiff fails unless the latest config diff shows the opus pin moving from a to b.
-func assertPinDiff(t *testing.T, s *Store) {
+func assertPinDiff(t *testing.T, s *HistoryStore) {
 	t.Helper()
 	diff, err := s.Diff("")
 	if err != nil {
@@ -83,7 +83,7 @@ func vaultConfigFiles(t *testing.T) []HistoryFile {
 }
 
 // assertSnapshotMatchesVault fails when a stored snapshot differs from the vault's own rendering.
-func assertSnapshotMatchesVault(t *testing.T, s *Store, overlay string) {
+func assertSnapshotMatchesVault(t *testing.T, s *HistoryStore, overlay string) {
 	t.Helper()
 	pins, err := providers.RenderPins()
 	if err != nil {
@@ -106,7 +106,7 @@ func TestSnapshotReadNotExistIsAbsent(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "provider.env")
 			write(t, path, "HARNESS_OPUS_MODEL=a\n")
-			s := &Store{Dir: filepath.Join(root, "history")}
+			s := &HistoryStore{Dir: filepath.Join(root, "history")}
 			files := []HistoryFile{{Label: "provider.env", Path: path}}
 			if _, err := s.Snapshot(files, "first"); err != nil {
 				t.Fatal(err)
@@ -135,7 +135,7 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 	root := t.TempDir()
 	cfg := filepath.Join(root, "settings.json")
 	write(t, cfg, `{"env":{}}`)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{
 		{Label: "settings.json", Path: cfg},
 		{Label: "missing.json", Path: filepath.Join(root, "missing.json")},
@@ -163,7 +163,7 @@ func TestSnapshotCreatesRepoAndCommitsWatchedFiles(t *testing.T) {
 }
 
 // assertShadowRepoHolds fails unless the shadow repo exists and the plane's store holds label.
-func assertShadowRepoHolds(t *testing.T, s *Store, label string) {
+func assertShadowRepoHolds(t *testing.T, s *HistoryStore, label string) {
 	t.Helper()
 	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
 		t.Errorf("shadow repo not created: %v", err)
@@ -180,7 +180,7 @@ func TestSnapshotSkipsCredentialShapedValueWithReason(t *testing.T) {
 	leaky := filepath.Join(root, "leaky.json")
 	// Assembled at runtime so no real-looking token literal sits in the tree (push protection scans the diff).
 	write(t, leaky, `{"token":"`+"dapi"+strings.Repeat("0123456789abcdef", 2)+`"}`)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "leaky.json", Path: leaky}}
 
 	res, err := s.Snapshot(files, "mixed")
@@ -206,7 +206,7 @@ func TestLogListsCommits(t *testing.T) {
 	root := t.TempDir()
 	cfg := filepath.Join(root, "settings.json")
 	write(t, cfg, `{"a":1}`)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "settings.json", Path: cfg}}
 
 	if _, err := s.Snapshot(files, "one"); err != nil {
@@ -246,7 +246,7 @@ func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 	root := t.TempDir()
 	cfg := filepath.Join(root, "settings.json")
 	write(t, cfg, `{"a":1}`)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	if _, err := s.Snapshot([]HistoryFile{{Label: "settings.json", Path: cfg}}, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestSnapshotIgnoresInheritedGitEnv(t *testing.T) {
 // A repo with no commits (every watched file absent) must read as empty history, not a git error.
 func TestLogAndDiffOnUnbornBranch(t *testing.T) {
 	root := t.TempDir()
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "provider.env", Path: filepath.Join(root, "absent.env")}}
 	if _, err := s.Snapshot(files, "first"); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestLogAndDiffSurfaceRepositoryErrors(t *testing.T) {
 		"missing object": missingObject,
 	} {
 		t.Run(name, func(t *testing.T) {
-			s := &Store{Dir: dir}
+			s := &HistoryStore{Dir: dir}
 			if lines, err := s.Log(20); err == nil || len(lines) != 0 {
 				t.Errorf("Log = %v, %v; want no lines and a repository error", lines, err)
 			}
@@ -302,7 +302,7 @@ func TestSnapshotDropsStaleCopyWhenFileTurnsCredentialShaped(t *testing.T) {
 	root := t.TempDir()
 	live := filepath.Join(root, "live.json")
 	write(t, live, `{"model":"opus"}`)
-	s := &Store{Dir: filepath.Join(root, "history")}
+	s := &HistoryStore{Dir: filepath.Join(root, "history")}
 	files := []HistoryFile{{Label: "live.json", Path: live}}
 	if _, err := s.Snapshot(files, "clean"); err != nil {
 		t.Fatal(err)
@@ -331,7 +331,7 @@ func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
 		root := t.TempDir()
 		leaky := filepath.Join(root, "leaky.json")
 		write(t, leaky, `{"k":"`+v+`"}`)
-		s := &Store{Dir: filepath.Join(root, "history")}
+		s := &HistoryStore{Dir: filepath.Join(root, "history")}
 		res, err := s.Snapshot([]HistoryFile{{Label: "leaky.json", Path: leaky}}, "x")
 		if err != nil {
 			t.Fatal(err)
@@ -340,10 +340,4 @@ func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
 			t.Errorf("%s: not held back (Skipped = %d entries)", name, len(res.Skipped))
 		}
 	}
-}
-
-func TestMain(m *testing.M) {
-	code := hosttest.Main(m)
-	hosttest.Cleanup()
-	os.Exit(code)
 }

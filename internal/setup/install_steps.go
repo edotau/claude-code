@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/history"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -127,7 +127,7 @@ func snapshotPreInstall(w io.Writer, dryRun, quiet bool) string {
 	if dryRun {
 		return ""
 	}
-	r, err := history.SnapshotConfig("pre-install")
+	r, err := configure.SnapshotConfig("pre-install")
 	if err != nil {
 		fmt.Fprintf(w, "warning  history snapshot failed: %v · continuing; the binary has no rollback point\n", err)
 		return ""

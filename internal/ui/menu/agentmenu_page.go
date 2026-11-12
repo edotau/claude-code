@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/discovery"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
@@ -295,8 +294,8 @@ func codexModels(d *dialog, profile string) bool {
 		d.printf("codex: no profile pinned; set one on the Profile row\n")
 		return false
 	}
-	res, err := discovery.Models(context.Background(),
-		discovery.Query{Agent: agentid.OpenCode, Profile: profile, Mode: discovery.Verified})
+	res, err := configure.DiscoverModels(context.Background(),
+		configure.ModelQuery{Agent: agentid.OpenCode, Profile: profile, Mode: configure.VerifiedModels})
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false

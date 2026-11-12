@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/history"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -53,7 +53,7 @@ func historySnapshot(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	cfg, err := history.SnapshotConfig(*note)
+	cfg, err := configure.SnapshotConfig(*note)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history: config:", err)
 		return 1
@@ -63,7 +63,7 @@ func historySnapshot(args []string) int {
 }
 
 // printSnapshot reports the config plane's outcome; the HELD BACK line (a credential-shaped file) is the one to act on.
-func printSnapshot(r history.Result) {
+func printSnapshot(r configure.SnapshotResult) {
 	switch {
 	case r.Commit != "":
 		fmt.Printf("%-7s %s  %s\n", "config:", r.Commit, strings.Join(r.Changed, ", "))
@@ -92,14 +92,14 @@ func historyLog(args []string) int {
 	if *n < 0 {
 		return helptext.FailUsage("history log: -n must be >= 0, got %d", *n)
 	}
-	store := &history.Store{Dir: history.Dir()}
+	store := &configure.HistoryStore{Dir: configure.HistoryDir()}
 	lines, err := store.Log(*n)
 	if err != nil { // a failed read is not an empty history: say so, print nothing as if it were
 		fmt.Fprintf(os.Stderr, "history: config: %v\n", err)
 		return 1
 	}
 	if *format == helptext.JSON {
-		return helptext.WriteJSONOrFail("history log", map[string][]history.LogEntry{"config": history.ParseLog(lines)})
+		return helptext.WriteJSONOrFail("history log", map[string][]configure.HistoryEntry{"config": configure.ParseHistoryLog(lines)})
 	}
 	printLog(lines)
 	return 0
@@ -107,7 +107,7 @@ func historyLog(args []string) int {
 
 // printLog prints the config plane's header and lines; an empty history says so rather than printing nothing.
 func printLog(lines []string) {
-	fmt.Printf("config: %s\n", history.Dir())
+	fmt.Printf("config: %s\n", configure.HistoryDir())
 	if len(lines) == 0 {
 		fmt.Println("  (no history yet)")
 		return
@@ -128,7 +128,7 @@ func historyDiff(args []string) int {
 	if fs.NArg() > 0 {
 		rev = fs.Arg(0)
 	}
-	store := &history.Store{Dir: history.Dir()}
+	store := &configure.HistoryStore{Dir: configure.HistoryDir()}
 	out, err := store.Diff(rev)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)

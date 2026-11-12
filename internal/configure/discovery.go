@@ -1,5 +1,4 @@
-// Package discovery is the one entry point that lists the models an agent can use on a profile.
-package discovery
+package configure
 
 import (
 	"context"
@@ -14,41 +13,43 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// Mode is how fresh a read must be; Models turns it into each agent's own parameters.
-type Mode int
+// discovery.go is the one entry point that lists the models an agent can use on a profile.
+
+// ModelMode is how fresh a read must be; Models turns it into each agent's own parameters.
+type ModelMode int
 
 const (
-	Recall   Mode = iota // sealed snapshot, no identity call; a live listing only when none is remembered
-	Verified             // identity validated, then the snapshot or a live listing; nothing is written
-	Refresh              // identity validated, always a live listing, never a stale snapshot
+	RecallModels   ModelMode = iota // sealed snapshot, no identity call; a live listing only when none is remembered
+	VerifiedModels                  // identity validated, then the snapshot or a live listing; nothing is written
+	RefreshModels                   // identity validated, always a live listing, never a stale snapshot
 )
 
-// Query names whose models to list; every other parameter is set per agent inside Models.
-type Query struct {
+// ModelQuery names whose models to list; every other parameter is set per agent inside Models.
+type ModelQuery struct {
 	Agent   string // a roster name
 	Profile string // "" = the agent's pin, else the session profile
-	Mode    Mode
+	Mode    ModelMode
 }
 
-// Model is one usable model.
-type Model struct {
+// DiscoveredModel is one usable model.
+type DiscoveredModel struct {
 	ID string `json:"id"`
 }
 
-// Result is one discovery read; Provider, Raw and Snapshot serve callers that probe or seal.
-type Result struct {
-	Agent   string  `json:"agent"`
-	Profile string  `json:"profile,omitempty"`
-	Models  []Model `json:"models"`
+// ModelResult is one discovery read; Provider, Raw and Snapshot serve callers that probe or seal.
+type ModelResult struct {
+	Agent   string            `json:"agent"`
+	Profile string            `json:"profile,omitempty"`
+	Models  []DiscoveredModel `json:"models"`
 
 	Provider *providers.Provider   `json:"-"` // the resolved profile
 	Raw      []providers.ModelInfo `json:"-"` // every row the source listed, before the agent filter
 	Snapshot *serving.Snapshot     `json:"-"` // Verified and Refresh only: the snapshot a caller may seal
 }
 
-// Models lists q.Agent's models on q.Profile: one query and one result shape for every agent.
-func Models(ctx context.Context, q Query) (Result, error) {
-	res := Result{Agent: q.Agent}
+// DiscoverModels lists q.Agent's models on q.Profile: one query and one result shape for every agent.
+func DiscoverModels(ctx context.Context, q ModelQuery) (ModelResult, error) {
+	res := ModelResult{Agent: q.Agent}
 	if !slices.Contains([]string{agentid.Codex, agentid.Copilot, agentid.OpenCode}, q.Agent) {
 		return res, fmt.Errorf("discovery: unknown agent %q", q.Agent)
 	}
@@ -64,18 +65,18 @@ func Models(ctx context.Context, q Query) (Result, error) {
 }
 
 // profileErr keeps opencode sync's one-line resolve failure; every other read returns the cause.
-func profileErr(q Query, err error) error {
-	if q.Agent == agentid.OpenCode && q.Mode != Recall && !errors.Is(err, catalog.ErrGateway) {
+func profileErr(q ModelQuery, err error) error {
+	if q.Agent == agentid.OpenCode && q.Mode != RecallModels && !errors.Is(err, catalog.ErrGateway) {
 		return errors.New("cannot resolve profile; check the provider configuration")
 	}
 	return err
 }
 
 // serve is the shared serving read: Recall is catalog.Served, Verified and Refresh are serving.Discover.
-func serve(ctx context.Context, res Result, mode Mode, dialects []string) (Result, error) {
+func serve(ctx context.Context, res ModelResult, mode ModelMode, dialects []string) (ModelResult, error) {
 	p := res.Provider
-	if mode != Recall {
-		snap, err := serving.Discover(ctx, p, mode == Refresh)
+	if mode != RecallModels {
+		snap, err := serving.Discover(ctx, p, mode == RefreshModels)
 		if err != nil {
 			return res, err
 		}
@@ -93,10 +94,10 @@ func serve(ctx context.Context, res Result, mode Mode, dialects []string) (Resul
 }
 
 // shape keeps the ids of infos.
-func shape(infos []providers.ModelInfo) []Model {
-	var out []Model
+func shape(infos []providers.ModelInfo) []DiscoveredModel {
+	var out []DiscoveredModel
 	for _, m := range infos {
-		out = append(out, Model{ID: m.ID})
+		out = append(out, DiscoveredModel{ID: m.ID})
 	}
 	return out
 }
