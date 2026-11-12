@@ -3,6 +3,7 @@
 package copilot
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -392,10 +393,11 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 
 // assistantCollector accumulates assistant text, model and usage; events arrive on the SDK goroutine, hence the mutex.
 type assistantCollector struct {
-	mu    sync.Mutex
-	text  strings.Builder
-	model string
-	usage wire.Usage
+	mu      sync.Mutex
+	text    strings.Builder
+	summary string // the task_complete summary: some models answer only there, with empty message content
+	model   string
+	usage   wire.Usage
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
@@ -414,6 +416,10 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 		}
 	case *copilot.AssistantUsageData:
 		c.addUsage(d)
+	case *copilot.SessionTaskCompleteData:
+		if d.Summary != nil {
+			c.summary = *d.Summary
+		}
 	}
 }
 
@@ -434,11 +440,11 @@ func tokenCount(p *int64) int {
 	return int(*p)
 }
 
-// snapshot returns the trimmed text, last model and summed usage seen so far.
+// snapshot returns the text (else the task_complete summary), last model and summed usage seen so far.
 func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return strings.TrimSpace(c.text.String()), c.model, c.usage
+	return cmp.Or(strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)), c.model, c.usage
 }
 
 // sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
