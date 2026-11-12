@@ -175,11 +175,24 @@ func safetyAskVerdict(in *core.Input, scan string) (core.Decision, string, strin
 			}
 		}
 	}
-	if branch := bareForcePush(cmd, in.CWD); branch != "" {
-		return core.Ask, warn + core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
+	if d, msg, detail = pushOrScriptVerdict(in, cmd); d != core.Allow {
+		return d, warn + msg, detail
 	}
 	d, msg, detail = askPatternVerdict(in, cmd, scan)
 	return d, warn + msg, detail
+}
+
+// pushOrScriptVerdict asks on a force-push with no refspec and on an interpreter that may write a protected file.
+func pushOrScriptVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+	if branch := bareForcePush(cmd, in.CWD); branch != "" {
+		return core.Ask, core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
+	}
+	if p := interpreterWrite(cmd); p != "" {
+		hint := "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
+		what := "an interpreter script that may write a file Edit/Write may never touch"
+		return core.Ask, core.SafetyMessage(in, core.Ask, what, p, hint), "interpreter protected write"
+	}
+	return core.Allow, "", ""
 }
 
 // askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
