@@ -160,7 +160,7 @@ func confirmKeep(d *dialog, question string) bool {
 		d.println("input ended: kept the old key")
 		return true
 	}
-	return !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ans)), "n")
+	return tui.ParseYesNo(ans, true)
 }
 
 // readAnswer reads one line after prompt from the same reader the menu's prompts use; ok is false when the

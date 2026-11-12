@@ -30,12 +30,13 @@ func Confirm(question string, def bool) bool {
 	if err != nil && strings.TrimSpace(line) == "" {
 		return false // EOF or a dead stdin is a decline
 	}
-	line = strings.ToLower(strings.TrimSpace(line))
-	switch {
-	case strings.HasPrefix(line, "y"):
-		return true
-	case strings.HasPrefix(line, "n"):
-		return false
+	return ParseYesNo(line, def)
+}
+
+// ParseYesNo reads a y/n answer: a leading y/Y is true, a leading n/N is false, anything else (blank too) is def.
+func ParseYesNo(line string, def bool) bool {
+	if l := strings.ToLower(strings.TrimSpace(line)); l != "" && (l[0] == 'y' || l[0] == 'n') {
+		return l[0] == 'y'
 	}
 	return def
 }

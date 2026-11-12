@@ -31,7 +31,7 @@ var anthropicPage = helptext.Page{
 	Usage: "claude-code anthropic [--oauth[=NAME]] [--x-api-key[=NAME]] [--model M]\n" +
 		"[--profile P] [--print-env] [--keep-env NAMES] [--overlay FILE] [args]\n" +
 		"claude-code anthropic science [--print-env] [--port N] [args]",
-	About: "Claude Code on first-party Anthropic. No flag uses your claude.ai login. A bare flag takes no " +
+	About: "Claude Code on Anthropic directly. No flag uses your claude.ai login. A bare flag takes no " +
 		"value; =NAME picks the vault key. --profile runs on that registry profile instead.",
 	Commands: [][2]string{{"science", "Claude for Life Sciences, own login; --print-env, --port N"}},
 	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
@@ -52,7 +52,7 @@ func anthropicHelp(w io.Writer) {
 	p.Fprint(w)
 }
 
-// cmdAnthropic is `claude-code anthropic`: first-party Claude Code with a login, OAuth token or API key.
+// cmdAnthropic is `claude-code anthropic`: Claude Code on Anthropic with a login, OAuth token or API key.
 func cmdAnthropic(args []string) int {
 	if len(args) > 0 && args[0] == "science" {
 		return claude.LaunchScience(args[1:])

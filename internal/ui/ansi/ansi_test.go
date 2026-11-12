@@ -68,17 +68,12 @@ func TestToANSI256(t *testing.T) {
 		{RGB{0, 0, 0}, 16},        // black → cube origin
 		{RGB{255, 255, 255}, 231}, // white → cube max
 		{RGB{128, 128, 128}, 244}, // mid gray → grayscale ramp
+		{RGB{238, 238, 238}, 255}, // exact light gray → grayscale index, not the cube
 	}
 	for _, c := range cases {
 		if got := toANSI256(c.in); got != c.want {
 			t.Errorf("toANSI256(%v) = %d, want %d", c.in, got, c.want)
 		}
-	}
-}
-
-func TestToANSI256ExactLightGray(t *testing.T) {
-	if got := toANSI256(RGB{238, 238, 238}); got != 255 {
-		t.Fatalf("toANSI256({238 238 238}) = %d, want exact grayscale index 255", got)
 	}
 }
 

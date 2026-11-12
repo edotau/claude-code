@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// The anthropic picker row stands for both first-party billing modes: the subscription OAuth login
+// The anthropic picker row stands for both anthropic billing modes: the subscription OAuth login
 // (passthrough provider) and a pay-per-token API key (the anthropic provider).
 const (
 	anthropicRow      = "anthropic"
@@ -17,16 +17,16 @@ const (
 	anthropicKeyEnv   = "ANTHROPIC_API_KEY"
 )
 
-// firstParty memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
+// anthropicLogin memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
 // CredentialPresent a keyring call — so the row detail and the billing picker pay for each at most once.
-type firstParty struct {
+type anthropicLogin struct {
 	reg                *providers.Registry
 	loginDone, keyDone bool
 	keyOK              bool
 	st                 providers.AuthState
 }
 
-func (f *firstParty) login() (loggedIn bool) {
+func (f *anthropicLogin) login() (loggedIn bool) {
 	if !f.loginDone {
 		f.st = agent.AuthStatus("claude")
 		f.loginDone = true
@@ -34,7 +34,7 @@ func (f *firstParty) login() (loggedIn bool) {
 	return f.st.Present
 }
 
-func (f *firstParty) key() bool {
+func (f *anthropicLogin) key() bool {
 	if !f.keyDone {
 		if p := f.reg.ProfileBy(anthropicProvider, providers.AuthKey); p != nil {
 			f.keyOK = providers.CredentialPresent(p)
@@ -44,10 +44,10 @@ func (f *firstParty) key() bool {
 	return f.keyOK
 }
 
-// claudeMenu is the claude agent's submenu: the two first-party billing modes, then Login and OAuth token. Picking a
+// claudeMenu is the claude agent's submenu: the two anthropic billing modes, then Login and OAuth token. Picking a
 // mode pins it as the session provider (after [y/N]); other backends stay reachable via `claude-code switch`.
 func claudeMenu(d *dialog) agentMenu {
-	fp := &firstParty{reg: d.reg}
+	fp := &anthropicLogin{reg: d.reg}
 	cur := configure.CurrentProvider(d.reg)
 	loggedIn := fp.login()
 	keyOK := fp.key()
@@ -85,7 +85,7 @@ func claudeMenu(d *dialog) agentMenu {
 }
 
 // claudeState is the pinned backend's mode and check; a non-anthropic pin shows by name.
-func claudeState(d *dialog, fp *firstParty, cur string, tier providers.Subscription) agentState {
+func claudeState(d *dialog, fp *anthropicLogin, cur string, tier providers.Subscription) agentState {
 	p, err := d.reg.Get(cur)
 	if err != nil {
 		return agentState{mode: billingLabel(d.reg, cur), verified: false}

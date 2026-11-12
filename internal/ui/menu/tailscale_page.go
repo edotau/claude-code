@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -212,7 +213,7 @@ func tsReplaceOK(d *dialog, s *shell, name, next string) bool {
 
 // tsYes asks a [y/N] question on s: only an answer starting with y is yes.
 func tsYes(s *shell, question string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.Line(question+" [y/N] "))), "y")
+	return tui.ParseYesNo(s.Line(question+" [y/N] "), false)
 }
 
 // tsExitNodeMenu picks on, off or (with an admin credential) approve and runs it.
