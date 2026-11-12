@@ -1,21 +1,13 @@
 # Go Tooling and Operations
 
-Modules, code lookup, CI, debugging and runtime signals for Go 1.24+ code (module targets Go 1.27).
-
-Harness rules win: verification order and lint-first live in
-[quality.md](../../../rules/standards/quality.md); stdlib-first and pinned, audited deps in
-[security.md](../../../rules/standards/security.md).
+Modules, code lookup, CI, debugging and runtime signals for Go 1.24+ code.
 
 ## Modules and dependencies
 
-- Ask whether the stdlib covers it before any `go get` of a new module; a dependency is a maintenance and
-  supply-chain liability you sign up for, not a convenience.
-- Commit `go.sum`; `go mod verify` re-hashes the module cache against it and catches a tampered cache.
-- Pin exact versions (`@v1.6.0`). MVS already picks the minimum satisfying version, so builds are reproducible
-  without a lock file; floating upgrades happen only when someone runs `go get -u`.
+- `go mod verify` re-hashes the module cache against `go.sum` and catches a tampered cache.
 - `go get -u ./...` lifts every direct and indirect dep to its latest minor; `-u=patch` stays within the minor.
   Prefer naming one module (`go get example.com/m@v1.7.2`) over a blanket `-u` so the diff stays reviewable.
-- Remove with `go get example.com/m@none`, then `go mod tidy`. Run `tidy` before every commit that touches imports.
+- Remove with `go get example.com/m@none`, then `go mod tidy`.
 - Never raise the `go` line as a side effect; it gates language features and stdlib APIs for every consumer.
   `toolchain go1.27.x` only selects the toolchain for local builds; `GOTOOLCHAIN=local` refuses auto-download.
 
@@ -75,12 +67,12 @@ Grep finds text; gopls finds meaning in the build as resolved by your `go.sum` a
 | Is this vuln reachable from my code | `govulncheck ./...` |
 
 ```bash
-gopls definition internal/agent/run.go:42:7
-gopls references -d internal/agent/run.go:42:7     # -d includes the declaration
-gopls implementation internal/router/router.go:18:6
-gopls call_hierarchy internal/agent/run.go:42:7
-gopls rename -w internal/agent/run.go:42:7 newName  # refuses renames that break interface satisfaction
-gopls check internal/agent/run.go                   # diagnostics for one file
+gopls definition internal/store/store.go:42:7
+gopls references -d internal/store/store.go:42:7     # -d includes the declaration
+gopls implementation internal/store/cache.go:18:6
+gopls call_hierarchy internal/store/store.go:42:7
+gopls rename -w internal/store/store.go:42:7 newName  # refuses renames that break interface satisfaction
+gopls check internal/store/store.go                   # diagnostics for one file
 ```
 
 - `gopls mcp` (v0.20+) exposes name- and path-based tools for agents; the CLI is debugging-grade and slow.
@@ -89,13 +81,12 @@ gopls check internal/agent/run.go                   # diagnostics for one file
 - Call hierarchy is static only; calls through func values and interface methods need `references` too.
 - pkg.go.dev URLs: `pkg.go.dev/<mod>?tab=versions`, `?tab=importedby`, `?tab=licenses`. The proxy speaks plain
   HTTP (`proxy.golang.org/<mod>/@v/list`), with uppercase path letters escaped as `!` + lowercase.
-- Before using an API, check the release notes (`go.dev/doc/go1.N`) against the module's `go` line; Go 1.26+
-  `go fix ./...` applies the modernize analyzers to upgrade idioms in place.
+- Before using an API, check the release notes (`go.dev/doc/go1.N`) against the module's `go` line; idiom upgrades:
+  [style.md](style.md) → Modernize.
 
 ## CI essentials
 
-Run cheap and deterministic gates first so a syntax or vet failure fails fast (order:
-[quality.md](../../../rules/standards/quality.md) -> Verification Order).
+Run cheap and deterministic gates first so a syntax or vet failure fails fast.
 
 | Step | Command | Why |
 | --- | --- | --- |
@@ -117,9 +108,6 @@ Run cheap and deterministic gates first so a syntax or vet failure fails fast (o
 
 ## Troubleshooting
 
-Read the whole error, reproduce it as a failing test or command, change one thing at a time. Escalate tools only
-when the simpler one runs out.
-
 | Symptom | First move |
 | --- | --- |
 | Build fails oddly or depends on env | `go env` (GOFLAGS, GOOS, CGO_ENABLED, GOWORK), then `go build -x -v` |
@@ -132,7 +120,7 @@ when the simpler one runs out.
 
 ```bash
 go build -x -work ./cmd/app 2>&1 | less        # every compile/link command; keeps the temp dir
-dlv test ./internal/agent -- -test.run '^TestRun$'
+dlv test ./internal/store -- -test.run '^TestGet$'
 dlv debug ./cmd/app -- --flag value            # builds with -gcflags=all='-N -l' for you
 dlv attach "$(pgrep app)"                       # live process; pauses it, never on production
 ```
@@ -158,9 +146,8 @@ Common compile and link errors:
 - JSON to stderr in production, text locally; level from a `slog.LevelVar` so it can change at runtime.
 - Constant message, variable data in attributes: `log.Info("job done", "id", id, "took", d)`. Searchable keys
   beat interpolated strings.
-- `*Context` variants (`InfoContext`) let a handler pull trace and request IDs from the context.
 - Hot paths: `LogAttrs` with typed `slog.Int`/`slog.String` avoids `any` boxing; `Enabled` guards costly attrs.
-- Redact at the type: implement `LogValue() slog.Value` on secret-bearing types so no call site can leak them.
+- Redact at the type (`LogValue()`): [security.md](security.md) → Secrets in process.
 - Log an error or return it, not both; the top of the call chain logs once.
 - Fan-out to two sinks: `slog.NewMultiHandler` (Go 1.26+) before a third-party handler; `slog.DiscardHandler`
   for tests and silenced components.
@@ -173,8 +160,7 @@ slog.SetDefault(log.With("svc", "gateway", "version", buildVersion))
 
 ### OpenTelemetry tracing
 
-It is a sizable dependency tree; adopt it only when traces leave the process (a collector exists), and justify it
-under [security.md](../../../rules/standards/security.md). Minimal wiring:
+It is a sizable dependency tree; adopt it only when traces leave the process (a collector exists). Minimal wiring:
 
 ```go
 exp, err := otlptracehttp.New(ctx) // endpoint from OTEL_EXPORTER_OTLP_ENDPOINT
@@ -218,6 +204,3 @@ go func() { errc <- http.ListenAndServe("127.0.0.1:6060", admin) }()
   system; prefer it over parsing `MemStats`.
 - `trace.NewFlightRecorder` (Go 1.25+) keeps the last seconds of execution trace in memory for a post-incident
   dump without paying for always-on tracing.
-
-Adapted from samber/cc-skills-golang (MIT): golang-dependency-management, golang-gopls, golang-pkg-go-dev,
-golang-continuous-integration, golang-troubleshooting, golang-observability, golang-stay-updated, golang-how-to.

@@ -5,9 +5,8 @@ description: Go reference for writing, reviewing and debugging Go code - concurr
 
 # Go
 
-Load only the reference for the task at hand; each is self-contained. The harness rules in
-[rules/software/go/](../../rules/software/go/) and [rules/standards/](../../rules/standards/) win where a reference
-disagrees.
+Load only the reference for the task at hand; each is self-contained and general Go. A project's own rules win
+where a reference disagrees.
 
 | Task | Reference |
 | --- | --- |
@@ -26,5 +25,6 @@ disagrees.
 
 1. Read the reference for the task (two at most); skip the rest.
 2. Check `go.mod`'s `go` line before using a version-gated API the reference names.
-3. Verify with `go build ./... && go vet ./...`, then the touched package's tests (`rules/standards/quality.md` →
-   Verification Order).
+3. Verify with `go build ./... && go vet ./...`, then the touched package's tests.
+
+Sources and license: [attribution.md](attribution.md).

@@ -1,16 +1,12 @@
 # Go Error Handling
 
-Creating, wrapping, inspecting, logging and surfacing errors in Go 1.22+ code (module targets Go 1.27).
+Creating, wrapping, inspecting, logging and surfacing errors in Go 1.22+ code.
 
 ## Core rules
 
-- Return `error` as the last result and check it on the next line — a later check hides which call failed.
-- Read the other results only after the check: `v, err := f(); use(v)` before `if err != nil` uses garbage.
-- Never discard an error with `_` without a comment saying why it can't matter — silent drops are the worst to find.
+- Never discard an error with `_` without a comment saying why it can't matter.
 - Handle an error exactly once: log it **or** return it, never both — double handling floods logs with one failure.
-- On error, return zero values for the other results; callers must not read them — partial results invite misuse.
-- Exception: `io.Reader.Read` and similar may return `n > 0` with an error; process the bytes before the error.
-- Fail fast with early returns; keep the happy path at the left margin (nesting ≤ 4).
+- `io.Reader.Read` and similar may return `n > 0` with an error; process the bytes before the error.
 - Never return a typed nil pointer as `error` — the interface is non-nil and `err != nil` is true.
 
 ```go
@@ -22,13 +18,11 @@ func find() error {
 
 ## Message style
 
-- Lowercase, no trailing punctuation, no newlines — messages get concatenated by wrapping (`open config: read: EOF`).
 - Describe the operation, not the failure: `"load config: %w"`, not `"failed to load config: %w"` — every layer
   saying "failed to" adds noise and no information.
-- No package or type prefix (`"UserService: ..."`) — the wrap chain already says where; prefixes duplicate it.
+- No package or type prefix (`"UserService: ..."`) — the wrap chain already says where.
 - State what happened, not what to do about it: remediation hints belong to the layer that talks to the user.
-- Add context the caller doesn't already have (the path, the ID, the key); don't repeat the function's own arguments
-  that the caller passed in and already knows.
+- Add context the caller doesn't already have (the path, the ID, the key); don't repeat arguments the caller passed.
 - Keep messages low-cardinality when they feed metrics or grouping: put variable data in structured log attributes or
   error fields, not only in the string. A static wrap prefix (`"fetch user: %w"`) is already low-cardinality.
 - Variable data known only deep in the stack is lost by the time the top logs it: carry it as fields on a custom
@@ -45,14 +39,13 @@ func find() error {
 | Add context to an underlying error | `fmt.Errorf("op %s: %w", id, err)` | `Is`/`As` see through it |
 | Several independent failures | `errors.Join(errs...)` | `Is`/`As` match any member |
 
-- Sentinels are exported `Err*` package vars; custom types are `*Error`-suffixed. Both become public API — export
-  only what callers genuinely branch on.
+- Sentinels (`Err*`) and custom types (`*Error`) become public API — export only what callers genuinely branch on.
 - Give a custom type a pointer receiver for `Error()` and return it as a pointer, so `As` targets are consistent.
 - Implement `Unwrap() error` on a custom type that carries a cause, or `Is`/`As` stop at it.
 - Implement `Is(target error) bool` only when equality is semantic (e.g. matching by code), not to fake a hierarchy.
 - Prefer behaviour checks over type checks across package boundaries: an interface like
   `interface{ Temporary() bool }` asserted with `errors.As` couples less than a concrete type.
-- Sentinels are allocated once at package init; returning one costs nothing, so hot paths prefer them to `fmt.Errorf`.
+- Hot paths: sentinels over `fmt.Errorf` ([performance.md](performance.md)).
 
 ```go
 type NotFoundError struct{ Kind, ID string }
@@ -63,7 +56,6 @@ func (e *NotFoundError) Is(t error) bool { return t == ErrNotFound } // also mat
 
 ## Wrapping
 
-- `%w` wraps (callers can inspect the cause); `%v` formats only (cause is opaque). Choose deliberately.
 - Wrap with `%w` inside your module; at a package or API boundary, use `%v` (or translate) when exposing the cause
   would freeze an implementation detail into your contract — e.g. a `*pq.Error` leaking through a repository.
 - Multiple `%w` verbs in one `fmt.Errorf` (Go 1.20+) produce an error whose `Unwrap() []error` exposes all of them:
@@ -77,7 +69,7 @@ func (e *NotFoundError) Is(t error) bool { return t == ErrNotFound } // also mat
 ## Inspecting
 
 - Never compare with `==`, type-assert (`err.(*T)`) or match on `err.Error()` text — all break once anything wraps it.
-- `errors.Is(err, ErrX)` walks the whole chain (including `Join` and multi-`%w` trees).
+  `errors.Is` walks the whole chain, including `Join` and multi-`%w` trees.
 - Go 1.26+: `errors.AsType[T](err) (T, bool)` replaces the pointer-target dance and can't panic on a bad target.
 
 ```go
@@ -89,7 +81,6 @@ if nf, ok := errors.AsType[*NotFoundError](err); ok {
 
 - `AsType`'s `T` must implement `error`; a behaviour interface like `interface{ Temporary() bool }` still needs
   `errors.As` with a pointer to an interface variable.
-
 - `errors.Unwrap` returns nil for multi-errors (it only calls `Unwrap() error`); use `Is`/`As`, not manual unwrapping.
 - Check `context.Canceled` / `context.DeadlineExceeded` with `errors.Is`, and usually stop quietly — the caller
   already knows it gave up. `context.Cause(ctx)` gives the reason passed to `WithCancelCause`.
@@ -98,22 +89,8 @@ if nf, ok := errors.AsType[*NotFoundError](err); ok {
 
 - `errors.Join` drops nil arguments and returns nil when all are nil — safe to accumulate unconditionally.
 - Its text is members joined by newlines; wrap the join with a one-line prefix if it lands in a single-line log.
-- Use it for validation (report every bad field), cleanup that must keep going, and fan-out results.
 - In concurrent code, collect per-goroutine errors into a slice indexed by worker (no shared mutable error), then
   join; use `errgroup` when the first error should cancel the rest.
-
-```go
-func (c Config) Validate() error {
-    var errs []error
-    if c.Name == "" {
-        errs = append(errs, errors.New("name: required"))
-    }
-    if c.Port <= 0 {
-        errs = append(errs, fmt.Errorf("port %d: must be positive", c.Port))
-    }
-    return errors.Join(errs...)
-}
-```
 
 ## Deferred cleanup
 
@@ -155,34 +132,16 @@ func write(path string, b []byte) (err error) {
 
 - Log at the top of the call stack (handler, `main`, worker loop) where the error stops propagating — lower layers
   wrap and return.
-- Log with structured attributes: `slog.Error("sync failed", "err", err, "repo", id)` — the `err` attribute keeps
-  the full chain; variable data stays in fields for grouping. Use `slog`, not `fmt.Println` or `log.Printf`.
-- The log message is a constant, never `err.Error()` — a dynamic message makes every failure its own group.
+- `slog.Error("sync failed", "err", err, "repo", id)`: the message is a constant, never `err.Error()` — a dynamic
+  message makes every failure its own group; variable data stays in attributes.
 - Give a field-carrying error type a `LogValue() slog.Value` (`slog.LogValuer`) so its fields log as attributes
   wherever it surfaces; request-scoped data (trace ID, user) comes from `ctx` at the log site, not from every wrap.
 - Logging an attempt you then retry is handling it; return only the final failure, wrapped with the attempt count.
 - Choose level by who must act: client errors (bad input, not found) at Info/Warn or not at all; server faults at Error.
-- At an HTTP/RPC boundary, map domain errors to status codes in one place, and send the client a safe message —
-  never the raw wrapped chain, which leaks internals. A type that needs a user-facing message carries it in its own
-  field, extracted with `AsType` at the boundary, with a generic fallback for everything else.
-
-```go
-func status(err error) int {
-    switch {
-    case errors.Is(err, ErrNotFound):
-        return http.StatusNotFound
-    case errors.Is(err, ErrConflict):
-        return http.StatusConflict
-    case errors.Is(err, context.DeadlineExceeded):
-        return http.StatusGatewayTimeout
-    default:
-        return http.StatusInternalServerError
-    }
-}
-```
-
-- CLI: print one line to stderr and exit non-zero from `main`; user-facing wording rules are in
-  [cli-text.md](../../../rules/software/go/cli-text.md).
+- At an HTTP/RPC boundary, map domain errors to status codes in one place (an `errors.Is` switch), and send the
+  client a safe message — never the raw wrapped chain, which leaks internals. A type that needs a user-facing message
+  carries it in its own field, extracted with `AsType` at the boundary, with a generic fallback for everything else.
+- CLI: print one line to stderr and exit non-zero from `main`; exit-code mapping is in [cli.md](cli.md).
 
 ## Gotchas
 
@@ -200,14 +159,11 @@ func status(err error) int {
 
 - [ ] No ignored errors without a justifying comment; no log-and-return.
 - [ ] Every wrap adds context and uses `%w` unless deliberately opaque at a boundary.
-- [ ] No `==`, type assertion or string matching on errors; `Is`/`AsType` throughout.
-- [ ] Log messages are constants; variable data in attributes; logged via `slog`.
+- [ ] No `==`, type assertion or string matching on errors.
+- [ ] Log messages are constants; variable data in attributes.
 - [ ] Written files capture `Close` errors; deferred cleanup doesn't clobber `err`.
 - [ ] No panics for expected failures; spawned goroutines that must survive recover.
 - [ ] No secrets or PII in messages; boundary responses don't leak the chain.
 
 Testing error paths (assert with `errors.Is`/`AsType`, not message text; error paths first): see
-[testing.md](../../../rules/software/go/testing.md) and
-[testing-guidelines.md](../../../rules/standards/testing-guidelines.md).
-
-Adapted from samber/cc-skills-golang (MIT): golang-error-handling.
+[testing.md](testing.md).

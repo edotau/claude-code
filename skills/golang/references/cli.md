@@ -1,30 +1,15 @@
 # Go CLIs
 
-Building command-line tools in Go: stdlib `flag` first, cobra when the command tree earns it, viper rarely.
-
-## House rules (this harness)
-
-- Layout and ownership: the `cmd/claude-code/`, `internal/` row in [CLAUDE.md](../../../CLAUDE.md) — stdlib-first;
-  `internal/cli/<verb>.go` holds flags and output only, the verb's logic lives in its area's package.
-- Help text, row width and the `helptext.Page` contract: [cli-text.md](../../../rules/software/go/cli-text.md).
-- Test file placement and seams: [testing.md](../../../rules/software/go/testing.md). This file never overrides them.
+Stdlib `flag` first, cobra when the command tree earns it, viper rarely.
 
 ## Shape: a testable `run`
 
-- `main` is three lines: build the context, call `run`, `os.Exit` its code. Nothing else calls `os.Exit` — it skips
-  every deferred close, flush and temp-file cleanup.
-- `run` takes everything the process would otherwise grab globally: args, streams, and (when used) env and stdin.
-  A test then drives the real entry point with buffers instead of forking the binary.
-- Return an `int`, not an `error`, at the top: the exit code is part of the contract, and only this layer knows it.
+- `main` builds the signal context, calls `run`, `os.Exit`s its code. Nothing else calls `os.Exit` — it skips every
+  deferred close, flush and temp-file cleanup.
+- `run` takes args, streams, and (when used) env and stdin, and returns an `int`: the exit code is part of the
+  contract, and only this layer knows it.
 
 ```go
-func main() {
-    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-    code := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
-    stop()
-    os.Exit(code)
-}
-
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
     fs := flag.NewFlagSet("tool", flag.ContinueOnError)
     fs.SetOutput(stderr)
@@ -43,7 +28,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 ```
 
-## `flag` essentials
+## `flag` gotchas
 
 - Always `flag.NewFlagSet(name, flag.ContinueOnError)`; the global `flag.CommandLine` uses `ExitOnError` and
   shares state across tests.
@@ -55,35 +40,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 - Distinguish "set to the zero value" from "not passed" with `fs.Visit` (visits only flags that were set).
 - Custom types: `fs.Func` for one-off parsers, `fs.TextVar` for anything implementing `encoding.TextUnmarshaler`
   (`netip.Addr`, `slog.Level`), a `flag.Value` for repeatable flags (`-tag a -tag b` appends in `Set`).
-- Validate positionals and cross-flag constraints right after `Parse`, and return 2 for a usage error.
 
-## Subcommand dispatch
+## Subcommands
 
-One flag set per verb, chosen by `args[0]`; a table keeps the help listing and the dispatcher from drifting.
-
-```go
-type verb struct {
-    name, summary string
-    run           func(ctx context.Context, args []string, stdout, stderr io.Writer) int
-}
-
-func dispatch(ctx context.Context, verbs []verb, args []string, stdout, stderr io.Writer) int {
-    if len(args) == 0 || args[0] == "-h" || args[0] == "help" {
-        return usage(verbs, stdout) // asked-for help: stdout, exit 0
-    }
-    for _, v := range verbs {
-        if v.name == args[0] {
-            return v.run(ctx, args[1:], stdout, stderr)
-        }
-    }
-    fmt.Fprintf(stderr, "tool: unknown command %q (see `tool help`)\n", args[0])
-    return 2
-}
-```
-
-- Global flags go on a root flag set parsed before the verb; per-verb flags on the verb's own set. Avoid flags that
-  are valid in both positions — users can't tell which one won.
-- Nested verbs (`tool vault set`) are the same function one level down; past two levels, consider cobra.
+- One flag set per verb, chosen by `args[0]`, from a table so the help listing and the dispatcher can't drift.
+- Global flags go on a root flag set parsed before the verb. Avoid flags valid in both positions — users can't tell
+  which one won. Past two levels of nesting, consider cobra.
 - Requested help goes to stdout with exit 0; help printed because of a mistake goes to stderr with exit 2.
 
 ## Exit codes
@@ -96,50 +58,42 @@ func dispatch(ctx context.Context, verbs []verb, args []string, stdout, stderr i
 | 3+ | tool-specific, documented outcomes | "diff found", "not logged in" (pick few, keep stable) |
 | 130 / 143 | interrupted by SIGINT / SIGTERM | context cancelled by a signal |
 
-- Map errors to codes in one place (`exitCode(err)`), with `errors.As` on a typed error carrying the code; never
-  scatter literal codes through the work. Error construction: [errors.md](errors.md).
-- Scripts branch on the code, so a code is an API: changing one is a breaking change.
+- Map errors to codes in one place (`exitCode(err)`), with `errors.As` on a typed error carrying the code. Scripts
+  branch on the code, so changing one is a breaking change. Error construction: [errors.md](errors.md).
 
 ## stdout, stderr, stdin
 
-- stdout is the product: data the next program in a pipe reads. Everything else — progress, warnings, logs,
-  prompts, errors — goes to stderr. One stray log line on stdout corrupts `tool list --json | jq`.
-- Offer a machine format (`--json`) for anything a script will read, and keep it stable; the human format may change.
-- Decide on color and spinners from the destination, not the platform: only when stderr/stdout is a terminal
-  (`term.IsTerminal(int(f.Fd()))` or a `ModeCharDevice` check) and `NO_COLOR` is unset.
-- Read `-` as stdin for file arguments; never prompt when stdin is not a terminal — fail with a message naming the
-  flag that supplies the answer.
-- Buffer large outputs with `bufio.Writer` and check the `Flush` error; a closed pipe (`| head`) shows up there.
+- stdout is data for the next program in a pipe; progress, warnings, logs, prompts and errors go to stderr. One stray
+  log line on stdout corrupts `tool list --json | jq`.
+- Color and spinners only when the destination is a terminal (`term.IsTerminal(int(f.Fd()))` or a `ModeCharDevice`
+  check) and `NO_COLOR` is unset — decide per stream, not per platform.
+- Never prompt when stdin is not a terminal — fail with a message naming the flag that supplies the answer.
+- Check the `bufio.Writer` `Flush` error; a closed pipe (`| head`) shows up there.
 
 ## Signals and cancellation
 
-- `signal.NotifyContext` in `main`, the context passed down to every blocking call; work that ignores `ctx` cannot
-  be interrupted cleanly.
-- Call `stop()` once the context is done (or right after `run` returns) so a second Ctrl-C falls back to the default
-  handler and kills a stuck process — users expect "press again to force".
+- Call `stop()` from `signal.NotifyContext` once the context is done (or right after `run` returns) so a second
+  Ctrl-C falls back to the default handler and kills a stuck process — users expect "press again to force".
 - Give shutdown its own bounded context (`context.WithTimeout(context.Background(), …)`): the signal context is
   already cancelled. Goroutine lifetimes and `errgroup`: [concurrency.md](concurrency.md).
-- Report an interrupt as 130/143, not 1, and don't print a stack of "context canceled" wrappers — one line.
+- Report an interrupt as 130/143, not 1, and print one line, not a stack of "context canceled" wrappers.
 
 ## Version
 
 - `debug.ReadBuildInfo()` already gives the module version (`go install …@v1.2.3`) and `vcs.revision`/`vcs.modified`
   for local builds; read it before reaching for `-ldflags "-X main.version=…"`.
-- Use `-X` only for values the toolchain can't know (a release channel, a build date from CI), on a package-level
-  `var string` — `-X` silently does nothing on a `const` or a misspelled path.
+- `-X` only for values the toolchain can't know (release channel, CI build date), on a package-level `var string` —
+  `-X` silently does nothing on a `const` or a misspelled path.
 
 ## Testing a CLI
 
-- Call `run` with `bytes.Buffer`s and assert on the exit code and both streams; assert stdout is empty on the error
-  paths and stderr empty on the success path — that pins the stream discipline.
-- Isolate the environment with `t.Setenv` and `t.TempDir()`; never let a test read the developer's real config.
-- Golden files for long help or table output, with an `-update` flag to rewrite them deliberately.
-- General Go test shape: [testing.md](testing.md).
+- Call `run` with `bytes.Buffer`s; assert stdout is empty on error paths and stderr empty on success — that pins the
+  stream discipline. Isolate with `t.Setenv` and `t.TempDir()`. General test shape: [testing.md](testing.md).
 
 ## cobra — when the tree earns it
 
 Worth the dependency for a public tool with many verbs, deep nesting, generated shell completions, or GNU-style
-flags (`-n`, `--name`, `-abc`). Not worth it for an internal tool with a flat verb list — that stays `flag`.
+flags (`-n`, `--name`, `-abc`). A flat verb list stays `flag`.
 
 - `RunE`, never `Run`: `Run` can't return an error, so failures end in `os.Exit` or a panic.
 - Set `SilenceUsage` and `SilenceErrors` on the root; print the error and map the exit code yourself in `main`.
@@ -155,29 +109,13 @@ flags (`-n`, `--name`, `-abc`). Not worth it for an internal tool with a flat ve
 - Completions: `ValidArgs` for static lists, `ValidArgsFunction` / `RegisterFlagCompletionFunc` for dynamic ones;
   return `ShellCompDirectiveNoFileComp` when the list is exhaustive. Test them via the hidden `__complete` verb.
 - Build the tree in a `newRootCmd()` constructor, not package-level `var`s wired in `init()`: cobra keeps parsed flag
-  state on the command, so a shared tree leaks values between tests. One fresh tree per test case.
-
-```go
-func TestDeleteNeedsName(t *testing.T) {
-    var out, errOut bytes.Buffer
-    root := newRootCmd()
-    root.SetOut(&out)
-    root.SetErr(&errOut)
-    root.SetArgs([]string{"delete"})
-    if err := root.Execute(); err == nil {
-        t.Fatal("want arg-count error")
-    }
-    if out.Len() != 0 {
-        t.Fatalf("stdout = %q, want empty on error", out.String())
-    }
-}
-```
+  state on the command, so a shared tree leaks values between tests. One fresh tree per test case, driven with
+  `SetOut`/`SetErr`/`SetArgs`.
 
 ## viper — rarely
 
 Worth it only when one key must resolve across flag, env, and a config file in several formats, for a tool you
-ship to others. A single JSON or TOML file plus `os.LookupEnv` overrides is a struct and twenty lines of stdlib —
-prefer that, and keep config parsing in the area's package, not in the verb file.
+ship to others. A single JSON or TOML file plus `os.LookupEnv` overrides is a struct and twenty lines of stdlib.
 
 - Precedence is fixed: `Set` > flag (only if `Changed`) > env > config file > remote KV > default.
 - Env needs all three together: `SetEnvPrefix("TOOL")`, `SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))`,
@@ -191,5 +129,3 @@ prefer that, and keep config parsing in the area's package, not in the verb file
 - Use `viper.New()` and inject the instance; the package-level global leaks state across tests and goroutines.
 - `WatchConfig` misses editors that save by atomic rename, and its callback runs on another goroutine: decode into a
   fresh struct, validate, then swap under a lock or `atomic.Pointer`.
-
-Adapted from samber/cc-skills-golang (MIT): golang-cli, golang-spf13-cobra, golang-spf13-viper.

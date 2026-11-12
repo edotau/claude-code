@@ -1,10 +1,8 @@
 # Go Services: HTTP, SQL, gRPC
 
-Serving and calling over `net/http`, `database/sql` and gRPC in production Go (module targets Go 1.27).
-
-Stdlib first, minimal pinned deps: [security.md](../../../rules/standards/security.md) wins over any library
-suggestion here. Request-context rules: [concurrency.md](concurrency.md) → context in HTTP services; error wrapping:
-[errors.md](errors.md); `httptest`/fakes: [testing.md](testing.md).
+Serving and calling over `net/http`, `database/sql` and gRPC in production Go. Request-context rules:
+[concurrency.md](concurrency.md); error wrapping: [errors.md](errors.md); `httptest`/fakes: [testing.md](testing.md);
+injection, TLS and CSRF: [security.md](security.md).
 
 ## net/http servers
 
@@ -54,14 +52,12 @@ return srv.Shutdown(shutCtx) // wait on this, not on ListenAndServe: that return
 
 ### Middleware
 
-- Shape: `func(http.Handler) http.Handler`, composed in `main`; the outermost wrapper runs first. Order: recover →
-  request ID/trace → logging/metrics → auth → per-route timeout → handler.
+- Order, outermost first: recover → request ID/trace → logging/metrics → auth → per-route timeout → handler.
 - A `ResponseWriter` wrapper that records status must implement `Unwrap() http.ResponseWriter`, or
   `ResponseController` (flush, deadlines, hijack) silently stops working through it.
 - net/http recovers handler panics itself but only logs and drops the connection; own recovery to return a 500 and
   log with request context. Re-panic `http.ErrAbortHandler` — it is the deliberate abort signal.
-- Per-request budget: `http.TimeoutHandler` or `WithTimeout(r.Context(), d)` in middleware; CSRF:
-  `http.CrossOriginProtection` (1.25) before any library.
+- Per-request budget: `http.TimeoutHandler` or `WithTimeout(r.Context(), d)` in middleware.
 
 ### http.Client
 
@@ -71,8 +67,8 @@ return srv.Shutdown(shutCtx) // wait on this, not on ListenAndServe: that return
   `http.NewRequestWithContext(ctx, ...)` for the caller's budget; the earlier one wins.
 - Start from `http.DefaultTransport.(*http.Transport).Clone()`; raise `MaxIdleConnsPerHost` (default 2) for a hot
   single upstream, or every burst re-dials.
-- Always `defer resp.Body.Close()`; to reuse the connection, read the body to EOF first (`io.Copy(io.Discard, ...)`,
-  bounded with `io.LimitReader`).
+- To reuse the connection, read the body to EOF before `Close` (`io.Copy(io.Discard, ...)`, bounded with
+  `io.LimitReader`).
 - A 4xx/5xx is `err == nil`: check `resp.StatusCode` explicitly and turn it into a typed error with the status.
 - Retries only for idempotent methods or with an idempotency key, with capped jittered backoff, inside ctx.
 
@@ -89,30 +85,13 @@ return srv.Shutdown(shutCtx) // wait on this, not on ListenAndServe: that return
 
 - Watch `db.Stats()`: a rising `WaitCount`/`WaitDuration` means pool exhaustion — fix slow queries or leaks before
   raising `MaxOpenConns`.
-- Context everywhere: only the `*Context` methods (`QueryContext`, `ExecContext`, `QueryRowContext`, `BeginTx`).
-  The context-free forms keep running after the client is gone and hold a connection while they do.
+- Only the `*Context` methods (`QueryContext`, `ExecContext`, `QueryRowContext`, `BeginTx`): the context-free forms
+  keep running after the client is gone and hold a connection while they do.
 - `Exec` for statements without rows. `Query` returns `*Rows` that pin a connection until closed — using it for an
   `UPDATE` leaks one connection per call.
-- Placeholders are driver syntax (`$1` pgx/lib/pq, `?` MySQL/SQLite); never build SQL with `fmt.Sprintf` from input.
-  Dynamic identifiers (sort column) come from an allowlist map, never the request.
-
-```go
-rows, err := db.QueryContext(ctx, `SELECT id, name, deleted_at FROM users WHERE org = $1`, org)
-if err != nil {
-    return nil, fmt.Errorf("query users: %w", err)
-}
-defer rows.Close() // releases the connection on every path, including a Scan error
-var out []User
-for rows.Next() {
-    var u User
-    if err := rows.Scan(&u.ID, &u.Name, &u.DeletedAt); err != nil {
-        return nil, fmt.Errorf("scan user: %w", err)
-    }
-    out = append(out, u)
-}
-return out, rows.Err() // errors mid-iteration (network, cancel) surface only here
-```
-
+- Placeholders and dynamic identifiers: [security.md](security.md) → Injection.
+- `defer rows.Close()` right after the error check releases the connection on every path, including a `Scan`
+  error; return `rows.Err()` after the loop — errors mid-iteration (network, cancel) surface only there.
 - `QueryRowContext(...).Scan` reports a miss as `sql.ErrNoRows`: map it with `errors.Is` to a domain
   `ErrNotFound` or `(v, false, nil)`; everything else is wrapped and returned.
 - Driver errors (unique violation, serialization failure) are typed per driver (`*pgconn.PgError` `.Code`):
@@ -120,20 +99,8 @@ return out, rows.Err() // errors mid-iteration (network, cancel) surface only he
 
 ### Transactions
 
-```go
-func withTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions, fn func(*sql.Tx) error) error {
-    tx, err := db.BeginTx(ctx, opts)
-    if err != nil {
-        return fmt.Errorf("begin: %w", err)
-    }
-    defer tx.Rollback() // after Commit it returns ErrTxDone: harmless, deliberately ignored
-    if err := fn(tx); err != nil {
-        return err
-    }
-    return tx.Commit()
-}
-```
-
+- Wrap in a `withTx(ctx, db, opts, fn)` helper: `BeginTx`, `defer tx.Rollback()` (after `Commit` it returns
+  `ErrTxDone`: harmless, deliberately ignored), run `fn(tx)`, then `Commit`.
 - Inside `fn` use only `tx`; a stray `db.` call runs on a second connection outside the transaction and can
   deadlock against it when the pool is small.
 - Read-modify-write: `SELECT ... FOR UPDATE` (or `NOWAIT`/`SKIP LOCKED` for queues), or `LevelSerializable` and
@@ -184,15 +151,6 @@ goose) as reviewed, versioned SQL — the application does not mutate its own sc
 - Metadata: `metadata.FromIncomingContext` on the server; `metadata.AppendToOutgoingContext` on the client. Incoming
   metadata is not forwarded downstream automatically — copy only the keys you mean to propagate.
 
-```go
-func logUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
-    start := time.Now()
-    resp, err := h(ctx, req)
-    slog.InfoContext(ctx, "rpc", "method", info.FullMethod, "code", status.Code(err), "dur", time.Since(start))
-    return resp, err
-}
-```
-
 ### Deadlines
 
 - Every client call carries a deadline (`context.WithTimeout`, or a service-config `methodConfig.timeout` default);
@@ -239,12 +197,7 @@ func logUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.U
 
 - Routing: `net/http` `ServeMux` covers methods, wildcards and precedence since 1.22. chi is the one router worth a dep
   (stays `http.Handler`-native, for route groups); avoid fasthttp-based frameworks (fiber) — not `net/http`.
-- HTTP clients: plain `http.Client` (resty/req add deps for little); SQL: driver (pgx, go-sql-driver/mysql,
-  modernc.org/sqlite for cgo-free) + sqlc, per the table above.
+- SQL drivers: pgx, go-sql-driver/mysql, modernc.org/sqlite for cgo-free; plain `http.Client` over resty/req.
 - GraphQL: gqlgen (schema-first, codegen) only when a GraphQL contract is required; enforce complexity limits and
   per-request DataLoaders.
 - OpenAPI: generate from a spec (oapi-codegen) over comment annotations (swaggo) — the spec stays the contract.
-- Before adding any of these: check stdlib, pin the version, run `govulncheck`; prefer one dep per concern.
-
-Adapted from samber/cc-skills-golang (MIT): golang-database, golang-grpc, golang-graphql, golang-swagger,
-golang-popular-libraries.

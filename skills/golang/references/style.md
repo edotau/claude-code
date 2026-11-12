@@ -2,16 +2,13 @@
 
 Judgment calls gofmt cannot make: names, control flow, doc comments, version-gated idioms and golangci-lint v2 hygiene.
 
-Harness rules override everything below: comment caps, function length, nesting and the simplify gate live in
-[quality.md](../../../rules/standards/quality.md); no renames of established names and no drive-by reformatting live
-in [principles.md](../../../rules/standards/principles.md). The rules here apply to code you write or are asked to
-change, never as a license to sweep untouched code.
+Apply to code you write or are asked to change, never as a license to sweep untouched code or rename established
+names.
 
 ## Naming
 
 | Element | Rule | Yes / no |
 | --- | --- | --- |
-| Identifier | MixedCaps; `_` only in generated/cgo code, `Test` subcases | `maxRetries` / `MAX_RETRIES` |
 | Initialism | One case for the whole run | `userID`, `HTTPServer`, `xmlDoc` / `userId`, `Url` |
 | Package | Short, lower, one word, singular; names a purpose | `tabwriter`, `oauth2` / `util`, `common` |
 | Directory | Matches the package; a hyphen drops out of the package | `rate-limit/` → `ratelimit` |
@@ -22,74 +19,57 @@ change, never as a license to sweep untouched code.
 | Bool predicate | `Is`/`Has`/`Can` so it reads as a question | `IsLoopback()` / `Loopback() bool` |
 | Interface | One method: method + `-er`; more: a noun or embedding | `Reader`, `ReadCloser` / `IReader` |
 | Canonical method | Stdlib names only with stdlib signatures | `String() string` / `ToString()` |
-| Constant | MixedCaps, named for the role, not the value | `DefaultPort` / `PORT_8080` |
 | Enum | Type prefix; zero is `Unknown`, or start at `iota + 1` | `StatusUnknown Status = iota` |
 | Error var, type | `ErrX` var, `XError` type | `ErrNotFound`, `PathError` |
-| Error string | Lowercase incl. initialisms, no final punctuation; may lead `pkg:` | `"vault: bad key id"` |
-| Format func | `f` suffix when args are a format string | `Errorf`, `Logf` |
+| Error string | Lowercase incl. initialisms, no final punctuation; may lead `pkg:` | `"config: bad key id"` |
 | Variant | `XContext` takes ctx, `MustX` panics, `WithX` is an option | `QueryContext` / `QueryCtx` |
 | Import alias | Only on collision or for generated code | `mrand "math/rand/v2"` / `f "fmt"` |
 
-- **No stutter.** The package name is always at the call site: `http.Client`, `config.Load`, `dbpool.Status`, never
-  `http.HTTPClient`, `config.LoadConfig`, `dbpool.PoolStatus`. Same for context: a `UserStore.Create(name)`, not
-  `CreateUser(userName)`.
-- **Length tracks scope.** `i`, `v`, `n`, `r`, `w`, `b`, `t`, `ctx`, `err` in a few-line scope; descriptive names at
-  package level. Never encode the type (`userSlice`, `nameStr`); one name per domain concept across the codebase.
-- **Parameters document the call site.** Short when the type explains it (`d time.Duration`), descriptive when it
-  doesn't (`Unix(sec, nsec int64)`, `HasPrefix(s, prefix string)`).
+- **No stutter.** The package name is always at the call site: `config.Load`, `dbpool.Status`, never
+  `config.LoadConfig`, `dbpool.PoolStatus`; no `util`, `common`, `helpers`, `misc`, `base`, `types` packages.
 - **Named results** only to disambiguate same-typed returns (`(written int64, err error)`); never to enable a bare
   `return` outside a 2–3 line function.
 - **Tests.** `TestParse`, `TestServer_Handle`, `TestParse_EmptyInput`; `t.Run` names are lowercase phrases
   (`"invalid id"`); helpers call `t.Helper()` and a panicking fixture loader is `mustLoadX`. Table fields follow the
   file's existing `want`/`got` or `expected` style.
-- **Renames are scoped work.** A name that breaks these rules in code you aren't changing stays; a rename the task
-  does ask for goes through `gopls rename` (every call site, interface-safe), never `sed`.
+- **Renames are scoped work.** A name that breaks these rules in code you aren't changing stays; a requested rename
+  goes through `gopls rename`, never `sed` ([design.md](design.md) → Refactoring safely).
 
 ## Control flow and shape
 
-- **Guard clauses first, happy path flush left.** Handle error and edge cases with an early `return`/`continue`; once an
-  `if` body ends in `return`, `break` or `continue`, drop the `else`. This is how you hold nesting at 4 or less.
-- **Default then override** instead of an `if/else if/else` assignment chain:
-
-```go
-level := slog.LevelInfo
-switch {
-case debug:
-    level = slog.LevelDebug
-case quiet:
-    level = slog.LevelWarn
-}
-```
-
-- **Switch** when the same value is compared more than twice; tagless `switch` for unrelated predicates.
 - **Name compound conditions.** Three or more operands become named booleans (`isOwner := r.OwnerID == u.ID`), but
   keep an expensive call inline as the last operand so short-circuiting still skips it.
-- **Scope to the `if`.** `if err := v.Check(); err != nil { … }` when the value is only needed for the test.
-- **Signatures.** `ctx context.Context` first, inputs, then output sinks. Past ~4 params, take an options struct; a
-  long signature is a design smell, not a wrapping problem.
-- **Declarations.** `var x T` signals "starts at zero" (`var buf bytes.Buffer`); `:=` for anything initialized.
-  Composite literals use field names. Prefer a nil slice (`var out []T`) unless the zero value leaks out as JSON
-  `null` where callers expect `[]`; preallocate (`make([]T, 0, len(in))`) only when the length is known.
-- **Values vs pointers.** Pass strings, ints, `time.Time` and small read-only structs by value; use a pointer to
-  mutate, for large structs (~128 B+) or when nil means "absent". Benchmark before arguing either way.
-- **Strings.** `strconv` for single conversions, `fmt` for real formatting, `strings.Builder` in loops, `%q` for
-  user-supplied values in errors.
+- **Signatures.** `ctx context.Context` first, inputs, then output sinks. Past ~4 params, take an options struct.
+- **Nil vs empty slice.** Prefer a nil slice (`var out []T`) unless it leaks out as JSON `null` where callers expect
+  `[]`; preallocate (`make([]T, 0, len(in))`) only when the length is known.
+- **Values vs pointers.** Pointer to mutate, for large structs (~128 B+) or when nil means "absent"; otherwise by
+  value. Benchmark before arguing either way.
 - **Surface.** Unexport by default (exporting later is free, unexporting breaks callers). No dot imports; blank
-  imports only in `main` and tests. Generics over `any` when one type parameter covers the cases; no `reflect`
-  without a reason the code states.
+  imports only in `main` and tests. No `reflect` without a reason the code states.
+
+## Strings
+
+**Never concatenate inside `WriteString` on a `strings.Builder`, `bytes.Buffer` or `bufio.Writer`.** `a + b` builds
+a throwaway string before the copy; gopls reports it as `writestring` (golangci-lint does not). One call per piece.
+
+```go
+b.WriteString(prefix + name + "\n") // WRONG: allocates the joined string first
+
+b.WriteString(prefix) // RIGHT
+b.WriteString(name)
+b.WriteString("\n")
+```
+
+- Constants joined at compile time are fine as one call: `b.WriteString(header + "\n")` with a `const header`.
+- **A file, pipe or socket keeps the single call** (`f.WriteString(key + "\n")`): there each call is its own write, so
+  splitting it costs a system call and lets another writer land between the pieces.
+- With formatting verbs, use `fmt.Fprintf(&b, ...)`, never `b.WriteString(fmt.Sprintf(...))`.
 
 ## Doc comments
 
-The harness cap is one line per comment ([quality.md → Comments](../../../rules/standards/quality.md#comments)); godoc
-conventions fit inside it.
-
-- **Exported symbols get one sentence** that begins with the identifier and says what it does or guarantees:
-  `// Load reads the vault at path and fails closed on a bad key.` Unexported code gets a comment only when the name
-  can't carry the intent. Test functions get none.
 - **Say what the signature can't:** the error returned and when, a panic, concurrency safety, a non-obvious
-  precondition. Never paraphrase the name (`// GetUser gets a user`), restate types or add adjectives.
-- **Package comment:** one `// Package x …` line above `package x` in one file; a longer package narrative goes to the
-  repo's own docs, not `doc.go` prose.
+  precondition. Never paraphrase the name (`// GetUser gets a user`).
+- **Package comment** in exactly one file; a long overview goes in `doc.go`.
 - **Doc links** (Go 1.19+) render as hyperlinks on pkg.go.dev and in `go doc`; use them instead of naming a symbol in
   backticks:
 
@@ -100,8 +80,8 @@ conventions fit inside it.
 | `[net/http.Client]` | Fully qualified, when the short form is ambiguous |
 | `[text]` + `// [text]: https://…` | A URL via a link definition at the end of the comment |
 
-- **`Deprecated:`** must open its own paragraph for tools (staticcheck SA1019, gopls) to see it; it is a semantic
-  marker the harness exempts from the one-line cap. Name the replacement: `// Deprecated: use [Open].`
+- **`Deprecated:`** must open its own paragraph for tools (staticcheck SA1019, gopls) to see it; name the replacement:
+  `// Deprecated: use [Open].`
 - **Examples** live in `ExampleX`, `ExampleT_Method`, `ExampleX_suffix` functions in `_test.go` with an `// Output:`
   line so `go test` checks them, never as indented code blocks inside the comment.
 - **Directives** (`//go:build`, `//go:embed`, `//nolint`) have no space after `//` and are not doc text.
@@ -109,12 +89,11 @@ conventions fit inside it.
 
 ## Modernize — old → new
 
-This module targets **Go 1.27** ([go.mod](../../../go.mod)), so every row applies. Rewrite only in code the task
+Apply only rows at or below the `go` line in `go.mod`. Rewrite only in code the task
 touches; `go fix ./...` and the `modernize` analyzer do the mechanical sweep when a sweep is the task.
 
 | Go | Old | New |
 | --- | --- | --- |
-| 1.18 | `interface{}` | `any` |
 | 1.18 | `[]interface{}` + type assertions | type parameters, or the `slices`/`maps` helper that already exists |
 | 1.19 | `append(b, fmt.Sprintf(…)...)` | `fmt.Appendf(b, …)` |
 | 1.20 | `HasPrefix` then `TrimPrefix` | `after, ok := strings.CutPrefix(s, p)` (also `CutSuffix`; `Cut` since 1.18) |
@@ -163,7 +142,7 @@ touches; `go fix ./...` and the `modernize` analyzer do the mechanical sweep whe
 - Source: `golang.org/x/tools/go/analysis/passes/modernize`; in golangci-lint since v2.6.0, also in gopls and behind
   `go fix` (rebuilt on `go/analysis` in 1.26). Coverage differs per tool version: `go tool fix help` lists what the
   installed toolchain applies.
-- It is already enabled in [.golangci.yml](../../../.golangci.yml). Its fixes are behavior-preserving by construction,
+- Enable it in `.golangci.yml`. Its fixes are behavior-preserving by construction,
   so `golangci-lint run --fix --enable-only modernize ./internal/<pkg>` is safe on files you own; review the diff
   anyway, since a scoped run still edits every matching line in the package.
 
@@ -174,35 +153,31 @@ golangci-lint run --enable-only modernize ./... # report only
 
 ## golangci-lint v2
 
-- **Config essentials.** `version: "2"` at the top; `linters.default: none` plus an explicit `enable` list (this repo's
-  stance) so a lint bump never silently adds checks; per-linter knobs under `linters.settings`; formatters are their
+- **Config essentials.** `version: "2"` at the top; `linters.default: none` plus an explicit `enable` list so a lint
+  bump never silently adds checks; per-linter knobs under `linters.settings`; formatters are their
   own `formatters.enable` block and run via `golangci-lint fmt`. Exclusions moved to `linters.exclusions`
   (`rules` with `path`/`linters`/`text`/`source`, `paths`, `generated: lax`). `run.timeout` defaults to none.
 - **Migrating** a v1 file: `golangci-lint migrate`; validate any edit with `golangci-lint config verify`.
-- **Run order:** `make lint-go` (or `golangci-lint run ./internal/<pkg>/...` while iterating), then
+- **Run order:** `golangci-lint run ./...` (scope to `./internal/<pkg>/...` while iterating), then
   `golangci-lint fmt`. Read the trailing `(linter)` in each `file:line:col: msg (linter)` hit before acting.
-- **Legacy adoption:** `issues.new-from-rev` gates only changed lines; never bump a threshold to go green.
-- **Thresholds** come from [quality.md](../../../rules/standards/quality.md) (functions < 50 lines, complexity > 10
-  flagged), not upstream defaults; the repo's `gocognit` setting is its own call.
+- **Legacy adoption:** `issues.new-from-rev` gates only changed lines. Thresholds (`gocyclo`, `gocognit`,
+  `funlen`) are set once in config; never bump one to go green.
 - **Linters worth knowing** when a hit appears: `govet`/`staticcheck` (real bugs, deprecations), `errcheck`, `errorlint`
   (`%w`, `errors.Is`), `bodyclose`/`noctx` (HTTP leaks, missing ctx), `perfsprint`, `revive` (naming, stutter),
   `errname`, `predeclared`, `intrange`, `copyloopvar`, `usetesting` (`t.TempDir`/`t.Setenv`), `nolintlint`.
 
 ### `//nolint` discipline
 
-- Fix first; suppress only a proven false positive or a deliberate pattern, and say which in the reason.
-- Always name the linter and give the reason on the same line, which `nolintlint`
-  (`require-specific`, `require-explanation`) enforces:
+- Suppress only a proven false positive or a deliberate pattern, and say which in the reason. Always name the
+  linter and give the reason on the same line, which `nolintlint` (`require-specific`, `require-explanation`)
+  enforces:
 
 ```go
 _ = f.Close() //nolint:errcheck // read-only file, close error cannot change the result
 ```
 
 - Narrowest scope wins: end-of-line over the line above, line over function, never file-wide. A pattern that recurs
-  across the repo becomes an `exclusions.rules` entry in [.golangci.yml](../../../.golangci.yml) with a one-line why.
+  across the repo becomes an `exclusions.rules` entry in `.golangci.yml` with a one-line why.
 - Never suppress `govet`, `staticcheck`, `bodyclose`, `gosec`, or `errcheck` on a production path without a reason a
   reviewer would accept; bare `//nolint` is always a finding.
 - Delete a directive once it suppresses nothing (`nolintlint` reports `unused`).
-
-Adapted from samber/cc-skills-golang (MIT): golang-code-style, golang-naming, golang-documentation,
-golang-modernize, golang-lint.
