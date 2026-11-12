@@ -82,7 +82,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, the overlay's provider rides along")
+	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, the confinement (provider[:profile]) rides along")
 	fs.StringVar(&f.remoteBin, "host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")

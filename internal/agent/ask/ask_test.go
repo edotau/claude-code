@@ -1266,9 +1266,9 @@ func TestArmFlagRefusals(t *testing.T) {
 		inherited, want string
 		args            []string
 	}{
-		{"", "databricks:nope: no such profile", []string{"--overlay", `{"provider":"databricks","profile":"nope"}`}},
-		{"", "databricks:gw: AI Gateway row", []string{"--overlay", `{"provider":"databricks","profile":"gw"}`}},
-		{"", "databricks:chatgpt: not a Databricks profile", []string{"--overlay", `{"provider":"databricks","profile":"chatgpt"}`}},
+		{"", "overlay profile: no such profile", []string{"--overlay", `{"provider":"databricks","profile":"nope"}`}},
+		{"", "overlay profile: AI Gateway row", []string{"--overlay", `{"provider":"databricks","profile":"gw"}`}},
+		{"", "overlay profile: not a Databricks profile", []string{"--overlay", `{"provider":"databricks","profile":"chatgpt"}`}},
 		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
 		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
 		{"", "--provider openai: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
