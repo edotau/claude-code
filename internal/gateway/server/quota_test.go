@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // A hard-quota 429 demotes within the provider and skips the denied model on subsequent requests.
@@ -89,7 +90,9 @@ func TestTransientRateLimitDoesNotDemote(t *testing.T) {
 func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
 	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
 	target := providers.Target{Provider: p, Model: "m1-opus"}
+	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
 	r := newRouter("s")
+	t.Cleanup(r.bg.Wait)
 	resp := &http.Response{
 		StatusCode: 429,
 		Header:     http.Header{"Retry-After": []string{"60"}},
@@ -116,7 +119,9 @@ func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
 func TestHardAccountExhaustion402CoolsButDoesNotMarkDead(t *testing.T) {
 	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
 	target := providers.Target{Provider: p, Model: "m1-opus"}
+	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
 	r := newRouter("s")
+	t.Cleanup(r.bg.Wait)
 	resp := &http.Response{
 		StatusCode: 429,
 		Header:     http.Header{"Retry-After": []string{"60"}},

@@ -476,7 +476,9 @@ func checkChatStream(t *testing.T, base string) {
 // Demotion terminates when model slots form a cycle and every candidate is dead.
 func TestDemotionCycleTerminates(t *testing.T) {
 	p := &providers.Provider{Name: "g", Models: map[string]string{"opus": "A", "sonnet": "B", "haiku": "A"}}
+	vaulttest.Use(t) // markDead persists quota.json: keep it out of the shared home and later tests' dirs
 	r := newRouter("s")
+	t.Cleanup(r.bg.Wait)
 	r.markDead(providers.Target{Provider: p, Model: "A"})
 	r.markDead(providers.Target{Provider: p, Model: "B"})
 	done := make(chan struct{})
@@ -492,7 +494,10 @@ func TestDemotionCycleTerminates(t *testing.T) {
 	}
 
 	// With only A dead, demotion must reach the live B slot despite the earlier cycle.
+	r.bg.Wait()
+	vaulttest.Use(t) // a fresh quota.json: r's persisted B mark must not reach r2
 	r2 := newRouter("s")
+	t.Cleanup(r2.bg.Wait)
 	r2.markDead(providers.Target{Provider: p, Model: "A"})
 	d, ok := r2.demotion(providers.Target{Provider: p, Model: "A"})
 	if !ok || d.Model != "B" {
