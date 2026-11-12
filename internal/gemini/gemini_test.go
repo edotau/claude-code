@@ -230,9 +230,9 @@ func TestAgyArgvEffortSuffixedModelDropsEffort(t *testing.T) {
 // A non-Gemini model (and whatever the pin is) must never leave the agy gateway model empty.
 func TestAgyGatewayArgNonGeminiNeverEmpty(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	base, arg := agyGatewayArg("claude-opus-4-1")
-	if base == "" || arg == "" {
-		t.Fatalf("agyGatewayArg(non-Gemini) = (%q, %q), want a non-empty Gemini base", base, arg)
+	base, arg, err := agyGatewayArg("claude-opus-4-1")
+	if err != nil || base == "" || arg == "" {
+		t.Fatalf("agyGatewayArg(non-Gemini) = (%q, %q, %v), want a non-empty Gemini base", base, arg, err)
 	}
 }
 

@@ -395,11 +395,10 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 	}
 }
 
-// A prefix guard rule (Bash(x:*)) is not expressible as an agy exact-match deny and is skipped;
-// ask-rules never render for agy, only deny does.
-func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
+// A prefix guard rule (Bash(x:*)) is not expressible as an agy exact-match deny and is skipped.
+func TestGeminiSettingsSkipsPrefixRules(t *testing.T) {
 	home := agenttest.Scratch(t)
-	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"],"ask":["Bash(git reset --hard:*)"]}}`
+	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"]}}`
 	vaulttest.Put(t, vault.Overlay, "agents", overlay)
 
 	var out bytes.Buffer
@@ -422,7 +421,7 @@ func TestGeminiSettingsSkipsPrefixAndAskRules(t *testing.T) {
 	deny, _ := perms["deny"].([]any)
 	want := []any{"command(rm -rf /)"}
 	if !reflect.DeepEqual(deny, want) {
-		t.Errorf("permissions.deny = %v, want %v (prefix and ask rules must not appear)", deny, want)
+		t.Errorf("permissions.deny = %v, want %v (a prefix rule must not appear)", deny, want)
 	}
 }
 

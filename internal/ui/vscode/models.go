@@ -87,7 +87,11 @@ func buildDatabricksGroups() (modelGroups, error) {
 	base := ""
 	for _, name := range reg.ProfilesOf(providers.GroupDatabricks) {
 		p := reg.Providers[name]
-		if reg.ServingRow(name) != nil || p.Auth.Login != "" || !providers.CredentialPresent(p) {
+		if reg.ServingRow(name) != nil || p.Auth.Login != "" {
+			continue
+		}
+		if !providers.CredentialPresent(p) { // signed out: keep any group an earlier sign-in wrote, say nothing
+			out.Cold = append(out.Cold, name)
 			continue
 		}
 		snap, ok := serving.Recall(p)
@@ -175,7 +179,7 @@ func mergeModels(dest string, mg modelGroups, check bool) (mergeResult, error) {
 	if err != nil {
 		return mergeResult{}, err
 	}
-	body, err := mergedModels(base, mg)
+	body, err := mergedModels(rawBase, base, mg)
 	if err != nil {
 		return mergeResult{}, err
 	}
@@ -188,15 +192,24 @@ func mergeModels(dest string, mg modelGroups, check bool) (mergeResult, error) {
 	return writeGuarded(dest, "chat models", rawBase, body)
 }
 
-// mergedModels keeps every foreign provider's bytes in order (and a cold profile's group), then appends the groups.
-func mergedModels(base []json.RawMessage, mg modelGroups) ([]byte, error) {
+// ownsGroup is true for a group this merge wrote: the Databricks prefix and the proxy token reference, both.
+func ownsGroup(raw json.RawMessage) (profile string, ours bool) {
+	var head struct{ Name, APIKey string }
+	_ = json.Unmarshal(raw, &head) // a non-object entry is foreign: kept
+	profile, prefixed := strings.CutPrefix(head.Name, groupPrefix)
+	return profile, prefixed && head.APIKey == proxyKeyRef
+}
+
+// mergedModels keeps each foreign entry's original text (comments too) and a cold group, then appends the groups.
+func mergedModels(rawBase []byte, base []json.RawMessage, mg modelGroups) ([]byte, error) {
+	head, elems, tail := splitArray(rawBase)
+	if len(elems) != len(base) {
+		return nil, fmt.Errorf("chat models: cannot split %d entries in the live file", len(base))
+	}
 	items := make([][]byte, 0, len(base)+len(mg.Groups))
-	for _, raw := range base {
-		var head struct{ Name string }
-		_ = json.Unmarshal(raw, &head) // a non-object entry is foreign: kept
-		profile, ours := strings.CutPrefix(head.Name, groupPrefix)
-		if !ours || slices.Contains(mg.Cold, profile) {
-			items = append(items, raw)
+	for i, raw := range base {
+		if profile, ours := ownsGroup(raw); !ours || slices.Contains(mg.Cold, profile) {
+			items = append(items, bytes.TrimSpace(elems[i]))
 		}
 	}
 	for _, g := range mg.Groups {
@@ -206,10 +219,133 @@ func mergedModels(base []json.RawMessage, mg modelGroups) ([]byte, error) {
 		}
 		items = append(items, b)
 	}
-	if len(items) == 0 {
-		return []byte("[]\n"), nil
+	return renderArray(head, items, tail), nil
+}
+
+// renderArray lays items out one per line under head (a header comment) and above tail (comments before the ']').
+func renderArray(head string, items [][]byte, tail string) []byte {
+	var b bytes.Buffer
+	if head != "" {
+		b.WriteString(head + "\n")
 	}
-	return append(append([]byte("[\n  "), bytes.Join(items, []byte(",\n  "))...), "\n]\n"...), nil
+	b.WriteByte('[')
+	for i, it := range items {
+		if i < len(items)-1 {
+			e := valueEnd(it)
+			it = slices.Concat(it[:e], []byte(","), it[e:]) // before a trailing // comment, which would swallow it
+		}
+		b.WriteString("\n  ")
+		b.Write(it)
+	}
+	if tail != "" {
+		b.WriteString("\n  " + tail)
+	}
+	if len(items) > 0 || tail != "" {
+		b.WriteByte('\n')
+	}
+	b.WriteString("]\n")
+	return b.Bytes()
+}
+
+// skipToken is the index past the string or comment starting at b[i] (a line comment stops at its newline), else i.
+func skipToken(b []byte, i int) int {
+	switch {
+	case b[i] == '"':
+		for i++; i < len(b) && b[i] != '"'; i++ {
+			if b[i] == '\\' {
+				i++
+			}
+		}
+		return min(i+1, len(b))
+	case bytes.HasPrefix(b[i:], []byte("//")):
+		if n := bytes.IndexByte(b[i:], '\n'); n >= 0 {
+			return i + n
+		}
+		return len(b)
+	case bytes.HasPrefix(b[i:], []byte("/*")):
+		if n := bytes.Index(b[i+2:], []byte("*/")); n >= 0 {
+			return i + n + 4
+		}
+		return len(b)
+	}
+	return i
+}
+
+// valueEnd is the index past b's last byte that is neither whitespace nor inside a comment.
+func valueEnd(b []byte) int {
+	end := 0
+	for i := 0; i < len(b); {
+		j := skipToken(b, i)
+		switch {
+		case j == i:
+			j = i + 1
+			if strings.IndexByte(" \t\r\n", b[i]) < 0 {
+				end = j
+			}
+		case b[i] == '"':
+			end = j
+		}
+		i = j
+	}
+	return end
+}
+
+// splitArray cuts a JSONC array into its header comment, comma-less entries (comments kept) and trailing comments.
+func splitArray(raw []byte) (head string, elems [][]byte, tail string) {
+	open := openBracket(raw)
+	if open < 0 {
+		return "", nil, ""
+	}
+	depth, start := 1, open+1
+	for i := start; i < len(raw); {
+		if j := skipToken(raw, i); j > i {
+			i = j
+			continue
+		}
+		depth += depthDelta(raw[i])
+		switch {
+		case depth == 0:
+			elems, tail = closeEntries(elems, raw[start:i])
+			return string(bytes.TrimSpace(raw[:open])), elems, tail
+		case raw[i] == ',' && depth == 1:
+			elems, start = append(elems, raw[start:i]), i+1
+		}
+		i++
+	}
+	return "", nil, ""
+}
+
+// openBracket is the index of raw's first '[' outside a comment, or -1.
+func openBracket(raw []byte) int {
+	for i := 0; i < len(raw); {
+		if j := skipToken(raw, i); j > i {
+			i = j
+			continue
+		}
+		if raw[i] == '[' {
+			return i
+		}
+		i++
+	}
+	return -1
+}
+
+func depthDelta(c byte) int {
+	switch c {
+	case '[', '{':
+		return 1
+	case ']', '}':
+		return -1
+	}
+	return 0
+}
+
+// closeEntries adds the text after the last comma as the final entry, or as the tail when it holds only comments.
+func closeEntries(elems [][]byte, last []byte) (_ [][]byte, tail string) {
+	if len(bytes.TrimSpace(textutil.StripJSONC(last))) > 0 {
+		return append(elems, last), ""
+	}
+	return elems, string(bytes.TrimSpace(last))
 }
 
 // sameJSON reports whether raw (JSONC) and body decode to the same value.

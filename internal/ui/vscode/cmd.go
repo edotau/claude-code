@@ -19,8 +19,7 @@ func reportMerge(label, dest string, result mergeResult) {
 	}
 }
 
-// Run merges the tracked VS Code settings template into VS Code's settings.json.
-// That is the User scope (Settings Sync syncs it) except under ~/.vscode-server, the unsynced Machine scope.
+// Run merges the settings, keybindings and Databricks chat model templates into VS Code and links the Agents extension.
 func Run(args []string) int {
 	fs := helptext.NewFlagSet("theme vscode", helptext.Page{Usage: "claude-code theme vscode [flags]",
 		About: "Merge embedded templates into VS Code's settings.json and keybindings.\n" +

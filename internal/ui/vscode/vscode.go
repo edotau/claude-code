@@ -1,8 +1,8 @@
-// Package vscode merges the tracked VS Code settings template into VS Code's settings.json: the User scope
-// (Settings Sync syncs it), or the unsynced Machine scope under ~/.vscode-server on Linux.
+// Package vscode syncs settings, keybindings and Databricks chat models into VS Code and links the Agents extension.
 package vscode
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -111,22 +111,43 @@ func jsonEscape(s string) string {
 	return string(b[1 : len(b)-1])
 }
 
-// readBase loads dest's JSONC into into (a missing or empty file leaves it untouched) and returns the raw bytes.
+// readBase loads dest's JSONC into into (a missing, blank or comment-only file leaves it) and returns the raw bytes.
 func readBase(dest, label string, into any) ([]byte, error) {
 	rawBase, err := os.ReadFile(dest)
 	switch {
-	case err == nil && len(rawBase) > 0:
-		if err := json.Unmarshal(textutil.StripJSONC(rawBase), into); err != nil {
-			return nil, fmt.Errorf("live %s: %w", label, err)
+	case err == nil:
+		if stripped := textutil.StripJSONC(rawBase); len(bytes.TrimSpace(stripped)) > 0 {
+			if err := json.Unmarshal(stripped, into); err != nil {
+				return nil, fmt.Errorf("live %s: %w", label, err)
+			}
 		}
-	case err != nil && !os.IsNotExist(err):
+	case !os.IsNotExist(err):
 		return nil, err
 	}
 	return rawBase, nil
 }
 
+// resolveLink follows dest through symlinks so a merge rewrites the link's target; a dangling link is refused.
+func resolveLink(dest string) (string, error) {
+	real, err := filepath.EvalSymlinks(dest)
+	if err == nil {
+		return real, nil
+	}
+	if _, lerr := os.Lstat(dest); lerr == nil {
+		return "", fmt.Errorf("%s is a symlink to a missing file: create its target or remove the link", dest)
+	}
+	if os.IsNotExist(err) {
+		return dest, nil
+	}
+	return "", err
+}
+
 // writeGuarded backs dest up and atomically replaces it with body, but only while rawBase is still on disk.
 func writeGuarded(dest, label string, rawBase, body []byte) (mergeResult, error) {
+	dest, err := resolveLink(dest)
+	if err != nil {
+		return mergeResult{}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return mergeResult{}, err
 	}
@@ -152,7 +173,7 @@ type syncOptions struct {
 	Check                                                                           bool // never write (--check and --dry-run)
 }
 
-// outcome is one sync run's results: settings template, keybindings and extension link.
+// outcome is one sync run's results: settings template, keybindings, chat models and extension link.
 type outcome struct {
 	DestPath   string
 	Result     mergeResult
@@ -173,7 +194,7 @@ type modelsOutcome struct {
 	Groups []string // "<group> (<n> models)" per Databricks group written
 }
 
-// syncAll merges the settings and keybindings templates and links the Agents extension.
+// syncAll merges the settings and keybindings templates and the chat models, and links the Agents extension.
 func syncAll(o syncOptions) (outcome, error) {
 	out := outcome{DestPath: o.Dest}
 	if o.Dest == "" {

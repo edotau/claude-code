@@ -210,26 +210,32 @@ func agyLoginMarkers(home string) []string {
 // agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const agyDefaultModel = "gemini-3.8-flash-high"
 
-// agyGatewayArg returns the Databricks name agy lists for model (effort suffix dropped) and the --model agy takes in
-// gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
-// GEMINI_MODEL pin, else agyDefaultModel.
-func agyGatewayArg(model string) (base, arg string) {
+// agyGatewayArg is model's Databricks name and gateway --model; a non-Gemini id falls back to the pin, then the default.
+func agyGatewayArg(model string) (base, arg string, err error) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
+		if geminiNamed(model) {
+			return "", "", fmt.Errorf("gemini: %q is not a catalogued Gemini model; pass a catalogued id with --model", model)
+		}
 		rec, err := agentconfig.Settings(agentid.Gemini)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
 		}
-		base, effort, ok = agyGatewayBase(rec.Model)
-		if !ok { // a non-Gemini or mistyped pin must not leave base empty
-			base, effort, _ = agyGatewayBase(agyDefaultModel)
+		if base, effort, ok = agyGatewayBase(rec.Model); !ok {
+			if geminiNamed(rec.Model) {
+				return "", "", fmt.Errorf("gemini: the GEMINI_MODEL pin %q is not a catalogued Gemini model; fix or clear the pin", rec.Model)
+			}
+			base, effort, _ = agyGatewayBase(agyDefaultModel) // a non-Gemini pin must not leave base empty
 		}
 	}
 	if effort == "" {
-		return base, base
+		return base, base, nil
 	}
-	return base, base + "-" + effort
+	return base, base + "-" + effort, nil
 }
+
+// geminiNamed reports an id that claims to be a Gemini model (a Databricks Claude slot never does).
+func geminiNamed(id string) bool { return strings.Contains(strings.ToLower(id), "gemini") }
 
 // agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to the Databricks endpoint name.
 func agyGatewayBase(id string) (base, effort string, ok bool) {
@@ -247,6 +253,10 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 
 // geminiGateway runs agy on the router's /p/<profile>/gemini route; agy holds only a profile-scoped session token.
 func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+	base, arg, err := agyGatewayArg(model)
+	if err != nil {
+		return nil, nil, err
+	}
 	rb, err := agent.EnsureRouter(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
@@ -255,7 +265,6 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
-	base, arg := agyGatewayArg(model)
 	list, lite := agyGatewayModels(p, base, time.Now())
 	env := []string{
 		"AGY_LLM_GATEWAY_URL=" + gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
@@ -616,7 +625,10 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	if !agent.GeminiGatewayRow(t.Provider) {
 		return gt.Model, ""
 	}
-	base, arg := agyGatewayArg(gt.Model) // gateway agy lists only the base id; the effort rides --effort
+	base, arg, err := agyGatewayArg(gt.Model) // gateway agy lists only the base id; the effort rides --effort
+	if err != nil {
+		return gt.Model, "" // geminiGateway refuses it before the launch
+	}
 	return base, agyArgEffort(base, arg)
 }
 
