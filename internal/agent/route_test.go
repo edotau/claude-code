@@ -370,12 +370,12 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 	}
 }
 
-// Under --route databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
+// Under overlay databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
 func TestOtherRouteFollowsArm(t *testing.T) {
-	t.Setenv(router.EnvRoute, router.RouteDatabricks+":qa")
+	t.Setenv(router.EnvCoworker, router.RouteDatabricks+":qa")
 	rc := routeCtx{want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
 	if rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "qa"}) {
-		t.Error("the route's own workspace marked as another route")
+		t.Error("the coworker workspace marked as another route")
 	}
 	if !rc.otherRoute(router.Candidate{Agent: "codex", Profile: "qa"}) || !rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "prod"}) {
 		t.Error("another agent or workspace not marked as another route")

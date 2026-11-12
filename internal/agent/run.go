@@ -627,7 +627,20 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	if out.Effort == "" {
 		out.Effort = disp.Effort
 	}
-	return armClaudeProfile(out, disp)
+	return armClaudeProfile(leadProfile(out, disp), disp)
+}
+
+// leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, never on the pin.
+func leadProfile(out RunOptions, disp Dispatch) RunOptions {
+	cp, _ := router.Confined()
+	provider, profile, ok := strings.Cut(disp.Account, "·")
+	if !ok || out.Provider != "" || (provider != cp && profile != out.Lead) {
+		return out
+	}
+	if reg, err := providers.Load(); err == nil && reg.Providers[profile] != nil {
+		out.Provider = profile
+	}
+	return out
 }
 
 // armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.

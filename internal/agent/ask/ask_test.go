@@ -1251,7 +1251,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 	}
 }
 
-// TestArmFlagRefusals: each flag that would take a dispatch off --route databricks:<p> exits 2 naming the flag.
+// TestArmFlagRefusals: each flag that would take a dispatch off overlay databricks:<p> exits 2 naming the flag.
 func TestArmFlagRefusals(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
@@ -1266,21 +1266,26 @@ func TestArmFlagRefusals(t *testing.T) {
 		inherited, want string
 		args            []string
 	}{
-		{"", "databricks:nope: no such profile", []string{"--route", "databricks:nope"}},
-		{"", "databricks:gw: AI Gateway row", []string{"--route", "databricks:gw"}},
-		{"", "databricks:chatgpt: not a Databricks profile", []string{"--route", "databricks:chatgpt"}},
-		{"", "--route databricks needs a workspace", []string{"--route", "databricks"}},
-		{"", "--profile chatgpt: outside", []string{"--route", "databricks:dev", "--profile", "chatgpt"}},
-		{"", "--provider openai: outside", []string{"--route", "databricks:dev", "--provider", "openai"}},
-		{"", "--model gw:m: outside", []string{"--route", "databricks:dev", "--model", "gw:m"}},
-		{"", "--direct: refused", []string{"--route", "databricks:dev", "--direct"}},
+		{"", "databricks:nope: no such profile", []string{"--overlay", `{"provider":"databricks","profile":"nope"}`}},
+		{"", "databricks:gw: AI Gateway row", []string{"--overlay", `{"provider":"databricks","profile":"gw"}`}},
+		{"", "databricks:chatgpt: not a Databricks profile", []string{"--overlay", `{"provider":"databricks","profile":"chatgpt"}`}},
+		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
+		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
+		{"", "--provider openai: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
+		{"", "--model gw:m: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
+		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
 		{"", "--model gpt-nonexistent-9: not served to claude", // external agents' models are the chain's preflight
-			[]string{"--route", "databricks:dev", "--agent", "claude", "--model", "gpt-nonexistent-9"}},
-		{"databricks:dev", "cannot leave databricks:dev", []string{"--route", "first-party"}},
+			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},
+		{"databricks:dev", "cannot leave databricks:dev", []string{"--overlay", `{"provider":"openai"}`}},
+		{"openai", "cannot leave openai", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`}},
+		{"openai", "--profile dev: outside overlay openai", []string{"--profile", "dev"}},
+		{"anthropic", "codex has no anthropic account", nil},
+		{"", "overlay profile: not a profile of openai", []string{"--overlay", `{"provider":"openai","profile":"dev"}`}},
+		{"", "provider: unknown (anthropic|databricks|github|google|openai)", []string{"--overlay", `{"provider":"first-party"}`}},
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
 	}
 	for _, tc := range cases {
-		t.Setenv(router.EnvRoute, tc.inherited) // ApplyRoute exports into this process: restore after each case
+		t.Setenv(router.EnvCoworker, tc.inherited) // ApplyCoworker exports into this process: restore after each case
 		t.Setenv(providers.EnvSessionProfile, "")
 		args := append([]string{"--agent", "codex", "--fallback", "none"}, append(tc.args, "go")...)
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
@@ -1338,7 +1343,8 @@ func armChildEnvFixture(t *testing.T) string {
 	}
 	t.Setenv("GH_TOKEN", "SENTINEL-gh")
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	t.Setenv(router.EnvRoute, "") // ApplyRoute exports into this process: restore after the run
+	t.Setenv(router.EnvCoworker, "")     // ApplyCoworker exports into this process: restore after the run
+	t.Setenv(agentconfig.OverlayVar, "") // so does a passed run's inline --overlay (carryOverlay)
 	armCopilotLogin(t)
 	orig := agent.MintSession
 	agent.MintSession = func(_ context.Context, p string, _ int) (string, error) { return "cct_ARM_" + p, nil }
@@ -1399,7 +1405,7 @@ func envValue(dump []string, name string) (string, bool) {
 	return "", false
 }
 
-// assertArmDevHop: the child is on dev's route, its key the dev session token, inside the route, leaking nothing.
+// assertArmDevHop: the child is on dev's route, its key the dev session token, inside the coworker, leaking nothing.
 func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	t.Helper()
 	h := armDevHop[name]
@@ -1413,8 +1419,8 @@ func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	if v, _ := envValue(dump, h.key); h.key != "" && v != "cct_ARM_dev" {
 		t.Errorf("%s dev hop: %s is not the dev session token", name, h.key)
 	}
-	if v, _ := envValue(dump, router.EnvRoute); v != "databricks:dev" {
-		t.Errorf("%s dev hop: %s is not databricks:dev", name, router.EnvRoute)
+	if v, _ := envValue(dump, router.EnvCoworker); v != "databricks:dev" {
+		t.Errorf("%s dev hop: %s is not databricks:dev", name, router.EnvCoworker)
 	}
 	assertArmNoLeak(t, name, dump)
 }
@@ -1430,8 +1436,8 @@ func assertArmCopilotRegistryHop(t *testing.T, dump []string) {
 			t.Errorf("copilot dev hop: registry child inherited the BYOK block %s", strings.SplitN(kv, "=", 2)[0])
 		}
 	}
-	if v, _ := envValue(dump, router.EnvRoute); v != "databricks:dev" {
-		t.Errorf("copilot dev hop: %s is not databricks:dev", router.EnvRoute)
+	if v, _ := envValue(dump, router.EnvCoworker); v != "databricks:dev" {
+		t.Errorf("copilot dev hop: %s is not databricks:dev", router.EnvCoworker)
 	}
 	assertArmNoLeak(t, "copilot", dump)
 }
@@ -1459,21 +1465,21 @@ func assertArmNoLeak(t *testing.T, name string, dump []string) {
 	}
 }
 
-// assertArmFirstParty: a first-party hop holds no Databricks credential, session token or /p/ route.
-func assertArmFirstParty(t *testing.T, label string, dump []string) {
+// assertArmOwnLogin: an own-login hop holds no Databricks credential, session token or /p/ route.
+func assertArmOwnLogin(t *testing.T, label string, dump []string) {
 	t.Helper()
 	for _, kv := range dump {
 		k, v, _ := strings.Cut(kv, "=")
 		if k == "DEV_WS_TOKEN" || k == "QA_WS_TOKEN" || strings.HasPrefix(k, "DATABRICKS_") ||
 			strings.Contains(v, "cct_ARM") || strings.Contains(kv, "/p/dev") || strings.Contains(kv, "databricks.com") {
-			t.Errorf("%s first-party hop: %s carries a Databricks credential or route", label, k)
+			t.Errorf("%s own-login hop: %s carries a Databricks credential or route", label, k)
 		}
 		if owner, ok := armLogins[k]; ok && owner != label {
-			t.Errorf("%s first-party hop: inherited %s's own login %s", label, owner, k)
+			t.Errorf("%s own-login hop: inherited %s's own login %s", label, owner, k)
 		}
 	}
 	if _, ok := envValue(dump, "OPENCODE_API_KEY"); label == "opencode" && !ok {
-		t.Errorf("opencode first-party hop: lost its own login OPENCODE_API_KEY")
+		t.Errorf("opencode own-login hop: lost its own login OPENCODE_API_KEY")
 	}
 }
 
@@ -1495,14 +1501,14 @@ func checkArmChildEnv(t *testing.T, name, goos string) {
 	dump := armChildEnvFixture(t)
 	t.Cleanup(copilot.StubGOOS(goos))
 	t.Cleanup(copilot.StubRegistry("cct_ARM_dev", "databricks-claude-sonnet-5-5")) // no live discovery
-	code, _, stderr := runCLI(t, "ask", "--agent", name, "--route", "databricks:dev", "--fallback", "all", "go")
+	code, _, stderr := runCLI(t, "ask", "--agent", name, "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "all", "go")
 	bins, envs := armDumps(t, dump)
 	if code == 0 || len(bins) == 0 || bins[0] != armDevHop[name].bin {
 		t.Fatalf("exit %d launches %v, want %s's dev hop first\n%s", code, bins, name, stderr)
 	}
 	assertArmDevHop(t, name, goos, envs[0])
 	for i := 1; i < len(bins); i++ {
-		assertArmFirstParty(t, bins[i], envs[i])
+		assertArmOwnLogin(t, bins[i], envs[i])
 	}
 	want := []string{armDevHop[name].bin, "claude"} // the agent's own-login pin, then claude
 	if name == "claude" || name == "opencode" {     // claude has no pin hop; the fixture pins opencode outside dev

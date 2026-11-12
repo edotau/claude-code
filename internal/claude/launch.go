@@ -391,7 +391,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 // from grandchildren, so a nested launch mints its own.
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
-// armToken is this process's session token for profile on routerBase inside --route databricks:<p>, minted once;
+// armToken is this process's session token for profile on routerBase inside overlay databricks:<p>, minted once;
 // "" when not armed, so the child keeps the router secret.
 func armToken(ctx context.Context, routerBase, profile string) (string, error) {
 	if router.ArmProfile() == "" {

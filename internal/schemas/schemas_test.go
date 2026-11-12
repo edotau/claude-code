@@ -177,7 +177,7 @@ var writers = map[string]string{
 	"internal/audit/audit.go:Log":                            "audit",
 	"internal/network/tailscale/host.go:WriteMachinesCache":  "tailscale-machines",
 	"internal/network/remote/auto.go:ResolveAuto":            "remote-auto-host",
-	"internal/agent/ask/route.go:writeArmPicks":              "route-auto",
+	"internal/agent/ask/coworker.go:writeArmPicks":           "route-auto",
 	"internal/cli/menu.go:cmdMenuSVG":                        unversioned("foreign: -o output"),
 	"internal/ui/theme/look.go:SetGradient":                  unversioned("foreign: theme file in a vendor home"),
 	"internal/clipboard/clipboard.go:grabMac":                unversioned("foreign: clipboard PNG in the temp dir"),

@@ -195,7 +195,7 @@ var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
 	About: "Resolves and prints the session profile's credential: the apiKeyHelper\n" +
 		"Claude Code calls. --proxy prints the loopback proxy's client secret instead,\n" +
-		"or the launch's session token (HARNESS_PROXY_API_KEY) inside --route databricks:<p>.",
+		"or the launch's session token (HARNESS_PROXY_API_KEY) inside overlay databricks:<p>.",
 }
 
 // cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else the loopback proxy's client secret.

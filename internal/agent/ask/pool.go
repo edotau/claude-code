@@ -51,6 +51,9 @@ func buildTask(l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool
 	}
 	req := t.Req
 	req.Agent, req.Fallback, req.Native = t.Agent, o.Fallback, o.Native
+	if req, err = confineLine(t.Agent, req); err != nil {
+		return t, fmt.Errorf("line %d: %w", l.N, err)
+	}
 	cl := newClient()
 	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
 		p, err := cl.Prepare(ctx, req, nil)

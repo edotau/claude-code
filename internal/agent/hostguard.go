@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -152,7 +153,9 @@ func hopProvider(ctx context.Context, r Engine, req RunOptions) (*providers.Prov
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
 func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *retry.Error) {
 	arm := router.ArmProfile()
-	if arm != "" { // inside databricks:<p> every hop keeps only its own credential names
+	cp, _ := router.Confined()
+	confined := arm != "" || cp != ""
+	if confined { // inside any confinement every hop keeps only its own credential names
 		ctx = withIsolation(ctx)
 	}
 	gp, err := hopProvider(ctx, r, req)
@@ -160,11 +163,11 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		return ctx, retry.Classify(r.Name(), err, false)
 	}
 	// before the own-login return: that hop is scrubbed and route-checked too
-	if err := cmp.Or(checkIsolation(ctx), guardArm(arm, r, gp)); err != nil {
+	if err := cmp.Or(checkIsolation(ctx), guardArm(arm, r, gp), guardConfined(r, gp)); err != nil {
 		return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
-	if arm != "" {
-		ctx = withRouteLogins(ctx, arm, r.Name(), gp)
+	if confined { // arm "": a confined hop keeps its own agent's login, the confined provider's, and drops the others
+		ctx = withCoworkerLogins(ctx, arm, r.Name(), gp)
 	}
 	if gp == nil {
 		return ctx, nil
@@ -181,7 +184,7 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	return ownCredentials(ctx, arm, r, gp), nil
 }
 
-// ownCredentials marks gp the hop's own profile; in the route a proxied hop (claude's too) inherits no workspace token.
+// ownCredentials marks gp the hop's own profile; a proxied coworker hop (claude's too) inherits no workspace token.
 func ownCredentials(ctx context.Context, arm string, r Engine, gp *providers.Provider) context.Context {
 	if arm != "" && (r.Name() != "claude" || gp.Name == arm) {
 		return ctx
@@ -189,10 +192,10 @@ func ownCredentials(ctx context.Context, arm string, r Engine, gp *providers.Pro
 	return withOwnProvider(ctx, gp)
 }
 
-// withRouteLogins: a hop on the armed workspace keeps no agent's own-login env, a first-party hop only its agent's.
-func withRouteLogins(ctx context.Context, arm, agentName string, gp *providers.Provider) context.Context {
+// withCoworkerLogins: a hop on the armed workspace keeps no agent's own-login env, an own-login hop only its agent's.
+func withCoworkerLogins(ctx context.Context, arm, agentName string, gp *providers.Provider) context.Context {
 	own := agentName
-	if gp != nil && gp.Name == arm {
+	if gp != nil && arm != "" && gp.Name == arm {
 		own = ""
 	}
 	return context.WithValue(ctx, loginScrubKey{}, loginScrub{own: own, keepGHToken: agentName != "copilot"})
@@ -210,6 +213,15 @@ func guardArm(arm string, r Engine, gp *providers.Provider) error {
 		return nil
 	}
 	return fmt.Errorf("%s: profile %s is outside databricks:%s", r.Name(), gp.Name, arm)
+}
+
+// guardConfined refuses a hop on a registry row outside a non-Databricks confinement's provider or pinned profile.
+func guardConfined(r Engine, gp *providers.Provider) error {
+	cp, cprof := router.Confined()
+	if cp == "" || gp == nil || (gp.Provider == cp && (cprof == "" || gp.Name == cprof)) {
+		return nil
+	}
+	return fmt.Errorf("%s: profile %s is outside %s", r.Name(), gp.Name, strings.TrimSuffix(cp+":"+cprof, ":"))
 }
 
 // armOwnLogin: gp is agentName's own sign-in, claude's Anthropic subscription or opencode's Go plan.

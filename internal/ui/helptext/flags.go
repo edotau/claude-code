@@ -183,7 +183,6 @@ var removedFlags = map[string]string{
 	"--provider": "was renamed to --profile",
 	"--env":      "was renamed to --profile",
 	"--tier":     "was replaced by --model <alias>",
-	"--router":   "was removed; routing is automatic (see `claude-code gateway`)",
 	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
 }
 

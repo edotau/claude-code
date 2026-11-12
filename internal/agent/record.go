@@ -54,7 +54,7 @@ type Record struct {
 	FallbackReason string     `json:"fallback_reason,omitempty"`
 	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
-	Route          string     `json:"route,omitempty"`           // --route at launch (databricks:qa), so a running job shows where it is going
+	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
@@ -98,7 +98,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Widened: widened, Route: os.Getenv(router.EnvRoute)}
+		Widened: widened, Route: os.Getenv(router.EnvCoworker)}
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.

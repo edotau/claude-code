@@ -46,7 +46,7 @@ func anthropicHelp(w io.Writer) {
 	fs.String("profile", "", "run on this registry profile instead")
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
-	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
+	fs.String("overlay", "", "env layer {set,unset,keep}: file, inline JSON, or -")
 	p := anthropicPage
 	p.Flags = fs
 	p.Fprint(w)

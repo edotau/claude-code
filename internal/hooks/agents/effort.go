@@ -1,4 +1,4 @@
-// `dispatch-effort`: PreToolUse on a spawn/Workflow — type deny, model pin, recall, Profile:/Route:, label; fails OPEN.
+// `dispatch-effort`: PreToolUse on spawn/Workflow: type deny, model pin, recall, Profile:/Coworker:, label; fails OPEN.
 package agents
 
 import (
@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -29,7 +30,7 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// agentLineRe matches a brief's `Agent:` line; agentNameRe the words in it.
+// agentLineRe matches a brief's `Agent:` line (read from briefHeader only); agentNameRe the words in it.
 var (
 	agentLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Agent:[ \t]*(.+)$`) })
 	agentNameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z]+`) })
@@ -40,6 +41,8 @@ type dispatchRun struct {
 	session  func() string
 	roster   map[string]string
 	registry func() (*providers.Registry, error)
+	line     *askLine // the brief's opening ask command, parsed (and its overlay loaded) once
+	lineTask string
 }
 
 // Per-run read seams: tests count them; production reads the roster file and the provider registry.
@@ -96,7 +99,7 @@ func agentEffortResult(in *core.Input) core.Result {
 	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
-	if deny := e.route(promptField, task); deny != nil {
+	if deny := e.coworker(promptField, task); deny != nil {
 		return *deny
 	}
 	if deny := e.label(task, auto); deny != nil {
@@ -112,24 +115,112 @@ var directAskRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^Run: claude-code (--remote \S+ )?agents ask `)
 })
 
-// runModelRe captures --model on a brief's opening ask command.
-var runModelRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s--model[ =](\S+)`) })
+// opensWithAsk is a task whose first line, past leading blank space as briefHeader reads it, is an ask command.
+func opensWithAsk(task string) bool { return directAskRe().MatchString(strings.TrimSpace(task)) }
 
-// runLineModel is the --model a directAsk brief's first line names, or "".
-func runLineModel(task string) string {
-	if !directAsk(task) {
-		return ""
+// askLine is a brief's opening ask command: its --agent and --model, and its --overlay document when one loads.
+type askLine struct {
+	agent, model string
+	cfg          agentconfig.Overlay
+}
+
+// opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
+func (r *dispatchRun) opening(task string) askLine {
+	if r.line == nil || r.lineTask != task {
+		l := parseAskLine(task)
+		r.line, r.lineTask = &l, task
 	}
-	line, _, _ := strings.Cut(task, "\n")
-	if m := runModelRe().FindStringSubmatch(line); m != nil {
-		return m[1]
+	return *r.line
+}
+
+// parseAskLine reads the flags a shell would see on the opening ask command; text inside a quoted task is no flag.
+func parseAskLine(task string) askLine {
+	if !opensWithAsk(task) {
+		return askLine{}
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
+	words, skip := shellFields(line), 4 // past "Run: claude-code agents ask", which opensWithAsk matched
+	if words[2] == "--remote" {
+		skip = 6 // and the global "--remote <host>"
+	}
+	words = words[min(skip, len(words)):]
+	l := askLine{agent: flagValue(words, "agent"), model: flagValue(words, "model")}
+	value := flagValue(words, "overlay")
+	if value == "" || value == "-" { // "" would read $COWORKER_OVERLAY, "-" the hook's stdin: no prediction
+		return l
+	}
+	if cfg, err := agentconfig.LoadOverlay(value, strings.NewReader("")); err == nil { // unreadable: no prediction
+		l.cfg = cfg
+	}
+	return l
+}
+
+// workAgent is the external agent the line's --agent asks for ("" = Claude); with no --agent, the leaf type's.
+func (l askLine) workAgent(st, task string) string {
+	switch {
+	case l.agent == "":
+		return workAgent(st, task)
+	case externalTypes[l.agent]:
+		return l.agent
 	}
 	return ""
 }
 
+// flagValue is the last -name/--name value before the first positional word or "--", as Go's flag package parses.
+func flagValue(words []string, name string) string {
+	v := ""
+	for i := 0; i < len(words) && isFlag(words[i]); i++ {
+		n, val, hasVal := strings.Cut(strings.TrimPrefix(words[i][1:], "-"), "=")
+		if !hasVal && takesValue(words, i+1) {
+			val, hasVal, i = words[i+1], true, i+1
+		}
+		if n == name && hasVal {
+			v = val
+		}
+	}
+	return v
+}
+
+// isFlag is a word Go's flag package reads as a flag: "-x" or "--x", never "--" or a positional word.
+func isFlag(w string) bool { return w != "--" && len(w) >= 2 && w[0] == '-' }
+
+// takesValue is words[i] being the previous flag's value: a word or "-" (stdin); a flag means that one was boolean.
+func takesValue(words []string, i int) bool {
+	return i < len(words) && (words[i] == "-" || !strings.HasPrefix(words[i], "-"))
+}
+
+// shellWordRe matches one shell word, shellPieceRe a quoted or escaped piece of it, shellEscRe an escape in "…".
+var (
+	shellWordRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:[^\s'"\\]+|\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?)+`)
+	})
+	shellPieceRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?`) })
+	shellEscRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\\(.)`) })
+)
+
+// shellFields splits a command line into the words a POSIX shell passes: quotes group and are removed, \ escapes.
+func shellFields(line string) []string {
+	words := shellWordRe().FindAllString(line, -1)
+	for i, w := range words {
+		words[i] = shellPieceRe().ReplaceAllStringFunc(w, unquotePiece)
+	}
+	return words
+}
+
+// unquotePiece is the text of one escaped (\x), single-quoted or double-quoted piece of a shell word.
+func unquotePiece(p string) string {
+	switch p[0] {
+	case '\\':
+		return p[1:]
+	case '\'':
+		return strings.TrimSuffix(p[1:], "'")
+	}
+	return shellEscRe().ReplaceAllString(strings.TrimSuffix(p[1:], `"`), "$1")
+}
+
 // directAsk is a brief that opens with its own ask command (the /<agent> and /coworker commands): never rewritten.
 func directAsk(task string) bool {
-	return directAskRe().MatchString(task) && briefProfile(task) == "" && briefRoute(task) == ""
+	return opensWithAsk(task) && briefProfile(task) == "" && briefCoworker(task) == ""
 }
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
@@ -179,13 +270,10 @@ func typeSuggestion(st, task string) string {
 	case !isCoworker:
 		return `use "general-purpose"` // every tool, WebFetch included: covers web-fetch, claude-code-guide, plugin agents
 	}
-	switch agent {
-	case "":
-		return "name one roster agent, or use the /<agent> command"
-	case agentid.Claude: // no /claude command: the name could collide
-		return `use "claude", or the /coworker --agent claude command`
+	if agent == "" {
+		return "name one roster agent"
 	}
-	return fmt.Sprintf("use %q, or the /%s command", agent, agent)
+	return fmt.Sprintf("use %q", agent)
 }
 
 // spawnTask is the spawn's prompt, or its description when the prompt is empty, with the field it came from.
@@ -231,9 +319,9 @@ func (e *effortPlan) profile(promptField, task string) *core.Result {
 	return nil
 }
 
-// route applies a brief's Route: line; a non-nil result denies the dispatch.
-func (e *effortPlan) route(promptField, task string) *core.Result {
-	note, deny := applyRoute(e.run, e.updated, promptField, task)
+// coworker applies a brief's Coworker: line; a non-nil result denies the dispatch.
+func (e *effortPlan) coworker(promptField, task string) *core.Result {
+	note, deny := applyCoworker(e.run, e.updated, promptField, task)
 	if note != "" {
 		e.note, e.changed = strings.TrimSpace(e.note+" "+note), true
 	}
@@ -436,34 +524,52 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
-// labelModel is the one precedence: Route: pick, Profile: model, workAgent's no-run pick, else the leaf's Claude model.
+// labelModel is the one precedence: Run: line model, Coworker pick, Profile: model, work agent's cell, own model.
 func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
-	if m := runLineModel(task); m != "" {
+	line := run.opening(task)
+	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
 		return m // the brief's own ask command names the model: the label says what runs
 	}
-	agent, profile, route := workAgent(st, task), profileApplies(st, task), routeApplies(st, task)
-	if agent == "" && !profile && !route {
-		return ownModel(run, updated, st)
+	agent := line.workAgent(st, task)
+	ws := labelWorkspace(coworkerApplies(st, task), task, line.cfg)
+	switch tier := labelTier(run, updated, st); {
+	case ws != "":
+		return coworkerPick(run, ws, cmp.Or(agent, agentid.Claude), tier)
+	case profileApplies(st, task):
+		return labelProfileModel(run, briefProfile(task), tier)
+	case agent != "":
+		return labelCell(run, agent, tier)
 	}
+	return ownModel(run, updated, st)
+}
+
+// labelTier is the alias the pick starts from: the dispatch's model, else the agent file's, else sonnet.
+func labelTier(run *dispatchRun, updated map[string]any, st string) string {
 	tier, _ := updated["model"].(string)
 	if tier == "" || tier == "inherit" {
 		tier = run.rosterModel(st)
 	}
 	if !slices.Contains(models.AliasNames, tier) {
-		tier = models.Sonnet
+		return models.Sonnet
 	}
-	if p, err := routeWorkspace(task); route && err == nil {
-		return routePick(run, p, routeAgent(st, task), tier)
-	}
-	if profile {
-		return labelProfileModel(run, briefProfile(task), tier)
-	}
-	return labelCell(run, agent, tier)
+	return tier
 }
 
-// routePick is labelCell inside route databricks:<p>: the env `--route` exports (ask.ApplyRoute), restored after.
-func routePick(run *dispatchRun, p, agent, tier string) string {
-	for k, v := range map[string]string{router.EnvRoute: router.RouteDatabricks + ":" + p, providers.EnvSessionProfile: p} {
+// labelWorkspace is the workspace the label picks inside: a Coworker: line's, else the Run: line config's; "" for none.
+func labelWorkspace(coworker bool, task string, cfg agentconfig.Overlay) string {
+	if coworker {
+		p, _ := coworkerWorkspace(task)
+		return p
+	}
+	if cfg.Provider != router.RouteDatabricks || cfg.Profile == "auto" {
+		return "" // auto resolves at run time, another provider needs ask's lead rule: the pin-based label stands
+	}
+	return cfg.Profile
+}
+
+// coworkerPick is labelCell inside databricks:<p>: the env ask exports for that overlay, restored after.
+func coworkerPick(run *dispatchRun, p, agent, tier string) string {
+	for k, v := range map[string]string{router.EnvCoworker: router.RouteDatabricks + ":" + p, providers.EnvSessionProfile: p} {
 		old, had := os.LookupEnv(k)
 		_ = os.Setenv(k, v)
 		defer restoreEnv(k, old, had)
@@ -578,9 +684,9 @@ var profileNames = func(run *dispatchRun) ([]string, bool) {
 	return reg.Names(), true
 }
 
-// briefProfile is the profile the brief's `Profile:` line names, or "".
+// briefProfile is the profile a `Profile:` line in the brief's header block names, or "".
 func briefProfile(task string) string {
-	if m := profileLineRe().FindStringSubmatch(task); m != nil {
+	if m := profileLineRe().FindStringSubmatch(briefHeader(task)); m != nil {
 		return strings.TrimRight(m[1], ".") // "Profile: dev." ends a sentence, not the name
 	}
 	return ""
@@ -588,7 +694,7 @@ func briefProfile(task string) string {
 
 // briefAgents are the agents the `Agent:` line names, claude when the line is absent; nil for in-context.
 func briefAgents(task string) []string {
-	m := agentLineRe().FindStringSubmatch(task)
+	m := agentLineRe().FindStringSubmatch(briefHeader(task))
 	if m == nil {
 		return []string{"claude"}
 	}
@@ -610,7 +716,7 @@ var readOnlyTypes = map[string]bool{"Plan": true, "Explore": true, "gemini": tru
 
 // inContextBrief is true when the brief's Agent: line says in-context.
 func inContextBrief(task string) bool {
-	m := agentLineRe().FindStringSubmatch(task)
+	m := agentLineRe().FindStringSubmatch(briefHeader(task))
 	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
 }
 
@@ -640,9 +746,12 @@ func applyProfile(run *dispatchRun, updated map[string]any, promptField, task st
 
 // routeProfile prepends the ask command to the prompt, once.
 func routeProfile(updated map[string]any, promptField, task, p string) (note string) {
-	agents := briefAgents(task)
-	if st, _ := updated["subagent_type"].(string); externalTypes[st] && !agentLineRe().MatchString(task) {
-		agents = []string{st} // with no Agent: line an external agent type runs as itself, as under Route:
+	agents, st := briefAgents(task), fmt.Sprint(updated["subagent_type"])
+	if coworkerApplies(st, task) && router.ArmProfile() == "" {
+		return "" // the Coworker: step writes the one Run: line, or blocks when the two differ
+	}
+	if externalTypes[st] && !agentLineRe().MatchString(briefHeader(task)) {
+		agents = []string{st} // with no Agent: line an external agent type runs as itself, as under Coworker:
 	}
 	if len(agents) == 0 {
 		agents = []string{"claude"}
@@ -659,77 +768,126 @@ func routeProfile(updated map[string]any, promptField, task, p string) (note str
 	return note
 }
 
-var routeLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Route:[ \t]*(\S+)`) })
+// coworkerLineRe matches a brief's `Coworker:` line; oldRouteLineRe the `Route:` line it replaced.
+var (
+	coworkerLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Coworker:[ \t]*(\S+)`) })
+	oldRouteLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Route:[ \t]*databricks\b`) })
+	blankLineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n[ \t\r]*\n\s*`) })
+	profileNameRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
+)
 
-// briefRoute is the `Route:` line's value, or "".
-func briefRoute(task string) string {
-	if m := routeLineRe().FindStringSubmatch(task); m != nil {
+// briefHeader is the brief's header block: the lines before its first blank line, past an opening Run: line.
+func briefHeader(task string) string {
+	paras := blankLineRe().Split(strings.TrimSpace(task), 3)
+	if len(paras) > 1 && strings.HasPrefix(paras[0], "Run:") && !strings.Contains(paras[0], "\n") {
+		return paras[0] + "\n" + paras[1]
+	}
+	return paras[0]
+}
+
+// briefCoworker is the value of a `Coworker:` line in the brief's header block, or "".
+func briefCoworker(task string) string {
+	if m := coworkerLineRe().FindStringSubmatch(briefHeader(task)); m != nil {
 		return strings.TrimRight(m[1], ".")
 	}
 	return ""
 }
 
-// routeApplies is true when a brief's Route: reaches a leaf of type st: Explore, Plan and in-context leaves ignore it.
-func routeApplies(st, task string) bool {
-	return briefRoute(task) != "" && (!readOnlyTypes[st] || externalTypes[st]) && !inContextBrief(task)
+// coworkerApplies is true when a brief's Coworker: reaches a leaf of type st: Explore, Plan and in-context skip it.
+func coworkerApplies(st, task string) bool {
+	return briefCoworker(task) != "" && (!readOnlyTypes[st] || externalTypes[st]) && !inContextBrief(task)
 }
 
-// routeWorkspace is the workspace a brief's Route: line names (bare: the armed route's, else the session's profile).
-func routeWorkspace(task string) (string, error) {
-	mode, p, err := router.ParseRoute(briefRoute(task))
+// coworkerWorkspace is the workspace a brief's Coworker: line names (bare: the armed one's, else the session profile).
+func coworkerWorkspace(task string) (string, error) {
+	mode, p, err := router.ParseCoworker(briefCoworker(task))
 	switch {
 	case err != nil:
 		return "", err
 	case mode != router.RouteDatabricks:
-		return "", fmt.Errorf("brief Route: %s: only databricks[:<profile>] is a brief route", mode)
+		return "", fmt.Errorf("brief Coworker: %s: only databricks[:<profile>] is a brief coworker", mode)
 	case p == "":
 		p = cmp.Or(router.ArmProfile(), providers.SessionProfile())
 	}
 	if p == "" {
-		return "", errors.New("brief Route: databricks needs a workspace: databricks:<profile>")
+		return "", errors.New("brief Coworker: databricks needs a workspace: databricks:<profile>")
+	}
+	if !profileNameRe().MatchString(p) { // p lands in a command a leaf runs in a shell
+		return "", fmt.Errorf("brief Coworker: profile %q: only letters, digits, '.', '_' and '-' are allowed", p)
 	}
 	return p, nil
 }
 
-// servingRow refuses a profile route databricks:<p> cannot run on; tests stub it.
-var servingRow = providers.ServingRow
-
-// applyRoute prepends `agents ask --route databricks:<p>` to a Route: dispatch; deny blocks a bad, unknown or
-// conflicting route (another Profile:, or leaving the session's armed route). Inside the same route it is a no-op.
-func applyRoute(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
-	st, _ := updated["subagent_type"].(string)
-	if !routeApplies(st, task) {
-		return "", nil
+// servingRow refuses a profile coworker databricks:<p> cannot run on; tests stub it.
+var servingRow = func(run *dispatchRun, p string) error {
+	reg, err := run.registry()
+	if err != nil {
+		return nil // fail open, like profileNames: ask itself refuses the row
 	}
-	p, err := routeWorkspace(task)
+	return reg.ServingRow(p)
+}
+
+// applyCoworker prepends `agents ask --overlay '<doc>'` to a Coworker: dispatch; deny blocks a bad or conflicting one.
+func applyCoworker(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	block := func(msg string) (string, *core.Result) {
 		return "", &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + msg}
 	}
-	switch arm := router.ArmProfile(); {
-	case err != nil:
-		return block(err.Error())
-	case arm != "" && p != arm:
-		return block("Route: databricks:" + p + " conflicts with databricks:" + arm)
-	case briefProfile(task) != "" && briefProfile(task) != p:
-		return block("Route: databricks:" + p + " conflicts with Profile: " + briefProfile(task))
-	case arm == p:
+	st, _ := updated["subagent_type"].(string)
+	switch {
+	case oldRouteLineRe().MatchString(briefHeader(task)):
+		return block(`the brief line "Route:" was renamed "Coworker:"`)
+	case !coworkerApplies(st, task):
 		return "", nil
 	}
-	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
-		return block(fmt.Sprintf("--route databricks:%s: no such profile", p))
-	}
-	if err := servingRow(p); err != nil {
+	p, err := coworkerWorkspace(task)
+	if err != nil {
 		return block(err.Error())
 	}
-	cmd := fmt.Sprintf("claude-code agents ask --agent %s --route databricks:%s", routeAgent(st, task), p)
-	if prompt, _ := updated[promptField].(string); !strings.Contains(prompt, "--route databricks:"+p) {
-		updated[promptField] = "Run: " + cmd + " (route databricks:" + p + "; ask resolves host and auth)\n\n" + prompt
-		note = "dispatch-effort: Route: databricks:" + p + " — leaf must run `" + cmd + "`."
+	own, arm := run.opening(task).cfg.Confinement(), router.ArmProfile() // own: the Run: line's confinement, never stacked
+	overlay := "--overlay " + textutil.ShellQuote(agentconfig.InlineOverlay(router.RouteDatabricks, p))
+	if msg := coworkerConflict(task, p, arm, own, overlay); msg != "" {
+		return block(msg)
 	}
-	return note, nil
+	if arm == p || own != "" {
+		return "", nil
+	}
+	if msg := coworkerRowErr(run, p); msg != "" {
+		return block(msg)
+	}
+	cmd := "claude-code agents ask --agent " + coworkerAgent(st, task) + " " + overlay
+	prompt, _ := updated[promptField].(string)
+	updated[promptField] = "Run: " + cmd + " (coworker databricks:" + p + "; ask resolves host and auth)\n\n" + prompt
+	return "dispatch-effort: Coworker: databricks:" + p + " — leaf must run `" + cmd + "`.", nil
 }
 
-// routeAgent is the agent a Route: dispatch asks for: the work agent, else claude.
-func routeAgent(st, task string) string {
+// coworkerConflict names what Coworker: databricks:<p> conflicts with: the armed workspace, Profile: or the Run: line.
+func coworkerConflict(task, p, arm, own, overlay string) string {
+	switch profile := briefProfile(task); {
+	case cmp.Or(arm, p) != p:
+		return "Coworker: databricks:" + p + " conflicts with databricks:" + arm
+	case cmp.Or(profile, p) != p:
+		return "Coworker: databricks:" + p + " conflicts with Profile: " + profile
+	case own != "" && own != router.RouteDatabricks+":"+p:
+		return "Coworker: databricks:" + p + " conflicts with the brief's own overlay " + own
+	case own+arm == "" && opensWithAsk(task):
+		return "Coworker: databricks:" + p + ": the brief already opens with its own Run: line; put " + overlay +
+			" on that line, else drop the Coworker: line"
+	}
+	return ""
+}
+
+// coworkerRowErr is why workspace p cannot run a coworker (unknown, or no serving row); "" when it can.
+func coworkerRowErr(run *dispatchRun, p string) string {
+	if names, ok := profileNames(run); ok && !slices.Contains(names, p) {
+		return fmt.Sprintf("overlay databricks:%s: no such profile", p)
+	}
+	if err := servingRow(run, p); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// coworkerAgent is the agent a Coworker: dispatch asks for: the work agent, else claude.
+func coworkerAgent(st, task string) string {
 	return cmp.Or(workAgent(st, task), agentid.Claude)
 }

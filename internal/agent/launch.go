@@ -340,7 +340,7 @@ type LaunchOptions struct {
 	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
-	Overlay  string   // --overlay FILE; empty reads $COWORKER_OVERLAY
+	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
 }
 
 func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {

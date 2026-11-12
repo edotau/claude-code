@@ -528,7 +528,7 @@ func TestArmLabelIsPick(t *testing.T) {
 			pathstest.FakeVendor(t, "codex", "exit 0")
 			if armed {
 				vaulttest.SetRecord(t, "codex", "profile", "dev")
-				t.Setenv("HARNESS_ROUTE", "databricks:dev")
+				t.Setenv(router.EnvCoworker, "databricks:dev")
 			}
 			_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
 			if err != nil || len(res.Candidates) == 0 {
@@ -706,10 +706,10 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		"copilot": {"do it", `use "general-purpose"`}, "web-fetch": {"read a page", `use "general-purpose"`},
 		"claude-code-guide": {"q", `use "general-purpose"`}, "statusline-setup": {"q", `use "general-purpose"`},
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
-		"coworker:copilot":                          {"do it", `use "copilot", or the /copilot command`},
-		"coworker:opencode":                         {"do it", `use "opencode", or the /opencode command`},
-		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex", or the /codex command`},
-		"coworker":                                  {"do it", "name one roster agent, or use the /<agent> command"},
+		"coworker:copilot":                          {"do it", `use "copilot"`},
+		"coworker:opencode":                         {"do it", `use "opencode"`},
+		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex"`},
+		"coworker":                                  {"do it", "name one roster agent"},
 	} {
 		want := fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
 		if r := blocked(st, c.brief); r != want {
@@ -762,7 +762,7 @@ func stubProfiles(t *testing.T, names []string, ok bool) {
 	old := profileNames
 	profileNames = func(*dispatchRun) ([]string, bool) { return names, ok }
 	oldRow := servingRow
-	servingRow = func(string) error { return nil }
+	servingRow = func(*dispatchRun, string) error { return nil }
 	t.Cleanup(func() { profileNames, servingRow = old, oldRow })
 }
 
@@ -852,7 +852,7 @@ func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 // TestArmProfileLineBlocked: under databricks:dev a Profile: line for another profile is blocked, dev's own passes.
 func TestArmProfileLineBlocked(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	t.Setenv(router.EnvCoworker, "databricks:dev")
 	stubProfiles(t, []string{"dev", "qa"}, true)
 	res := effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))
 	if res.Decision != core.Block || !strings.Contains(res.Reason, "dispatch-effort: Profile: qa conflicts with databricks:dev") {
@@ -864,85 +864,86 @@ func TestArmProfileLineBlocked(t *testing.T) {
 	}
 }
 
-// routeSpawn runs one dispatch of type kind with brief prompt and returns the result.
-func routeSpawn(t *testing.T, kind, prompt string) core.Result {
+// coworkerSpawn runs one dispatch of type kind with brief prompt and returns the result.
+func coworkerSpawn(t *testing.T, kind, prompt string) core.Result {
 	t.Helper()
 	return effortResult(profileSpawn(t, kind, prompt))
 }
 
-// A Route: line makes each external roster leaf run `agents ask --route`, bare Route: takes the session's profile.
-func TestRouteLineRewritesExternalTypes(t *testing.T) {
+// A Coworker: line makes each external roster leaf run `agents ask --overlay`; a bare one takes the session's profile.
+func TestCoworkerLineRewritesExternalTypes(t *testing.T) {
 	useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode")
 	stubProfiles(t, []string{"dbx", "qa"}, true)
 	stubLabelModels(t, "", "")
 	t.Setenv(providers.EnvSessionProfile, "")
 	for _, kind := range []string{"codex", "copilot", "gemini", "opencode", "claude"} {
-		res := routeSpawn(t, kind, "Route: databricks:dbx\nreview a.go")
+		res := coworkerSpawn(t, kind, "Coworker: databricks:dbx\nreview a.go")
 		prompt, _ := res.UpdatedInput["prompt"].(string)
-		if want := "Run: claude-code agents ask --agent " + kind + " --route databricks:dbx "; res.Decision == core.Block || !strings.HasPrefix(prompt, want) {
+		if want := "Run: claude-code agents ask --agent " + kind + " " + `--overlay '{"provider":"databricks","profile":"dbx"}' `; res.Decision == core.Block || !strings.HasPrefix(prompt, want) {
 			t.Errorf("%s: prompt %q (reason %q), want it to start %q", kind, prompt, res.Reason, want)
 		}
 	}
-	if r := routeSpawn(t, "codex", "Route: databricks\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "needs a workspace") {
-		t.Errorf("bare Route with no session profile = %+v, want a block", r)
+	if r := coworkerSpawn(t, "codex", "Coworker: databricks\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "needs a workspace") {
+		t.Errorf("bare Coworker with no session profile = %+v, want a block", r)
 	}
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	if p, _ := routeSpawn(t, "codex", "Route: databricks\nx").UpdatedInput["prompt"].(string); !strings.Contains(p, "--route databricks:qa ") {
-		t.Errorf("bare Route with session profile qa: prompt %q", p)
+	if p, _ := coworkerSpawn(t, "codex", "Coworker: databricks\nx").UpdatedInput["prompt"].(string); !strings.Contains(p, `--overlay '{"provider":"databricks","profile":"qa"}' `) {
+		t.Errorf("bare Coworker with session profile qa: prompt %q", p)
 	}
-	if p, _ := routeSpawn(t, "Explore", "Route: databricks:dbx\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--route") {
-		t.Errorf("Explore must ignore Route:, prompt %q", p)
+	if p, _ := coworkerSpawn(t, "Explore", "Coworker: databricks:dbx\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--overlay") {
+		t.Errorf("Explore must ignore Coworker:, prompt %q", p)
 	}
 }
 
-// Route: blocks an unknown profile, a different Profile:, and leaving an armed session; the armed one is a no-op.
-func TestRouteLineConflicts(t *testing.T) {
+// Coworker: blocks an unknown profile, a different Profile:, and leaving an armed session; the armed one is a no-op.
+func TestCoworkerLineConflicts(t *testing.T) {
 	useAgentsDir(t, "codex")
 	stubProfiles(t, []string{"dbx", "qa"}, true)
 	stubLabelModels(t, "", "")
 	for brief, want := range map[string]string{
-		"Route: databricks:nope\nx":             "--route databricks:nope: no such profile",
-		"Route: databricks:dbx\nProfile: qa\nx": "Route: databricks:dbx conflicts with Profile: qa",
-		"Route: first-party\nx":                 "only databricks",
+		"Coworker: databricks:nope\nx":             "overlay databricks:nope: no such profile",
+		"Coworker: databricks:dbx\nProfile: qa\nx": "Coworker: databricks:dbx conflicts with Profile: qa",
+		"Coworker: anthropic\nx":                   "only databricks",
+		"Coworker: first-party\nx":                 "unknown provider (",
 	} {
-		if r := routeSpawn(t, "codex", brief); r.Decision != core.Block || !strings.Contains(r.Reason, want) {
+		if r := coworkerSpawn(t, "codex", brief); r.Decision != core.Block || !strings.Contains(r.Reason, want) {
 			t.Errorf("%q = %+v, want a block naming %q", brief, r, want)
 		}
 	}
-	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nProfile: dbx\nx"); r.Decision == core.Block {
-		t.Errorf("matching Route and Profile blocked: %s", r.Reason)
+	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nProfile: dbx\nx"); r.Decision == core.Block {
+		t.Errorf("matching Coworker and Profile blocked: %s", r.Reason)
 	}
-	servingRow = func(p string) error {
-		return errors.New("--route databricks:" + p + ": AI Gateway row; use a serving row")
+	servingRow = func(_ *dispatchRun, p string) error {
+		return errors.New("overlay databricks:" + p + ": AI Gateway row; use a serving row")
 	}
-	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "AI Gateway row") {
+	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "AI Gateway row") {
 		t.Errorf("a non-serving row = %+v, want a block naming the row kind", r)
 	}
-	servingRow = func(string) error { return nil }
-	t.Setenv(router.EnvRoute, "databricks:qa")
-	if r := routeSpawn(t, "codex", "Route: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "conflicts with databricks:qa") {
-		t.Errorf("leaving the armed route = %+v, want a block", r)
+	servingRow = func(*dispatchRun, string) error { return nil }
+	t.Setenv(router.EnvCoworker, "databricks:qa")
+	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "conflicts with databricks:qa") {
+		t.Errorf("leaving the armed coworker = %+v, want a block", r)
 	}
-	if p, _ := routeSpawn(t, "codex", "Route: databricks:qa\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--route") {
-		t.Errorf("Route matching the armed session must be a no-op, prompt %q", p)
+	if p, _ := coworkerSpawn(t, "codex", "Coworker: databricks:qa\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--overlay") {
+		t.Errorf("Coworker matching the armed session must be a no-op, prompt %q", p)
 	}
 }
 
-// A brief-level Route: labels with the same pick an armed session would.
-func TestRouteLineLabelIsArmedPick(t *testing.T) {
+// A brief-level Coworker: labels with the same pick an armed session would.
+func TestCoworkerLineLabelIsArmedPick(t *testing.T) {
 	useAgentsDir(t, "codex")
 	stubProfiles(t, []string{"dbx"}, true)
 	stubLabelModels(t, "", "")
 	labelCell = func(_ *dispatchRun, agent, alias string) string {
-		return agent + "-" + alias + "@" + os.Getenv(router.EnvRoute)
+		return agent + "-" + alias + "@" + os.Getenv(router.EnvCoworker)
 	}
 	label := func(brief string) string {
-		d, _ := routeSpawn(t, "codex", brief).UpdatedInput["description"].(string)
+		d, _ := coworkerSpawn(t, "codex", brief).UpdatedInput["description"].(string)
 		return d
 	}
-	brief := label("Route: databricks:dbx\nx")
-	t.Setenv(router.EnvRoute, "databricks:dbx")
+	brief := label("Coworker: databricks:dbx\nx")
+	t.Setenv(router.EnvCoworker, "databricks:dbx")
 	if armed := label("x"); brief != armed || !strings.Contains(brief, "@databricks:dbx: fix thing") {
-		t.Errorf("brief Route label %q, armed label %q, want the same pick inside databricks:dbx", brief, armed)
+		t.Errorf("brief Coworker label %q, armed label %q, want the same pick inside databricks:dbx", brief, armed)
 	}
 }

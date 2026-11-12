@@ -77,7 +77,7 @@ func TestParseArgsKeepEnvCredentialRefusedWithAndWithoutDoubleDash(t *testing.T)
 // Every removed flag is a parse error carrying its hint; --profile stays valid.
 func TestParseLaunchArgsRemovedFlags(t *testing.T) {
 	for flag, want := range map[string]string{
-		"--provider": "--profile", "--env": "--profile", "--tier": "--model", "--router": "removed",
+		"--provider": "--profile", "--env": "--profile", "--tier": "--model",
 	} {
 		for _, claude := range []bool{true, false} {
 			if _, _, err := ParseLaunchArgs([]string{flag, "x"}, claude); err == nil || !strings.Contains(err.Error(), want) {

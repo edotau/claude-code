@@ -26,8 +26,8 @@ package when a task depends on a boundary.
 
 ## Per-call routes
 
-`--route databricks:<profile>` selects the Databricks arm without changing the agent's persistent pin; `:auto`,
-`--remote` and `--host`: `rules/harness/network.md`. Report the actual run receipt, not a planned model.
+`--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin;
+`auto`, `--remote` and `--host`: `rules/harness/network.md`. Report the actual run receipt, not a planned model.
 
 ## Measurements
 

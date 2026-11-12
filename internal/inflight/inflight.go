@@ -155,7 +155,7 @@ func LiveDispatches(owner int) int {
 	return n
 }
 
-// LiveRoutes counts the alive dispatch records per `--route` value ("databricks:qa"); unrouted ones are skipped.
+// LiveRoutes counts the alive dispatch records per overlay confinement ("databricks:qa"); unrouted ones are skipped.
 func LiveRoutes() map[string]int {
 	out := map[string]int{}
 	liveRecords(func(_ int, route string) {

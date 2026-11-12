@@ -195,9 +195,13 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 
 // launchOverlay is --overlay, else $COWORKER_OVERLAY; --print-env keeps vault refs unresolved (names, never values).
 func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
-	o, err := agentconfig.LoadOverlay(opts.Overlay)
+	o, err := agentconfig.LoadOverlay(opts.Overlay, os.Stdin)
 	if err != nil {
 		return agentconfig.Resolved{}, err
+	}
+	if o.Routed() { // an interactive launch takes the env layer only: refuse, never silently ignore
+		return agentconfig.Resolved{}, errors.New("overlay " + strings.Join(agentconfig.RoutingKeys(), "/") +
+			" apply to agents ask and gateway, not an interactive launch")
 	}
 	if opts.PrintEnv {
 		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil

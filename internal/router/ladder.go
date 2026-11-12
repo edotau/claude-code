@@ -11,57 +11,64 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// EnvRoute picks the ladder for every dispatch in the session (vault env or `--route`); see RouteModes.
-const EnvRoute = "HARNESS_ROUTE"
+// EnvCoworker confines every dispatch in the session to <provider>[:<profile>] (vault env or overlay provider).
+const EnvCoworker = "HARNESS_COWORKER"
 
-// Route modes `--route` and HARNESS_ROUTE accept; unset is default. RouteDatabricks takes a profile: databricks:<p>.
-const (
-	RouteDefault    = "default"
-	routeFirstParty = "first-party"
-	RouteDatabricks = "databricks"
-)
+// RouteDatabricks is the provider whose confinement arms one workspace (ArmProfile); any other only filters accounts.
+const RouteDatabricks = "databricks"
 
-// RouteModes lists the accepted --route values.
-var RouteModes = []string{RouteDefault, routeFirstParty, RouteDatabricks}
-
-// ParseRoute splits a --route value into its mode and, for databricks:<p>, the profile; "" is no route.
-func ParseRoute(v string) (mode, profile string, err error) {
+// ParseCoworker splits a HARNESS_COWORKER value into its provider key and optional profile; "" is no confinement.
+func ParseCoworker(v string) (provider, profile string, err error) {
 	v = strings.TrimSpace(v)
-	mode, profile, named := strings.Cut(v, ":")
+	provider, profile, named := strings.Cut(v, ":")
 	switch {
 	case v == "":
 		return "", "", nil
-	case named && mode == RouteDatabricks && profile != "" && !strings.Contains(profile, ":"):
-		return mode, profile, nil
-	case !named && slices.Contains(RouteModes, mode):
-		return mode, "", nil
+	case slices.Contains(providers.ProviderKeys(), provider) && (!named || (profile != "" && !strings.Contains(profile, ":"))):
+		return provider, profile, nil
 	}
-	return "", "", fmt.Errorf("--route %q unknown (default|first-party|databricks:<profile>)", v)
+	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|")) // never quotes v
 }
 
-// ArmProfile is the workspace HARNESS_ROUTE=databricks:<p> confines the pick to; "" when the route is anything else.
+// Confined is the non-Databricks confinement HARNESS_COWORKER names: its provider and optional profile; "" outside one.
+func Confined() (provider, profile string) {
+	provider, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
+	if err != nil || provider == RouteDatabricks {
+		return "", ""
+	}
+	return provider, profile
+}
+
+// OwnProfiles lists agent's own-login rows under provider, in name order (claude: the anthropic CLI-login rows).
+func OwnProfiles(reg *providers.Registry, agent, provider string) []string {
+	return slices.DeleteFunc(ownRows(reg, agent), func(n string) bool { return reg.Providers[n].Provider != provider })
+}
+
+// CanUse reports agent may run under provider: Databricks serves every agent, any other needs an own-login row there.
+func CanUse(reg *providers.Registry, agent, provider string) bool {
+	return provider == RouteDatabricks || len(OwnProfiles(reg, agent, provider)) > 0
+}
+
+// ArmProfile is the workspace HARNESS_COWORKER=databricks:<p> confines the pick to; "" when the route is anything else.
 func ArmProfile() string {
-	mode, profile, err := ParseRoute(os.Getenv(EnvRoute))
+	mode, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
 	if err != nil || mode != RouteDatabricks {
 		return ""
 	}
 	return profile
 }
 
-// gateLadder drops a candidate the chosen ladder rules out (not first-party, or a rung model the account can't serve).
+// gateLadder drops a candidate the confinement rules out, or whose rung model its account can't serve.
 const gateLadder = "ladder"
 
-// firstPartyAccount is a vendor's own login (providers.FirstPartyAccountKeys); a pinned "github·" account also passes.
-func firstPartyAccount(account string) bool {
-	return (strings.HasPrefix(account, "github·") && account != copilotUnpinned) || slices.Contains(providers.FirstPartyAccountKeys, account)
+// ownLoginAccount is a vendor's own login (providers.OwnLoginAccountKeys); a pinned "github·" account also passes.
+func ownLoginAccount(account string) bool {
+	return (strings.HasPrefix(account, "github·") && account != copilotUnpinned) || slices.Contains(providers.OwnLoginAccountKeys, account)
 }
 
-// ladderName is first-party or databricks only when HARNESS_ROUTE (`--route` sets it) asks; else default.
+// ladderName is databricks only when HARNESS_COWORKER arms a workspace; any other confinement filters the default ladder.
 func ladderName() string {
-	switch {
-	case strings.TrimSpace(os.Getenv(EnvRoute)) == routeFirstParty:
-		return providers.LadderFirstParty
-	case ArmProfile() != "":
+	if ArmProfile() != "" {
 		return providers.LadderDatabricks
 	}
 	return providers.LadderDefault
@@ -70,8 +77,9 @@ func ladderName() string {
 // pickLadder is the ladder one pick follows: its rungs, which accounts it admits, and claude's slot.
 type pickLadder struct {
 	rungs       []providers.Rung
-	firstParty  bool
-	arm         string // databricks:<arm> admits only that workspace's account and first-party ones
+	only        string // a non-Databricks confinement's provider: admits only its accounts
+	onlyAccount string // provider·profile when that confinement pins a profile
+	arm         string // databricks:<arm> admits only that workspace's account and own-login ones
 	armAccount  string // ProviderAccount(arm)
 	anywhere    bool   // claude scores into the first rung it beats (no rung names claude)
 	claudeRungs bool   // a rung names claude, so claude is matched like any agent
@@ -80,7 +88,12 @@ type pickLadder struct {
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
 func (t *RouteTable) ladderFor() pickLadder {
 	name := ladderName()
-	l := pickLadder{rungs: t.Ladders[name], firstParty: name == providers.LadderFirstParty}
+	l := pickLadder{rungs: t.Ladders[name]}
+	if p, profile := Confined(); profile != "" {
+		l.only, l.onlyAccount = p, p+"·"+profile
+	} else {
+		l.only = p
+	}
 	if name == providers.LadderDatabricks {
 		l.arm = ArmProfile()
 		l.armAccount = ProviderAccount(l.arm)
@@ -136,7 +149,7 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 	return out
 }
 
-// admitGroups applies the first-party filter to each gate group, dropping groups it empties.
+// admitGroups applies the confinement filter to each gate group, dropping groups it empties.
 func (lp ladderPick) admitGroups(groups [][]Candidate) [][]Candidate {
 	var out [][]Candidate
 	for _, g := range groups {
@@ -149,7 +162,7 @@ func (lp ladderPick) admitGroups(groups [][]Candidate) [][]Candidate {
 
 // admit drops the unit's candidates the ladder rules out (keeps), recording each as a Skip.
 func (l pickLadder) admit(u []Candidate, res *PickResult) []Candidate {
-	if !l.firstParty && l.arm == "" {
+	if l.only == "" && l.arm == "" {
 		return u
 	}
 	return slices.DeleteFunc(slices.Clone(u), func(c Candidate) bool {
@@ -164,9 +177,9 @@ func (l pickLadder) admit(u []Candidate, res *PickResult) []Candidate {
 // keeps is admit's rule for one account under a filtering ladder.
 func (l pickLadder) keeps(account string) bool {
 	if l.arm != "" {
-		return account == l.armAccount || firstPartyAccount(account)
+		return account == l.armAccount || ownLoginAccount(account)
 	}
-	return firstPartyAccount(account)
+	return accountProvider(account) == l.only && (l.onlyAccount == "" || account == l.onlyAccount)
 }
 
 // dropReason is the Skip reason admit records.
@@ -174,8 +187,11 @@ func (l pickLadder) dropReason() string {
 	if l.arm != "" {
 		return armOutside(l.arm)
 	}
-	return "not first-party"
+	return "outside " + strings.Replace(cmp.Or(l.onlyAccount, l.only), "·", ":", 1)
 }
+
+// Outside reports a Skip the confinement filter recorded: the candidate was set aside, never attempted.
+func (s Skip) Outside() bool { return s.Gate == gateLadder && strings.HasPrefix(s.Reason, "outside ") }
 
 // armOutside is the Skip reason for an account route databricks:<arm> sets aside.
 func armOutside(arm string) string { return "outside " + RouteDatabricks + ":" + arm }

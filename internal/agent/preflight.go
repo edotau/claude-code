@@ -148,7 +148,7 @@ func CheckModelNoted(agentName string, p *providers.Provider, model string, now 
 	return wire, failed
 }
 
-// armFinding is the first failed local check of the --route databricks:<p> workspace, recorded in rc.pf; nil passes.
+// armFinding is the first failed local check of the overlay databricks:<p> workspace, recorded in rc.pf; nil passes.
 func (rc routeCtx) armFinding() *Finding {
 	p := rc.reg.Row(router.ArmProfile())
 	if p == nil || p.Preset != providers.PresetDatabricks {

@@ -48,7 +48,7 @@ func askSpecFlags() []helptext.Flag {
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
 		flag("append-system-prompt"), flag("system-prompt"), flag("output-schema"), flag("env"), flag("provider"), flag("host"), flag("host-bin"),
-		boolFlag("live"), boolFlag("direct"), valuedFlag("route", func() []string { return router.RouteModes }), flag("retry-agent"),
+		boolFlag("live"), boolFlag("direct"), flag("retry-agent"),
 		boolFlag("diff"), flag("dirs"), flag("files"), boolFlag("index"), flag("max-files"), flag("max-file-bytes"),
 		boolFlag("follow"), flag("follow-idle"), flag("overlay-debug"), boolFlag("stdin-framed"),
 	}
@@ -314,7 +314,7 @@ func cmdAgentsLabel(args []string) int {
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
-	if row.Blocked != "" { // the hook refuses this type: say so instead of printing a prefix it never accepts
+	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
 	}
 	if row.Label != "" { // an empty label is no prefix, as the hook writes none
@@ -480,7 +480,7 @@ func launchFlags(name string) *flag.FlagSet {
 	helptext.NameVar(fs, new(string), "profile", profileUsage)
 	fs.Bool("direct", false, "skip the proxy; hand the CLI the profile route")
 	fs.Bool("print-env", false, "print the resolved binary, argv and env; do not launch")
-	fs.String("overlay", "", "JSON {set,unset,keep} file over the child's env")
+	fs.String("overlay", "", "env layer {set,unset,keep}: file, inline JSON, or -")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
 	if name == "codex" {
 		fs.String("file", "", "config.toml whose keys ride as -c overrides")

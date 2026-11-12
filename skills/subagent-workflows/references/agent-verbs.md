@@ -35,10 +35,11 @@ what differs; the full list is `claude-code agents ask -h`.
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |
 | Output | `--format json` (envelope: `status`, `answer`, `model`, `fallback`) · `stream-json` · `--output-schema <json>` |
-| Also | `--session <id>` (= `resume`) · `--env` · `--fallback all\|agents\|none` · `--host <ssh>` · `--direct` · `--overlay <file>` · `agents ask --log\|--retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
+| Also | `--session <id>` (= `resume`) · `--env` · `--fallback all\|agents\|none` · `--host <ssh>` · `--direct` · `--overlay <file\|json\|->` (the dispatch config) · `agents ask --log\|--retry <id>` · `--batch <jsonl> --jobs N [--fail-fast]` |
 
-Interactive launch takes `--model` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file>`
-(`{set,unset,keep}` env) · `--print-env` (resolved binary, argv, env; no launch); `--docs` prints the CLI's help.
+Interactive launch takes `--model` · `--profile <p>` · `--direct` (skip the proxy) · `--overlay <file\|json\|->`
+(`set`/`unset`/`keep` only; routing keys refused) · `--print-env` (resolved binary, argv, env; no launch); `--docs`
+prints the CLI's help.
 
 ## Procedure skeleton
 
