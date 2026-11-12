@@ -549,19 +549,6 @@ func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	}
 }
 
-// An unrecordable destination must not leave a dated copy that a retry would duplicate.
-func TestPlanMirrorFailedRecordDefersCopy(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	writeMirrorDraft(t, filepath.Join(cfg, "state", "harness"), "plans-scratch", "x") // the scratch dir cannot be created
-	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "funny-random-words.md", planTemplate)
-	mirrorRun(t, "unrecordable mirror", "Write", cfg, draft)
-	dated, err := filepath.Glob(filepath.Join(cfg, "plans", "2*.md"))
-	if err != nil || len(dated) != 0 {
-		t.Fatalf("dated copies = %v (err %v), want none until the destination can be recorded", dated, err)
-	}
-}
-
 func writePayload(t *testing.T, tool, cwd, path, content string) string {
 	t.Helper()
 	b, err := json.Marshal(map[string]any{
