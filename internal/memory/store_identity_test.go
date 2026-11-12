@@ -396,11 +396,9 @@ func seedJunkStores(t *testing.T, store string) {
 	}
 	os.MkdirAll(filepath.Join(store, "noorigin"), 0o755)
 	write(t, filepath.Join(store, "file.md"), "x")
-	os.MkdirAll(filepath.Join(store, "mismatch"), 0o755)
-	write(t, filepath.Join(store, "mismatch", legacyOriginFile), `{"version":1,"key":"other","origin":"/src/other"}`)
 	for r := range maps.Keys(storeReservedDirs) {
 		os.MkdirAll(filepath.Join(store, r), 0o755)
-		write(t, filepath.Join(store, r, legacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
+		idFatal(t, WriteOrigin(filepath.Join(store, r), Origin{Version: OriginVersion, Key: r, Origin: "/r"}))
 	}
 	if err := os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym")); err != nil {
 		t.Skip("symlinks unsupported:", err)
@@ -738,36 +736,25 @@ func TestWithBankLockContention(t *testing.T) {
 	}
 }
 
-// seedLockedCatalog writes an index.md row whose origin only the catalog can supply.
-func seedLockedCatalog(t *testing.T) Origin {
-	t.Helper()
-	cfg := tempConfig(t)
-	idMkdir(t, filepath.Join(cfg, "memory", "locked"))
-	want := Origin{Version: OriginVersion, Key: "locked", Origin: "/src/locked"}
-	row := "- locked — hook · last 2024-01-01 → locked/MEMORY.md" + catalogOriginComment(want) + "\n"
-	write(t, filepath.Join(cfg, "memory", catalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
-	return want
-}
-
-// While a vault write txn holds bbolt's OS lock, RepoDirs reads index.md, then backs off.
-func TestVaultLockedFallsBackToCatalogThenSkipsRetryFor30s(t *testing.T) {
+// While a vault write txn holds bbolt's OS lock, RepoDirs errors on an unresolved store, then backs off.
+func TestVaultLockedSkipsRetryFor30s(t *testing.T) {
 	resetVaultRetry(t)
 	t.Cleanup(vault.SetReadLockTimeoutForTest(lockedReadTimeout))
-	want := seedLockedCatalog(t)
+	idMkdir(t, filepath.Join(tempConfig(t), "memory", "locked"))
 	err := vault.Update(func(*vault.Tx) error {
 		start := time.Now()
 		entries, err := RepoDirs()
 		elapsed := time.Since(start)
-		if err != nil || len(entries) != 1 || entries[0].Origin.Origin != want.Origin {
-			t.Fatalf("RepoDirs under an external lock = %+v, %v, want the locked entry", entries, err)
+		if err == nil || entries != nil {
+			t.Fatalf("RepoDirs under an external lock = %+v, %v, want an error and no entries", entries, err)
 		}
 		if elapsed > lockedReadBound {
 			t.Errorf("RepoDirs under lock took %v, want bounded by the ~2s vault.View timeout", elapsed)
 		}
 
 		start = time.Now()
-		if _, err := RepoDirs(); err != nil {
-			t.Fatal(err)
+		if _, err := RepoDirs(); err == nil {
+			t.Fatal("second call within the backoff must still report the unreadable vault")
 		}
 		if again := time.Since(start); again > time.Second {
 			t.Errorf("second call within the 30s backoff took %v, want near-instant (no repeat wait)", again)
@@ -805,7 +792,7 @@ func TestOriginRoundTripsThroughVault(t *testing.T) {
 	if err := WriteOrigin(dir, o); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, legacyOriginFile)); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, ".origin")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("WriteOrigin left a legacy file on disk: %v", err)
 	}
 	if raw, ok := vaultGet(t, "proj"); !ok || raw == "" {
@@ -869,25 +856,6 @@ func TestRepoDirsReadsOriginsWithSealedSecretsButNoMasterKey(t *testing.T) {
 	}
 }
 
-// TestLegacyOriginFileIgnored: a pre-vault .origin file is neither imported nor removed; the key has no origin.
-func TestLegacyOriginFileIgnored(t *testing.T) {
-	resetVaultRetry(t)
-	cfg := tempConfig(t)
-	dir := filepath.Join(cfg, "memory", "legacy")
-	legacyPath := filepath.Join(dir, legacyOriginFile)
-	write(t, legacyPath, `{"version":1,"key":"legacy","origin":"/src/legacy"}`)
-
-	if _, err := readOrigin(dir); err == nil {
-		t.Fatal("readOrigin imported a legacy .origin file")
-	}
-	if _, err := os.Stat(legacyPath); err != nil {
-		t.Errorf("legacy file was touched: %v", err)
-	}
-	if _, ok := vaultGet(t, "legacy"); ok {
-		t.Error("legacy file was folded into a memory_origins row")
-	}
-}
-
 // TestWriteOriginGuards: every disqualifying shape WriteOrigin must refuse, each for its own reason.
 func TestWriteOriginGuards(t *testing.T) {
 	resetVaultRetry(t)
@@ -918,49 +886,5 @@ func TestWriteOriginGuards(t *testing.T) {
 	os.MkdirAll(nested, 0o755)
 	if err := WriteOrigin(nested, Origin{Version: OriginVersion, Key: "nested", Origin: "/x"}); err == nil {
 		t.Error("a dir not a direct child of the store root must be rejected")
-	}
-}
-
-// TestOriginRebuiltFromCatalogWhenRowAndFileAbsent: no vault row, no legacy file, but index.md
-// carries the origin comment on this key's catalog row — readOrigin rebuilds the record from it
-// (aliases included), and the catalog file itself is left byte-for-byte unchanged.
-func TestOriginRebuiltFromCatalogWhenRowAndFileAbsent(t *testing.T) {
-	resetVaultRetry(t)
-	cfg := tempConfig(t)
-	dir := filepath.Join(cfg, "memory", "catkey")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	want := Origin{Version: OriginVersion, Key: "catkey", Origin: "/src/cat", Aliases: []string{"/alt1", "/alt2"}}
-	row := "- catkey — some-hook · last 2024-01-01 → catkey/MEMORY.md" + catalogOriginComment(want) + "\n"
-	catalogPath := filepath.Join(cfg, "memory", catalogFile)
-	write(t, catalogPath, "# Memory catalog\n\n## Repos\n\n"+row)
-	before := mustRead(t, catalogPath)
-
-	got, err := readOrigin(dir)
-	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("readOrigin (catalog fallback) = %+v, %v, want %+v", got, err, want)
-	}
-	if after := mustRead(t, catalogPath); after != before {
-		t.Errorf("catalog rewritten by the fallback import:\nbefore:\n%s\nafter:\n%s", before, after)
-	}
-	if raw, ok := vaultGet(t, "catkey"); !ok || raw == "" {
-		t.Error("catalog-sourced origin was not rebuilt into a memory_origins row")
-	}
-}
-
-// TestCatalogOriginCommentRoundTripsPathWithCommentCloser: an origin path containing the literal
-// bytes "-->" must never be able to close the HTML comment early — json.Marshal escapes '>', so the
-// round trip through catalogOriginComment/catalogOrigins must reproduce it exactly.
-func TestCatalogOriginCommentRoundTripsPathWithCommentCloser(t *testing.T) {
-	resetVaultRetry(t)
-	cfg := tempConfig(t)
-	want := Origin{Version: OriginVersion, Key: "weird", Origin: "/src/a-->b", Aliases: []string{"/alt-->c"}}
-	row := "- weird — hook · last never → weird/MEMORY.md" + catalogOriginComment(want) + "\n"
-	write(t, filepath.Join(cfg, "memory", catalogFile), "# Memory catalog\n\n## Repos\n\n"+row)
-
-	got := catalogOrigins()["weird"]
-	if got.Origin != want.Origin || len(got.Aliases) != 1 || got.Aliases[0] != want.Aliases[0] {
-		t.Errorf("catalogOrigins round trip = %+v, want %+v", got, want)
 	}
 }

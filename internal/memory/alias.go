@@ -176,10 +176,9 @@ func (p *aliasPlan) foldFiles(src, tgt repoEntry, res *aliasResult) error {
 	})
 }
 
-// foldSkips reports the identity, generated index and lock files, which do not travel.
-// Migration: remove the legacy-origin match after 2026-11-17 once every machine has run a post-2026-10-20 build.
+// foldSkips reports the generated index and lock files, which do not travel.
 func foldSkips(rel string) bool {
-	return rel == legacyOriginFile || rel == catalogFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
+	return rel == catalogFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }
 
 // foldOne plans one source file against its target counterpart.
