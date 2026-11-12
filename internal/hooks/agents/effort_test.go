@@ -547,6 +547,27 @@ func TestArmLabelIsPick(t *testing.T) {
 	}
 }
 
+// Under a non-Databricks confinement the label is the confined pick, never the pinned databricks row's model.
+func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay) // openai·chatgpt is a built-in row: codex's own login
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
+	vaulttest.SetRecord(t, "codex", "profile", "dev")
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	t.Setenv(router.EnvCoworker, "")
+	unconfined := cellModelFor(newDispatchRun(nil), "codex", "sonnet")
+	t.Setenv(router.EnvCoworker, "openai")
+	q := agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Provider: "openai", Fallback: router.FallbackAll, Preview: true}
+	_, res, err := agentpkg.Resolve(context.Background(), q) // what `ask --provider openai` runs
+	if err != nil || len(res.Candidates) == 0 || !strings.HasPrefix(res.Candidates[0].Account, "openai·") {
+		t.Fatalf("fixture: openai preview = %+v, %v; want an openai candidate first", res.Candidates, err)
+	}
+	want := res.Candidates[0].Model
+	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got != want || got == unconfined {
+		t.Errorf("label under openai = %q (unconfined %q), want the confined pick %q", got, unconfined, want)
+	}
+}
+
 // A pick with nothing runnable labels with the table prediction, never an empty prefix.
 func TestLabelWithoutPickIsPrediction(t *testing.T) {
 	vaulttest.Use(t)
