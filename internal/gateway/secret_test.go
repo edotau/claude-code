@@ -44,10 +44,3 @@ func writeProxyFixture(t *testing.T, path, data string) {
 		t.Fatal(err)
 	}
 }
-
-func removeProxyFixture(t *testing.T, path string) {
-	t.Helper()
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-}

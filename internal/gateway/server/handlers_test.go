@@ -357,59 +357,37 @@ func TestLastAttemptRelaysUpstreamError(t *testing.T) {
 	}
 }
 
-// Window exhaustion cools the provider without marking a model dead.
-func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
-	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
-	target := providers.Target{Provider: p, Model: "m1-opus"}
-	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
-	r := newRouter("s")
-	t.Cleanup(r.bg.Wait)
-	resp := &http.Response{
-		StatusCode: 429,
-		Header:     http.Header{"Retry-After": []string{"60"}},
-		Body: io.NopCloser(
-			strings.NewReader(`{"error":{"message":"usage limit reached, try again in 60 seconds"}}`),
-		),
-	}
-	moveOn, hard := r.failover(resp, target, false)
-	if hard {
-		t.Error("a window-exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
-	}
-	if !moveOn {
-		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
-	}
-	if r.isDead(target) {
-		t.Error("failover must not mark the model dead on a window-exhaustion 429")
-	}
-	if _, cooling := r.cool[p.Name]; !cooling {
-		t.Error("failover must cool the provider on a window-exhaustion 429")
-	}
-}
-
-// Account exhaustion overrides model-denial markers and cools the provider without demotion.
-func TestHardAccountExhaustion402CoolsButDoesNotMarkDead(t *testing.T) {
-	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
-	target := providers.Target{Provider: p, Model: "m1-opus"}
-	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
-	r := newRouter("s")
-	t.Cleanup(r.bg.Wait)
-	resp := &http.Response{
-		StatusCode: 429,
-		Header:     http.Header{"Retry-After": []string{"60"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"402 payment required: insufficient_quota"}}`)),
-	}
-	moveOn, hard := r.failover(resp, target, false)
-	if hard {
-		t.Error("a 402+insufficient_quota body must not be classified hard (ModelDenied vetoed by hardAccountRE)")
-	}
-	if !moveOn {
-		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
-	}
-	if r.isDead(target) {
-		t.Error("failover must not mark the model dead on account exhaustion")
-	}
-	if _, cooling := r.cool[p.Name]; !cooling {
-		t.Error("failover must cool the provider on account exhaustion")
+// Window and account exhaustion cool the provider without marking a model dead.
+func TestExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
+	for name, msg := range map[string]string{
+		"window":  "usage limit reached, try again in 60 seconds",
+		"account": "402 payment required: insufficient_quota",
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
+			target := providers.Target{Provider: p, Model: "m1-opus"}
+			vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
+			r := newRouter("s")
+			t.Cleanup(r.bg.Wait)
+			resp := &http.Response{
+				StatusCode: 429,
+				Header:     http.Header{"Retry-After": []string{"60"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"` + msg + `"}}`)),
+			}
+			moveOn, hard := r.failover(resp, target, false)
+			if hard {
+				t.Error("an exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
+			}
+			if !moveOn {
+				t.Error("a non-last retryable 429 must still move on to the next ladder entry")
+			}
+			if r.isDead(target) {
+				t.Error("failover must not mark the model dead on exhaustion")
+			}
+			if _, cooling := r.cool[p.Name]; !cooling {
+				t.Error("failover must cool the provider on exhaustion")
+			}
+		})
 	}
 }
 
