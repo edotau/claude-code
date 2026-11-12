@@ -66,7 +66,7 @@ func newHookHost(req agent.RunOptions) *hookHost {
 	if memory.IsUpdateChild() {
 		return nil
 	}
-	bound := hostedBound(req.SafeMode)
+	bound := hostedBound()
 	if len(bound) == 0 {
 		return nil
 	}
@@ -81,11 +81,11 @@ func newHookHost(req agent.RunOptions) *hookHost {
 	return h
 }
 
-// hostedBound is the hosted hooks; safeMode (--pure) keeps only the Gate groups (safety, permission).
-func hostedBound(safeMode bool) []hooks.Bound {
+// hostedBound is the bound hooks the registry hosts for opencode.
+func hostedBound() []hooks.Bound {
 	var bound []hooks.Bound
 	for _, b := range bindHooks() {
-		if hostedHooks[b.Spec.Name] && (b.Gate || !safeMode) {
+		if hostedHooks[b.Spec.Name] {
 			bound = append(bound, b)
 		}
 	}

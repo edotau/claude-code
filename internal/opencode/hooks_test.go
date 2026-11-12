@@ -17,8 +17,8 @@ func TestProvisionalSessionIsUniquePerDispatch(t *testing.T) {
 	}
 }
 
-// hostedBound keeps only registry-hosted modules whose group is on; safe mode keeps the gates alone.
-func TestHostedBoundFiltersByRegistrySwitchAndSafeMode(t *testing.T) {
+// hostedBound keeps only registry-hosted modules whose group is on.
+func TestHostedBoundFiltersByRegistrySwitch(t *testing.T) {
 	vaulttest.Use(t)
 	var hosted string
 	for name := range hostedHooks {
@@ -37,13 +37,11 @@ func TestHostedBoundFiltersByRegistrySwitchAndSafeMode(t *testing.T) {
 			{Group: "foreign-gate", Gate: true, Spec: settings.EventSpec{Name: "not-hosted"}},
 		}
 	}
-	for safe, want := range map[bool][]string{false: {"on", "off", "off-gate"}, true: {"off-gate"}} {
-		var got []string
-		for _, b := range hostedBound(safe) {
-			got = append(got, b.Group)
-		}
-		if !slices.Equal(got, want) {
-			t.Errorf("safeMode=%v: bound groups %v, want %v", safe, got, want)
-		}
+	var got []string
+	for _, b := range hostedBound() {
+		got = append(got, b.Group)
+	}
+	if want := []string{"on", "off", "off-gate"}; !slices.Equal(got, want) {
+		t.Errorf("bound groups %v, want %v", got, want)
 	}
 }
