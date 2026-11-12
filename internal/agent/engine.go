@@ -90,7 +90,7 @@ type HeadlessDriver interface {
 	Exec(ctx context.Context, p CLIPrep, req RunOptions, sink wire.Sink) (wire.Result, error)
 }
 
-// Eng is the engine driving s; a row with none (claude) gets baseEngine's defaults.
+// Eng is the engine driving s; a row with none (claude) gets BaseEngine's defaults.
 func (s Schema) Eng() Driver {
 	if e, ok := driverFor(s.Name); ok {
 		return e
@@ -312,9 +312,6 @@ func IsResultError(err error) bool {
 	return ok
 }
 
-// CustomEnv is the vault env bucket resolved, as a launch layers it.
-func CustomEnv() map[string]string { return customEnv() }
-
 // Dispatch names a RouteInfo's resolved credential path. Why: Anthropic's terms forbid subscription OAuth
 // in third-party tools, so no route ever offers the Claude subscription (passthrough, no login) as a dispatch.
 const (
@@ -357,8 +354,7 @@ func RouteErr(ri RouteInfo) error {
 	return nil
 }
 
-// RouteDetail returns the "<agent> route" detail string DoctorChecks would emit for the agent, without
-// running the rest of the doctor sweep; ok is false for an unknown agent or a registry load error.
+// RouteDetail is the agent's doctor "<agent> route" detail; ok is false for an unknown agent or a registry load error.
 func RouteDetail(name string) (detail string, ok bool) {
 	return SchemaFor(name).Eng().RouteDetail()
 }
@@ -489,4 +485,79 @@ func hubDispatchFor(reg *providers.Registry, cell string) (Engine, string, error
 		return hub.Dispatch("opencode", &providers.Provider{Name: id, OpencodeID: id}, reg), model, nil
 	}
 	return nil, "", fmt.Errorf("no provider has opencodeID %q", id)
+}
+
+// firstOutputDeadline is the free-dispatch stall deadline from the registry, else OpencodeRouting's 90s floor.
+func firstOutputDeadline() time.Duration {
+	reg, err := providers.Load()
+	if err != nil {
+		return (providers.OpencodeRouting{}).FirstOutput()
+	}
+	return reg.Routing.Opencode.FirstOutput()
+}
+
+// ErrStalled is a dispatch silent past its stall deadline: fatal, so Do never retries but the chain falls through.
+var ErrStalled = errors.New("dispatch stalled: no output within the stall deadline")
+
+// watchFreeDispatch sets the idle timeout on r when billing is free; any other agent (or billing) passes through.
+func watchFreeDispatch(r Engine, billing string) Engine {
+	if billing != router.BillFree {
+		return r
+	}
+	if hl, ok := r.(HubEngine); ok {
+		return hl.WithFirstOutput(firstOutputDeadline())
+	}
+	return r
+}
+
+// Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
+type Caps struct {
+	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, SafeMode, DebugFile, Direct Level
+	ReadOnly                                                                                                                       Level
+	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                                   Level
+	Permissions                                                                                                                    Level // reads RunOptions.Permissions
+}
+
+// Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).
+type Level uint8
+
+const (
+	None Level = iota
+	Emulated
+	Native
+)
+
+func (l Level) String() string { return [...]string{"none", "emulated", "native"}[min(l, Native)] }
+
+// Engine is one agent backend.
+type Engine interface {
+	Name() string
+	Caps() Caps
+	Available() error
+	Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error)
+}
+
+// Engines lists every agent in roster order.
+func Engines() []Engine {
+	var out []Engine
+	for _, s := range rows() {
+		out = append(out, engineFor(s.Name))
+	}
+	return out
+}
+
+// engineFor is the registered roster agent name as an Engine: its own, else a CLI engine over its headless driver.
+func engineFor(name string) Engine {
+	if e, ok := mustDriver(name).(Engine); ok {
+		return e
+	}
+	return newCLIEngine(name)
+}
+
+// Lookup finds an agent by name.
+func Lookup(name string) (Engine, error) {
+	if _, ok := lookupRow(name); ok {
+		return engineFor(name), nil
+	}
+	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(RosterNames(), "|"))
 }

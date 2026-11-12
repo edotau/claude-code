@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/models"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -585,4 +587,97 @@ func noteAuth(disp Dispatch, err error) {
 		return
 	}
 	warnHold(disp.Account, markAuth(disp.Account, e.AuthReason))
+}
+
+// capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
+var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
+
+// retryModel is the next model after a model-capability (discovery) or endpoint-gone (served) failure, else "".
+func retryModel(disp Dispatch, lreq RunOptions, err error) string {
+	if err == nil {
+		return ""
+	}
+	if retry.Progressed(err) {
+		return "" // text or tools already ran: a re-run on the next model would repeat them
+	}
+	switch msg := err.Error(); {
+	case disp.repick != nil && capabilityErr.MatchString(msg):
+		return disp.repick(lreq.Model)
+	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
+		return disp.servedRepick(lreq.Model)
+	}
+	return ""
+}
+
+// dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.
+func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
+	if disp.note != "" {
+		fmt.Fprintln(os.Stderr, disp.note)
+	}
+	out := req
+	if disp.unroutedDispatch {
+		return out
+	}
+	if !first {
+		out.Provider, out.SessionID = "", ""
+	}
+	if !disp.keepCaller {
+		out.Model = disp.Model
+	}
+	if out.Effort == "" {
+		out.Effort = disp.Effort
+	}
+	return armClaudeProfile(leadProfile(out, disp), disp)
+}
+
+// leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, never on the pin.
+func leadProfile(out RunOptions, disp Dispatch) RunOptions {
+	cp, _ := router.Confined()
+	provider, profile, ok := strings.Cut(disp.Account, "·")
+	if !ok || out.Provider != "" || (provider != cp && profile != out.Lead) {
+		return out
+	}
+	if reg, err := providers.Load(); err == nil && reg.Providers[profile] != nil {
+		out.Provider = profile
+	}
+	return out
+}
+
+// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
+func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
+	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
+		return out
+	}
+	prof, model, ok := strings.Cut(out.Model, ":")
+	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
+		out.Provider, out.Model = prof, model
+	}
+	return out
+}
+
+type coolKey struct{}
+
+// withCoolKey names the provider account a Run under ctx shares its rate limit with.
+func withCoolKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, coolKey{}, key)
+}
+
+// fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
+func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(string)) {
+	if !aliasDenied(r, *req, e) {
+		return
+	}
+	cur := cmp.Or(req.Model, models.Opus)
+	if next := models.NextAlias(cur); next != "" {
+		if notify != nil {
+			notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
+		}
+		req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
+	}
+}
+
+// aliasDenied reports e as a rate or quota refusal of req's alias model (none: opus) on an agent that takes --model.
+func aliasDenied(r Engine, req RunOptions, e *retry.Error) bool {
+	return e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
+		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model))
 }

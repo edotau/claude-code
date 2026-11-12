@@ -395,8 +395,8 @@ func TestFreshBackgroundRecordReadsBackAlive(t *testing.T) {
 func TestRecordKeepsRequestAndInvokedModel(t *testing.T) {
 	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())
-	first := &recordRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
-	second := &recordRunner{name: "claude", res: wire.Result{Answer: "ok"}}
+	first := &pinFallbackRunner{name: "codex", err: &retry.Error{Kind: retry.KindQuota, Agent: "codex", Err: io.EOF}}
+	second := &pinFallbackRunner{name: "claude", res: wire.Result{Answer: "ok"}}
 	chain := Chain{Want: "codex", Dispatches: []Dispatch{
 		{Agent: first, Model: "prof:gpt-6-astra"},
 		{Agent: second, Model: "prof:claude-sonnet-5-5"},
@@ -625,25 +625,6 @@ func TestRecordKeepsRequestedAlias(t *testing.T) {
 	if got.Request.Model != "sonnet" || got.Model != "gpt-6.1-sol" {
 		t.Errorf("record request %q model %q: the replay source must stay the alias", got.Request.Model, got.Model)
 	}
-}
-
-// recordRunner is a stub engine: it returns res and err, standing in for a vendor CLI.
-type recordRunner struct {
-	name string
-	res  wire.Result
-	err  error
-}
-
-func (f *recordRunner) Name() string { return f.name }
-
-func (f *recordRunner) Caps() Caps {
-	return Caps{Model: Native, Effort: Native}
-}
-
-func (f *recordRunner) Available() error { return nil }
-
-func (f *recordRunner) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
-	return f.res, f.err
 }
 
 type brokenSink struct{}

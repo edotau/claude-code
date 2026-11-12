@@ -127,7 +127,7 @@ func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, erro
 	return p, nil
 }
 
-// DefaultPermissions is name's default dispatch policy, the first layer ResolvePermissions applies.
+// DefaultPermissions is name's default dispatch policy, the first layer resolvePermissions applies.
 func DefaultPermissions(name string) (Permissions, error) {
 	r, err := agentconfig.Settings(name)
 	if err == nil {
@@ -344,4 +344,19 @@ func globRegexp(g string) string {
 		}
 	}
 	return b.String()
+}
+
+// ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).
+var ReadOnlyDeny = []Rule{{Tool: "Bash"}, {Tool: "Write"}, {Tool: "Edit"}}
+
+// refusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
+func refusePermissions(c Caps, agentName string, p Permissions) error {
+	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
+		return nil
+	}
+	what := "permission deny rules"
+	if len(p.Deny) == 0 {
+		what = "--mode plan"
+	}
+	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
 }

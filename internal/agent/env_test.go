@@ -72,8 +72,7 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	}
 }
 
-// childCmd sets $PWD alongside cmd.Dir so a child that reads $PWD (not getcwd()) still sees dir; an
-// empty dir (no --workdir) must leave PWD unset so the child inherits the caller's own cwd.
+// ChildCmd sets $PWD with cmd.Dir for a child reading $PWD; an empty dir leaves PWD unset so the child inherits cwd.
 func TestChildCmdSetsPWD(t *testing.T) {
 	dir := t.TempDir()
 	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil, false)
@@ -81,7 +80,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 		t.Errorf("cmd.Env lacks PWD=%s", dir) // never print cmd.Env: it holds tokens
 	}
 
-	// dir == "" (no --workdir): childCmd must append nothing past the scrubbed environ, no PWD.
+	// dir == "" (no --workdir): ChildCmd must append nothing past the scrubbed environ, no PWD.
 	t.Setenv(memory.OriginEnv, "/inherited") // already inherited, so withMemoryOrigin adds nothing either
 	scrubbed, _ := proc.Scrub(os.Environ(), nil)
 	cmd, _ = ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, false)
@@ -232,7 +231,7 @@ func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	}
 }
 
-// Given a real child under childCmd with a grandchild, When ctx is cancelled, Then no process stays in the group.
+// Given a real child under ChildCmd with a grandchild, When ctx is cancelled, Then no process stays in the group.
 func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process groups are unix-only")

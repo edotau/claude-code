@@ -502,8 +502,8 @@ func AgentPins() (map[string]router.PinSpec, error) {
 	return out, nil
 }
 
-// OwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin; a broken registry errors.
-func OwnLogin(agent, profile string) (bool, error) {
+// isOwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin; a broken registry errors.
+func isOwnLogin(agent, profile string) (bool, error) {
 	var regErr error
 	own := ownLogin(func() *providers.Registry { r, err := providers.Load(); regErr = err; return r }, agent, profile)
 	if regErr != nil {
@@ -642,4 +642,16 @@ func capFields(c Caps) []capField {
 		{"no-persist", c.NoPersist}, {"safe-mode", c.SafeMode}, {"debug-file", c.DebugFile}, {"direct", c.Direct},
 		{"system-prompt", c.SystemPrompt}, {"append-system-prompt", c.AppendSystemPrompt}, {"env", c.Env},
 		{"output-schema", c.OutputSchema}, {"persona", c.Persona}}
+}
+
+// wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
+func wireAgent(name string) bool {
+	s, ok := lookupRow(name)
+	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !isHubAgent(name) && !speaksResponses(name)
+}
+
+// speaksResponses reports an agent whose schema lists the Responses dialect (codex): it needs a Responses route.
+func speaksResponses(agentName string) bool {
+	s, ok := lookupRow(agentName)
+	return ok && slices.Contains(s.CLI.Dialects, providers.ProtocolResponses)
 }

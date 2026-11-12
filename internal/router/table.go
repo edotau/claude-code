@@ -389,3 +389,75 @@ func overlayCellAccount(agent, key string, o providers.RouteCell, c Cell) (strin
 	}
 	return c.Account, nil
 }
+
+// ModelRow resolves a --model value to its row's alias and canonical Claude id; exact is a non-Claude id as asked.
+func ModelRow(model string) (alias, row, exact string) {
+	if model == DiscoveryModel {
+		return "", "", ""
+	}
+	canonical, _, ok := models.Resolve(model)
+	switch {
+	case !ok && strings.TrimSpace(model) != "": // not in the catalog: still an exact request, never a silent default
+		return "", "", strings.TrimSpace(model)
+	case !ok:
+		return "", "", ""
+	case models.FamilyKind(canonical) != models.FamilyClaude:
+		return "", "", canonical
+	}
+	alias = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
+	if !slices.Contains(Aliases, alias) {
+		alias = ""
+	}
+	return alias, canonical, ""
+}
+
+// ClaudeCellModel is the alias a canonical claude cell id backs, so session pins resolve it; else the id itself.
+func ClaudeCellModel(cell string) string {
+	canonical, _, ok := models.Resolve(cell)
+	if !ok {
+		return cell
+	}
+	return cmp.Or(models.AliasOf(canonical), canonical)
+}
+
+// LowestAliasServing is the lowest alias (haiku up) whose cell for agent resolves to id, else "".
+func (t *RouteTable) LowestAliasServing(agent, id string) string {
+	for _, alias := range slices.Backward(Aliases) {
+		if c, ok := t.Rows[agent][alias]; ok {
+			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
+				return alias
+			}
+		}
+	}
+	return ""
+}
+
+// CellServing is agent's cell (any row, then the opencode sub-candidates when hub) whose model is exact.
+func (t *RouteTable) CellServing(agent, exact string, hub bool) (Cell, bool) {
+	serves := func(c Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
+	for _, row := range slices.Sorted(maps.Keys(t.ByModel)) {
+		if c, ok := t.ByModel[row][agent]; ok && serves(c) {
+			return c, true
+		}
+	}
+	if !hub {
+		return Cell{}, false
+	}
+	for _, sub := range slices.Sorted(maps.Keys(t.OpencodeSub)) {
+		for _, alias := range slices.Sorted(maps.Keys(t.OpencodeSub[sub])) {
+			if c := t.OpencodeSub[sub][alias]; serves(c) {
+				return c, true
+			}
+		}
+	}
+	return Cell{}, false
+}
+
+// PreviewAlias is the alias a preview routes model at: its own, else the task's classified one, else sonnet.
+func (t *RouteTable) PreviewAlias(model, task string) string {
+	hint := t.AliasOf(model)
+	if hint == "" && task != "" {
+		hint = RuleClassifier{}.Alias(task)
+	}
+	return cmp.Or(hint, Aliases[1])
+}

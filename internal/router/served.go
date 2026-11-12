@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -244,4 +245,19 @@ func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 		}
 	}
 	return false, false
+}
+
+// NextServed marks the failed model gone on p and returns the next READY Responses model, "" when there is none.
+func NextServed(p *providers.Provider, failed string) string {
+	prefix := p.Name + ":"
+	wire := strings.TrimPrefix(failed, prefix)
+	if err := MarkUnserved(p, wire); err != nil {
+		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", wire, err)
+	}
+	next, _ := ServedFirst(p, true, time.Now())
+	if next == "" || next == wire {
+		return ""
+	}
+	fmt.Fprintf(os.Stderr, "served: %s unavailable on %s; using %s\n", wire, p.Name, next)
+	return prefix + next
 }

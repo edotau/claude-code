@@ -2,6 +2,7 @@ package agent
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -339,4 +340,65 @@ func sameModel(dispatched, want string) bool {
 	a, _, okA := models.Resolve(dispatched)
 	b, _, okB := models.Resolve(want)
 	return norm(dispatched) == norm(want) || (okA && okB && a == b)
+}
+
+// ProfileServes is model as p spells it when a fresh listing does not mark it NOT_READY and agentName Serves it there.
+func ProfileServes(agentName string, p *providers.Provider, model string) (wire, why string) {
+	if wire = providers.SpellPin(p, model); wire == "" {
+		return "", "serves no " + model
+	}
+	if ready, fresh := router.ServedReady(p, wire, time.Now()); fresh && !ready {
+		return "", "serves no " + wire + " (not a READY endpoint on " + p.Name + ")"
+	}
+	if ok, why := Serves(agentName, p, wire); !ok {
+		return "", why
+	}
+	return wire, ""
+}
+
+// previewRoute is the pick through ask's chain, each candidate on the model it would run; later drops go to Skipped.
+func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.PickResult, error) {
+	tb, err := router.Load()
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	profiles := previewProfiles(q, lead)
+	if err := previewServes(tb, q.Model, profiles); err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	chain, pick, err := chainFor(ctx, q, tb.PreviewAlias(q.Model, q.Task), lead)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	if _, _, exact := router.ModelRow(q.Model); exact != "" && !slices.ContainsFunc(chain.Dispatches, func(d Dispatch) bool {
+		return sameModel(d.Model, exact)
+	}) {
+		return Chain{}, router.PickResult{}, fmt.Errorf("--model %s: no %s candidate runs it; claude-code models --live "+
+			"--profile %s lists what is served", q.Model, cmp.Or(q.Agent, "routed"), cmp.Or(firstName(profiles), "<p>"))
+	}
+	return chain, previewOutcome(chain, pick), nil
+}
+
+func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
+	res := pick
+	res.Candidates = nil
+	for _, d := range chain.Dispatches {
+		if d.rung < 1 || d.rung > len(pick.Candidates) {
+			continue
+		}
+		c := pick.Candidates[d.rung-1]
+		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
+			c.Model, c.Effort = d.Model, d.Effort
+		}
+		res.Candidates = append(res.Candidates, c)
+	}
+	res.Skipped = slices.Clone(pick.Skipped)
+	for _, s := range chain.Skipped {
+		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
+			continue
+		}
+		who, why, _ := strings.Cut(s, ": ")
+		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
+	}
+	return res
 }

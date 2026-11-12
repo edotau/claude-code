@@ -319,3 +319,30 @@ func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
 		t.Errorf("non-Databricks provider = %q, want \"\"", got)
 	}
 }
+
+func TestModelRow(t *testing.T) {
+	cases := []struct{ in, alias, row, exact string }{
+		{"opus", "opus", "claude-opus-5-5", ""},
+		{"claude-sonnet-5.5", "sonnet", "claude-sonnet-5-5", ""},
+		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
+		{"gpt-6.1-sol", "", "", "gpt-6-1-sol"},
+		{"glm-5.3", "", "", "glm-5-3"},
+		{"no-such-model", "", "", "no-such-model"}, // off-catalog is still an exact request, never a silent default
+		{"", "", "", ""},
+	}
+	for _, c := range cases {
+		alias, row, exact := ModelRow(c.in)
+		if alias != c.alias || row != c.row || exact != c.exact {
+			t.Errorf("ModelRow(%q) = (%q, %q, %q), want (%q, %q, %q)", c.in, alias, row, exact, c.alias, c.row, c.exact)
+		}
+	}
+}
+
+func TestClaudeCellModelIsTheAlias(t *testing.T) {
+	if got := ClaudeCellModel("claude-opus-5-5"); got != "opus" {
+		t.Errorf("ClaudeCellModel(claude-opus-5-5) = %q, want opus (so pins resolve it)", got)
+	}
+	if got := ClaudeCellModel("claude-opus-4-1"); got != "claude-opus-4-1" {
+		t.Errorf("an alias-less row stays canonical, got %q", got)
+	}
+}

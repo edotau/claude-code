@@ -620,20 +620,6 @@ func TestSessionProfileAgentsCodexHopModel(t *testing.T) {
 	}
 }
 
-// A candidate dropped after the pick must not lend its slot to the next survivor of the same agent and account.
-func TestPreviewOutcomeMatchesByRungNotPosition(t *testing.T) {
-	cell := func(m string) router.Cell { return router.Cell{Model: m} }
-	pick := router.PickResult{Candidates: []router.Candidate{
-		{Agent: "codex", Cell: cell("m1"), Profile: "A"},
-		{Agent: "codex", Cell: cell("m2"), Profile: "B"},
-	}}
-	chain := Chain{Dispatches: []Dispatch{{Agent: &pinFallbackRunner{name: "codex"}, Model: "m2", rung: 2}}}
-	got := previewOutcome(chain, pick).Candidates
-	if len(got) != 1 || got[0].Profile != "B" || got[0].Model != "m2" {
-		t.Fatalf("candidates = %+v, want only rung 2 (profile B, model m2)", got)
-	}
-}
-
 // The roster survives a providers.Load() failure and no longer lists the folded-in "api" agent.
 func TestListAgentsRegistryLoadErrorNoPanic(t *testing.T) {
 	vaulttest.Use(t)

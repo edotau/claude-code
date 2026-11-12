@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -237,4 +238,53 @@ func emulatePersona(c Caps, req RunOptions, dropped []string) (RunOptions, []str
 		req.AppendSystemPrompt = strings.TrimSpace(text + "\n\n" + req.AppendSystemPrompt)
 	}
 	return req, dropped
+}
+
+// applyCaps clears fields the agent cannot honor and names each drop; Emulated flags run a harness shim here.
+func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []string) {
+	drop := func(l Level, set bool, flag string, clear func()) {
+		if set && l == None {
+			dropped = append(dropped, flag)
+			clear()
+		}
+	}
+	drop(c.Model, req.Model != "", "--model="+req.Model, func() { req.Model = "" })
+	drop(c.Provider, req.Provider != "", "--provider="+req.Provider, func() { req.Provider = "" })
+	drop(c.Effort, req.Effort != "", "--effort="+req.Effort, func() { req.Effort = "" })
+	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
+	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
+	drop(c.ReadOnly, req.ReadOnly, "--read-only (tools off)", func() { req.ReadOnly, req.Tools = false, false }) // fail closed
+	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
+	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
+	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
+	drop(c.Fleet, req.Fleet, "--fleet", func() { req.Fleet = false })
+	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
+	drop(c.NoPersist, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
+	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
+	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
+	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
+	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
+	drop(c.Permissions, !req.Permissions.IsZero(), "--allow/--ask/--mode", func() { req.Permissions = Permissions{} })
+	drop(c.Persona, req.Persona != nil, "persona="+personaName(req.Persona), func() { req.Persona = nil })
+	if req.Persona != nil && c.Persona == Emulated {
+		req, dropped = emulatePersona(c, req, dropped)
+		emulated = append(emulated, "persona")
+	}
+	for _, sp := range []struct {
+		field *string
+		level Level
+		flag  string
+	}{{&req.SystemPrompt, c.SystemPrompt, "--system-prompt"}, {&req.AppendSystemPrompt, c.AppendSystemPrompt, "--append-system-prompt"}} {
+		if *sp.field != "" && sp.level == Emulated {
+			req.Prompt, *sp.field = Preamble(*sp.field)+req.Prompt, ""
+			emulated = append(emulated, sp.flag)
+		}
+	}
+	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
+	drop(c.AppendSystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
+	if req.OutputSchema != "" && c.OutputSchema != Native { // the answer is validated either way; only the instruction differs
+		req.Prompt += wire.SchemaInstruction(req.OutputSchema)
+		emulated = append(emulated, "--output-schema")
+	}
+	return req, dropped, emulated
 }

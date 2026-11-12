@@ -17,30 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// An explicit backend stays one dispatch, records its own quota failure, and is skipped without an attempt after.
-func TestExplicitChainRecordsAndGates(t *testing.T) {
-	setConfigDir(t)
-	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
-	req := RunOptions{Prompt: "p", Provider: "openai"}
-	c := explicitChain(codex, req)
-	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
-		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
-	}
-	if _, err := runWithFallback(context.Background(), c, req, wire.Discard, nil); err == nil {
-		t.Fatal("the quota failure must surface")
-	}
-	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
-		t.Fatalf("openai·openai not marked: %+v", e)
-	}
-	again := explicitChain(codex, req)
-	if len(again.Dispatches) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
-		t.Fatalf("second explicit chain = %+v, want a gate skip", again)
-	}
-	if len(codex.seen) != 1 {
-		t.Errorf("attempts = %d, want 1 (the gate stops the second)", len(codex.seen))
-	}
-}
-
 // --native opencode leads on opencode's own config, ahead of (and instead of) the hub cell.
 func TestRouteChainNativeOpencodeLeads(t *testing.T) {
 	setConfigDir(t)
@@ -218,6 +194,7 @@ func TestAstraProfileEligibilityUnsupportedSkipped(t *testing.T) {
 	}
 }
 
+// pinFallbackRunner is a stub engine: it records each request and returns res and err.
 type pinFallbackRunner struct {
 	name string
 	res  wire.Result
@@ -231,24 +208,6 @@ func (f *pinFallbackRunner) Available() error { return nil }
 func (f *pinFallbackRunner) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
 	f.seen = append(f.seen, req)
 	return f.res, f.err
-}
-
-func TestModelRow(t *testing.T) {
-	cases := []struct{ in, alias, row, exact string }{
-		{"opus", "opus", "claude-opus-5-5", ""},
-		{"claude-sonnet-5.5", "sonnet", "claude-sonnet-5-5", ""},
-		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
-		{"gpt-6.1-sol", "", "", "gpt-6-1-sol"},
-		{"glm-5.3", "", "", "glm-5-3"},
-		{"no-such-model", "", "", "no-such-model"}, // off-catalog is still an exact request, never a silent default
-		{"", "", "", ""},
-	}
-	for _, c := range cases {
-		alias, row, exact := modelRow(c.in)
-		if alias != c.alias || row != c.row || exact != c.exact {
-			t.Errorf("modelRow(%q) = (%q, %q, %q), want (%q, %q, %q)", c.in, alias, row, exact, c.alias, c.row, c.exact)
-		}
-	}
 }
 
 // A non-Claude id keeps matching agents, with Claude last at the lowest alias serving the id.
@@ -514,15 +473,6 @@ func TestPinnedCellStripsOwnProfile(t *testing.T) {
 	}
 }
 
-func TestClaudeCellModelIsTheAlias(t *testing.T) {
-	if got := claudeCellModel("claude-opus-5-5"); got != "opus" {
-		t.Errorf("claudeCellModel(claude-opus-5-5) = %q, want opus (so pins resolve it)", got)
-	}
-	if got := claudeCellModel("claude-opus-4-1"); got != "claude-opus-4-1" {
-		t.Errorf("an alias-less row stays canonical, got %q", got)
-	}
-}
-
 // profileCell refuses an exact model the fresh listing has NOT_READY, with the new message.
 func TestProfileCellRejectsNotReadyExactModel(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})
@@ -605,7 +555,7 @@ func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	if first != "m-a" || note != "" {
 		t.Fatalf("first pick = %q (%q), want m-a", first, note)
 	}
-	disp := Dispatch{repick: discoveryRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
+	disp := Dispatch{repick: router.DiscoveryRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
 	capErr := errors.New("400: max_new_tokens exceeds the model limit")
 	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
 		t.Errorf("non-capability error retried on %q", got)
