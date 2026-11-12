@@ -172,15 +172,15 @@ func TestDoctorRetiredKeys(t *testing.T) {
 	for _, tc := range []struct{ mode, want string }{
 		{"retained", "vault retired key " + kid + ": retained"},
 		{"missing", "vault retired key " + kid + ": missing from the keyring"},
-		{"error", "vault retired key " + kid + ": keyring: unavailable: lookup-failed"},
+		{"error", "vault retired key " + kid + ": keyring: unavailable\n"}, // the tool's stderr is never quoted
 	} {
 		t.Setenv("RETIRED_MODE", tc.mode)
 		rc, out := doctorTestResult(&providers.Registry{})
 		if rc != providers.ExitClean {
 			t.Fatalf("Doctor = %d: %s", rc, out)
 		}
-		if !strings.Contains(out, tc.want) {
-			t.Errorf("missing %q: %s", tc.want, out)
+		if !strings.Contains(out, tc.want) || strings.Contains(out, "lookup-failed") {
+			t.Errorf("missing %q, or the keyring tool's stderr leaked: %s", tc.want, out)
 		}
 	}
 }
