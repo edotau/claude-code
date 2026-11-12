@@ -399,7 +399,8 @@ var reportFormats = []string{"text", "markdown", "json"}
 func renderReport(report Report, format string) (string, error) {
 	switch format {
 	case "json":
-		return indentJSON(report)
+		b, err := source.PyMarshalIndent(report)
+		return string(b), err
 	case "markdown":
 		return formatMarkdownReport(report), nil
 	}

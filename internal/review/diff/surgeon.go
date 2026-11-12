@@ -358,12 +358,12 @@ func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 
 // printJSON writes v as indented JSON; an encode or stdout write failure goes to stderr with exit 1.
 func printJSON(stdout, stderr io.Writer, v any) int {
-	js, err := indentJSON(v)
+	js, err := source.PyMarshalIndent(v)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	if _, err := fmt.Fprintln(stdout, js); err != nil {
+	if _, err := fmt.Fprintln(stdout, string(js)); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}

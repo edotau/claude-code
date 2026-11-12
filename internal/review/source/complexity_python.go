@@ -7,8 +7,7 @@ import (
 // analyzePython is complexity_checker's `analyze_python` PORTED AS AN ESTIMATE: Go has no Python
 // parser (go/ast is Go-only), so this scans indentation + control-flow keywords instead of a real AST.
 // Deviation from the Python original (which uses ast, exact per-function metrics): function order is
-// top-to-bottom source order (ast.walk is BFS), and boolean-operator scoring follows the SonarSource
-// "operator-sequence-change" rule rather than CPython's `len(BoolOp.values)-1`.
+// top-to-bottom source order (ast.walk is BFS).
 func analyzePython(text string, lineCount int, th ComplexityThresholds) []Finding {
 	masked := maskPythonSource(text)
 	lines := pythonLines(masked)
@@ -125,7 +124,7 @@ func pyDefName(trimmed string) (string, bool) {
 
 var pyCycloKeywords = map[string]bool{"if": true, "elif": true, "for": true, "while": true, "except": true, "with": true, "assert": true}
 
-// pyFuncCyclomatic estimates cyclomatic complexity: 1 + a keyword per branch + boolop sequence changes.
+// pyFuncCyclomatic estimates cyclomatic complexity: 1 + a keyword per branch + one per and/or operator.
 func pyFuncCyclomatic(body []pyLine) int {
 	score := 1
 	for _, l := range body {
@@ -134,7 +133,7 @@ func pyFuncCyclomatic(body []pyLine) int {
 		}
 		words := pyWords(l.text)
 		score += pyBranchKeywordCount(words)
-		score += pyBoolOpTransitions(words)
+		score += pyBoolOpCount(words)
 	}
 	return score
 }
@@ -149,17 +148,13 @@ func pyBranchKeywordCount(words []string) int {
 	return n
 }
 
-// pyBoolOpTransitions counts and<->or operator switches within one line (SonarSource cognitive-complexity rule).
-func pyBoolOpTransitions(words []string) int {
-	n, prev := 0, ""
+// pyBoolOpCount counts every and/or operator on a line, matching the original's sum of len(BoolOp.values)-1.
+func pyBoolOpCount(words []string) int {
+	n := 0
 	for _, w := range words {
-		if w != "and" && w != "or" {
-			continue
-		}
-		if prev != "" && prev != w {
+		if w == "and" || w == "or" {
 			n++
 		}
-		prev = w
 	}
 	return n
 }
