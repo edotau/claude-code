@@ -21,8 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// diffScope is the diff range `<v> review` acts on. Kind: uncommitted|base|commit|pr; Ref holds the
-// base branch (base), the sha (commit), or is empty (uncommitted, pr).
+// diffScope is the range `<v> review` acts on: Kind uncommitted|base|commit|pr, Ref the base branch or commit sha.
 type diffScope struct{ Kind, Ref string }
 
 // parseScope validates that at most one scope flag was set; none selects uncommitted.
@@ -78,21 +77,9 @@ func diff(ctx context.Context, cwd string, s diffScope) ([]byte, error) {
 		// first-parent: a merge's default combined diff is empty for a clean merge
 		out, err = proc.RunGit(ctx, cwd, "show", "--no-color", "--format=", "--diff-merges=first-parent", "--end-of-options", s.Ref)
 	case "pr":
-		var base string
-		base, err = proc.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
-		if err != nil {
-			return nil, err
-		}
-		out, err = rangeDiff(ctx, cwd, strings.TrimSpace(base)) // origin/<default>, not local
-	default: // uncommitted
-		out, err = proc.RunGit(ctx, cwd, "diff", "HEAD")
-		if err == nil {
-			var untracked string
-			untracked, err = untrackedBlock(ctx, cwd)
-			if err == nil && untracked != "" {
-				out = strings.TrimRight(out, "\n") + "\n" + untracked
-			}
-		}
+		out, err = prDiff(ctx, cwd)
+	default:
+		out, err = uncommittedDiff(ctx, cwd)
 	}
 	if err != nil {
 		return nil, err
@@ -101,6 +88,31 @@ func diff(ctx context.Context, cwd string, s diffScope) ([]byte, error) {
 		return nil, errors.New("nothing in scope")
 	}
 	return []byte(out), nil
+}
+
+// prDiff is the diff of HEAD against the remote's default branch.
+func prDiff(ctx context.Context, cwd string) (string, error) {
+	base, err := proc.RunGit(ctx, cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
+	if err != nil {
+		return "", err
+	}
+	return rangeDiff(ctx, cwd, strings.TrimSpace(base)) // origin/<default>, not local
+}
+
+// uncommittedDiff is `git diff HEAD` plus the untracked files' block.
+func uncommittedDiff(ctx context.Context, cwd string) (string, error) {
+	out, err := proc.RunGit(ctx, cwd, "diff", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	untracked, err := untrackedBlock(ctx, cwd)
+	if err != nil {
+		return "", err
+	}
+	if untracked != "" {
+		out = strings.TrimRight(out, "\n") + "\n" + untracked
+	}
+	return out, nil
 }
 
 // untrackedBlock renders untracked text files as "new file: <path>" plus content, capped per file and overall.

@@ -106,33 +106,18 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, l.Err
 	}
 	tl := l.Task
-	if !batchIDRE.MatchString(t.ID) {
-		return t, fmt.Errorf("line %d: id %q must match %s", l.N, t.ID, batchIDRE)
-	}
-	if seen[t.ID] {
-		return t, fmt.Errorf("line %d: duplicate id %q", l.N, t.ID)
-	}
-	if tl.PlanTask != "" && !planTaskRE.MatchString(tl.PlanTask) {
-		return t, fmt.Errorf("line %d: plan_task %q must match %s", l.N, tl.PlanTask, planTaskRE)
+	if err := checkLineIDs(l.N, t.ID, tl.PlanTask, seen); err != nil {
+		return t, err
 	}
 	t.Plan = tl.PlanTask
 	seen[t.ID] = true
 	if strings.TrimSpace(tl.Prompt) == "" {
 		return t, fmt.Errorf("line %d: no task: give a prompt", l.N)
 	}
-	req := base
-	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	name, err := agent.SelectAndOverlay(t.Agent, base.Agents, &req) // explicit line/base options win over the definition
+	req, name, err := lineRequest(l, t.Agent, base)
+	t.Agent = cmp.Or(name, t.Agent) // "" only when the agent selection itself failed
 	if err != nil {
-		return t, fmt.Errorf("line %d: %w", l.N, err)
-	}
-	t.Agent = name
-	if tl.Tools != nil {
-		req.Tools = *tl.Tools
-	}
-	req.Tools = req.Tools || req.ReadOnly // read-only tools are still tools, whatever the line said
-	if req.Tools && req.NoTools {
-		return t, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
+		return t, err
 	}
 	req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
 	if err != nil {
@@ -140,6 +125,40 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 	}
 	t.Req = req
 	return t, nil
+}
+
+// checkLineIDs refuses a malformed or already seen id and a malformed plan_task on line n.
+func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
+	switch {
+	case !batchIDRE.MatchString(id):
+		return fmt.Errorf("line %d: id %q must match %s", n, id, batchIDRE)
+	case seen[id]:
+		return fmt.Errorf("line %d: duplicate id %q", n, id)
+	case planTask != "" && !planTaskRE.MatchString(planTask):
+		return fmt.Errorf("line %d: plan_task %q must match %s", n, planTask, planTaskRE)
+	}
+	return nil
+}
+
+// lineRequest is base with the line's prompt, profile, model and tools over it, plus the agent it selects.
+func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
+	tl, req := l.Task, base
+	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	if tl.Profile != "" { // the line's own profile replaces the lead the batch flags resolved
+		req.Lead = ""
+	}
+	name, err := agent.SelectAndOverlay(agentName, base.Agents, &req) // explicit line/base options win over the definition
+	if err != nil {
+		return req, "", fmt.Errorf("line %d: %w", l.N, err)
+	}
+	if tl.Tools != nil {
+		req.Tools = *tl.Tools
+	}
+	req.Tools = req.Tools || req.ReadOnly // read-only tools are still tools, whatever the line said
+	if req.Tools && req.NoTools {
+		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
+	}
+	return req, name, nil
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {

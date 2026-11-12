@@ -118,6 +118,21 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
+// askEnableOverlayDebug turns on --overlay-debug; it returns the exit code of a failure, else 0.
+func askEnableOverlayDebug(debugPath string) int {
+	if debugPath != "" {
+		if strings.HasPrefix(debugPath, "-") {
+			fmt.Fprintf(os.Stderr, "claude-code agents ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
+			return 2
+		}
+		if err := agentconfig.EnableOverlayDebug(debugPath); err != nil {
+			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay-debug:", err)
+			return 2
+		}
+	}
+	return 0
+}
+
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
 func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 	if f.dirs == "" && f.files == "" && !f.diff {
@@ -172,8 +187,7 @@ func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv
 	return nil
 }
 
-// attachFlag collects repeatable --attach paths; Set resolves each to an absolute path and fails fast
-// unless it names an existing regular file.
+// attachFlag collects repeatable --attach paths; Set makes each absolute and refuses all but a regular text/image file.
 type attachFlag []string
 
 func (a *attachFlag) String() string { return strings.Join(*a, ",") }
@@ -292,7 +306,7 @@ func resolveAskPrompt(prompt string) (string, error) {
 	return string(raw), nil
 }
 
-// resolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else as a file, and checks it parses.
+// resolveOutputSchema reads --output-schema as inline JSON when it starts with "{", else a file, and checks it parses.
 func resolveOutputSchema(arg string) (string, error) {
 	if arg == "" {
 		return "", nil
@@ -308,6 +322,9 @@ func resolveOutputSchema(arg string) (string, error) {
 	var probe map[string]any
 	if err := json.Unmarshal([]byte(body), &probe); err != nil {
 		return "", fmt.Errorf("--output-schema: not a JSON object: %w", err)
+	}
+	if probe == nil { // "null" decodes into a nil map without error
+		return "", errors.New("--output-schema: not a JSON object: got null")
 	}
 	return body, nil
 }
@@ -356,6 +373,77 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
+}
+
+// askState is the askTarget plus the flag pointers --retry resets or --job clears.
+type askState struct {
+	askTarget
+	rubric *string
+	env    *[]string
+	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
+}
+
+// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
+	if job == "" {
+		return nil, 0, false
+	}
+	r, err := loadJobRecord(job)
+	if errors.Is(err, errJobNotFresh) {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
+	if err != nil {
+		return nil, failAsk(format, *s.Name, err), true
+	}
+	s.Apply(r, os.Stderr)
+	*prompt, *s.rubric = r.Request.Prompt, ""
+	return &r, 0, false
+}
+
+// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
+func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
+	if retry == "" {
+		return 0, false
+	}
+	rec, err := agent.LoadRecord(retry)
+	if err != nil {
+		return failAsk(format, *s.Name, err), true
+	}
+	// The logged request wins; only flags typed on this command line override it.
+	s.Apply(rec, os.Stderr)
+	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
+	clearTyped(fs, s)
+	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+		return failAskCode(format, *s.Name, err, 2), true
+	}
+	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(os.Getenv(router.EnvFallback)) != "" {
+		*s.Fallback = router.FallbackAll
+	}
+	*prompt, *s.rubric = rec.Request.Prompt, ""
+	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	return 0, false
+}
+
+// clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.
+func clearTyped(fs *flag.FlagSet, s *askState) {
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "profile", "provider": // an explicit route on this command line replaces the logged lead
+			*s.lead = ""
+		case "attach":
+			*s.Attach = nil
+		case "keep-env":
+			*s.KeepEnv = nil
+		case "allow":
+			*s.PermAllow = nil
+		case "ask":
+			*s.PermAsk = nil
+		case "deny":
+			*s.PermDeny = nil
+		case "env":
+			*s.env = nil
+		}
+	})
 }
 
 // errJobNotFresh marks a --job record that is not a fresh background job.

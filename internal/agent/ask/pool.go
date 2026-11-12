@@ -293,26 +293,11 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 			b.stop()
 		}
 	}()
-	defer func() {
-		if r := recover(); r != nil {
-			err := retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
-			rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
-			if serr := rec.Save(); serr != nil {
-				b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, serr)
-			}
-			env, ok = wire.NewEnvelope(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, rec.ID), false
-			env.TaskID = t.ID
-		}
-	}()
+	defer b.recoverTask(t, rec, start, &env, &ok)
 	if err := rec.Save(); err != nil { // fail-open: the log is for replay and forensics, never a gate on the run
 		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, err)
 	}
-	notify := func(s string) { b.logf(t.ID, "%s", s) }
-	cl := agent.NewClient(nil, nil, notify)
-	if p.Opts.Launcher != nil {
-		cl.Launcher = p.Opts.Launcher
-	}
-	res, err := cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
+	res, err := taskClient(p, func(s string) { b.logf(t.ID, "%s", s) }).Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
@@ -320,6 +305,30 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 	env = wire.NewEnvelope(res, err, res.DispatchID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == wire.StatusOK
+}
+
+// taskClient is the dispatch client of one batch task: progress goes to notify, a prepared launcher wins.
+func taskClient(p *agent.Prepared, notify func(string)) *agent.Client {
+	cl := agent.NewClient(nil, nil, notify)
+	if p.Opts.Launcher != nil {
+		cl.Launcher = p.Opts.Launcher
+	}
+	return cl
+}
+
+// recoverTask, deferred by run, turns a panic into a finished record and an error envelope in *env and *ok.
+func (b *batchRun) recoverTask(t batchTask, rec *agent.Record, start time.Time, env *wire.Envelope, ok *bool) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	err := retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
+	rec.Finish(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, time.Since(start))
+	if serr := rec.Save(); serr != nil {
+		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, serr)
+	}
+	*env, *ok = wire.NewEnvelope(wire.Result{Agent: t.Agent, Status: wire.StatusError}, err, rec.ID), false
+	env.TaskID = t.ID
 }
 
 // batchExclusive are the ask flags that make no sense on a batch of independent tasks.

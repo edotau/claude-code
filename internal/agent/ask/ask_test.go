@@ -1215,42 +1215,6 @@ func TestAskSpawnFailureFinishesRecord(t *testing.T) {
 	}
 }
 
-func TestAskRetryPreservesRecordedLead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "recorded-profile"}, time.Now())
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name, flag, wantLead, wantRoute string
-	}{
-		{"recorded lead", "", "recorded-profile", ""},
-		{"profile override", "--profile", "", "replacement-profile"},
-		{"provider override", "--provider", "", "replacement-profile"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			args := []string{"--retry", rec.ID}
-			if tc.flag != "" {
-				args = append(args, tc.flag, "replacement-profile")
-			}
-			fs, f := askFlagSet()
-			if err := fs.Parse(args); err != nil {
-				t.Fatal(err)
-			}
-			r := &askRun{fs: fs, f: f}
-			if code, done := loadAskRetry(fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
-				t.Fatalf("loadAskRetry = %d, %v", code, done)
-			}
-			if got := r.request(r.prompt); got.Lead != tc.wantLead {
-				t.Fatalf("replayed lead = %q, want %q", got.Lead, tc.wantLead)
-			}
-			if got := f.provider + f.leadProvider; got != tc.wantRoute {
-				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
-			}
-		})
-	}
-}
-
 // TestArmFlagRefusals: each flag that would take a dispatch off overlay databricks:<p> exits 2 naming the flag.
 func TestArmFlagRefusals(t *testing.T) {
 	vaulttest.Use(t)

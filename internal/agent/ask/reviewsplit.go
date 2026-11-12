@@ -256,36 +256,55 @@ func mergeReports(adversarial bool, parts []part, answers []string) string {
 	seen := map[string]bool{}
 	var body strings.Builder
 	short := len(answers) < len(parts) // a part that never answered was not reviewed
-	worst, best, unjudged, unreviewed, total := "", 0, short, short, 0
+	tally, unreviewed, total := verdictTally{unjudged: short}, short, 0
 	for i, ans := range answers {
 		blank := strings.TrimSpace(ans) == ""
 		unreviewed = unreviewed || blank
 		lines := strings.Split(strings.TrimSpace(ans), "\n")
 		if !adversarial {
-			v := strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))
-			if r, ok := verdictRank[v]; ok {
-				if r > best {
-					worst, best = v, r
-				}
-				lines = lines[1:]
-			} else {
-				unjudged = true
-			}
+			lines = tally.take(lines)
 		}
-		fmt.Fprintf(&body, "\n## %s\n", parts[i].Header(i+1, len(parts)))
-		n := appendFindings(&body, lines, seen)
-		total += n
-		if n == 0 && blank {
-			body.WriteString("(no review returned)\n")
-		} else if n == 0 {
-			body.WriteString("(no findings)\n")
-		}
+		total += writePart(&body, parts[i].Header(i+1, len(parts)), lines, blank, seen)
 	}
-	head := mergedVerdict(adversarial, worst, best, unjudged, total, len(parts))
+	head := mergedVerdict(adversarial, tally.worst, tally.best, tally.unjudged, total, len(parts))
 	if adversarial && total == 0 && unreviewed { // a part that returned nothing was not reviewed, so no clean verdict
 		head = noReviewVerdict
 	}
 	return head + "\n" + body.String()
+}
+
+// verdictTally is the worst neutral verdict seen so far, and whether a part had none.
+type verdictTally struct {
+	worst    string
+	best     int
+	unjudged bool
+}
+
+// take records the verdict on lines[0] and returns the lines after it; an unknown first line stays a finding.
+func (t *verdictTally) take(lines []string) []string {
+	v := strings.ToUpper(strings.Trim(strings.TrimSpace(lines[0]), "*#: ."))
+	r, ok := verdictRank[v]
+	if !ok {
+		t.unjudged = true
+		return lines
+	}
+	if r > t.best {
+		t.worst, t.best = v, r
+	}
+	return lines[1:]
+}
+
+// writePart writes one part's header and deduped findings, or a placeholder; it returns the findings written.
+func writePart(body *strings.Builder, header string, lines []string, blank bool, seen map[string]bool) int {
+	fmt.Fprintf(body, "\n## %s\n", header)
+	n := appendFindings(body, lines, seen)
+	switch {
+	case n == 0 && blank:
+		body.WriteString("(no review returned)\n")
+	case n == 0:
+		body.WriteString("(no findings)\n")
+	}
+	return n
 }
 
 func mergedVerdict(adversarial bool, worst string, best int, unjudged bool, total, parts int) string {
