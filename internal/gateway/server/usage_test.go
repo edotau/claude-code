@@ -50,8 +50,8 @@ func TestRelayedRequestWritesLedgerForNonKeyAuth(t *testing.T) {
 		t.Fatalf("ledger = %+v, want 1 entry", got)
 	}
 	checkNonKeyLedgerEntry(t, got[0])
-	if in, out, cr := tokenledger.TotalsBySession("sess-1"); in != 7 || out != 3 || cr != 2 {
-		t.Errorf("totals = %d %d %d", in, out, cr)
+	if in, out, cr, err := tokenledger.SessionTotals("sess-1"); err != nil || in != 7 || out != 3 || cr != 2 {
+		t.Errorf("totals = %d %d %d, %v", in, out, cr, err)
 	}
 }
 
