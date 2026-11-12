@@ -765,6 +765,7 @@ func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the batch/envelope tests reach the proxy
+	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
@@ -1254,8 +1255,13 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 func TestArmFlagRefusals(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
-		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}},`+
 		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
+	t.Setenv("DEV_WS_TOKEN", "SENTINEL-dev") // dev passes the workspace preflight, so each row reaches its flag fence
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil { // claude's model fence reads the listing
+		t.Fatal(err)
+	}
 	cases := []struct {
 		inherited, want string
 		args            []string
@@ -1268,7 +1274,8 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"", "--provider openai: outside", []string{"--route", "databricks:dev", "--provider", "openai"}},
 		{"", "--model gw:m: outside", []string{"--route", "databricks:dev", "--model", "gw:m"}},
 		{"", "--direct: refused", []string{"--route", "databricks:dev", "--direct"}},
-		{"", "--model gpt-nonexistent-9: not served", []string{"--route", "databricks:dev", "--model", "gpt-nonexistent-9"}},
+		{"", "--model gpt-nonexistent-9: not served to claude", // external agents' models are the chain's preflight
+			[]string{"--route", "databricks:dev", "--agent", "claude", "--model", "gpt-nonexistent-9"}},
 		{"databricks:dev", "cannot leave databricks:dev", []string{"--route", "first-party"}},
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
 	}

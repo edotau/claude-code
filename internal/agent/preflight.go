@@ -2,11 +2,15 @@ package agent
 
 import (
 	"cmp"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -71,11 +75,14 @@ func (pf *Preflight) Lines() []string {
 type PreflightError struct{ Finding Finding }
 
 func (e *PreflightError) Error() string {
-	return "preflight: " + e.Finding.String() + " (fallback is off: --fallback or " + router.EnvFallback + ")"
+	return "preflight: " + e.Finding.String() + " (no fallback for this dispatch: --fallback or " + router.EnvFallback + ")"
 }
 
 // refreshListing starts one detached re-list of a workspace's listing, deduped per profile; a seam for tests.
 var refreshListing = func(profile string) { catalog.SpawnDiscover(profile, false) }
+
+// StubRefreshListingForTest turns the detached listing refresh off for a whole test binary (call from TestMain).
+func StubRefreshListingForTest() { refreshListing = func(string) {} }
 
 // CheckWorkspace is the local, no-network check of a Databricks row: a stored credential and no live auth mark.
 func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Finding {
@@ -126,8 +133,52 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	return wire, nil, note
 }
 
+// CheckModelNoted is CheckModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).
+func CheckModelNoted(agentName string, p *providers.Provider, model string, now time.Time, pf *Preflight) (string, *Finding) {
+	wire, failed, note := CheckModel(agentName, p, model, now)
+	if note == "" {
+		return wire, failed
+	}
+	refreshListing(p.Name)
+	if pf != nil {
+		pf.note(note)
+	} else {
+		fmt.Fprintln(os.Stderr, "preflight: note: "+note)
+	}
+	return wire, failed
+}
+
+// armFinding is the first failed local check of the --route databricks:<p> workspace, recorded in rc.pf; nil passes.
+func (rc routeCtx) armFinding() *Finding {
+	p := rc.reg.Row(router.ArmProfile())
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return nil
+	}
+	fs := CheckWorkspace(p, loadState(), time.Now())
+	if len(fs) == 0 {
+		return nil
+	}
+	rc.pf.fail(fs[0])
+	return &fs[0]
+}
+
+// databricksDispatch reports d billing a Databricks workspace of reg.
+func databricksDispatch(reg *providers.Registry, d Dispatch) bool {
+	_, profile, _ := strings.Cut(d.Account, "·")
+	p := reg.Row(profile)
+	return p != nil && p.Preset == providers.PresetDatabricks
+}
+
+// proxyNote is the note for a proxy that is not running; the launch starts it, so it is never a failure.
+func proxyNote() string {
+	if st, err := gateway.ReadState(); err == nil && st.PID > 0 && proc.Alive(st.PID) {
+		return ""
+	}
+	return "proxy not running: the launch starts it (claude-code gateway proxy --status)"
+}
+
 // explicitFinding is the first failed preflight check of an explicit Databricks backend, nil when it passes.
-func explicitFinding(q RouteReq, p *providers.Provider) *Finding {
+func explicitFinding(q RouteReq, p *providers.Provider, pf *Preflight) *Finding {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
@@ -135,12 +186,19 @@ func explicitFinding(q RouteReq, p *providers.Provider) *Finding {
 	if fs := CheckWorkspace(p, loadState(), now); len(fs) > 0 {
 		return &fs[0]
 	}
-	if q.Agent == "claude" {
+	_, failed := CheckModelNoted(q.Agent, p, strings.TrimPrefix(q.Model, p.Name+":"), now, pf)
+	return failed
+}
+
+// modelFinding is explicitFinding for a --model <profile>:<model> with no --profile; nil when it names no row.
+func modelFinding(q RouteReq, pf *Preflight) *Finding {
+	name, _, ok := strings.Cut(q.Model, ":")
+	if !ok {
 		return nil
 	}
-	_, failed, note := CheckModel(q.Agent, p, strings.TrimPrefix(q.Model, p.Name+":"), now)
-	if note != "" {
-		refreshListing(p.Name)
+	reg, err := providers.Load()
+	if err != nil || reg.Providers[name] == nil {
+		return nil
 	}
-	return failed
+	return explicitFinding(q, reg.Providers[name], pf)
 }

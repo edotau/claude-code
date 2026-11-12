@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -101,7 +102,7 @@ func run(args []string, resume bool, verb string) int {
 		f.host = ""
 	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
-	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.checkArm, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
+	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -113,12 +114,9 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 	return failAskCode(r.f.format, r.f.name, err, code), true
 }
 
-// prelude applies the route and overlays and validates the flags.
+// prelude applies the overlays and validates the flags.
 func (r *askRun) prelude() (int, bool) {
 	f := r.f
-	if err := ApplyRoute(f.route, f.provider); err != nil {
-		return r.fail(err, 2)
-	}
 	if code := askEnableOverlays(f.overlayDebug, f.overlayPath); code != 0 {
 		return code, true
 	}
@@ -163,9 +161,15 @@ func (r *askRun) selectAgent() (int, bool) {
 	return 0, false
 }
 
-// checkArm refuses the flags that would take the dispatch off route databricks:<p> (exit 2); a no-op outside it.
+// checkArm applies --route for the selected agent and refuses flags leaving it (exit 2; a preflight refusal exits 1).
 func (r *askRun) checkArm() (int, bool) {
 	f := r.f
+	if err := ApplyRoute(f.route, f.provider, r.ag, f.model, f.fallback); err != nil {
+		if _, ok := errors.AsType[*agent.PreflightError](err); ok {
+			return r.fail(err, 1)
+		}
+		return r.fail(err, 2)
+	}
 	if err := CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct); err != nil {
 		return r.fail(err, 2)
 	}
@@ -186,6 +190,11 @@ func (r *askRun) parsePerms() (int, bool) {
 // dispatchMode handles --batch and --log, which end the run before a single task is built.
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
+	if f.batchSrc != "" || f.showLog { // --batch picks once from the base flags; a single task checks after its record
+		if code, done := r.checkArm(); done {
+			return code, true
+		}
+	}
 	if f.batchSrc != "" {
 		retryAgents, err := r.retryAgents()
 		if err != nil {
@@ -375,6 +384,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	for _, l := range prepared.Chain.Preflight.Lines() {
 		fmt.Fprintln(os.Stderr, "preflight:", l)
 	}
+	cl.Notify = quietPrinted(cl.Notify, prepared.Chain.Preflight)
 	saveErr := prepared.Record.Save()
 	if saveErr != nil && !background {
 		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", saveErr)
@@ -386,6 +396,26 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return askSpawn(fs, prepared, native, format, name)
 	}
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
+}
+
+// quietPrinted drops the skip entries notify would repeat after pf's preflight: lines; other messages pass.
+func quietPrinted(notify func(string), pf *agent.Preflight) func(string) {
+	if notify == nil || pf == nil || len(pf.Failed) == 0 {
+		return notify
+	}
+	return func(s string) {
+		rest, ok := strings.CutPrefix(s, agent.SkippedLead)
+		if !ok {
+			notify(s)
+			return
+		}
+		kept := slices.DeleteFunc(strings.Split(rest, "; "), func(e string) bool {
+			return slices.ContainsFunc(pf.Failed, func(f agent.Finding) bool { return strings.HasSuffix(e, ": preflight "+f.String()) })
+		})
+		if len(kept) > 0 {
+			notify(agent.SkippedLead + strings.Join(kept, "; "))
+		}
+	}
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
@@ -474,7 +504,11 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	}
 	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
 	writeErr := reportAskResult(format, res, err)
-	for _, line := range []string{wire.RanOn(res), wire.DidNotRun(res)} {
+	lines := []string{wire.RanOn(res)}
+	if p.Chain.Preflight == nil || len(p.Chain.Preflight.Failed) == 0 { // a refusal's preflight: line named the reason
+		lines = append(lines, wire.DidNotRun(res))
+	}
+	for _, line := range lines {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}

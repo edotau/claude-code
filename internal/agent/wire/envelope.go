@@ -36,8 +36,9 @@ type Envelope struct {
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
-	Requested       string          `json:"requested,omitempty"` // <profile>[:<model>] asked for, when another step answered
-	Usage           *Usage          `json:"usage"`               // null when the agent reports no token counts
+	Requested       string          `json:"requested,omitempty"`     // <profile>[:<model>] asked for, when another step answered
+	RequestedWhy    string          `json:"requested_why,omitempty"` // why the requested target did not answer
+	Usage           *Usage          `json:"usage"`                   // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
 	Error           *EnvelopeError  `json:"error"` // null on success
 	Answer          string          `json:"answer"`
@@ -56,7 +57,7 @@ type Envelope struct {
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
-		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested,
+		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
 	if env.Dropped == nil {
 		env.Dropped = []string{}

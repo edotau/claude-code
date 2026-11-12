@@ -123,6 +123,9 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, pick, err
 	}
+	if len(c.Dispatches) > 0 && databricksDispatch(reg, c.Dispatches[0]) {
+		rc.pf.note(proxyNote())
+	}
 	if len(rc.pf.Failed)+len(rc.pf.Notes) > 0 {
 		if len(c.Dispatches) > 0 {
 			rc.pf.Chosen = hopTarget(c.Dispatches[0])
@@ -212,8 +215,8 @@ func (rc routeCtx) pinIndex(cands []router.Candidate, alias string) int {
 	first := func(is func(router.Candidate) bool) int {
 		return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == rc.want && is(c) })
 	}
-	if pin := rc.pins[rc.want].Profile; pin != "" {
-		return first(func(c router.Candidate) bool { return c.Profile == pin })
+	if rc.pins[rc.want].Profile != "" {
+		return first(rc.onPin)
 	}
 	cell, _ := rc.tb.Cell(rc.want, alias)
 	acct, _ := ResolveAccount(rc.want, cell)
@@ -223,6 +226,20 @@ func (rc routeCtx) pinIndex(cands []router.Candidate, alias string) int {
 		}
 	}
 	return first(func(c router.Candidate) bool { return c.Profile == "" })
+}
+
+// onPin reports c on the wanted agent's pinned profile; an opencode sub-pin's candidate has no Profile, only its account.
+func (rc routeCtx) onPin(c router.Candidate) bool {
+	pin := rc.pins[rc.want].Profile
+	if pin == "" || c.Profile != "" || !isHubAgent(rc.want) || rc.tb == nil {
+		return c.Profile == pin
+	}
+	for _, cell := range rc.tb.OpencodeSub[pin] {
+		if cell.Account != "" && cell.Account == c.Account {
+			return true
+		}
+	}
+	return false
 }
 
 // requestedIndex is the candidate the caller asked for: the wanted agent on the --route workspace, the lead or its pin.
@@ -262,8 +279,13 @@ func (rc routeCtx) asksModel(cand router.Candidate, cell string) bool {
 // addCandidates appends a dispatch to c for each step of the fallback order whose cell can run; the rest are skipped.
 func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
 	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
+	armFailed := rc.armFinding()
 	for _, s := range steps {
 		cand := pick.Candidates[s.i]
+		if armFailed != nil && s.i == req { // the --route workspace failed its local check, like a failed model check
+			c.Skipped = append(c.Skipped, cand.Agent+" ("+cmp.Or(cand.Account, cand.Profile)+"): preflight "+armFailed.String())
+			continue
+		}
 		cell, skip := s.rc.candidateCell(cand)
 		if s.pin && skip == "" && s.i == req && rc.asksModel(cand, cell.Model) {
 			continue
@@ -302,7 +324,7 @@ func (rc routeCtx) otherRoute(cand router.Candidate) bool {
 	if rc.lead != "" && cand.Agent == rc.want {
 		return cand.Profile != rc.lead
 	}
-	return cand.Agent != rc.want || (rc.want != "claude" && cand.Profile != rc.pins[rc.want].Profile)
+	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
 }
 
 // same reports whether o runs the same agent, account, model and effort as d.
@@ -393,7 +415,7 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
 func resolveExplicit(q RouteReq) (Chain, error) {
-	r := q.Engine
+	r, pf := q.Engine, &Preflight{}
 	if q.Profile != "" {
 		reg, err := providers.Load()
 		if err != nil {
@@ -403,7 +425,7 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		if err != nil {
 			return Chain{}, err
 		}
-		if f := explicitFinding(q, p); f != nil {
+		if f := explicitFinding(q, p, pf); f != nil {
 			return Chain{}, &PreflightError{Finding: *f}
 		}
 		if !q.Native && isHubAgent(q.Agent) && p.OpencodeID != "" {
@@ -413,10 +435,15 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 			}
 			r = newHubDispatch(q.Agent, start, reg)
 		}
+	} else if f := modelFinding(q, pf); f != nil {
+		return Chain{}, &PreflightError{Finding: *f}
 	}
 	chain := explicitChain(r, RunOptions{Provider: q.Profile, Model: q.Model})
 	if isHubAgent(q.Agent) && q.Model == "" {
 		chain = withAlias(chain, q.AliasHint)
+	}
+	if len(pf.Notes) > 0 && len(chain.Dispatches) > 0 {
+		pf.Chosen, chain.Preflight = hopTarget(chain.Dispatches[0]), pf
 	}
 	return chain, nil
 }
@@ -507,11 +534,7 @@ func wireAgent(name string) bool {
 // callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
 func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
 	model := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
-	wire, failed, note := CheckModel(cand.Agent, rc.reg.Providers[cand.Profile], model, time.Now())
-	if note != "" {
-		rc.pf.note(note)
-		refreshListing(cand.Profile)
-	}
+	wire, failed := CheckModelNoted(cand.Agent, rc.reg.Providers[cand.Profile], model, time.Now(), rc.pf)
 	if failed != nil {
 		rc.pf.fail(*failed)
 		return cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + failed.String()

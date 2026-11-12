@@ -46,8 +46,8 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	f := &askFlags{}
 	fs.StringVar(&f.name, "agent", "claude", "agent, agents/<name>.md, <agent>:<name>, or an --agents key")
 	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
-	fs.StringVar(&f.fallback, "fallback", "", "all (pin, then claude)|agents (pin)|none (exit)")
-	fs.StringVar(&f.route, "route", "", "fallback ladder: default|first-party|databricks[:<profile>|:auto] (bare: the session's Databricks profile; auto: the workspace with the fewest live dispatches)")
+	fs.StringVar(&f.fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	fs.StringVar(&f.route, "route", "", "accounts: default|first-party|databricks[:<profile>|:auto] (bare: the session's Databricks profile; auto: the least busy workspace passing the preflight)")
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
 	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the pin (--fallback none pins)")
 	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")

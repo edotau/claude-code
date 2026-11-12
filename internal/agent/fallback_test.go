@@ -781,6 +781,7 @@ func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 	setConfigDir(t)
 	c := Single(&fakeRunner{name: "copilot", errs: []error{nil}})
 	c.Skipped = []string{"opencode·openai: not configured", "copilot: exhausted"}
+	c.Dispatches[0].otherRoute = true // the exhausted skip moved copilot off its route: the notice is due
 	var got []string
 	if _, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { got = append(got, s) }); err != nil {
 		t.Fatal(err)

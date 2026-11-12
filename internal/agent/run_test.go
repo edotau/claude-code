@@ -252,6 +252,7 @@ func TestMain(m *testing.M) {
 	NoticeOut = io.Discard
 	agentconfig.SetCatalogWarn(io.Discard)
 	StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-xyz")
+	StubRefreshListingForTest() // a stale listing would otherwise claim a discover marker
 	if err := registerFixtureRoster(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +20,7 @@ import (
 )
 
 // ApplyRoute exports --route as HARNESS_ROUTE (databricks:<p> also as CLAUDE_PROFILE) for this process and its jobs.
-func ApplyRoute(route, profile string) error {
+func ApplyRoute(route, profile, agentName, model, fallback string) error {
 	if route == "" {
 		return nil
 	}
@@ -28,7 +29,7 @@ func ApplyRoute(route, profile string) error {
 		return err
 	}
 	if mode == router.RouteDatabricks {
-		return applyArm(p, profile)
+		return applyArm(p, profile, agentName, model, fallback)
 	}
 	if arm := router.ArmProfile(); arm != "" {
 		return errLeaveArm(arm)
@@ -37,23 +38,29 @@ func ApplyRoute(route, profile string) error {
 }
 
 // applyArm resolves route databricks:<p> (bare: from profile, else CLAUDE_PROFILE), checks the row and exports it.
-func applyArm(p, profile string) error {
+func applyArm(p, profile, agentName, model, fallback string) error {
 	if p == "" {
 		if p = bareArm(profile); p == "" {
 			return errors.New("--route databricks needs a workspace: databricks:<profile>")
 		}
 	}
-	if p == autoArm {
+	inherited, explicit := router.ArmProfile(), p != autoArm
+	if !explicit {
 		var err error
-		if p, err = autoWorkspace(); err != nil {
+		if p, err = autoWorkspace(agentName, model); err != nil {
 			return err
 		}
 	}
-	if arm := router.ArmProfile(); arm != "" && p != arm {
-		return errLeaveArm(arm)
+	if inherited != "" && p != inherited {
+		return errLeaveArm(inherited)
 	}
 	if err := providers.ServingRow(p); err != nil {
 		return err
+	}
+	if explicit && inherited == "" && fallback == router.FallbackNone {
+		if err := workspaceRefusal(p); err != nil {
+			return err
+		}
 	}
 	if err := os.Setenv(router.EnvRoute, router.RouteDatabricks+":"+p); err != nil {
 		return err
@@ -61,11 +68,23 @@ func applyArm(p, profile string) error {
 	return os.Setenv(providers.EnvSessionProfile, p)
 }
 
-// autoArm is the databricks:auto workspace: the usable one with the fewest live dispatches (pickArm).
+// workspaceRefusal is the PreflightError of an explicit workspace failing its local check; nil when it passes.
+func workspaceRefusal(name string) error {
+	reg, err := providers.Load()
+	if err != nil {
+		return fmt.Errorf("--route databricks:%s: %w", name, err)
+	}
+	if fs := agent.CheckWorkspace(reg.Providers[name], router.LoadState(), time.Now()); len(fs) > 0 {
+		return &agent.PreflightError{Finding: fs[0]}
+	}
+	return nil
+}
+
+// autoArm is the databricks:auto workspace: the one passing the preflight with the fewest live dispatches (pickArm).
 const autoArm = "auto"
 
 // autoWorkspace resolves databricks:auto: the inherited route's workspace inside one, else pickArm's.
-func autoWorkspace() (string, error) {
+func autoWorkspace(agentName, model string) (string, error) {
 	if arm := router.ArmProfile(); arm != "" {
 		return arm, nil
 	}
@@ -73,19 +92,40 @@ func autoWorkspace() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("--route databricks:auto: %w", err)
 	}
-	p, live, err := pickArm(reg, time.Now())
-	if err != nil {
-		return "", err
+	p, live, skipped, err := pickArm(reg, agentName, model, time.Now())
+	if err == nil {
+		note := ""
+		if len(skipped) > 0 {
+			note = fmt.Sprintf(", %d skipped", len(skipped))
+		}
+		fmt.Fprintf(os.Stderr, "route: databricks:auto picked %s (%d live%s)\n", p, live, note)
 	}
-	fmt.Fprintf(os.Stderr, "route: databricks:auto picked %s (%d live)\n", p, live)
-	return p, nil
+	for _, f := range skipped {
+		fmt.Fprintf(os.Stderr, "preflight: %s failed %s\n", f.Profile, f)
+	}
+	return p, err
 }
 
-// Seams of the databricks:auto pick; tests stub both, so no credential resolves and no marker is read.
+// Seams of the databricks:auto pick; tests stub them, so no credential, quota state or marker is read.
 var (
-	armUsable = func(p *providers.Provider) bool { return !p.IsAIGateway() && p.DatabricksUsable() }
-	armLive   = liveByWorkspace
+	armFindings = localArmFindings
+	armCooling  = func(p *providers.Provider, now time.Time) bool {
+		return router.LoadState().CoolingUntil(router.AccountOf(p)).After(now)
+	}
+	armLive = liveByWorkspace
 )
+
+// localArmFindings is p's local preflight (no network): its workspace, then model for agentName when both are known.
+func localArmFindings(p *providers.Provider, agentName, model string, now time.Time) []agent.Finding {
+	fs := agent.CheckWorkspace(p, router.LoadState(), now)
+	if agentName == "" {
+		return fs
+	}
+	if _, failed := agent.CheckModelNoted(agentName, p, strings.TrimPrefix(model, p.Name+":"), now, nil); failed != nil {
+		fs = append(fs, *failed)
+	}
+	return fs
+}
 
 // liveByWorkspace is each workspace's live load: in-flight markers on its account plus alive records routed to it.
 func liveByWorkspace(ps []*providers.Provider) map[string]int {
@@ -114,23 +154,25 @@ var armPicksFormat = schemas.Register(schemas.Format{
 
 func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
 
-// pickArm picks the usable Databricks workspace with the fewest live dispatches (tie: least recent pick, then name).
-func pickArm(reg *providers.Registry, now time.Time) (name string, live int, err error) {
-	var usable []*providers.Provider
-	for _, p := range reg.Providers {
-		if p.Preset == providers.PresetDatabricks && armUsable(p) {
-			usable = append(usable, p)
-		}
+// pickArm picks a workspace passing the preflight (a model none serves is dropped); skipped: one finding per drop.
+func pickArm(reg *providers.Registry, agentName, model string, now time.Time) (name string, live int, skipped []agent.Finding, err error) {
+	usable, skipped := armCandidates(reg, agentName, model, now)
+	if len(usable) == 0 && model != "" {
+		usable, skipped = armCandidates(reg, agentName, "", now)
 	}
 	if len(usable) == 0 {
-		return "", 0, errors.New("--route databricks:auto: no Databricks workspace with a usable credential (claude-code doctor)")
+		return "", 0, skipped, errors.New("--route databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
+	}
+	cooling := map[string]bool{}
+	for _, p := range usable {
+		cooling[p.Name] = armCooling(p, now)
 	}
 	pick := func() error {
 		picks := readArmPicks()
 		counts := armLive(usable)
-		best := slices.MinFunc(usable, func(a, b *providers.Provider) int {
-			return cmp.Or(cmp.Compare(counts[a.Name], counts[b.Name]), picks.Picked[a.Name].Compare(picks.Picked[b.Name]),
-				cmp.Compare(a.Name, b.Name))
+		best := slices.MinFunc(usable, func(a, b *providers.Provider) int { // not cooling, fewest live, least recent, name
+			return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
+				picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
 		})
 		name, live = best.Name, counts[best.Name]
 		picks.Picked[name] = now
@@ -139,7 +181,31 @@ func pickArm(reg *providers.Registry, now time.Time) (name string, live int, err
 	if err := paths.WithFileLock(armPicksFile(), pick); name == "" && err != nil { // the stamp is best-effort, the pick is not
 		_ = pick()
 	}
-	return name, live, nil
+	return name, live, skipped, nil
+}
+
+// armCandidates splits reg's Databricks workspaces (no AI Gateway row) into those passing armFindings and the rest.
+func armCandidates(reg *providers.Registry, agentName, model string, now time.Time) (usable []*providers.Provider, skipped []agent.Finding) {
+	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
+		p := reg.Providers[n]
+		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() {
+			continue
+		}
+		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {
+			skipped = append(skipped, fs[0])
+			continue
+		}
+		usable = append(usable, p)
+	}
+	return usable, skipped
+}
+
+// rank orders false before true.
+func rank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // readArmPicks is the stored stamps; a missing, unreadable or other-version file is an empty table.
@@ -185,7 +251,14 @@ func CheckArm(agentName, profile, provider, model string, direct bool) error {
 	if prof, _, typed := strings.Cut(model, ":"); typed && reg.Providers[prof] != nil && prof != arm {
 		return fmt.Errorf("--model %s: outside --route databricks:%s", model, arm)
 	}
-	return armModel(reg.Providers[arm], agentName, strings.TrimPrefix(model, arm+":"))
+	if agentName != "claude" { // claude has no own-cell hop; the chain's preflight validates every other agent
+		return nil
+	}
+	model = strings.TrimPrefix(model, arm+":")
+	if _, failed := agent.CheckModelNoted(agentName, reg.Providers[arm], model, time.Now(), nil); failed != nil {
+		return fmt.Errorf("--model %s: not served to %s on databricks:%s", model, agentName, arm)
+	}
+	return nil
 }
 
 // armFlags refuses --direct, a --profile other than the workspace and a --provider other than databricks.
@@ -197,22 +270,6 @@ func armFlags(arm, profile, provider string, direct bool) error {
 		return fmt.Errorf("--profile %s: outside --route databricks:%s", profile, arm)
 	case provider != "" && provider != router.RouteDatabricks:
 		return fmt.Errorf("--provider %s: outside --route databricks:%s", provider, arm)
-	}
-	return nil
-}
-
-// armModel refuses an explicit model id the workspace does not serve agentName; aliases and discovery pass.
-func armModel(p *providers.Provider, agentName, model string) error {
-	if model == "" || agentName == "" || model == router.DiscoveryModel || slices.Contains(router.Aliases, model) {
-		return nil
-	}
-	served := providers.SpellPin(p, model) != ""
-	if agentName != "claude" { // Serves covers external agents only
-		_, why := agent.ProfileServes(agentName, p, model)
-		served = why == ""
-	}
-	if !served {
-		return fmt.Errorf("--model %s: not served to %s on databricks:%s", model, agentName, p.Name)
 	}
 	return nil
 }
