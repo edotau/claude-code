@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -192,6 +193,46 @@ func TestAgyGateCoversIgnoresWorkspaceFileForEmptyCwd(t *testing.T) {
 	}
 	if !agyGateCovers(dir, "run_command") {
 		t.Fatal("control: the workspace file with the gate was not honored")
+	}
+}
+
+// A malformed or unreadable hooks.json grants the gate on no tool; only a valid covering file does.
+func TestAgyGateCoversFailsClosedOnBadHooksFile(t *testing.T) {
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
+	group := settings.MatcherGroup{Hooks: []settings.Hook{{Type: "command", Command: command}}}
+	valid, err := json.Marshal(map[string]any{"harness": map[string]any{"PreToolUse": []settings.MatcherGroup{group}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name    string
+		content []byte
+		mode    os.FileMode
+		want    bool
+	}{
+		{"malformed", []byte("{not json"), 0o600, false},
+		{"unreadable", valid, 0o000, false},
+		{"valid", valid, 0o600, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.name == "unreadable" && (runtime.GOOS == "windows" || os.Geteuid() == 0) {
+				t.Skip("mode 0000 is still readable here")
+			}
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			path := agyHooksPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, c.content, c.mode); err != nil {
+				t.Fatal(err)
+			}
+			for _, tool := range []string{"run_command", "read_file", "write_file"} {
+				if got := agyGateCovers("", tool); got != c.want {
+					t.Errorf("agyGateCovers(%q) = %v, want %v", tool, got, c.want)
+				}
+			}
+		})
 	}
 }
 
