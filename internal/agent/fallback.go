@@ -73,6 +73,15 @@ func (d Dispatch) fallsBack(want string) bool {
 	return d.otherRoute || d.swap || d.Agent.Name() != want
 }
 
+// leadFallsBack is fallsBack for the first hop, except the wanted agent on the router's own row, none skipped.
+func (c Chain) leadFallsBack() bool {
+	d := c.Dispatches[0]
+	if d.routerChose && !d.swap && d.Agent.Name() == c.Want && len(askedSkips(c.Skipped, c.Want)) == 0 {
+		return false
+	}
+	return d.fallsBack(c.Want)
+}
+
 // attach stamps the hand-off and every tried hop on res, so an error return still reports who ran.
 func (s *fallbackState) attach(res wire.Result) wire.Result {
 	res.Handoff, res.Hops = s.handoff, s.hops
@@ -84,7 +93,7 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
-	if ran > 0 || c.Dispatches[ran].fallsBack(c.Want) { // a different agent, route or the pin is a fallback
+	if ran > 0 || c.leadFallsBack() { // a different agent, route or the pin is a fallback
 		res = c.markFallback(res, reasons)
 	}
 	return res, err

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -289,10 +290,10 @@ func setReviewProgress(job *agent.Record, p string) {
 	_ = job.Save()
 }
 
-// lastDispatchError is the newest failed dispatch's error text for agent, so a split report names the real cause.
-func lastDispatchError(name string) string {
+// lastDispatchError is the newest error text of agent's dispatches started at or after since, never an older run's.
+func lastDispatchError(name string, since time.Time) string {
 	for _, r := range agent.RecentRecords(agent.AllRecords) { // every record: other agents' newer jobs must not hide this leg's failure
-		if r.Agent == name && r.Status == "error" {
+		if r.Agent == name && r.Status == "error" && !r.Time.Before(since) {
 			return textutil.PreviewRedacted(r.Error, 400)
 		}
 	}

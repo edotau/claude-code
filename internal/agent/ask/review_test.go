@@ -56,8 +56,11 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	}
 	t.Setenv(reviewJobEnv, parent.ID)
 	run := func() int {
-		return runSplitReview("opencode", nil, []part{{Diff: []byte("test diff")}},
-			ReviewOptions{}, reviewParent())
+		p, err := reviewParent()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runSplitReview("opencode", nil, []part{{Diff: []byte("test diff")}}, ReviewOptions{}, p)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)
 	if code != 0 || !strings.Contains(stdout, "SHIP IT") {
