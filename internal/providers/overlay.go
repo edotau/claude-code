@@ -166,7 +166,7 @@ func renderNested(flat map[string]json.RawMessage, owner map[string]string, orde
 	return append(nd, '\n'), nil
 }
 
-// nestedDoc is the document with its providers value nested; a document that does not parse is returned as is.
+// nestedDoc is the document with its providers value nested; a providers value that does not parse is an error.
 func nestedDoc(top map[string]json.RawMessage) ([]byte, error) {
 	flat, owner, err := flattenTop(top)
 	if err != nil {

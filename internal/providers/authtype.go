@@ -345,16 +345,9 @@ func spCredential(ctx context.Context, p *Provider, force bool) (string, error) 
 
 // mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
 func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
-	if p.Auth.SPClientID == "" {
-		return "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
-	}
-	name := SecretName(p.Provider, p.Name, AuthM2M)
-	secret, access, err := clientSecrets(name)
+	name, secret, access, err := spSecrets(p)
 	if err != nil {
-		return "", fmt.Errorf("%s: vault: %w", p.Name, err)
-	}
-	if secret == "" {
-		return "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
+		return "", err
 	}
 	host := AuthHost(p)
 	bind := clientBind(host, p.Auth.SPClientID, secret)
@@ -375,6 +368,22 @@ func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	}
 	note(ctx, fmt.Sprintf("%s: using the service principal %s", p.Name, p.Auth.SPClientID))
 	return tok.Access, nil
+}
+
+// spSecrets reads the paired service principal's vault name, client secret and sealed access slot.
+func spSecrets(p *Provider) (name, secret, access string, err error) {
+	if p.Auth.SPClientID == "" {
+		return "", "", "", fmt.Errorf("%s: identity sp needs a paired service principal (auth.spClientId)", p.Name)
+	}
+	name = SecretName(p.Provider, p.Name, AuthM2M)
+	secret, access, err = clientSecrets(name)
+	if err != nil {
+		return "", "", "", fmt.Errorf("%s: vault: %w", p.Name, err)
+	}
+	if secret == "" {
+		return "", "", "", fmt.Errorf("%s: no service-principal credential (set %s with `claude-code vault set`)", p.Name, name)
+	}
+	return name, secret, access, nil
 }
 
 // clientSecrets reads a client secret (env first, like vault.EffectiveSecret) and its sealed _ACCESS slot in one read.
@@ -659,7 +668,7 @@ func LoginU2M(ctx context.Context, p *Provider, opts oauth.LoginOptions) (time.D
 	return sealLogin(p, tok)
 }
 
-// sealLogin seals a fresh login's tokens and returns the cached access token's lifetime.
+// sealLogin seals a fresh login's tokens and returns the access token's lifetime.
 func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 	// A fresh login supersedes the lock holder's refresh, so a lock timeout still seals it.
 	seal := func() error {
@@ -679,11 +688,14 @@ func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	c, ok := cmdCache.Load(p.Name)
-	if !ok {
+	exp := tok.Expiry
+	if e, ok := JWTExp(tok.Access); exp.IsZero() && ok {
+		exp = time.Unix(e, 0)
+	}
+	if exp.IsZero() {
 		return 0, nil
 	}
-	return time.Until(c.(cached).until) + expiryMargin, nil
+	return time.Until(exp), nil
 }
 
 // Auth types, the one auth.type value on disk and in memory.

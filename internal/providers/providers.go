@@ -3,6 +3,7 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -194,8 +195,7 @@ type Registry struct {
 	AgentPlans map[string][]Plan `json:"agentPlans,omitempty"`
 	// AgentPlanFormat renders a plan's mode column from {provider} {mode} {tier} {id}; empty = lowercase default.
 	AgentPlanFormat string `json:"agentPlanFormat,omitempty"`
-	// Routing is the one routing object: weights, cell overrides, subagent offload and opencode's sub-pick
-	// knobs (was top-level route, routeWeights, opencodeLadder — internal/providers/routing.go).
+	// Routing is the one routing object (routing.go): weights, cells, switches, ladders, opencode's sub-pick knobs.
 	Routing Routing  `json:"routing,omitzero"`
 	order   []string // profile names in declared order (defaults first, then new overlay rows); see ProfilesOf
 }
@@ -227,7 +227,7 @@ var routeBillingKeys = append(slices.Clone(OwnLoginAccountKeys), "github·copilo
 // routeOpencodeModelPrefixes are the prefixes an opencode override cell may carry.
 var routeOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
-// RouteOpencodeSubIDs are the ids an opencodeLadder entry may name; kept in sync with router's opencode_sub keys.
+// RouteOpencodeSubIDs are the ids routing.opencode.ladder may name; kept in sync with router's opencode_sub keys.
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
 // validRouteAccountKey reports whether key is a known static billing key or the "github·" dynamic family.
@@ -405,7 +405,8 @@ func (r *Registry) validate() error {
 	// the opencode hub picks the owner of an id, so each has one (chatgpt, not openai, owns "openai")
 	errs = append(errs, uniqueOwner(r, func(p *Provider) string { return p.OpencodeID },
 		"%s and %s both claim opencodeID %q; one profile owns it")...)
-	errs = append(errs, uniqueOwner(r, AuthSecretName, "%s and %s would share sealed secret %s; rename one")...)
+	secret := func(p *Provider) string { return cmp.Or(AuthSecretName(p), keySecretName(p)) }
+	errs = append(errs, uniqueOwner(r, secret, "%s and %s would share sealed secret %s; rename one")...)
 	errs = append(errs, validateNameRefs(r)...)
 	errs = append(errs, validateRouting(r.Routing)...)
 	errs = append(errs, validateLadders(r)...)
@@ -447,6 +448,19 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 			errs = append(errs, fmt.Sprintf("%s: route dialect %q unknown", n, d))
 		}
 	}
+	errs = append(errs, validateAuthKind(n, p)...)
+	errs = append(errs, validateAuthType(n, p)...)
+	errs = append(errs, validatePreset(n, p)...)
+	errs = append(errs, validateEnv(n, p.Env)...)
+	if p.OpencodeFallback == "auto" {
+		errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
+	}
+	return errs
+}
+
+// validateAuthKind checks auth.type is known and auth.login sits only on a cli row.
+func validateAuthKind(n string, p *Provider) []string {
+	var errs []string
 	switch p.Auth.Type {
 	case AuthOAuth, AuthM2M, AuthPAT, AuthKey, AuthCLI, AuthNone:
 	default:
@@ -454,12 +468,6 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	}
 	if p.Auth.Login != "" && p.Auth.Type != AuthCLI {
 		errs = append(errs, n+": auth.login needs auth.type cli")
-	}
-	errs = append(errs, validateAuthType(n, p)...)
-	errs = append(errs, validatePreset(n, p)...)
-	errs = append(errs, validateEnv(n, p.Env)...)
-	if p.OpencodeFallback == "auto" {
-		errs = append(errs, n+": opencode_fallback cannot itself be \"auto\"")
 	}
 	return errs
 }

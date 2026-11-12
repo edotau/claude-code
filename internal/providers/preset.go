@@ -355,7 +355,7 @@ func ContextWindow(p *Provider, id string) int {
 	return models.ContextWindowStd
 }
 
-// ServingRow checks name is a Databricks serving row (route databricks:<p> runs on no other); errors never quote name.
+// ServingRow checks name is a Databricks serving row (databricks:<p> runs on no other); errors never quote name.
 func ServingRow(name string) error {
 	reg, err := Load()
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -86,7 +87,7 @@ func TakeAs(args []string) (string, []string, error) {
 			return "", nil, errors.New("--as needs user or sp")
 		}
 	}
-	if seen && as != IdentityUser && as != IdentitySP {
+	if seen && !slices.Contains([]string{IdentityUser, IdentitySP}, as) {
 		return "", nil, fmt.Errorf("--as %q must be user or sp", as)
 	}
 	return as, rest, nil

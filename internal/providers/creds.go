@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -56,7 +57,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if vaultErr != nil {
 		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
 	}
-	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, orDash(p.Auth.Env), hint(p))
+	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, keyHint(p), hint(p))
 }
 
 // vaultCredential returns the first non-empty effective secret among the key names, plus the first vault error seen.
@@ -357,30 +358,37 @@ func authCommandError(ctx context.Context, p *Provider, err error) error {
 	if errors.As(err, &ee) {
 		detail = redactDetail(string(ee.Stderr))
 	}
-	kind := "auth: log in again for this provider"
-	switch low := strings.ToLower(detail); {
-	case ee != nil && ee.ExitCode() == 127:
-		kind = "cli: command not found"
-	case slices.ContainsFunc(networkMarkers, func(m string) bool { return strings.Contains(low, m) }):
-		kind = "network: check the connection or VPN"
-	}
+	kind := commandFailureKind(ee, detail)
 	if detail != "" {
 		return fmt.Errorf("%s: auth command failed (%s): %w: %s", p.Name, kind, err, detail)
 	}
 	return fmt.Errorf("%s: auth command failed (%s): %w", p.Name, kind, err)
 }
 
-// redactPunct is the quoting and separator punctuation around a token in JSON or key=value stderr.
-const redactPunct = "\"'`{}[](),;:="
+// upstreamStatusRE in a failed auth command's stderr is the issuer's own 429 or 5xx, which a login cannot fix.
+var upstreamStatusRE = regexp.MustCompile(`(?i)\b(?:429|5\d\d)\b|internal server error|bad gateway|too many requests`)
 
-// maskCore replaces the bare token in w with mask, keeping the quotes and separators around it.
-func maskCore(w, mask string) string {
-	core := strings.Trim(w, redactPunct)
-	if core == "" {
-		return w
+// commandFailureKind is authCommandError's class: cli, network, upstream, else auth.
+func commandFailureKind(ee *exec.ExitError, detail string) string {
+	low := strings.ToLower(detail)
+	switch {
+	case ee != nil && ee.ExitCode() == 127:
+		return "cli: command not found"
+	case slices.ContainsFunc(networkMarkers, func(m string) bool { return strings.Contains(low, m) }):
+		return "network: check the connection or VPN"
+	case upstreamStatusRE.MatchString(detail):
+		return "upstream: the issuer failed; retry later"
 	}
-	return strings.Replace(w, core, mask, 1)
+	return "auth: log in again for this provider"
 }
+
+// keyedSecretRE is a credential key, its separator (JSON, key=value, header, space) and its value of any length.
+var keyedSecretRE = regexp.MustCompile("(?i)(\\b(?:access_token|refresh_token|id_token|client_secret|api_key|" +
+	"password|secret|token|authorization|bearer)\\b[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?(?:(?:bearer|basic)\\s+)?)" +
+	"[^\\s\"'`,;{}\\[\\]()&]+")
+
+// jwtRE is a JWT of any length; textutil.RedactSecrets covers the prefixed key families.
+var jwtRE = regexp.MustCompile(`\beyJ[^\s"'` + "`" + `,;{}\[\]()&]*`)
 
 // redactDetail is stderr's last non-empty line, ≤160 chars, with credential-shaped words masked.
 func redactDetail(stderr string) string {
@@ -388,18 +396,9 @@ func redactDetail(stderr string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	words := strings.Fields(textutil.RedactSecrets(lines[len(lines)-1]))
-	for i, w := range words {
-		core := strings.Trim(w, redactPunct)
-		key := strings.ToLower(core)
-		if i+1 < len(words) && slices.Contains([]string{"token", "access_token", "bearer", "authorization"}, key) {
-			words[i+1] = maskCore(words[i+1], "REDACTED")
-		}
-		if strings.HasPrefix(core, "eyJ") { // a JWT; textutil.LooksSecret covers the prefixed key families
-			words[i] = maskCore(w, "REDACTED")
-		}
-	}
-	return textutil.CapRunes(strings.Join(words, " "), 160, "…")
+	line := keyedSecretRE.ReplaceAllString(textutil.RedactSecrets(lines[len(lines)-1]), "${1}REDACTED")
+	line = jwtRE.ReplaceAllString(line, "REDACTED")
+	return textutil.CapRunes(strings.Join(strings.Fields(line), " "), 160, "…")
 }
 
 // CredentialPresent checks configured credential sources without decrypting or running commands.
@@ -437,11 +436,12 @@ func SPPresent(p *Provider) bool {
 	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.Provider, p.Name, AuthM2M)) != ""
 }
 
-func orDash(s string) string {
-	if s == "" {
-		return "auth.env"
+// keyHint is the name a key row's credential is set under: its vault name, else auth.env, else the placeholder.
+func keyHint(p *Provider) string {
+	if ns := keyNames(p); len(ns) > 0 {
+		return ns[0]
 	}
-	return s
+	return "auth.env"
 }
 
 func hint(p *Provider) string {
@@ -451,7 +451,7 @@ func hint(p *Provider) string {
 	return ""
 }
 
-// CredentialNames are the env/vault names p's static credential may be read from, sealed (PAT/M2M) names included.
+// CredentialNames are the env/vault names p's credential may be read from, the sealed (oauth/m2m/pat) name included.
 func CredentialNames(p *Provider) []string {
 	out := keyNames(p)
 	if n := AuthSecretName(p); n != "" {
