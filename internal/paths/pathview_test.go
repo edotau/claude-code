@@ -291,11 +291,10 @@ func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	start := time.Now()
-	out, _ := wslpathOut()
+	_, _ = wslpathOut()
 	if d := time.Since(start); d > 1500*time.Millisecond {
 		t.Errorf("probe took %s, want < 1.5s", d)
 	}
-	_ = out
 }
 
 // An obscured first match must not hide another mount that exposes the same content.
