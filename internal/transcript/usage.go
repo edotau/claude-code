@@ -162,13 +162,14 @@ func (s *FileSummary) count(r Response) {
 type UsageAggregate struct {
 	Models                map[string]*ModelUsage `json:"models"`
 	PeakInputTokensPerMin int64                  `json:"peak_input_tokens_per_min"`
+	ModelTurns            map[string]int         `json:"-"` // model id -> response count across every added file
 
 	perMin map[int64]int64
 }
 
 // NewUsageAggregate returns an empty aggregate.
 func NewUsageAggregate() *UsageAggregate {
-	return &UsageAggregate{Models: map[string]*ModelUsage{}, perMin: map[int64]int64{}}
+	return &UsageAggregate{Models: map[string]*ModelUsage{}, ModelTurns: map[string]int{}, perMin: map[int64]int64{}}
 }
 
 // Add folds one file summary in.
@@ -180,6 +181,7 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 			a.Models[model] = m
 		}
 		m.Add(*u)
+		a.ModelTurns[model] += s.ModelTurns[model]
 	}
 	for minute, n := range s.perMin {
 		a.perMin[minute] += n
@@ -328,17 +330,22 @@ func Window(model string, used int) int {
 	return models.ContextWindow(model)
 }
 
-// windowFile holds the context window Claude Code reported for a session, written by the status line.
+// windowFile holds the context window Claude Code reported for a session, written by the status line;
+// "" for an id that is not a plain file name (".", "..", a separator).
 func windowFile(session string) string {
-	return filepath.Join(paths.StateDir(), "context", filepath.Base(session))
+	name := filepath.Base(session)
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		return ""
+	}
+	return filepath.Join(paths.StateDir(), "context", name)
 }
 
 // RecordWindow stores the window Claude Code reports for session; the file is rewritten only when the size changes.
 func RecordWindow(session string, size int) {
-	if session == "" || size <= 0 || RecordedWindow(session) == size {
+	path := windowFile(session)
+	if path == "" || size <= 0 || RecordedWindow(session) == size {
 		return
 	}
-	path := windowFile(session)
 	if os.MkdirAll(filepath.Dir(path), 0o700) == nil {
 		_ = paths.AtomicWrite(path, []byte(strconv.Itoa(size)), 0o600)
 	}
@@ -346,10 +353,11 @@ func RecordWindow(session string, size int) {
 
 // RecordedWindow is the window RecordWindow stored for session, 0 when none: Claude Code's own figure beats a guess.
 func RecordedWindow(session string) int {
-	if session == "" {
+	path := windowFile(session)
+	if path == "" {
 		return 0
 	}
-	b, err := os.ReadFile(windowFile(session))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0
 	}

@@ -347,7 +347,7 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 	head := []string{"PROVIDER", "MODEL", "TODAY", "30D", "ALL-TIME"}
 	var rows [][]string
 	for _, a := range aggs {
-		rows = append(rows, []string{rowLabel(a.Provider, a.Profile), a.Model, humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime)})
+		rows = append(rows, []string{rowLabel(a.Provider, a.Profile), dash(a.Model), humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime)})
 	}
 	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 2, 4), 0))
 }

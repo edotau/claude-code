@@ -6,6 +6,7 @@
 package usage
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -167,25 +168,32 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
-	if err := helptext.CheckFormat(*formatFlag); err != nil {
+	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, workflows: *workflowsFlag, wantProvider: *providersFlag}
+	o, err := buildUsageOpts(raw, *formatFlag)
+	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
 		return usageOpts{}, 2, true
 	}
-	show := *showFlag
-	if !slices.Contains([]string{"left", "used", "total"}, show) {
-		fmt.Fprintf(errw, "usage: --show must be left, used, or total (got %q)\n", *showFlag)
-		return usageOpts{}, 2, true
-	}
-	o = usageOpts{session: *sessionFlag, days: *daysFlag, show: show, jsonOut: *formatFlag == helptext.JSON,
-		workflows: *workflowsFlag, wantProvider: *providersFlag && show != "total"}
-	if o.workflows && o.jsonOut {
-		fmt.Fprintln(errw, "usage: --workflows has no JSON form; drop --format json (the per-model aggregate does)")
-		return usageOpts{}, 2, true
-	}
-	if o.session == "" && o.days <= 0 {
-		o.days = 1 // the same window scanUsage scans
-	}
 	return o, 0, false
+}
+
+// buildUsageOpts validates the raw flag values; every refusal is an exit-2 usage error.
+func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
+	if err := helptext.CheckFormat(format); err != nil {
+		return usageOpts{}, err
+	}
+	if !slices.Contains([]string{"left", "used", "total"}, o.show) {
+		return usageOpts{}, fmt.Errorf("--show must be left, used, or total (got %q)", o.show)
+	}
+	o.jsonOut = format == helptext.JSON
+	if o.workflows && o.jsonOut {
+		return usageOpts{}, errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
+	}
+	if o.days <= 0 {
+		return usageOpts{}, fmt.Errorf("--days must be 1 or more (got %d); use --days 1 for the last day", o.days)
+	}
+	o.wantProvider = o.wantProvider && o.show != "total"
+	return o, nil
 }
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
@@ -270,9 +278,7 @@ func windowCutoff(days int) time.Time {
 	return time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 }
 
-// startQuotaFetch launches the live provider-quota fetch on its own goroutine so it overlaps the local
-// transcript scan and agent aggregation; the channel is buffered so the caller never blocks on send.
-// When quotas aren't wanted it sends an empty result immediately, so callers never branch on a nil channel.
+// startQuotaFetch runs the live quota fetch on its own goroutine, overlapping the local scan; empty at once when off.
 func startQuotaFetch(enabled bool) <-chan []quota {
 	ch := make(chan []quota, 1)
 	if !enabled {
@@ -283,7 +289,7 @@ func startQuotaFetch(enabled bool) <-chan []quota {
 		qs := fetchQuotas()
 		for i := range qs {
 			if !noteOnly(qs[i]) {
-				qs[i].LeftPct = 100 - qs[i].UsedPct
+				qs[i].LeftPct = max(100-qs[i].UsedPct, 0)
 			}
 		}
 		setStates(qs, warnThreshold())
