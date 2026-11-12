@@ -282,7 +282,7 @@ func TestLoginIdentitySPMintsWithoutBrowser(t *testing.T) {
 		{"--as user on an sp row", "sp", "user", true, true, 0, 0, 1, "logged in"},
 		{"auto with a paired sp mints", "auto", "", true, true, 0, 1, 0, "dbx-sp · service principal sp-client · token minted"},
 		{"auto without the sp secret keeps the browser", "auto", "", true, false, 0, 0, 1, "logged in"},
-		{"--as sp, unpaired", "user", "sp", false, false, 1, 0, 0, "`claude-code vault edit`"},
+		{"--as sp, unpaired", "user", "sp", false, false, 1, 0, 0, "`claude-code configure databricks` → Identity"},
 		{"--as sp, no secret", "auto", "sp", true, false, 1, 0, 0, "`claude-code vault set DATABRICKS_DBX_SP_M2M`"},
 	} {
 		mints := spLoginRow(t, c.identity, c.paired, c.secret)

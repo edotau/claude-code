@@ -50,7 +50,7 @@ Owner shortcuts are documented in `rules/workflows/agents.md` → Slash commands
   profile to copilot (`COPILOT_PROFILE`); `claude-code copilot profile <p>|--clear` sets it by hand.
 - Copilot reads as off (`copilot profile`, configure) while it has no account to bill: no GitHub login under 95%,
   no usable Databricks profile, no Anthropic key. The `COPILOT_ACTIVE` pin is untouched, so it comes back on its own.
-- Pins in `claude-code vault edit`: `COPILOT_MODEL`, `COPILOT_EFFORT`, `COPILOT_CONTEXT`.
+- Model, effort and context live in the copilot agent record: `claude-code configure agents --agent copilot`.
 - `claude-code copilot off|on` stops/resumes routing to copilot; `claude-code copilot setup` checks the route.
 
 ## Usage

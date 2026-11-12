@@ -136,7 +136,6 @@ var writers = map[string]string{
 	"internal/clipboard/ssh_bridge.go:installLaunchAgentAt":    unversioned("foreign: launchd plist (Apple format)"),
 	"internal/clipboard/wlproxy.go:installProxyAt":             unversioned("foreign: wl-paste shim binary"),
 	"internal/ui/helptext/completion.go:Install":               unversioned("foreign: shell completion script in the user's shell dirs"),
-	"internal/vault/vaultdoc/doc.go:writeEditorScratch":        unversioned("foreign: editor scratch temp file"),
 	"internal/configure/home.go:RegisterCodexMCP":              unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/project/sync.go:writeProjection":     "projections",
 	"internal/databricks/config.go:writeScratch":               unversioned("foreign: temp rescue config"),

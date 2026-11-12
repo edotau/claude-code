@@ -67,7 +67,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 		sel.Aliases[alias] = ParseTarget(reg, spec, p)
 	}
 	if _, ok := sel.Aliases[models.Opus]; !ok {
-		return sel, fmt.Errorf("provider %s: no opus model (set models.opus with `claude-code vault edit` or `claude-code models --pin opus=<id>`)", p.Name)
+		return sel, fmt.Errorf("provider %s: no opus model (pin one with `claude-code models --pin opus=<id>`)", p.Name)
 	}
 	return sel, nil
 }

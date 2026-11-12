@@ -24,8 +24,8 @@ const Auto = "auto"
 // HostEnv names the machine `auto` resolves to (process env, then vault env); unset, the tailnet is probed.
 const HostEnv = "HARNESS_REMOTE_HOST"
 
-// autoHint closes every `auto` failure: a vault env value is set in the vault document, not sealed.
-const autoHint = "name the machine: `claude-code vault edit`, env " + HostEnv
+// autoHint closes every `auto` failure: a vault env value, set in configure's environment row, not sealed.
+const autoHint = "name the machine: `claude-code configure` → environment, " + HostEnv
 
 // autoProbeTimeout bounds the tailnet status read and each candidate's `claude-code version` over ssh.
 var autoProbeTimeout = 5 * time.Second

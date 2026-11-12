@@ -19,7 +19,7 @@ func TestResolveAuto(t *testing.T) {
 		{"env wins without a probe", "wsl", []string{"a.ts.net", "b.ts.net"}, []string{"a.ts.net", "b.ts.net"}, "wsl", nil},
 		{"single candidate", "", []string{"phone.ts.net", "box.ts.net"}, []string{"box.ts.net"}, "box.ts.net", nil},
 		{"two candidates", "", []string{"a.ts.net", "b.ts.net"}, []string{"a.ts.net", "b.ts.net"}, "",
-			[]string{"2 machines answer (a.ts.net, b.ts.net)", "claude-code vault edit", HostEnv}},
+			[]string{"2 machines answer (a.ts.net, b.ts.net)", "claude-code configure", HostEnv}},
 		{"none answers", "", []string{"phone.ts.net"}, nil, "", []string{"tried: phone.ts.net", HostEnv}},
 		{"none online", "", nil, nil, "", []string{"none online", HostEnv}},
 	}

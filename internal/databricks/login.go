@@ -187,7 +187,7 @@ func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse boo
 func loginSP(p *providers.Provider, dryRun bool) int {
 	secret := providers.SecretName(p.Provider, p.Name, providers.AuthM2M)
 	if p.Auth.SPClientID == "" {
-		return fail("login: %s has no paired service principal (auth.spClientId); pair one with `claude-code vault edit`, "+
+		return fail("login: %s has no paired service principal (auth.spClientId); pair one in `claude-code configure databricks` → Identity, "+
 			"or pass --as user for a browser login", p.Name)
 	}
 	if providers.HasSecret(secret) == "" {
@@ -369,8 +369,8 @@ func rollbackHint(id, was string, switched bool) {
 	if !switched {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "auth.type of %s is now oauth (was %q); to undo, run `claude-code vault edit` and set "+
-		"providers.%s.auth.type back, or copy overlay/providers.prev (the previous generation) over overlay/providers\n",
+	fmt.Fprintf(os.Stderr, "auth.type of %s is now oauth (was %q); to undo, switch it back in `claude-code configure databricks` "+
+		"(profile %s), or copy overlay/providers.prev (the previous generation) over overlay/providers\n",
 		id, was, id)
 }
 
@@ -403,7 +403,7 @@ func checkAuthType(p *providers.Provider, authType string) error {
 	case providers.AuthOAuth, providers.AuthPAT:
 	case providers.AuthM2M:
 		if p.Auth.ClientID == "" {
-			return fmt.Errorf("%s: auth type %s needs auth.clientId; set it with `claude-code vault edit` first",
+			return fmt.Errorf("%s: auth type %s needs auth.clientId on its provider row, which has none",
 				p.Name, authType)
 		}
 	default:
@@ -420,7 +420,7 @@ func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, a
 	}
 	entry := provs[p.Name]
 	if entry == nil {
-		return nil, fmt.Errorf("%s is not an overlay row; add it with `vault edit` first", p.Name)
+		return nil, fmt.Errorf("%s is not an overlay row; add it with `claude-code databricks import --apply` first", p.Name)
 	}
 	auth := map[string]json.RawMessage{}
 	if b, ok := entry["auth"]; ok {

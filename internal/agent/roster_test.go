@@ -81,7 +81,7 @@ var fixtureHub = &Hub{
 				return &providers.Provider{Name: id, OpencodeID: id}, nil
 			}
 		}
-		return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
+		return nil, fmt.Errorf("%s: no opencode ladder configured (set opencode.ladder in `claude-code configure routing`)", agentName)
 	},
 	Dispatch: func(agentName string, p *providers.Provider, _ *providers.Registry) HubEngine {
 		return fixtureHubEngine{agent: agentName, provider: p}

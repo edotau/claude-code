@@ -216,7 +216,7 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 	mintRow(t, 200)
 	before := overlayDoc(t)
 	p := &providers.Provider{Name: "mrow"}
-	if err := switchAuthType(p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "claude-code vault edit") {
+	if err := switchAuthType(p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "needs auth.clientId") {
 		t.Fatalf("err %v", err)
 	}
 	if overlayDoc(t) != before {

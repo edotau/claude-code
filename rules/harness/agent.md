@@ -127,8 +127,8 @@ paths:
 - Native `spawn_agent` children use the Codex routing cells on a Databricks profile with a validated catalog — only
   explicitly fresh children (`fork_turns="none"` or `fork_context=false`) with no model/effort pin or custom type.
   The child keeps its provider; the model must support Responses and be in the session catalog.
-- A codex record `model` or `effort` disables child routing for the whole session (clear it in `vault edit` →
-  `agents.records.codex`).
+- A codex record `model` or `effort` disables child routing for the whole session (clear the effort in
+  `claude-code configure codex`).
 - Codex-only hooks log starts, decisions, spawn results and child models to
   `state/harness/codex/routing-<session-hash>.jsonl` (0600, no prompts). A decision is verified only when the spawn
   result's agent ID joins a child-start event; otherwise `matches_router_decision` stays `null`.

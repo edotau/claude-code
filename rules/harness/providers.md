@@ -14,7 +14,7 @@ paths:
 | Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets` |
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
-| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|edit\|rotate-secret` |
+| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret`; env and overlays: `claude-code configure` |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, an interactive claude, copilot or opencode launch reuses the profile that agent last launched in this repo (if still valid for it), else its agent record's profile (a default; `state/harness/last-profile.json`; `switch` clears all, `<agent> profile` that agent) |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` write claude's agent record (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
@@ -30,7 +30,7 @@ paths:
   `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
   Keys, an agent's own login and fallback: `agent.md` → Dispatch behavior.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
-  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code vault edit`); remove it to turn
+  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code configure` → environment); remove it to turn
   it off.
 
 ## Model selection
