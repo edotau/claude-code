@@ -152,7 +152,7 @@
   "[markdown]": {
     "editor.wordWrap": "off"
   },
-  "terminal.external.osxExec": "iTerm.app",
+  "terminal.external.osxExec": "Ghostty.app",
   "terminal.integrated.tabs.title": "${shellType}",
   "chat.instructionsFilesLocations": {".github/instructions": true, ".claude/rules": true, "~/.copilot/instructions": true, "~/.claude/rules": true},
   "chat.mcp.discovery.enabled": {"claude-desktop": true},
