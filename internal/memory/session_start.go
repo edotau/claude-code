@@ -421,9 +421,10 @@ func sessionSurface(root string) string {
 func repoFocus(dir string) []string {
 	var focus []string
 	if data, err := os.ReadFile(filepath.Join(dir, "activeContext.md")); err == nil {
-		for _, h := range []string{"Current Focus", "Blockers", "Next Steps"} {
-			if sec := sectionBody(string(data), h); sec != "" {
-				focus = append(focus, "## "+h+"\n"+sec)
+		heads := []string{"Current Focus", "Blockers", "Next Steps"}
+		for i, sec := range sectionBodies(string(data), heads...) {
+			if sec != "" {
+				focus = append(focus, "## "+heads[i]+"\n"+sec)
 			}
 		}
 	}
@@ -446,21 +447,28 @@ func nativeLinked(root, dir string) bool {
 }
 
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
+func sectionBody(text, heading string) string { return sectionBodies(text, heading)[0] }
+
+// sectionBodies is sectionBody for each heading, in order, from one parse of text.
 // AST headings so a "## heading"-shaped line inside a fenced code block never ends the section early.
-func sectionBody(text, heading string) string {
+func sectionBodies(text string, headings ...string) []string {
 	doc := markdown.Parse([]byte(text))
 	heads := level2Headings(doc.Body)
-	for i, h := range heads {
-		if !strings.EqualFold(h.title, heading) {
-			continue
+	out := make([]string, len(headings))
+	for n, heading := range headings {
+		for i, h := range heads {
+			if !strings.EqualFold(h.title, heading) {
+				continue
+			}
+			end := len(doc.Body)
+			if i+1 < len(heads) {
+				end = heads[i+1].lineStart
+			}
+			out[n] = strings.TrimSpace(string(doc.Body[h.lineEnd:end]))
+			break
 		}
-		end := len(doc.Body)
-		if i+1 < len(heads) {
-			end = heads[i+1].lineStart
-		}
-		return strings.TrimSpace(string(doc.Body[h.lineEnd:end]))
 	}
-	return ""
+	return out
 }
 
 // headingSpan is a level-2 ("## ") heading's title and the byte range of its own line, body-relative.

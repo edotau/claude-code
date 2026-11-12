@@ -463,15 +463,17 @@ func resetSeen(sessionID, root, surface string) {
 	}
 	pruneSeen(filepath.Dir(p))
 	flat := strings.Join(strings.Fields(surface), " ")
-	hits, err := corpusBlocks(root)
-	if err != nil {
-		return // fail-open: no corpus read, so the seen set is left as it was
-	}
 	var b strings.Builder
-	for _, h := range hits {
-		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
-			b.WriteString(blockKey(h.Block))
-			b.WriteString("\n")
+	for _, seg := range loadSegments(corpusFiles(root), true) {
+		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
+			continue
+		}
+		for i := range seg.Docs() {
+			block, _ := seg.Doc(i)
+			if norm := strings.Join(strings.Fields(block), " "); strings.Contains(flat, norm) {
+				b.WriteString(blockKey(block))
+				b.WriteString("\n")
+			}
 		}
 	}
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
