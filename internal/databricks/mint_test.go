@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -354,14 +355,13 @@ func TestMintedAuthTypeReadsTheToken(t *testing.T) {
 	}
 }
 
-// An empty --profile falls back to the workspace's last profile instead of erroring.
-func TestEmptyProfileFallsBackToLastProfile(t *testing.T) {
+// An empty --profile is refused instead of falling back to the workspace's last profile.
+func TestEmptyProfileIsRefused(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	t.Setenv(providers.EnvSessionProfile, "")
 	vaulttest.SetRecord(t, "claude", "profile", "cc")
 	providers.RecordLastProfile("claude", "bb")
-	p, err := plan([]string{"--profile="})
-	if err != nil || p.Provider != "bb" {
-		t.Errorf("plan(--profile=) = %q, %v; want bb", p.Provider, err)
+	if p, err := plan([]string{"--profile="}); !errors.Is(err, errEmptyProfile) {
+		t.Errorf("plan(--profile=) = %q, %v; want errEmptyProfile", p.Provider, err)
 	}
 }

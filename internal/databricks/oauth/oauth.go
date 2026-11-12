@@ -109,13 +109,21 @@ func normHost(host string) (string, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", errors.New(hostHint)
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(host, "?#") {
-		return "", errors.New(hostHint)
-	}
-	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
-		return "", fmt.Errorf("oauth: host %s uses scheme http; credentials need https (loopback excepted)", u.Hostname())
+	if err := checkHostURL(host, u); err != nil {
+		return "", err
 	}
 	return cmp.Or(NormalizeHost(host), host), nil
+}
+
+// checkHostURL refuses credentials, a query or fragment, and plain http off loopback in a parsed token host.
+func checkHostURL(host string, u *url.URL) error {
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(host, "?#") {
+		return errors.New(hostHint)
+	}
+	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
+		return fmt.Errorf("oauth: host %s uses scheme http; credentials need https (loopback excepted)", u.Hostname())
+	}
+	return nil
 }
 
 // tokenReply is the success body of the token endpoint.
@@ -135,8 +143,7 @@ type tokenRequest struct {
 
 var tokenClient = &http.Client{Timeout: 30 * time.Second}
 
-// retryable reports whether a failed attempt may be sent again; a one-shot grant retries only 429/503
-// or a transport error before the request was written (it cannot have been consumed).
+// retryable: a one-shot grant retries only 429/503 or a transport error before the request was written.
 func (r tokenRequest) retryable(status int, written bool) bool {
 	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable {
 		return true
@@ -334,8 +341,7 @@ func (l *loopback) Close() error {
 	return err
 }
 
-// listenPorts binds 127.0.0.1 (and ::1 when the host has it) on the first free port from first to last; first == last
-// is an exact port, and busy is an error naming it.
+// listenPorts binds 127.0.0.1 (and ::1 if present) on the first free port in first..last; first == last is exact.
 func listenPorts(first, last int) (*loopback, int, error) {
 	var lc net.ListenConfig
 	var other error // the last listen error that was not EADDRINUSE
@@ -524,6 +530,16 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
+	paste := presentLogin(opts, h, authURL, port)
+	code, err := await(ctx, h, cb, paste)
+	if err != nil {
+		return Token{}, err
+	}
+	return exchangeCode(ctx, h, code, verifier, redirect)
+}
+
+// presentLogin opens the browser (when allowed), prints the sign-in URL and hints, and returns the paste channel.
+func presentLogin(opts LoginOptions, h, authURL string, port int) <-chan string {
 	var openErr error
 	if opts.Open != nil && !opts.NoBrowser {
 		openErr = opts.Open(authURL)
@@ -533,16 +549,11 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 		fmt.Fprintf(opts.Out, "No browser opened here (%v); open the URL above yourself.\n", openErr)
 	}
 	fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser || openErr != nil))
-	var paste <-chan string
-	if opts.Paste != nil {
-		fmt.Fprintf(opts.Out, "No forward? Paste the full redirected URL (http://localhost:%d/?code=...&state=...) and press Enter:\n", port)
-		paste = readPaste(opts.Paste)
+	if opts.Paste == nil {
+		return nil
 	}
-	code, err := await(ctx, h, cb, paste)
-	if err != nil {
-		return Token{}, err
-	}
-	return exchangeCode(ctx, h, code, verifier, redirect)
+	fmt.Fprintf(opts.Out, "No forward? Paste the full redirected URL (http://localhost:%d/?code=...&state=...) and press Enter:\n", port)
+	return readPaste(opts.Paste)
 }
 
 // withDefaults fills the zero port, timeout and output of opts.
@@ -592,10 +603,10 @@ func exchangeCode(ctx context.Context, h, code, verifier, redirect string) (Toke
 	return reply.token(reply.RefreshToken), nil
 }
 
-// ViaHostEnv carries the --host name into a remote login: the caller already forwards the port or opens the browser here.
+// ViaHostEnv carries the --host name into a remote login, where the caller forwards the port or opens the browser.
 const ViaHostEnv = "HARNESS_LOGIN_VIA_HOST"
 
-// forwardHint is the line after the URL: where the browser opens under --host, else the ssh -L command naming this host.
+// forwardHint is the line after the URL: where the browser opens under --host, else the ssh -L command.
 func forwardHint(port int, noBrowser bool) string {
 	via := os.Getenv(ViaHostEnv)
 	switch {

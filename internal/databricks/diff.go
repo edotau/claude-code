@@ -38,8 +38,15 @@ func credLeaf(k string) bool {
 	return false
 }
 
-// maskPair returns copies of o and n with every string under a credential key masked; a value that
-// differs between them is marked changed on the new side so the diff still shows the line.
+// credValueRE matches a credential-bearing header line or bearer scheme inside a value.
+var credValueRE = regexp.MustCompile(`(?i)\b(?:bearer\s+\S|(?:proxy-)?authorization\s*:|cookie\s*:)`)
+
+// credValue reports a string value that holds a credential whatever its key is called.
+func credValue(v string) bool {
+	return credValueRE.MatchString(v) || textutil.RedactSecrets(v) != v
+}
+
+// maskPair returns copies of o and n with credential strings masked; a differing value is marked changed.
 func maskPair(o, n any, secret bool, key string) (any, any) {
 	om, ook := o.(map[string]any)
 	nm, nok := n.(map[string]any)
@@ -131,19 +138,19 @@ func maskSlices(oa, na []any, secret bool, key string) (any, any) {
 	return oo, nn
 }
 
-// maskLeaf masks a string pair under a credential key and marks a differing new value changed.
+// maskLeaf masks a string under a credential key or shaped like one; a differing new value is marked changed.
 func maskLeaf(o, n any, secret bool, key string) (any, any) {
-	if !secret && !credLeaf(key) {
-		return o, n
-	}
+	keyed := secret || credLeaf(key)
 	os, oIsStr := o.(string)
 	ns, nIsStr := n.(string)
-	if oIsStr {
+	oMask := oIsStr && (keyed || credValue(os))
+	nMask := nIsStr && (keyed || credValue(ns))
+	if oMask {
 		o = redacted
 	}
-	if nIsStr {
+	if nMask {
 		n = redacted
-		if oIsStr && os != ns {
+		if oMask && os != ns {
 			n = redactedChanged
 		}
 	}

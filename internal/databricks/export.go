@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -50,8 +51,7 @@ func export(args []string) int {
 	return 0
 }
 
-// exportRowsFor loads the vault rows, applies --pick and --rename, reports skips, and returns the rows to write
-// (or a nonzero exit code).
+// exportRowsFor loads the vault rows, applies --pick and --rename, reports skips, and returns the rows to write.
 func exportRowsFor(pick bool, rename renameFlag) ([]exportRow, int) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -90,6 +90,10 @@ func writeExport(rows []exportRow, out string, merge, force bool) int {
 	}
 	if out == "" {
 		out = defaultPath()
+	}
+	out, err := resolveLink(out)
+	if err != nil {
+		return fail("export: %v", err)
 	}
 	var msg string
 	if err := paths.WithFileLock(out, func() error {
@@ -133,12 +137,38 @@ func pickExport(rows []exportRow) ([]exportRow, error) {
 
 // writeFile0600 writes text to path atomically with mode 0600; an existing path needs force.
 func writeFile0600(path, text string, force bool) error {
+	path, err := resolveLink(path)
+	if err != nil {
+		return err
+	}
 	return paths.WithFileLock(path, func() error {
 		if _, err := os.Lstat(path); err == nil && !force {
 			return fmt.Errorf("%s exists; pass --force to overwrite", path)
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
 	})
+}
+
+// resolveLink follows symlinks (dangling ones too) so a write lands on the real file and keeps the link.
+func resolveLink(path string) (string, error) {
+	p, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return p, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		t, rerr := os.Readlink(path)
+		if rerr != nil {
+			return "", rerr
+		}
+		if !filepath.IsAbs(t) {
+			t = filepath.Join(filepath.Dir(path), t)
+		}
+		return resolveLink(t)
+	}
+	return path, nil
 }
 
 // exportRow is one vault row rendered as a .databrickscfg section; it carries identifiers only, never a secret.
@@ -231,7 +261,7 @@ func freeSPSection(reg *providers.Registry, rows []exportRow, id string) string 
 
 var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
-// renameRows applies id=section renames and drops rows whose section is reserved ([DEFAULT], __settings__) or malformed.
+// renameRows applies id=section renames and drops rows whose section is reserved, malformed or taken.
 func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, skipped []string) {
 	seen := map[string]bool{}
 	for _, r := range rows {
@@ -315,8 +345,7 @@ type block struct {
 	lines []string
 }
 
-// detachHeaderPrefix removes from prev the pairing comment (and blank lines after it) that belongs to the next
-// header and returns those lines; without a pairing comment the trailing blanks stay with prev's body.
+// detachHeaderPrefix removes the next header's pairing comment and blank lines from prev and returns them.
 func detachHeaderPrefix(prev *block) []string {
 	start := len(prev.lines)
 	for start > 0 && strings.TrimSpace(prev.lines[start-1]) == "" {
@@ -351,8 +380,7 @@ func splitBlocks(text string) []block {
 	return blocks
 }
 
-// mergeExport writes rows into existing text: every other section (and [DEFAULT]) stays verbatim. An existing
-// section of the same name is replaced only with force, and an auth_type = databricks-cli one never is.
+// mergeExport writes rows into existing text; a same-name section needs force and a databricks-cli one never is.
 func mergeExport(existing string, rows []exportRow, force bool) (string, []string) {
 	have := map[string]*section{}
 	secs, _, _ := parseSections(existing) // mergeInto has already refused a file that does not parse

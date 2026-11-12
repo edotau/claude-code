@@ -31,7 +31,7 @@ const (
 	betaOff     = betaKey + "=1"
 )
 
-// launchPlan is one parsed invocation: the profile (Provider) and model the child launches with, plus pass-through args.
+// launchPlan is one parsed invocation: the profile and model the child launches with, plus pass-through args.
 type launchPlan struct {
 	Check    bool
 	Provider string
@@ -121,7 +121,10 @@ var subverbs = map[string]func([]string) int{
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
 func plan(args []string) (launchPlan, error) {
-	p, name := parsePlanArgs(args)
+	p, name, err := parsePlanArgs(args)
+	if err != nil {
+		return launchPlan{}, err
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("load providers: %w", err)
@@ -139,8 +142,11 @@ func plan(args []string) (launchPlan, error) {
 	return p, nil
 }
 
+// errEmptyProfile refuses an explicit --profile with no name rather than substituting the default profile.
+var errEmptyProfile = errors.New("--profile needs a profile name; drop the flag to use the default profile")
+
 // parsePlanArgs splits args into the launchPlan fields they set and the raw --profile name.
-func parsePlanArgs(args []string) (launchPlan, string) {
+func parsePlanArgs(args []string) (launchPlan, string, error) {
 	var p launchPlan
 	if len(args) > 0 && args[0] == "check" {
 		p.Check = true
@@ -150,25 +156,42 @@ func parsePlanArgs(args []string) (launchPlan, string) {
 		p.Model, p.Asked = args[0], true
 		args = args[1:]
 	}
+	return scanPlanFlags(p, args)
+}
+
+// scanPlanFlags takes --profile out of args; every other arg, and everything after "--", goes to p.Rest.
+func scanPlanFlags(p launchPlan, args []string) (launchPlan, string, error) {
 	name := ""
 	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; {
-		case arg == "--": // the child's end-of-options marker: keep it and everything after for the child
+		if args[i] == "--" { // the child's end-of-options marker: keep it and everything after for the child
 			p.Rest = append(p.Rest, args[i:]...)
-			return p, name
-		case arg == "--profile", arg == "-p": // -p is --profile here; claude's print mode is --print
-			name = ""
-			if i+1 < len(args) {
-				name = args[i+1]
-				i++
-			}
-		case strings.HasPrefix(arg, "--profile="), strings.HasPrefix(arg, "-p="):
-			name = arg[strings.Index(arg, "=")+1:]
-		default:
-			p.Rest = append(p.Rest, arg)
+			return p, name, nil
 		}
+		n, used, ok := profileArg(args, i)
+		if !ok {
+			p.Rest = append(p.Rest, args[i])
+			continue
+		}
+		if n == "" {
+			return p, "", errEmptyProfile
+		}
+		name, i = n, i+used-1
 	}
-	return p, name
+	return p, name, nil
+}
+
+// profileArg reads a --profile/-p flag at args[i] (-p is --profile here, not print mode): name, args spanned, ok.
+func profileArg(args []string, i int) (name string, used int, ok bool) {
+	switch arg := args[i]; {
+	case arg == "--profile", arg == "-p":
+		if i+1 < len(args) {
+			return args[i+1], 2, true
+		}
+		return "", 1, true
+	case strings.HasPrefix(arg, "--profile="), strings.HasPrefix(arg, "-p="):
+		return arg[strings.Index(arg, "=")+1:], 1, true
+	}
+	return "", 0, false
 }
 
 // defaultModel is the opus alias spelled the way the profile's row serves it.
@@ -184,8 +207,7 @@ func defaultModel(reg *providers.Registry, profile string) string {
 // errNoProfile is what a verb reports when resolveProfile finds no Databricks profile to default to.
 var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg with `claude-code databricks import --apply`, or pass --profile")
 
-// resolveProfile is name, else the session profile, else this workspace's last claude profile, else the claude
-// record profile, each only when it is a Databricks profile, else the first Databricks profile; "" when there is none.
+// resolveProfile is name, else the session, last or recorded claude profile (if Databricks), else the first one.
 func resolveProfile(reg *providers.Registry, name string) string {
 	if name != "" || reg == nil {
 		return name
@@ -260,8 +282,7 @@ var spawnCtx = func(ctx context.Context, bin string, argv, env []string, stdin i
 	return 0, err
 }
 
-// capture runs one prompt through the provider and returns combined stdout+stderr and the exit code;
-// a start error or timeout is appended to the output with code -1.
+// capture runs one prompt through the provider: combined output and exit code, -1 with the error on start failure.
 func capture(self string, p launchPlan, prompt string, extra ...string) (string, int) {
 	var buf bytes.Buffer
 	argv := append([]string{"--profile", p.Provider, "--model", p.Model, "-p", prompt}, extra...)
@@ -331,7 +352,7 @@ func usage(check bool) {
 		pg = checkPage
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
-	profileFlag(fs)
+	profileFlagVar(fs, new(string), profileUsage)
 	if check {
 		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
@@ -391,6 +412,10 @@ func checkAll(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	if err := checkProfileFlag(fs, *only); err != nil {
+		fail("check: %v", err)
+		return 2
+	}
 	if len(rest) == 1 { // positional MODEL overrides --model
 		*model = rest[0]
 	}
@@ -402,14 +427,23 @@ func checkAll(args []string) int {
 	if err != nil {
 		return fail("check: %v", err)
 	}
-	names := providers.DatabricksProfiles(reg)
-	if *only != "" {
-		if reg.Providers[*only] != nil && !slices.Contains(names, *only) {
-			return fail("check: --profile %q is not a Databricks profile", *only)
-		}
-		names = []string{*only}
+	names, err := checkNames(reg, *only)
+	if err != nil {
+		return fail("check: %v", err)
 	}
 	return printCheck(names, heads, checkProfiles(reg, names, *model, wires))
+}
+
+// checkNames is every Databricks profile, or just only when it names one (an unknown name probes as a miss).
+func checkNames(reg *providers.Registry, only string) ([]string, error) {
+	names := providers.DatabricksProfiles(reg)
+	if only == "" {
+		return names, nil
+	}
+	if reg.Providers[only] != nil && !slices.Contains(names, only) {
+		return nil, fmt.Errorf("--profile %q is not a Databricks profile", only)
+	}
+	return []string{only}, nil
 }
 
 // printCheck prints the table, then reasons and SP notes under it; 1 when a cell failed other than a budget denial.

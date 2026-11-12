@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -32,8 +31,7 @@ const (
 	helperTTL   = "300000"
 )
 
-// renderOptions is one render request. P is the expanded registry row: routes, headers, env and model prefix all
-// come from it. Self is the claude-code binary the harness token helper runs.
+// renderOptions is one render request; P is the expanded registry row and Self the token helper's binary.
 type renderOptions struct {
 	Target, Host, Auth, Self string
 	Model                    string // optional model override, canonical or wire id
@@ -90,6 +88,11 @@ func (o renderOptions) checkBasics() error {
 	if o.P == nil {
 		return errors.New("no provider row to render from")
 	}
+	return o.checkAuthHost()
+}
+
+// checkAuthHost validates the auth mode, the host and the harness token helper's prerequisites.
+func (o renderOptions) checkAuthHost() error {
 	if o.Auth != authHarness && o.Auth != authCLI {
 		return fmt.Errorf("--auth must be harness or cli (got %q)", o.Auth)
 	}
@@ -102,9 +105,9 @@ func (o renderOptions) checkBasics() error {
 	return nil
 }
 
-// checkSetPair validates one --set K=V pair: shape, key charset, and no credential-shaped key.
+// checkSetPair validates one --set K=V pair: shape, key charset, and no credential-shaped key or value.
 func checkSetPair(kv string) error {
-	k, _, ok := strings.Cut(kv, "=")
+	k, v, ok := strings.Cut(kv, "=")
 	if !ok || k == "" {
 		return fmt.Errorf("--set wants K=V (got %q)", kv)
 	}
@@ -113,6 +116,9 @@ func checkSetPair(kv string) error {
 	}
 	if credLeaf(k) && !strings.HasSuffix(k, "_TTL_MS") {
 		return fmt.Errorf("--set %s: credential keys are refused; auth comes from the token helper", k)
+	}
+	if credValue(v) {
+		return fmt.Errorf("--set %s: the value looks like a credential; auth comes from the token helper", k)
 	}
 	return nil
 }
@@ -132,6 +138,11 @@ func (o renderOptions) checkModel() error {
 	if err := providers.ClaudeCodeError(o.P, o.Model); err != nil {
 		return err
 	}
+	return o.checkClaudeWire(isClaude)
+}
+
+// checkClaudeWire refuses a model Claude Code could reach only through the router.
+func (o renderOptions) checkClaudeWire(isClaude bool) error {
 	wire, ok, why := providers.WireFor(o.P, o.Model)
 	if !ok && !isClaude {
 		return fmt.Errorf("model %q: %s", o.Model, why)
@@ -255,7 +266,27 @@ func tomlValue(v string) string {
 	if tomlNumberRE.MatchString(v) || v == "true" || v == "false" {
 		return v
 	}
-	return strconv.Quote(v)
+	return tomlQuote(v)
+}
+
+// tomlEscapes are the TOML basic-string short escapes.
+var tomlEscapes = map[rune]string{'"': `\"`, '\\': `\\`, '\n': `\n`, '\t': `\t`, '\r': `\r`, '\b': `\b`, '\f': `\f`}
+
+// tomlQuote renders v as a TOML basic string; strconv.Quote's \a, \v and \xNN escapes are not valid TOML.
+func tomlQuote(v string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range strings.ToValidUTF8(v, "\uFFFD") {
+		if e, ok := tomlEscapes[r]; ok {
+			b.WriteString(e)
+		} else if r < 0x20 || r == 0x7f {
+			fmt.Fprintf(&b, `\u%04X`, r)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // replaceLine rewrites the first `key = ...` line of head to key = val.
@@ -263,7 +294,7 @@ func replaceLine(head, key, val string) string {
 	lines := strings.Split(head, "\n")
 	for i, l := range lines {
 		if strings.Contains(l, "=") && keyOf(l) == key {
-			lines[i] = key + " = " + strconv.Quote(val)
+			lines[i] = key + " = " + tomlQuote(val)
 			break
 		}
 	}
@@ -308,9 +339,9 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	if p.Options.Wire == providers.WireAIGateway {
 		head = replaceLine(head, "name", "Databricks AI Gateway")
 	}
-	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", strconv.Quote(cliTokenCmd(o.Host)))
+	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", tomlQuote(cliTokenCmd(o.Host)))
 	if o.Auth == authHarness {
-		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", strconv.Quote(o.Self), strconv.Quote(p.Name))
+		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", tomlQuote(o.Self), tomlQuote(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth

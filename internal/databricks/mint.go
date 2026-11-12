@@ -28,8 +28,8 @@ type MintResult struct {
 
 var mintPage = helptext.Page{
 	Usage: "claude-code databricks token [--profile <name>] [flags]",
-	About: "Fetch a fresh access token for a profile (the router's own mint, forced) and report its\n" +
-		"length and expiry. The token is never printed; --copy puts it on the clipboard.\n" +
+	About: "Fetch a fresh access token for a profile (the router's own mint, forced) and report its " +
+		"length and expiry. The token is never printed; --copy puts it on the clipboard. " +
 		"--auth picks the credential: oauth (your login), m2m (the service principal) or pat (the stored PAT).",
 }
 
@@ -109,8 +109,7 @@ func setPATLocked(ctx context.Context, name, value string) (string, error) {
 	return status, fmt.Errorf("%s: personal access token rejected (%s); kept the previous value", p.Name, detail)
 }
 
-// patRow loads the named row, switches it to pat auth when it is not already, and returns the reloaded row
-// with an undo that restores its previous overlay auth block.
+// patRow loads the row, switches it to pat auth if needed, and returns it with an undo for the previous auth block.
 func patRow(name string) (*providers.Provider, func() error, error) {
 	noop := func() error { return nil }
 	reg, err := providers.Load()
@@ -211,20 +210,18 @@ var authKinds = map[string]string{providers.AuthOAuth: providers.IdentityUser, p
 
 // authIdentity resolves --auth against p and --as: the identity to mint as, or why p cannot serve that kind.
 func authIdentity(p *providers.Provider, auth, as string) (string, error) {
-	identity, known := authKinds[auth]
-	switch {
-	case auth == "":
+	if auth == "" {
 		return as, nil
-	case !known:
+	}
+	identity, known := authKinds[auth]
+	if !known {
 		return "", fmt.Errorf("--auth must be oauth, m2m or pat (got %q)", auth)
-	case as != "":
+	}
+	if as != "" {
 		return "", errors.New("--auth and --as both pick the credential; pass one")
-	case auth == providers.AuthPAT && p.Auth.Type != providers.AuthPAT:
-		return "", fmt.Errorf("%s has no PAT (its auth type is %s)", p.Name, authLabel(p))
-	case auth == providers.AuthOAuth && p.Auth.Type != providers.AuthOAuth:
-		return "", fmt.Errorf("%s has no user login (its auth type is %s)", p.Name, authLabel(p))
-	case auth == providers.AuthM2M && p.Auth.Type != providers.AuthM2M && !providers.SPPresent(p):
-		return "", fmt.Errorf("%s has no service principal (pair one with `claude-code vault edit`)", p.Name)
+	}
+	if err := kindServed(p, auth); err != nil {
+		return "", err
 	}
 	if p.Auth.Type != providers.AuthOAuth {
 		return "", nil // an m2m or pat row has one credential: nothing to choose
@@ -232,52 +229,85 @@ func authIdentity(p *providers.Provider, auth, as string) (string, error) {
 	return identity, nil
 }
 
-// mint is `databricks token [--profile <name>] [--auth kind] [--copy] [--clear-after d] [--dry-run]`.
-func mint(args []string) int {
+// kindServed is why p has no credential of kind auth, or nil when it has one.
+func kindServed(p *providers.Provider, auth string) error {
+	switch {
+	case auth == providers.AuthPAT && p.Auth.Type != providers.AuthPAT:
+		return fmt.Errorf("%s has no PAT (its auth type is %s)", p.Name, authLabel(p))
+	case auth == providers.AuthOAuth && p.Auth.Type != providers.AuthOAuth:
+		return fmt.Errorf("%s has no user login (its auth type is %s)", p.Name, authLabel(p))
+	case auth == providers.AuthM2M && p.Auth.Type != providers.AuthM2M && !providers.SPPresent(p):
+		return fmt.Errorf("%s has no service principal (pair one with `claude-code vault edit`)", p.Name)
+	}
+	return nil
+}
+
+// mintFlags is `databricks token`'s parsed command line.
+type mintFlags struct {
+	dryRun, doCopy    bool
+	clearAfter        time.Duration
+	profile, as, auth string
+}
+
+// parseMint binds and parses token's flags; done reports the exit code to return instead of minting.
+func parseMint(args []string) (f mintFlags, code int, done bool) {
 	fs := helptext.NewFlagSet("databricks token", mintPage)
-	dryRun := fs.Bool("dry-run", false, "report what would happen; mint nothing")
-	doCopy := fs.Bool("copy", false, "put the token on the clipboard, then clear it")
-	clearAfter := fs.Duration("clear-after", clipboard.DefaultClearAfter, "with --copy: clear the clipboard after this long")
-	profileName := profileFlag(fs)
-	as := fs.String("as", "", "identity to mint as: user|sp (default: the profile's identity setting)")
-	auth := fs.String("auth", "", "credential kind to fetch: oauth|m2m|pat (default: the profile's own)")
+	fs.BoolVar(&f.dryRun, "dry-run", false, "report what would happen; mint nothing")
+	fs.BoolVar(&f.doCopy, "copy", false, "put the token on the clipboard, then clear it")
+	fs.DurationVar(&f.clearAfter, "clear-after", clipboard.DefaultClearAfter, "with --copy: clear the clipboard after this long")
+	profileFlagVar(fs, &f.profile, profileUsage)
+	fs.StringVar(&f.as, "as", "", "identity to mint as: user|sp (default: the profile's identity setting)")
+	fs.StringVar(&f.auth, "auth", "", "credential kind to fetch: oauth|m2m|pat (default: the profile's own)")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
-		return helptext.ExitCode(err)
+		return f, helptext.ExitCode(err), true
 	}
 	if len(names) > 0 {
-		return usageProfile("token", names[0])
+		return f, usageProfile("token", names[0]), true
 	}
-	if _, err := providers.ResolveIdentity("", *as); err != nil || *as == providers.IdentityAuto {
-		return fail("token: --as must be user or sp")
+	if err := checkProfileFlag(fs, f.profile); err != nil {
+		fail("token: %v", err)
+		return f, 2, true
+	}
+	if _, err := providers.ResolveIdentity("", f.as); err != nil || f.as == providers.IdentityAuto {
+		return f, fail("token: --as must be user or sp"), true
+	}
+	return f, 0, false
+}
+
+// mint is `databricks token [--profile <name>] [--auth kind] [--copy] [--clear-after d] [--dry-run]`.
+func mint(args []string) int {
+	f, code, done := parseMint(args)
+	if done {
+		return code
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return fail("token: %v", err)
 	}
-	name := resolveProfile(reg, *profileName)
+	name := resolveProfile(reg, f.profile)
 	if name == "" {
 		return fail("token: %v", errNoProfile)
 	}
 	if p, err := reg.Get(name); err == nil {
-		if *as, err = authIdentity(p, *auth, *as); err != nil {
+		if f.as, err = authIdentity(p, f.auth, f.as); err != nil {
 			return fail("token: %v", err)
 		}
 	}
-	if *dryRun {
-		return mintDryRun(reg, name, *as, *doCopy)
+	if f.dryRun {
+		return mintDryRun(reg, name, f.as, f.doCopy)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	res, tok, err := Mint(providers.WithIdentity(ctx, *as), name)
+	res, tok, err := Mint(providers.WithIdentity(ctx, f.as), name)
 	if err != nil {
 		return fail("token: %v", err)
 	}
 	fmt.Println(mintLine(res))
-	if !*doCopy {
+	if !f.doCopy {
 		return 0
 	}
-	return copyToken(ctx, tok, *clearAfter)
+	return copyToken(ctx, tok, f.clearAfter)
 }
 
 func authLabel(p *providers.Provider) string {

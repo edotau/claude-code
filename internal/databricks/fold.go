@@ -78,40 +78,66 @@ func planFold(top map[string]json.RawMessage, tx *vault.Tx) (foldPlan, error) {
 	var plan foldPlan
 	claimed := map[string]bool{} // destinations an earlier move in this plan fills
 	for _, id := range slices.Sorted(maps.Keys(rows)) {
-		row := rows[id]
-		if row.Auth.Type != providers.AuthM2M || row.Preset != providers.PresetDatabricks {
+		if row := rows[id]; row.Auth.Type != providers.AuthM2M || row.Preset != providers.PresetDatabricks {
 			continue
 		}
-		to, why := foldTarget(rows, id)
-		if why == "" {
-			why = cmp.Or(foldCredVeto(row), foldVeto(top, tx, settings, id))
-		}
+		to, why := foldDecision(top, tx, settings, rows, id)
 		if why != "" {
 			plan.Kept = append(plan.Kept, id+": "+why)
 			continue
 		}
-		pins, err := pinsOf(tx, id)
+		mv, err := newFoldMove(tx, id, to, claimed)
 		if err != nil {
 			return foldPlan{}, err
 		}
-		src, dst := secretName(id, providers.AuthM2M), secretName(to, providers.AuthM2M)
-		_, has := tx.Get(vault.Secrets, src)
-		_, dup := tx.Get(vault.Secrets, dst)
-		plan.Moves = append(plan.Moves, foldMove{From: id, To: to, Secret: has, Dup: has && (dup || claimed[dst]), Pins: pins})
-		claimed[dst] = claimed[dst] || has
-		if _, ok := tx.Get(vault.Secrets, src+"_ACCESS"); ok {
-			plan.Caches = append(plan.Caches, src+"_ACCESS")
+		plan.Moves = append(plan.Moves, mv)
+		if cache := secretName(id, providers.AuthM2M) + "_ACCESS"; hasSecret(tx, cache) {
+			plan.Caches = append(plan.Caches, cache)
 		}
 	}
-	if len(plan.Moves) == 0 { // the hash names carry no row id, so they go only with a fold
-		return plan, nil
-	}
-	for _, n := range tx.Names(vault.Secrets) {
-		if hashCacheRE.MatchString(n) {
-			plan.Caches = append(plan.Caches, n)
-		}
+	if len(plan.Moves) > 0 { // the hash names carry no row id, so they go only with a fold
+		plan.Caches = append(plan.Caches, hashCaches(tx)...)
 	}
 	return plan, nil
+}
+
+// hashCaches lists the vault's per-SP hash-named token caches.
+func hashCaches(tx *vault.Tx) []string {
+	var out []string
+	for _, n := range tx.Names(vault.Secrets) {
+		if hashCacheRE.MatchString(n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// foldDecision is the profile id folds into, else "" and why the row stays.
+func foldDecision(top map[string]json.RawMessage, tx *vault.Tx, settings string, rows map[string]providers.Provider, id string) (string, string) {
+	to, why := foldTarget(rows, id)
+	if why == "" {
+		why = cmp.Or(foldCredVeto(rows[id]), foldVeto(top, tx, settings, id))
+	}
+	return to, why
+}
+
+// newFoldMove is the move of id into to; claimed records destinations this plan's moves already fill.
+func newFoldMove(tx *vault.Tx, id, to string, claimed map[string]bool) (foldMove, error) {
+	pins, err := pinsOf(tx, id)
+	if err != nil {
+		return foldMove{}, err
+	}
+	src, dst := secretName(id, providers.AuthM2M), secretName(to, providers.AuthM2M)
+	has, dup := hasSecret(tx, src), hasSecret(tx, dst)
+	mv := foldMove{From: id, To: to, Secret: has, Dup: has && (dup || claimed[dst]), Pins: pins}
+	claimed[dst] = claimed[dst] || has
+	return mv, nil
+}
+
+// hasSecret reports whether the vault transaction holds the named secret.
+func hasSecret(tx *vault.Tx, name string) bool {
+	_, ok := tx.Get(vault.Secrets, name)
+	return ok
 }
 
 // decodeRows decodes each overlay row; an undecodable row is skipped (validation reports it elsewhere).

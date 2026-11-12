@@ -59,16 +59,15 @@ func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 	}
 }
 
-// resolve returns the expanded provider row and its https host: --host builds a preset row in memory,
-// else the registry row (re-expanded from its host when --wire differs from the row's).
+// resolve returns the provider row and https host: --host builds a preset row, else the registry row's.
 func resolve(f cfgFlags) (*providers.Provider, string, error) {
 	reg, lerr := providers.Load() // nil reg: --host alone still renders, under the generic name
 	name := resolveProfile(reg, f.profile)
 	if name == "" {
 		name = providers.GroupDatabricks
 	}
-	if f.wire != "" && f.wire != providers.WireServing && f.wire != providers.WireAIGateway {
-		return nil, "", fmt.Errorf("--wire must be ai-gateway or serving (got %q)", f.wire)
+	if err := checkWire(f.wire); err != nil {
+		return nil, "", err
 	}
 	host, err := flagHost(f.host)
 	if err != nil {
@@ -84,6 +83,14 @@ func resolve(f cfgFlags) (*providers.Provider, string, error) {
 		return row, host, nil
 	}
 	return synth(name, host, f.wire)
+}
+
+// checkWire accepts an empty --wire or one of the two wires.
+func checkWire(wire string) error {
+	if wire != "" && wire != providers.WireServing && wire != providers.WireAIGateway {
+		return fmt.Errorf("--wire must be ai-gateway or serving (got %q)", wire)
+	}
+	return nil
 }
 
 // flagHost normalizes a --host value; "" stays "" (use the registry).
@@ -155,6 +162,10 @@ func config(args []string) int {
 	bind(fs, &f, authHarness, true)
 	if code, done := helptext.Parse(fs, args[1:]); done {
 		return code
+	}
+	if err := checkProfileFlag(fs, f.profile); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks config: %v\n", err)
+		return 2
 	}
 	self, _ := os.Executable()
 	o, err := f.options(target, self)
@@ -234,7 +245,7 @@ func rescue(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	res, file, err := renderScratch(f)
+	res, file, err := renderScratch(fs, f)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks rescue: %v\n", err)
 		return 2
@@ -264,7 +275,10 @@ func rescue(args []string) int {
 }
 
 // renderScratch renders the claude config for f and writes it to a scratch file.
-func renderScratch(f cfgFlags) (renderResult, string, error) {
+func renderScratch(fs *flag.FlagSet, f cfgFlags) (renderResult, string, error) {
+	if err := checkProfileFlag(fs, f.profile); err != nil {
+		return renderResult{}, "", err
+	}
 	self, _ := os.Executable()
 	o, err := f.options(targetClaude, self)
 	if err != nil {
