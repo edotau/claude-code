@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -213,7 +215,8 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 
 // liveRequest is the RunOptions a live holder keeps for its whole session.
 func liveRequest(s *askState, perms agent.Permissions, name string) agent.RunOptions {
-	return agent.RunOptions{Model: *s.Model, Provider: *s.Provider, Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
+	_, cprof := router.Confined() // a live holder runs one hop with no chain: it starts on the confinement's profile
+	return agent.RunOptions{Model: *s.Model, Provider: cmp.Or(router.ArmProfile(), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
