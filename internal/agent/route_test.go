@@ -237,7 +237,8 @@ func TestModelRow(t *testing.T) {
 		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
 		{"gpt-6.1-sol", "", "", "gpt-6-1-sol"},
 		{"glm-5.3", "", "", "glm-5-3"},
-		{"no-such-model", "", "", ""},
+		{"no-such-model", "", "", "no-such-model"}, // off-catalog is still an exact request, never a silent default
+		{"", "", "", ""},
 	}
 	for _, c := range cases {
 		alias, row, exact := modelRow(c.in)

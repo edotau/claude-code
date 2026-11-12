@@ -67,6 +67,8 @@ func modelRow(model string) (alias, row, exact string) {
 	}
 	canonical, _, ok := models.Resolve(model)
 	switch {
+	case !ok && strings.TrimSpace(model) != "": // not in the catalog: still an exact request, never a silent default
+		return "", "", strings.TrimSpace(model)
 	case !ok:
 		return "", "", ""
 	case models.FamilyKind(canonical) != models.FamilyClaude:
