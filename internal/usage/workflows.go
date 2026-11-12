@@ -58,7 +58,10 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 		fmt.Fprintln(errw, "usage:", err)
 		return 1
 	}
-	cutoff := workflowCutoff(session, days)
+	var cutoff time.Time // zero (no window) under --session
+	if session == "" {
+		cutoff = windowCutoff(days)
+	}
 
 	var runs []*workflowRun
 	scanned := 0
@@ -94,14 +97,6 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 		return 1
 	}
 	return 0
-}
-
-// workflowCutoff is the --days window's start for workflow runs; a zero time (no window) under --session.
-func workflowCutoff(session string, days int) time.Time {
-	if session != "" {
-		return time.Time{}
-	}
-	return windowCutoff(days)
 }
 
 // recency is the run's sort key for newest-first ordering.
@@ -250,10 +245,7 @@ func joinedModelNames(models map[string]*modelStats) string {
 
 // sortedModelStats orders a model map by cache-read desc, tie-broken by name for stable output.
 func sortedModelStats(models map[string]*modelStats) []*modelStats {
-	list := make([]*modelStats, 0, len(models))
-	for _, ms := range models {
-		list = append(list, ms)
-	}
+	list := slices.Collect(maps.Values(models))
 	sort.SliceStable(list, func(i, j int) bool {
 		if list[i].tokens.CacheReadTokens != list[j].tokens.CacheReadTokens {
 			return list[i].tokens.CacheReadTokens > list[j].tokens.CacheReadTokens
@@ -459,25 +451,17 @@ func matchWorkflowToolResults(content json.RawMessage, toolUses map[string]toolU
 		if b.Type != "tool_result" {
 			continue
 		}
-		runID := runIDFromToolResult(b.Content)
-		if runID == "" || names[runID] != "" {
+		m := runIDPattern.FindStringSubmatch(transcript.ContentText(b.Content))
+		if m == nil || names[m[1]] != "" {
 			continue
 		}
+		runID := m[1]
 		if use, ok := toolUses[b.ToolUseID]; ok {
 			if name := workflowNameFromToolUse(use); name != "" {
 				names[runID] = name
 			}
 		}
 	}
-}
-
-// runIDFromToolResult extracts the wf_<id> run id a tool_result's text names, or "" when none does.
-func runIDFromToolResult(raw json.RawMessage) string {
-	m := runIDPattern.FindStringSubmatch(transcript.ContentText(raw))
-	if len(m) < 2 {
-		return ""
-	}
-	return m[1]
 }
 
 // workflowNameFromToolUse resolves a Workflow tool_use's name: the by-name input.name, else the

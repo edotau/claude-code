@@ -392,10 +392,8 @@ func claudePlanName() string {
 // claudeUsageWindows decodes an oauth/usage body; the weekly window must be present, the retired 5h one may be absent.
 func claudeUsageWindows(body []byte) (claudeUsageResponse, bool) {
 	var u claudeUsageResponse
-	if json.Unmarshal(body, &u) != nil || u.SevenDay == nil {
-		return u, false
-	}
-	return u, true
+	ok := json.Unmarshal(body, &u) == nil && u.SevenDay != nil
+	return u, ok
 }
 
 // parseClaudeUsage turns an oauth/usage body into the 5h, weekly, and Fable rows; a missing window is a note.
