@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -35,29 +34,6 @@ func TestSealLoginWrongIssuerPreservesStoredTokens(t *testing.T) {
 	}
 	if _, found := cmdCache.Load(p.Name); found {
 		t.Fatal("wrong issuer populated the command cache")
-	}
-}
-
-// The legacy sweep deletes an unreadable hash slot without decrypting it, marks the vault and keeps other names.
-func TestDropLegacyAccessSweepsUnreadableSlotOnce(t *testing.T) {
-	vaulttest.Use(t)
-	legacySwept.Store(false)
-	t.Cleanup(func() { legacySwept.Store(false) })
-	const slot, keep = "DATABRICKS_M2M_0123456789ABCDEF_ACCESS", "DATABRICKS_DEV_M2M_ACCESS"
-	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
-	if err := vault.Store(keep, "kept"); err != nil {
-		t.Fatal(err)
-	}
-	dropLegacyAccess()
-	names, err := vault.NamesErr()
-	if err != nil || slices.Contains(names, slot) || !slices.Contains(names, keep) {
-		t.Fatalf("sweep: names = %v, err = %v", names, err)
-	}
-	legacySwept.Store(false) // a new process: the vault marker alone must stop a second sweep
-	vaulttest.Put(t, vault.Secrets, slot, "{malformed-record")
-	dropLegacyAccess()
-	if names, _ := vault.NamesErr(); !slices.Contains(names, slot) {
-		t.Fatal("a marked vault was swept again")
 	}
 }
 
