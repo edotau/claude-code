@@ -300,3 +300,14 @@ func TestSetLedgerTaskFillsUnclaimed(t *testing.T) {
 		t.Fatal("a ledger already naming a task must stay untouched")
 	}
 }
+
+// Inside a repo's .git dir git cannot name a toplevel: that is an error, not "no ledger"; a non-repo is just not found.
+func TestLocateLedgerInsideGitDirErrors(t *testing.T) {
+	repoDir := gitRepo(t)
+	if _, _, _, found, err := locateLedger(filepath.Join(repoDir, ".git")); err == nil || found {
+		t.Errorf("inside .git: found=%v err=%v, want found=false and an error", found, err)
+	}
+	if _, _, _, found, err := locateLedger(t.TempDir()); err != nil || found {
+		t.Errorf("non-repo dir: found=%v err=%v, want found=false and nil error", found, err)
+	}
+}
