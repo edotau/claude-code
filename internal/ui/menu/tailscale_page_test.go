@@ -63,8 +63,8 @@ func TestTailscalePageRowsFitEightyColumns(t *testing.T) {
 	_, out := tsPage(t, "", false) // not connected: login offers the browser sign-in
 	runTailscalePage(&dialog{out: out})
 	rows := numberedRows(out.String())
-	if len(rows) != 5 || rows[1][0] != "login" {
-		t.Fatalf("not-connected rows = %q, want 5 with login second", rows)
+	if len(rows) != 5 || rows[0][0] != "login" {
+		t.Fatalf("not-connected rows = %q, want 5 with login first", rows)
 	}
 	assertFitsEighty(t, "tailscale page (not connected)", append(rows, panelBack))
 
@@ -72,7 +72,7 @@ func TestTailscalePageRowsFitEightyColumns(t *testing.T) {
 	tsConnected("a-long-hostname-01.tail1234.ts.net.", true, true)
 	runTailscalePage(&dialog{out: out})
 	rows = numberedRows(out.String())
-	if len(rows) != 5+3+5 || rows[1][0] != "login" {
+	if len(rows) != 5+3+5 || rows[0][0] != "login" {
 		t.Fatalf("connected rows = %q, want page, on/off/approve, page again; login stays", rows)
 	}
 	assertFitsEighty(t, "tailscale page (connected)", append(rows, panelBack))
@@ -99,7 +99,7 @@ func fakeTailscaleLogin(t *testing.T) (argvLog string) {
 
 // Sign in runs `tailscale login` (not up), reports the machine name, and the sign-in row is gone once connected.
 func TestTailscalePageSignInRunsLogin(t *testing.T) {
-	d, out := tsPage(t, "2\n", false)
+	d, out := tsPage(t, "1\n", false)
 	tsLogin = tailscale.Login
 	argvLog := fakeTailscaleLogin(t)
 	runTailscalePage(d)
