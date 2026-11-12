@@ -1,8 +1,6 @@
 # Go Security and Safety
 
-The Go-specific how for crash-free, attacker-resistant code (module targets Go 1.27; features dated by release).
-
-Authority: [rules/standards/security.md](../../../rules/standards/security.md) — its rules hold; this is the Go how.
+Crash-free, attacker-resistant Go (features dated by Go release).
 
 ## Triage before flagging
 
@@ -25,10 +23,7 @@ Authority: [rules/standards/security.md](../../../rules/standards/security.md) �
 
 - An interface is nil only when type *and* value are nil. Returning a nil `*MyErr` as `error` yields `err != nil`;
   return the literal `nil` on the success path, never a typed variable.
-- Bare assertion `x.(T)` panics on mismatch — use comma-ok on any value that crossed a boundary. For reflection use
-  `reflect.TypeAssert[T](v)` (1.25) instead of `v.Interface().(T)`.
-- Design types whose zero value works (`sync.Mutex`, `bytes.Buffer` do); otherwise lazy-init under the lock or force
-  a constructor. `sync.OnceValue`/`OnceValues` (1.21) beat a hand-rolled `once` + field, and keep the error.
+- Bare assertion `x.(T)` panics on mismatch — use comma-ok on any value that crossed a boundary.
 - `errors.As` needs a pointer to the target type; passing a value panics.
 
 ## Integers: overflow and conversion
@@ -63,7 +58,6 @@ func allocSize(count, elem uint64) (int, error) {
   before storing them — otherwise either side mutates the other's invariants (shallow copies; clone deeper if needed).
 - Remove with `slices.DeleteFunc`/`slices.Delete` (they zero the vacated tail since 1.22, freeing pointers); a
   forward loop that re-slices inside `range` skips elements.
-- Never depend on map iteration order; `slices.Sorted(maps.Keys(m))` when output must be stable.
 - Concurrent map write is a `fatal error`, not a panic — `recover` can't stop it. Guard with a mutex or use
   `sync.Map` for write-once keys (patterns: [concurrency.md](concurrency.md)); a data race on a check-then-act
   path is also an authz bypass, so run `go test -race`.
@@ -142,19 +136,15 @@ func allocSize(count, elem uint64) (int, error) {
   `VerifyConnection` callback — never skip verification and re-implement it.
 - mTLS server: `ClientAuth: tls.RequireAndVerifyClientCert` with `ClientCAs`; `RequireAnyClientCert` verifies nothing.
 - SSH: `ssh.InsecureIgnoreHostKey()` is MITM by design; use `knownhosts.New` or `ssh.FixedHostKey`.
-- `http.ListenAndServe` has no timeouts. Build an `http.Server` with `ReadHeaderTimeout` (Slowloris, gosec
-  `G112`), `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and cap bodies with `http.MaxBytesReader`.
-- The package-level `http.Get`/`DefaultClient` never time out; give outbound clients a `Timeout` or a ctx deadline.
+- Server and client timeouts, body caps: [services.md](services.md) → net/http servers, http.Client.
 - CSRF: `http.CrossOriginProtection` (1.25) checks `Sec-Fetch-Site`/`Origin` on non-safe methods — wrap the mux.
 - Cookies carrying a session: `HttpOnly`, `Secure`, `SameSite: http.SameSiteLaxMode` (or `Strict`), a `__Host-`
   name prefix to pin host and path.
-- `import _ "net/http/pprof"` registers handlers on `DefaultServeMux`; serve pprof from a separate mux on loopback.
+- `import _ "net/http/pprof"` exposes profiles on `DefaultServeMux`: [tooling.md](tooling.md) → pprof.
 - Proxy headers (`X-Forwarded-For`, `X-Real-IP`) are client-forgeable unless your own load balancer sets them.
 - Errors to clients are generic (`http.Error(w, "internal error", 500)`); the wrapped detail goes to the log only.
 
 ## Secrets in process
-
-Where secrets live is the authority file's call; in Go, keep them from leaking once loaded.
 
 - Give secret-bearing types a redacting `String()`, `GoString()` and `slog.LogValuer` — `%+v` and `slog.Any`
   otherwise print every field. A struct-level wrapper type (`type Secret string`) makes this one place.
@@ -168,21 +158,15 @@ Where secrets live is the authority file's call; in Go, keep them from leaking o
 ## Tooling
 
 ```bash
-go vet ./...
 go test -race ./...                                  # races are correctness and authz bugs
-go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
 go test -fuzz=FuzzParse -fuzztime=60s ./internal/parse   # every parser of untrusted bytes
 ```
 
-- `govulncheck` reports only vulnerabilities whose affected symbols your code reaches — a hit is real, fix or bump
-  it. `-show verbose` adds imported-but-unreached ones; `-mode=binary ./app` scans a built binary. A `tool`
-  directive in `go.mod` (1.24) pins either tool: `go get -tool <pkg>`, then `go tool govulncheck ./...`.
+- `govulncheck` (reachability, binary mode, pinning as a `tool`): [tooling.md](tooling.md) → govulncheck.
 - `gosec` is also a golangci-lint linter. Suppress per line with a rule and reason — `// #nosec G304 -- path from
   os.Root` — never a blanket `#nosec`; an unexplained suppression is itself a review finding.
 - High-value gosec rules: `G101` creds, `G107`/`G704` tainted URL, `G110` bomb, `G115` int conversion, `G201`/`G202`
   SQL, `G203` template, `G204` exec, `G304` file path, `G402` TLS, `G404` weak rand.
 - `unsafe` outside a reviewed low-level package is a finding; `unsafe.String`/`unsafe.Slice` (1.20) replace the
   deprecated `reflect.StringHeader` tricks where zero-copy is genuinely needed.
-
-Adapted from samber/cc-skills-golang (MIT): golang-security, golang-safety.

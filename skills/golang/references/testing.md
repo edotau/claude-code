@@ -1,19 +1,16 @@
 # Go Testing
 
-Stdlib test mechanics, fuzzing, golden files, HTTP, races and benchmarks for Go 1.27 code (module targets Go 1.27).
+Stdlib test mechanics, fuzzing, golden files, HTTP, races and benchmarks in Go.
 
-Authority: [testing-guidelines.md](../../../rules/standards/testing-guidelines.md) (live first, scope, guards,
-mocks) and [go/testing.md](../../../rules/software/go/testing.md) (file layout, internal packages, portability). Where
-anything below seems to disagree, they win; this page covers only what they leave out.
+## Layout
 
-## Layout reminders that override common Go advice
-
-- Internal test package only (`package foo`); examples, fuzz targets and benchmarks included — no `foo_test`.
-- No `//go:build integration` split: gate slow or environment-bound tests at runtime (`testing.Short()`, a missing
-  binary, `runtime.GOOS`) with `t.Skip` and a reason.
-- Benchmarks, fuzz targets and examples live in `foo_test.go` beside the tests for `foo.go` — no `foo_bench_test.go`.
-- Order test functions as their subjects appear in the source file, so the two files read side by side.
-- Seams are package vars swapped and restored in `t.Cleanup`; interfaces exist for production reasons, not for tests.
+- `package foo_test` (external) tests only the public API and breaks import cycles when a test needs a package that
+  imports `foo`. Examples read best external, since they show the call as a user writes it.
+- Prefer gating slow or environment-bound tests at runtime (`testing.Short()`, a missing binary, `runtime.GOOS`) with
+  `t.Skip` and a reason; a `//go:build integration` tag hides the file from `go vet` and gopls unless the tag is set.
+- For a real boundary (clock, network, exec), a package-level func var swapped in the test and restored in
+  `t.Cleanup` is often lighter than an interface added only for a fake. The swap is process-global: those tests must
+  not call `t.Parallel()`.
 
 ## Naming and selection
 
@@ -30,36 +27,10 @@ anything below seems to disagree, they win; this page covers only what they leav
 
 ## Table tests and subtests
 
-- Every case has a `name`; the name says the condition, not the expected value (`"trailing slash"`, not `"ok"`).
+- The case `name` says the condition, not the expected value (`"trailing slash"`, not `"ok"`).
 - Keep `want` and `wantErr` in the row; assert the error with `errors.Is`/`errors.As`, never a string compare unless
   the message itself is the contract.
-- Since Go 1.22 the loop variable is per-iteration: no `tt := tt` copy, even before `t.Parallel()`.
 - Split a table whose rows need branching setup (`if tt.mockFails …`) into separate tests: one table, one shape.
-- Failure messages name input, got and want: `Parse(%q) = %v, want %v`. Use `t.Fatalf` only when continuing would
-  panic or mislead; prefer `t.Errorf` so one run reports every broken case.
-
-```go
-func TestSplitHost(t *testing.T) {
-    tests := []struct {
-        name, in, wantHost string
-        wantErr            error
-    }{
-        {name: "host and port", in: "a.io:443", wantHost: "a.io"},
-        {name: "missing port", in: "a.io", wantErr: errNoPort},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got, err := splitHost(tt.in)
-            if !errors.Is(err, tt.wantErr) {
-                t.Fatalf("splitHost(%q) err = %v, want %v", tt.in, err, tt.wantErr)
-            }
-            if got != tt.wantHost {
-                t.Errorf("splitHost(%q) = %q, want %q", tt.in, got, tt.wantHost)
-            }
-        })
-    }
-}
-```
 
 ## Lifecycle helpers on `testing.T`
 
@@ -68,13 +39,12 @@ func TestSplitHost(t *testing.T) {
 | `t.Helper()` | First line of any assert/setup helper | Omit it and every failure blames the helper's line |
 | `t.Cleanup(fn)` | Teardown next to setup; LIFO; runs after subtests | `defer` fires before parallel subtests run |
 | `t.Context()` | Context canceled just before Cleanup runs | Goroutines that outlive the test should watch it |
-| `t.TempDir()` | Hermetic dir, removed after the test | Point `CLAUDE_CONFIG_DIR`/`HOME` at it, never the real one |
+| `t.TempDir()` | Hermetic dir, removed after the test | Point `HOME` and config-dir env vars at it, never the real one |
 | `t.Setenv`, `t.Chdir` | Process-wide env/cwd, restored after | Panics under `t.Parallel()`: keep those serial |
 | `t.ArtifactDir()` | Files kept for inspection (`-artifacts` flag) | Not a scratch dir; use `TempDir` for that |
 | `t.Output()` | `io.Writer` into the test log, indented like `t.Log` | Hand it to a logger instead of `os.Stderr` |
 
 - Setup helpers return the value and register their own cleanup: `srv := newTestServer(t)`; callers never `Close`.
-- A package-var seam swap is process-global: a test that swaps one must not call `t.Parallel()`.
 
 ## Parallelism and the race detector
 
@@ -118,8 +88,8 @@ func TestRetryBacksOff(t *testing.T) {
 
 - Read `rec.Result()` (status, headers, body) rather than poking recorder fields; assert the body's shape, not bytes.
 - Build requests with `NewRequestWithContext(t.Context(), …)` so a hung handler is canceled at test end.
-- An upstream fake is a real boundary mock: record what it received (method, path, headers, body) and assert on it;
-  assert sensitive headers are absent on error paths.
+- An upstream fake records what it received (method, path, headers, body) for assertions; assert sensitive headers
+  are absent on error paths.
 - Error paths first: malformed body, wrong method, missing auth, upstream 5xx and a mid-body disconnect.
 
 ## Golden files
@@ -131,29 +101,10 @@ func TestRetryBacksOff(t *testing.T) {
 - Normalize before compare: sort map-derived output, replace temp paths and timestamps with fixed tokens, `\r\n` to
   `\n` so the golden passes on Windows.
 
-```go
-func checkGolden(t *testing.T, name string, got []byte) {
-    t.Helper()
-    path := filepath.Join("testdata", name+".golden")
-    if *update {
-        if err := os.WriteFile(path, got, 0o644); err != nil {
-            t.Fatal(err)
-        }
-    }
-    want, err := os.ReadFile(path)
-    if err != nil {
-        t.Fatalf("read golden (run with -update): %v", err)
-    }
-    if !bytes.Equal(got, want) {
-        t.Errorf("%s mismatch (go test -run %s -update):\n--- got\n%s\n--- want\n%s", path, t.Name(), got, want)
-    }
-}
-```
-
 ## Fuzzing
 
-- Fuzz targets fit parsers, decoders and anything taking untrusted bytes. Seed with `f.Add` from real inputs and the
-  regression cases; arguments are limited to `[]byte`, `string`, bools, ints, uints, floats and runes.
+- Seed with `f.Add` from real inputs and the regression cases; arguments are limited to `[]byte`, `string`, bools,
+  ints, uints, floats and runes.
 - Assert properties, not outputs: round-trip (`decode(encode(x)) == x`), no panic, invariants (length, validity),
   agreement with a slow reference implementation.
 - A crash writes `testdata/fuzz/FuzzX/<hash>`; commit it — plain `go test` replays the corpus as regression cases.
@@ -168,9 +119,8 @@ func checkGolden(t *testing.T, name string, got []byte) {
 
 ## Coverage
 
-- `go test -cover ./internal/x` for a number; `-coverprofile=c.out` then `go tool cover -func=c.out` (or `-html`).
 - `-covermode=atomic` with `-race`; `-coverpkg=./...` to credit packages exercised from another package's tests.
-- Use it to find unexercised branches you meant to test, never as a target: an executed line is not an asserted one.
+- An executed line is not an asserted one: use coverage to find branches you meant to test, never as a target.
 
 ## Benchmarks
 
@@ -204,19 +154,17 @@ go run golang.org/x/perf/cmd/benchstat@latest old.txt new.txt
 - Never benchmark variants concurrently — they share CPUs. Build variants in parallel, measure them serially
   against one baseline file.
 - `-col /impl` compares sub-benchmark variants within one file; `-filter '.name:Parse'` narrows rows.
-- A `perf:` commit carries the trimmed benchstat table for the rows it changed, with the `goos/goarch/cpu` header.
+- Recording the delta in the commit: [performance.md](performance.md).
 
 ## testify (optional)
 
-This module does not import testify; use the stdlib unless the target repo already does. When it does:
+Use the stdlib unless the target repo already imports testify. When it does:
 
 - `require` for preconditions (it `FailNow`s), `assert` for the checks after; arguments are `(expected, actual)`.
 - Build `assert.New(t)` inside each `t.Run` from the subtest's `t` — one bound to the parent attributes every
   subtest failure to the parent while the subtest reports PASS.
 - `ErrorIs`/`ErrorAs` over `Equal` on errors; `JSONEq` for JSON, `ElementsMatch` for unordered, `InDelta` for floats.
 - `EventuallyWithT` for polling, but prefer synctest when the wait is on timers in your own code.
-- `mock.Mock` only at real boundaries per the harness rules, and always `AssertExpectations(t)`; a seam var holding
-  a closure is usually shorter. Skip `suite`: `t.Run` plus `t.Cleanup` covers its lifecycle without method magic.
+- `mock.Mock` only at real boundaries (network, clock, external processes), and always `AssertExpectations(t)`; a seam
+  var holding a closure is usually shorter. Skip `suite`: `t.Run` plus `t.Cleanup` covers its lifecycle.
 - `testifylint` (golangci-lint) catches swapped arguments and assert-for-require misuse.
-
-Adapted from samber/cc-skills-golang (MIT): golang-testing, golang-stretchr-testify, golang-benchmark.
