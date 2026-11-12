@@ -122,8 +122,10 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	defer cancel()
 	untrackedDone := make(chan int, 1)
 	go func() { untrackedDone <- untrackedLines(ctx, cwd) }()
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "--no-optional-locks", "diff", "--numstat",
-		"--no-ext-diff", "--no-textconv", "HEAD").Output()
+	out, err := numstat(ctx, cwd, "HEAD")
+	if err != nil && ctx.Err() == nil && inWorkTree(ctx, cwd) { // a fresh repo has no HEAD: diff against the empty tree
+		out, err = numstat(ctx, cwd, emptyTree)
+	}
 	if err != nil {
 		cancel()
 	}
@@ -131,6 +133,15 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	if err != nil {
 		return 0, 0, false
 	}
+	adds, dels = sumNumstat(out)
+	if ctx.Err() != nil { // deadline spent mid-sweep: no partial count, the caller falls back to the ledger
+		return 0, 0, false
+	}
+	return adds + untracked, dels, true
+}
+
+// sumNumstat totals the added and deleted lines of `git diff --numstat` output, skipping binary files.
+func sumNumstat(out []byte) (adds, dels int) {
 	for line := range strings.SplitSeq(string(out), "\n") {
 		f := strings.SplitN(line, "\t", 3)
 		if len(f) < 3 {
@@ -144,10 +155,19 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 		adds += a
 		dels += d
 	}
-	if ctx.Err() != nil { // deadline spent mid-sweep: no partial count, the caller falls back to the ledger
-		return 0, 0, false
-	}
-	return adds + untracked, dels, true
+	return adds, dels
+}
+
+// emptyTree is git's well-known empty tree object, the base for a repo with no commits yet.
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+func numstat(ctx context.Context, cwd, base string) ([]byte, error) {
+	return exec.CommandContext(ctx, "git", "-C", cwd, "--no-optional-locks", "diff", "--numstat",
+		"--no-ext-diff", "--no-textconv", base).Output()
+}
+
+func inWorkTree(ctx context.Context, cwd string) bool {
+	return exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() == nil
 }
 
 // untrackedLines counts untracked lines, stopping early once ctx expires.

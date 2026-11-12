@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"regexp"
@@ -48,11 +49,15 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if v != "" {
 		return v, nil
 	}
-	if v := fileCredential(p); v != "" {
-		return v, nil
+	fileVal, fileErr := fileCredential(p)
+	if fileVal != "" {
+		return fileVal, nil
 	}
 	if p.Auth.Command != "" {
 		return commandCredential(ctx, p, false)
+	}
+	if fileErr != nil {
+		return "", fileErr
 	}
 	if vaultErr != nil {
 		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
@@ -73,16 +78,19 @@ func vaultCredential(p *Provider) (string, error) {
 	return "", vaultErr
 }
 
-// fileCredential returns the trimmed contents of auth.file, or "" when unset, unreadable or blank.
-func fileCredential(p *Provider) string {
+// fileCredential returns the trimmed contents of auth.file, "" when unset, missing or blank; other read errors surface.
+func fileCredential(p *Provider) (string, error) {
 	if p.Auth.File == "" {
-		return ""
+		return "", nil
 	}
 	b, err := os.ReadFile(paths.ExpandHome(p.Auth.File))
-	if err != nil {
-		return ""
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
 	}
-	return strings.TrimSpace(string(b))
+	if err != nil {
+		return "", fmt.Errorf("%s: auth.file: %w", p.Name, err)
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/agent name).
@@ -416,7 +424,8 @@ func CredentialPresent(p *Provider) bool {
 	if slices.ContainsFunc(keyNames(p), func(n string) bool { return HasSecret(n) != "" }) {
 		return true
 	}
-	return fileCredential(p) != ""
+	v, _ := fileCredential(p)
+	return v != ""
 }
 
 // sealedPresent reports a stored credential authCredential would mint from (user secret, or the SP's per identity).

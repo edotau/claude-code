@@ -215,6 +215,9 @@ func (j *journal) applyBatch(repo Repo, rec *Receipt) (present []string, err err
 		return nil, err
 	}
 	present = repo.dropCredentialShaped(present, j.touches) // an unrelated dir's credential file must not wedge this batch
+	if err := repo.refuseCredentialShaped(present, j.touches); err != nil {
+		return nil, err
+	}
 	outcomes, capture, err := j.plan(repo.Dir, present, rec)
 	if err != nil {
 		return nil, err
@@ -638,6 +641,18 @@ func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []
 		clean = append(clean, rel)
 	}
 	return clean
+}
+
+// refuseCredentialShaped errors on a credential-shaped file keep claims: it would fail the commit after apply.
+func (r Repo) refuseCredentialShaped(rels []string, keep func(rel string) bool) error {
+	for _, rel := range rels {
+		if keep(rel) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE.Match(data) {
+				return fmt.Errorf("credential-shaped content: %s", rel)
+			}
+		}
+	}
+	return nil
 }
 
 // checkStaged refuses an index holding anything beyond rels: a stray `git add` (or a pathspec glob) skipped validation.

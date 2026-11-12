@@ -241,14 +241,13 @@ func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	if !hasGit {
 		return out, nil
 	}
-	for _, sub := range []string{"agents", "commands", "skills", "rules"} {
-		rels, err := untrackedUnder(dir, sub)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rels...)
+	rels, err := untrackedUnder(dir, ".") // every untracked, non-ignored file: the plan labels them untracked too
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	return append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
+		return strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/")
+	})...), nil
 }
 
 // untrackedUnder lists the untracked files under repo/sub. A scan error (e.g. an unreadable subdir
@@ -376,7 +375,7 @@ func planGitWork(dir string, plan *nukePlan) error {
 func editedTracked(dir string) ([]string, error) {
 	var out []string
 	for _, args := range [][]string{{"ls-files", "-z", "-m"}, {"diff", "--cached", "--name-only", "-z", "--diff-filter=d"}} {
-		raw, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output() //nolint:noctx // one-shot local git call; no caller ctx
+		raw, err := gitOutput(append([]string{"-C", dir}, args...)...)
 		if err != nil {
 			return nil, fmt.Errorf("list edited tracked files: %w", err)
 		}
@@ -391,7 +390,7 @@ func editedTracked(dir string) ([]string, error) {
 
 // tarUnpushed writes the commits no remote has as a git bundle.
 func tarUnpushed(tw *tar.Writer, dir string) error {
-	data, err := exec.Command("git", "-C", dir, "bundle", "create", "-", "--branches", "--not", "--remotes").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	data, err := gitOutput("-C", dir, "bundle", "create", "-", "--branches", "--not", "--remotes")
 	if err != nil {
 		return fmt.Errorf("bundle unpushed commits: %w", err)
 	}

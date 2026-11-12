@@ -107,9 +107,9 @@ func sourceDir(root string, e os.DirEntry) bool {
 	return e.Type().IsDir() || e.Type()&os.ModeSymlink != 0 && symlinkInside(root, filepath.Join(root, e.Name()))
 }
 
-// regularFile reports whether path is a regular file; a missing path is false, any other stat error is returned.
+// regularFile reports whether path is a regular file (not a symlink); a missing path is false, other errors return.
 func regularFile(path string) (bool, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -142,7 +142,12 @@ func symlinkInside(root, link string) bool {
 
 // loadSource reads and parses one agent or skill definition file.
 func loadSource(path, dirName string) (Source, error) {
-	text, err := os.ReadFile(path)
+	f, err := paths.OpenNoFollow(path, os.O_RDONLY, 0)
+	if err != nil {
+		return Source{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	defer f.Close()
+	text, err := io.ReadAll(f)
 	if err != nil {
 		return Source{}, fmt.Errorf("read %s: %w", path, err)
 	}

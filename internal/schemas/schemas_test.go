@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/nonet" // test binaries refuse real DNS
 )
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
@@ -130,13 +131,13 @@ var writers = map[string]string{
 	"internal/network/remote/auto.go:ResolveAuto":              "remote-auto-host",
 	"internal/agent/ask/coworker.go:writeArmPicks":             "route-auto",
 	"internal/cli/menu.go:cmdMenuSVG":                          unversioned("foreign: -o output"),
-	"internal/ui/theme/look.go:SetGradient":                    unversioned("foreign: theme file in a vendor home"),
+	"internal/ui/theme/look.go:setGradientLocked":              unversioned("foreign: theme file in a vendor home"),
 	"internal/clipboard/clipboard.go:grabMac":                  unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/clipboard.go:savePNG":                  unversioned("foreign: clipboard PNG in the temp dir"),
 	"internal/clipboard/ssh_bridge.go:installLaunchAgentAt":    unversioned("foreign: launchd plist (Apple format)"),
 	"internal/clipboard/wlproxy.go:installProxyAt":             unversioned("foreign: wl-paste shim binary"),
 	"internal/ui/helptext/completion.go:Install":               unversioned("foreign: shell completion script in the user's shell dirs"),
-	"internal/configure/home.go:RegisterCodexMCP":              unversioned("foreign: codex config.toml in the vendor home"),
+	"internal/configure/home.go:registerCodexMCPLocked":        unversioned("foreign: codex config.toml in the vendor home"),
 	"internal/agentconfig/project/sync.go:writeProjection":     "projections",
 	"internal/databricks/config.go:writeScratch":               unversioned("foreign: temp rescue config"),
 	"internal/databricks/export.go:mergeInto":                  unversioned("foreign: export --merge into ~/.databrickscfg"),

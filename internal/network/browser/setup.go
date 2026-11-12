@@ -96,14 +96,16 @@ func enableExtensionAction(b browser) action {
 // installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets the browser, else the default.
 func installExtensionAction(env Env, b browser) action {
 	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
+	where := b.DisplayName
 	if env.goos() != "darwin" {
 		cmd = []string{proc.Opener(), webStoreURL}
+		where = "the default browser"
 	}
 	a := action{
 		Kind: "install-extension",
 		Description: fmt.Sprintf(
 			"Opening the Chrome Web Store install page in %s — sign in and click \"Add to %s\".",
-			b.DisplayName, b.DisplayName),
+			where, b.DisplayName),
 		Command: cmd,
 	}
 	if env.DryRun {

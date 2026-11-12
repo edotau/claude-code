@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
@@ -178,8 +179,8 @@ func decodeStrict(raw []byte, v any) error {
 // legacyRecord is a whole-replace overlay entry as a record: both blocks set and every knob key, "" when unset.
 func legacyRecord(a agentConfig) vault.AgentRecord {
 	p, guard := a.Permission, ""
-	if p.UseGuardRules {
-		guard = "true"
+	if p.UseGuardRules != nil {
+		guard = strconv.FormatBool(*p.UseGuardRules) // an explicit false must survive mergeExtras, which drops ""
 	}
 	return vault.AgentRecord{
 		Permissions: new(p.Defaults),
@@ -277,7 +278,7 @@ type guardRules struct {
 
 // permission is one agent's approval policy: agent-native knobs only that agent's renderer consumes.
 type permission struct {
-	UseGuardRules         bool              `json:"useGuardRules,omitempty"`
+	UseGuardRules         *bool             `json:"useGuardRules,omitempty"`
 	ApprovalPolicy        string            `json:"approvalPolicy,omitempty"`
 	SandboxMode           string            `json:"sandboxMode,omitempty"`
 	DefaultPermissionMode string            `json:"defaultPermissionMode,omitempty"`

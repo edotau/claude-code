@@ -171,7 +171,7 @@ func aliasIsCommit(val string, depth int) bool {
 	if val == "" {
 		return false
 	}
-	if val == "commit" {
+	if f := strings.Fields(val); len(f) > 0 && f[0] == "commit" {
 		return true
 	}
 	if rest, ok := strings.CutPrefix(val, "!"); ok {
@@ -233,7 +233,7 @@ func heredocWord(line string) (word string, stripTabs, ok bool) {
 		}
 		return rest[1 : 1+end], stripTabs, rest[1:1+end] != ""
 	}
-	end := strings.IndexAny(rest, " \t")
+	end := strings.IndexAny(rest, " \t;|&<>")
 	if end < 0 {
 		end = len(rest)
 	}

@@ -178,6 +178,9 @@ func Open(ctx context.Context) (Host, error) {
 	if base == "" { // the ssh port is not the HTTP port; an http(s) remote keeps its own host:port
 		base = "https://" + repo.Host
 		if u, err := url.Parse(remote); err == nil && strings.HasPrefix(u.Scheme, "http") {
+			if u.Scheme != "https" {
+				return nil, errors.New("origin is plain http; the Bitbucket token would travel in clear: set BITBUCKET_URL to opt in")
+			}
 			base = u.Scheme + "://" + u.Host
 		}
 	}

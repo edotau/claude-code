@@ -158,7 +158,7 @@ func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error
 	if err != nil {
 		return nil, err
 	}
-	var checks []Check
+	checks := []Check{}
 	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var r struct {

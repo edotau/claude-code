@@ -527,7 +527,7 @@ func InstallLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 	return nil
 }
 
-// printSSHHint tells the owner the remote host's ~/.ssh/config lines the bridge needs; it never writes that file.
+// printSSHHint tells the owner the lines for this Mac's (the SSH client) ~/.ssh/config; it never writes that file.
 func printSSHHint(w io.Writer, home string) {
 	fmt.Fprintf(w, "  %-17s add to this Mac's ~/.ssh/config, the SSH client:\n", "clip bridge")
 	fmt.Fprintf(w, "      RemoteForward /tmp/claude-clip-<remote-user>.sock %s\n      StreamLocalBindUnlink yes\n", launchSocket(home))

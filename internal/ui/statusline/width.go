@@ -54,19 +54,19 @@ func clip(s string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// forEachCell walks s calling fn per SGR escape (w == 0) or rune (w cells); fn false stops. A bare ESC is skipped.
+// forEachCell walks s calling fn per CSI escape (w == 0) or rune (w cells); fn false stops. A bare ESC is skipped.
 func forEachCell(s string, fn func(tok string, w int) bool) {
 	for i := 0; i < len(s); {
 		if s[i] == 0x1b {
-			j := strings.IndexByte(s[i:], 'm')
-			if j < 0 {
+			end := csiEnd(s, i)
+			if end < 0 {
 				i++
 				continue
 			}
-			if !fn(s[i:i+j+1], 0) {
+			if !fn(s[i:end], 0) {
 				return
 			}
-			i += j + 1
+			i = end
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
@@ -75,6 +75,19 @@ func forEachCell(s string, fn func(tok string, w int) bool) {
 		}
 		i += size
 	}
+}
+
+// csiEnd is the index after the CSI sequence (ESC [ params final) starting at s[i], or -1 when s[i:] is not one.
+func csiEnd(s string, i int) int {
+	if i+1 >= len(s) || s[i+1] != '[' {
+		return -1
+	}
+	for j := i + 2; j < len(s); j++ {
+		if s[j] >= 0x40 && s[j] <= 0x7e {
+			return j + 1
+		}
+	}
+	return -1
 }
 
 func clipLine(s string, width int) string {

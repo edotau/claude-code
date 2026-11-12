@@ -60,8 +60,21 @@ func redactMCP(raw any) {
 		}
 		redactConfigValues(entry["environment"])
 		redactConfigValues(entry["headers"])
+		redactOAuth(entry)
 		redactCommandSecrets(entry)
 		redactURLQuery(entry)
+	}
+}
+
+// redactOAuth masks a literal oauth clientSecret, preserving environment references.
+func redactOAuth(entry map[string]any) {
+	oauth, ok := entry["oauth"].(map[string]any)
+	if !ok {
+		return
+	}
+	secret, exists := oauth["clientSecret"].(string)
+	if exists && !envReferenceRE.MatchString(secret) {
+		oauth["clientSecret"] = "<redacted>"
 	}
 }
 

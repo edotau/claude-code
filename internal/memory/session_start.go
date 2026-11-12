@@ -286,7 +286,7 @@ func sessionRootFor(cwd string) string {
 	root := GitToplevel(cwd)
 	switch {
 	case root == "": // not a work tree: git's main-checkout probe would fail the same way
-		root = resolveWith(cwd, func(string) string { return "" }).Origin
+		root = resolveWith(cwd, func(string) (string, bool) { return "", true }).Origin
 	case paths.SamePath(root, StoreDir()):
 		root = Resolve(cwd).Origin
 	}
@@ -438,7 +438,7 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top := gitMain(r); top != "" {
+	if top, _ := gitMain(r); top != "" {
 		r = paths.CanonDeep(top)
 	}
 	target := nativeLinkTarget(projectsMemory(paths.ProjectSlug(r)))

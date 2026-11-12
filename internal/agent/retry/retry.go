@@ -121,7 +121,7 @@ var (
 	rateRE       = regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
 	authRE       = regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
 	transientRE  = regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
-	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
+	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(h|hrs?|hours?|m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
 )
 
 // Classify maps an error (or a failed child's stderr tail) to a Kind; typed status errors win over text.
@@ -169,14 +169,22 @@ func classifyText(err error) (Kind, time.Duration) {
 	return kind, retryAfterText(low)
 }
 
+// maxHintUnits keeps n * time.Hour well inside int64 nanoseconds.
+const maxHintUnits = 1_000_000
+
 // retryAfterText reads a "retry after N ms|seconds|minutes" hint out of lower-cased error text.
 func retryAfterText(low string) time.Duration {
 	m := retryAfterRE.FindStringSubmatch(low)
 	if m == nil {
 		return 0
 	}
-	n, _ := strconv.Atoi(m[1])
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n > maxHintUnits {
+		n = maxHintUnits // overflow or absurd: clamp so the duration stays positive and MaxDelay caps it
+	}
 	switch m[2] {
+	case "h", "hr", "hrs", "hour", "hours":
+		return time.Duration(n) * time.Hour
 	case "ms":
 		return time.Duration(n) * time.Millisecond
 	case "m", "min", "minute", "minutes":
@@ -251,22 +259,17 @@ func ResetCooldowns() {
 	clear(cooldowns.until)
 }
 
-// WaitCooldown blocks until key's cooldown ends, for at most maxWait, or until ctx is done.
+// WaitCooldown blocks until key's cooldown ends, for at most maxWait (0 returns at once), or until ctx is done.
 func WaitCooldown(ctx context.Context, key string, maxWait time.Duration) {
 	if key == "" {
 		return
 	}
-	var limit time.Time
-	if maxWait > 0 {
-		limit = time.Now().Add(maxWait)
-	}
+	limit := time.Now().Add(maxWait)
 	for {
 		cooldowns.Lock()
 		wait := time.Until(cooldowns.until[key]) // re-read: another task may have extended the hold while we slept
 		cooldowns.Unlock()
-		if !limit.IsZero() {
-			wait = min(wait, time.Until(limit))
-		}
+		wait = min(wait, time.Until(limit))
 		if wait <= 0 {
 			return
 		}

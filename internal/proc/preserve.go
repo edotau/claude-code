@@ -39,7 +39,7 @@ func Preserve() (restore func()) {
 	return func() {
 		_ = ioctlTermios(in, ioctlSet, &saved)
 		if showCursor {
-			_, _ = os.Stdout.WriteString("\x1b[?25h")
+			_, _ = syscall.Write(preserveOut, []byte("\x1b[?25h"))
 		}
 	}
 }

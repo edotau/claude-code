@@ -310,13 +310,22 @@ func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 	var lines []string
 	cur := firstPrefix
 	onLine := 0
+	last := ""
 	for _, t := range tokens {
+		prev := last
+		last = t
 		sep := ""
 		if onLine > 0 {
 			sep = " "
 		}
 		candidate := cur + sep + t
 		if onLine > 0 && utf8.RuneCountInString(candidate) > BankFmtMaxLine {
+			if onLine > 1 && listItem(contIndent+t+" x") != nil { // a bare marker must not open a line: carry the prior word
+				lines = append(lines, strings.TrimSuffix(cur, " "+prev))
+				cur = contIndent + prev + " " + t
+				onLine = 2
+				continue
+			}
 			lines = append(lines, cur)
 			cur = contIndent + t
 			onLine = 1

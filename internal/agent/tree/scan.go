@@ -211,12 +211,44 @@ func toolArg(input json.RawMessage) string {
 func stripPaths(s, home, cwd string) string {
 	if cwd != "" && cwd != "/" { // a root cwd would delete every slash
 		s = strings.ReplaceAll(s, cwd+"/", "")
-		s = strings.ReplaceAll(s, cwd, "")
+		s = stripCwd(s, cwd)
 	}
 	if home != "" {
 		s = strings.ReplaceAll(s, home, "~")
 	}
 	return s
+}
+
+// stripCwd deletes cwd where it ends a path: at end of string, before a non-path byte, or before a sentence period.
+func stripCwd(s, cwd string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, cwd)
+		if i < 0 {
+			return b.String() + s
+		}
+		end := i + len(cwd)
+		b.WriteString(s[:i])
+		if !endsPath(s, end) {
+			b.WriteString(cwd)
+		}
+		s = s[end:]
+	}
+}
+
+// endsPath reports whether s[j:] starts a path boundary; a '.' counts only when followed by end or a non-path byte.
+func endsPath(s string, j int) bool {
+	if j >= len(s) {
+		return true
+	}
+	if s[j] == '.' {
+		return j+1 >= len(s) || !isPathByte(s[j+1])
+	}
+	return !isPathByte(s[j])
+}
+
+func isPathByte(c byte) bool {
+	return c == '_' || c == '.' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // applyEvents folds one assistant transcript record's tool_use/text blocks into act, the last of each kind winning.
@@ -234,7 +266,7 @@ func applyEvents(act *Activity, raw []byte, home, cwd string) {
 		case c.Type == "tool_use" && c.Name != "":
 			act.Tool, act.Arg, act.At = c.Name, stripPaths(toolArg(c.Input), home, cwd), at
 		case c.Type == "text" && c.Text != "":
-			act.Text, act.At = truncate(c.Text, 80), at
+			act.Text, act.At = truncate(textutil.RedactSecrets(c.Text), 80), at
 		}
 	}
 }

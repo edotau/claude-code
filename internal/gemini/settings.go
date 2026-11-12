@@ -22,11 +22,6 @@ import (
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
 // ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	cfg, err := loadAgentConfig()
-	if err != nil {
-		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
-		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
-	}
 	rec, err := agentconfig.Settings(agentid.Gemini)
 	if err != nil {
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
@@ -34,6 +29,11 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 	}
 	if rec.Extras[extraUseGuardRules] == "false" {
 		return false, nil
+	}
+	cfg, err := loadAgentConfig()
+	if err != nil {
+		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
+		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
 	}
 	rules := agyGuardRules(cfg.Guard().Deny, out)
 	path := agySettingsPath(home)
@@ -46,7 +46,16 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 			perms = map[string]any{}
 		}
 		existing, _ := perms["deny"].([]any)
-		perms["deny"] = mergeAgyDeny(existing, rules)
+		merged := []any{}
+		for _, d := range mergeAgyDeny(existing, rules) {
+			merged = append(merged, d)
+		}
+		for _, e := range existing { // keep entries agy may define that are not plain strings
+			if _, ok := e.(string); !ok {
+				merged = append(merged, e)
+			}
+		}
+		perms["deny"] = merged
 		obj["permissions"] = perms
 		return true
 	})
@@ -235,8 +244,10 @@ func agyGateCovers(cwd string, tools ...string) bool {
 		return false
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
-	home, _ := agentconfig.HomeOr("")
-	files := []string{agyHooksPath(home)}
+	var files []string
+	if home, err := agentconfig.HomeOr(""); err == nil { // no home: never fall back to a CWD-relative hooks.json
+		files = append(files, agyHooksPath(home))
+	}
 	if cwd != "" {
 		files = append(files, filepath.Join(cwd, ".agents", "hooks.json"))
 	}

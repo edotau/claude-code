@@ -260,10 +260,22 @@ func walkSourceFiles(root string, warn io.Writer, fn func(p string)) []string {
 		if d.IsDir() {
 			return nil
 		}
+		if !d.Type().IsRegular() && !regularLinkTarget(p, d) {
+			return nil // a FIFO, device or socket (or a link to one) would block os.ReadFile forever
+		}
 		fn(p)
 		return nil
 	})
 	return unreadable
+}
+
+// regularLinkTarget reports a symlink to a regular file, or a dangling one the reader reports as unreadable.
+func regularLinkTarget(p string, d os.DirEntry) bool {
+	if d.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err != nil || fi.Mode().IsRegular()
 }
 
 // analyzeDirectory ports code_quality_checker.analyze_directory.
@@ -311,7 +323,7 @@ func walkExtensions(dir string, extensions []string, warn io.Writer) (out []Qual
 	}
 	failed = walkSourceFiles(dir, warn, func(p string) {
 		for ext := range byExtension {
-			if strings.HasSuffix(p, ext) {
+			if strings.HasSuffix(strings.ToLower(p), ext) {
 				byExtension[ext] = append(byExtension[ext], p)
 			}
 		}

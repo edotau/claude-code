@@ -175,6 +175,9 @@ func sourceFiles(root string, roots []string) ([]scopeFile, error) {
 		if underSkipDir(p) {
 			continue
 		}
+		if !filepath.IsLocal(p) {
+			return nil, fmt.Errorf("path %q escapes the repo root", p)
+		}
 		start := filepath.Join(root, p)
 		err := filepath.WalkDir(start, func(name string, d fs.DirEntry, err error) error {
 			if err != nil {

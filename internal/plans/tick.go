@@ -120,8 +120,11 @@ func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
 func WriteFile(dest string, data []byte) error {
 	return paths.WithFileLock(plansLock(), func() error {
 		mode := os.FileMode(0o600)
-		if info, err := os.Stat(dest); err == nil {
+		info, err := os.Stat(dest)
+		if err == nil {
 			mode = info.Mode().Perm()
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 		return writePlan(dest, data, mode)
 	})
@@ -169,6 +172,9 @@ func hasSha(shas []string, sha string) bool {
 // ClaimFree writes <!-- text --> at a task's last line unless it already carries a claim, decided under the lock.
 func ClaimFree(planPath, taskID, text string) error {
 	text = strings.TrimSpace(text)
+	if strings.ContainsAny(text, "\r\n") {
+		return errors.New("plans: claim text must be a single line")
+	}
 	if strings.Contains(text, "-->") {
 		return fmt.Errorf("plans: claim text must not contain %q", "-->")
 	}
@@ -184,10 +190,11 @@ func ClaimFree(planPath, taskID, text string) error {
 	})
 }
 
-// ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text, decided under the lock.
+// ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text as whole words, under lock.
 func ClearClaimOwned(planPath, taskID, owner string) error {
+	words := strings.Join(strings.Fields(owner), " ")
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
-		if owner == "" || !strings.Contains(t.Claim, owner) {
+		if words == "" || !strings.Contains(" "+strings.Join(strings.Fields(t.Claim), " ")+" ", " "+words+" ") {
 			return lines
 		}
 		return removeClaims(lines, t)

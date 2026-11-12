@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Names returns sorted vault secret names without resolving a key; an unreadable vault yields nil.
@@ -72,7 +73,7 @@ func Redact(v string) string {
 	if len(v) < redactMin {
 		return fmt.Sprintf("%d chars", len(v))
 	}
-	return fmt.Sprintf("%s*** (%d chars)", v[:min(redactShow, len(v)/3)], len(v))
+	return fmt.Sprintf("%s*** (%d chars)", textutil.CutBytes(v, min(redactShow, len(v)/3)), len(v))
 }
 
 // Preview shows a pasted value's prefix (never over a third), capped stars and length, and flags a doubled paste.
@@ -87,7 +88,7 @@ func Preview(v string) string {
 	if hidden > width-shown {
 		stars += "…"
 	}
-	out := fmt.Sprintf("%s%s (%d chars)", v[:shown], stars, len(v))
+	out := fmt.Sprintf("%s%s (%d chars)", textutil.CutBytes(v, shown), stars, len(v))
 	if n := len(v); n >= 16 && n%2 == 0 && v[:n/2] == v[n/2:] {
 		out += " · pasted twice?"
 	}
@@ -319,7 +320,7 @@ func MetaPrefix(v string) string {
 		return p
 	}
 	if len(v) >= redactMin { // no vendor scheme: the same first chars Redact shows, never over a third
-		return v[:min(redactShow, len(v)/3)]
+		return textutil.CutBytes(v, min(redactShow, len(v)/3))
 	}
 	return ""
 }

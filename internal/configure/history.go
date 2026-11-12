@@ -324,14 +324,14 @@ func (s *HistoryStore) Diff(rev string) (string, error) {
 	if strings.HasPrefix(rev, "-") {
 		return "", fmt.Errorf("revision %q looks like a git option; pass a commit id from `history log`", rev)
 	}
+	born, err := s.hasCommits()
+	if err != nil {
+		return "", err
+	}
+	if !born {
+		return "", fmt.Errorf("no %s commits yet", plane)
+	}
 	if rev == "" {
-		born, err := s.hasCommits()
-		if err != nil {
-			return "", err
-		}
-		if !born {
-			return "", fmt.Errorf("no %s commits yet", plane)
-		}
 		found, err := s.git("log", "--grep=^"+plane+": ", "-1", "--format=%H")
 		if err != nil {
 			return "", err

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"time"
 )
@@ -41,7 +42,7 @@ func Do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, 
 		return 0, nil, nil, err
 	}
 	defer resp.Body.Close()
-	body, err = io.ReadAll(io.LimitReader(resp.Body, c.Limit+1))
+	body, err = io.ReadAll(io.LimitReader(resp.Body, min(c.Limit, math.MaxInt64-1)+1))
 	if err == nil && int64(len(body)) > c.Limit {
 		body, err = body[:c.Limit], ErrTooLarge
 	}

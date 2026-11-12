@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,10 +35,27 @@ var identities sync.Map
 func Resolve(root string) Identity { return resolveWith(root, gitMain) }
 
 // gitMain is root's main checkout per git, "" outside a repo; a caller that already ran it passes the answer on.
-func gitMain(root string) string { return paths.MainCheckout(root, gitOut) }
+// definitive is false when git itself failed (timeout, spawn), so "" may not mean a non-repo.
+func gitMain(root string) (top string, definitive bool) {
+	definitive = true
+	top = paths.MainCheckout(root, func(dir string, args ...string) (string, error) {
+		out, err := gitOut(dir, args...)
+		if err != nil && !gitRefused(err) {
+			definitive = false
+		}
+		return out, err
+	})
+	return top, definitive
+}
+
+// gitRefused reports whether err is git running and exiting nonzero (a non-repo, no remote), not failing to run.
+func gitRefused(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() > 0
+}
 
 // resolveWith is Resolve with main supplying root's git main checkout on a memo miss.
-func resolveWith(root string, main func(string) string) Identity {
+func resolveWith(root string, main func(string) (string, bool)) Identity {
 	root = filepath.Clean(root)
 	if paths.SamePath(root, paths.ConfigDir()) || paths.SamePath(paths.MainCheckout(root), paths.ConfigDir()) {
 		return harnessIdentity()
@@ -47,15 +65,9 @@ func resolveWith(root string, main func(string) string) Identity {
 		if id, fixed := fixedIdentity(root); fixed {
 			return id
 		}
-		o := main(root)
-		if o != "" {
-			o = paths.CanonDeep(o)
-		}
-		if o == "" {
-			var err error
-			if o, err = workspaceOrigin(root); err != nil {
-				return Identity{HomeBank: true} // transient vault failure: answer now, memoize nothing
-			}
+		o, memoize := resolveOrigin(root, main)
+		if !memoize {
+			return Identity{HomeBank: true}
 		}
 		origin = o
 		identities.Store(root, origin)
@@ -68,6 +80,21 @@ func resolveWith(root string, main func(string) string) Identity {
 		return harnessIdentity()
 	}
 	return Identity{Origin: o, Base: filepath.Base(o)}
+}
+
+// resolveOrigin finds root's origin on a memo miss; memoize is false on a transient vault or git failure.
+func resolveOrigin(root string, main func(string) (string, bool)) (origin string, memoize bool) {
+	o, definitive := main(root)
+	if o != "" {
+		o = paths.CanonDeep(o)
+	}
+	if o == "" {
+		var err error
+		if o, err = workspaceOrigin(root); err != nil {
+			return "", false // transient vault failure: answer now, memoize nothing
+		}
+	}
+	return o, definitive || o != "" // git failed to run: a later call must re-ask, not stay home-banked
 }
 
 // storeIdentity maps a cwd inside the store to its repo (the store top to HomeBank), else ok=false.
@@ -130,7 +157,7 @@ func harnessStoreKey() string {
 func RepoDir(root string) (string, error) { return repoDirWith(root, gitMain) }
 
 // repoDirWith is RepoDir with main supplying root's git main checkout (see resolveWith).
-func repoDirWith(root string, main func(string) string) (string, error) {
+func repoDirWith(root string, main func(string) (string, bool)) (string, error) {
 	entries, err := RepoDirs()
 	if err != nil {
 		return "", err
@@ -200,6 +227,9 @@ func originRemoteURL(checkout string) string {
 	}
 	out, err := gitOut(checkout, "remote", "get-url", "origin")
 	if err != nil {
+		if !gitRefused(err) {
+			return "" // git failed to run: do not memoize it as "no remote"
+		}
 		out = ""
 	}
 	remoteCache.Store(checkout, out)
@@ -241,6 +271,7 @@ func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string
 
 // EnsureRepoDir is RepoDir plus creation: the directory and its origin record exist on return, under the bank lock.
 func EnsureRepoDir(root string) (string, error) {
+	_, _ = RepoDir(root) // warms the git memos, so the probes (up to 30s each) run before the bank lock is taken
 	var dir string
 	err := WithBankLock(BankLockWait, func() error {
 		var err error
@@ -558,7 +589,7 @@ const OriginVersion = 1
 type Origin struct {
 	Version int      `json:"version"`
 	Key     string   `json:"key"`               // the directory name under StoreDir(); harnessStoreKey() for the config checkout
-	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks); "" only for the store root
+	Origin  string   `json:"origin"`            // canonical main-checkout path (EvalSymlinks)
 	Aliases []string `json:"aliases,omitempty"` // other canonical checkout paths accepted as this repo — explicit only
 }
 
@@ -659,7 +690,7 @@ func validateOrigin(dir string, o Origin) error {
 		return fmt.Errorf("%s: origin record version %d, want %d", dir, o.Version, OriginVersion)
 	case o.Key != filepath.Base(dir):
 		return fmt.Errorf("%s: origin record key %q does not match directory", dir, o.Key)
-	case o.Origin == "" && !paths.SamePath(dir, StoreDir()):
+	case o.Origin == "":
 		return fmt.Errorf("%s: origin record has an empty origin", dir)
 	}
 	return nil

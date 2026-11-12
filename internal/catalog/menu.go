@@ -37,7 +37,7 @@ func opencodeSyncIDs(infos []providers.ModelInfo) []string {
 func opencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []serving.CheckResult) ([]providers.OpencodeModel, int) {
 	failed := make(map[string]bool)
 	for _, c := range checks {
-		failed[c.ID] = c.Status == "fail" || c.Status == "missing"
+		failed[c.ID] = c.Status != "ok"
 	}
 	next := slices.Clone(menu)
 	skipped := 0
@@ -152,7 +152,13 @@ func parseMenuImport(data []byte) ([]providers.OpencodeModel, error) {
 		}
 		out = append(out, m)
 	}
-	return dedupeMenu(out), sc.Err()
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no models in import file")
+	}
+	return dedupeMenu(out), nil
 }
 
 func parseMenuLine(line string, n int) (providers.OpencodeModel, error) {
@@ -199,6 +205,9 @@ func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 		prov := doc.Provider[pid]
 		for _, wire := range slices.Sorted(maps.Keys(prov.Models)) {
 			id := ID(wire)
+			if id == "" {
+				return nil, fmt.Errorf("opencode.json: provider %q has a model with an empty id", pid)
+			}
 			label := strings.TrimSpace(strings.SplitN(prov.Models[wire].Name, " · ", 2)[0])
 			if label == "" {
 				label = defaultMenuLabel(id)

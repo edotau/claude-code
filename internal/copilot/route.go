@@ -87,7 +87,10 @@ func copilotGithubRow(reg *providers.Registry) (*providers.Provider, bool) {
 
 // describeCopilotRoute: GitHub login on a workable pin, else Databricks fallback, else anthropic-key BYOK, else none.
 func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
-	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile is the route
+	if reg == nil {
+		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: no provider registry"}
+	}
+	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile wins
 		p := reg.Providers[pin]
 		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: tierModel(p, models.Opus)}})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,

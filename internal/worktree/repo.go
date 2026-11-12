@@ -3,6 +3,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,12 +49,18 @@ func ResolveRepo(cwd string) (*Repo, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if code, isExit := asExitErr(err); isExit && code == gitFatalExit && ctx.Err() == nil {
+	if code, isExit := asExitErr(err); isExit && code == gitFatalExit && ctx.Err() == nil && notARepo(err) {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
 	} else if err != nil {
 		return nil, fmt.Errorf("git rev-parse in %s: %w", cwd, err)
 	}
 	return repoFromCommonDir(cwd, strings.TrimSpace(string(out)))
+}
+
+// notARepo reports whether a failed git call's stderr says the directory is not a repository.
+func notARepo(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && strings.Contains(string(ee.Stderr), "not a git repository")
 }
 
 // repoFromCommonDir builds the Repo for an absolute git common dir, rejecting a bare or non-standard layout.

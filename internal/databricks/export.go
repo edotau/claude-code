@@ -29,7 +29,7 @@ func export(args []string) int {
 	pick := fs.Bool("pick", false, "choose rows in a picker (default: all)")
 	out := fs.String("out", "", "write to FILE (0600) instead of stdout")
 	merge := fs.Bool("merge", false, "merge into --out (default the CLI's config), others kept")
-	force := fs.Bool("force", false, "overwrite --out, or with --merge replace same-name sections")
+	force := fs.Bool("force", false, "overwrite --out, or with --merge replace same-name sections (never a databricks-cli login)")
 	rename := renameFlag{}
 	fs.Var(rename, "rename", "write row OLD as section NEW (repeatable)")
 	if rest, err := helptext.ParseArgs(fs, args); err != nil {
@@ -145,7 +145,11 @@ func writeFile0600(path, text string, force bool) error {
 		return err
 	}
 	return paths.WithFileLock(path, func() error {
-		if _, err := os.Lstat(path); err == nil && !force {
+		_, err := os.Lstat(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err == nil && !force {
 			return fmt.Errorf("%s exists; pass --force to overwrite", path)
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
@@ -261,8 +265,9 @@ var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 // renameRows applies id=section renames and drops rows whose section is reserved, malformed or taken.
 func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, skipped []string) {
-	seen := map[string]bool{}
+	seen, used := map[string]bool{}, map[string]bool{}
 	for _, r := range rows {
+		used[r.ID], used[r.Pair] = true, true
 		if s, ok := rename[r.Pair]; ok && r.PairSet {
 			r.Pair = s
 		}
@@ -279,6 +284,11 @@ func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, sk
 		default:
 			seen[r.Section] = true
 			out = append(out, r)
+		}
+	}
+	for _, old := range slices.Sorted(maps.Keys(rename)) {
+		if !used[old] {
+			skipped = append(skipped, "--rename "+old+": matches no exported row")
 		}
 	}
 	return out, skipped

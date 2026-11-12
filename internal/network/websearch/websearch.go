@@ -160,11 +160,10 @@ func negotiateProtocolVersion(params json.RawMessage) string {
 
 // handle dispatches one request. A notification (no id) gets no reply, whatever its method.
 func (s *server) handle(ctx context.Context, req rpcRequest) map[string]any {
-	resp := s.dispatch(ctx, req)
 	if len(req.ID) == 0 {
 		return nil
 	}
-	return resp
+	return s.dispatch(ctx, req)
 }
 
 func (s *server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
@@ -229,8 +228,7 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 // Serve answers newline-delimited JSON-RPC from in to out until EOF; ctx bounds every search.
 // Gotcha: one goroutine per request (Claude Code batches tool calls); only writes lock, and EOF waits for in-flight.
 func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	reader := bufio.NewReaderSize(in, 64*1024)
 	enc := json.NewEncoder(out)
 	var (
 		wg       sync.WaitGroup
@@ -244,14 +242,21 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			writeErr = enc.Encode(resp)
 		}
 	}
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+	var readErr error
+	for {
+		raw, tooLong, err := readLine(reader, maxLineBytes)
+		if err != nil {
+			if err != io.EOF {
+				readErr = err
+			}
+			break
+		}
+		if tooLong {
+			send(rpcError(nil, -32700, "Parse error: line too long"))
 			continue
 		}
-		var req rpcRequest
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			send(rpcError(nil, -32700, "Parse error"))
+		req, ok := parseRequest(raw, send)
+		if !ok {
 			continue
 		}
 		wg.Go(func() {
@@ -266,7 +271,48 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	if writeErr != nil {
 		return writeErr
 	}
-	return scanner.Err()
+	return readErr
+}
+
+// parseRequest decodes one line; ok is false for a blank line (skipped) or bad JSON (answered via send).
+func parseRequest(raw []byte, send func(map[string]any)) (req rpcRequest, ok bool) {
+	line := strings.TrimSpace(string(raw))
+	if line == "" {
+		return req, false
+	}
+	if err := json.Unmarshal([]byte(line), &req); err != nil {
+		send(rpcError(nil, -32700, "Parse error"))
+		return req, false
+	}
+	return req, true
+}
+
+// maxLineBytes caps one JSON-RPC line; a longer line is drained and answered with a parse error.
+const maxLineBytes = 4 * 1024 * 1024
+
+// readLine returns the next line without its newline; a line over max is drained and flagged tooLong.
+func readLine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error) {
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if !tooLong {
+			if len(line)+len(chunk) > max {
+				tooLong, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		switch err {
+		case bufio.ErrBufferFull:
+			continue
+		case nil:
+			return line, tooLong, nil
+		case io.EOF:
+			if len(line) > 0 || tooLong {
+				return line, tooLong, nil
+			}
+		}
+		return nil, false, err
+	}
 }
 
 // run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
@@ -349,7 +395,9 @@ func postTavily(ctx context.Context, timeout time.Duration, endpoint, what, apiK
 		return nil, fmt.Errorf("could not reach Tavily (%v)", err)
 	case status != http.StatusOK:
 		return nil, fmt.Errorf("%s with Tavily failed (HTTP %d)", what, status)
-	case err != nil && !errors.Is(err, httpx.ErrTooLarge): // an over-limit reply is cut, as before
+	case errors.Is(err, httpx.ErrTooLarge):
+		return nil, fmt.Errorf("tavily %s response exceeds %d bytes", what, limit)
+	case err != nil:
 		return nil, fmt.Errorf("could not read Tavily response (%v)", err)
 	}
 	return raw, nil

@@ -200,6 +200,10 @@ const codexMCPExtras = "default_tools_approval_mode = \"approve\"\nenv_vars = [\
 
 // RegisterCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
 func RegisterCodexMCP(path, bin string) error {
+	return codex.WithConfigLock(path, func() error { return registerCodexMCPLocked(path, bin) })
+}
+
+func registerCodexMCPLocked(path, bin string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err

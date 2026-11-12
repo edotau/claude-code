@@ -36,7 +36,7 @@ func pythonLines(masked string) []pyLine {
 	depth, prevBackslash := 0, false
 	for i, l := range raw {
 		out[i] = pyLine{indent: leadingWidth(l), text: l, lineNo: i + 1, continuation: depth > 0 || prevBackslash}
-		prevBackslash = strings.HasSuffix(strings.TrimRight(l, " \t"), "\\")
+		prevBackslash = strings.HasSuffix(strings.TrimRight(l, " \t\r"), "\\")
 		for _, r := range l {
 			switch r {
 			case '(', '[', '{':

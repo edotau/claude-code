@@ -209,6 +209,10 @@ func CurrentGradient() string {
 // embedded default when absent. It never touches any other key, and never touches settings.json.
 func SetGradient(name string) error {
 	path := filepath.Join(StatuslineDir(), "config.json")
+	return paths.WithFileLock(path, func() error { return setGradientLocked(path, name) })
+}
+
+func setGradientLocked(path, name string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
