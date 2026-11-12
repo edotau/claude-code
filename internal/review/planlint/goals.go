@@ -3,7 +3,9 @@ package planlint
 import (
 	"fmt"
 	"io"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -119,8 +121,10 @@ func countPackageMentions(line string) int {
 func maxFindingsCount(line string) (int, bool) {
 	best, found := 0, false
 	for _, m := range findingsRe().FindAllStringSubmatch(line, -1) {
-		n := 0
-		_, _ = fmt.Sscanf(m[1], "%d", &n) // m[1] is \d+: only an int overflow fails, and it leaves n = 0
+		n, err := strconv.Atoi(m[1])
+		if err != nil { // m[1] is \d+: only an int overflow fails, and it is oversized by any limit
+			n = math.MaxInt
+		}
 		if n > best {
 			best = n
 			found = true
