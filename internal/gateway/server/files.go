@@ -272,6 +272,11 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 		return "", err
 	}
 	defer resp.Body.Close()
+	return r.uploadedID(resp, bearer)
+}
+
+// uploadedID reads the uploaded file id from resp; a 404/403 for a login bearer turns the Files API off for it.
+func (r *Router) uploadedID(resp *http.Response, bearer string) (string, error) {
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", err

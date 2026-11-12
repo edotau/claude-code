@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -40,6 +42,7 @@ type streamer struct {
 	openText  bool         // the open block is text
 	opened    []*toolState // started tool blocks, stopped together at stream end
 	tools     map[int]*toolState
+	calls     []*toolState // every tool call seen, to catch one whose name never arrived
 	last      *toolState
 	usedTools bool
 	finish    string
@@ -47,9 +50,7 @@ type streamer struct {
 	buf       bytes.Buffer // reused by event() to avoid a per-event json.Marshal allocation
 }
 
-// Typed event payloads replace map[string]any: struct marshaling skips the reflect-based key
-// sort and per-value interface boxing a map incurs, the dominant cost on the per-chunk hot path.
-
+// textBlock is a text content block or text_delta; typed payloads skip map[string]any's per-chunk marshal cost.
 type textBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
@@ -66,11 +67,6 @@ type blockStartEvent struct {
 	Type         string `json:"type"`
 	Index        int    `json:"index"`
 	ContentBlock any    `json:"content_block"`
-}
-
-type textDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
 }
 
 type inputJSONDelta struct {
@@ -125,55 +121,72 @@ type messageStopEvent struct {
 	Type string `json:"type"`
 }
 
-// StreamChat converts a chat-completions SSE stream into Anthropic Messages SSE events, calling flush per event.
-// A read error before any output returns without writing so the caller may still fail over.
+// StreamChat converts chat-completions SSE to Anthropic SSE; a read error before any output writes nothing.
 func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) error {
 	s := &streamer{w: w, flush: flush, model: clientModel, open: -1, tools: map[int]*toolState{}}
 	br := bufio.NewReader(r)
-	var data [][]byte // SSE "data:" lines for the frame in progress; each a fresh slice from ReadBytes
-	dispatch := func() (bool, error) {
-		if len(data) == 0 {
-			return false, nil
-		}
-		payload := bytes.Join(data, []byte("\n"))
-		data = data[:0]
-		return s.handle(payload)
-	}
+	var f sseFrame
 	for {
 		line, readErr := br.ReadBytes('\n')
-		line = bytes.TrimRight(line, "\r\n")
-		switch {
-		case len(line) == 0:
-			if done, err := dispatch(); err != nil || done {
-				return s.end(err)
-			}
-		case bytes.HasPrefix(line, []byte("data:")):
-			data = append(data, bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" ")))
-		}
-		if readErr == io.EOF {
-			done, err := dispatch()
-			return s.end(s.truncated(done, err))
+		if done, err := s.feed(&f, bytes.TrimRight(line, "\r\n")); err != nil || done {
+			return s.end(err)
 		}
 		if readErr != nil {
-			if !s.started {
-				return fmt.Errorf("translate: stream read: %w", readErr)
-			}
-			return s.end(s.fail(500, "upstream stream interrupted: "+readErr.Error(), readErr))
+			return s.readEnd(&f, readErr)
 		}
 	}
 }
 
+// sseFrame is the SSE frame in progress: its event name and "data:" lines, each a fresh slice from ReadBytes.
+type sseFrame struct {
+	event string
+	data  [][]byte
+}
+
+// feed adds one SSE line to f, dispatching the frame on a blank line.
+func (s *streamer) feed(f *sseFrame, line []byte) (bool, error) {
+	switch {
+	case len(line) == 0:
+		return s.dispatch(f)
+	case bytes.HasPrefix(line, []byte("data:")):
+		f.data = append(f.data, bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" ")))
+	case bytes.HasPrefix(line, []byte("event:")):
+		f.event = string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("event:"))))
+	}
+	return false, nil
+}
+
+// dispatch handles f's payload, if any, and resets f.
+func (s *streamer) dispatch(f *sseFrame) (bool, error) {
+	if len(f.data) == 0 {
+		f.event = ""
+		return false, nil
+	}
+	payload, event := bytes.Join(f.data, []byte("\n")), f.event
+	f.data, f.event = f.data[:0], ""
+	return s.handle(event, payload)
+}
+
+// readEnd finishes the stream on a read error: EOF dispatches the last frame, anything else is an interruption.
+func (s *streamer) readEnd(f *sseFrame, readErr error) error {
+	if readErr == io.EOF {
+		done, err := s.dispatch(f)
+		return s.end(s.truncated(done, err))
+	}
+	if !s.started {
+		return fmt.Errorf("translate: stream read: %w", readErr)
+	}
+	return s.end(s.fail("upstream stream interrupted: "+readErr.Error(), readErr))
+}
+
 // handle processes one SSE payload and reports whether the stream is done.
-func (s *streamer) handle(payload []byte) (bool, error) {
+func (s *streamer) handle(event string, payload []byte) (bool, error) {
 	if string(bytes.TrimSpace(payload)) == "[DONE]" {
 		return true, nil
 	}
-	var c streamChunk
-	if err := json.Unmarshal(payload, &c); err != nil {
-		return false, s.fail(500, "malformed upstream stream chunk", err)
-	}
-	if len(c.Error) > 0 && string(c.Error) != "null" {
-		return false, s.upstreamError(c.Error, payload)
+	c, err := s.parseChunk(event, payload)
+	if err != nil {
+		return false, err
 	}
 	if err := s.start(); err != nil {
 		return false, err
@@ -189,6 +202,21 @@ func (s *streamer) handle(payload []byte) (bool, error) {
 	return false, nil
 }
 
+// parseChunk decodes one payload; an in-band error, a bare `event: error` frame or bad JSON writes an error event.
+func (s *streamer) parseChunk(event string, payload []byte) (streamChunk, error) {
+	var c streamChunk
+	err := json.Unmarshal(payload, &c)
+	switch {
+	case err == nil && len(c.Error) > 0 && string(c.Error) != "null":
+		return c, s.upstreamError(c.Error, payload)
+	case event == "error":
+		return c, s.upstreamError(payload, payload)
+	case err != nil:
+		return c, s.fail("malformed upstream stream chunk", err)
+	}
+	return c, nil
+}
+
 // upstreamError writes an in-band upstream error as an error event and returns it as an error.
 func (s *streamer) upstreamError(raw json.RawMessage, payload []byte) error {
 	body := FromChatError(streamErrorStatus(raw), payload)
@@ -202,7 +230,7 @@ func (s *streamer) upstreamError(raw json.RawMessage, payload []byte) error {
 func (s *streamer) choice(ch streamChoice) error {
 	text, err := contentText(ch.Delta.Content)
 	if err != nil {
-		return s.fail(500, "malformed upstream content", err)
+		return s.fail("malformed upstream content", err)
 	}
 	if text += ch.Delta.Refusal; text != "" {
 		if err := s.text(text); err != nil {
@@ -229,7 +257,7 @@ func (s *streamer) text(t string) error {
 		s.open, s.openText = s.next, true
 		s.next++
 	}
-	return s.delta(s.open, textDelta{Type: "text_delta", Text: t})
+	return s.delta(s.open, textBlock{Type: "text_delta", Text: t})
 }
 
 func (s *streamer) tool(tc inToolCall) error {
@@ -263,13 +291,23 @@ func (s *streamer) toolFor(tc inToolCall) *toolState {
 	} else {
 		t = s.last
 	}
-	if t == nil || (tc.ID != "" && t.id != "" && tc.ID != t.id) {
+	if startsNewCall(tc, t) {
 		t = &toolState{block: -1}
+		s.calls = append(s.calls, t)
 		if tc.Index != nil {
 			s.tools[*tc.Index] = t
 		}
 	}
 	return t
+}
+
+// startsNewCall reports whether tc begins a call other than t: none yet, a new id, or an index-less fresh name.
+func startsNewCall(tc inToolCall, t *toolState) bool {
+	if t == nil || (tc.ID != "" && t.id != "" && tc.ID != t.id) {
+		return true
+	}
+	// without an index, a name on a named call starts the next one unless an id says it is the same function
+	return tc.Index == nil && t.name != "" && tc.Function.Name != "" && (tc.ID == "" || tc.Function.Name != t.name)
 }
 
 // startTool opens t's tool_use block once named, returning buffered args joined with args; until then started is false.
@@ -281,11 +319,12 @@ func (s *streamer) startTool(t *toolState, args string) (full string, started bo
 	if err := s.closeText(); err != nil {
 		return "", false, err
 	}
-	if t.id == "" {
-		t.id = newID("toolu_")
+	id := t.id // a synthesized id stays off t, so a real id arriving after the name continues this call
+	if id == "" {
+		id = newID("toolu_")
 	}
 	if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
-		ContentBlock: toolBlock{Type: "tool_use", ID: t.id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
+		ContentBlock: toolBlock{Type: "tool_use", ID: id, Name: t.name, Input: json.RawMessage("{}")}}); err != nil {
 		return "", false, err
 	}
 	t.block, s.usedTools = s.next, true
@@ -339,7 +378,7 @@ func (s *streamer) truncated(done bool, err error) error {
 	if !s.started {
 		return fmt.Errorf("translate: stream read: %w", io.ErrUnexpectedEOF)
 	}
-	return s.fail(500, "upstream stream ended without a finish_reason", io.ErrUnexpectedEOF)
+	return s.fail("upstream stream ended without a finish_reason", io.ErrUnexpectedEOF)
 }
 
 // end closes the message unless err is set; an error event has already been written for in-band failures.
@@ -349,6 +388,9 @@ func (s *streamer) end(err error) error {
 	}
 	if err := s.start(); err != nil {
 		return err
+	}
+	if slices.ContainsFunc(s.calls, func(t *toolState) bool { return t.block < 0 }) {
+		return s.fail("upstream tool call never named its function", io.ErrUnexpectedEOF)
 	}
 	if err := s.closeText(); err != nil {
 		return err
@@ -367,9 +409,9 @@ func (s *streamer) end(err error) error {
 	return s.event("message_stop", messageStopEvent{Type: "message_stop"})
 }
 
-// fail writes an Anthropic error event and returns cause wrapped.
-func (s *streamer) fail(status int, msg string, cause error) error {
-	if err := s.event("error", json.RawMessage(ErrorBody(status, msg))); err != nil {
+// fail writes an Anthropic api_error event and returns cause wrapped.
+func (s *streamer) fail(msg string, cause error) error {
+	if err := s.event("error", json.RawMessage(ErrorBody(http.StatusInternalServerError, msg))); err != nil {
 		return err
 	}
 	return fmt.Errorf("translate: %s: %w", msg, cause)

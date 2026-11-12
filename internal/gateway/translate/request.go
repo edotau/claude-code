@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -196,7 +197,9 @@ func ToChatRequest(body []byte, wireModel string) (out []byte, stream bool, err 
 		return nil, false, err
 	}
 	req.Tools = chatTools(in.Tools, wireModel)
-	applyToolChoice(&req, in)
+	if err := applyToolChoice(&req, in); err != nil {
+		return nil, false, err
+	}
 
 	out, err = json.Marshal(req)
 	return out, in.Stream, err
@@ -209,8 +212,8 @@ func chatRequestParams(in messagesRequest, wireModel string) chatRequest {
 	if l, ok := models.Limits(wireModel); ok && l.Output > 0 { // an output cap above the model's limit is a 400
 		maxTokens = min(maxTokens, l.Output)
 	}
-	if models.IsOpenAIReasoning(wireModel) { // reasoning models reject max_tokens, temperature and top_p
-		req.MaxCompletionTokens, req.Temperature, req.TopP = maxTokens, nil, nil
+	if models.IsOpenAIReasoning(wireModel) { // reasoning models reject max_tokens, temperature, top_p and stop
+		req.MaxCompletionTokens, req.Temperature, req.TopP, req.Stop = maxTokens, nil, nil, nil
 	} else {
 		req.MaxTokens = maxTokens
 	}
@@ -272,17 +275,27 @@ func chatTools(tools []inTool, wireModel string) []chatTool {
 	return out
 }
 
-// applyToolChoice maps in's tool_choice onto req; it applies only when req has tools.
-func applyToolChoice(req *chatRequest, in messagesRequest) {
-	if tc := in.ToolChoice; tc != nil && len(req.Tools) > 0 {
-		if v, ok := chatToolChoice(tc.Type, tc.Name); ok {
-			req.ToolChoice = v
-		}
-		if tc.DisableParallelToolUse {
-			f := false
-			req.ParallelToolCalls = &f
-		}
+// applyToolChoice maps in's tool_choice onto req when req has tools; naming a tool req lacks is an error.
+func applyToolChoice(req *chatRequest, in messagesRequest) error {
+	tc := in.ToolChoice
+	if tc == nil {
+		return nil
 	}
+	if tc.Type == "tool" && !slices.ContainsFunc(req.Tools, func(t chatTool) bool { return t.Function.Name == tc.Name }) {
+		return fmt.Errorf("translate: tool_choice names %q, which has no chat-completions function (a server tool?)",
+			tc.Name)
+	}
+	if len(req.Tools) == 0 {
+		return nil
+	}
+	if v, ok := chatToolChoice(tc.Type, tc.Name); ok {
+		req.ToolChoice = v
+	}
+	if tc.DisableParallelToolUse {
+		f := false
+		req.ParallelToolCalls = &f
+	}
+	return nil
 }
 
 // userTurn accumulates the content parts of one user turn.
@@ -304,18 +317,33 @@ func (u *userTurn) addText(text string) {
 	}
 }
 
-// add folds one non-tool-result block into the turn.
-func (u *userTurn) add(b block) {
+// add folds one non-tool-result block into the turn; a document chat completions cannot carry is an error.
+func (u *userTurn) add(b block) error {
 	switch b.Type {
 	case "text":
 		u.addText(b.Text)
 	case "image":
 		u.addImage(b.Source)
 	case "document":
-		if b.Source != nil && b.Source.Type == "text" {
-			u.addText(b.Source.Data)
+		text, err := documentText(b)
+		if err != nil {
+			return err
 		}
+		u.addText(text)
 	}
+	return nil
+}
+
+// documentText is a text document's data; a PDF or URL source has no chat-completions form, so it is an error.
+func documentText(b block) (string, error) {
+	if b.Source != nil && b.Source.Type == "text" {
+		return b.Source.Data, nil
+	}
+	kind := "missing"
+	if b.Source != nil {
+		kind = b.Source.Type
+	}
+	return "", fmt.Errorf("document source %q has no chat-completions form (use a model with an anthropic route)", kind)
 }
 
 // message renders the turn: plain text unless an image is present; false when it has no parts.
@@ -339,12 +367,22 @@ func (u *userTurn) toolResult(b block) (chatMessage, error) {
 	if err != nil {
 		return chatMessage{}, fmt.Errorf("tool_result %s: %w", b.ToolUseID, err)
 	}
+	var texts []string
 	for _, ib := range inner {
-		if ib.Type == "image" {
+		switch ib.Type {
+		case "image":
 			u.addImage(ib.Source) // tool messages are text-only
+		case "text":
+			texts = append(texts, ib.Text)
+		case "document":
+			text, err := documentText(ib)
+			if err != nil {
+				return chatMessage{}, fmt.Errorf("tool_result %s: %w", b.ToolUseID, err)
+			}
+			texts = append(texts, text)
 		}
 	}
-	content := joinText(inner, "\n")
+	content := strings.Join(slices.DeleteFunc(texts, func(t string) bool { return t == "" }), "\n")
 	if b.IsError {
 		content = "[tool error] " + content // chat tool messages have no error flag
 	}
@@ -356,7 +394,9 @@ func appendUser(msgs []chatMessage, blocks []block) ([]chatMessage, error) {
 	var turn userTurn
 	for _, b := range blocks {
 		if b.Type != "tool_result" {
-			turn.add(b)
+			if err := turn.add(b); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		m, err := turn.toolResult(b)
