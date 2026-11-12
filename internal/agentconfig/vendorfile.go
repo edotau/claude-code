@@ -42,7 +42,7 @@ type RenderPlan struct {
 	writes []stagedWrite
 }
 
-// stagedWrite is one queued write; path names the file Apply snapshots for rollback ("" for none, like a baseline seed).
+// stagedWrite is one queued write; path is the file Apply snapshots for rollback ("" for none).
 type stagedWrite struct {
 	path  string
 	write func() error
@@ -130,7 +130,7 @@ func CommitFile(path string, raw, next []byte, existed bool, o RenderOptions, ou
 	}
 	// The no-op write snapshots the default baseline file; a fileOps baseline (codex vault) is restored by its undo.
 	pre := stagedWrite{path: baselinePath(label, path), write: func() error { return nil }}
-	if ops := fileOps[label]; ops.LoadBaseline != nil && ops.SaveBaseline != nil {
+	if ops := fileOps[label]; ops.LoadBaseline != nil {
 		var prev []byte
 		pre.write = func() (err error) { prev, err = ops.LoadBaseline(path); return err }
 		pre.undo = func() error {
@@ -214,8 +214,7 @@ func seedBaseline(label, path string, next []byte, out io.Writer) error {
 	return nil
 }
 
-// commitWrite runs the lost-lines check (prompting or warning), writes path, and refreshes its
-// baseline; it is the body of every CommitFile staged write.
+// commitWrite is every CommitFile staged write: lost-lines check, write, baseline refresh.
 func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, out io.Writer, label string) error {
 	lost, err := lostLinesFor(label, path, raw, next)
 	if err != nil {
@@ -265,8 +264,7 @@ func writeLocked(path string, raw, next []byte, existed bool, out io.Writer, lab
 	return nil
 }
 
-// CommitOverlayFile is CommitFile's dry-run/check/write decision, minus the lost-hand-edited-lines
-// check and baseline tracking: the overlay is never hand-edited, so there is nothing to lose.
+// CommitOverlayFile is CommitFile without the lost-lines check and baseline: an overlay is never hand-edited.
 func CommitOverlayFile(path string, raw, next []byte, o RenderOptions, out io.Writer, label string) (bool, error) {
 	changed, done, err := previewOrCheck(path, raw, next, o, out, label, func(changed bool) error {
 		if changed {
@@ -296,8 +294,7 @@ var _ = schemas.Register(schemas.Format{
 	Version: 1, Keep: "raw bytes last written to a vendor file; reseeded when missing",
 })
 
-// backupAndWrite saves oldRaw (only when the file already existed) to the cache mirror, keeps the newest 5
-// mirror versions, then atomically replaces path with newRaw.
+// backupAndWrite mirrors oldRaw (if the file existed), keeps the newest 5 versions, then replaces path with newRaw.
 func backupAndWrite(path string, oldRaw, newRaw []byte, existed bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -315,7 +312,14 @@ func backupAndWrite(path string, oldRaw, newRaw []byte, existed bool) error {
 func mirrorsOf(path string) []string {
 	sample := paths.BackupPath(path, time.Now())
 	prefix := sample[:strings.LastIndex(sample, ".bak-")+len(".bak-")]
-	matches, _ := filepath.Glob(prefix + "*")
+	dir := filepath.Dir(prefix)
+	entries, _ := os.ReadDir(dir) // not Glob: [, * and ? in path are literal
+	var matches []string
+	for _, e := range entries {
+		if p := filepath.Join(dir, e.Name()); strings.HasPrefix(p, prefix) {
+			matches = append(matches, p)
+		}
+	}
 	slices.Sort(matches)
 	slices.Reverse(matches)
 	return matches
@@ -344,9 +348,7 @@ func writeBaseline(label, path string, next []byte) error {
 	return paths.AtomicWrite(baselinePath(label, path), next, 0o600)
 }
 
-// lostLinesFor reports theirs' (the current on-disk file) lines that are absent from both the saved
-// baseline and the about-to-be-written next: edits the user made since the last render that this write
-// would erase. No baseline yet means no basis for comparison (today's seed-and-write behavior).
+// lostLinesFor reports on-disk lines in neither the saved baseline nor next: hand edits this write would erase.
 func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	var base []byte
 	var err error
@@ -408,8 +410,13 @@ type FileOps struct {
 
 var fileOps = map[string]FileOps{}
 
-// RegisterFileOps sets label's FileOps; it runs from an init, never at call time.
-func RegisterFileOps(label string, ops FileOps) { fileOps[label] = ops }
+// RegisterFileOps sets label's FileOps; it runs from an init, never at call time, and panics on a half baseline.
+func RegisterFileOps(label string, ops FileOps) {
+	if (ops.LoadBaseline == nil) != (ops.SaveBaseline == nil) {
+		panic("agentconfig: RegisterFileOps " + label + ": LoadBaseline and SaveBaseline go together")
+	}
+	fileOps[label] = ops
+}
 
 // LabelPath is one file this tool can write, named by its CommitFile label.
 type LabelPath struct{ Label, Path string }
@@ -422,7 +429,7 @@ func HomeOr(home string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// LegacyBackupSource picks the newest pre-mirror "<path>.backup.<stamp>" file, else the plain ".backup"; RevertOne and codex restore.
+// LegacyBackupSource picks the newest "<path>.backup.<stamp>", else the plain ".backup"; RevertOne and codex restore.
 // Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
 func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
 	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {
@@ -483,8 +490,7 @@ func ReadExisting(path string) (raw []byte, existed bool, err error) {
 	return raw, true, nil
 }
 
-// CommitJSONObject reads path as a JSON object, lets mutate edit it, and commits the result. An unreadable or
-// non-object file is skipped with a "label: skipped" note and left untouched; mutate returning false writes nothing.
+// CommitJSONObject lets mutate edit path's JSON object and commits it; an unreadable or non-object file is skipped.
 func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string, mutate func(obj map[string]any, existed bool) bool) (bool, error) {
 	raw, existed, err := ReadExisting(path)
 	if err != nil {
@@ -494,20 +500,8 @@ func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string,
 	obj := map[string]any{}
 	before := []byte("{}") // a blank existing file is an empty object, as in DecodeRawObject
 	if len(bytes.TrimSpace(raw)) > 0 {
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.UseNumber() // numbers stay verbatim, so the equality check below never loses float precision
-		err := dec.Decode(&obj)
-		if err == nil {
-			if _, terr := dec.Token(); terr != io.EOF { // More() is false for a stray } or ]
-				err = errors.New("trailing data after the top-level value")
-			}
-		}
-		if err != nil {
+		if obj, err = decodePlainObject(raw); err != nil {
 			fmt.Fprintf(out, "%s: skipped: %s is not plain JSON: %v\n", label, path, err)
-			return false, nil
-		}
-		if obj == nil { // "null" decodes without error but leaves obj nil, not an empty object
-			fmt.Fprintf(out, "%s: skipped: %s is not plain JSON: not an object\n", label, path)
 			return false, nil
 		}
 		if before, err = textutil.MarshalNoEscape(obj); err != nil {
@@ -517,16 +511,41 @@ func CommitJSONObject(path string, o RenderOptions, out io.Writer, label string,
 	if !mutate(obj, existed) {
 		return false, nil
 	}
-	body, err := textutil.MarshalIndentNoEscape(obj)
+	next, err := renderObject(obj, before, raw, existed)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", label, err)
 	}
-	next := append(body, '\n')
-	// Same values as the file: its key order, spacing and \u003c escapes stay as the vendor wrote them (no rewrite).
-	if after, err := textutil.MarshalNoEscape(obj); existed && err == nil && bytes.Equal(before, after) {
-		next = raw
-	}
 	return CommitFile(path, raw, next, existed, o, out, label)
+}
+
+// renderObject is obj as indented JSON; raw itself when obj holds the same values as before (no rewrite).
+func renderObject(obj map[string]any, before, raw []byte, existed bool) ([]byte, error) {
+	body, err := textutil.MarshalIndentNoEscape(obj)
+	if err != nil {
+		return nil, err
+	}
+	// Same values as the file: its key order, spacing and \u003c escapes stay as the vendor wrote them.
+	if after, err := textutil.MarshalNoEscape(obj); existed && err == nil && bytes.Equal(before, after) {
+		return raw, nil
+	}
+	return append(body, '\n'), nil
+}
+
+// decodePlainObject decodes raw as one JSON object with numbers kept verbatim, so equality never loses float precision.
+func decodePlainObject(raw []byte) (map[string]any, error) {
+	var obj map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&obj); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF { // More() is false for a stray } or ]
+		return nil, errors.New("trailing data after the top-level value")
+	}
+	if obj == nil { // "null" decodes without error but leaves obj nil, not an empty object
+		return nil, errors.New("not an object")
+	}
+	return obj, nil
 }
 
 // RenderHooksFile writes body to path, merged over whatever is already there.
@@ -542,7 +561,7 @@ func RenderHooksFile(path string, body []byte, merge func(existing, body []byte)
 	return CommitFile(path, raw, append(next, '\n'), existed, o, out, label)
 }
 
-// DecodeRawObject decodes raw as a JSON object, keeping every key as raw bytes; blank decodes to empty, JSON null is rejected.
+// DecodeRawObject decodes raw as a JSON object of raw values; blank is empty, JSON null is refused.
 func DecodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]json.RawMessage{}, nil
@@ -557,8 +576,7 @@ func DecodeRawObject(raw []byte) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// decodeRawEvents decodes a "hooks" field (event name -> array of raw group/entry objects); a nil or
-// absent field decodes to an empty map.
+// decodeRawEvents decodes a "hooks" field (event -> raw entries); an absent field is an empty map.
 func decodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string][]json.RawMessage{}, nil
@@ -573,12 +591,7 @@ func decodeRawEvents(raw json.RawMessage) (map[string][]json.RawMessage, error) 
 	return m, nil
 }
 
-// mergeHookEvents keeps every existing item of each event in its original relative position, dropping
-// an item's harness-owned part per classify; the freshly rendered block is spliced in as a whole at the
-// position of the FIRST existing item classify found harness-owned (prepended when none was); an event
-// left with nothing is dropped. Idempotent: merging an already-merged event over the same rendered
-// content reproduces it byte-for-byte, since the rendered block is itself wholly harness-owned next time
-// round. Shared by the codex and copilot hook mergers.
+// mergeHookEvents splices rendered at each event's first harness-owned item (else first), idempotently; codex, copilot.
 func mergeHookEvents[T any](existing, rendered map[string][]T, classify func(T) (*T, bool)) map[string][]T {
 	merged := map[string][]T{}
 	for event, items := range existing {
@@ -642,10 +655,7 @@ func MergeHooksTop(existingRaw, body []byte, classify func(json.RawMessage) (*js
 	if err != nil {
 		return nil, nil, err
 	}
-	next = maps.Clone(existingTop)
-	if next == nil {
-		next = map[string]json.RawMessage{}
-	}
+	next = maps.Clone(existingTop) // DecodeRawObject never returns a nil map
 	next["hooks"] = hooksRaw
 	return next, renderedTop, nil
 }

@@ -8,11 +8,13 @@
 package agentconfig
 
 import (
+	"bytes"
 	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"slices"
@@ -38,7 +40,7 @@ type Config struct {
 	records map[string]vault.AgentRecord
 }
 
-// configOverlay is the user overlay (vault overlay/agents; an entry replaces the built-in whole); fs.ErrNotExist when absent.
+// configOverlay is the vault overlay/agents document (an entry replaces the built-in whole); fs.ErrNotExist if absent.
 func configOverlay() ([]byte, error) {
 	var doc []byte
 	found := false
@@ -131,30 +133,43 @@ func ParseConfig(overlay []byte) (*Config, error) {
 
 // applyOverlay merges the vault overlay document into cfg: guard rules replace, agents add or remove.
 func applyOverlay(cfg *Config, overlay []byte) error {
-	// Agents as json.RawMessage so a "name": null entry survives decode to signal removal.
+	// Agents as json.RawMessage so a "name": null entry survives decode to signal clearing.
 	var o struct {
 		GuardRules *guardRules                `json:"guardRules"`
 		Agents     map[string]json.RawMessage `json:"agents"`
 	}
-	if err := json.Unmarshal(overlay, &o); err != nil {
+	if err := decodeStrict(overlay, &o); err != nil {
 		return fmt.Errorf("vault overlay/agents: %w", err)
 	}
-	if o.GuardRules != nil { // presence replaces wholesale, even an empty {"ask":[],"deny":[]}
+	if o.GuardRules != nil { // presence replaces wholesale, even an empty {"deny":[]}
 		cfg.GuardRules = *o.GuardRules
 	}
 	if cfg.records == nil {
 		cfg.records = map[string]vault.AgentRecord{}
 	}
 	for name, raw := range o.Agents {
-		if raw == nil || string(raw) == "null" { // "name": null removes a built-in agent
+		if raw == nil || string(raw) == "null" { // "name": null clears a built-in agent's knobs
 			cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(agentConfig{}))
 			continue
 		}
 		var v agentConfig
-		if err := json.Unmarshal(raw, &v); err != nil {
+		if err := decodeStrict(raw, &v); err != nil {
 			return fmt.Errorf("vault overlay/agents: agents.%s: %w", name, err)
 		}
 		cfg.records[name] = mergeRecord(cfg.records[name], legacyRecord(v))
+	}
+	return nil
+}
+
+// decodeStrict decodes one JSON value into v, refusing unknown keys and trailing data.
+func decodeStrict(raw []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return errors.New("trailing data after the JSON value")
 	}
 	return nil
 }
