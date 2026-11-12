@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -63,7 +64,7 @@ func TestRegistrySelectErrors(t *testing.T) {
 
 // An empty target model lets the default apply instead of failing as the unknown model "".
 func TestPrepareCopilotRegistryEmptyModelUsesDefault(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	setGOOS(t, "linux")
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	stubSettingsRegistry(t)
@@ -75,7 +76,7 @@ func TestPrepareCopilotRegistryEmptyModelUsesDefault(t *testing.T) {
 
 // With no flag and no pin, the profile's default model (minus [1m]) is the choice; a flag or pin still wins.
 func TestCopilotChoiceProfileDefault(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	t.Setenv("COPILOT_MODEL", "")
 	if got := copilotChoice(nil, "claude-sonnet-5-5[1m]").Requested; !slices.Equal(got, []string{"claude-sonnet-5-5"}) {
 		t.Errorf("no flag/pin: Requested = %v, want the profile default without [1m]", got)
@@ -90,7 +91,7 @@ func TestCopilotChoiceProfileDefault(t *testing.T) {
 }
 
 func TestSDKRegistryWarnsAndDropsUnreadableSettings(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	setGOOS(t, "linux")
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	if err := os.Mkdir(filepath.Join(os.Getenv("COPILOT_HOME"), "settings.json"), 0o700); err != nil {
