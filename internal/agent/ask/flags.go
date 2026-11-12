@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -226,13 +227,45 @@ func (a *attachFlag) Set(s string) error {
 		return fmt.Errorf("--attach %q: not a regular file", s)
 	}
 	// reject non-image binary up front: it fails the same way on every agent, so it must never reach the fallback chain
-	if data, err := os.ReadFile(abs); err != nil {
+	if data, err := readPrefix(abs, sniffBytes); err != nil {
 		return fmt.Errorf("--attach %q: %w", s, err)
-	} else if !agent.IsText(data) && !agent.IsImage(data) {
+	} else if !agent.IsText(trimPartialRune(data, info.Size() > sniffBytes)) && !agent.IsImage(data) {
 		return fmt.Errorf("--attach %q: binary file; attach text only", s)
 	}
 	*a = append(*a, abs)
 	return nil
+}
+
+// sniffBytes is how much of an --attach file is read to tell text, image and binary apart.
+const sniffBytes = 64 << 10
+
+// maxSchemaBytes caps an --output-schema file.
+const maxSchemaBytes = 1 << 20
+
+// readPrefix reads at most n bytes of path.
+func readPrefix(path string, n int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, int64(n)))
+}
+
+// trimPartialRune drops a multi-byte rune that a prefix cut in half, so IsText judges only whole runes.
+func trimPartialRune(data []byte, cut bool) []byte {
+	if !cut {
+		return data
+	}
+	for i := len(data) - 1; i >= 0 && i > len(data)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(data[i]) {
+			if utf8.FullRune(data[i:]) {
+				return data
+			}
+			return data[:i]
+		}
+	}
+	return data
 }
 
 // agentsFlag is the --agents value: inline JSON or a file of agent definitions.
@@ -331,9 +364,12 @@ func resolveOutputSchema(arg string) (string, error) {
 	}
 	body := strings.TrimSpace(arg)
 	if !strings.HasPrefix(body, "{") {
-		data, err := os.ReadFile(arg)
+		data, err := readPrefix(arg, maxSchemaBytes+1)
 		if err != nil {
 			return "", fmt.Errorf("--output-schema: %w", err)
+		}
+		if len(data) > maxSchemaBytes {
+			return "", fmt.Errorf("--output-schema: %s is over the %d byte limit", arg, maxSchemaBytes)
 		}
 		body = strings.TrimSpace(string(data))
 	}
