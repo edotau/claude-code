@@ -88,19 +88,15 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOn
 			errs = append(errs, fmt.Errorf("%s: %w", t.Name, err))
 			continue
 		}
-		npmCleanupFor(ctx, w, t.Name, landedDir(t, dir), dryRun)
+		landed := dir
+		if t.Name == agentid.Codex { // installCodex always lands in BinDir
+			landed = paths.BinDir()
+		}
+		npmCleanupFor(ctx, w, t.Name, landed, dryRun)
 	}
 	cleanupGeminiCLI(ctx, w, dryRun)
 	Link(w, names, dryRun)
 	return errors.Join(errs...)
-}
-
-// landedDir is where runOne wrote t: codex always lands in BinDir (installCodex redirects).
-func landedDir(t tool, dir string) string {
-	if t.Name == agentid.Codex {
-		return paths.BinDir()
-	}
-	return dir
 }
 
 func resolve(names []string) ([]tool, error) {
@@ -222,24 +218,17 @@ func npmCleanupFor(ctx context.Context, w io.Writer, name, dir string, dryRun bo
 			continue
 		}
 		bin := filepath.Join(entry, name)
-		prefix := cleanupPrefix(bin, localPath)
+		info, err := os.Stat(bin)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || paths.SamePath(bin, localPath) {
+			continue
+		}
+		prefix := npmPrefixFromBinary(bin)
 		if prefix == "" || seen[prefix] {
 			continue
 		}
 		seen[prefix] = true
 		runNpmUninstall(ctx, w, dryRun, prefix, pkg)
 	}
-}
-
-func cleanupPrefix(bin, localPath string) string {
-	info, err := os.Stat(bin)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		return ""
-	}
-	if paths.SamePath(bin, localPath) {
-		return ""
-	}
-	return npmPrefixFromBinary(bin)
 }
 
 // cleanupGeminiCLI uninstalls the deprecated @google/gemini-cli on every Install, whichever tools were named.

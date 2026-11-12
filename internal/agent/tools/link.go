@@ -55,7 +55,6 @@ func linkOne(t tool, bin string, dryRun bool) (status, detail string) {
 
 // linkExisting classifies an existing dst: keep a regular file or a matching link, else relink or drop it.
 func linkExisting(t tool, dst, c, missing string, fi os.FileInfo, dryRun bool) (status, detail string) {
-	isLink := fi.Mode()&os.ModeSymlink != 0
 	switch {
 	case fi.Mode().IsRegular():
 		line := dst + " (installed here)"
@@ -63,7 +62,7 @@ func linkExisting(t tool, dst, c, missing string, fi os.FileInfo, dryRun bool) (
 			line += " · also on PATH: " + c
 		}
 		return "keep", line
-	case !isLink:
+	case fi.Mode()&os.ModeSymlink == 0:
 		return "skip", dst + " (not a file or link)"
 	case c != "" && readlink(dst) == c:
 		return "ok", dst + " → " + c

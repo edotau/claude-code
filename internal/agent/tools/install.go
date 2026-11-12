@@ -354,25 +354,22 @@ type priorFile struct {
 
 // installBinaries writes all into dir as one locked transaction; a failed write restores the replaced files.
 func installBinaries(w io.Writer, dir string, all []stagedBinary) error {
-	return withBinLock(dir, func() error { return swapBinaries(w, dir, all) })
-}
-
-// swapBinaries snapshots, writes and rolls back dir's files; the caller must hold dir's bin lock.
-func swapBinaries(w io.Writer, dir string, all []stagedBinary) error {
-	prior := make([]priorFile, 0, len(all))
-	for _, s := range all {
-		data, err := os.ReadFile(filepath.Join(dir, s.name))
-		if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("codex: snapshot %s: %w", s.name, err)
+	return withBinLock(dir, func() error {
+		prior := make([]priorFile, 0, len(all))
+		for _, s := range all {
+			data, err := os.ReadFile(filepath.Join(dir, s.name))
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("codex: snapshot %s: %w", s.name, err)
+			}
+			prior = append(prior, priorFile{s.name, data, err == nil})
 		}
-		prior = append(prior, priorFile{s.name, data, err == nil})
-	}
-	for i, s := range all {
-		if err := installBinary(w, dir, s.name, s.bin); err != nil {
-			return errors.Join(err, rollbackBinaries(dir, prior[:i]))
+		for i, s := range all {
+			if err := installBinary(w, dir, s.name, s.bin); err != nil {
+				return errors.Join(err, rollbackBinaries(dir, prior[:i]))
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // rollbackBinaries restores each file to its snapshot, removing ones that did not exist before; lock held by caller.
