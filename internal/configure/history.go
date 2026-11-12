@@ -1,12 +1,4 @@
-// Package history keeps a git-backed shadow history of the config files several tools co-own (agent
-// CLIs, Claude Code itself, and the user), so a change made two runs ago stays recoverable.
-//
-// ONE repo under Dir() (paths.StateDir()/history, gitignored) holds the config plane as flat labeled
-// copies. Commit subjects are prefixed "config: " and Log/Diff filter on that prefix (git log --grep).
-// Memory history is NOT stored here; it has its own git repo at ~/.claude/memory. Every git call runs
-// through proc.RunGit's sanitized environment, so a snapshot taken inside a session never touches that
-// session's OWN repo.
-package history
+package configure
 
 import (
 	"bytes"
@@ -27,6 +19,15 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
+// history.go keeps a git-backed shadow history of the config files several tools co-own (agent
+// CLIs, Claude Code itself, and the user), so a change made two runs ago stays recoverable.
+//
+// ONE repo under HistoryDir() (paths.StateDir()/history, gitignored) holds the config plane as flat labeled
+// copies. Commit subjects are prefixed "config: " and Log/Diff filter on that prefix (git log --grep).
+// Memory history is NOT stored here; it has its own git repo at ~/.claude/memory. Every git call runs
+// through proc.RunGit's sanitized environment, so a snapshot taken inside a session never touches that
+// session's OWN repo.
+
 // HistoryFile is one watched file: Label names it inside the store's config directory (unique there),
 // Path is where it lives on disk.
 type HistoryFile struct {
@@ -34,24 +35,24 @@ type HistoryFile struct {
 	Read        func() ([]byte, error) // when set, replaces reading Path; absence is fs.ErrNotExist
 }
 
-// Store is the shadow history repo. Dir is created and `git init`-ed on first use.
-type Store struct{ Dir string }
+// HistoryStore is the shadow history repo. Dir is created and `git init`-ed on first use.
+type HistoryStore struct{ Dir string }
 
-// Skip records a file held back from a snapshot, with the reason a reader needs to act on it.
-type Skip struct{ Label, Reason string }
+// HistorySkip records a file held back from a snapshot, with the reason a reader needs to act on it.
+type HistorySkip struct{ Label, Reason string }
 
-// Result reports what one Snapshot call did. Commit is "" when nothing changed — the
+// SnapshotResult reports what one Snapshot call did. Commit is "" when nothing changed — the
 // caller must not report a snapshot it did not take.
-type Result struct {
+type SnapshotResult struct {
 	Commit  string
 	Changed []string
 	Absent  []string
-	Skipped []Skip
+	Skipped []HistorySkip
 }
 
-// Dir is the shadow history repo's home: under the hidden cache (gitignored), so these commits never
+// HistoryDir is the shadow history repo's home: under the hidden cache (gitignored), so these commits never
 // reach the harness's own tracked tree.
-func Dir() string { return filepath.Join(paths.StateDir(), "history") }
+func HistoryDir() string { return filepath.Join(paths.StateDir(), "history") }
 
 // plane is the store's one subdirectory and the commit-subject prefix Log/Diff filter on.
 const plane = "config"
@@ -99,8 +100,8 @@ func agentConfigs() []HistoryFile {
 // Snapshot copies each of files into the store and commits iff something actually changed. An absent
 // file is a FACT (an agent config is often absent on a fresh box), not an error; its appearance and
 // its deletion are both recorded, so a revert stays auditable.
-func (s *Store) Snapshot(files []HistoryFile, note string) (Result, error) {
-	var res Result
+func (s *HistoryStore) Snapshot(files []HistoryFile, note string) (SnapshotResult, error) {
+	var res SnapshotResult
 	// The lock file sits beside Dir, not inside it, so `add -A` never stages it.
 	err := paths.WithFileLock(s.Dir+".snapshot", func() error {
 		if err := s.ensureRepo(); err != nil {
@@ -127,7 +128,7 @@ func (s *Store) Snapshot(files []HistoryFile, note string) (Result, error) {
 }
 
 // stageFile copies one watched file into the store (or removes it when absent), recording the outcome in res.
-func (s *Store) stageFile(f HistoryFile, res *Result) error {
+func (s *HistoryStore) stageFile(f HistoryFile, res *SnapshotResult) error {
 	data, err := readFile(f)
 	dest := filepath.Join(s.Dir, plane, f.Label)
 	if err != nil {
@@ -135,7 +136,7 @@ func (s *Store) stageFile(f HistoryFile, res *Result) error {
 	}
 	// Hold the whole file back, never redact: a silent redaction teaches nobody to fix the leak.
 	if loc := textutil.CredentialRE.FindIndex(data); loc != nil {
-		res.Skipped = append(res.Skipped, Skip{f.Label,
+		res.Skipped = append(res.Skipped, HistorySkip{f.Label,
 			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
 		return dropStale(f, dest, res)
 	}
@@ -153,7 +154,7 @@ func (s *Store) stageFile(f HistoryFile, res *Result) error {
 }
 
 // dropStale removes a held-back file's old store copy so the log never shows it as current.
-func dropStale(f HistoryFile, dest string, res *Result) error {
+func dropStale(f HistoryFile, dest string, res *SnapshotResult) error {
 	err := os.Remove(dest)
 	if err == nil {
 		res.Changed = append(res.Changed, f.Label)
@@ -166,9 +167,9 @@ func dropStale(f HistoryFile, dest string, res *Result) error {
 }
 
 // stageUnreadable records a watched file that could not be read: absent (and removed from the store) or skipped.
-func stageUnreadable(f HistoryFile, dest string, readErr error, res *Result) error {
+func stageUnreadable(f HistoryFile, dest string, readErr error, res *SnapshotResult) error {
 	if !errors.Is(readErr, fs.ErrNotExist) {
-		res.Skipped = append(res.Skipped, Skip{f.Label, readErr.Error()})
+		res.Skipped = append(res.Skipped, HistorySkip{f.Label, readErr.Error()})
 		return nil
 	}
 	res.Absent = append(res.Absent, f.Label)
@@ -189,7 +190,7 @@ func readFile(f HistoryFile) ([]byte, error) {
 
 // subject names what moved, so `git log --oneline` alone answers "when did the opus pin change?".
 // The leading "config: " is also the Log/Diff filter (git log --grep=^config: ).
-func subject(r Result, note string) string {
+func subject(r SnapshotResult, note string) string {
 	what := strings.Join(r.Changed, ", ")
 	if what == "" {
 		what = "removed: " + strings.Join(r.Absent, ", ")
@@ -202,7 +203,7 @@ func subject(r Result, note string) string {
 
 // body records anything held back or absent, so the log answers WHY a file is missing without
 // reading the blob.
-func body(r Result) string {
+func body(r SnapshotResult) string {
 	var b strings.Builder
 	for _, s := range r.Skipped {
 		fmt.Fprintf(&b, "SKIPPED %s: %s\n", s.Label, s.Reason)
@@ -215,7 +216,7 @@ func body(r Result) string {
 
 // git runs one git command in the store, with identity and signing forced via -c: the machine's git
 // config is not this package's dependency, and a missing user.email makes `commit` fail outright.
-func (s *Store) git(args ...string) (string, error) {
+func (s *HistoryStore) git(args ...string) (string, error) {
 	full := append([]string{
 		"-C", s.Dir,
 		"-c", "user.name=claude-code",
@@ -228,7 +229,7 @@ func (s *Store) git(args ...string) (string, error) {
 
 // ensureRepo creates the store and initializes its repo. 0700: these files describe which providers
 // and workspaces are configured even when they hold no token.
-func (s *Store) ensureRepo() error {
+func (s *HistoryStore) ensureRepo() error {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return err
 	}
@@ -241,7 +242,7 @@ func (s *Store) ensureRepo() error {
 }
 
 // dirty reports whether the config subdirectory has uncommitted content (including a deletion).
-func (s *Store) dirty() (bool, error) {
+func (s *HistoryStore) dirty() (bool, error) {
 	out, err := s.git("status", "--porcelain", "--", plane)
 	return out != "", err
 }
@@ -251,7 +252,7 @@ func (s *Store) dirty() (bool, error) {
 // on disk, which a first Snapshot hits for whichever files are absent) and records the config
 // subdirectory only. The directory pathspec itself is always valid once `add -A` has staged
 // at least one file under it, unlike a bare filename pathspec that was never tracked.
-func (s *Store) commit(subject, body string) (string, error) {
+func (s *HistoryStore) commit(subject, body string) (string, error) {
 	if _, err := s.git("add", "-A"); err != nil {
 		return "", err
 	}
@@ -268,7 +269,7 @@ func (s *Store) commit(subject, body string) (string, error) {
 
 // hasCommits reports whether the store has a repo with a resolvable HEAD. A missing store or an unborn
 // HEAD is "no commits"; any other failure (an unreadable .git, a corrupt HEAD) is a real error.
-func (s *Store) hasCommits() (bool, error) {
+func (s *HistoryStore) hasCommits() (bool, error) {
 	if _, err := os.Stat(filepath.Join(s.Dir, ".git")); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
@@ -287,7 +288,7 @@ func (s *Store) hasCommits() (bool, error) {
 }
 
 // Log returns the last n config commits as "<sha> <date> <subject>" lines, newest first.
-func (s *Store) Log(n int) ([]string, error) {
+func (s *HistoryStore) Log(n int) ([]string, error) {
 	born, err := s.hasCommits()
 	if err != nil || !born {
 		return nil, err
@@ -301,7 +302,7 @@ func (s *Store) Log(n int) ([]string, error) {
 }
 
 // Diff returns one commit's patch: rev when given, else the newest config commit.
-func (s *Store) Diff(rev string) (string, error) {
+func (s *HistoryStore) Diff(rev string) (string, error) {
 	if rev == "" {
 		born, err := s.hasCommits()
 		if err != nil {
@@ -323,8 +324,8 @@ func (s *Store) Diff(rev string) (string, error) {
 }
 
 // SnapshotConfig records the contested config files right before a harness writer overwrites them.
-func SnapshotConfig(note string) (Result, error) {
-	s := &Store{Dir: Dir()}
+func SnapshotConfig(note string) (SnapshotResult, error) {
+	s := &HistoryStore{Dir: HistoryDir()}
 	return s.Snapshot(configFiles(), note)
 }
 
@@ -344,22 +345,22 @@ func runGit(full []string) (string, error) {
 	return proc.RunGit(ctx, "", full...)
 }
 
-// LogEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M config: <subject>".
-type LogEntry struct {
+// HistoryEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M config: <subject>".
+type HistoryEntry struct {
 	Rev     string `json:"rev"`
 	Date    string `json:"date"`
 	Subject string `json:"subject"`
 }
 
-// ParseLog splits Store.Log lines into entries, skipping malformed ones.
-func ParseLog(lines []string) []LogEntry {
-	out := []LogEntry{}
+// ParseHistoryLog splits Store.Log lines into entries, skipping malformed ones.
+func ParseHistoryLog(lines []string) []HistoryEntry {
+	out := []HistoryEntry{}
 	for _, l := range lines {
 		f := strings.SplitN(l, " ", 4)
 		if len(f) < 4 {
 			continue
 		}
-		out = append(out, LogEntry{Rev: f[0], Date: f[1] + " " + f[2], Subject: f[3]})
+		out = append(out, HistoryEntry{Rev: f[0], Date: f[1] + " " + f[2], Subject: f[3]})
 	}
 	return out
 }

@@ -29,7 +29,12 @@ import (
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+// TestMain runs on the hermetic host; the roster rows discovery needs are linked in by this package's imports.
+func TestMain(m *testing.M) {
+	code := hosttest.Main(m)
+	hosttest.Cleanup()
+	os.Exit(code)
+}
 
 func TestRunMintUsesInstalledVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

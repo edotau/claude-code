@@ -1,38 +1,20 @@
-package discovery
+package configure
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"sync/atomic"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	_ "github.com/edotau/claude-code/internal/nonet"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// TestMain registers the roster rows this package cannot link in and fails the binary when opencode's is missing.
-func TestMain(m *testing.M) {
-	agent.RegisterRowForTest(agent.Schema{Name: agentid.Codex, CLI: agent.CLI{Binary: "codex",
-		Dialects: []string{providers.ProtocolResponses}}})
-	agent.RegisterRowForTest(agent.Schema{Name: agentid.Copilot, CLI: agent.CLI{Binary: "copilot",
-		Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI}}})
-	agent.RegisterRowForTest(agent.Schema{Name: agentid.OpenCode, CLI: agent.CLI{Binary: "opencode",
-		Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI}}})
-	if len(agent.SchemaFor(agentid.OpenCode).CLI.Dialects) == 0 {
-		fmt.Fprintln(os.Stderr, "discovery tests: the opencode roster fixture row has no dialects")
-		os.Exit(1)
-	}
-	os.Exit(m.Run())
-}
 
 // listing is the fake workspace: Claude, a Responses-only GPT, an open chat model, a cold and an embeddings row.
 const listing = `{"endpoints":[
@@ -77,7 +59,7 @@ func workspace(t *testing.T) (hits *atomic.Int32) {
 // An agent outside the roster is refused by name.
 func TestModelsUnknownAgent(t *testing.T) {
 	workspace(t)
-	_, err := Models(context.Background(), Query{Agent: "nope"})
+	_, err := DiscoverModels(context.Background(), ModelQuery{Agent: "nope"})
 	if err == nil || err.Error() != `discovery: unknown agent "nope"` {
 		t.Errorf("Models(nope) error = %v; want the unknown agent error", err)
 	}
@@ -86,15 +68,15 @@ func TestModelsUnknownAgent(t *testing.T) {
 // opencode with no profile names the flag on Recall and collapses to one line otherwise; AI Gateway is always named.
 func TestModelsOpencodeProfileErrors(t *testing.T) {
 	workspace(t)
-	for mode, want := range map[Mode]string{
-		Recall:   "no profile pinned for opencode; pass --profile",
-		Verified: "cannot resolve profile; check the provider configuration",
+	for mode, want := range map[ModelMode]string{
+		RecallModels:   "no profile pinned for opencode; pass --profile",
+		VerifiedModels: "cannot resolve profile; check the provider configuration",
 	} {
-		_, err := Models(context.Background(), Query{Agent: agentid.OpenCode, Mode: mode})
+		_, err := DiscoverModels(context.Background(), ModelQuery{Agent: agentid.OpenCode, Mode: mode})
 		if err == nil || err.Error() != want {
 			t.Errorf("mode %d, no profile: error = %v, want %q", mode, err, want)
 		}
-		_, err = Models(context.Background(), Query{Agent: agentid.OpenCode, Profile: "gw", Mode: mode})
+		_, err = DiscoverModels(context.Background(), ModelQuery{Agent: agentid.OpenCode, Profile: "gw", Mode: mode})
 		if !errors.Is(err, catalog.ErrGateway) {
 			t.Errorf("mode %d, gw profile: error = %v, want catalog.ErrGateway", mode, err)
 		}
@@ -113,7 +95,7 @@ func TestModelsFiltersOneListingPerAgent(t *testing.T) {
 		{agentid.Copilot, chat},
 		{agentid.OpenCode, chat},
 	} {
-		res, err := Models(context.Background(), Query{Agent: tc.agent, Profile: "dev", Mode: Verified})
+		res, err := DiscoverModels(context.Background(), ModelQuery{Agent: tc.agent, Profile: "dev", Mode: VerifiedModels})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.agent, err)
 		}

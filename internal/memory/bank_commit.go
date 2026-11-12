@@ -401,7 +401,7 @@ var journalFormat = schemas.Register(schemas.Format{
 
 // Bounded, sanitized git for the nested local memory repo at StoreDir(). Explicit --git-dir and
 // --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
-// never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/history.
+// never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/configure (history.go).
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
 type Repo struct{ Dir string }

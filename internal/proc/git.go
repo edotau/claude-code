@@ -33,7 +33,7 @@ func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
 // RunGitInherit executes git with the caller's own environment, unmodified. Use this only for
 // commands that operate on the user's own repo and may run inside a git hook (e.g. `review gate`
 // during `git commit`), where git sets GIT_INDEX_FILE/GIT_DIR to point at its own temp state and
-// stripping GIT_* breaks the command instead of protecting it. internal/history and internal/memory
+// stripping GIT_* breaks the command instead of protecting it. internal/configure (history.go) and internal/memory
 // must keep using RunGit: they operate on the harness's own repos and must not be retargeted by an
 // inherited GIT_DIR.
 func RunGitInherit(ctx context.Context, dir string, args ...string) (string, error) {
