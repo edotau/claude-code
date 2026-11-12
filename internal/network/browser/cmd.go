@@ -92,8 +92,8 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	}
 	rc := 0
 	for _, a := range acts.Items {
-		if a.Error != "" {
-			rc = 1
+		if a.Error != "" || a.Kind == "missing-host" || a.Kind == "enable-extension" {
+			rc = 1 // the repair needs the user's action (or failed)
 		}
 	}
 	if format == "json" {
@@ -120,6 +120,11 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 func renderText(w io.Writer, r Report) error {
 	if _, err := fmt.Fprintf(w, "default: %s\n", orDash(r.Default)); err != nil {
 		return err
+	}
+	if r.DefaultErr != "" {
+		if _, err := fmt.Fprintf(w, "default detection failed: %s\n", r.DefaultErr); err != nil {
+			return err
+		}
 	}
 	for _, b := range r.Browsers {
 		if err := renderBrowserLine(w, b); err != nil {

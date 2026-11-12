@@ -25,12 +25,6 @@ func pyPercent(x float64) string {
 	return fmt.Sprintf("%.0f%%", x*100)
 }
 
-// indentJSON matches Python's json.dumps(v, indent=2), see source.PyMarshalIndent.
-func indentJSON(v any) (string, error) {
-	b, err := source.PyMarshalIndent(v)
-	return string(b), err
-}
-
 var severityWeights = map[string]int{"critical": 100, "high": 75, "medium": 50, "low": 25, "info": 10}
 
 type verdictThreshold struct {

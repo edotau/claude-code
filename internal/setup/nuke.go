@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -245,9 +246,51 @@ func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
+	out = append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
 		return strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/")
-	})...), nil
+	})...)
+	ignored, err := ignoredUserContent(dir)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, ignored...), nil
+}
+
+// userContentDirs are the user-authored trees whose git-ignored files nuke also archives before deleting them.
+var userContentDirs = []string{"agents", "commands", "skills", "rules"}
+
+// ignoredUserContent lists git-ignored files under userContentDirs, skipping credential-shaped ones (named on stderr).
+func ignoredUserContent(repo string) ([]string, error) {
+	var out []string
+	for _, sub := range userContentDirs {
+		fi, err := os.Stat(filepath.Join(repo, sub))
+		if err != nil || !fi.IsDir() {
+			continue // absent: nothing to archive
+		}
+		raw, err := gitOutput("-C", repo, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", sub)
+		if err != nil {
+			return nil, fmt.Errorf("list ignored %s: %w", sub, err)
+		}
+		for _, rel := range splitNUL(raw) {
+			if credentialShaped(filepath.Join(repo, rel)) {
+				fmt.Fprintf(os.Stderr, "nuke: not archiving credential-shaped ignored file %s\n", rel)
+				continue
+			}
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
+// credentialShaped matches the credential-file names and content shapes the memory bank also refuses.
+func credentialShaped(path string) bool {
+	base := filepath.Base(path)
+	if base == ".credentials.json" || base == ".env" || strings.HasPrefix(base, ".env.") ||
+		strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") {
+		return true
+	}
+	data, err := os.ReadFile(path)
+	return err == nil && textutil.CredentialRE.Match(data)
 }
 
 // untrackedUnder lists the untracked files under repo/sub. A scan error (e.g. an unreadable subdir
@@ -388,13 +431,31 @@ func editedTracked(dir string) ([]string, error) {
 	return out, nil
 }
 
-// tarUnpushed writes the commits no remote has as a git bundle.
+// tarUnpushed writes the commits no remote has as a git bundle, staged in a temp file so it is never held in memory.
 func tarUnpushed(tw *tar.Writer, dir string) error {
-	data, err := gitOutput("-C", dir, "bundle", "create", "-", "--branches", "--not", "--remotes")
+	tmp, err := os.MkdirTemp("", "nuke-bundle-")
 	if err != nil {
 		return fmt.Errorf("bundle unpushed commits: %w", err)
 	}
-	return tarWriteBytes(tw, unpushedBundle, data, 0o600)
+	defer os.RemoveAll(tmp)
+	path := filepath.Join(tmp, unpushedBundle)
+	if _, err := gitOutput("-C", dir, "bundle", "create", path, "--branches", "--not", "--remotes"); err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: unpushedBundle, Mode: 0o600, Size: fi.Size(), ModTime: time.Now()}); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
 }
 
 func tarWriteBytes(tw *tar.Writer, name string, data []byte, mode os.FileMode) error {
