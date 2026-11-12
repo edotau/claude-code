@@ -278,15 +278,6 @@ func bar(pct float64) string {
 	return strings.Repeat("█", filled) + strings.Repeat("░", 10-filled)
 }
 
-// printQuotas renders the subscription quota table (skipped for --show total) and the API-key ledger
-// section below the transcript table.
-func printQuotas(out io.Writer, qs []quota, show string, aggs []ledgerAgg, since time.Time) {
-	if show != "total" {
-		printSubscriptionQuotas(out, qs, show)
-	}
-	printLedgerSection(out, aggs, since)
-}
-
 // printSubscriptionQuotas renders one row per provider-account-window; column and value follow show.
 func printSubscriptionQuotas(out io.Writer, qs []quota, show string) {
 	if len(qs) == 0 {

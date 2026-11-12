@@ -364,7 +364,14 @@ func (a *codexAcc) add(s codexSessionSummary) {
 	if s.Model == "" || s.Turns == 0 {
 		return
 	}
-	addCodexModel(a.byModel, s)
+	m := a.byModel[s.Model]
+	if m == nil {
+		m = &agentModel{Provider: providerOf(s.Model, "openai"), Model: s.Model, Mix: &tokenMix{}}
+		a.byModel[s.Model] = m
+	}
+	m.Turns += s.Turns
+	m.Tokens += s.Tokens
+	m.Mix.add(s.Mix)
 	a.tokens += s.Tokens
 	a.turns += s.Turns
 	a.mix.add(s.Mix)
@@ -415,21 +422,6 @@ func codexSessionFiles(ctx context.Context, dir string, cutoff time.Time) ([]str
 		errs = append(errs, werr)
 	}
 	return files, mtimeDay, errs
-}
-
-// addCodexModel folds one session into its model's running totals.
-func addCodexModel(byModel map[string]*agentModel, s codexSessionSummary) {
-	m := byModel[s.Model]
-	if m == nil {
-		m = &agentModel{Provider: providerOf(s.Model, "openai"), Model: s.Model}
-		byModel[s.Model] = m
-	}
-	m.Turns += s.Turns
-	m.Tokens += s.Tokens
-	if m.Mix == nil {
-		m.Mix = &tokenMix{}
-	}
-	m.Mix.add(s.Mix)
 }
 
 // lookPathSqlite3 is the "is sqlite3 installed" seam; tests stub it to force the "not installed" note.

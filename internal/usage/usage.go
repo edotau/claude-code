@@ -261,7 +261,10 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	// Section 2 (PROVIDER QUOTAS) + section 3 (API KEYS): wait for the quota fetch, then print both.
 	quotas := <-quotasCh
 	aggs, ledgerEntries := loadLedger(errw)
-	printQuotas(w, quotas, show, aggs, ledgerSince(ledgerEntries))
+	if show != "total" {
+		printSubscriptionQuotas(w, quotas, show)
+	}
+	printLedgerSection(w, aggs, ledgerSince(ledgerEntries))
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
 	printAgentsSection(w, <-agentsCh, session, days)
