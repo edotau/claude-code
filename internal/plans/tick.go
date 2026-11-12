@@ -39,7 +39,7 @@ func Tick(planPath, sha string, files []string) (ticked, partial []string, err e
 	return ticked, partial, err
 }
 
-// tickCommits ticks per commit in order under one lock, a task completing once the range's union covers it; dryRun skips writing.
+// tickCommits ticks per commit under one lock, a task completing once the range's union covers it; dryRun skips writing.
 func tickCommits(planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
@@ -163,12 +163,7 @@ func addPartial(lines []string, t Task, sha string) []string {
 
 // hasSha reports whether shas already names sha, ignoring case.
 func hasSha(shas []string, sha string) bool {
-	for _, s := range shas {
-		if strings.EqualFold(s, sha) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(shas, func(s string) bool { return strings.EqualFold(s, sha) })
 }
 
 // ClaimFree writes <!-- text --> at a task's last line unless it already carries a claim, decided under the lock.

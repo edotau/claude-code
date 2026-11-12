@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// RTKBinaryEnv overrides the rtk binary; tests cannot rely on rtk being installed, and a wrapper or pinned path also works.
+// RTKBinaryEnv overrides the rtk binary: tests cannot rely on rtk being installed, and a wrapper path also works.
 const RTKBinaryEnv = "HARNESS_RTK_BIN"
 
 // RTKBinary returns the absolute rtk binary to invoke, or "" when it is not available. Absence is the

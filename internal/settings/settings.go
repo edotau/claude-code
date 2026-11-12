@@ -519,10 +519,10 @@ func (k Key) validateObject(raw json.RawMessage) error {
 }
 
 func (k Key) validateProperty(pn string, pv json.RawMessage) error {
-	if _, ok := k.props[pn]; !ok && k.noExtra {
+	sub, ok := k.props[pn]
+	if !ok && k.noExtra {
 		return fmt.Errorf("%s: unknown property %q", k.Name, pn)
 	}
-	sub, ok := k.props[pn]
 	if !ok && k.addl != nil && !k.addl.ref {
 		sub, ok = *k.addl, true
 	}

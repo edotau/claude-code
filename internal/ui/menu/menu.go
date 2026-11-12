@@ -151,7 +151,7 @@ func (s *shell) numbered(title string, rows [][2]string) int {
 	}
 	fmt.Fprint(s.Out, "pick a number (blank = cancel): ")
 	line, _ := s.In.ReadString('\n')
-	n, err := strconv.Atoi(strings.TrimSpace(strings.TrimRight(line, "\r\n")))
+	n, err := strconv.Atoi(strings.TrimSpace(line))
 	if err != nil || n < 1 || n > len(rows) {
 		return -1
 	}

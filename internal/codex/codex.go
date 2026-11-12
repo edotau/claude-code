@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -353,12 +352,7 @@ func codexStrict(v any) any {
 	case map[string]any:
 		codexStrictChildren(x)
 		if props, ok := x["properties"].(map[string]any); ok {
-			req := make([]string, 0, len(props))
-			for k := range props {
-				req = append(req, k)
-			}
-			sort.Strings(req)
-			x["required"], x["additionalProperties"] = req, false
+			x["required"], x["additionalProperties"] = slices.Sorted(maps.Keys(props)), false
 		} else if codexObjectType(x["type"]) {
 			if _, set := x["additionalProperties"]; !set { // an explicit map schema keeps its own value
 				x["additionalProperties"] = false
@@ -467,7 +461,7 @@ func codexLogin(model string, h *agent.Headless) ([]string, []string, error) {
 func codexHome() string {
 	home, err := paths.CodexHome()
 	if err != nil {
-		return filepath.Join(".codex") // no resolvable home: a relative path simply misses
+		return ".codex" // no resolvable home: a relative path simply misses
 	}
 	return home
 }
@@ -478,11 +472,8 @@ func codexOwnModel() string {
 	if err != nil {
 		return ""
 	}
-	model, err := codexTopLevelString(string(data), "model")
-	if err != nil {
-		return ""
-	}
-	return model
+	values, _ := readCodexStrings(string(data), func(k string) bool { return k == "model" }) // nil on a parse error
+	return values["model"]
 }
 
 // codexChatGPTLogin checks the installed CLI's login status, falling back to $CODEX_HOME/auth.json if unavailable.

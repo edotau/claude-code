@@ -260,7 +260,7 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	return hit
 }
 
-// databricksDiscoveryPool is the seeded Discovery pool of Databricks wire ids, used when the vault overlay is unset or invalid.
+// databricksDiscoveryPool is the seeded Discovery pool of wire ids, used when the vault overlay is unset or invalid.
 var databricksDiscoveryPool = []string{
 	"databricks-grok-4-7",
 	"databricks-glm-5-3",
@@ -289,7 +289,7 @@ func vaultDiscoveryPool() ([]string, bool) {
 	return slices.Clone(pool), true
 }
 
-// readPoolOverlay decodes the vault's Discovery pool overlay; nil when unset or invalid, error when the vault read fails.
+// readPoolOverlay decodes the vault's Discovery pool overlay; nil when unset or invalid, an error on a failed read.
 func readPoolOverlay() ([]string, error) {
 	var out []string
 	err := vault.View(func(t *vault.Tx) error {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -93,15 +94,8 @@ func mergeKeybindingEntries(base, overlay []map[string]any) []map[string]any {
 	merged := make([]map[string]any, len(base))
 	copy(merged, base)
 	for _, entry := range overlay {
-		replacedAt := -1
-		for i, existing := range merged {
-			if keybindingMatch(existing, entry) {
-				replacedAt = i
-				break
-			}
-		}
-		if replacedAt >= 0 {
-			merged[replacedAt] = entry
+		if at := slices.IndexFunc(merged, func(existing map[string]any) bool { return keybindingMatch(existing, entry) }); at >= 0 {
+			merged[at] = entry
 			continue
 		}
 		merged = append(merged, entry)

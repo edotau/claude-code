@@ -89,8 +89,8 @@ func (c proxyCall) route(mode, parent string) (code int, ok bool) {
 	case cliChainRE.MatchString(parent) && cliLegRE.MatchString(parent):
 		return c.intercept(false)
 	case agentTUIRE.MatchString(parent):
-		if code, ok := c.sshLeg(); ok {
-			return code, true
+		if c.sshLeg() {
+			return 0, true
 		}
 		if requestsType(c.args, "image/png") {
 			return c.pngLeg(), true
@@ -111,8 +111,8 @@ func proxyEnv() []string {
 
 // intercept routes the two image legs; ok is false when the call is neither and should be delegated.
 func (c proxyCall) intercept(reject bool) (code int, ok bool) {
-	if code, ok := c.sshLeg(); ok {
-		return code, true
+	if c.sshLeg() {
+		return 0, true
 	}
 	if requestsType(c.args, "image/bmp") {
 		return c.bmpLeg(reject), true
@@ -123,16 +123,16 @@ func (c proxyCall) intercept(reject bool) (code int, ok bool) {
 	return 0, false
 }
 
-// sshLeg answers an SSH session's image request from the client's clipboard bridge, never WSLg; always exit 0.
-func (c proxyCall) sshLeg() (code int, ok bool) {
+// sshLeg reports whether it answered an SSH image request from the client's bridge, never WSLg; the exit is always 0.
+func (c proxyCall) sshLeg() bool {
 	if !inSSH() {
-		return 0, false
+		return false
 	}
 	if requestsType(c.args, "image/bmp") {
-		return 0, true
+		return true
 	}
 	if !requestsType(c.args, "image/png") {
-		return 0, false
+		return false
 	}
 	b, err := readSSH(sshSocket())
 	if err == nil {
@@ -141,7 +141,7 @@ func (c proxyCall) sshLeg() (code int, ok bool) {
 	if err != nil {
 		fmt.Fprintf(c.stderr, "wl-paste: %v\n", err)
 	}
-	return 0, true
+	return true
 }
 
 // bmpLeg answers image/bmp with a decodable 24bpp BMP; reject mode fails the leg without reading.

@@ -442,7 +442,7 @@ func dbxCheckPair(p *providers.Provider, spID, pair string) error {
 // dbxNoteSPKept is the note when the save changed neither the SP nor the secret; saveDbxIdentity omits the SP then.
 const dbxNoteSPKept = "SP and secret kept"
 
-// dbxIdentityNote words what the save did with the stored secret; "" when it wrote a new one with nothing kept.
+// dbxIdentityNote words what the save did with the secret; "" when none is stored or entered.
 func dbxIdentityNote(env, id, secret, storedSecret string) string {
 	switch {
 	case secret != "":

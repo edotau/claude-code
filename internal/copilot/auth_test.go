@@ -26,9 +26,9 @@ func TestCopilotLaunchTokenRefusesOnRegistryLoadError(t *testing.T) {
 	t.Setenv("GH_TOKEN", "other-account-token")
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
 
-	tok, err := CopilotLaunchToken()
+	tok, err := copilotLaunchTokenFor("")
 	if err == nil || tok != "" {
-		t.Fatalf("CopilotLaunchToken() = (%q, %v), want an error and no token", tok, err)
+		t.Fatalf("copilotLaunchTokenFor(\"\") = (%q, %v), want an error and no token", tok, err)
 	}
 	if got := CopilotToken(); got != "" {
 		t.Errorf("CopilotToken() = %q, want no token on a registry load error", got)

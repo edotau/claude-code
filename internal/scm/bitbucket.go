@@ -141,7 +141,7 @@ func prState(s string) string {
 	return "open"
 }
 
-// pages reads every page of a paged list into raws until limit rows (0 = all).
+// pages reads every page of a paged PR list until limit rows (0 = all).
 func (h *BitbucketHost) pages(ctx context.Context, path string, q url.Values, limit int) ([]bbPR, error) {
 	var all []bbPR
 	for start := 0; ; {

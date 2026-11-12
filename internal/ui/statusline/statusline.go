@@ -210,11 +210,11 @@ func collect(in input, cfg config) values {
 	v := values{userHost: promptUser(), path: cmp.Or(paths.ShortHome(root), "~")}
 	var provider string
 	var routed bool
-	if cfg.seg("provider", true) || cfg.seg("model", true) || cfg.seg("proxy", true) || cfg.seg("limits", true) {
+	if cfg.seg("provider") || cfg.seg("model") || cfg.seg("proxy") || cfg.seg("limits") {
 		provider, routed = sessionProvider()
 	}
 	v.collectRouting(in, cfg, provider, routed)
-	if git := cfg.seg("git", true) && cfg.Style != "twoline"; git && worktree != "" { // twoline shows no branch
+	if git := cfg.seg("git") && cfg.Style != "twoline"; git && worktree != "" { // twoline shows no branch
 		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
 	} else if git {
 		v.branch = gitBranch(cwd)
@@ -257,15 +257,15 @@ func sessionCwd(in input) string {
 
 // collectRouting fills the provider, model and proxy segments.
 func (v *values) collectRouting(in input, cfg config, provider string, routed bool) {
-	if cfg.seg("provider", true) {
+	if cfg.seg("provider") {
 		v.providerFull = providerLabel(cmp.Or(provider, modelFamily(in.Model.ID)))
 		v.provider = capProfile(v.providerFull, cfg.ProfileMax)
 		_, v.profile, _ = strings.Cut(v.provider, "·")
 	}
-	if cfg.seg("model", true) {
+	if cfg.seg("model") {
 		v.model = modelSegment(in, provider)
 	}
-	if showProxy := cfg.seg("proxy", true); showProxy || routed { // a routed session restarts a down proxy
+	if showProxy := cfg.seg("proxy"); showProxy || routed { // a routed session restarts a down proxy
 		if seg := proxySegment(routed); showProxy {
 			v.proxy = seg
 		}
@@ -274,7 +274,7 @@ func (v *values) collectRouting(in input, cfg config, provider string, routed bo
 
 // collectUsage fills the limits, context, total, duration, session and code-velocity segments.
 func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
-	sub, limits := onSubscription(provider), cfg.seg("limits", true)
+	sub, limits := onSubscription(provider), cfg.seg("limits")
 	twoline := cfg.Style == "twoline"
 	if limits && sub && !twoline {
 		v.limits = limitsSegment(in)
@@ -283,10 +283,10 @@ func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 		v.auth = authSegment(provider)
 	}
 	if !cfg.gradientStyle() && !twoline { // gradient and twoline draw their own context bar and no total
-		if cfg.seg("context", true) {
+		if cfg.seg("context") {
 			v.contextPct = contextPct(in)
 		}
-		if cfg.seg("total", true) {
+		if cfg.seg("total") {
 			v.total = totalSegment(in)
 		}
 	}
@@ -358,13 +358,12 @@ func capProfile(label string, max int) string {
 func modelSegment(in input, session string) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
-	if prov, model, ok := strings.Cut(id, ":"); ok && prov != session && model != "" {
-		if reg := registry(); reg != nil && reg.Providers[prov] != nil {
+	if prov, model, ok := strings.Cut(id, ":"); ok && model != "" {
+		if prov == session {
+			id = model
+		} else if reg := registry(); reg != nil && reg.Providers[prov] != nil {
 			return shortModelID(model) + " ⇄" + prov
 		}
-	}
-	if prov, model, ok := strings.Cut(id, ":"); ok && prov == session && model != "" {
-		id = model
 	}
 	if id == "" {
 		return displayModel(in.Model.DisplayName)
@@ -500,7 +499,7 @@ const velocityTTL = 5 * time.Second
 
 // codeVelocity is the uncommitted git diff (Claude Code's ledger misses Bash edits), else the ledger.
 func codeVelocity(in input, cwd string, cfg config) (adds, dels int) {
-	if !cfg.seg("velocity", true) {
+	if !cfg.seg("velocity") {
 		return 0, 0
 	}
 	if cfg.VelocityMode == "raw" {

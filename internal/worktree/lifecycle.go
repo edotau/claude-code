@@ -35,7 +35,7 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 		if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
 			fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
 		}
-		return dest, nil // `--worktree <name>` again resumes the existing checkout; resolveWorktreeBounded already verified it's ours
+		return dest, nil // `--worktree <name>` again resumes the checkout; resolveWorktreeBounded verified it's ours
 	}
 	branch, err := createBranchName(name, opt.Branch)
 	if err != nil {
@@ -208,7 +208,7 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 	return removeMerged(repo, name, dest, entry, result, log, closing), nil
 }
 
-// beginClean checks dest exists and is no symlink, then seeds a CleanResult with its branch (warning on log if undetected).
+// beginClean checks dest exists and is no symlink, then seeds a CleanResult with its branch (log warns if unknown).
 func beginClean(name, dest string, log io.Writer) (CleanResult, error) {
 	if _, err := os.Stat(dest); err != nil {
 		return CleanResult{}, fmt.Errorf("worktree %q not found at %s", name, dest)
@@ -376,17 +376,9 @@ type DiscardSummary struct {
 // DiscardSummary before removing anything; dryRun reports the summary and removes nothing. Runs
 // under the per-worktree lease (WithWorktreeLease), like Clean.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
-	return cleanForceWithLog(repo, name, dryRun, report, os.Stderr)
-}
-
-// cleanForceWithLog is CleanForce with ledger warnings written to log (nil discards them).
-func cleanForceWithLog(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
-	if log == nil {
-		log = io.Discard
-	}
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := cleanForceInLease(repo, name, dryRun, report, log)
+		r, cleanErr := cleanForceInLease(repo, name, dryRun, report, os.Stderr)
 		result = r
 		return cleanErr
 	})

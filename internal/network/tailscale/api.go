@@ -77,7 +77,7 @@ func nonNegative(s string, d time.Duration) (time.Duration, error) {
 	return d, nil
 }
 
-// selfDevice resolves this box to its admin-API device; ErrNoCredential means no client could be built.
+// selfDevice resolves this box to its admin-API device; errNoCredential means no client could be built.
 func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 	client, err := NewClient()
 	if err != nil {

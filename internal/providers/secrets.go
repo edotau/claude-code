@@ -3,7 +3,6 @@ package providers
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -17,7 +16,7 @@ func InternalSecretName(name string) bool {
 	return name == RouterSecretName || strings.HasPrefix(strings.ToUpper(name), "HARNESS_")
 }
 
-// loginSecrets are the agent logins a launch hands only to its own agent (opencode.OpencodeAPIKeyEnv included).
+// loginSecrets are the agent logins a launch hands only to its own agent (OPENCODE_API_KEY included).
 var loginSecrets = []string{OAuthTokenEnv, CopilotTokenEnv, "OPENCODE_API_KEY"}
 
 // routeSecret reports a route credential: an agent login, a profile's auth env or any-method secret, any *_OAUTH/*_M2M.
@@ -116,7 +115,7 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 			missing = append(missing, k)
 		}
 	}
-	sort.Strings(missing)
+	slices.Sort(missing)
 	return vals, missing, nil
 }
 

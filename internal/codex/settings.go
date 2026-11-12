@@ -108,12 +108,6 @@ func readCodexSettings(raw string) (map[string]string, error) {
 	})
 }
 
-// codexTopLevelString strictly reads one top-level string key of config.toml; "" when it is absent.
-func codexTopLevelString(raw, key string) (string, error) {
-	values, err := readCodexStrings(raw, func(k string) bool { return k == key })
-	return values[key], err
-}
-
 // readCodexStrings parses the top-level string values of the keys want accepts.
 func readCodexStrings(raw string, want func(string) bool) (map[string]string, error) {
 	scan := &codexScan{values: map[string]string{}, want: want}

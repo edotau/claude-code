@@ -137,7 +137,7 @@ func daemonTargets() []target {
 		{
 			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
 			globs: func() []string {
-				return []string{filepath.Join(paths.StateDir(), "backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
+				return []string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{
@@ -400,7 +400,7 @@ func keepLiveSession(p string) bool {
 	return pidAlive(pid)
 }
 
-// dispatchKeeper protects the files of the newest agent.DispatchKeep() records; an unreadable dispatch dir protects all.
+// dispatchKeeper protects the files of the newest agent.DispatchKeep() records; an unreadable dir protects all.
 func dispatchKeeper() func(string) bool {
 	var keep map[string]bool
 	var readable, checked bool

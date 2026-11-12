@@ -65,8 +65,7 @@ func providerRows(reg *Registry, groups, modes map[string][]string) (rows [][3]s
 		if len(groups[g]) == 0 {
 			continue
 		}
-		slices.Sort(groups[g])
-		names := groups[g]
+		names := groups[g] // reg.Names() is sorted, so readyGroups filed them in order
 		rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
 		for _, n := range names {
 			live = append(live, reg.Providers[n])

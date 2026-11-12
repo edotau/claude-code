@@ -53,7 +53,7 @@ func workspaceRoot(root string) (string, error) {
 	}
 	abs = paths.Canon(abs)
 	cfg := paths.Canon(paths.ConfigDir())
-	if paths.SamePath(abs, cfg) || strings.HasPrefix(abs, cfg+string(filepath.Separator)) {
+	if paths.Within(abs, cfg) {
 		return "", fmt.Errorf("%s is inside the harness config dir %s: a project .claude/ cannot nest there", abs, cfg)
 	}
 	top := memory.GitToplevel(abs)

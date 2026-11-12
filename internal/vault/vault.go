@@ -38,7 +38,7 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion is the on-disk layout (4 = agent pins folded into records, 5 = record "slots" renamed "aliases", 6 = "byok" pool renamed "discovery", 7 = profile "max" renamed "ultra"); hkdfSchema is the oldest this build reads (2).
+// schemaVersion: 4 pins folded into records, 5 slots→aliases, 6 byok→discovery, 7 max→ultra; hkdfSchema: oldest read.
 const (
 	schemaVersion = ultraSchema
 	hkdfSchema    = 2

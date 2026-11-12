@@ -6,8 +6,9 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -25,12 +26,7 @@ var editNameKeys = [][]byte{
 }
 
 func hasEditToolName(line []byte) bool {
-	for _, k := range editNameKeys {
-		if bytes.Contains(line, k) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(editNameKeys, func(k []byte) bool { return bytes.Contains(line, k) })
 }
 
 // CommitEditWeight is how many edits a Bash `git commit` call counts for: one commit alone is
@@ -45,12 +41,7 @@ func EditedFiles(path string) ([]string, error) {
 			seen[p] = true
 		}
 	})
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out, err
+	return slices.Sorted(maps.Keys(seen)), err
 }
 
 // CountWorkFrom counts complete lines from offset, returning edits, user turns, and next offset.

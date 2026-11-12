@@ -56,11 +56,11 @@ func segLabel(key string, v values) string {
 func segmentOrder(v values, cfg config) []string {
 	var order []string
 	for _, k := range cfg.Order {
-		if k != "path" && cfg.seg(k, true) {
+		if k != "path" && cfg.seg(k) {
 			order = append(order, k)
 		}
 	}
-	if cfg.seg("git", true) && v.branch != "" && !slices.Contains(order, "git") {
+	if cfg.seg("git") && v.branch != "" && !slices.Contains(order, "git") {
 		order = append(order, "git")
 	}
 	return order
@@ -97,7 +97,7 @@ func renderSegmented(v values, cfg config, pal theme.Palettes, mode string) stri
 	} else {
 		renderBlocks(&out, blocks, cfg, pal, mode)
 	}
-	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
+	if cfg.seg("velocity") && (v.adds != 0 || v.dels != 0) {
 		out.WriteString(" ")
 		out.WriteString(velocityText(v, mode, pal))
 	}
@@ -264,7 +264,7 @@ func dashboardWidth(dash dashboardConfig, width, indentW int) int {
 func buildDashboardCols(cols []string, v values, cfg config, hasHead bool) []builtCol {
 	var built []builtCol
 	for _, c := range cols {
-		if c == "workspace" && hasHead || !cfg.seg(c, true) { // the head already carries the path; disabled drops out
+		if c == "workspace" && hasHead || !cfg.seg(c) { // the head already carries the path; disabled drops out
 			continue
 		}
 		if hdr, cells := dashboardValueCells(c, v, cfg); cells != nil {
@@ -344,7 +344,7 @@ func promptUser() string {
 // promptHead is the segmented styles' "user:path" head: literal PS1 bold-green/bold-blue under
 // userColor "ansi", else the palette user tone and the ramp's opening stop. Gradient draws its own.
 func promptHead(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
-	if !cfg.seg("path", true) {
+	if !cfg.seg("path") {
 		return ""
 	}
 	if cfg.UserColor == "ansi" {
@@ -357,7 +357,7 @@ func promptHead(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode
 
 // headWidth is the head's printable width, so the dashboard header row can sit over the shifted values.
 func headWidth(v values, cfg config) int {
-	if !cfg.seg("path", true) {
+	if !cfg.seg("path") {
 		return 0
 	}
 	return utf8.RuneCountInString(v.userHost) + 1 + utf8.RuneCountInString(v.path)

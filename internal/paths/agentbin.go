@@ -62,8 +62,7 @@ func checkVendorLink(bin, p string) error {
 	if err != nil {
 		return err
 	}
-	self, _ := os.Executable()
-	self, _ = filepath.EvalSymlinks(self)
+	self, _ := SelfBinary()
 	if real == self || filepath.Base(real) == "claude-code" {
 		return fmt.Errorf("%s: %s is the retired claude-code shim (run claude-code install)", bin, p)
 	}
@@ -85,11 +84,11 @@ func checkVendorExec(bin, p string) error {
 // LookPathReal finds name on PATH skipping BinDir and any symlink to the running executable, so a
 // `claude` shim never re-execs itself.
 func LookPathReal(name string) (string, error) {
-	self, _ := os.Executable()
-	self, _ = filepath.EvalSymlinks(self)
+	self, _ := SelfBinary()
 	shimDir, _ := filepath.Abs(BinDir())
+	shimReal := resolvedDir(shimDir)
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" || resolvedDir(dir) == resolvedDir(shimDir) {
+		if dir == "" || resolvedDir(dir) == shimReal {
 			continue
 		}
 		cand := filepath.Join(dir, name)

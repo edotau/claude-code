@@ -91,11 +91,8 @@ func authSourceFor(pin string) (copilotAuth, bool) {
 	return copilotAuth{}, false
 }
 
-// CopilotLaunchToken is the token a copilot launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for
-// the SDK), or "" to leave copilot on its own credential. It logs the source to stderr and the audit log.
-func CopilotLaunchToken() (string, error) { return copilotLaunchTokenFor("") }
-
-// copilotLaunchTokenFor is CopilotLaunchToken for the target GitHub row's login; "" uses the copilot record's pin.
+// copilotLaunchTokenFor is the token a launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for the SDK),
+// or "" to leave copilot on its own credential; logs the source. login is the target GitHub row's; "" uses the pin.
 func copilotLaunchTokenFor(login string) (string, error) {
 	var a copilotAuth
 	var ok bool

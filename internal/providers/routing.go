@@ -21,7 +21,7 @@ const firstOutputFloor = 90 * time.Second
 // opencode's own sub-pick knobs. It replaces the registry's former top-level
 // RouteWeights, Route and OpencodeLadder fields.
 type Routing struct {
-	// Weights replaces internal/route's composite-score weights whole (was top-level routeWeights).
+	// Weights replaces internal/router's composite-score weights whole (was top-level routeWeights).
 	Weights map[string]float64 `json:"weights,omitempty"`
 	// Cells overrides internal/router's table cells, keyed agent → alias (was top-level route).
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`

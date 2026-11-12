@@ -67,7 +67,7 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	return scopedGateCommand(pkgs), pkgs, false, nil
 }
 
-// changedPackages maps the NUL-separated changed files to their package dirs; full is true when the whole suite must run.
+// changedPackages maps NUL-separated changed files to their package dirs; full is true when the whole suite must run.
 func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, full bool) {
 	changed, src := map[string]bool{}, cachedReader()
 	for f := range strings.SplitSeq(names, "\x00") {
@@ -322,7 +322,7 @@ func normalizeScope(scope []string) []string {
 	return out
 }
 
-// toolchainGate returns the scoped gate of the first toolchain file in dir; "" and "" when there is none or it cannot scope.
+// toolchainGate returns the scoped gate of the first toolchain file in dir; "" and "" when none or it cannot scope.
 func toolchainGate(dir string, dirs []string) (gate, source string) {
 	switch {
 	case paths.FileExists(filepath.Join(dir, "go.mod")):

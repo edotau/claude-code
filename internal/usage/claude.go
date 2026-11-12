@@ -430,7 +430,7 @@ const usageCacheSchema = 1
 
 var usageCacheFormat = schemas.Register(schemas.Format{
 	Name: "oauth-usage-cache", Owner: "internal/usage", Kind: schemas.Cache,
-	Glob:    func() string { return claudeUsageCachePath() },
+	Glob:    claudeUsageCachePath,
 	New:     func() any { return &claudeUsageCache{} },
 	Version: usageCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })

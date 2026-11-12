@@ -41,15 +41,15 @@ func renderGradient(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, 
 		pieces[i] = paintCell(c, mode, dim, ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase)))
 	}
 	col = wrapSegments(&out, pieces, b.cells, b.brks, col, width)
-	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
+	if cfg.seg("velocity") && (v.adds != 0 || v.dels != 0) {
 		writeVelocity(&out, velocityText(v, mode, pal), ansi.Paint(mode, dim, sepPath, false), col, width)
 	}
 	return out.String()
 }
 
-// writeUserHost paints "user@host:" when the path shows and returns the columns it took.
+// writeUserHost paints "user:" when the path shows and returns the columns it took.
 func writeUserHost(out *strings.Builder, v values, cfg config, pal theme.Palettes, mode string) int {
-	if !cfg.seg("path", true) {
+	if !cfg.seg("path") {
 		return 0
 	}
 	if cfg.UserColor == "ansi" {
@@ -181,7 +181,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string) bool {
 
 func gradientCells(v values, cfg config) cellBuf {
 	var b cellBuf
-	if cfg.seg("path", true) {
+	if cfg.seg("path") {
 		b.push(v.path, "g")
 		b.pushSep(sepPath)
 	}
@@ -196,7 +196,7 @@ func (b *cellBuf) pushMetrics(v values, cfg config) {
 	sepMinor := cfg.sep("minor", " · ")
 	emitted := false
 	for _, key := range cfg.Order {
-		if gradientSkips(key) || !cfg.seg(key, true) {
+		if gradientSkips(key) || !cfg.seg(key) {
 			continue
 		}
 		if key == "context" {

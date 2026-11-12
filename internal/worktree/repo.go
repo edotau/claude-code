@@ -149,7 +149,7 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	return sharesCommonDir(ctx, repo, dest)
 }
 
-// isWorktreeRoot reports whether dest's own `--show-toplevel` is destCanon; a non-git dest is a collision, not an error.
+// isWorktreeRoot reports whether dest's own `--show-toplevel` is destCanon; a non-git dest is a collision.
 func isWorktreeRoot(ctx context.Context, dest, destCanon string) (bool, error) {
 	topOut, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
 	if err != nil {

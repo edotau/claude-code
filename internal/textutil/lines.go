@@ -26,7 +26,7 @@ func EachLineErr(r io.Reader, fn func(line []byte)) error {
 	return err
 }
 
-// ScanRawLines is EachLineErr keeping each line's terminator; completeOnly drops an unterminated tail; returns bytes read.
+// ScanRawLines is EachLineErr keeping each terminator; completeOnly drops an unterminated tail; returns bytes read.
 func ScanRawLines(r io.Reader, completeOnly bool, fn func(line []byte)) (int64, error) {
 	br := lineReaderPool.Get().(*bufio.Reader)
 	br.Reset(r)

@@ -117,7 +117,7 @@ func TestStripWindowsOnlyKeepsNonPathStrings(t *testing.T) {
 // so these tests never touch the real Windows profile.
 func winHermetic(t *testing.T) string {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	profile := t.TempDir()
 	t.Setenv(windowsProfileEnv, profile)
 	return profile
@@ -179,7 +179,7 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	if !proc.OnWSL() {
 		t.Skip("off WSL installWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
 	}
-	hermetic(t, "")
+	hermetic(t)
 	brokenCmdPATH(t)
 	var out bytes.Buffer
 	if err := installWindowsSettings(&out, false); err != nil {
@@ -194,7 +194,7 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 // is itself WSL (no seam exists to fake proc.OnWSL() false), so the assertion only runs on a genuine
 // non-WSL host; elsewhere it documents why it skips rather than asserting something unexercised.
 func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv(windowsProfileEnv, "")
 	if proc.OnWSL() {
 		t.Skip("host is WSL; the off-WSL no-op branch has no test seam and only runs on a non-WSL host")

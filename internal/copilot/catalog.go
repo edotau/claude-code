@@ -24,13 +24,18 @@ func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	return enabledModelInfos(list), nil
+}
+
+// enabledModelInfos is the catalog's policy-enabled models as provider rows.
+func enabledModelInfos(list []SDKModel) []providers.ModelInfo {
 	out := make([]providers.ModelInfo, 0, len(list))
 	for _, m := range list {
 		if m.Enabled {
 			out = append(out, modelInfo(m))
 		}
 	}
-	return out, nil
+	return out
 }
 
 // launchCatalog is the SDK's raw catalog on token, the launch account's.
@@ -217,27 +222,15 @@ func discoverProfileModels(ctx context.Context, p *providers.Provider) ([]provid
 	if err != nil {
 		return nil, errors.New("requested account Copilot catalog unavailable")
 	}
-	var out []providers.ModelInfo
-	for _, m := range list {
-		if !m.Enabled {
-			continue
-		}
-		out = append(out, modelInfo(m))
-	}
-	return out, nil
+	return enabledModelInfos(list), nil
 }
-
-// Seams for tests: the forced relist and the detached refresh spawn.
-var (
-	copilotRelist       = relistCopilotEndpoints
-	copilotSpawnRefresh = func(profile string) bool { return catalog.SpawnDiscover(profile, false) }
-)
 
 // copilotModelInfos is a launch's read of p's models: the sealed snapshot with no network when one is remembered,
 // else the identity-checked read. An expired snapshot is served and refreshed by a detached process.
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
-	if infos, ok := catalog.RecallOrSpawn(p, copilotUsable, copilotSpawnRefresh); ok {
+	spawn := func(profile string) bool { return catalog.SpawnDiscover(profile, false) }
+	if infos, ok := catalog.RecallOrSpawn(p, copilotUsable, spawn); ok {
 		return infos, true, nil
 	}
 	return copilotCheckedModelInfos(ctx, reg, p)

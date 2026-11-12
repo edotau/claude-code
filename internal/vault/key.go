@@ -526,7 +526,7 @@ func rotateKeyLocked(force bool) (oldKid, newKid string, err error) {
 	return oldKid, newKid, nil
 }
 
-// rotatePreflight resolves the outgoing keyring-held key and checks meta/kid and the guard; old is nil before resolution.
+// rotatePreflight resolves the outgoing keyring-held key and checks meta/kid and the guard; old is nil if unresolved.
 func rotatePreflight(force bool) (old *Key, id string, err error) {
 	old, source, err := MasterKey()
 	if err != nil {

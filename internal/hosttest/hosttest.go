@@ -1,5 +1,6 @@
 // Package hosttest gives every test binary the same host: no agent CLIs on PATH, no inherited credentials,
-// and HOME/XDG/CLAUDE_CONFIG_DIR in a throwaway dir. Imports stdlib (plus x/sys/unix in the pty files), so any package's tests may use it.
+// and HOME/XDG/CLAUDE_CONFIG_DIR in a throwaway dir. Imports stdlib (plus x/sys/unix in the pty files),
+// so any package's tests may use it.
 package hosttest
 
 import (
@@ -144,7 +145,7 @@ func linkTools(bin string) {
 	}
 }
 
-// HermeticEnv points CLAUDE_CONFIG_DIR, HOME and XDG config/data at a fresh temp dir and clears profile/model/key overrides.
+// HermeticEnv points CLAUDE_CONFIG_DIR, HOME and XDG config/data at a fresh temp dir and clears model/key overrides.
 func HermeticEnv(t testing.TB) {
 	t.Helper()
 	dir := t.TempDir()

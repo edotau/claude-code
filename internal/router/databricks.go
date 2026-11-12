@@ -80,7 +80,7 @@ func (t *RouteTable) gateDatabricksCodex(
 	return Candidate{Agent: "codex", Cell: c, State: e.Status(now), Billing: DefaultBilling(reg.Providers[profile]), Profile: profile}, true
 }
 
-// gateCandidate gates one agent (off, pinned or unpinned); codex and copilot also offer candidates on the session profile.
+// gateCandidate gates one agent (off, pinned or unpinned); codex and copilot also offer the session profile.
 func (t *RouteTable) gateCandidate(
 	ctx context.Context, pg *pickGate, alias, agent string, pins map[string]PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -118,7 +118,7 @@ func (t *RouteTable) gateCandidate(
 	return group
 }
 
-// gateVendor (non-want agents only; the want path is unchanged without Lead) is a pinned codex or copilot's own-login rows beside its pin; a skipped pin gets none (fails closed).
+// gateVendor adds a non-want pinned codex or copilot's own-login rows beside its pin; a skipped pin gets none.
 func (t *RouteTable) gateVendor(
 	ctx context.Context, pg *pickGate, alias, agent string, own []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -136,7 +136,7 @@ func (t *RouteTable) gateVendor(
 	return rows
 }
 
-// gateRow gates agent on profile prof. An own-login row carries no Profile, as on the unpinned path; quiet keeps only exhausted/auth skips.
+// gateRow gates agent on profile prof; an own-login row carries no Profile; quiet keeps only exhausted/auth skips.
 func (t *RouteTable) gateRow(
 	ctx context.Context, pg *pickGate, alias, agent, prof, model string, quiet bool, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -173,7 +173,7 @@ func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
 	return leastRecent(st[ProviderAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
 }
 
-// gateLead puts the agent on o.Lead, then (fallback permitting) sibling workspaces, then login rows, ahead of base (base wins).
+// gateLead puts the agent on o.Lead, then (fallback permitting) sibling workspaces and login rows, ahead of base.
 // gemini never runs on a non-Google row (owner rule R1).
 func (t *RouteTable) gateLead(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, base []Candidate, st State, o PickOpts, now time.Time,
@@ -279,7 +279,7 @@ func workspaceRows(reg *providers.Registry, skip string) []string {
 	return slices.DeleteFunc(slices.Clone(providers.DatabricksProfiles(reg)), func(n string) bool { return n == skip })
 }
 
-// gateWorkspaces adds quiet sibling-workspace rows after the wanted Databricks-pinned agent's pin when no lead reorders it.
+// gateWorkspaces adds quiet sibling-workspace rows after the wanted Databricks-pinned agent's pin (no lead).
 func (t *RouteTable) gateWorkspaces(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,

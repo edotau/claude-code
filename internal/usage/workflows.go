@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -239,12 +240,7 @@ func joinedModelNames(models map[string]*modelStats) string {
 	if len(models) == 0 {
 		return "-"
 	}
-	names := make([]string, 0, len(models))
-	for name := range models {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	return strings.Join(names, "+")
+	return strings.Join(slices.Sorted(maps.Keys(models)), "+")
 }
 
 // sortedModelStats orders a model map by cache-read desc, tie-broken by name for stable output.

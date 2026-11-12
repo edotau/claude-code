@@ -57,7 +57,7 @@ func OpencodeDataDir() string {
 	return filepath.Join(base, "opencode")
 }
 
-// OpencodeDBPath is opencode's SQLite database (written since 1.x); "" for an in-memory DB; OPENCODE_DB overrides the stable channel default.
+// OpencodeDBPath is opencode's SQLite database; OPENCODE_DB overrides the default name, ":memory:" yields "".
 func OpencodeDBPath() string {
 	db := os.Getenv("OPENCODE_DB")
 	switch {
@@ -81,7 +81,7 @@ func pidOf(path string) (int, bool) {
 	return pid, err == nil && pid > 0
 }
 
-// CopilotRegistryKeep reports whether the registry file at path must survive a sweep: its pid is alive, or it is not ours.
+// CopilotRegistryKeep reports whether the registry file at path must survive a sweep: its pid lives or it is not ours.
 func CopilotRegistryKeep(path string) bool {
 	pid, ok := pidOf(path)
 	return !ok || proc.Alive(pid) || runtime.GOOS == "windows"

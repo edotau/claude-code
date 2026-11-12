@@ -373,8 +373,7 @@ func dedupeFiles(files []string) []string {
 	return slices.Compact(files)
 }
 
-// printUsageTable renders per-model totals sorted by name, plus the peak-concurrency + rate-limit
-// figures and the file count scanned.
+// printUsageTable renders per-model totals sorted by name, plus the peak input tokens/min and the file count scanned.
 func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount int) {
 	models := slices.Sorted(maps.Keys(agg.Models))
 

@@ -53,7 +53,7 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// RouteTable is the loaded routing table: Rows[agent][alias] for the current row of each alias, ByModel[claudeID][agent]
+// RouteTable is the loaded routing table: Rows[agent][alias] for each alias's current row, ByModel[claudeID][agent]
 // for every row, and each account key's billing type.
 type RouteTable struct {
 	Billing map[string]string  `json:"billing"`

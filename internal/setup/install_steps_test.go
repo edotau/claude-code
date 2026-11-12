@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -47,7 +46,7 @@ func installTestBinary(t *testing.T) {
 }
 
 func TestInstallKeepsExistingSettings(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	codex := pathstest.FakeVendorOutsideConfig(t, "codex", "")
 	t.Setenv("PATH", filepath.Dir(codex))
 	installTestBinary(t)
@@ -121,7 +120,7 @@ func retiredShimSources(t *testing.T) map[string]string {
 }
 
 func TestInstallBinaryAndLinksReplacesRetiredShims(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv("HOME", t.TempDir())
 	installTestBinary(t)
 	sources := retiredShimSources(t)
@@ -199,7 +198,7 @@ func assertNoRetiredShims(t *testing.T, target string) {
 
 // Install's wl-paste proxy row follows the real box's WSL-ness; it must never touch the real HOME.
 func TestInstallEnsuresClipboardProxy(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	installTestBinary(t)
 	file := settings.SettingsFile()
 	if err := os.WriteFile(file, []byte(`{}`), 0o600); err != nil {
@@ -254,7 +253,7 @@ func assertInstalledClipboardProxy(t *testing.T, proxyPath, output string) {
 }
 
 func TestInstallBinaryTargetCopiesOnceAndHonorsDryRun(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	installTestBinary(t)
 	target := filepath.Join(paths.BinDir(), "claude-code")
 	var out bytes.Buffer
@@ -277,7 +276,7 @@ func TestInstallBinaryTargetCopiesOnceAndHonorsDryRun(t *testing.T) {
 }
 
 func TestInstallBinaryRepairsIdenticalNonExecutableCopy(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	installTestBinary(t)
 	target, err := installBinaryTarget(io.Discard, false)
 	if err != nil {
@@ -336,14 +335,11 @@ func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 	}
 }
 
-// hermetic isolates config, pins and seams; userProviders is an optional vault overlay/providers document.
-func hermetic(t *testing.T, userProviders string) {
+// hermetic isolates config, pins and seams.
+func hermetic(t *testing.T) {
 	t.Helper()
 	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG
 	dir := paths.ConfigDir()
-	if userProviders != "" {
-		vaulttest.Put(t, vault.Overlay, "providers", userProviders)
-	}
 	userBin := filepath.Join(dir, "localbin")
 	oldUserBin := userBinDir
 	userBinDir = func() string { return userBin }
