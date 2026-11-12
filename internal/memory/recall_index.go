@@ -40,7 +40,8 @@ func currentExeStamp() (exeStamp, bool) {
 	return exeStamp{info.Size(), info.ModTime().UnixNano()}, true
 }
 
-func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
+// readRecallIndex decodes the entries in want, or every entry when want is nil; invalid entries are left out.
+func readRecallIndex(path string, stamp exeStamp, want map[fileKey]bool) map[fileKey]indexed {
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) < 28 {
 		return make(map[fileKey]indexed)
@@ -48,31 +49,35 @@ func readRecallIndex(path string, want exeStamp) map[fileKey]indexed {
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 	u64 := func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }
 	if string(data[:4]) != recallIndexMagic || u32(data[4:]) != recallIndexVersion ||
-		u64(data[8:]) != want.size || u64(data[16:]) != want.mtimeNs {
+		u64(data[8:]) != stamp.size || u64(data[16:]) != stamp.mtimeNs {
 		return make(map[fileKey]indexed)
 	}
-	m, ok := readIndexEntries(data[28:], u32(data[24:]))
+	m, ok := readIndexEntries(data[28:], u32(data[24:]), want)
 	if !ok {
 		return make(map[fileKey]indexed)
 	}
 	return m
 }
 
-// readIndexEntries decodes count entries from data; false when any is short, invalid or trailing bytes remain.
-func readIndexEntries(data []byte, count uint32) (map[fileKey]indexed, bool) {
+// readIndexEntries decodes count entries from data; false when any is mis-framed or trailing bytes remain.
+// Entries outside want are skipped unvalidated, and a wanted entry with an invalid segment is a miss.
+func readIndexEntries(data []byte, count uint32, want map[fileKey]bool) (map[fileKey]indexed, bool) {
 	m := make(map[fileKey]indexed)
 	for range count {
 		key, entry, rest, ok := readIndexEntry(data)
 		if !ok {
 			return nil, false
 		}
-		m[key] = entry
 		data = rest
+		if want != nil && !want[key] || key.mode > segKnowledge || !entry.seg.Valid() {
+			continue
+		}
+		m[key] = entry
 	}
 	return m, len(data) == 0
 }
 
-// readIndexEntry decodes one entry from the front of data and returns the bytes after it.
+// readIndexEntry frames one entry from the front of data and returns the bytes after it; the segment is not validated.
 func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bool) {
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
 	u64 := func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }
@@ -93,9 +98,6 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 		return key, entry, nil, false
 	}
 	entry.seg = segView(data[:length])
-	if key.mode > segKnowledge || !entry.seg.Valid() {
-		return key, entry, nil, false
-	}
 	return key, entry, data[length:], true
 }
 
@@ -165,7 +167,11 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	path := filepath.Join(StateDir(), recallIndexFile)
 	var index map[fileKey]indexed
 	if ok {
-		index = readRecallIndex(path, stamp)
+		want := make(map[fileKey]bool, len(files))
+		for _, f := range files {
+			want[fileKey{f.Path, f.Mode}] = true
+		}
+		index = readRecallIndex(path, stamp, want)
 	}
 	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
@@ -189,7 +195,7 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	}
 	if len(added) > 0 && os.MkdirAll(filepath.Dir(path), 0o755) == nil { // re-read under the lock: keep peers' entries
 		_, _ = paths.TryFileLock(path+".lock", time.Second, func() error {
-			cur := readRecallIndex(path, stamp)
+			cur := readRecallIndex(path, stamp, nil)
 			maps.Copy(cur, added)
 			pruneMissing(cur, stats)
 			return writeRecallIndex(path, stamp, cur)

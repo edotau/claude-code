@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -490,5 +491,29 @@ func TestPruneSeenSessionRoots(t *testing.T) {
 		if gone := os.IsNotExist(err); gone != wantGone {
 			t.Errorf("%s gone=%v, want %v", name, gone, wantGone)
 		}
+	}
+}
+
+// Given a bank file session start cannot read, When resetSeen runs, Then its blocks leave the seen set (not shown).
+func TestResetSeenDropsBlocksFromAnUnreadableFile(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX permissions enforced for this user")
+	}
+	tempConfig(t)
+	root := t.TempDir()
+	const sid = "41111111-2222-4333-8444-555555555555"
+	bank := filepath.Join(HomeBankDir(), "conventions.md")
+	write(t, bank, "# C\n\n- focus rule shown at start\n")
+	resetSeen(sid, root, "- focus rule shown at start\n")
+	if len(seenBlocks(sid)) != 1 {
+		t.Fatalf("readable file: seen %v, want its one block", seenBlocks(sid))
+	}
+	if err := os.Chmod(bank, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bank, 0o600) })
+	resetSeen(sid, root, "")
+	if seen := seenBlocks(sid); len(seen) != 0 {
+		t.Errorf("unreadable file: seen %v, want empty (the surface could not show it)", seen)
 	}
 }

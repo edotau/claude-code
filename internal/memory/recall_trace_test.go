@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -64,27 +65,24 @@ func TestRecallLoadStopsAfterCut(t *testing.T) {
 // loads, and the id wrappers count toward recallLoadCap.
 func TestRecallLoadSkipsWhatDoesNotFit(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
+	facts := []string{strings.Repeat("m", 3000), strings.Repeat("b", 2000), "small fact"}
+	for i := range 5 { // five blocks whose text fits the cap but whose wrappers do not
+		facts = append(facts, strings.Repeat(string(rune('c'+i)), 780))
+	}
+	var bank strings.Builder
 	var hits []SearchHit
-	for _, fact := range []string{strings.Repeat("m", 3000), strings.Repeat("b", 2000), "small fact"} {
-		id, err := Remember(root, "feedback", fact, time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
+	bank.WriteString("# Conventions\n\n")
+	for i, fact := range facts {
+		id := fmt.Sprintf("%08x", i+1)
+		fmt.Fprintf(&bank, "- Feedback: %s <!-- id:%s -->\n", fact, id)
 		hits = append(hits, SearchHit{ID: id})
 	}
+	writeBank(t, "conventions.md", bank.String())
+	hits, even := hits[:3], hits[3:]
 	var out, errw bytes.Buffer
 	recallLoad(&out, &errw, hits, len(hits))
 	if got := out.String(); strings.Contains(got, hits[1].ID) || !strings.Contains(got, "small fact") {
 		t.Errorf("want the 2000-byte block skipped and the small one loaded after it, got %d bytes:\n%.200s", len(got), got)
-	}
-	var even []SearchHit // five blocks whose text fits the cap but whose wrappers do not
-	for i := range 5 {
-		id, err := Remember(root, "feedback", strings.Repeat(string(rune('c'+i)), 780), time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		even = append(even, SearchHit{ID: id})
 	}
 	out.Reset()
 	if recallLoad(&out, &errw, even, len(even)); out.Len() > recallLoadCap || errw.Len() != 0 {

@@ -73,7 +73,7 @@ func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 	t.Helper()
-	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.stamp)
+	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.stamp, nil)
 	if len(index) == 0 {
 		t.Fatal("no persisted index entries for the current executable stamp")
 	}
@@ -193,15 +193,15 @@ func TestRecallIndexStampMismatchIgnored(t *testing.T) {
 	if err := writeRecallIndex(path, wrong, index); err != nil {
 		t.Fatal(err)
 	}
-	if len(readRecallIndex(path, wrong)) != len(index) {
+	if len(readRecallIndex(path, wrong, nil)) != len(index) {
 		t.Fatal("fixture did not persist the mismatched executable stamp")
 	}
-	if len(readRecallIndex(path, f.stamp)) != 0 {
+	if len(readRecallIndex(path, f.stamp, nil)) != 0 {
 		t.Fatal("index with mismatched executable stamp was accepted")
 	}
 	f.search(t, "router retry")
 	f.persisted(t)
-	if len(readRecallIndex(path, wrong)) != 0 {
+	if len(readRecallIndex(path, wrong, nil)) != 0 {
 		t.Fatal("rewritten index still carries the wrong executable stamp")
 	}
 }
@@ -227,13 +227,32 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if len(readRecallIndex(path, f.stamp)) != 0 {
+			if len(readRecallIndex(path, f.stamp, nil)) != 0 {
 				t.Fatal("corrupt index was accepted")
 			}
 			f.search(t, "router retry")
 			f.persisted(t)
 		})
 	}
+
+	// A corrupt wanted entry is a miss and a corrupt unrelated entry is never examined; the rest still load.
+	t.Run("corrupt-entry", func(t *testing.T) {
+		index := f.persisted(t)
+		bad, good := fileKey{f.source, segEntries}, fileKey{f.archive, segEntries}
+		index[bad] = indexed{index[bad].size, index[bad].mtimeNs, segView("corrupt segment")}
+		if err := writeRecallIndex(path, f.stamp, index); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := readRecallIndex(path, f.stamp, map[fileKey]bool{bad: true, good: true})[bad]; ok {
+			t.Fatal("corrupt wanted entry was accepted")
+		}
+		got := readRecallIndex(path, f.stamp, map[fileKey]bool{good: true})
+		if len(got) != 1 || !got[good].seg.Valid() {
+			t.Fatalf("unrelated corrupt entry changed the wanted read: %d entries", len(got))
+		}
+		f.search(t, "router retry")
+		f.persisted(t)
+	})
 }
 
 func TestRecallIndexPrunesMissing(t *testing.T) {

@@ -636,6 +636,10 @@ func TestSemanticCacheReadsSharedProfileOnce(t *testing.T) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "dev")
 	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	f := vectorRecord{Namespace: "dev|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache("dev", f); err != nil { // metadata makes dev a candidate; vectors come from the stub
+		t.Fatal(err)
+	}
 	reads := 0
 	prev := readProfileCache
 	t.Cleanup(func() { readProfileCache = prev })

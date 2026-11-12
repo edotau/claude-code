@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
+	"go.etcd.io/bbolt"
 )
 
 // embedCacheSchema is the embedding cache's schema version; a mismatch is a miss, never migrated.
@@ -349,17 +350,14 @@ func NewSemantic(query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
-	profile, cache, err := semanticCache()
+	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
+	defer cancel()
+	profile, cache, err := semanticCache(ctx)
 	if err != nil {
 		return nil, err
 	}
 	attempt := time.Now()
-	backoff := filepath.Join(StateDir(), embedCachePre+profile+".backoff")
-	if err := backoffPause(backoff); err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
-	defer cancel()
+	backoff := embedBackoffPath(profile)
 	done := make(chan semanticResult, 1)
 	go func() { done <- querySemantic(ctx, profile, query, cache) }()
 	select {
@@ -556,28 +554,90 @@ func embedProfiles(yield func(string) bool) {
 	}
 }
 
-func semanticCache() (string, vectorRecord, error) {
-	var profile string
-	var cache vectorRecord
+func embedBackoffPath(profile string) string {
+	return filepath.Join(StateDir(), embedCachePre+profile+".backoff")
+}
+
+// hasCacheMeta reports whether profile's metadata shows a cache, within ctx's deadline; it reads no vectors.
+func hasCacheMeta(ctx context.Context, profile string) (bool, error) {
+	timeout := embedReadTimeout
+	if dl, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(dl))
+	}
+	if timeout <= 0 {
+		return false, ctx.Err()
+	}
+	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: timeout})
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var ok bool
+	err = db.View(func(tx *bbolt.Tx) error {
+		m := decodeEmbedMetadata(tx, profile)
+		ok = m.Model != "" && len(m.Rows) > 0
+		return nil
+	})
+	return ok, err
+}
+
+// readCacheWithin is readProfileCache bounded by ctx; the abandoned read ends on its own lock timeout.
+func readCacheWithin(ctx context.Context, profile string) (vectorRecord, error) {
+	type read struct {
+		c   vectorRecord
+		err error
+	}
+	done := make(chan read, 1)
+	go func() {
+		c, err := readProfileCache(profile)
+		done <- read{c, err}
+	}()
+	select {
+	case r := <-done:
+		return r.c, r.err
+	case <-ctx.Done():
+		return vectorRecord{}, ctx.Err()
+	}
+}
+
+// profileCache loads profile's vectors when its metadata shows a cache; paused means its backoff marker is fresh.
+func profileCache(ctx context.Context, profile string) (c vectorRecord, paused bool, err error) {
+	if ok, err := hasCacheMeta(ctx, profile); err != nil || !ok {
+		return vectorRecord{}, false, err
+	}
+	if err := backoffPause(embedBackoffPath(profile)); err != nil {
+		return vectorRecord{}, true, err
+	}
+	c, err = readCacheWithin(ctx, profile)
+	return c, false, err
+}
+
+// semanticCache picks the first profile with a cache, pausing on its backoff marker before any vector is loaded.
+func semanticCache(ctx context.Context) (string, vectorRecord, error) {
 	var readErr error
-	for name := range embedProfiles {
+	for name := range embedProfiles { // lazy: the claude record's profile loads only if the session one misses
 		if !safeProfile.MatchString(name) {
 			continue
 		}
-		c, err := readProfileCache(name)
+		c, paused, err := profileCache(ctx, name)
+		if paused {
+			return "", vectorRecord{}, err
+		}
 		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
 			readErr = err
 			continue
 		}
 		if c.Model != "" && len(c.Rows) > 0 {
-			profile, cache = name, c
-			break
+			return name, c, nil
 		}
 	}
-	if profile == "" {
-		return "", vectorRecord{}, semanticCacheMiss(readErr)
+	if ctx.Err() != nil {
+		return "", vectorRecord{}, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
-	return profile, cache, nil
+	return "", vectorRecord{}, semanticCacheMiss(readErr)
 }
 
 func semanticCacheMiss(readErr error) error {
