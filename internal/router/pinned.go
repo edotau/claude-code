@@ -58,8 +58,11 @@ func (t *RouteTable) gateProfile(
 		return nil
 	}
 	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), now)
+	if pin := o.modelPin(model); pin != "" && pin != DiscoveryModel && unserved(p, pm, now) {
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, pm + " is not served on " + p.Name})
+		return nil
+	}
 	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
-	noteNotReady(res, agent, pin, model, c.Model, p)
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
 		return nil
@@ -73,14 +76,6 @@ func (t *RouteTable) gateProfile(
 	return []Candidate{cand}
 }
 
-// noteNotReady records a Skip when the pinned model is spelled but swapped for another because it is not READY.
-func noteNotReady(res *PickResult, agent, pin, model, used string, p *providers.Provider) {
-	sp := providers.SpellPin(p, model)
-	if model != "" && model != DiscoveryModel && sp != "" && used != sp {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned model " + sp + " is not READY on " + pin + "; using " + used})
-	}
-}
-
 // DefaultBilling is credits for an API-key provider, else subscription.
 func DefaultBilling(p *providers.Provider) string {
 	if p.APIKeyAuth() {
@@ -89,17 +84,25 @@ func DefaultBilling(p *providers.Provider) string {
 	return BillSubscription
 }
 
-// pinnedModel resolves pins, swaps freshly unready models for READY ones, and reports Discovery fallback reasons.
+// unserved reports a Databricks model the fresh listing marks not READY.
+func unserved(p *providers.Provider, m string, now time.Time) bool {
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return false
+	}
+	ready, fresh := ServedReady(p, m, now)
+	return fresh && !ready
+}
+
+// pinnedModel resolves pins, swaps a freshly unready alias pick for a READY model (never an explicit pin), and
+// reports Discovery fallback reasons.
 func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) (string, string) {
 	if modelPin == DiscoveryModel {
 		return discoveryPinnedModel(agent, alias, cell, p, now)
 	}
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
-	if p != nil && p.Preset == providers.PresetDatabricks {
-		if ready, fresh := ServedReady(p, m, now); fresh && !ready {
-			if alt, _ := ServedFirst(p, agent == "codex", now); alt != "" {
-				return alt, ""
-			}
+	if modelPin == "" && unserved(p, m, now) {
+		if alt, _ := ServedFirst(p, agent == "codex", now); alt != "" {
+			return alt, ""
 		}
 	}
 	return m, ""
