@@ -111,20 +111,11 @@ extra one costs a brief and a fan-in read.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
   another leaf so the manager orders the dispatch.
 
-Legacy hook routing is supported but not needed for an ordinary dispatch. Brief fields (`Agent:`, `Profile:`,
-`Coworker:`) are honoured only in the brief's header block: the lines before the first blank line.
-
-| Brief field | Current behavior |
-| --- | --- |
-| `Profile: <name>` | Validated profile, prepends `ask --profile`; ignored for `Plan`, `Explore`, `gemini` and `Agent: in-context` |
-| `Coworker: databricks[:<profile>]` | Prepends `ask --overlay '{"provider":"databricks","profile":"<p>"}'` for eligible work leaves, Gemini included; `Plan`, `Explore` and in-context briefs ignore it |
-
-`--profile` leads then falls back unless `--fallback none` pins it; a brief profile does not add that flag.
-Overlay keys and values: `rules/harness/agent.md` → Dispatch behavior.
-The brief `Coworker:` accepts only the Databricks arm and validates a named workspace. Use a leading `Run: claude-code
-agents ask …` (optionally with global `--remote <h>`) and no `Profile:`/`Coworker:` lines to avoid their prompt
-rewrites in auto mode. The hook still rewrites some non-direct calls there; see `rules/harness/hooks.md`. `--remote`
-vs `--host`: `rules/harness/network.md`.
+The hook reads `Agent:` only in the brief's header block: the lines before the first blank line. Route a dispatch
+with a leading `Run: claude-code agents ask …` (optionally with global `--remote <h>`); the hook leaves it unrewritten.
+`--profile` leads then falls back unless `--fallback none` pins it. Overlay keys and values: `rules/harness/agent.md`
+→ Dispatch behavior. The hook still rewrites some non-direct calls in auto mode; see `rules/harness/hooks.md`.
+`--remote` vs `--host`: `rules/harness/network.md`.
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve
 before review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend

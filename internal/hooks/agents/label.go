@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"io"
-	"maps"
 	"os"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -18,7 +17,7 @@ type LabelInput struct {
 	Type, Model, Brief, SessionModel string
 }
 
-// dispatchLabel runs the hook's type gate, pin, Coworker: step and label on a synthetic spawn; blocked is the deny.
+// dispatchLabel runs the hook's type gate, pin and label on a synthetic spawn; blocked is the type gate's deny.
 func dispatchLabel(in LabelInput) (label, model, blocked string) {
 	if deny := typeBlock(in.Type, in.Brief); deny != nil {
 		return "", "", deny.Reason
@@ -32,9 +31,6 @@ func dispatchLabel(in LabelInput) (label, model, blocked string) {
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
-	if _, deny := applyCoworker(run, maps.Clone(updated), "prompt", task); deny != nil { // reads only: no slot, no state
-		return "", "", deny.Reason
-	}
 	label = labelModel(run, updated, in.Type, task) // applyLabel's prefix, whatever the description
 	model, _ = updated["model"].(string)
 	return label, model, ""
@@ -46,7 +42,7 @@ type LabelRow struct {
 	Model  string `json:"model"`
 	Label  string `json:"label"`
 	Source string `json:"source"`
-	// Blocked is the hook's deny reason for a type or Coworker: line it refuses ("" = allowed).
+	// Blocked is the hook's deny reason for a type it refuses ("" = allowed).
 	Blocked string `json:"blocked,omitempty"`
 }
 
