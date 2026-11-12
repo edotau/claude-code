@@ -103,46 +103,47 @@ func bumpMtime(t *testing.T, path string, when time.Time) {
 	}
 }
 
-// Failed registry loads must not advance the cached timestamp or hide a later fix at the same timestamp.
-func TestRegistryRetriesLoadAfterAFailureRatherThanCachingIt(t *testing.T) {
+// A failed registry load keeps the previous table and is retried once per backoff window, not per request.
+func TestRegistryBacksOffRetriesAfterAFailedLoad(t *testing.T) {
 	vaulttest.Use(t)
 	const good = `{"providers":{}}`
 	vaulttest.Put(t, vault.Overlay, "providers", good)
 	r := newRouter(secret)
 	r.log = io.Discard
+	clock := time.Now()
+	r.now = func() time.Time { return clock }
+	var loads int
+	original := loadRegistry
+	loadRegistry = func() (*providers.Registry, error) { loads++; return original() }
+	t.Cleanup(func() { loadRegistry = original })
 
 	reg1, err := r.registry()
 	if err != nil {
 		t.Fatalf("first registry() = %v", err)
 	}
-	stamp1 := r.regStamp
-	badStamp := stamp1.Add(time.Second)
-
-	// Corrupt the overlay and force the vault file's mtime forward so registry() sees a change.
+	badStamp := r.regStamp.Add(time.Second)
 	vaulttest.Put(t, vault.Overlay, "providers", "not json")
 	bumpMtime(t, vault.Path(), badStamp)
 
-	reg2, err := r.registry()
-	if err != nil {
-		t.Fatalf("second registry() = %v, want it to keep the previous registry on a bad overlay", err)
+	loads = 0
+	for range 3 {
+		if reg, err := r.registry(); err != nil || reg != reg1 {
+			t.Fatalf("registry() = %p, %v; want the previous registry on a bad overlay", reg, err)
+		}
 	}
-	if reg2 != reg1 {
-		t.Error("a failed Load must keep serving the previous *Registry, not swap in a different one")
-	}
-	if r.regStamp.Equal(badStamp) {
-		t.Fatal("regStamp advanced on a failed Load; a later fix landing at this same mtime would never be retried")
+	if loads != 1 {
+		t.Fatalf("loads inside the backoff window = %d, want 1", loads)
 	}
 
-	// Restore the overlay at the failed load timestamp; the unchanged cached timestamp must force a retry.
 	vaulttest.Put(t, vault.Overlay, "providers", good)
 	bumpMtime(t, vault.Path(), badStamp)
-
-	reg3, err := r.registry()
-	if err != nil {
-		t.Fatalf("third registry() = %v, want the retried Load to succeed", err)
+	if reg, _ := r.registry(); reg != reg1 || loads != 1 {
+		t.Fatalf("registry() reloaded inside the window (loads=%d)", loads)
 	}
-	if reg3 == reg1 {
-		t.Error("registry() served the stale cached registry instead of retrying Load at the same mtime")
+	clock = clock.Add(registryRetry)
+	reg3, err := r.registry()
+	if err != nil || reg3 == reg1 || loads != 2 {
+		t.Fatalf("after the window: reg changed=%v err=%v loads=%d, want a fresh load", reg3 != reg1, err, loads)
 	}
 }
 

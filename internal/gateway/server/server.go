@@ -49,6 +49,7 @@ type Router struct {
 	mu       sync.Mutex
 	reg      *providers.Registry
 	regStamp time.Time
+	regRetry time.Time            // after a failed load, no new load before this instant
 	cool     map[string]time.Time // provider → cooling-down until (after a 429)
 	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	deadAt   map[string]time.Time // provider:model → when its dead mark landed in quota.json

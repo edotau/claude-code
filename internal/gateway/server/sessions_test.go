@@ -94,8 +94,8 @@ func TestSessionTokenIdleExpiryAndSlidingRenewal(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
 	use := func() int { c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); return c }
-	for range 3 { // 3 x 8h exceeds the 12h TTL only if use does not renew it
-		g.advance(8 * time.Hour)
+	for range 3 { // 3 x 4d exceeds the 7d TTL only if use does not renew it
+		g.advance(4 * 24 * time.Hour)
 		if use() == http.StatusUnauthorized {
 			t.Fatal("renewed token expired")
 		}
