@@ -160,7 +160,6 @@ func cmdMemoryDigest(args []string) int {
 func cmdMemoryWatch(args []string) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
 		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
-	fs.SetOutput(os.Stderr)
 	session := fs.String("session", "", "session id (names the stamp)")
 	tr := fs.String("transcript", "", "the session's transcript path")
 	cwd := fs.String("cwd", "", "project root whose bank to update")
@@ -176,7 +175,6 @@ func cmdMemoryWatch(args []string) int {
 func cmdMemoryCatchup(args []string) int {
 	fs := helptext.NewFlagSet("memory catchup", helptext.Page{Usage: "claude-code memory catchup [flags]",
 		About: "Session-start sweep: saves finished sessions whose memory update was missed."})
-	fs.SetOutput(os.Stderr)
 	dry := fs.Bool("dry-run", false, "list the sessions it would save; write nothing")
 	skip := fs.String("skip", "", "session id to leave alone (the one that started the sweep)")
 	if code, done := memoryParseNoArgs(fs, "catchup", args); done {

@@ -284,7 +284,7 @@ func modelsDiscover(args []string) int {
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return helptext.Fail("models discover: cannot load provider registry")
+		return helptext.Fail("models discover: cannot load provider registry: %v", err)
 	}
 	names := reg.Names()
 	slices.Sort(names)
@@ -309,12 +309,12 @@ func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format s
 			Apply   bool                     `json:"apply"`
 			Results []copilot.DiscoverResult `json:"results"`
 		}{apply, results}); err != nil {
-			return helptext.Fail("models discover: cannot write JSON")
+			return helptext.Fail("models discover: cannot write JSON: %v", err)
 		}
 		return code
 	}
 	if err := printDiscoverText(results); err != nil {
-		return helptext.Fail("models discover: cannot write text output")
+		return helptext.Fail("models discover: cannot write text output: %v", err)
 	}
 	return code
 }

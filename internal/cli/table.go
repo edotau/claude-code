@@ -202,7 +202,7 @@ var (
 	specTreeCache map[string]*helptext.Node
 )
 
-// buildSpecTree gives every verb in commands() a node, an empty one when it has no spec, so a launcher is never unrepresented.
+// buildSpecTree gives every verb in commands() a node, an empty one when it has no spec.
 func buildSpecTree() map[string]*helptext.Node {
 	tree := map[string]*helptext.Node{}
 	for _, c := range commands() {

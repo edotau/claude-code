@@ -22,7 +22,7 @@ var historyPage = helptext.Page{
 		"claude-code history <command> -h lists that command's flags.",
 }
 
-// cmdHistory is the `history` verb: reads and writes the shadow config history (state/harness/history, gitignored); memory has its own git.
+// cmdHistory is the `history` verb over the shadow config history (state/harness/history, gitignored).
 func cmdHistory(args []string) int {
 	sub := ""
 	if len(args) > 0 {
@@ -124,12 +124,8 @@ func historyDiff(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	rev := ""
-	if fs.NArg() > 0 {
-		rev = fs.Arg(0)
-	}
 	store := &configure.HistoryStore{Dir: configure.HistoryDir()}
-	out, err := store.Diff(rev)
+	out, err := store.Diff(firstPositional(fs.Args()))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "history:", err)
 		return 1

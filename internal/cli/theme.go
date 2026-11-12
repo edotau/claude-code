@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/statusline"
@@ -135,11 +136,7 @@ func themeApply(args []string) int {
 	if err != nil {
 		return helptext.Fail("theme apply: %v", err)
 	}
-	var names []string
-	if *only != "" {
-		names = strings.Split(*only, ",")
-	}
-	out, err := theme.Apply(theme.Dir(), home, names, *dryRun)
+	out, err := theme.Apply(theme.Dir(), home, textutil.SplitCSV(*only), *dryRun)
 	for _, o := range out {
 		switch {
 		case o.Skipped != "":
