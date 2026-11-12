@@ -220,9 +220,19 @@ func readOnlyGitArgs(verb string, args []string) bool {
 	return (verb != "branch" || list) && (verb != "grep" || grepArgsSafe(args))
 }
 
-// badGitArg is -c, a ~ path, a banned flag, or a dash arg outside the verb's allowed set (when it has one).
+// gitPathFlags take a file whose content git reads; abbreviations count, like gitBannedFlags.
+var gitPathFlags = []string{"--contents", "--ignore-revs-file"}
+
+// pathFlagEscapes is a `--contents=/x`-style arg whose file value leaves the checkout.
+func pathFlagEscapes(arg string) bool {
+	name, val, found := strings.Cut(arg, "=")
+	return found && len(name) > 3 && escapesPath(val) &&
+		slices.ContainsFunc(gitPathFlags, func(f string) bool { return strings.HasPrefix(f, name) })
+}
+
+// badGitArg is -c, a ~ path, a banned or outside-file flag, or a dash arg outside the verb's allowed set.
 func badGitArg(a string, allowed map[string]bool) bool {
-	return a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
+	return a == "-c" || strings.HasPrefix(a, "~") || bannedGitFlag(a) || pathFlagEscapes(a) || allowed != nil && strings.HasPrefix(a, "-") && !allowed[a]
 }
 
 // grepArgsSafe refuses git grep's pager flag (-O, --open-files-in-pager) and a pattern file (-f) outside the checkout.

@@ -22,7 +22,7 @@ func TestRedact(t *testing.T) {
 		{"non-secret hyphenated text unchanged", "my-feature_flag is-enabled for_user", "my-feature_flag is-enabled for_user"},
 		// replacement is positional (only the matched run), not a global substring ReplaceAll:
 		// "risk-free" contains the literal substring "sk-" but must survive untouched.
-		{"replacement is positional not substring-global", "sk- risk-free", "REDACTED risk-free"},
+		{"replacement is positional not substring-global", "sk-" + strings.Repeat("c", 20) + " risk-free", "REDACTED risk-free"},
 		{"slack app and legacy tokens", "xoxa-2-abc xoxs-123-def xoxb-1 xoxq-1", "REDACTED REDACTED REDACTED xoxq-1"},
 	}
 	for _, c := range cases {
@@ -86,7 +86,7 @@ func TestPreview(t *testing.T) {
 		want     string
 	}{
 		{"collapses whitespace", "a  b\n\tc   d", 100, "a b c d"},
-		{"redacts credential word", "use sk-abcdef123456 now", 100, "use REDACTED now"},
+		{"redacts credential word", "use sk-abcdef1234567890abcd now", 100, "use REDACTED now"},
 		{"short input unchanged", "hello world", 11, "hello world"},
 		{"n above length unchanged", "hello", 50, "hello"},
 	}

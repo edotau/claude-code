@@ -1,4 +1,4 @@
-// Package textutil holds small rune-safe string-truncation and lowercase-token primitives shared across the harness.
+// Package textutil holds small string, JSONC, front-matter, credential and HTTP helpers shared across the harness.
 package textutil
 
 import (

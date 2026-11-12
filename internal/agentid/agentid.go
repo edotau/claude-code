@@ -48,7 +48,7 @@ const (
 // efforts is the harness scale, weakest first.
 func efforts() []Effort { return []Effort{EffortLow, EffortMedium, EffortHigh, EffortXHigh, EffortMax} }
 
-// EffortNames is Efforts as strings, for flag help and enum checks.
+// EffortNames is the harness efforts as strings, for flag help and enum checks.
 func EffortNames() []string {
 	names := make([]string, 0, len(efforts()))
 	for _, e := range efforts() {

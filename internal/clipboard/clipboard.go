@@ -374,25 +374,25 @@ func bmpColorMasks(data, dib []byte, bitCount uint16, compression uint32) (rMask
 		if bitCount != 16 && bitCount != 32 {
 			return 0, 0, 0, fmt.Errorf("clipboard: unsupported bit depth %d for BI_BITFIELDS", bitCount)
 		}
-		if len(dib) == 40 {
-			// classic extension: masks trail the 40-byte header, ahead of the pixel array.
-			maskOff := fileHeaderSize + 40
-			if len(data) < maskOff+12 {
-				return 0, 0, 0, errors.New("clipboard: truncated BITFIELDS masks")
-			}
-			rMask = binary.LittleEndian.Uint32(data[maskOff : maskOff+4])
-			gMask = binary.LittleEndian.Uint32(data[maskOff+4 : maskOff+8])
-			bMask = binary.LittleEndian.Uint32(data[maskOff+8 : maskOff+12])
-		} else {
-			// V4/V5: masks live inline in the DIB header at fixed offsets.
-			rMask = binary.LittleEndian.Uint32(dib[40:44])
-			gMask = binary.LittleEndian.Uint32(dib[44:48])
-			bMask = binary.LittleEndian.Uint32(dib[48:52])
-		}
+		return bitFieldMasks(data, dib)
 	default:
 		return 0, 0, 0, fmt.Errorf("clipboard: unsupported compression %d (RLE/JPEG/PNG-in-BMP not handled)", compression)
 	}
 	return rMask, gMask, bMask, nil
+}
+
+// bitFieldMasks reads the BI_BITFIELDS masks: trailing the 40-byte header, else inline in a V4/V5 header.
+func bitFieldMasks(data, dib []byte) (rMask, gMask, bMask uint32, err error) {
+	if len(dib) != 40 {
+		return binary.LittleEndian.Uint32(dib[40:44]), binary.LittleEndian.Uint32(dib[44:48]),
+			binary.LittleEndian.Uint32(dib[48:52]), nil
+	}
+	maskOff := fileHeaderSize + 40
+	if len(data) < maskOff+12 {
+		return 0, 0, 0, errors.New("clipboard: truncated BITFIELDS masks")
+	}
+	return binary.LittleEndian.Uint32(data[maskOff : maskOff+4]), binary.LittleEndian.Uint32(data[maskOff+4 : maskOff+8]),
+		binary.LittleEndian.Uint32(data[maskOff+8 : maskOff+12]), nil
 }
 
 func convertRaster(img raster, bitCount uint16, rMask, gMask, bMask uint32) raster {

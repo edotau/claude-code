@@ -38,17 +38,30 @@ type memoEntry[V any] struct {
 
 // Do returns key's kept answer, joins the run in flight for key, or runs fn and keeps its answer per keep.
 func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, error)) (V, error) {
+	e, joined := m.claim(key)
+	if joined {
+		<-e.done // waiters share the run's answer whatever keep says
+		return e.v, e.err
+	}
+	returned := false
+	defer func() { // a panic in fn or keep must not leave the entry in flight: joiners and later calls would block
+		if !returned {
+			m.abandon(key, e)
+		}
+	}()
+	v, err := fn()
+	d := keep(v, err)
+	returned = true
+	m.settle(key, e, v, err, d)
+	return v, err
+}
+
+// claim returns key's kept or in-flight entry (joined), else a fresh in-flight entry this caller must run.
+func (m *Memo[K, V]) claim(key K) (e *memoEntry[V], joined bool) {
 	m.mu.Lock()
-	if e := m.m[key]; e != nil {
-		if !e.settled {
-			m.mu.Unlock()
-			<-e.done // waiters share the run's answer whatever keep says
-			return e.v, e.err
-		}
-		if e.until.IsZero() || memoNow().Before(e.until) {
-			defer m.mu.Unlock()
-			return e.v, e.err
-		}
+	defer m.mu.Unlock()
+	if e := m.m[key]; e != nil && (!e.settled || e.until.IsZero() || memoNow().Before(e.until)) {
+		return e, true
 	}
 	if m.m == nil {
 		m.m = map[K]*memoEntry[V]{}
@@ -59,27 +72,24 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	if m.m[key] == nil {
 		m.evict()
 	}
-	e := &memoEntry[V]{done: make(chan struct{})}
+	e = &memoEntry[V]{done: make(chan struct{})}
 	m.m[key] = e
+	return e, false
+}
+
+// abandon removes a panicked run's entry and releases its joiners with errMemoPanic.
+func (m *Memo[K, V]) abandon(key K, e *memoEntry[V]) {
+	m.mu.Lock()
+	if m.m[key] == e {
+		delete(m.m, key)
+	}
 	m.mu.Unlock()
+	e.err = errMemoPanic
+	close(e.done)
+}
 
-	returned := false
-	defer func() { // a panic in fn or keep must not leave the entry in flight: joiners and later calls would block
-		if returned {
-			return
-		}
-		m.mu.Lock()
-		if m.m[key] == e {
-			delete(m.m, key)
-		}
-		m.mu.Unlock()
-		e.err = errMemoPanic
-		close(e.done)
-	}()
-	v, err := fn()
-	d := keep(v, err)
-	returned = true
-
+// settle records e's answer, keeps it for d (0 = until Drop or evicted, <0 = not at all) and releases joiners.
+func (m *Memo[K, V]) settle(key K, e *memoEntry[V], v V, err error, d time.Duration) {
 	m.mu.Lock()
 	m.seq++
 	e.v, e.err, e.settled, e.order = v, err, true, m.seq
@@ -91,7 +101,6 @@ func (m *Memo[K, V]) Do(key K, keep func(V, error) time.Duration, fn func() (V, 
 	}
 	m.mu.Unlock()
 	close(e.done)
-	return v, err
 }
 
 // sweep drops expired entries (zero until = in flight or keep 0, never swept), then waits for the map to double.

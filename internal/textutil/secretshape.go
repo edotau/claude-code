@@ -14,6 +14,16 @@ var bearerToken = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompi
 // bearerAuth captures the scheme so RedactSecrets masks only the token after it.
 var bearerAuth = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`) })
 
+// jwtToken matches a dotted JWT (header.payload, optional signature), which the run pass splits at its dots.
+var jwtToken = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]*)?`)
+})
+
+// pemPrivateKey matches a private-key block through its END line, or to end of input when truncated.
+var pemPrivateKey = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)
+})
+
 // CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
 var CredentialRE = regexp.MustCompile(strings.Join([]string{
 	`\bsk-[A-Za-z0-9_-]{20,}`,                     // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
@@ -41,7 +51,7 @@ func looksSecretToken(val string) bool {
 	if val == "" || notCredentialShaped(val) {
 		return false
 	}
-	return HasGitHubPrefix(val) || IsSlackToken(val) || hasAnyPrefix(val, "AKIA", "dapi", "sk-") || startsCredential(val)
+	return HasGitHubPrefix(val) || IsSlackToken(val) || startsCredential(val)
 }
 
 // startsCredential reports a value that begins with a full CredentialRE shape (Databricks, Tavily, Groq, JWT, ...).
@@ -106,8 +116,10 @@ func RedactSecretMap(m map[string]string) map[string]string {
 	return out
 }
 
-// RedactSecrets replaces each credential-shaped [A-Za-z0-9_-] run and bearer token in s with REDACTED, in place.
+// RedactSecrets replaces each credential-shaped run, bearer token, JWT and PEM key block in s with REDACTED.
 func RedactSecrets(s string) string {
+	s = pemPrivateKey().ReplaceAllString(s, "REDACTED")
+	s = jwtToken().ReplaceAllString(s, "REDACTED")
 	s = bearerAuth().ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
 	var b strings.Builder
 	for i := 0; i < len(s); {
