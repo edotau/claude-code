@@ -454,7 +454,7 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 	var routed *Router
 	srv := setupRouter(t, `{"default":"dev","providers":{"databricks":{"dev":`+row("DEV_TOKEN")+`,"qa":`+
 		row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
-	token, err := routed.sessions.mint("dev", os.Getpid())
+	token, err := routed.sessions.mint([]string{"dev"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,6 +486,47 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 		if a := got[i].hdr.Get("Authorization"); a != "Bearer dev-workspace-token" {
 			t.Errorf("%s: upstream Authorization is not dev's workspace credential", c.path)
 		}
+	}
+}
+
+// A token for {ultra, dev} on /p/ultra reaches a dev alias; a qa alias is 403 and /p/qa is 401, before any upstream.
+func TestSessionTokenCoversItsProfileSet(t *testing.T) {
+	useGate(t)
+	up := newRawUp(t, okRaw)
+	t.Setenv("ULTRA_KEY", "ultra-key")
+	t.Setenv("DEV_TOKEN", "dev-workspace-token")
+	t.Setenv("QA_TOKEN", "qa-workspace-token")
+	row := func(env string) string {
+		return `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
+			`/serving-endpoints/anthropic","auth":{"type":"key","env":"` + env + `"},` +
+			`"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	var routed *Router
+	srv := setupRouter(t, `{"default":"ultra","providers":{"anthropic":{"ultra":`+
+		anthropicProvider(up.URL, "ULTRA_KEY", `{"opus":"u-opus"}`)+`},"databricks":{"dev":`+row("DEV_TOKEN")+
+		`,"qa":`+row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
+	token, err := routed.sessions.mint([]string{"ultra", "dev", "ultra"}, os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdr := map[string]string{"X-Api-Key": token}
+	cases := []struct {
+		path, model string
+		want        int
+	}{
+		{"/p/ultra/v1/messages", "dev:databricks-claude-opus-5-5", http.StatusOK},
+		{"/p/ultra/v1/messages", "qa:databricks-claude-opus-5-5", http.StatusForbidden},
+		{"/p/qa/v1/messages", "databricks-claude-opus-5-5", http.StatusUnauthorized},
+	}
+	for _, c := range cases {
+		resp := post(t, srv.URL+c.path, `{"model":"`+c.model+`","max_tokens":5}`, hdr)
+		if got := body(t, resp); resp.StatusCode != c.want {
+			t.Errorf("%s model %s = %d %s, want %d", c.path, c.model, resp.StatusCode, got, c.want)
+		}
+	}
+	got := up.got()
+	if len(got) != 1 || got[0].hdr.Get("Authorization") != "Bearer dev-workspace-token" {
+		t.Fatalf("upstream saw %d requests, want 1 on dev's workspace credential", len(got))
 	}
 }
 
@@ -571,7 +612,7 @@ func TestScopedAuthDeadProviderReturnsForbidden(t *testing.T) {
 	t.Setenv("UP2_KEY", "k2")
 	var routed *Router
 	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), func(r *Router) { routed = r })
-	token, err := routed.sessions.mint("up1", os.Getpid())
+	token, err := routed.sessions.mint([]string{"up1"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}

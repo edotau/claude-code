@@ -664,7 +664,7 @@ func TestGatewayTokenPrintsOnlyDaemonBoundSessionToken(t *testing.T) {
 	var gotProfile string
 	var gotPID int
 	tokenDaemon(t, func(w http.ResponseWriter, req gateway.SessionRequest) {
-		gotProfile, gotPID = req.Profile, req.PID
+		gotProfile, gotPID = strings.Join(req.Profiles, ","), req.PID
 		json.NewEncoder(w).Encode(gateway.SessionResponse{Token: "cct_abc"})
 	})
 	code, stdout, stderr := hosttest.CaptureOutput(t,

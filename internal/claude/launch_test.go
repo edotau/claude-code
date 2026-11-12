@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -43,6 +44,7 @@ func hermetic(t *testing.T, userProviders string) {
 	findClaude = func() (string, error) { return "/opt/claude", nil }
 	selfBinary = func() (string, error) { return "/opt/bin/claude-code", nil }
 	t.Cleanup(agent.StubRouter("http://127.0.0.1:4000"))
+	stubMint(t, func(context.Context, []string, int) (string, error) { return "cct_HERMETIC", nil })
 	t.Cleanup(func() { findClaude, selfBinary = oldFind, oldSelf })
 }
 
@@ -530,49 +532,98 @@ const armDBX = `{"fallback":["qa"],"providers":{"databricks":{
 	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},
 	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
-// Inside overlay databricks:<p> the proxied child carries a session token minted for <p> and this pid, never the
-// router secret; unarmed it carries none and the helper falls back to the secret.
-func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
+// A proxied child holds a session token bound to this pid, never the secret: unarmed {dev, fallback qa}, armed {dev}.
+func TestClaudeProxyCarriesSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
 	const tok = "cct_ARM_TEST"
 	var minted []string
-	stubMint(t, func(_ context.Context, profile string, pid int) (string, error) {
-		minted = append(minted, profile)
+	stubMint(t, func(_ context.Context, profiles []string, pid int) (string, error) {
+		minted = append(minted, strings.Join(profiles, ","))
 		if pid != os.Getpid() {
 			t.Errorf("token bound to pid %d, want this process %d", pid, os.Getpid())
 		}
 		return tok, nil
 	})
-	secret, err := gateway.ClientSecret()
-	if err != nil {
-		t.Fatal(err)
-	}
-	launch := func() agent.Plan {
+	for _, c := range []struct{ name, overlay, mint string }{
+		{"unarmed", "", "dev,qa"},
+		{"armed", `{"provider":"databricks","profile":"dev"}`, "dev"},
+	} {
+		t.Setenv("COWORKER_OVERLAY", c.overlay)
+		agent.ResetSessionTokens()
+		minted = nil
 		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return p
+		if got := p.Set[ProxyKeyEnv]; got != tok || !slices.Equal(minted, []string{c.mint}) {
+			t.Errorf("%s: %s is the minted token = %v (len %d), mints %v, want [%s]", c.name, ProxyKeyEnv, got == tok,
+				len(got), minted, c.mint)
+		}
+		assertProxiedNoSecret(t, c.name, p)
 	}
-	p := launch()
-	if _, set := p.Set[ProxyKeyEnv]; set || len(minted) != 0 {
-		t.Errorf("unarmed: %s set = %v, mints %v", ProxyKeyEnv, set, minted)
+}
+
+// assertProxiedNoSecret: p routes /p/dev through the resolve --proxy helper and no env value holds the router secret.
+func assertProxiedNoSecret(t *testing.T, name string, p agent.Plan) {
+	t.Helper()
+	secret, err := gateway.ClientSecret()
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("COWORKER_OVERLAY", `{"provider":"databricks","profile":"dev"}`)
-	p = launch()
-	if got := p.Set[ProxyKeyEnv]; got != tok || !slices.Equal(minted, []string{"dev"}) {
-		t.Errorf("armed: %s is the minted token = %v (len %d), mints %v", ProxyKeyEnv, got == tok, len(got), minted)
-	}
-	if got := p.Set["ANTHROPIC_BASE_URL"]; got != "http://127.0.0.1:4000/p/dev" {
-		t.Errorf("armed base = %q, want /p/dev", got)
+	helper := string(overlayFile(p).Data)
+	if base := p.Set["ANTHROPIC_BASE_URL"]; base != "http://127.0.0.1:4000/p/dev" || !strings.Contains(helper, "resolve --proxy") {
+		t.Errorf("%s: base = %q, overlay %s; want /p/dev and the resolve --proxy helper", name, base, helper)
 	}
 	for k, v := range p.Set {
 		if strings.Contains(v, secret) {
-			t.Errorf("armed: %s carries the router secret", k)
+			t.Errorf("%s: %s carries the router secret", name, k)
 		}
 	}
-	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
-		t.Errorf("armed overlay %s, want the resolve --proxy helper", overlayFile(p).Data)
+}
+
+// An alias on another profile widens an unarmed token to that profile; armed, the token stays on the confined one.
+func TestClaudeProxyTokenCoversAliasProfiles(t *testing.T) {
+	hermetic(t, strings.Replace(armDBX, `"fallback":["qa"]`, `"fallback":[]`, 1)) // qa is reachable only as an alias
+	var minted []string
+	stubMint(t, func(_ context.Context, profiles []string, _ int) (string, error) {
+		minted = append(minted, strings.Join(profiles, ","))
+		return "cct_SCOPED", nil
+	})
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := reg.Providers["dev"]
+	sel := providers.Selection{Provider: dev, Aliases: map[string]providers.Target{
+		models.Opus: {Provider: dev, Model: "databricks-claude-opus-5-5"},
+		"sonnet":    {Provider: reg.Providers["qa"], Model: "databricks-claude-sonnet-5"},
+	}}
+	for _, c := range []struct{ name, overlay, mint string }{
+		{"unarmed", "", "dev,qa"},
+		{"armed", `{"provider":"databricks","profile":"dev"}`, "dev"},
+	} {
+		t.Setenv("COWORKER_OVERLAY", c.overlay)
+		agent.ResetSessionTokens()
+		minted = nil
+		plan := agent.Plan{Set: map[string]string{}}
+		if _, _, err := configureClaudeProxy(t.Context(), sel, dev, false, "/opt/bin/claude-code", &plan); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(minted, []string{c.mint}) || plan.Set[ProxyKeyEnv] != "cct_SCOPED" {
+			t.Errorf("%s: mints %v, token set %v; want [%s]", c.name, minted, plan.Set[ProxyKeyEnv] != "", c.mint)
+		}
+	}
+}
+
+// A failed mint aborts the launch; the child is never handed the router secret instead.
+func TestClaudeProxyMintFailureAbortsLaunch(t *testing.T) {
+	hermetic(t, armDBX)
+	stubMint(t, func(context.Context, []string, int) (string, error) {
+		return "", errors.New("too many live session tokens")
+	})
+	_, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+	if err == nil || !strings.Contains(err.Error(), "too many live session tokens") {
+		t.Fatalf("claudePlan err = %v, want the mint failure", err)
 	}
 }
 
@@ -615,7 +666,7 @@ func TestSetModelAliasEnvPinsAutoModeModel(t *testing.T) {
 }
 
 // stubMint swaps agent.MintSession for mint over an empty session-token cache, restoring both after t.
-func stubMint(t *testing.T, mint func(context.Context, string, int) (string, error)) {
+func stubMint(t *testing.T, mint func(context.Context, []string, int) (string, error)) {
 	orig := agent.MintSession
 	agent.MintSession = mint
 	agent.ResetSessionTokens()
@@ -626,7 +677,7 @@ func stubMint(t *testing.T, mint func(context.Context, string, int) (string, err
 func TestClaudeArmLaunchesMintOnce(t *testing.T) {
 	hermetic(t, armDBX)
 	mints := 0
-	stubMint(t, func(context.Context, string, int) (string, error) { mints++; return "cct_ONCE", nil })
+	stubMint(t, func(context.Context, []string, int) (string, error) { mints++; return "cct_ONCE", nil })
 	t.Setenv("COWORKER_OVERLAY", `{"provider":"databricks","profile":"dev"}`)
 	for range 3 {
 		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
@@ -639,11 +690,11 @@ func TestClaudeArmLaunchesMintOnce(t *testing.T) {
 	}
 }
 
-// Every dev launch goes through /p/dev; only an armed launch carries the session token.
+// Every dev launch goes through /p/dev on a session token, armed or not.
 func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	hermetic(t, `{"fallback":[],"providers":{"databricks":{"dev":{"preset":"databricks",
 		"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
-	stubMint(t, func(context.Context, string, int) (string, error) { return "cct_ARM_dev", nil })
+	stubMint(t, func(context.Context, []string, int) (string, error) { return "cct_ARM_dev", nil })
 	launch := func(args ...string) agent.Plan {
 		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, args)
 		if err != nil {
@@ -652,8 +703,8 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 		return p
 	}
 	const proxied = "http://127.0.0.1:4000/p/dev"
-	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "" {
-		t.Errorf("unarmed headless base = %q, want %s with no session token", p.Set["ANTHROPIC_BASE_URL"], proxied)
+	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
+		t.Errorf("unarmed headless base = %q, want %s with the session token", p.Set["ANTHROPIC_BASE_URL"], proxied)
 	}
 	t.Setenv("COWORKER_OVERLAY", `{"provider":"databricks","profile":"dev"}`)
 	p := launch("-p", "hi")
@@ -684,7 +735,7 @@ func TestClaudeRefusesAIGatewayWire(t *testing.T) {
 func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
 	const tok = "cct_ARM_TEST"
-	stubMint(t, func(context.Context, string, int) (string, error) { return tok, nil })
+	stubMint(t, func(context.Context, []string, int) (string, error) { return tok, nil })
 	t.Setenv("COWORKER_OVERLAY", `{"provider":"databricks","profile":"dev"}`)
 	reg, err := providers.Load()
 	if err != nil {
