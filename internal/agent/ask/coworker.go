@@ -30,10 +30,7 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", router.EnvCoworker, err)
 	}
-	src := ""
-	if value == "" && inherited == "" { // overlay > process env > vault env
-		value, src = strings.TrimSpace(providers.CustomEnv()[router.EnvCoworker]), "vault env "+router.EnvCoworker+": "
-	}
+	value, src := coworkerSource(value, inherited, ip, iprof)
 	provider, p, err := router.ParseCoworker(value)
 	switch {
 	case err != nil:
@@ -46,32 +43,36 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 	if err := checkLeave(ip, iprof, provider, p); err != nil {
 		return err
 	}
-	if provider == router.RouteDatabricks {
-		return applyArm(p, profile, agentName, model, fallback)
+	if provider != router.RouteDatabricks {
+		return applyProvider(provider, cmp.Or(p, iprof), agentName)
 	}
-	return applyProvider(provider, cmp.Or(p, iprof), agentName)
-}
-
-// checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
-func checkLeave(ip, iprof, provider, p string) error {
-	if arm := router.ArmProfile(); arm != "" && provider != router.RouteDatabricks {
-		return errLeave(confinement(router.RouteDatabricks, arm))
-	}
-	if ip == "" || ip == router.RouteDatabricks {
-		return nil
-	}
-	if provider != ip || (iprof != "" && p != "" && p != iprof) {
-		return errLeave(confinement(ip, iprof))
+	if err := applyArm(p, profile, agentName, model, fallback); err != nil {
+		return fmt.Errorf("%s%w", src, err)
 	}
 	return nil
 }
 
-// confinement joins a provider and optional profile as HARNESS_COWORKER spells them.
-func confinement(provider, profile string) string {
-	if profile == "" {
-		return provider
+// coworkerSource is the value ApplyCoworker applies and its error prefix: overlay > bare inherited databricks > vault.
+func coworkerSource(value, inherited, ip, iprof string) (string, string) {
+	switch {
+	case value != "":
+		return value, ""
+	case inherited == "":
+		return providers.CustomEnv()[router.EnvCoworker], "vault env " + router.EnvCoworker + ": "
+	case ip == router.RouteDatabricks && iprof == "": // bare: arms a workspace as the vault value does
+		return inherited, router.EnvCoworker + ": "
 	}
-	return provider + ":" + profile
+	return "", ""
+}
+
+// checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
+func checkLeave(ip, iprof, provider, p string) error {
+	switch {
+	case ip == router.RouteDatabricks && provider != router.RouteDatabricks,
+		ip != "" && ip != router.RouteDatabricks && (provider != ip || (iprof != "" && p != "" && p != iprof)):
+		return errLeave(ip, iprof)
+	}
+	return nil
 }
 
 // applyProvider checks profile p and agentName against a non-Databricks provider, then exports the confinement.
@@ -86,7 +87,7 @@ func applyProvider(provider, p, agentName string) error {
 	if err := canUse(reg, agentName, provider); err != nil {
 		return err
 	}
-	return os.Setenv(router.EnvCoworker, confinement(provider, p))
+	return os.Setenv(router.EnvCoworker, router.JoinCoworker(provider, p))
 }
 
 // canUse refuses a table agent with no account on provider; another agent name (a batch's "") passes.
@@ -169,7 +170,7 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 		}
 	}
 	if inherited != "" && p != inherited {
-		return errLeave(confinement(router.RouteDatabricks, inherited))
+		return errLeave(router.RouteDatabricks, inherited)
 	}
 	if err := providers.ServingRow(p); err != nil {
 		return err
@@ -179,7 +180,7 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 			return err
 		}
 	}
-	if err := os.Setenv(router.EnvCoworker, router.RouteDatabricks+":"+p); err != nil {
+	if err := os.Setenv(router.EnvCoworker, router.JoinCoworker(router.RouteDatabricks, p)); err != nil {
 		return err
 	}
 	return os.Setenv(providers.EnvSessionProfile, p)
@@ -249,7 +250,7 @@ func liveByWorkspace(ps []*providers.Provider) map[string]int {
 	snap, routed := inflight.Count(), inflight.LiveRoutes()
 	out := map[string]int{}
 	for _, p := range ps {
-		out[p.Name] = snap.Per[router.AccountOf(p)] + routed[router.RouteDatabricks+":"+p.Name]
+		out[p.Name] = snap.Per[router.AccountOf(p)] + routed[router.JoinCoworker(router.RouteDatabricks, p.Name)]
 	}
 	return out
 }
@@ -337,9 +338,9 @@ func readArmPicks() armPicks {
 
 func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
 
-// errLeave refuses an overlay provider/profile that differs from the inherited confinement c.
-func errLeave(c string) error {
-	return fmt.Errorf("overlay: a nested dispatch cannot leave %s: drop provider/profile", c)
+// errLeave refuses an overlay provider/profile that differs from the inherited confinement provider[:profile].
+func errLeave(provider, profile string) error {
+	return fmt.Errorf("overlay: a nested dispatch cannot leave %s: drop provider/profile", router.JoinCoworker(provider, profile))
 }
 
 // bareArm is the first of profile and CLAUDE_PROFILE that names a Databricks row, else "".
@@ -383,14 +384,14 @@ func checkNative(native bool) error {
 	if !native {
 		return nil
 	}
-	p, prof, err := router.ParseCoworker(strings.TrimSpace(os.Getenv(router.EnvCoworker)))
+	p, prof, err := router.ParseCoworker(os.Getenv(router.EnvCoworker))
 	switch {
 	case err != nil:
 		return fmt.Errorf("%s: %w", router.EnvCoworker, err)
 	case p == "":
 		return nil
 	}
-	return fmt.Errorf("--native: outside overlay %s", confinement(p, prof))
+	return fmt.Errorf("--native: outside overlay %s", router.JoinCoworker(p, prof))
 }
 
 // armFlags refuses --direct, a --profile other than the workspace and a --provider other than databricks.
@@ -410,7 +411,7 @@ func armFlags(arm, profile, provider string, direct bool) error {
 func confineFlags(profile, provider, model string) error {
 	cp, cprof := router.Confined()
 	prof, _, typed := strings.Cut(model, ":")
-	label := "overlay " + confinement(cp, cprof)
+	label := "overlay " + router.JoinCoworker(cp, cprof)
 	switch {
 	case cp == "":
 		return nil

@@ -116,14 +116,15 @@ var overlayFormat = schemas.Register(schemas.Format{
 	New: func() any { return new(Overlay) }, Migrate: schemas.SameShape,
 })
 
+// overlaySrc is a document's error labels and the rules its set entries pass (--env: flagSetRules).
 type overlaySrc struct {
 	set, keep, unset string
-	flag             bool // flags keep today's --env value rules; D5 and D7 bind overlay files only
+	setRules         []rule
 }
 
 var (
-	fileSrc = overlaySrc{"set", "keep", "unset", false}
-	flagSrc = overlaySrc{"--env", "--keep-env", "unset", true}
+	fileSrc = overlaySrc{"set", "keep", "unset", setRules}
+	flagSrc = overlaySrc{"--env", "--keep-env", "unset", flagSetRules}
 )
 
 // LoadOverlay reads value, else $COWORKER_OVERLAY: a file path, inline JSON, or - for stdin; "" is the zero overlay.
@@ -277,12 +278,7 @@ func (o Overlay) Routed() bool {
 }
 
 // Confinement is the internal provider[:profile] value ("databricks:qa", "anthropic"); "" when no provider is named.
-func (o Overlay) Confinement() string {
-	if o.Provider != "" && o.Profile != "" {
-		return o.Provider + ":" + o.Profile
-	}
-	return o.Provider
-}
+func (o Overlay) Confinement() string { return router.JoinCoworker(o.Provider, o.Profile) }
 
 // InlineOverlay is the compact document naming provider (and profile) for an argv relay; "" when provider is "".
 func InlineOverlay(provider, profile string) string {
@@ -303,7 +299,7 @@ func ResolveOverlay(o Overlay) (Resolved, error) {
 		if !ok {
 			continue
 		}
-		if err := setRule(k, o.Set[k], nil, false, route); err != nil { // re-checked: o may never have been validated
+		if err := setRule(setRules, k, o.Set[k], nil, route); err != nil { // re-checked: o may never have been validated
 			return Resolved{}, fmt.Errorf("overlay set %s: %w", k, err)
 		}
 		refs[k] = ref
@@ -381,7 +377,7 @@ func nameErr(label, name string, err error) error {
 func (o Overlay) checkKeep(src overlaySrc) (map[string]bool, error) {
 	keep := map[string]bool{} // upper-cased: set, keep and unset names overlap whatever their case
 	for _, n := range o.Keep {
-		if err := keepRule(n); err != nil {
+		if err := nameRule(keepRules, n); err != nil {
 			return nil, nameErr(src.keep, n, err)
 		}
 		keep[strings.ToUpper(n)] = true
@@ -392,7 +388,7 @@ func (o Overlay) checkKeep(src overlaySrc) (map[string]bool, error) {
 func (o Overlay) checkSet(src overlaySrc, keep map[string]bool) error {
 	route := providers.RouteSecretGuard()
 	for _, n := range slices.Sorted(maps.Keys(o.Set)) {
-		if err := setRule(n, o.Set[n], keep, src.flag, route); err != nil {
+		if err := setRule(src.setRules, n, o.Set[n], keep, route); err != nil {
 			return nameErr(src.set, n, err)
 		}
 	}
@@ -405,7 +401,7 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 		taken[strings.ToUpper(n)] = true
 	}
 	for _, n := range o.Unset {
-		err := unsetRule(n)
+		err := nameRule(unsetRules, n)
 		if err == nil && taken[strings.ToUpper(n)] {
 			err = errors.New("also set or kept")
 		}
@@ -416,25 +412,9 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 	return nil
 }
 
-// unsetRule refuses dropping a name the launch itself sets for its route: a lost endpoint would keep the credential.
-func unsetRule(name string) error {
-	up := strings.ToUpper(name)
-	switch {
-	case !vault.EnvName.MatchString(name):
-		return errEnvName
-	case routeRedirectName(up):
-		return errBaseURL
-	case configLocationName(up):
-		return errConfigLocation
-	case strings.HasPrefix(up, "HARNESS_"):
-		return errors.New("harness-owned: the launch sets it for its route; use --profile")
-	}
-	return nil
-}
-
-// credentialName is the credential shape --env has always refused, widened by the redaction segments (HEADERS, PAT, ...).
+// credentialName reports a credential-shaped name: AUTH anywhere, or a redaction segment (KEY, TOKEN, PAT, ...).
 func credentialName(up string) bool {
-	return strings.Contains(up, "AUTH") || providers.IsSecretName(up) // KEY/TOKEN/SECRET segments cover the old suffixes
+	return strings.Contains(up, "AUTH") || providers.IsSecretName(up)
 }
 
 // rule is one refusal: the first whose match holds decides the result, even when its err returns nil.
@@ -462,16 +442,24 @@ func runRules(rules []rule, c *ruleCtx) error {
 	return nil
 }
 
-var keepRules = []rule{
+// nameRules are the checks keep and unset names share: a malformed, route-redirecting or config-relocating name.
+var nameRules = []rule{
 	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errEnvName)},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
 	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
-	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
-		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))},
 }
 
-func keepRule(name string) error {
-	return runRules(keepRules, &ruleCtx{name: name, up: strings.ToUpper(name)})
+var keepRules = slices.Concat(nameRules, []rule{
+	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
+		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))}})
+
+// unsetRules refuse dropping a name the launch itself sets for its route: a lost endpoint would keep the credential.
+var unsetRules = slices.Concat(nameRules, []rule{
+	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") },
+		refuse(errors.New("harness-owned: the launch sets it for its route; use --profile"))}})
+
+func nameRule(rules []rule, name string) error {
+	return runRules(rules, &ruleCtx{name: name, up: strings.ToUpper(name)})
 }
 
 // flagSetRules are the --env rule set: name checks plus the value's credential shape.
@@ -486,10 +474,6 @@ var flagSetRules = []rule{
 		refuse(errors.New("harness-owned"))},
 	{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
 		refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
-}
-
-func flagSetRule(name, val string) error {
-	return runRules(flagSetRules, &ruleCtx{name: name, up: strings.ToUpper(name), val: val})
 }
 
 var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
@@ -546,16 +530,13 @@ var setRules = []rule{
 		refuse(errors.New("looks like a credential: store it with `claude-code vault set`, reference it as @secret:<NAME>"))},
 }
 
-// setRule checks one set entry; route reports a profile's route credential (providers.RouteSecretGuard).
-func setRule(name, val string, keep map[string]bool, flag bool, route func(string) bool) error {
-	if flag {
-		return flagSetRule(name, val)
-	}
+// setRule checks one set entry against rules; route reports a profile's route credential (providers.RouteSecretGuard).
+func setRule(rules []rule, name, val string, keep map[string]bool, route func(string) bool) error {
 	up := strings.ToUpper(name)
 	ref, isRef := providers.SecretRefName(name, val)
 	c := &ruleCtx{name: name, up: up, val: val, ref: ref, isRef: isRef, keep: keep, route: route,
 		reserved: envReserved(name, up)}
-	return runRules(setRules, c)
+	return runRules(rules, c)
 }
 
 // refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
@@ -574,6 +555,8 @@ func refRule(ref string, route func(string) bool) error {
 // overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
 const overlayDebugVar = "COWORKER_OVERLAY_DEBUG"
 
+const overlayDebugSaltVar = overlayDebugVar + "_SALT"
+
 // OverlayDebugOn reports whether RecordOverlayDebug writes: COWORKER_OVERLAY_DEBUG and its _SALT are both set.
 func OverlayDebugOn() bool {
 	path, salt := overlayDebugEnv()
@@ -581,7 +564,7 @@ func OverlayDebugOn() bool {
 }
 
 func overlayDebugEnv() (path, salt string) {
-	return os.Getenv(overlayDebugVar), os.Getenv(overlayDebugVar + "_SALT")
+	return os.Getenv(overlayDebugVar), os.Getenv(overlayDebugSaltVar)
 }
 
 type overlayDebugRecord struct {
@@ -600,12 +583,12 @@ func EnableOverlayDebug(path string) error {
 	if err != nil {
 		return err
 	}
-	if os.Getenv(overlayDebugVar+"_SALT") == "" {
+	if os.Getenv(overlayDebugSaltVar) == "" {
 		salt, err := overlayDebugSalt(abs + ".salt")
 		if err != nil {
 			return err
 		}
-		if err := os.Setenv(overlayDebugVar+"_SALT", salt); err != nil {
+		if err := os.Setenv(overlayDebugSaltVar, salt); err != nil {
 			return err
 		}
 	}

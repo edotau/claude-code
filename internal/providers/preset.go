@@ -355,24 +355,28 @@ func ContextWindow(p *Provider, id string) int {
 	return models.ContextWindowStd
 }
 
-// ServingRow checks that name is a Databricks serving-endpoints row, the only kind route databricks:<p> runs on.
+// ServingRow checks name is a Databricks serving row (route databricks:<p> runs on no other); errors never quote name.
 func ServingRow(name string) error {
 	reg, err := Load()
 	if err != nil {
-		return fmt.Errorf("overlay databricks:%s: %w", name, err)
+		return fmt.Errorf("overlay profile: %w", err)
 	}
-	return reg.ServingRow(name)
+	return servingRow(reg.Providers[name], "overlay profile")
 }
 
-// ServingRow is the package ServingRow against an already loaded r.
+// ServingRow is the package ServingRow against an already loaded r; its errors name the row (brief lines).
 func (r *Registry) ServingRow(name string) error {
-	switch p := r.Providers[name]; {
+	return servingRow(r.Providers[name], "overlay databricks:"+name)
+}
+
+func servingRow(p *Provider, label string) error {
+	switch {
 	case p == nil:
-		return fmt.Errorf("overlay databricks:%s: no such profile", name)
+		return fmt.Errorf("%s: no such profile", label)
 	case p.Preset != PresetDatabricks:
-		return fmt.Errorf("overlay databricks:%s: not a Databricks profile", name)
+		return fmt.Errorf("%s: not a Databricks profile", label)
 	case p.IsAIGateway():
-		return fmt.Errorf("overlay databricks:%s: AI Gateway row; use a serving row", name)
+		return fmt.Errorf("%s: AI Gateway row; use a serving row", label)
 	}
 	return nil
 }

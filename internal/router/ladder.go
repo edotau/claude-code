@@ -30,6 +30,14 @@ func ParseCoworker(v string) (provider, profile string, err error) {
 	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|")) // never quotes v
 }
 
+// JoinCoworker is ParseCoworker's inverse: provider[:profile]; a profile without a provider joins to "".
+func JoinCoworker(provider, profile string) string {
+	if provider == "" || profile == "" {
+		return provider
+	}
+	return provider + ":" + profile
+}
+
 // Confined is the non-Databricks confinement HARNESS_COWORKER names: its provider and optional profile; "" outside one.
 func Confined() (provider, profile string) {
 	provider, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
@@ -194,7 +202,7 @@ func (l pickLadder) dropReason() string {
 func (s Skip) Outside() bool { return s.Gate == gateLadder && strings.HasPrefix(s.Reason, "outside ") }
 
 // armOutside is the Skip reason for an account route databricks:<arm> sets aside.
-func armOutside(arm string) string { return "outside " + RouteDatabricks + ":" + arm }
+func armOutside(arm string) string { return "outside " + JoinCoworker(RouteDatabricks, arm) }
 
 // armSplit moves the wanted agent's off-workspace candidates into the rest: its own login ranks in tier 2 (D1).
 func (l pickLadder) armSplit(first, rest [][]Candidate) ([][]Candidate, [][]Candidate) {
