@@ -25,9 +25,7 @@ func stubWatcher(t *testing.T, ok bool) *[][]string {
 // With no subagents dir the main transcript's own mtime is the newest activity.
 func TestNewestActivityNoSubagentsDirReturnsMainMtime(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	if err := os.WriteFile(tr, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, tr, "{}\n")
 	mainMtime := time.Now().Add(-time.Hour)
 	if got := newestActivity(tr, mainMtime); !got.Equal(mainMtime) {
 		t.Fatalf("newestActivity with no subagents dir = %v, want the main mtime %v", got, mainMtime)
@@ -37,17 +35,13 @@ func TestNewestActivityNoSubagentsDirReturnsMainMtime(t *testing.T) {
 // A subagent transcript newer than the main one keeps the session live for the watcher.
 func TestNewestActivityNewerSubagentFileWins(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
-	if err := os.WriteFile(tr, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, tr, "{}\n")
 	subDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	agent := filepath.Join(subDir, "agent-a.jsonl")
-	if err := os.WriteFile(agent, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, agent, "{}\n")
 	mainMtime := time.Now().Add(-time.Hour)
 	newer := time.Now()
 	if err := os.Chtimes(agent, newer, newer); err != nil {

@@ -51,9 +51,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
-	if err := os.WriteFile(filepath.Join(StoreDir(), catalogFile), []byte("# Memory catalog\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(StoreDir(), catalogFile), "# Memory catalog\n")
 	got := sessionStartContext(t, s1, repo)
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)

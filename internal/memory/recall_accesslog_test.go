@@ -181,9 +181,7 @@ func TestMaybeTrimAccessLogDropsByAge(t *testing.T) {
 	for range accessLogMaxByte / 40 { // a busy log of in-window lines, far past the old 2000-line cap
 		b.WriteString(accessLines(now, []string{"busy0001"}, accessRecall))
 	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, path, b.String())
 	maybeTrimAccessLog(path, now)
 	data, _ := os.ReadFile(path)
 	if strings.Contains(string(data), "old00001") || !strings.Contains(string(data), "kept0001") {

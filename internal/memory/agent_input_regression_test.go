@@ -15,9 +15,7 @@ func TestCopilotFallbackExcludesFailedEdits(t *testing.T) {
 			data := `{"type":"tool.execution_start","data":{"toolCallId":"failed","toolName":"create","arguments":{"path":"/r/rejected.txt"}}}` + "\n" +
 				`{"type":"tool.execution_complete","data":{"toolCallId":"failed","success":false` + edits + `}}` + "\n" +
 				`{"type":"tool.execution_start","data":{"toolCallId":"pending","toolName":"create","arguments":{"path":"/r/pending.txt"}}}` + "\n"
-			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			write(t, path, data)
 			got := loadCopilotEvents(copilotEventsFrom(path, "/r"))
 			if got.Edits != 1 || fmt.Sprint(got.EditedPaths) != "[/r/pending.txt]" {
 				t.Fatalf("fallback edits=%d paths=%v, want only the unfailed pending edit", got.Edits, got.EditedPaths)
@@ -30,9 +28,7 @@ func TestAgentInputOpenFailurePreservesSynthTranscript(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	events := filepath.Join(t.TempDir(), "events.jsonl")
 	data := `{"type":"assistant.message","data":{"content":"Keep this transcript"}}` + "\n"
-	if err := os.WriteFile(events, []byte(data), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, events, data)
 	path, ok := SynthAgentTranscript(SourceCopilot, "stable-copilot", "/r", events)
 	before, err := os.ReadFile(path)
 	if !ok || err != nil {

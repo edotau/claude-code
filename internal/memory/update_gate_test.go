@@ -79,9 +79,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
-	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, tr, commit)
 	if got := countEdits(tr, countPath("commit-session")); got != updateMinEdits {
 		t.Fatalf("countEdits = %d, want %d (one git commit)", got, updateMinEdits)
 	}
@@ -307,9 +305,7 @@ func statSize(t *testing.T, path string) int64 {
 func TestCountStateOldFormatReadsAndNewFieldsRoundTrip(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	path := filepath.Join(t.TempDir(), "count-x")
-	if err := os.WriteFile(path, []byte("5|120"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, path, "5|120")
 	cs, ok := readCountState(path)
 	if ok || cs != (countState{}) {
 		t.Fatalf("old-format read = %+v ok=%v, want zero state forcing a full rescan", cs, ok)
@@ -328,13 +324,9 @@ func TestCountEditsOldFormatCountFileRescansUnweightedCommit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	commit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m x"}}]}}` + "\n"
-	if err := os.WriteFile(tr, []byte(commit), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, tr, commit)
 	countFile := filepath.Join(t.TempDir(), "count-old")
-	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d", len(commit)), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, countFile, fmt.Sprintf("0|%d", len(commit)))
 
 	if got := countEdits(tr, countFile); got != updateMinEdits {
 		t.Fatalf("countEdits after old-format upgrade = %d, want %d (the commit, now weighted)", got, updateMinEdits)
@@ -359,9 +351,7 @@ func TestCountEditsThreeFieldCountFileRescansTurns(t *testing.T) {
 	}
 	countFile := filepath.Join(t.TempDir(), "count-3field")
 	// Pre-upgrade "edits|offset|subEdits:subBytes": offset past every (uncounted) user turn.
-	if err := os.WriteFile(countFile, fmt.Appendf(nil, "0|%d|0:0", fi.Size()), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, countFile, fmt.Sprintf("0|%d|0:0", fi.Size()))
 	if got := countEdits(tr, countFile); got != 2 { // 4 turns / 2 per work unit
 		t.Fatalf("countEdits after 3-field upgrade = %d, want 2 (the 4 turns, now weighted)", got)
 	}
@@ -494,9 +484,7 @@ func TestCountSubagentEditsGarbageSidecarTreatedAsEmpty(t *testing.T) {
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	hosttest.WriteEdits(t, a, 2)
-	if err := os.WriteFile(sidecarPath(subDir), []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, sidecarPath(subDir), "{not json")
 
 	edits, totalBytes := subagentEdits(tr, 0, 0, true)
 	fi, err := os.Stat(a)

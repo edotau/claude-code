@@ -79,9 +79,7 @@ func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := "# Conventions\n\n- keep me <!-- id:aaaa0001 -->\n\n- promote me <!-- id:aaaa0002 -->\n"
-	if err := os.WriteFile(arch, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, arch, body)
 	if _, err := Promote(root, "aaaa0002", "home", false, time.Now()); err != nil {
 		t.Fatalf("Promote archived block: %v", err)
 	}

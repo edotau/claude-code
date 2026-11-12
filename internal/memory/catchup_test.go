@@ -23,9 +23,7 @@ func TestCatchUpSweepDryRunListsMissedSession(t *testing.T) {
 	edit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
 	for id, entry := range map[string]string{missed: "cli", worker: "sdk-cli"} {
 		tr := filepath.Join(dir, id+".jsonl")
-		if err := os.WriteFile(tr, []byte(`{"entrypoint":"`+entry+`"}`+"\n"+strings.Repeat(edit, 5)), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		write(t, tr, `{"entrypoint":"`+entry+`"}`+"\n"+strings.Repeat(edit, 5))
 		idle(t, tr, 20*time.Minute)
 	}
 	var out bytes.Buffer
@@ -47,9 +45,7 @@ func TestTranscriptInteractiveByEntrypoint(t *testing.T) {
 	dir := t.TempDir()
 	for entry, want := range map[string]bool{"cli": true, "claude-vscode": true, "claude-desktop": true, "sdk-cli": false, "sdk-ts": false} {
 		path := filepath.Join(dir, entry+".jsonl")
-		if err := os.WriteFile(path, []byte(`{"type":"queue-operation"}`+"\n"+`{"entrypoint":"`+entry+`"}`+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		write(t, path, `{"type":"queue-operation"}`+"\n"+`{"entrypoint":"`+entry+`"}`+"\n")
 		if got := transcriptInteractive(path); got != want {
 			t.Errorf("entrypoint %q interactive = %v, want %v", entry, got, want)
 		}

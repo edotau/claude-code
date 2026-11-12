@@ -87,9 +87,7 @@ func TestMemoryRootHonorsHarnessWorktreePointer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	worktree := t.TempDir()
 	pointer := "gitdir: " + filepath.Join(cfg, ".git", "worktrees", "x") + "\n"
-	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte(pointer), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(worktree, ".git"), pointer)
 	other := t.TempDir()
 	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
@@ -107,9 +105,7 @@ func TestMemoryRootHonorsConfigDirWorktree(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	pointer := "gitdir: " + filepath.Join(main, ".git", "worktrees", "x") + "\n"
-	if err := os.WriteFile(filepath.Join(cfg, ".git"), []byte(pointer), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(cfg, ".git"), pointer)
 	other := t.TempDir()
 	if out, err := exec.Command("git", "-C", other, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
@@ -247,7 +243,7 @@ func tempConfig(t *testing.T) string {
 	return cfg
 }
 
-func write(t *testing.T, path, body string) {
+func write(t testing.TB, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

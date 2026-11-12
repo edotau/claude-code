@@ -20,9 +20,7 @@ func writeTranscript(t *testing.T, lines ...string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "session.jsonl")
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
+	write(t, path, strings.Join(lines, "\n"))
 	return path
 }
 
@@ -64,9 +62,7 @@ func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	cwd := t.TempDir()
 	hosttest.In(t, cwd, "init", "-q")
-	if err := os.WriteFile(filepath.Join(cwd, "f.txt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(cwd, "f.txt"), "x")
 	hosttest.In(t, cwd, "add", "f.txt")
 	hosttest.In(t, cwd, "commit", "-q", "-m", "seed commit")
 

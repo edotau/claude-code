@@ -93,9 +93,7 @@ func writeBank(t *testing.T, rel, body string) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, p, body)
 }
 
 func recallEnv(t *testing.T) {

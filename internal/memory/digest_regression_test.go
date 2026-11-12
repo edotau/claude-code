@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,9 +37,7 @@ func TestDigestInputBoundsBeforeReading(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(arch, "b.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(arch, "a.md"), bytes.Repeat([]byte("x"), digestMaxInput), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(arch, "a.md"), strings.Repeat("x", digestMaxInput))
 	_, used, err := digestInput(dir)
 	if err == nil || !strings.Contains(err.Error(), "needs-scope") || !slices.Equal(used, []string{"a.md"}) {
 		t.Errorf("digestInput = %v, %v; want needs-scope before reading b.md, after using a.md", used, err)

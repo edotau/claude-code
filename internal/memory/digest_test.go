@@ -17,13 +17,9 @@ func digestFixture(t *testing.T, script string) (dir, fake, digest string) {
 	if err := os.MkdirAll(arch, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(arch, "sessionHistory-2026-10.md"), []byte("- 2026-10-01 did a thing\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(arch, "sessionHistory-2026-10.md"), "- 2026-10-01 did a thing\n")
 	digest = filepath.Join(arch, digestFile)
-	if err := os.WriteFile(digest, []byte("PREVIOUS\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, digest, "PREVIOUS\n")
 	fake = filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"+script), 0o700); err != nil {
 		t.Fatal(err)

@@ -390,9 +390,7 @@ var journalFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
-// Bounded, sanitized git for the nested local memory repo at StoreDir(). Explicit --git-dir and
-// --work-tree are what keep an inherited GIT_DIR or a missing .git from retargeting the OUTER ~/.claude checkout;
-// never call bare `git -C StoreDir()` here. Shares internal/proc's sanitized env with internal/configure (history.go).
+// Bounded git for the nested memory repo: explicit --git-dir/--work-tree keep a stray GIT_DIR off ~/.claude.
 
 // Repo is the nested memory repository rooted at Dir (its work tree); .git lives directly inside it.
 type Repo struct{ Dir string }
@@ -711,9 +709,7 @@ func (r Repo) run(args ...string) (string, error) {
 	return runGit(append(full, args...))
 }
 
-// runGit is the one exec seam, via internal/proc: env minus every GIT_* (an inherited GIT_DIR
-// overrides --git-dir), bounded, trimming ONLY trailing newlines (porcelain carries meaning in column 0).
-// full already carries its own -C/-c flags, so dir stays "" here to avoid a duplicate -C.
+// runGit is the one exec seam (internal/proc): env minus GIT_*, bounded, trims only trailing newlines; full carries -C.
 func runGit(full []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
