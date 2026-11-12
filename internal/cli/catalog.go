@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -39,9 +40,7 @@ func catalogSpec(name string) *helptext.Node {
 func catalogFlags(name, verb string) []helptext.Flag {
 	values := map[string]func() []string{"profile": providers.ProfileNames}
 	if name == "opencode" && verb != "" {
-		m := &opencodeOpts{verb: verb, format: new(string), fs: opencodeMenuFlags(verb)}
-		m.bind()
-		return helptext.FlagsOf(m.fs, values)
+		return helptext.FlagsOf(newOpencodeOpts(verb).fs, values)
 	}
 	return helptext.FlagsOf((&catalogOpts{name: name, verb: verb}).bind(), values)
 }
@@ -215,18 +214,26 @@ func (o *catalogOpts) check(p *providers.Provider, dialects, ids []string) int {
 	if o.all && len(ids) > 0 {
 		return helptext.FailUsage("%s catalog check: --all and explicit ids are exclusive", o.name)
 	}
-	res, err := discover(o.name, p.Name, configure.RecallModels)
+	return o.done(runCheck(o.name, p.Name, o.format,
+		func(res configure.ModelResult) ([]serving.CheckResult, error, error) {
+			return catalog.CheckUsable(p, res.Raw, dialects, ids, o.all, o.timeout)
+		}))
+}
+
+// runCheck discovers name's endpoints on profile, probes them, warns when the cache was not written, writes results.
+func runCheck(name, profile, format string, probe func(configure.ModelResult) ([]serving.CheckResult, error, error)) error {
+	res, err := discover(name, profile, configure.RecallModels)
 	if err != nil {
-		return o.done(err)
+		return err
 	}
-	results, cacheErr, err := catalog.CheckUsable(p, res.Raw, dialects, ids, o.all, o.timeout)
+	results, cacheErr, err := probe(res)
 	if err != nil {
-		return o.done(err)
+		return err
 	}
 	if cacheErr != nil {
-		fmt.Fprintf(os.Stderr, "%s catalog check: cache not written: %v\n", o.name, cacheErr)
+		fmt.Fprintf(os.Stderr, "%s catalog check: cache not written: %v\n", name, cacheErr)
 	}
-	return o.done(catalog.WriteCheck(os.Stdout, results, o.format))
+	return catalog.WriteCheck(os.Stdout, results, format)
 }
 
 // sync discovers p's endpoints and, with --apply, seals the snapshot; no menu or other state is written.
@@ -243,15 +250,22 @@ func (o *catalogOpts) sync(p *providers.Provider) error {
 		fmt.Println(line)
 	}
 	fmt.Printf("%s catalog sync: %d listed, %d usable by %s\n", o.name, len(snapshot.Models), len(res.Models), o.name)
-	if !o.apply {
-		fmt.Printf("%s catalog: dry run; no discovery writes; pass --apply to seal\n", o.name)
-		return nil
-	}
-	sealed, err := catalog.Seal(p, snapshot, false)
-	if err == nil && sealed {
-		fmt.Printf("%s catalog: discovery snapshot sealed in vault\n", o.name)
-	}
+	_, err = sealSync(os.Stdout, o.name, "no discovery writes; pass --apply to seal", o.apply,
+		func() (bool, error) { return catalog.Seal(p, snapshot, false) })
 	return err
+}
+
+// sealSync prints the dry-run note, or seals the snapshot and says so when it was new; ok means the seal ran clean.
+func sealSync(w io.Writer, name, dryRun string, apply bool, seal func() (bool, error)) (ok bool, err error) {
+	if !apply {
+		fmt.Fprintf(w, "%s catalog: dry run; %s\n", name, dryRun)
+		return false, nil
+	}
+	sealed, err := seal()
+	if err == nil && sealed {
+		fmt.Fprintf(w, "%s catalog: discovery snapshot sealed in vault\n", name)
+	}
+	return err == nil, err
 }
 
 // writeOpencodeMenu stores next; launches rebuild their config from the menu, so nothing else is refreshed.
@@ -327,21 +341,6 @@ func importOpencodeMenu(w io.Writer, file string, apply bool) error {
 	return writeOpencodeMenu(w, next, fmt.Sprintf("imported %d model(s)", len(next)))
 }
 
-func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider string, timeout time.Duration, format string) error {
-	res, err := discover("opencode", provider, configure.RecallModels)
-	if err != nil {
-		return err
-	}
-	results, cacheErr, err := catalog.MenuCheck(res.Provider, res.Raw, ids, all, timeout)
-	if err != nil {
-		return err
-	}
-	if cacheErr != nil {
-		fmt.Fprintf(errw, "opencode catalog check: cache not written: %v\n", cacheErr)
-	}
-	return catalog.WriteCheck(w, results, format)
-}
-
 // printSyncPlan writes the sync summary, the planned changes and the verify hint.
 func printSyncPlan(w io.Writer, pl catalog.SyncPlan, profile string, verify bool) {
 	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, verify) {
@@ -367,16 +366,8 @@ func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.Sy
 		return err
 	}
 	printSyncPlan(w, pl, profile, opts.Verify)
-	if !opts.Apply {
-		fmt.Fprintln(w, "opencode catalog: dry run; no discovery/menu writes; pass --apply to write")
-		return nil
-	}
-	sealed, err := pl.Seal()
-	if err != nil {
+	if ok, err := sealSync(w, "opencode", "no discovery/menu writes; pass --apply to write", opts.Apply, pl.Seal); !ok {
 		return err
-	}
-	if sealed {
-		fmt.Fprintln(w, "opencode catalog: discovery snapshot sealed in vault")
 	}
 	if len(pl.Changes) == 0 {
 		fmt.Fprintln(w, "opencode catalog: no menu change")
@@ -404,10 +395,6 @@ func opencodeMenuPage(verb string) helptext.Page {
 			"Preview serving models from authenticated cache or discovery; --apply writes."},
 	}[verb]
 	return helptext.Page{Usage: "claude-code opencode catalog " + usage[0], About: usage[1]}
-}
-
-func opencodeMenuFlags(verb string) *flag.FlagSet {
-	return helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
 }
 
 // opencodeSyncArgs validates `opencode catalog sync`'s arguments.
@@ -446,9 +433,10 @@ func (m *opencodeOpts) done(err error) int {
 	return 0
 }
 
-// bind registers the flags the verb takes: the shared ones first, then its own.
-func (m *opencodeOpts) bind() {
-	fs, verb := m.fs, m.verb
+// newOpencodeOpts binds the flags verb takes on a new FlagSet: the shared ones first, then its own.
+func newOpencodeOpts(verb string) *opencodeOpts {
+	fs := helptext.NewFlagSet("opencode catalog "+verb, opencodeMenuPage(verb))
+	m := &opencodeOpts{verb: verb, timeout: 30 * time.Second, format: new(string), fs: fs}
 	if verb == "list" || verb == "check" {
 		m.format = helptext.FormatFlag(fs)
 	}
@@ -456,6 +444,7 @@ func (m *opencodeOpts) bind() {
 		fs.StringVar(&m.provider, "profile", "", "workspace profile (default: opencode's record profile)")
 	}
 	m.bindVerb()
+	return m
 }
 
 func (m *opencodeOpts) bindVerb() {
@@ -483,8 +472,7 @@ func (m *opencodeOpts) bindVerb() {
 // runOpencodeMenu is `claude-code opencode catalog list|add|remove|import|reset|check|sync`.
 func runOpencodeMenu(args []string) int {
 	verb, rest := args[0], args[1:]
-	m := &opencodeOpts{verb: verb, timeout: 30 * time.Second, format: new(string), fs: opencodeMenuFlags(verb)}
-	m.bind()
+	m := newOpencodeOpts(verb)
 	pos, err := helptext.ParseArgs(m.fs, rest)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -535,7 +523,10 @@ func (m *opencodeOpts) check(pos []string) int {
 	if m.all && len(pos) > 0 {
 		return m.fail("--all and explicit ids are exclusive")
 	}
-	return m.done(checkOpencodeMenu(os.Stdout, os.Stderr, pos, m.all, m.provider, m.timeout, *m.format))
+	return m.done(runCheck("opencode", m.provider, *m.format,
+		func(res configure.ModelResult) ([]serving.CheckResult, error, error) {
+			return catalog.MenuCheck(res.Provider, res.Raw, pos, m.all, m.timeout)
+		}))
 }
 
 func (m *opencodeOpts) add(pos []string) int {

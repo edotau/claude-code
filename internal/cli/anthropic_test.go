@@ -33,7 +33,7 @@ func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 
 func TestAnthropicHelpMentionsFlags(t *testing.T) {
 	var b strings.Builder
-	anthropicHelp(&b)
+	anthropicFlags(&b).Usage()
 	for _, want := range []string{"--oauth", "--x-api-key", "--model"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("help lacks %s:\n%s", want, b.String())

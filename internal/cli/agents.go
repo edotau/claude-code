@@ -21,38 +21,10 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-// engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
-func engineNames() []string {
-	var out []string
-	for _, r := range agent.Engines() {
-		out = append(out, r.Name())
-	}
-	return out
-}
-
-func askSpecFlags() []helptext.Flag {
-	flag, boolFlag, valuedFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag
-	return []helptext.Flag{
-		valuedFlag("agent", engineNames), flag("agents"), valuedFlag("profile", providers.ProfileNames), flag("model"),
-		flag("effort"), flag("workdir"), flag("session"), boolFlag("tools"), boolFlag("read-only"), boolFlag("no-tools"), boolFlag("native"), flag("allow"), flag("ask"), flag("deny"),
-		valuedFlag("mode", func() []string { return []string{"default", "auto", "plan"} }),
-		flag("timeout"), flag("format"), flag("rubric"), flag("retry"), boolFlag("log"),
-		valuedFlag("fallback", func() []string { return router.FallbackModes }),
-		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("fleet"), boolFlag("enable-memory"),
-		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
-		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
-		flag("append-system-prompt"), flag("system-prompt"), flag("output-schema"), flag("env"), flag("provider"), flag("host"), flag("host-bin"),
-		boolFlag("live"), boolFlag("direct"), flag("retry-agent"),
-		boolFlag("diff"), flag("dirs"), flag("files"), boolFlag("index"), flag("max-files"), flag("max-file-bytes"),
-		boolFlag("follow"), flag("follow-idle"), flag("overlay-debug"), boolFlag("stdin-framed"),
-	}
-}
 
 // agentsSpec is the completion node for the agents verb.
 func agentsSpec() *helptext.Node {
@@ -65,7 +37,7 @@ func agentsSpec() *helptext.Node {
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
 		"list":  {Flags: []helptext.Flag{flag("host"), flag("host-bin"), formatFlag()}},
-		"ask":   {Flags: askSpecFlags()},
+		"ask":   {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("output-schema")}},
@@ -85,7 +57,7 @@ func agentSpec(name string) func() *helptext.Node {
 func agentNode(name string) *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"ask":    {Flags: askSpecFlags()},
+		"ask":    {Flags: ask.CompletionFlags()},
 		"resume": {},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
 			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model")}},

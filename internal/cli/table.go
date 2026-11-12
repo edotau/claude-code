@@ -9,11 +9,14 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
+	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -337,3 +340,44 @@ func cmdVersion(args []string) int {
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
 }
+
+// hookSpec is the completion node for the hook verb.
+func hookSpec() *helptext.Node { return &helptext.Node{Args: []func() []string{settings.HookEvents}} }
+
+// hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
+func hookPage() helptext.Page {
+	return helptext.Page{
+		Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
+		About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
+		Hint: settings.HookModules() + "\n" + settings.HookHelp("events:  ", settings.HookEvents()) +
+			"\n<Event> alone runs the dispatcher; --<module> one module; --all every module",
+	}
+}
+
+// cmdHook runs one lifecycle hook.
+func cmdHook(args []string) int {
+	if code, ok := helpOrBare(hookPage(), args); ok {
+		return code
+	}
+	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
+}
+
+// cmdTest dispatches `test <sub>`: test tooling.
+func cmdTest(args []string) int {
+	if len(args) > 0 && args[0] == "ramdisk" {
+		return ramdisk.Run(args[1:])
+	}
+	if code, ok := helpOrBare(testPage, args); ok {
+		return code
+	}
+	return unknownSub("test", args[0], testPage)
+}
+
+var testPage = helptext.Page{
+	Usage:    "claude-code test <command>",
+	About:    "Test tooling.",
+	Commands: [][2]string{{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"}},
+}
+
+// testSpec is the completion node for the test verb tree.
+func testSpec() *helptext.Node { return &helptext.Node{Sub: map[string]*helptext.Node{"ramdisk": {}}} }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -11,10 +12,7 @@ import (
 
 // anthropicSpec is the completion node for the anthropic verb.
 func anthropicSpec() *helptext.Node {
-	flag, boolFlag := helptext.Plain, helptext.BoolFlag
-	return &helptext.Node{Sub: map[string]*helptext.Node{"science": {}},
-		Flags: []helptext.Flag{boolFlag("oauth"), boolFlag("x-api-key"), flag("model"), flag("profile"),
-			boolFlag("print-env"), flag("keep-env"), flag("overlay")}}
+	return &helptext.Node{Sub: map[string]*helptext.Node{"science": {}}, Flags: helptext.FlagsOf(anthropicFlags(io.Discard), nil)}
 }
 
 // cmdClaude is `claude-code claude`: Claude Code on the selected profile.
@@ -37,9 +35,10 @@ var anthropicPage = helptext.Page{
 	Hint:     "claude-code anthropic " + helptext.DocsFlag + " prints claude's own help.",
 }
 
-// anthropicHelp renders the page with its flag rows; the flags are parsed by claude.LaunchAnthropic.
-func anthropicHelp(w io.Writer) {
+// anthropicFlags documents the flags claude.LaunchAnthropic parses; its Usage renders the page to w.
+func anthropicFlags(w io.Writer) *flag.FlagSet {
 	fs := helptext.NewFlagSet("anthropic", anthropicPage)
+	fs.SetOutput(w)
 	fs.Bool("oauth", false, "setup-token login; =NAME picks the vault key")
 	fs.Bool("x-api-key", false, "API key login; =NAME picks the vault key")
 	fs.String("model", "", "opus|sonnet|haiku|fable, a version (opus-5-5) or wire id")
@@ -47,9 +46,7 @@ func anthropicHelp(w io.Writer) {
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
 	fs.String("overlay", "", "env layer {set,unset,keep}: file, inline JSON, or -")
-	p := anthropicPage
-	p.Flags = fs
-	p.Fprint(w)
+	return fs
 }
 
 // cmdAnthropic is `claude-code anthropic`: Claude Code on Anthropic with a login, OAuth token or API key.
@@ -58,7 +55,7 @@ func cmdAnthropic(args []string) int {
 		return claude.LaunchScience(args[1:])
 	}
 	if len(args) > 0 && helptext.WantsHelp(args[:1]) { // only a leading help flag; `anthropic mcp --help` goes to claude
-		anthropicHelp(os.Stdout)
+		anthropicFlags(os.Stdout).Usage()
 		return 0
 	}
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
