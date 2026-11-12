@@ -36,9 +36,7 @@ func SegmentsSep(cmd string) (out, seps []string) {
 			b.WriteByte(c)
 			i++
 			c = cmd[i]
-		case c == '&' && redirectAmp(cmd, i):
-			// `2>&1`, `<&3` and `&>file` are redirections, not backgrounding
-		case strings.IndexByte(";|&\n", c) >= 0:
+		case separatorStarts(cmd, i):
 			sep, end := separatorAt(cmd, i)
 			out, seps = append(out, b.String()), append(seps, sep)
 			b.Reset()
@@ -48,6 +46,11 @@ func SegmentsSep(cmd string) (out, seps []string) {
 		b.WriteByte(c)
 	}
 	return append(out, b.String()), append(seps, "")
+}
+
+// separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3` and `&>file` redirections are not one.
+func separatorStarts(cmd string, i int) bool {
+	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && !(cmd[i] == '&' && redirectAmp(cmd, i))
 }
 
 // redirectAmp reports a `&` that follows `>`/`<` or precedes `>`, a redirection rather than a separator.
@@ -78,7 +81,7 @@ func Tokens(seg string) []string {
 	}
 	for i := 0; i < len(seg); i++ {
 		c := seg[i]
-		if c == '\\' && quote != '\'' && i+1 < len(seg) && seg[i+1] == '\n' {
+		if lineContinuation(seg, i, quote) {
 			i++ // backslash-newline is a line continuation: removed, so the words on either side join
 			continue
 		}
@@ -102,6 +105,11 @@ func Tokens(seg string) []string {
 	return trimGroupOpen(out)
 }
 
+// lineContinuation reports a backslash-newline at seg[i] outside single quotes.
+func lineContinuation(seg string, i int, quote byte) bool {
+	return seg[i] == '\\' && quote != '\'' && i+1 < len(seg) && seg[i+1] == '\n'
+}
+
 // dollarBraceEnd is braceExpansionEnd when seg[i] is `$`, else -1.
 func dollarBraceEnd(seg string, i int) int {
 	if seg[i] != '$' {
@@ -112,7 +120,7 @@ func dollarBraceEnd(seg string, i int) int {
 
 // braceExpansionEnd is the index of the `}` closing a `${` at seg[i], or -1 when seg[i:] opens none.
 func braceExpansionEnd(seg string, i int) int {
-	if i+1 >= len(seg) || seg[i+1] != '{' {
+	if !braceAt(seg, i+1) {
 		return -1
 	}
 	depth := 1
@@ -127,7 +135,7 @@ func braceExpansionEnd(seg string, i int) int {
 			}
 			j = k
 		case '$':
-			if j+1 < len(seg) && seg[j+1] == '{' {
+			if braceAt(seg, j+1) {
 				depth++
 				j++
 			}
@@ -139,6 +147,9 @@ func braceExpansionEnd(seg string, i int) int {
 	}
 	return -1
 }
+
+// braceAt reports a `{` at seg[i].
+func braceAt(seg string, i int) bool { return i < len(seg) && seg[i] == '{' }
 
 // quotedEnd is the index of the quote closing the one opened at seg[i], or -1 when unterminated.
 func quotedEnd(seg string, i int) int {
@@ -217,10 +228,7 @@ func dqEscapable(c byte) bool {
 	return c == '"' || c == '\\' || c == '$' || c == '`'
 }
 
-// ExtractSubstitutions pulls `$(...)` and backtick command substitutions out of cmd — including inside
-// double quotes, where the shell evaluates both — leaving a placeholder space so neighboring tokens don't
-// glue; single-quoted text is literal, so a substitution there is left untouched. Returns the bodies for
-// the caller to check separately: they run as their own nested command, not inline in the outer segment.
+// ExtractSubstitutions pulls $(...), backtick and unquoted <(...)/>(...) bodies out of cmd, leaving a space each.
 func ExtractSubstitutions(s string) (string, []string) { return extractSubstitutions(s, " ") }
 
 // subMask replaces a substitution where a caller must tell "a word was here" from nothing (git's verb position).
@@ -246,7 +254,7 @@ func extractSubstitutions(s, mask string) (string, []string) {
 		case c == '"':
 			quote = toggleDoubleQuote(quote)
 		default:
-			if body, end, ok := substitutionAt(s, i); ok {
+			if body, end, ok := substitutionAt(s, i, quote); ok {
 				subs = append(subs, body)
 				i = end
 				out.WriteString(mask)
@@ -271,10 +279,11 @@ func toggleDoubleQuote(quote byte) byte {
 	return '"'
 }
 
-// substitutionAt reports a complete `$(…)` or backtick substitution starting at s[i]: its body and closing index.
-func substitutionAt(s string, i int) (string, int, bool) {
+// substitutionAt reports a complete `$(…)`, backtick or (outside quotes) `<(…)`/`>(…)` substitution at s[i]:
+// its body and closing index.
+func substitutionAt(s string, i int, quote byte) (string, int, bool) {
 	switch {
-	case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
+	case (s[i] == '$' || quote == 0 && (s[i] == '<' || s[i] == '>')) && i+1 < len(s) && s[i+1] == '(':
 		if end := matchParen(s, i+1); end >= 0 {
 			return s[i+2 : end], end, true
 		}

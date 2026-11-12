@@ -80,9 +80,10 @@ func BinDir() string { return filepath.Join(ConfigDir(), "bin") }
 
 // BackupPath maps src to its mirrored backup location under StateDir, tagged with now; pure, no I/O.
 func BackupPath(src string, now time.Time) string {
-	rel := strings.TrimPrefix(src, string(filepath.Separator))
+	sep := string(filepath.Separator)
+	rel := strings.TrimPrefix(filepath.Join(sep, src), sep) // a rooted Join drops leading ".."
 	if home, err := os.UserHomeDir(); err == nil {
-		if r, err := filepath.Rel(home, src); err == nil && !strings.HasPrefix(r, "..") {
+		if r, err := filepath.Rel(home, src); err == nil && r != ".." && !strings.HasPrefix(r, ".."+sep) {
 			rel = r
 		}
 	}

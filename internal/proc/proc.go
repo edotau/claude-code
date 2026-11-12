@@ -138,17 +138,30 @@ func (w *capBuffer) Write(p []byte) (int, error) {
 	return w.buf.Write(p)
 }
 
-// OutputCapped is cmd.Output() with stdout held to MaxCaptureBytes: over it, the command fails with an over-cap error.
+// headBuffer keeps the first max bytes written and silently drops the rest, so the child is never cut off.
+type headBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (w *headBuffer) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); room > 0 {
+		w.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+// OutputCapped is cmd.Output() with stdout capped at MaxCaptureBytes (over it, an error) and stderr truncated to it.
 func OutputCapped(cmd *exec.Cmd) ([]byte, error) {
 	stdout := &capBuffer{max: MaxCaptureBytes}
-	var stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = stdout, &stderr
+	stderr := &headBuffer{max: MaxCaptureBytes}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
 	if stdout.over { // the child's SIGPIPE exit would otherwise mask the cap
 		return stdout.buf.Bytes(), fmt.Errorf("output over %d bytes", stdout.max)
 	}
 	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.Stderr == nil {
-		ee.Stderr = stderr.Bytes()
+		ee.Stderr = stderr.buf.Bytes()
 	}
 	return stdout.buf.Bytes(), err
 }

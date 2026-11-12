@@ -270,14 +270,25 @@ func ancestorIsRoot(real string, roots []string) bool {
 	}
 }
 
-// secretRoots lists the secret directories under home, both as named and as their symlink targets.
+// secretHomeDirs are the credential files and directories under home the bridge never serves.
+var secretHomeDirs = []string{
+	".ssh", ".gnupg", "Library/Keychains", ".claude/state",
+	".aws", ".netrc", ".config/gh", ".config/gcloud", ".kube", ".docker",
+	".databrickscfg", ".npmrc", ".git-credentials", ".pypirc", ".azure", ".config/databricks", ".codex",
+	".local/share/opencode", ".copilot", ".config/op", ".zsh_history", ".bash_history",
+}
+
+// secretRoots lists the secret paths under home plus the config dir's state, both as named and as symlink targets.
 func secretRoots(home string) []string {
 	var roots []string
-	for _, d := range []string{
-		".ssh", ".gnupg", "Library/Keychains", ".claude/state",
-		".aws", ".netrc", ".config/gh", ".config/gcloud", ".kube", ".docker",
-	} {
-		p := filepath.Join(home, filepath.FromSlash(d))
+	var named []string
+	if cfg := paths.ConfigDir(); cfg != "" {
+		named = append(named, filepath.Join(cfg, "state"))
+	}
+	for _, d := range secretHomeDirs {
+		named = append(named, filepath.Join(home, filepath.FromSlash(d)))
+	}
+	for _, p := range named {
 		roots = append(roots, p)
 		if r, err := filepath.EvalSymlinks(p); err == nil {
 			roots = append(roots, r)
@@ -313,60 +324,17 @@ func FetchClient(path string) (local string, err error) {
 
 // fetchFrom is FetchClient with the socket and drop directory injected.
 func fetchFrom(sock, path, dropDir string) (string, error) {
-	if err := checkSocket(sock); err != nil {
+	data, err := requestFile(sock, path)
+	if err != nil {
 		return "", err
-	}
-	d := net.Dialer{Timeout: sshTimeout}
-	conn, err := d.DialContext(context.Background(), "unix", sock)
-	if err != nil {
-		return "", fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
-	req, _ := json.Marshal(bridgeReq{V: 1, Op: "file", Path: path})
-	if _, err := conn.Write(append(req, '\n')); err != nil {
-		return "", fmt.Errorf("clipboard bridge write: %w", err)
-	}
-	br := bufio.NewReaderSize(conn, 4096)
-	if head, _ := br.Peek(len(pngMagic)); bytes.Equal(head, pngMagic) {
-		return "", errors.New("the Mac side is an old PNG-only bridge: run make install on the Mac")
-	}
-	line, err := br.ReadSlice('\n')
-	if err != nil {
-		return "", fmt.Errorf("clipboard bridge sent no file header: %w", err)
-	}
-	var hdr struct {
-		OK   bool   `json:"ok"`
-		Size int64  `json:"size"`
-		Err  string `json:"err"`
-	}
-	if err := json.Unmarshal(line, &hdr); err != nil {
-		return "", fmt.Errorf("clipboard bridge sent a bad header: %w", err)
-	}
-	if !hdr.OK {
-		return "", fmt.Errorf("clipboard bridge refused %s: %s", path, hdr.Err)
-	}
-	if hdr.Size < 0 || hdr.Size > sshMaxPNG {
-		return "", fmt.Errorf("clipboard bridge announced %d bytes (cap %d MiB)", hdr.Size, sshMaxPNG>>20)
-	}
-	data := make([]byte, hdr.Size)
-	if _, err := io.ReadFull(br, data); err != nil {
-		return "", fmt.Errorf("clipboard bridge file read: %w", err)
 	}
 	// the Mac path's basename, not the reply's name, so the remote cannot steer the write
 	name := filepath.Base(strings.ReplaceAll(path, "\\", "/"))
 	if name == "." || name == "/" || name == ".." {
 		return "", fmt.Errorf("no file name in %q", path)
 	}
-	if err := os.MkdirAll(dropDir, 0o700); err != nil {
+	if err := checkDropDir(dropDir); err != nil {
 		return "", err
-	}
-	fi, err := os.Lstat(dropDir)
-	if err != nil {
-		return "", err
-	}
-	if uid, ok := paths.OwnerUID(fi); !fi.IsDir() || !ok || uid != os.Getuid() || fi.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("%s is not a private directory owned by you", dropDir)
 	}
 	local, err := claimDropPath(dropDir, name)
 	if err != nil {
@@ -377,6 +345,75 @@ func fetchFrom(sock, path, dropDir string) (string, error) {
 		return "", err
 	}
 	return local, nil
+}
+
+// checkDropDir creates dropDir if missing and requires it be a private directory owned by the caller.
+func checkDropDir(dropDir string) error {
+	if err := os.MkdirAll(dropDir, 0o700); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(dropDir)
+	if err != nil {
+		return err
+	}
+	if uid, ok := paths.OwnerUID(fi); !fi.IsDir() || !ok || uid != os.Getuid() || fi.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%s is not a private directory owned by you", dropDir)
+	}
+	return nil
+}
+
+// requestFile asks the bridge on sock for the Mac file at path and returns its bytes.
+func requestFile(sock, path string) ([]byte, error) {
+	if err := checkSocket(sock); err != nil {
+		return nil, err
+	}
+	d := net.Dialer{Timeout: sshTimeout}
+	conn, err := d.DialContext(context.Background(), "unix", sock)
+	if err != nil {
+		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
+	req, _ := json.Marshal(bridgeReq{V: 1, Op: "file", Path: path})
+	if _, err := conn.Write(append(req, '\n')); err != nil {
+		return nil, fmt.Errorf("clipboard bridge write: %w", err)
+	}
+	br := bufio.NewReaderSize(conn, 4096)
+	if head, _ := br.Peek(len(pngMagic)); bytes.Equal(head, pngMagic) {
+		return nil, errors.New("the Mac side is an old PNG-only bridge: run make install on the Mac")
+	}
+	size, err := readFileHeader(br, path)
+	if err != nil {
+		return nil, err
+	}
+	data := make([]byte, size)
+	if _, err := io.ReadFull(br, data); err != nil {
+		return nil, fmt.Errorf("clipboard bridge file read: %w", err)
+	}
+	return data, nil
+}
+
+// readFileHeader reads the bridge's header line for path and returns the announced size, within the cap.
+func readFileHeader(br *bufio.Reader, path string) (int64, error) {
+	line, err := br.ReadSlice('\n')
+	if err != nil {
+		return 0, fmt.Errorf("clipboard bridge sent no file header: %w", err)
+	}
+	var hdr struct {
+		OK   bool   `json:"ok"`
+		Size int64  `json:"size"`
+		Err  string `json:"err"`
+	}
+	if err := json.Unmarshal(line, &hdr); err != nil {
+		return 0, fmt.Errorf("clipboard bridge sent a bad header: %w", err)
+	}
+	if !hdr.OK {
+		return 0, fmt.Errorf("clipboard bridge refused %s: %s", path, hdr.Err)
+	}
+	if hdr.Size < 0 || hdr.Size > sshMaxPNG {
+		return 0, fmt.Errorf("clipboard bridge announced %d bytes (cap %d MiB)", hdr.Size, sshMaxPNG>>20)
+	}
+	return hdr.Size, nil
 }
 
 // claimDropPath reserves dropDir/name, or name-N.ext when taken, so an earlier fetch is never overwritten.
@@ -499,8 +536,9 @@ func InstallLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 
 // printSSHHint tells the owner the remote host's ~/.ssh/config lines the bridge needs; it never writes that file.
 func printSSHHint(w io.Writer, home string) {
-	fmt.Fprintf(w, "  %-17s add to this Mac's ~/.ssh/config, the SSH client (replace <remote-user> with your login on the remote):\n", "clip bridge")
+	fmt.Fprintf(w, "  %-17s add to this Mac's ~/.ssh/config, the SSH client:\n", "clip bridge")
 	fmt.Fprintf(w, "      RemoteForward /tmp/claude-clip-<remote-user>.sock %s\n      StreamLocalBindUnlink yes\n", launchSocket(home))
+	fmt.Fprintln(w, "      (replace <remote-user> with your login on the remote)")
 }
 
 // installLaunchAgentAt is InstallLaunchAgent without the darwin gate; an unchanged plist skips the reload.

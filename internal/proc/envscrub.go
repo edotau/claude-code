@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Shared launch environment names keep route wiring and inherited-env scrubbing aligned.
+// Shared launch environment names keep overlay wiring and inherited-env scrubbing aligned.
 const (
 	CopilotProviderPrefix             = "COPILOT_PROVIDER_"
 	EnvCopilotProvidersConfig         = "COPILOT_PROVIDERS_CONFIG"
@@ -48,9 +48,9 @@ var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }...)
 
-// OwnLoginEnv is each agent's own sign-in credential env by agent name; a Databricks route hop holds none of them.
+// OwnLoginEnv is each agent's own sign-in credential env by agent name; a Databricks overlay hop holds none of them.
 var OwnLoginEnv = map[string][]string{
-	"claude": {"CLAUDE_CODE_OAUTH_TOKEN", EnvAnthropicAPIKey}, // ANTHROPIC_AUTH_TOKEN is route wiring, not a login
+	"claude": {"CLAUDE_CODE_OAUTH_TOKEN", EnvAnthropicAPIKey}, // ANTHROPIC_AUTH_TOKEN is overlay wiring, not a login
 	"codex":  {"OPENAI_API_KEY"},
 	"copilot": {"COPILOT_GITHUB_TOKEN", "COPILOT_SDK_AUTH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN",
 		"GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN"},
