@@ -38,15 +38,9 @@ var _ agent.Engine = claudeAgent
 func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
-	if req.NoTools { // the one-shot has no system-prompt or schema channel; those go through the claude process
-		if req.Tools {
-			return wire.Result{}, errors.New("claude: --no-tools and --tools are exclusive")
-		}
-		// a session must resume through the claude process: the stateless one-shot would silently drop it
-		if req.SessionID == "" && req.SystemPrompt == "" && req.AppendSystemPrompt == "" && req.OutputSchema == "" && req.Persona == nil {
-			if res, done, err := claudeOneShot(ctx, req, sink); done {
-				return res, err
-			}
+	if req.NoTools {
+		if res, done, err := runNoTools(ctx, req, sink); done {
+			return res, err
 		}
 	}
 	if err := refuseUnmappedDeny(req.Permissions); err != nil {
@@ -57,6 +51,18 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 		return wire.Result{}, err
 	}
 	return claudeExec(ctx, req, prompt, sink)
+}
+
+// runNoTools takes the HTTP one-shot; done is false when the request needs the claude process instead.
+func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, bool, error) {
+	if req.Tools {
+		return wire.Result{}, true, errors.New("claude: --no-tools and --tools are exclusive")
+	}
+	// the one-shot has no system-prompt or schema channel and a session must resume through the process
+	if req.SessionID != "" || req.SystemPrompt != "" || req.AppendSystemPrompt != "" || req.OutputSchema != "" || req.Persona != nil {
+		return wire.Result{}, false, nil
+	}
+	return claudeOneShot(ctx, req, sink)
 }
 
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
@@ -108,7 +114,7 @@ func toolArgs(req agent.RunOptions) []string {
 	return []string{"--exclude-dynamic-system-prompt-sections"} // per-session sections defeat the prompt cache
 }
 
-// planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, which a bare plan mode does not.
+// planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, unlike bare plan mode.
 var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
 // gatewayAllow is a --tools leaf's base allow list off Anthropic, where dontAsk denies whatever no rule matches.
@@ -169,6 +175,11 @@ func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []st
 	if p.Mode == "plan" && tools {
 		p.Deny = append(slices.Clone(p.Deny), planDeny...)
 	}
+	return append(append(ruleArgs(p), permissionModeArgs(p.Mode, anthropic)...), "--permission-prompts", "none")
+}
+
+// ruleArgs is --allowedTools and --disallowedTools with their rules, each omitted when empty.
+func ruleArgs(p agent.Permissions) []string {
 	var args []string
 	for _, l := range []struct {
 		flag  string
@@ -181,17 +192,22 @@ func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []st
 			}
 		}
 	}
-	switch {
-	case p.Mode == "plan":
-	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
-		args = append(args, "--permission-mode", "auto")
-	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied
-		args = append(args, "--permission-mode", "dontAsk")
-	}
-	return append(args, "--permission-prompts", "none")
+	return args
 }
 
-// refuseUnmappedDeny fails closed: claude takes any "Tool(arg)" rule natively, so only a nameless Deny rule cannot be enforced.
+// permissionModeArgs is the --permission-mode pair; plan sets none.
+func permissionModeArgs(mode string, anthropic bool) []string {
+	switch {
+	case mode == "plan":
+		return nil
+	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
+		return []string{"--permission-mode", "auto"}
+	default: // auto's judge calls a fixed Anthropic model other providers don't serve, so unmatched calls are denied
+		return []string{"--permission-mode", "dontAsk"}
+	}
+}
+
+// refuseUnmappedDeny fails closed: claude takes any "Tool(arg)" rule, so only a nameless Deny rule cannot be enforced.
 func refuseUnmappedDeny(p agent.Permissions) error {
 	for _, r := range p.Deny {
 		if r.Tool == "" {
@@ -301,8 +317,12 @@ func (ev claudeEvent) text() string {
 	return s
 }
 
-// parseClaudeEvents stops at the first result when untilResult is set, preserving buffered lines for the next turn.
-// spoke (may be nil) fires once, on the first top-level model output.
+// isModelOutput reports a top-level assistant, stream_event or result event: the first sign the model spoke.
+func (ev claudeEvent) isModelOutput() bool {
+	return ev.ParentToolUseID == "" && (ev.Type == "assistant" || ev.Type == "stream_event" || ev.Type == "result")
+}
+
+// parseClaudeEvents stops at the first result if untilResult (lines stay buffered); spoke (nil ok) fires once.
 func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink wire.Sink, spoke func(),
 	logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
@@ -317,7 +337,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
 		msg := ev.topMessage()
 		wd.observe(ev, msg)
-		if !spoken && ev.ParentToolUseID == "" && (ev.Type == "assistant" || ev.Type == "stream_event" || ev.Type == "result") {
+		if !spoken && ev.isModelOutput() {
 			spoken = true
 			spoke()
 		}
@@ -449,8 +469,8 @@ func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 	return nil
 }
 
-func claudeAttach(prompt string, paths []string, tools bool) (string, error) {
-	images, rest := agent.SplitImages(paths)
+func claudeAttach(prompt string, attach []string, tools bool) (string, error) {
+	images, rest := agent.SplitImages(attach)
 	if len(images) > 0 && !tools {
 		return "", fmt.Errorf("--%w %s: image attach needs tools for claude", agent.ErrBadAttach, images[0])
 	}
@@ -525,8 +545,7 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 	return agent.WriteJSONLine(w, map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": prompt}})
 }
 
-// parse prices the turn alone: claude's total_cost_usd accumulates over the process, its token counts do not.
-// A silent child is killed after claudeIdleLimit, so a turn cannot stay busy forever.
+// Parse prices the turn alone (total_cost_usd accumulates over the process); a silent child is killed when idle.
 func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	wd := newIdleWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
 	defer wd.Stop()
@@ -554,7 +573,7 @@ func (claudeEngine) AuthStatus() providers.AuthState {
 	return providers.AuthState{Present: true, Source: "claude.ai login", Method: providers.AuthCLI, PlanHint: strings.Trim(plan, " ()")}
 }
 
-// Plan is the plan name ~/.claude.json shows ("Ultra"), else the rate limit ("Ultra", "Max 5x"), else the bare plan; offline.
+// Plan is the plan name ~/.claude.json shows ("Ultra"), else the rate limit ("Max 5x"), else the bare plan; offline.
 func (claudeEngine) Plan(_ context.Context, st providers.AuthState) providers.Subscription {
 	acct := providers.ClaudeAccount()
 	raw := acct.Tier()

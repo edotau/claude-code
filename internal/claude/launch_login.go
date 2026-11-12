@@ -42,7 +42,7 @@ func offerLogin(ctx context.Context, o agent.LaunchOptions, args []string, ps []
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: %v", p.Name, err))
 		}
 	}
-	if loggedIn { // models differ per account: refresh copilot's and opencode's lists once, detached
+	if loggedIn { // models differ per account: refresh every discover target's model list once, detached
 		if reg, err := providers.Load(); err == nil {
 			preflight.DiscoverAfterAuth(reg)
 		}
