@@ -1519,6 +1519,66 @@ func checkArmChildEnv(t *testing.T, name, goos string) {
 	}
 }
 
+// Under --fallback none a databricks:dev ask is exactly one launch: no own-login hop runs inside the arm env.
+func TestArmChildEnvFallbackNoneOneHop(t *testing.T) {
+	dump := armChildEnvFixture(t)
+	code, _, stderr := runCLI(t, "ask", "--agent", "codex", "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "none", "go")
+	bins, envs := armDumps(t, dump)
+	if code == 0 || !slices.Equal(bins, []string{"codex"}) {
+		t.Fatalf("exit %d launches %v, want only codex's dev hop\n%s", code, bins, stderr)
+	}
+	assertArmDevHop(t, "codex", "linux", envs[0])
+}
+
+// --retry of a databricks:dev run re-arms dev with no --overlay, and refuses a --profile leaving it.
+func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
+	dump := armChildEnvFixture(t)
+	runCLI(t, "ask", "--agent", "codex", "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "none", "go")
+	recs := agent.RecentRecords(1)
+	if len(recs) != 1 {
+		t.Fatalf("armed run saved %d records, want 1", len(recs))
+	}
+	unarm := func() { // the armed run exported its confinement into this process and cooled dev on its 402
+		if err := os.Remove(router.StatePath()); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(router.EnvCoworker, "")
+		t.Setenv(providers.EnvSessionProfile, "qa")
+		t.Setenv(agentconfig.OverlayVar, "")
+	}
+	unarm()
+	code, _, stderr := runCLI(t, "ask", "--retry", recs[0].ID)
+	bins, envs := armDumps(t, dump)
+	if code == 0 || !slices.Equal(bins, []string{"codex", "codex"}) {
+		t.Fatalf("retry exit %d launches %v, want one more codex dev hop\n%s", code, bins, stderr)
+	}
+	assertArmDevHop(t, "codex", "linux", envs[1])
+	unarm()
+	code, _, stderr = runCLI(t, "ask", "--retry", recs[0].ID, "--profile", "chatgpt")
+	if bins, _ = armDumps(t, dump); code != 2 || !strings.Contains(stderr, "--profile chatgpt: outside overlay databricks:dev") || len(bins) != 2 {
+		t.Fatalf("retry --profile chatgpt: exit %d launches %v stderr %q, want 2 refusing outside databricks:dev", code, bins, stderr)
+	}
+}
+
+// --native is refused under any confinement: opencode's own default login is outside every overlay provider.
+func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
+	dump := armChildEnvFixture(t)
+	for _, c := range []struct{ agent, overlay, want string }{
+		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks:dev"},
+		{"codex", `{"provider":"openai"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
+	} {
+		t.Setenv(router.EnvCoworker, "")
+		t.Setenv(providers.EnvSessionProfile, "qa")
+		code, _, stderr := runCLI(t, "ask", "--agent", c.agent, "--native", "--overlay", c.overlay, "go")
+		if code != 2 || !strings.Contains(stderr, c.want) {
+			t.Errorf("%s: exit %d stderr %q, want 2 with %q", c.overlay, code, stderr, c.want)
+		}
+	}
+	if bins, _ := armDumps(t, dump); len(bins) != 0 || len(agent.RecentRecords(1)) != 0 {
+		t.Fatalf("refused --native launched %v or saved a record", bins)
+	}
+}
+
 const acmeProvider = `"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}`
 
 // profileFixture isolates the vault and seeds provider acme (no opencodeID) plus, when active is set, a "work" set.

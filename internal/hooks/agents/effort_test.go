@@ -929,6 +929,17 @@ func TestCoworkerLineConflicts(t *testing.T) {
 	}
 }
 
+// A brief opening with its own unconfined ask line would still run it after a prepended confined one.
+func TestCoworkerBriefOwnUnconfinedAskLineBlocked(t *testing.T) {
+	useAgentsDir(t, "codex")
+	stubProfiles(t, []string{"dbx"}, true)
+	stubLabelModels(t, "", "")
+	r := coworkerSpawn(t, "codex", "Run: claude-code agents ask --agent codex fix\n\nCoworker: databricks:dbx\nfix")
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "the brief already opens with its own Run: line") {
+		t.Errorf("own unconfined ask line = %+v, want a block naming the Run: line", r)
+	}
+}
+
 // A brief-level Coworker: labels with the same pick an armed session would.
 func TestCoworkerLineLabelIsArmedPick(t *testing.T) {
 	useAgentsDir(t, "codex")
