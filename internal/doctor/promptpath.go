@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 const claudeMDCap = 200
@@ -105,7 +105,8 @@ func unreadable(rel string, err error) string {
 func gitIgnored(root, rel string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--no-index", rel).Run() == nil
+	_, err := proc.RunGitInherit(ctx, root, "check-ignore", "-q", "--no-index", rel)
+	return err == nil
 }
 
 func rules(root string) []string {
