@@ -123,16 +123,15 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 	if _, err := os.Stat(worktreePath); err != nil {
 		return nil, fmt.Errorf("worktree %q not found at %s", name, worktreePath)
 	}
-	commonDir := repo.CommonDir
-	if commonDir == "" {
-		if commonDir, err = commonDirOf(ctx, repo.Main); err != nil {
-			return nil, err
-		}
-	}
-	plan := &MergePlan{CommonDir: commonDir, WorktreePath: worktreePath, AfterResolution: trackedOnlyWorktree}
-	if plan.MainGitDir, err = gitDirOf(ctx, repo.Main); err != nil {
+	mainGitDir, commonDir, err := gitDirsOf(ctx, repo.Main)
+	if err != nil {
 		return nil, err
 	}
+	if repo.CommonDir != "" {
+		commonDir = repo.CommonDir
+	}
+	plan := &MergePlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
+		AfterResolution: trackedOnlyWorktree}
 	if plan.WorktreeGitDir, err = gitDirOf(ctx, worktreePath); err != nil {
 		return nil, err
 	}
@@ -517,6 +516,19 @@ func commonDirOf(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("git-common-dir in %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// gitDirsOf is path's git dir and common dir from one rev-parse.
+func gitDirsOf(ctx context.Context, path string) (gitDir, commonDir string, err error) {
+	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return "", "", fmt.Errorf("git dirs in %s: %w", path, err)
+	}
+	gitDir, commonDir, ok := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if !ok {
+		return "", "", fmt.Errorf("git dirs in %s: unexpected rev-parse output %q", path, out)
+	}
+	return gitDir, commonDir, nil
 }
 
 func gitDirOf(ctx context.Context, path string) (string, error) {

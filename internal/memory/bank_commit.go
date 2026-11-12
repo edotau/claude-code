@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -447,8 +448,12 @@ func (r Repo) Ensure() error {
 	if err := r.initIfAbsent(gitDir); err != nil {
 		return err
 	}
-	if err := r.checkRoot(gitDir); err != nil {
-		return err
+	key := paths.CanonDeep(gitDir)
+	if _, ok := verifiedRoots.Load(key); !ok {
+		if err := r.checkRoot(gitDir); err != nil {
+			return err
+		}
+		verifiedRoots.Store(key, struct{}{})
 	}
 	if remotes, err := r.remotes(); err != nil {
 		return err
@@ -472,20 +477,20 @@ func (r Repo) initIfAbsent(gitDir string) error {
 	return err
 }
 
+// verifiedRoots holds canonical git dirs whose checkRoot passed in this process; Ensure skips re-probing them.
+var verifiedRoots sync.Map
+
 // checkRoot proves plain discovery from inside Dir lands on gitDir (not an empty .git or a parent's), that no commondir
 // file shares another repo's refs/objects, and that the enclosing checkout, if any, does not share it.
 func (r Repo) checkRoot(gitDir string) error {
-	found, err := gitOut(r.Dir, "rev-parse", "--absolute-git-dir")
+	out, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir")
 	if err != nil {
 		return err
 	}
+	found, common, _ := strings.Cut(strings.TrimSpace(out), "\n")
 	want := paths.CanonDeep(gitDir)
 	if paths.CanonDeep(found) != want {
 		return fmt.Errorf("memory repo: git in %s resolves to %q, not %q", r.Dir, found, gitDir)
-	}
-	common, err := gitOut(r.Dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return err
 	}
 	if paths.CanonDeep(common) != want {
 		return fmt.Errorf("memory repo: %s shares git metadata with %q (commondir)", gitDir, common)
