@@ -50,6 +50,7 @@ type liveSession struct {
 	busy    atomic.Bool
 	cancel  func(error)
 	profile string
+	account string     // the profile's billing account, "" on the agent's own login: the ran-on line's hop
 	mu      sync.Mutex // guards session
 	session string
 }
@@ -124,7 +125,7 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
 	defer events.Close()
 	s := &liveSession{rec: rec, name: name, be: be, stdin: stdin, dec: bufio.NewReader(pump), events: events, idleFor: IdleOf(rec.Request),
-		cancel: cancel, profile: profile}
+		cancel: cancel, profile: profile, account: liveAccount(name, profile)}
 	s.idle = time.AfterFunc(s.idleFor, func() { cancel(errLiveIdle) })
 	_ = events.Emit(wire.Event{Type: wire.EventStart, Agent: name, DispatchID: rec.ID, Status: "running"})
 
@@ -155,10 +156,30 @@ func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited ch
 
 var errLiveIdle = errors.New("idle timeout")
 
+// liveAccount is profile's account key, or "" when profile is agentName's own login (or unreadable).
+func liveAccount(agentName, profile string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	if p := reg.Providers[profile]; p != nil && p.Auth.Login != agentName {
+		return p.Account()
+	}
+	return ""
+}
+
+// hops is the session's one hop for the ran-on line; none on the agent's own login, which reads "own login".
+func (s *liveSession) hops(model string) []wire.Hop {
+	if s.account == "" {
+		return nil
+	}
+	return []wire.Hop{{Agent: s.name, Account: s.account, Profile: s.profile, Model: model}}
+}
+
 // finish records the outcome: an idle end is a normal ok, anything else an error.
 func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
-	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK}
+	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK, Hops: s.hops("")}
 	s.mu.Unlock()
 	var err, exitErr error
 	if !errors.Is(cause, errLiveIdle) {
@@ -502,6 +523,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 		res, err = s.be.Parse(s.dec, sink, wire.EventLogFor(ctx))
 	}
 	res.Agent, res.Provider, res.DurationMs = s.name, s.profile, time.Since(begin).Milliseconds()
+	res.Hops = s.hops(res.Model)
 	res.Status = StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
