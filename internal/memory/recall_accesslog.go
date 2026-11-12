@@ -44,7 +44,9 @@ func accessLines(now time.Time, entries []string, reason string) string {
 	prefix := now.UTC().Format(time.RFC3339) + " -- "
 	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
 	for _, entry := range entries {
-		lines.WriteString(prefix + sanitizeField(entry, accessEntryMax) + suffix)
+		lines.WriteString(prefix)
+		lines.WriteString(sanitizeField(entry, accessEntryMax))
+		lines.WriteString(suffix)
 	}
 	return lines.String()
 }
@@ -174,7 +176,8 @@ func maybeTrimAccessLog(path string, now time.Time) {
 			dropped = true
 			continue
 		}
-		kept.WriteString(line + "\n")
+		kept.WriteString(line)
+		kept.WriteString("\n")
 	}
 	if dropped {
 		_ = paths.AtomicWrite(path, []byte(kept.String()), 0o600)

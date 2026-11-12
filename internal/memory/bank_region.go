@@ -148,7 +148,8 @@ func writeHomeRows(b *strings.Builder) error {
 			fmt.Fprintf(b, "- … %d more (memory search)\n", len(keep)-i)
 			break
 		}
-		b.WriteString(l + "\n")
+		b.WriteString(l)
+		b.WriteString("\n")
 	}
 	return nil
 }

@@ -391,7 +391,9 @@ func (m *catalogMemo) store(stamp string, out []repoEntry) {
 // stable=false while either file changed within racyWindow, where an mtime may not yet show the next write.
 func catalogStamp(keys []string) (stamp string, stable bool) {
 	var b strings.Builder
-	b.WriteString(StoreDir() + "\x00" + strings.Join(keys, "\x00"))
+	b.WriteString(StoreDir())
+	b.WriteString("\x00")
+	b.WriteString(strings.Join(keys, "\x00"))
 	stable = true
 	for _, p := range []string{vault.Path(), filepath.Join(StoreDir(), catalogFile)} {
 		fi, err := os.Stat(p)

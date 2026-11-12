@@ -372,15 +372,18 @@ func passthroughDiag(resp *http.Response, reqBytes int) string {
 	var b strings.Builder
 	for _, k := range []string{"X-Request-Id", "X-Databricks-Request-Id", "X-Databricks-Requestid", "Request-Id"} {
 		if v := resp.Header.Get(k); v != "" {
-			b.WriteString(" req=" + agentToken(v))
+			b.WriteString(" req=")
+			b.WriteString(agentToken(v))
 			break
 		}
 	}
 	if v := resp.Header.Get("Retry-After"); v != "" {
-		b.WriteString(" retry_after=" + agentToken(v))
+		b.WriteString(" retry_after=")
+		b.WriteString(agentToken(v))
 	}
 	if reqBytes > 0 {
-		b.WriteString(" bytes=" + strconv.Itoa(reqBytes))
+		b.WriteString(" bytes=")
+		b.WriteString(strconv.Itoa(reqBytes))
 	}
 	if resp.StatusCode >= 400 {
 		b.WriteString(errDiag(peekBody(resp, 64<<10)))

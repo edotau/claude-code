@@ -461,7 +461,8 @@ func toolDoctorDetail(s tools.Status) string {
 	var detail strings.Builder
 	detail.WriteString(s.Path)
 	if s.Version != "" {
-		detail.WriteString(" " + s.Version)
+		detail.WriteString(" ")
+		detail.WriteString(s.Version)
 	}
 	switch {
 	case s.NPMGlobal:
@@ -485,14 +486,16 @@ func agentDoctorDetail(s tools.Status, bin string) string {
 	var detail strings.Builder
 	detail.WriteString(dst)
 	if s.Target != "" {
-		detail.WriteString(" → " + s.Target)
+		detail.WriteString(" → ")
+		detail.WriteString(s.Target)
 	}
 	version := s.Version
 	if s.Target == "" || s.Target != s.Path {
 		version = toolPATHVersion(dst)
 	}
 	if version != "" {
-		detail.WriteString(" " + version)
+		detail.WriteString(" ")
+		detail.WriteString(version)
 	}
 	if s.Target == "" {
 		detail.WriteString(" (direct install in bin/)")
@@ -525,7 +528,8 @@ func extraPATHCopies(name, primary string) string {
 		if version := toolPATHVersion(path); version != "" {
 			extra += " " + version
 		}
-		out.WriteString(" · also on PATH: " + extra)
+		out.WriteString(" · also on PATH: ")
+		out.WriteString(extra)
 	}
 	return out.String()
 }

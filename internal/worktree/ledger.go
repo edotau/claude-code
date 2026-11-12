@@ -228,7 +228,9 @@ func commitLines(commits string) string {
 	}
 	var sb strings.Builder
 	for commit := range strings.SplitSeq(commits, "\n") {
-		sb.WriteString("  - " + commit + "\n")
+		sb.WriteString("  - ")
+		sb.WriteString(commit)
+		sb.WriteString("\n")
 	}
 	return sb.String()
 }

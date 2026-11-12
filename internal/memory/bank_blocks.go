@@ -95,10 +95,13 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 func rejoin(header string, blocks []string) string {
 	var b strings.Builder
 	if header != "" {
-		b.WriteString(header + "\n")
+		b.WriteString(header)
+		b.WriteString("\n")
 	}
 	for _, blk := range blocks {
-		b.WriteString("\n" + blk + "\n")
+		b.WriteString("\n")
+		b.WriteString(blk)
+		b.WriteString("\n")
 	}
 	out := strings.TrimLeft(b.String(), "\n")
 	if !strings.HasSuffix(out, "\n") {

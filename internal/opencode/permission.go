@@ -58,9 +58,12 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	}
 	slices.Sort(keys)
 	var b bytes.Buffer
-	b.WriteString(`{"*":` + quote(base))
+	b.WriteString(`{"*":`)
+	b.WriteString(quote(base))
 	for _, k := range keys {
-		b.WriteString("," + quote(k) + ":")
+		b.WriteString(",")
+		b.WriteString(quote(k))
+		b.WriteString(":")
 		writeEntries(&b, byKey[k])
 	}
 	b.WriteString("}")
@@ -101,7 +104,9 @@ func writeEntries(b *bytes.Buffer, list []opencodeEntry) {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		b.WriteString(quote(e.pattern) + ":" + quote(e.action))
+		b.WriteString(quote(e.pattern))
+		b.WriteString(":")
+		b.WriteString(quote(e.action))
 	}
 	b.WriteString("}")
 }

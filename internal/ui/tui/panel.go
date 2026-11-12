@@ -127,7 +127,8 @@ func panelLines(title string, s pickState, cols int) int {
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
 	if title != "" {
-		b.WriteString(Accent(color, title) + "\x1b[K\r\n\x1b[K\r\n")
+		b.WriteString(Accent(color, title))
+		b.WriteString("\x1b[K\r\n\x1b[K\r\n")
 	}
 	for i, row := range s.rows {
 		if i == len(s.rows)-1 && len(s.rows) > 1 {
@@ -137,7 +138,8 @@ func render(title string, s pickState, color bool) string {
 			if i > 0 || title == "" { // the page title already ends in a blank line
 				b.WriteString("\x1b[K\r\n")
 			}
-			b.WriteString(Accent(color, row) + "\x1b[K\r\n")
+			b.WriteString(Accent(color, row))
+			b.WriteString("\x1b[K\r\n")
 			continue
 		}
 		prefix, line := "  ", ansi.Status(color, muteDetail(color, row))
@@ -145,9 +147,13 @@ func render(title string, s pickState, color bool) string {
 			prefix = accentMark(color, "▸") + " "
 			line = selected(color, ansi.Strip(row))
 		}
-		b.WriteString(prefix + line + "\x1b[K\r\n")
+		b.WriteString(prefix)
+		b.WriteString(line)
+		b.WriteString("\x1b[K\r\n")
 	}
-	b.WriteString("\x1b[K\r\n" + ansi.Style(color, ansi.Dim, hintText) + "\x1b[K")
+	b.WriteString("\x1b[K\r\n")
+	b.WriteString(ansi.Style(color, ansi.Dim, hintText))
+	b.WriteString("\x1b[K")
 	return b.String()
 }
 

@@ -150,7 +150,10 @@ func appendDotenvLocked(path string, pairs []Pair) (added int, skipped []string,
 			skipped = append(skipped, p.Name)
 			continue
 		}
-		b.WriteString(p.Name + "=" + quoteDotenvValue(p.Value) + "\n")
+		b.WriteString(p.Name)
+		b.WriteString("=")
+		b.WriteString(quoteDotenvValue(p.Value))
+		b.WriteString("\n")
 		added++
 	}
 	if err := writeDotenv(path, b.String()); err != nil {

@@ -507,7 +507,8 @@ type noteBuf struct {
 func (n *noteBuf) add(s string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.buf.WriteString(s + "\n")
+	n.buf.WriteString(s)
+	n.buf.WriteString("\n")
 }
 
 func (n *noteBuf) String() string {

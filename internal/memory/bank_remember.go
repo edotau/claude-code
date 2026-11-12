@@ -207,7 +207,13 @@ func decisionLines(day, label string, decisions []string) string {
 		if text == "" {
 			continue
 		}
-		b.WriteString("- " + day + " · " + label + " · " + text + "\n")
+		b.WriteString("- ")
+		b.WriteString(day)
+		b.WriteString(" · ")
+		b.WriteString(label)
+		b.WriteString(" · ")
+		b.WriteString(text)
+		b.WriteString("\n")
 	}
 	return b.String()
 }

@@ -98,7 +98,8 @@ func renderSegmented(v values, cfg config, pal theme.Palettes, mode string) stri
 		renderBlocks(&out, blocks, cfg, pal, mode)
 	}
 	if cfg.seg("velocity", true) && (v.adds != 0 || v.dels != 0) {
-		out.WriteString(" " + velocityText(v, mode, pal))
+		out.WriteString(" ")
+		out.WriteString(velocityText(v, mode, pal))
 	}
 	return out.String()
 }
@@ -113,9 +114,16 @@ func renderCapsules(out *strings.Builder, blocks []block, cfg config, mode strin
 		if i > 0 {
 			out.WriteString(" ")
 		}
-		out.WriteString(ansi.FgSeq(mode, b.bg, false) + capL + ansi.Reset +
-			ansi.BgSeq(mode, b.bg) + ansi.FgSeq(mode, b.fg, true) + b.txt + ansi.Reset +
-			ansi.FgSeq(mode, b.bg, false) + capR + ansi.Reset)
+		out.WriteString(ansi.FgSeq(mode, b.bg, false))
+		out.WriteString(capL)
+		out.WriteString(ansi.Reset)
+		out.WriteString(ansi.BgSeq(mode, b.bg))
+		out.WriteString(ansi.FgSeq(mode, b.fg, true))
+		out.WriteString(b.txt)
+		out.WriteString(ansi.Reset)
+		out.WriteString(ansi.FgSeq(mode, b.bg, false))
+		out.WriteString(capR)
+		out.WriteString(ansi.Reset)
 	}
 }
 
@@ -126,12 +134,20 @@ func renderBlocks(out *strings.Builder, blocks []block, cfg config, pal theme.Pa
 		arrow = glyphArrow
 	}
 	for i, b := range blocks {
-		out.WriteString(ansi.BgSeq(mode, b.bg) + ansi.FgSeq(mode, b.fg, true) + b.txt + ansi.Reset)
+		out.WriteString(ansi.BgSeq(mode, b.bg))
+		out.WriteString(ansi.FgSeq(mode, b.fg, true))
+		out.WriteString(b.txt)
+		out.WriteString(ansi.Reset)
 		switch {
 		case cfg.Style == "powerline" && i+1 < len(blocks):
-			out.WriteString(ansi.BgSeq(mode, blocks[i+1].bg) + ansi.FgSeq(mode, b.bg, false) + arrow + ansi.Reset)
+			out.WriteString(ansi.BgSeq(mode, blocks[i+1].bg))
+			out.WriteString(ansi.FgSeq(mode, b.bg, false))
+			out.WriteString(arrow)
+			out.WriteString(ansi.Reset)
 		case cfg.Style == "powerline":
-			out.WriteString(ansi.FgSeq(mode, b.bg, false) + arrow + ansi.Reset)
+			out.WriteString(ansi.FgSeq(mode, b.bg, false))
+			out.WriteString(arrow)
+			out.WriteString(ansi.Reset)
 		case cfg.Style == "minimal" && i+1 < len(blocks):
 			out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), cfg.sep("minor", " · "), false))
 		}
@@ -264,7 +280,8 @@ func paintDashboardValues(val []cell, head string, cfg config, pal theme.Palette
 	total := max(len(val)-1, 1)
 	var vb strings.Builder
 	if head != "" {
-		vb.WriteString(head + ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), sepPath, false))
+		vb.WriteString(head)
+		vb.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("dim")), sepPath, false))
 	}
 	for i, c := range val {
 		rgb := ansi.GradAt(stops, float64(i)/float64(total))
