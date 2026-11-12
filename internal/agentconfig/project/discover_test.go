@@ -371,20 +371,22 @@ func TestAgentFilesTie(t *testing.T) {
 	}
 }
 
-// Each /coworker:<agent> launcher runs its roster agent on the Databricks route, and that agent has a file.
-func TestCoworkerLaunchersTieToRoster(t *testing.T) {
+// Each /<agent> launcher dispatches its roster agent's ask through the Agent tool, and that agent has a file.
+func TestAgentLaunchersTieToRoster(t *testing.T) {
 	root := repoRoot(t)
 	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
-		data, err := os.ReadFile(filepath.Join(root, "commands", "coworker", name+".md"))
+		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
 		if err != nil {
-			t.Errorf("/coworker:%s: %v", name, err)
+			t.Errorf("/%s: %v", name, err)
 			continue
 		}
-		if want := "claude-code agents ask --agent " + name + " --route databricks"; !strings.Contains(string(data), want) {
-			t.Errorf("/coworker:%s does not run %q", name, want)
+		for _, want := range []string{"Run: claude-code agents ask --agent " + name + " ", "subagent_type: " + name} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("/%s lacks %q", name, want)
+			}
 		}
 		if _, err := os.Stat(filepath.Join(root, "agents", name+".md")); err != nil {
-			t.Errorf("/coworker:%s names no roster agent file: %v", name, err)
+			t.Errorf("/%s names no roster agent file: %v", name, err)
 		}
 	}
 }

@@ -146,12 +146,33 @@ func LiveDispatches(owner int) int {
 	if owner == 0 { // unknown owner: other unowned records aren't ours
 		return 0
 	}
+	n := 0
+	liveRecords(func(o int, _ string) {
+		if o == owner {
+			n++
+		}
+	})
+	return n
+}
+
+// LiveRoutes counts the alive dispatch records per `--route` value ("databricks:qa"); unrouted ones are skipped.
+func LiveRoutes() map[string]int {
+	out := map[string]int{}
+	liveRecords(func(_ int, route string) {
+		if route != "" {
+			out[route]++
+		}
+	})
+	return out
+}
+
+// liveRecords calls fn with the owner and route of every dispatch record whose job is alive.
+func liveRecords(fn func(owner int, route string)) {
 	dir := paths.DispatchDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return
 	}
-	n := 0
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -165,13 +186,10 @@ func LiveDispatches(owner int) int {
 			PID    int       `json:"pid"`
 			Time   time.Time `json:"time"`
 			Owner  int       `json:"owner"`
+			Route  string    `json:"route"`
 		}
-		if json.Unmarshal(b, &r) != nil || r.Owner != owner {
-			continue
-		}
-		if DispatchAlive(r.Status, r.PID, r.Time) {
-			n++
+		if json.Unmarshal(b, &r) == nil && DispatchAlive(r.Status, r.PID, r.Time) {
+			fn(r.Owner, r.Route)
 		}
 	}
-	return n
 }

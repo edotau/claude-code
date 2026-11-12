@@ -187,6 +187,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
 | `HARNESS_EGRESS_HOST` | set by `--host <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--remote` runs, after `--remote-bin` |
+| `HARNESS_REMOTE_HOST` | the machine `--remote auto` runs on (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |

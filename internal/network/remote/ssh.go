@@ -117,6 +117,9 @@ func Run(args []string) int {
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
+	if host, err = ResolveAuto(host); err != nil {
+		return helptext.FailUsage("%v", err)
+	}
 	rest, port := loginForward(rest)
 	argv, err := hostArgv(host, rest, stdinTTY())
 	if err != nil {

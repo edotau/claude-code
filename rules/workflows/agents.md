@@ -13,11 +13,22 @@ paths:
 | Ask another agent (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
 | Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--remote <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
-| Same from the prompt box | `@agent-<name>` for a subagent (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the Agent tool with `subagent_type` set to that name |
+| Same from the prompt box | `@agent-<name>` for a subagent (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the Agent tool with `subagent_type` set to that name; `/<agent>` and `/coworker` (Slash commands below) |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
 | Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
+
+## Slash commands
+
+| Command | Does |
+| --- | --- |
+| `/codex` · `/copilot` · `/gemini` · `/opencode` `[--remote <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on this machine, on its own pin: ONE Agent tool call (`subagent_type` = the name, description `<label>: <task>`, label from `claude-code agents label <type>`) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
+| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [same flags] <task>` | The same dispatch with one difference: the work runs on the other machine and on the Databricks arm, so the leaf's call is `agents ask --agent <type> --remote auto --route databricks:auto --tools`. `--remote <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
+
+All five are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
+that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Route:` line passes `dispatch-effort` with its
+tool input unchanged (context notes only). What `auto` resolves to: `rules/harness/network.md`.
 
 ## Agent and command files
 
