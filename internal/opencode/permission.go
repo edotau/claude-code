@@ -20,7 +20,7 @@ var opencodeTools = map[string]struct {
 }{
 	"Bash": {"bash", true, false}, "Edit": {"edit", true, true}, "Write": {"edit", true, true},
 	"Read": {"read", true, true}, "Glob": {"glob", false, false}, "Grep": {"grep", false, false},
-	"WebFetch": {"webfetch", false, false}, "Agent": {"task", true, false},
+	"WebFetch": {"webfetch", false, false}, "WebSearch": {"websearch", false, false}, "Agent": {"task", true, false},
 }
 
 // opencodeEntry is one pattern/action pair; opencode is last-match-wins, so order is the policy.
