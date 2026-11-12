@@ -32,8 +32,8 @@ Does its own CLI work; may request: copilot, gemini, opencode, via the brief `Ag
 
 ## Invocation
 
-Called as `@agent-codex <request>` or dispatched with a brief; `/coworker:codex` runs the same verbs directly,
-no subagent.
+Called as `@agent-codex <request>` or dispatched with a brief; `/codex` and `/coworker --agent codex` dispatch it
+with a brief whose first line is the `Run:` command to run on the task (`rules/workflows/agents.md` → Slash commands).
 A request that starts with `ask resume review explore transfer status tail result cancel setup catalog profile on off`
 runs `claude-code codex <verb> <rest>` and relays it.
 A bare request is `review --adversarial` over the rest (scope `--uncommitted` default, `--base <b>`, `--commit <sha>`,

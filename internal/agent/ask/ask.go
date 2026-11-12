@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -254,6 +255,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 		return r.fail(err, 2)
 	}
 	if err := overlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --remote
+		return r.fail(err, 2)
+	}
+	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
 		return r.fail(err, 2)
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag

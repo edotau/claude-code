@@ -256,7 +256,11 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 	}
 	msg := fmt.Sprintf("ssh %s: connection failed (exit %d)", r.host, code)
 	kind := retry.KindTransient
-	if code != 255 {
+	switch {
+	case code == 127: // the remote shell found nothing to exec: the task never started
+		msg = fmt.Sprintf("remote %s: claude-code binary not found (%s); install it there or pass --remote-bin", r.host, r.bin)
+		kind = retry.KindFatal
+	case code != 255:
 		msg = fmt.Sprintf("remote ask on %s ended (exit %d) without a result event; does it run a claude-code with --format stream-json?", r.host, code)
 		kind = retry.KindFatal
 	}

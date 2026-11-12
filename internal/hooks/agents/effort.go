@@ -84,12 +84,15 @@ func agentEffortResult(in *core.Input) core.Result {
 	promptField, task := spawnTask(in)
 
 	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
-	auto := in.Nested("permission_mode") == "auto"
+	direct := directAsk(task)
+	auto := in.Nested("permission_mode") == "auto" || direct
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
 	recallNote := e.recall(in, promptField, task, auto)
-	e.note, e.systemMessage = pinModel(e.run, in, updated, task)
-	e.changed = e.changed || e.note != ""
+	if !direct {
+		e.note, e.systemMessage = pinModel(e.run, in, updated, task)
+		e.changed = e.changed || e.note != ""
+	}
 	if deny := e.profile(promptField, task); deny != nil {
 		return *deny
 	}
@@ -102,6 +105,11 @@ func agentEffortResult(in *core.Input) core.Result {
 	e.discovery(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
+}
+
+// directAsk is a brief that opens with its own ask command (the /<agent> and /coworker commands): never rewritten.
+func directAsk(task string) bool {
+	return strings.HasPrefix(task, "Run: claude-code agents ask ") && briefProfile(task) == "" && briefRoute(task) == ""
 }
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
@@ -151,10 +159,13 @@ func typeSuggestion(st, task string) string {
 	case !isCoworker:
 		return `use "general-purpose"` // every tool, WebFetch included: covers web-fetch, claude-code-guide, plugin agents
 	}
-	if agent == "" {
-		return "name one roster agent, or use the /coworker:<agent> command"
+	switch agent {
+	case "":
+		return "name one roster agent, or use the /<agent> command"
+	case agentid.Claude: // no /claude command: the name could collide
+		return `use "claude", or the /coworker --agent claude command`
 	}
-	return fmt.Sprintf("use %q, or the /coworker:%s command", agent, agent)
+	return fmt.Sprintf("use %q, or the /%s command", agent, agent)
 }
 
 // spawnTask is the spawn's prompt, or its description when the prompt is empty, with the field it came from.

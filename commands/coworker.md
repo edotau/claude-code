@@ -1,49 +1,34 @@
 ---
-description: "Run an agent on the Databricks arm: Databricks first, first-party login as the fallback"
-argument-hint: "<claude|codex|copilot|gemini|opencode> [profile=<p>] [model=<m>] [fallback=<f>] [effort=<e>] [tools=on|off|read-only] [route=<r>] [background=on] [host=<h>] <task>"
-allowed-tools: Bash(claude-code agents ask --agent *)
+description: "Send a task to an agent on the other machine, on the Databricks arm"
+argument-hint: "--agent <codex|copilot|gemini|opencode|claude> [--remote <host>] [--profile <p>] [--model <m>] <task>"
+disable-model-invocation: true
+allowed-tools: Bash(claude-code agents label *), Agent
 ---
 
 # /coworker
 
 ```text
-/coworker <agent> [key=value …] <task>        agent: claude|codex|copilot|gemini|opencode
-/coworker:<agent> [key=value …] <task>        codex|copilot|gemini|opencode (commands/coworker/<agent>.md)
-/coworker:<agent> [profile=<p>] [model=<m>] <verb> [args…]   → claude-code <agent> <verb> … (not routed)
-  verbs: resume review explore transfer status tail result cancel setup catalog profile on off
-  /coworker:codex adversarial [--base <b>|--commit <sha>|--pr] [focus]   adversarial diff review, saved as a report
+/coworker --agent <codex|copilot|gemini|opencode|claude> [--remote <host>] [--profile <p>] [--model <m>] <task>
 
-  profile=<p>        --route databricks:<p>; omitted: --route databricks (the session's Databricks profile, or refused)
-  model=<m>          --model <m>; omitted: the route's pick
-  fallback=<f>       --fallback none|agents|all; omitted: all
-  effort=<e>         --effort low|medium|high|xhigh|max; omitted: the agent's default
-  tools=on|read-only --tools | --read-only; omitted or tools=off: no tools (answer only)
-  route=<r>          --route default|first-party: leave the Databricks arm (profile= then means --profile <p>)
-  background=on      --background: detach, print a job id (status | tail <id> | result <id>)
-  host=<h>           --remote <h>: run on that ssh host; the route rides along, credentials never leave it
-                     (its own vault resolves <p>; the same Databricks profile name must exist here too)
-
-/coworker codex review internal/gateway
-  → claude-code agents ask --agent codex --route databricks "review internal/gateway"
-/coworker:copilot profile=prod model=databricks-claude-sonnet-5-5 fix the flaky watchdog test
-  → claude-code agents ask --agent copilot --route databricks:prod --model databricks-claude-sonnet-5-5 "fix the …"
-/coworker:gemini host=wsl profile=dev tools=read-only scan internal/memory for dead exports
-  → claude-code agents ask --agent gemini --route databricks:dev --read-only --remote wsl "scan internal/memory …"
+  --remote <host>   the machine to run on; omitted: --remote auto (HARNESS_REMOTE_HOST, else the one other
+                    tailnet machine that answers)
+  --profile <p>     the Databricks workspace (--route databricks:<p>); omitted: --route databricks:auto (the
+                    workspace with the fewest live dispatches)
+  --model <m>       the model; omitted: the route's pick
 ```
 
-The route runs the agent on that Databricks workspace first, then first-party logins as the ordered fallback; every
-hop is isolated. Routing, isolation and fallback are the binary's (`claude-code agents ask -h`).
+The `/<agent>` dispatch with one difference: the work runs on the other machine and on the Databricks arm. Not a new
+agent or type. Launcher only. Empty `$ARGUMENTS`, `help`, or no `--agent` naming one of the five: print the block above
+and stop. Otherwise:
 
-Launcher only. Empty `$ARGUMENTS`, `help`, or a first word that is not one of the five agents: print the block above
-verbatim and stop. Otherwise the first word is `<agent>`; turn each leading `key=value` above into its flag (an unknown
-key is task text), and run the ONE call
-`claude-code agents ask --agent <agent> --route databricks[:<p>] [flags] "<task>"`.
-Pass arguments as literal CLI arguments, never shell-evaluated. Relay the output, its `ran on` line included, as-is; a
-refusal (no Databricks profile, a flag outside the route) errors — relay that, don't retry.
+1. Take the leading `--agent <type>`, `--remote <host>`, `--profile <p>` and `--model <m>` off `$ARGUMENTS`; the rest
+   is the task.
+2. Run `claude-code agents label <type>`: it prints the label, `<label>:`.
+3. Make ONE Agent tool call: `subagent_type: <type>`, description `<label>: <first ~8 words of the task>`, and a
+   prompt whose first line is
+   `Run: claude-code agents ask --agent <type> --remote <host|auto> --route databricks:<p|auto> [--model <m>] --tools`,
+   then a blank line, then the task verbatim.
 
-## See also
-
-- `~/.claude/skills/subagent-workflows/SKILL.md`: when to use `/coworker` vs an Agent-tool leaf, briefs, the handoff
-  contract and how to verify the result; `references/agent-verbs.md` (ask/status/tail verbs),
-  `references/cost-routing.md` (which agent for which task).
-- `/coworker` runs one agent; multi-stage work is a saved workflow (see `skills/subagent-workflows`).
+Relay the leaf's report, its `ran on` line included; never do the task yourself. A refusal (no machine, no workspace,
+something missing on the target) is the answer: relay it, don't retry. All five commands:
+`~/.claude/rules/workflows/agents.md` → Slash commands.

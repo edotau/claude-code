@@ -706,10 +706,10 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		"copilot": {"do it", `use "general-purpose"`}, "web-fetch": {"read a page", `use "general-purpose"`},
 		"claude-code-guide": {"q", `use "general-purpose"`}, "statusline-setup": {"q", `use "general-purpose"`},
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
-		"coworker:copilot":                          {"do it", `use "copilot", or the /coworker:copilot command`},
-		"coworker:opencode":                         {"do it", `use "opencode", or the /coworker:opencode command`},
-		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex", or the /coworker:codex command`},
-		"coworker":                                  {"do it", "name one roster agent, or use the /coworker:<agent> command"},
+		"coworker:copilot":                          {"do it", `use "copilot", or the /copilot command`},
+		"coworker:opencode":                         {"do it", `use "opencode", or the /opencode command`},
+		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex", or the /codex command`},
+		"coworker":                                  {"do it", "name one roster agent, or use the /<agent> command"},
 	} {
 		want := fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
 		if r := blocked(st, c.brief); r != want {
