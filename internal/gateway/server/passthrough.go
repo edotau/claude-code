@@ -318,11 +318,7 @@ func dropNonFunctionTools(body []byte) []byte {
 	} else {
 		top["tools"], _ = json.Marshal(kept)
 	}
-	out, err := json.Marshal(top)
-	if err != nil {
-		return body
-	}
-	return out
+	return marshalOr(top, body)
 }
 
 // fixGeminiChat normalizes streaming options, tool choice, schemas, and thought signatures.
@@ -348,11 +344,15 @@ func fixGeminiChat(body []byte) []byte {
 	if !changed {
 		return body
 	}
-	out, err := json.Marshal(top)
-	if err != nil {
-		return body
+	return marshalOr(top, body)
+}
+
+// marshalOr marshals v, or returns body when v cannot be encoded.
+func marshalOr(v any, body []byte) []byte {
+	if out, err := json.Marshal(v); err == nil {
+		return out
 	}
-	return out
+	return body
 }
 
 // outputTokenKeys are the top-level request keys that set an output cap on the OpenAI chat and Responses wires.
@@ -371,11 +371,7 @@ func clampOutputTokens(body []byte, model string) []byte {
 	if !clampCaps(top, limits.Output) {
 		return body
 	}
-	out, err := json.Marshal(top)
-	if err != nil {
-		return body
-	}
-	return out
+	return marshalOr(top, body)
 }
 
 // clampCaps lowers every output cap in top above max to max; false when none changed.
@@ -578,11 +574,7 @@ func dropOffThoughts(body []byte) []byte {
 	delete(think, "includeThoughts")
 	gen["thinkingConfig"], _ = json.Marshal(think)
 	top["generationConfig"], _ = json.Marshal(gen)
-	out, err := json.Marshal(top)
-	if err != nil {
-		return body
-	}
-	return out
+	return marshalOr(top, body)
 }
 
 func geminiSignatures(top map[string]json.RawMessage, changed bool) bool {
