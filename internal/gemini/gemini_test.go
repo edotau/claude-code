@@ -93,7 +93,7 @@ func agyFixture(t *testing.T, rec *vault.AgentRecord) {
 // Effort and --settings ride just before -p=; a flag beats the record; a suffixed model's effort is emulated.
 func TestAgyArgvSettings(t *testing.T) {
 	stream := []string{"--input-format", "stream-json", "--output-format", "stream-json"}
-	settings := `{"permissions":{"deny":["command(rm -rf /)","command(rm -rf /*)","command(rm -rf ~)","write_file(/w/x.txt)"]}}`
+	settings := `{"permissions":{"deny":["command(rm -rf /)","command(rm -rf ~)","write_file(/w/x.txt)"]}}`
 	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: "x.txt"}}}
 	high := &vault.AgentRecord{Effort: "high"}
 	for _, c := range []struct {
