@@ -121,6 +121,15 @@ func NewClient() (*Client, error) {
 	return nil, errNoCredential
 }
 
+// ValidateCreds proves an OAuth client id and secret work: it mints a token with them and lists devices.
+func ValidateCreds(ctx context.Context, clientID, clientSecret string) error {
+	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
+	c := &Client{BaseURL: apiBaseURL, HTTP: hc}
+	c.token = oauthToken(c.BaseURL, clientID, clientSecret, c.HTTP)
+	_, err := c.Devices(ctx)
+	return err
+}
+
 // apiBodyLimit caps one admin-API response read; the largest legitimate answer is a device list.
 const apiBodyLimit = 8 << 20
 
