@@ -557,13 +557,16 @@ func embedProfiles(ctx context.Context) iter.Seq[string] {
 	}
 }
 
+// claudeRecord looks up the claude record's profile; a var so tests can block it.
+var claudeRecord = func() string { return providers.AgentRecord("claude").Profile }
+
 // claudeRecordProfile reads the vault record within ctx; the abandoned read ends on the vault's own timeout.
 func claudeRecordProfile(ctx context.Context) string {
 	if ctx.Err() != nil {
 		return ""
 	}
 	done := make(chan string, 1)
-	go func() { done <- providers.AgentRecord("claude").Profile }()
+	go func() { done <- claudeRecord() }()
 	select {
 	case p := <-done:
 		return p

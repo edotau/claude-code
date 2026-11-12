@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -620,5 +621,68 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	}
 	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 1 {
 		t.Errorf("an obsolete-dimension row must be re-embedded alone: n=%d err=%v", n, err)
+	}
+}
+
+// seedProfileCache stores a one-row cache for profile; paused also writes its fresh backoff marker.
+func seedProfileCache(t *testing.T, profile string, paused bool) {
+	t.Helper()
+	row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
+	f := vectorRecord{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}
+	if err := saveEmbedCache(profile, f); err != nil {
+		t.Fatal(err)
+	}
+	if paused {
+		if err := paths.AtomicWrite(embedBackoffPath(profile), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Given the session profile is paused, When semanticCache runs, Then the claude record's profile serves, A is never read.
+func TestSemanticCachePausedProfileFallsThrough(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_PROFILE", "pa")
+	vaulttest.SetRecord(t, "claude", "profile", "pb")
+	seedProfileCache(t, "pa", true)
+	seedProfileCache(t, "pb", false)
+	var reads []string
+	prev := readProfileCache
+	t.Cleanup(func() { readProfileCache = prev })
+	readProfileCache = func(p string) (vectorRecord, error) { reads = append(reads, p); return prev(p) }
+	name, cache, err := semanticCache(context.Background())
+	if err != nil || name != "pb" || cache.Namespace != "pb|h|gte" {
+		t.Fatalf("got %q %q err %v, want pb's cache", name, cache.Namespace, err)
+	}
+	if len(reads) != 1 || reads[0] != "pb" {
+		t.Errorf("vectors read for %v, want only pb", reads)
+	}
+	vaulttest.SetRecord(t, "claude", "profile", "pc") // pc has no cache: the pause error must beat "no embedding cache"
+	if _, _, err := semanticCache(context.Background()); err == nil || !strings.Contains(err.Error(), "paused") {
+		t.Errorf("pa paused, pc empty: err %v, want the pause error", err)
+	}
+}
+
+// Given a vault lookup that blocks past the deadline, When semanticCache runs, Then it returns the budget error in time.
+func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_PROFILE", "pa")
+	release, exited := make(chan struct{}), make(chan struct{})
+	prev := claudeRecord
+	t.Cleanup(func() { claudeRecord = prev })
+	claudeRecord = func() string { defer close(exited); <-release; return "pb" }
+	t.Cleanup(func() { close(release); <-exited })
+	prevWait := embedRecallWait
+	embedRecallWait = 50 * time.Millisecond
+	t.Cleanup(func() { embedRecallWait = prevWait })
+	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
+	defer cancel()
+	start := time.Now()
+	_, _, err := semanticCache(ctx)
+	if el := time.Since(start); el > time.Second {
+		t.Errorf("semanticCache took %s with the vault blocked, want about the 50ms deadline", el)
+	}
+	if err == nil || !strings.Contains(err.Error(), "query embedding exceeded") {
+		t.Errorf("err %v, want the budget-overrun error", err)
 	}
 }
