@@ -397,7 +397,7 @@ func applyClaudeAssistantEvent(ev claudeEvent, msg anthropic.Message, res *wire.
 		return nil
 	}
 	if msg.Model != "" {
-		res.Model = string(msg.Model)
+		res.Model = msg.Model
 	}
 	logClaudeAssistant(lg, msg)
 	return emitClaudeAssistant(sink, msg, seen)

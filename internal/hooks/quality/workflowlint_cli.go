@@ -184,7 +184,7 @@ func isWorkflowScript(f string) bool {
 	return false
 }
 
-// LintPins returns every agent() pin problem in src; shared by `workflow lint` and the workflow-lint hook.
+// LintPins returns every agent() pin problem in src; `workflow lint` uses it; the workflow-lint hook calls lintPins without the effort check.
 func LintPins(name string, src []byte) []string { return lintPins(name, string(src), true) }
 
 // lintPins is LintPins; withEffort false drops the missing-effort problems.

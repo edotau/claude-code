@@ -106,7 +106,7 @@ func (h *gitHubHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 }
 
 func (h *gitHubHost) View(ctx context.Context, id string) (PR, error) {
-	out, err := runGH(ctx, "", "pr", "view", id, "--repo", h.Repo, "--json", prFields)
+	out, err := runGH(ctx, "", "pr", "view", "--repo", h.Repo, "--json", prFields, "--", id)
 	if err != nil {
 		return PR{}, err
 	}
@@ -118,7 +118,7 @@ func (h *gitHubHost) View(ctx context.Context, id string) (PR, error) {
 }
 
 func (h *gitHubHost) Diff(ctx context.Context, id string) (string, error) {
-	out, err := runGH(ctx, "", "pr", "diff", id, "--repo", h.Repo)
+	out, err := runGH(ctx, "", "pr", "diff", "--repo", h.Repo, "--", id)
 	return string(out), err
 }
 

@@ -26,10 +26,24 @@ var (
 	menuVerbs    = []string{"add", "remove", "import", "reset"}
 )
 
-// catalogSpec is the completion node for `<agent> catalog`: the subcommands every agent accepts and the bare flags.
-func catalogSpec() *helptext.Node {
-	return &helptext.Node{Args: []func() []string{func() []string { return catalogVerbs }},
-		Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.CompletionFormatFlag()}}
+// catalogSpec is the completion node for `<agent> catalog`: each shared verb with the flags its real flag set defines.
+func catalogSpec(name string) *helptext.Node {
+	sub := make(map[string]*helptext.Node, len(catalogVerbs))
+	for _, v := range catalogVerbs {
+		sub[v] = &helptext.Node{Flags: catalogFlags(name, v)}
+	}
+	return &helptext.Node{Sub: sub, Flags: catalogFlags(name, "")}
+}
+
+// catalogFlags lists the flags `<agent> catalog verb` parses (bare = ""); opencode's verbs bind their own set.
+func catalogFlags(name, verb string) []helptext.Flag {
+	values := map[string]func() []string{"profile": providers.ProfileNames}
+	if name == "opencode" && verb != "" {
+		m := &opencodeOpts{verb: verb, format: new(string), fs: opencodeMenuFlags(verb)}
+		m.bind()
+		return helptext.FlagsOf(m.fs, values)
+	}
+	return helptext.FlagsOf((&catalogOpts{name: name, verb: verb}).bind(), values)
 }
 
 // catalogPage is `<agent> catalog -h`.

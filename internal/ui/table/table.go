@@ -169,23 +169,31 @@ func Styled(head []string, colMax []int, rows [][]string, width int, codes []str
 
 // DropEmptyCols removes every column past the first that is empty in all rows, trimming head and colMax with it.
 func DropEmptyCols(head []string, colMax []int, rows [][]string) ([]string, []int, [][]string) {
+	cell := func(r []string, c int) string {
+		if c < len(r) {
+			return r[c]
+		}
+		return ""
+	}
 	var keep []int
 	for c := range head {
-		if c == 0 || slices.ContainsFunc(rows, func(r []string) bool { return r[c] != "" }) {
+		if c == 0 || slices.ContainsFunc(rows, func(r []string) bool { return cell(r, c) != "" }) {
 			keep = append(keep, c)
 		}
 	}
 	pick := func(r []string) []string {
 		out := make([]string, len(keep))
 		for i, c := range keep {
-			out[i] = r[c]
+			out[i] = cell(r, c)
 		}
 		return out
 	}
 	cols := make([]int, len(keep))
 	outRows := make([][]string, len(rows))
 	for i, c := range keep {
-		cols[i] = colMax[c]
+		if c < len(colMax) {
+			cols[i] = colMax[c]
+		}
 	}
 	for i, r := range rows {
 		outRows[i] = pick(r)

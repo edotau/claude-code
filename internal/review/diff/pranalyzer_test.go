@@ -207,8 +207,24 @@ func TestFileDiffSharesTwoDotFallback(t *testing.T) {
 	if err != nil || len(files) != 1 || files[0].Path != "o.go" {
 		t.Fatalf("files %v err %v, want [o.go]", files, err)
 	}
-	if d, err := patchFor(repo, "o.go", "main", "orphan"); err != nil || d == "" {
+	if d, err := patchFor(repo, "o.go", "", "main", "orphan"); err != nil || d == "" {
 		t.Fatalf("patchFor = %q, %v for a file changedFiles listed", d, err)
+	}
+}
+
+// A pure rename must pair old and new paths, so it counts no changed lines.
+func TestAnalyzePRPureRenameCountsNoChanges(t *testing.T) {
+	repo := hosttest.Repo(t)
+	commitFile(t, repo, "old.go", "package old\n\nfunc A() {}\nfunc B() {}\n", "feat: old")
+	hosttest.In(t, repo, "checkout", "-b", "feature")
+	hosttest.In(t, repo, "mv", "old.go", "new.go")
+	hosttest.In(t, repo, "commit", "-m", "refactor: rename")
+	rep, err := analyzePR(repo, "main", "feature")
+	if err != nil || len(rep.Files) != 1 {
+		t.Fatalf("analyzePR = %+v, %v; want one renamed file", rep, err)
+	}
+	if f := rep.Files[0]; f.Status != "renamed" || f.Additions != 0 || f.Deletions != 0 {
+		t.Errorf("file = %+v, want renamed with 0 additions and 0 deletions", f)
 	}
 }
 
@@ -221,7 +237,7 @@ func TestChangedFilesNonASCIIPath(t *testing.T) {
 	if err != nil || len(files) != 1 || files[0].Path != "caf\u00e9.go" {
 		t.Fatalf("files %v err %v, want [café.go]", files, err)
 	}
-	if d, err := patchFor(repo, files[0].Path, "main", "feature"); err != nil || d == "" {
+	if d, err := patchFor(repo, files[0].Path, "", "main", "feature"); err != nil || d == "" {
 		t.Fatalf("patchFor = %q, %v for non-ASCII path", d, err)
 	}
 }

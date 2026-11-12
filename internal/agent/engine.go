@@ -328,8 +328,8 @@ const (
 // RouteInfo is the agent dispatch `claude-code configure github`, `generate` and `doctor` report: which
 // credential path an agent CLI runs on today, and why. OK is false only for RouteNone.
 type RouteInfo struct {
-	Agent, Route, Provider, Model, SmallModel, Reason string
-	OK                                                bool
+	Agent, Route, Provider, Model, Reason string
+	OK                                    bool
 }
 
 // DescribeRoute reports the fallback dispatch the agent (opencode|copilot) resolves to today, in priority

@@ -246,7 +246,7 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage,
 		option.WithMiddleware(anthropicAuthorization(r)),
 	)
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(r.Model),
+		Model:     r.Model,
 		MaxTokens: r.MaxTokens,
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(r.Prompt))},
 	}
@@ -260,7 +260,7 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage,
 	for stream.Next() {
 		switch ev := stream.Current().AsAny().(type) {
 		case anthropic.MessageStartEvent:
-			model = string(ev.Message.Model)
+			model = ev.Message.Model
 			u := ev.Message.Usage
 			res.InputTokens, res.OutputTokens = int(u.InputTokens), int(u.OutputTokens)
 			res.CacheCreationTokens, res.CacheReadTokens = int(u.CacheCreationInputTokens), int(u.CacheReadInputTokens)

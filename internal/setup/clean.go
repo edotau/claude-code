@@ -95,7 +95,7 @@ func stateTargets() []target {
 					s("memory", "update-*.log"), s("memory", "stamp-*"),
 					s("memory", "update-result-*"), s("memory", "recall-seen", "*"),
 					s("memory", "watch-*"), s("memory", "count-*"), s("memory", "root-*"),
-					s("memory", "dream-*.log"), s("memory", "harvest-*.log"), s("memory", "catchup-*.log"),
+					s("memory", "dream-*.log"), s("memory", "catchup-*.log"),
 					s("memory", "access", "global.log"), s("memory", "access", "memories.log"),
 				}
 			},
