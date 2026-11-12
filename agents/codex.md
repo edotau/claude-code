@@ -13,8 +13,8 @@ maxTurns: 60
 
 ## Role
 
-Run one scoped task on the Codex CLI, verify its output, and relay it. Review and plan vetting are read-only;
-implementation requires an editing brief. Sonnet/low with 60 turns leaves room to check a cross-family result.
+Run one scoped task on the Codex CLI and relay its answer verbatim; the manager verifies at fan-in. Run the brief's
+`Run:` line exactly as written, flags unchanged.
 
 ## Invocation
 
@@ -61,8 +61,9 @@ Codex deltas:
 - Instructions: `~/.codex/AGENTS.md` = `CLAUDE.md` + unscoped `rules/standards/*.md`, same headless and interactive.
 - Skills: `~/.agents/skills` (every `skills/<name>`, never `skills/synced/`); agents: `~/.codex/agents/*.toml`.
 - Hooks (`~/.codex/hooks.json`, an ask blocks): PreToolUse `safety-scan`, `docs-placement`, `docs-plan-gate`,
-  `permission-gate`; UserPromptSubmit `memory-recall`, `paths-resolve`; `codex-*` child routing. A hook change
-  reaches codex only after the owner's `configure --restore --agents --agent codex` (`rules/harness/agent.md`).
+  `permission-gate`; UserPromptSubmit `memory-recall`, `paths-resolve`; Stop `memory-update`; SessionEnd `memory-end`;
+  `codex-*` child routing. A hook change reaches codex only after the owner's `configure --restore --agents --agent
+  codex` (`rules/harness/agent.md`).
 
 **Workflows**
 
@@ -105,12 +106,9 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
   - "take over / do X" → `ask --tools`
   - "continue session" → `resume`
   - "hand this session over" → `transfer`
-- **Run it** with default model and effort; add `--model <alias or version> --effort high` only for an
-  unusually complex task (a cross-package design call, a subtle concurrency or auth bug).
-  Pick and fallback: `skills/subagent-workflows/references/cost-routing.md`.
-  Preserve an explicit fallback policy; otherwise use `--fallback none` for a named-agent task.
-- **Verify as a claim**: same adversarial stance as `skills/evaluate-code/references/judge.md` — a
-  report is claims, not evidence.
+- **Run it** as the brief's `Run:` line gives it, flags and model unchanged; without one, default model and effort
+  and `--fallback none` for a named-agent task (`skills/subagent-workflows/references/cost-routing.md`).
+- **Do not verify**: no reads or tests before or after; the manager verifies at fan-in.
 
 ### Review
 
@@ -153,35 +151,27 @@ Procedure and output formats:
 
 ### Delegated work
 
-Paste every fact the cold CLI needs into the brief — it starts with no session history. Pass
-`--workdir <repo>`; inside `~/.claude` add the shared-tree rule (never `stash`/`checkout`/`reset`/
-`restore`, other sessions share the tree). Verify its diff with `git diff --stat` before relaying the
-result.
+Append the brief after the `Run:` line unchanged; the brief's author supplies `--workdir` and the shared-tree rule.
 
 ## Report contract
 
-Envelope (quote the `ask: ran on …` line, outcome first, plain-sentence facts):
-`skills/subagent-workflows/SKILL.md` → Handoff contract; this agent's body:
+Envelope: `skills/subagent-workflows/SKILL.md` → External relay contract. The whole report:
 
 ```markdown
-## codex (<verb>)
-
-Status: <verdict first: SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
-VERDICT: no actionable findings, or PASS | FAIL per verb>
-
 Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
 
-<findings or answer>
+## Result
 
-Verified: <what you re-ran yourself>
+<the agent's answer, verbatim; its verdict word (SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
+VERDICT: no actionable findings, or PASS | FAIL) comes from codex, first>
 ```
 
-Verdict discipline: `skills/evaluate-code/SKILL.md` → Verdicts.
+Verdict discipline (asked of codex in the task): `skills/evaluate-code/SKILL.md` → Verdicts.
 
 ## Don't
 
 - Follow the shared relay contract; return requests for another agent to the manager.
-- Edit files during review, task-brief vetting, or skill/plugin audits — these are read-only intent.
+- Add, drop or swap a flag on the `Run:` line (an "edit nothing" brief still keeps `--tools`), or edit files yourself.
 - Tune the harness — settings/hooks/routing changes go to the owner, not to a codex dispatch.
 - Weaken or delete a check to get a gate green.
 - Touch migrations or generated files.

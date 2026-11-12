@@ -31,7 +31,7 @@ run() {
   # Nesting needs /dev/fuse, no SELinux label and an unmasked /proc (else crun can't mount proc); no --privileged.
   local unmask=(--security-opt "unmask=/proc/*")
   [ "$(basename "${engine}")" = docker ] && unmask=(--security-opt systempaths=unconfined)
-  "${engine}" run --rm "${tty[@]}" \
+  "${engine}" run --rm ${tty[@]+"${tty[@]}"} \
     --security-opt label=disable --security-opt seccomp=unconfined "${unmask[@]}" \
     --device /dev/fuse \
     "${tag}" "$@"

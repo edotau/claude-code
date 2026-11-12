@@ -40,7 +40,7 @@ claude-code doctor            # check binaries, providers, credentials, proxy
 ![claude-code help menu](docs/images/cli-menu.svg)
 
 ```bash
-claude-code anthropic --model opus   # Claude Code, first-party (also sonnet | haiku | fable; --profile X; science)
+claude-code anthropic --model opus   # Claude Code on Anthropic (also sonnet | haiku | fable; --profile X; science)
 claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
 claude-code qa          # Claude Code on that registry profile
 claude-code --resume    # a leading flag passes to claude, on the session provider
@@ -180,7 +180,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Variable | Effect |
 | --- | --- |
 | `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
-| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop; nested dispatches inherit just the confinement via `HARNESS_COWORKER`); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
+| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop; nested dispatches inherit just the confinement via the internal `HARNESS_CONFINE`); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
 | `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
 | `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
@@ -190,7 +190,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--host-bin` |
 | `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
-| `HARNESS_COWORKER` | `<provider>[:<profile>]`: set per launch from an overlay's provider/profile and inherited by nested dispatches; the vault env may pin a non-databricks provider |
+| `HARNESS_CONFINE` | internal, never set by hand: `<provider>[:<profile>]` set per launch from an overlay's provider/profile and inherited by nested dispatches; the vault does not store it (a standing default is the vault env `COWORKER_OVERLAY`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
@@ -209,8 +209,9 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats repo last-used beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
-bucket" is the exception: an alias's ordered Databricks list in `table.json`), leg (→ dispatch), family (→ provider),
-pin, preference and saved override (→ agent record). `gateway` names the verb namespace only; the Databricks wire is
+bucket" is the exception: an alias's ordered Databricks list in `internal/router/table.json`), leg (→ dispatch),
+family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its name),
+first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire is
 `ai-gateway`.
 
 | Surface | Form | Example |
@@ -403,8 +404,10 @@ contracts, caps, precedence and every `memory` verb: `rules/workflows/memory-ban
 
 `claude-code theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
 `twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
-minted token's time left (`oauth:42m`). Opt-in `segments`: `router`, `tokens` (`total:1.23M`, `+` while dispatches run),
-`duration`, `session`, `agents` (`N ◉`). Config: `~/.claude/state/statusline/config.json`.
+minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
+`"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
+`context`, `limits`, `total` (`1.23M`, `+` while dispatches run), `git`, `velocity`. Config:
+`~/.claude/state/statusline/config.json`.
 
 ## Layout
 
@@ -412,6 +415,8 @@ minted token's time left (`oauth:42m`). Opt-in `segments`: `router`, `tokens` (`
 `internal/schemas` registry; `doctor` reports `formats`, `make install` runs
 pending migrations), `state/harness/backups/` (every plaintext backup, via `paths.Backup`); `docs/templates/` indexes
 every embedded (`//go:embed`) template.
+`docker/` holds the Ubuntu harness image (`make image|image-audit|image-shell`); `mods/slash-usage/` is a TypeScript
+plugin, built with `tsc -p mods/<name>`.
 
 ## Command reference
 
@@ -434,7 +439,7 @@ every embedded (`//go:embed`) template.
 ```bash
 go test ./internal/<pkg>   # while developing — only what you touched
 make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
-make lint                  # check only: gofmt, vet, golangci, shell, yaml, markdown, workflows
+make lint                  # check only: gofmt, vet, golangci, shell, yaml, make help rows, markdown, workflows
 make test                  # full gate, once before pushing (= make audit)
 ```
 

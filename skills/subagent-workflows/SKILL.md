@@ -57,18 +57,18 @@ The root machine's pins and per-call flags select external execution; never over
 
 This contract applies to `codex`, `copilot`, `gemini` and `opencode` wrappers in Claude Code:
 
-- Execute a leading `Run:` command once with the task appended; otherwise pick one supported CLI verb.
-  Preserve the requested agent, model, route, host and permissions. A bare task means `ask`, with tools only as
-  required. Never execute a `Run:` and then start another ask to satisfy a later recipe.
-- Put the whole cold-start brief into that call. Default a named-agent task to `--fallback none`; preserve an
-  explicitly requested policy and report any actual fallback. Keep pins unchanged.
-- A running background job is the same attempt: follow it and read its result. Do not start a duplicate ask,
-  perform a readiness smoke before every task, or repeat discovery unless the task requests it.
-- Verify returned claims with the brief's scoped check and cited files; verification is not a second model call.
-  Report missing evidence, a failed gate or dispatch error to the manager. Do not repair it in-context or silently
-  choose another agent. The manager decides whether a changed follow-up warrants another call.
-- Quote the actual `ask: ran on` receipt and job/session ids. For the stop gate and its capped failure behavior,
-  see `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt to release it.
+- The relay is a thin pipe. Run the brief's leading `Run:` line exactly as written, once, with the task appended
+  unchanged; never add, drop or swap a flag (an "edit nothing" brief still keeps `--tools`). Without a `Run:`, pick
+  one supported CLI verb (a bare task means `ask`). Never execute a `Run:` and then start another ask.
+- Default a named-agent task without a `Run:` to `--fallback none`; preserve an explicit policy. Keep pins unchanged.
+- Never background with the shell or `run_in_background`: the `Run:` line's `--background` is the only
+  backgrounding. Follow it with foreground `claude-code agents tail -f <id>` (600000 ms timeout), repeated until it
+  ends, then `agents result <id>`. Do not start a duplicate ask, a readiness smoke or repeat discovery.
+- Do not read, test or verify before or after the ask; the manager verifies at fan-in. Report a dispatch error to
+  the manager; do not repair it in-context or silently choose another agent.
+- Return the agent's answer verbatim under `## Result`, preceded only by the actual `ask: ran on` line and the
+  job/session ids; add nothing but a `Relay note:` for a dispatch error. For the stop gate and its capped failure
+  behavior, see `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt to release it.
 - Inside the projected vendor CLI, do the task directly; do not invoke this wrapper or recursively ask yourself.
   The wrapper's relay model, effort and turn budget do not constrain the vendor's task reasoning.
 
@@ -128,8 +128,9 @@ vs `--host`: `rules/harness/network.md`.
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve
 before review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend
-unchanged). Then `Ran on:` (the `ask: ran on …` line, or `self — <why>`), files, commands with exit codes,
-`Acceptance:` evidence.
+unchanged). Then `Ran on:` (the `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an
+`Agent: in-context` brief), files, commands with exit codes, `Acceptance:` evidence. A leaf creates scratch files
+only under an absolute `/tmp/<job>/` path, never a relative one, and removes them before reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, and the manager makes the one integration edit. The manager owns decisions,
@@ -137,7 +138,7 @@ integration and commits; leaves never dispatch subagents, commit or run the suit
 
 ### Phase 2: dispatch
 
-Independent leaves go in one message with `run_in_background`.
+Independent leaves go in one message as Agent calls with `run_in_background` (the manager's; a relay never uses it).
 
 #### Concurrency
 
@@ -185,7 +186,7 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 #### Return to owner
 
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or `sleep`:
-a long `ask` runs `--background`, then waits with `tail -f <id>` as a background Bash call
+a long `ask` runs `--background`, then waits with foreground `tail -f <id>` (600000 ms timeout, repeated)
 ([agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
 

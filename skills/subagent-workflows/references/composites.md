@@ -81,9 +81,9 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Draft | `Plan` or code-engineer EPIC route | task, `docs/templates/plan.md` | plan markdown | **owner approval** | `plans/DATE-<slug>.md` |
 | Group | main session | plan | package groups G1..Gn | group fits one run (6 to 15 packages) | group list |
 | Round | composite A or B per group | group packages | confirmed, fixed, red | full suite before push | report + decisions |
-| Fix leftovers | `claude` leaf | red or foreign findings | commit | per-package gate | decision row |
+| Fix leftovers | `claude` leaf | red or foreign findings | verified diff and scoped gate results | per-package gate | decision row |
 
-- **Policy**: fix CRITICAL/HIGH/MEDIUM in the round, LOW to the tech-debt report, no per-round ask.
+- **Policy**: fix every finding, LOW included, in the round, no per-round ask; only owner-judgment items go to a report.
 - **Cost**: R7 37 agents, R8 74, R9 26, R10 60, R11 114 (5 rounds, about 21M tokens).
 - **Failure modes**: leaving mediums unfixed before the next round left earlier gaps.
 - **Resume**: continue at the first unticked plan line or the next group; one report per round

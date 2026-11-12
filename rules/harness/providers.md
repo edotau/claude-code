@@ -28,9 +28,7 @@ paths:
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
 - Agents run on their pins (gemini on Google); per-call routes use
   `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
-  An agent's own login: `--overlay '{"provider":"openai"}'` (codex), likewise `anthropic`, `github`, `google`.
-  `databricks:<profile>` confines the Databricks hop to that workspace; unless fallback is `none`, a failed or gated
-  dispatch may still fall back to the agent's own login, then `claude`.
+  Keys, an agent's own login and fallback: `agent.md` → Dispatch behavior.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
   dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code vault edit`); remove it to turn
   it off.

@@ -8,8 +8,8 @@ Iron rules:
 2. **YAGNI** — does the suggestion solve a real problem or a hypothetical one?
 3. **Push back when justified** — if a change makes the code worse, say so with evidence
    (file, line, pattern) and propose an alternative.
-4. **Order**: blocking issues (CRITICAL/HIGH/MEDIUM, fixed without asking;
-   LOW goes to the tech-debt report) → simple fixes (typos, naming) → complex changes last.
+4. **Order**: blocking issues (CRITICAL/HIGH/MEDIUM/LOW, all fixed in the same round without asking; only
+   owner-judgment items go to a report) → simple fixes (typos, naming) → complex changes last.
 
 ## Replying
 

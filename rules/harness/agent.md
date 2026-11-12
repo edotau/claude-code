@@ -48,20 +48,21 @@ paths:
   the Databricks hop, so unless `fallback` is `none` the dispatch may still fall back to the agent's own login, then
   `claude`), `profile` (one under it; databricks: or `auto`), `model`, `effort`, `fallback`, `host`, `remote` (like
   global `--remote`, `auto` allowed; refused with a host) and the env layer `set`/`unset`/`keep`. Value: a file path
-  (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-` (stdin; the task is then an
-  argument); an unknown key or bad value exits 2. Typed flags win, except a typed
-  `--profile`/`--provider`/`--model <p>:<alias>` outside the overlay's provider/profile is refused (exit 2).
-  Precedence: typed flag > `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env >
-  agent definition > agent pin > table default. Nested dispatches
-  inherit only the confinement (`provider:profile`, `HARNESS_COWORKER`; the vault may pin a non-databricks provider
-  there); the document itself is one hop, and `--job`/`--background`/`--batch` relaunches carry it. `--host` carries the
-  confinement (`provider`/`profile`) to the far machine and refuses a non-empty `set`/`unset`/`keep`; `--live` refuses
-  the env layer too. `--retry` replays the recorded workspace unless the overlay names a provider. Interactive launches
-  read it for `set`/`unset`/`keep` and refuse routing keys. Env layer: `files` reserved, refused; `set` values may be
-  `@secret:<NAME>` (harness-internal secrets refused); a `set` name the launch already sets for its route is refused
-  (`--env` still overrides); endpoint, proxy and TLS names (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `*_GATEWAY_URL`,
-  `*_PROXY_URL`, `*_CA_CERT`, `DATABRICKS_HOST`, `HTTP(S)_PROXY`, `ALL_PROXY`, TLS overrides) are refused in `set` and
-  `keep`: use `--profile`; `keep` refuses credential names (`HARNESS_KEEP_ENV` stays the escape hatch). `--env` /
+  (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-` (stdin; the task is then an argument);
+  an unknown key or bad value exits 2. Typed flags win, except a typed `--profile`/`--provider`/`--model <p>:<alias>`
+  outside the overlay's provider/profile is refused (exit 2). Precedence: typed flag > `--overlay`, else
+  `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent pin > table
+  default. Nested dispatches inherit only the confinement (`provider:profile`, the internal `HARNESS_CONFINE`; the vault
+  does not store it, a standing default is the vault env `COWORKER_OVERLAY`); the document itself is one hop, and
+  `--job`/`--background`/`--batch` relaunches carry it. `--host` carries the confinement (`provider`/`profile`) to the
+  far machine and refuses a non-empty `set`/`unset`/`keep`; `--live` refuses the env layer too. `--retry` replays the
+  recorded workspace unless the overlay names a provider. Interactive launches read it for `set`/`unset`/`keep` and
+  refuse routing keys. Env layer: `files` reserved, refused; `set` values may be `@secret:<NAME>` (harness-internal
+  secrets refused); a `set` name the launch already sets for its route is refused (`--env` still overrides); endpoint,
+  proxy and TLS names (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `*_GATEWAY_URL`, `*_PROXY_URL`, `*_CA_CERT`,
+  `DATABRICKS_HOST`, `HTTP(S)_PROXY`, `ALL_PROXY`, TLS overrides) are refused in `set`, `keep` and `unset`, as are
+  agent-config locations (`OPENCODE_CONFIG`, `CODEX_HOME`, `COPILOT_HOME`, …): use `--profile`; `keep` refuses
+  credential and `HARNESS_*` names, `unset` `HARNESS_*` names (`HARNESS_KEEP_ENV` stays the escape hatch). `--env` /
   `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS refusals; credential names in `--keep-env`, ask
   and interactive).
 - `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
@@ -100,11 +101,11 @@ paths:
 
 | Agent | Reads the core from | Probe |
 | --- | --- | --- |
-| codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/docs.go` `instructionFiles` |
+| codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/targets.go` `docs:` |
 | gemini (agy) | `~/.gemini/GEMINI.md` (rendered by sync) | same |
-| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | F0 `p7` |
+| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | `project/targets.go` (copilot `docs:`) |
 | copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
-| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | F0 `p2`, `p2b` |
+| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` (opencode: no `docs:`) |
 
 - **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs through the SDK:
   per-call `Decide` on the dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK

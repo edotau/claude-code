@@ -29,7 +29,7 @@ what differs; the full list is `claude-code agents ask -h`.
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (read, never write or shell) |
+| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (per agent: claude, codex tools off; gemini, opencode deny Bash/Write/Edit; copilot also read-only git) |
 | Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` (hook-enforced per agent) |
 | Long run | `--background` → `<agent> status [--all]` · `<agent> tail -f <id>` · `<agent> result <id>` · `<agent> cancel` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
@@ -45,10 +45,11 @@ prints the CLI's help.
 
 1. **Choose once.** Follow `../SKILL.md` → External relay contract. Use a leading `Run:` or select the requested
    verb; check `claude-code <agent> -h` when uncertain. Run `setup` only to diagnose a route/login failure.
-2. **Run once.** Use `--background` for a long job; record its id. Follow `tail -f <id>` in a background Bash call,
-   then read `result <id>`. These observe the same job; they do not launch another ask. Cancel a confirmed stall.
-3. **Verify locally.** Run the brief's scoped check and open cited files. Return gaps and errors to the manager.
-4. **Report.** Use `../SKILL.md` → Handoff contract with the actual run receipt.
+2. **Run once.** Use `--background` for a long job; record its id. Follow it with foreground `tail -f <id>` (600000 ms
+   timeout), repeated until it ends; never `run_in_background`: the Run line's `--background` is the only
+   backgrounding. Then read `result <id>`. These observe the same job; they do not launch another ask.
+3. **Do not verify.** No reads or tests before or after; the manager verifies at fan-in. Return errors to the manager.
+4. **Report.** The agent's answer verbatim under `## Result`, after the `ask: ran on` line and job/session ids.
 
 Dispatch choice and fallback: `cost-routing.md` → Fallback. A saved Workflow named in the brief (`Workflow:`) runs per
 `saved-workflows.md` → Run from a leaf.

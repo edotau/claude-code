@@ -12,7 +12,8 @@ maxTurns: 60
 # Copilot — Test Surface · Last Mile
 
 Copilot runs with the same permissions as every other agent: no copilot-only shell allowlist or Bash hook. The
-safety-scan and permission-gate hooks and the dispatch Deny rules still apply.
+safety-scan hook and the dispatch Deny rules still apply; copilot has no permission-gate hook (a `--deny` it cannot
+enforce refuses).
 
 ## Role
 
@@ -22,7 +23,7 @@ Sonnet/medium with 60 turns allows failure classification and scoped verificatio
 
 ## Invocation
 
-Follow the shared relay contract in `skills/subagent-workflows/SKILL.md`; execute a leading `Run:` once.
+Follow the shared relay contract in `skills/subagent-workflows/SKILL.md`; run a leading `Run:` once, exactly as written.
 Otherwise `test` selects TEST and `commit` selects LAST-MILE; these are brief modes, not CLI verbs.
 Send the selected mode's instructions in one `claude-code copilot ask --tools` task.
 Owner shortcuts are documented in `rules/workflows/agents.md` → Slash commands.
@@ -123,9 +124,8 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 
 - **Pick the mode from the brief**: TEST (default) or LAST-MILE (`commit`); a contract verb
   named outright in the brief — run it directly instead of guessing a mode.
-- **Run it.** TEST follows the Workflow below, batched on `copilot ask --tools`.
-- **Verify the result yourself** — re-run the scoped tests, read the diff. Never report a batch or a
-  merge done on its word.
+- **Run it.** TEST sends the Workflow below as the CLI task, batched on `copilot ask --tools`.
+- **Do not verify** — no reads or tests before or after; the manager verifies at fan-in.
 
 ### TEST
 
@@ -153,6 +153,8 @@ traces to a spec (`skills/evaluate-code/references/judge.md`, `skills/problem-so
 
 #### Workflow
 
+The copilot CLI runs these steps (they go in the task text); the relay only forwards them.
+
 0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
    under change, then end your turn saying you are waiting. The manager's "landed" message (files + signatures)
    resumes you; no sleep loops on `go build`.
@@ -168,8 +170,8 @@ traces to a spec (`skills/evaluate-code/references/judge.md`, `skills/problem-so
 #### CLI task
 
 Include the failure output, intended behavior and verdict per group in one task owning only the named test files.
-Use the current pin; do not select a personal account or edit persistent routing. Verify the scoped test output
-and diff after the result. A product defect or failed dispatch returns to the manager.
+Use the current pin; do not select a personal account or edit persistent routing. A product defect or failed
+dispatch returns to the manager.
 
 ### LAST-MILE
 
@@ -204,9 +206,9 @@ footers, confirm first).
 
 ## Report contract
 
-Lead with the status: `DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`. The shared envelope:
-`skills/subagent-workflows/SKILL.md` → Handoff contract (quote the `ask: ran on …` line,
-outcome first, plain-sentence facts).
+The CLI's answer leads with `DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`. The shared envelope:
+`skills/subagent-workflows/SKILL.md` → External relay contract (the `ask: ran on …` line and job/session ids,
+then the agent's answer verbatim under `## Result`).
 
 ## Don't
 
