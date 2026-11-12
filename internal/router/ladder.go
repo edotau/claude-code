@@ -270,8 +270,7 @@ func (l pickLadder) armSplit(first, rest [][]Candidate) ([][]Candidate, [][]Cand
 	return keep, slices.Concat(moved, rest)
 }
 
-// placeUnit returns the first rung the unit matches and its candidates (one per rung model); len(rungs) = no rung.
-// A unit whose matched rungs all reject its models returns no candidates, so it is never emitted.
+// placeUnit is the first rung u matches and its candidates (one per rung model); none when every matched rung rejects.
 func (lp ladderPick) placeUnit(u []Candidate) (int, []Candidate) {
 	if lp.l.anywhere && u[0].Agent == "claude" {
 		return -1, u

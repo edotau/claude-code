@@ -268,11 +268,13 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 	if !ok {
 		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", agent, key)
 	}
-	account, err := overlayCellAccount(agent, key, o, c)
-	if err != nil {
-		return "", err
+	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
+		if err != nil {
+			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)
+		}
+		c.Account = acct
 	}
-	c.Account = account
 	c.Model = cmp.Or(o.Model, c.Model)
 	c.Effort = cmp.Or(o.Effort, c.Effort)
 	if o.Account != "" {
@@ -377,17 +379,6 @@ func (t *RouteTable) registryAliasOf(bare string) string {
 		}
 	}
 	return ""
-}
-
-func overlayCellAccount(agent, key string, o providers.RouteCell, c Cell) (string, error) {
-	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
-		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
-		if err != nil {
-			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)
-		}
-		c.Account = acct
-	}
-	return c.Account, nil
 }
 
 // ModelRow resolves a --model value to its row's alias and canonical Claude id; exact is a non-Claude id as asked.
