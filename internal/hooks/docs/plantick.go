@@ -148,12 +148,9 @@ func commitCandidates(cwd, cmd string) []string {
 	return append(cands, cwd)
 }
 
-// candidateDir expands a leading ~/ and anchors a relative path to base.
+// candidateDir expands a leading ~ or ~/ and anchors a relative path to base.
 func candidateDir(p, base string) string {
-	if strings.HasPrefix(p, "~/") {
-		p = paths.ExpandHome(p)
-	}
-	return core.AnchorPath(p, base)
+	return core.AnchorPath(paths.ExpandHome(p), base)
 }
 
 // recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.

@@ -13,10 +13,7 @@ import (
 
 // Start injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func Start(in *core.Input) core.Result {
-	cwd := in.CWD
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
+	cwd := cwdOf(in)
 	now := time.Now()
 	ctx := memory.StartSession(in.SessionID, cwd, now)
 	reg, err := loadProviders() // one registry load serves the served refresh and the pin check
@@ -39,16 +36,21 @@ func Start(in *core.Input) core.Result {
 
 // StartText is Start's context for an audit (doctor --prompts): nothing is written, spawned or consumed.
 func StartText(in *core.Input) core.Result {
-	cwd := in.CWD
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
 	now := time.Now()
 	reg, err := loadProviders()
 	if err != nil {
 		reg = nil
 	}
-	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwd, now), preflightNotice(reg, now))}
+	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, now))}
+}
+
+// cwdOf is the hook payload's cwd, else the process's.
+func cwdOf(in *core.Input) string {
+	if in.CWD != "" {
+		return in.CWD
+	}
+	cwd, _ := os.Getwd()
+	return cwd
 }
 
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.

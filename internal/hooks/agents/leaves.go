@@ -122,7 +122,7 @@ func Stop(in *core.Input) core.Result {
 	return core.WithStderr(note, clearErr)
 }
 
-// The leaf-stop gate: a leaf may not stop while its background dispatch runs; an external-agent leaf needs a ran-on line from a tool result.
+// The leaf-stop gate: no stop while its dispatch runs; an external-agent leaf needs a ran-on line in a tool result.
 
 // leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
 const leafStopMaxWait = 2 * time.Hour

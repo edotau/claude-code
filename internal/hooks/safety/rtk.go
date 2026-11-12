@@ -223,7 +223,7 @@ func rtkGitArgs(seg string) []string {
 	if len(rest) == 0 || rest[0] != "git" {
 		return nil
 	}
-	return append([]string{}, rest[1:]...)
+	return rest[1:]
 }
 
 // rtkGitInLinkedWorktree reports whether any chain segment runs git from a linked worktree: the cwd, a

@@ -39,23 +39,13 @@ func dropHeredocBodies(cmd string, guarded bool, bodyEnd func(lines []string, i 
 // sshHoldsHeredoc reports an ssh segment carrying the heredoc operator whose output is not piped on.
 func sshHoldsHeredoc(line string) bool {
 	segs, seps := shell.SegmentsSep(line)
-	for i := 0; i < len(segs); i++ {
-		seg, sep := segs[i], seps[i]
-		for i+1 < len(segs) && sep == "&" && redirectJoin(seg, segs[i+1]) { // `2>&1` / `&>f` are not separators
-			i++
-			seg, sep = seg+"&"+segs[i], seps[i]
-		}
+	for i, seg := range segs {
 		if heredocOp().MatchString(seg) {
 			toks := shell.Tokens(seg)
-			return len(toks) > 0 && toks[0] == "ssh" && sep != "|" && sep != "|&"
+			return len(toks) > 0 && toks[0] == "ssh" && seps[i] != "|" && seps[i] != "|&"
 		}
 	}
 	return false
-}
-
-// redirectJoin reports that the `&` between left and right belongs to a redirection (`>&`, `&>`).
-func redirectJoin(left, right string) bool {
-	return strings.HasSuffix(strings.TrimSpace(left), ">") || strings.HasPrefix(right, ">")
 }
 
 // heredocOp matches one `<<[-]DELIM` operator; groups: dash, single-quoted, double-quoted, bare delimiter.

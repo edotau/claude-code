@@ -10,11 +10,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -42,11 +43,7 @@ func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 		}
 		root = args[0]
 	}
-	files, err := lintTargets(root)
-	if err != nil {
-		fmt.Fprintf(stderr, "workflow lint: glob skills scripts under %s: %v\n", root, err)
-		return 1
-	}
+	files := lintTargets(root)
 	if len(files) == 0 { // a wrong root (e.g. the workflows dir itself) must not pass as "0 clean"
 		fmt.Fprintf(stderr, "workflow lint: no scripts in %s (pass the root that contains workflows/)\n", filepath.Join(root, "workflows", "*.js"))
 		return 1
@@ -154,28 +151,20 @@ func workflowParseDefects(files []string) (hits []string, skipped string) {
 
 // isParseLine reports whether line is parseCheckJS's own "<file>: <message>" output, not node noise.
 func isParseLine(line string, files []string) bool {
-	for _, f := range files {
-		if strings.HasPrefix(line, f+": ") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(files, func(f string) bool { return strings.HasPrefix(line, f+": ") })
 }
 
 // skillScripts returns every skills/*/scripts/*.js under root that opens with `export const meta` (a
 // Workflow script moved out of workflows/) — other scripts under scripts/ are plain helpers, not linted.
-func skillScripts(root string) ([]string, error) {
-	files, err := filepath.Glob(filepath.Join(root, "skills", "*", "scripts", "*.js"))
-	if err != nil {
-		return nil, err
-	}
+func skillScripts(root string) []string {
+	rel, _ := fs.Glob(os.DirFS(root), "skills/*/scripts/*.js") // the pattern is fixed, so ErrBadPattern cannot occur
 	var out []string
-	for _, f := range files {
-		if isWorkflowScript(f) {
+	for _, r := range rel {
+		if f := filepath.Join(root, r); isWorkflowScript(f) {
 			out = append(out, f)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // isWorkflowScript reports whether f's first non-blank, non-comment line opens `export const meta`;
@@ -387,12 +376,7 @@ func badPinValuesForKey(name string, line int, window, key string) []string {
 
 // allowedList renders pinAllowed[key] as a deterministic, sorted "a|b|c" string for a message.
 func allowedList(key string) string {
-	keys := make([]string, 0, len(pinAllowed[key]))
-	for k := range pinAllowed[key] {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, "|")
+	return strings.Join(slices.Sorted(maps.Keys(pinAllowed[key])), "|")
 }
 
 // scanAgentCalls calls fn once per agent( call in src — never subagent(/x.agent() — with its byte offset, 1-based
