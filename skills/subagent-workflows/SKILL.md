@@ -196,6 +196,12 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 
 ## Rules
 
+- **Visible dispatch (owner preference from 2026-11-12, until the owner lifts it):** every dispatch goes through the
+  Agent tool with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`) so the owner can watch each
+  subagent; the main session does not run `claude-code agents ask --background` from Bash. Routing rides the brief's
+  leading `Run:` line. A job that can outlast a Bash call (about 10 minutes) puts `--background` on that line: the
+  stop gate then holds the leaf until the job ends, while an ask backgrounded by the shell is killed when the leaf
+  stops. Claude Code runs at most 20 subagents at once; queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
 - Preserve explicit agent/model choices unless the owner authorizes a change; models go on the `ask` call
