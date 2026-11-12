@@ -60,11 +60,11 @@ paths:
   refuse routing keys. Env layer: `files` reserved, refused; `set` values may be `@secret:<NAME>` (harness-internal
   secrets refused); a `set` name the launch already sets for its route is refused (`--env` still overrides); endpoint,
   proxy and TLS names (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `*_GATEWAY_URL`, `*_PROXY_URL`, `*_CA_CERT`,
-  `DATABRICKS_HOST`, `HTTP(S)_PROXY`, `ALL_PROXY`, TLS overrides) are refused in `set`, `keep` and `unset`, as are
-  agent-config locations (`OPENCODE_CONFIG`, `CODEX_HOME`, `COPILOT_HOME`, …): use `--profile`; `keep` refuses
-  credential and `HARNESS_*` names, `unset` `HARNESS_*` names (`HARNESS_KEEP_ENV` stays the escape hatch). `--env` /
-  `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS refusals; credential names in `--keep-env`, ask
-  and interactive).
+  `DATABRICKS_HOST`, `HTTP(S)_PROXY`, `ALL_PROXY`, TLS overrides, `NODE_OPTIONS`) are refused in `set`, `keep` and
+  `unset`, as are agent-config locations (`OPENCODE_CONFIG`, `CODEX_HOME`, `COPILOT_HOME`, `HOME`, `GH_CONFIG_DIR`, …):
+  use `--profile`; `keep` refuses credential and `HARNESS_*` names, `unset` `HARNESS_*` names (`HARNESS_KEEP_ENV`
+  stays the escape hatch). `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS refusals;
+  credential names in `--keep-env`, ask and interactive).
 - `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. An `ai-gateway` row has no

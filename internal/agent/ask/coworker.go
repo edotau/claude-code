@@ -352,14 +352,14 @@ func CheckArm(agentName, profile, provider, model string, direct bool) error {
 		return fmt.Errorf("overlay databricks:%s: %w", arm, err)
 	}
 	if prof, _, typed := strings.Cut(model, ":"); typed && reg.Providers[prof] != nil && prof != arm {
-		return fmt.Errorf("--model %s: outside overlay databricks:%s", model, arm)
+		return fmt.Errorf("--model: its profile is outside overlay databricks:%s", arm) // never echo the value: it may be the overlay's
 	}
 	if agentName != "claude" { // claude has no own-cell hop; the chain's preflight validates every other agent
 		return nil
 	}
 	model = strings.TrimPrefix(model, arm+":")
 	if _, failed := agent.CheckModelNoted(agentName, reg.Providers[arm], model, time.Now(), nil); failed != nil {
-		return fmt.Errorf("--model %s: not served to %s on databricks:%s", model, agentName, arm)
+		return fmt.Errorf("--model: not served to %s on databricks:%s", agentName, arm)
 	}
 	return nil
 }
@@ -412,7 +412,7 @@ func confineFlags(profile, provider, model string) error {
 	case outsideRow(reg, profile, cp, cprof):
 		return fmt.Errorf("--profile %s: outside %s", profile, label)
 	case typed && outsideRow(reg, prof, cp, cprof):
-		return fmt.Errorf("--model %s: outside %s", model, label)
+		return fmt.Errorf("--model: outside %s", label)
 	}
 	return nil
 }

@@ -60,8 +60,8 @@ func askRetryCases() []askRetryCase {
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt"}},
 		{name: "retry repeated attachments accumulate", retry: true, attachments: []string{"b.txt", "c.txt"},
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"b.txt", "c.txt"}},
-		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "LANG,HOME"},
-			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "HOME"}},
+		{name: "fresh --keep-env is recorded", flags: []string{"--keep-env", "LANG,TZ"},
+			wantTimeout: 10 * time.Minute, wantKeepEnv: []string{"LANG", "TZ"}},
 		{name: "retry keeps recorded permissions", retry: true, recPerms: true,
 			wantTimeout: 5 * time.Minute, wantAttach: []string{"a.txt"}, wantAllow: []string{"Bash(ls:*)"}, wantDeny: []string{"Bash(rm:*)"}},
 		{name: "retry --allow replaces recorded allow only", retry: true, recPerms: true, flags: []string{"--allow", "Read"},
@@ -1229,9 +1229,9 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
 		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
 		{"", "--provider openai: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
-		{"", "--model gw:m: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
+		{"", "--model: its profile is outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
 		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
-		{"", "--model gpt-nonexistent-9: not served to claude", // external agents' models are the chain's preflight
+		{"", "--model: not served to claude", // external agents' models are the chain's preflight
 			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},
 		{"databricks:dev", "cannot leave databricks:dev", []string{"--overlay", `{"provider":"openai"}`}},
 		{"openai", "cannot leave openai", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`}},
