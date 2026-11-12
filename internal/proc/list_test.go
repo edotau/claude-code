@@ -12,7 +12,7 @@ func TestParseListReadsMarkAndStart(t *testing.T) {
 		"  412   400   412 Mon Nov  9 09:05:01 2026 /usr/bin/ssh -v host SSH_AUTH_SOCK=/tmp/a\n" +
 		"garbage line\n" +
 		"  7 1 7 Wed Nov 11 xx:17:11 2026 /bad/time\n"
-	got := parseList(out, DispatchIDEnv, time.UTC)
+	got := parseList(out, nil, DispatchIDEnv, time.UTC)
 	if len(got) != 2 {
 		t.Fatalf("parsed %d rows, want 2 (bad rows skipped): %+v", len(got), got)
 	}
@@ -23,5 +23,15 @@ func TestParseListReadsMarkAndStart(t *testing.T) {
 	}
 	if got[1].Mark != "" || got[1].Exe != "ssh" || got[1].Start.Day() != 9 {
 		t.Errorf("row 1 = %+v, want an unmarked ssh started on the 9th", got[1])
+	}
+}
+
+// Given a command whose executable path holds a space, When comm supplies the path, Then Exe is the whole base name.
+func TestParseListExeWithSpace(t *testing.T) {
+	out := "  88 1 88 Wed Nov 11 11:17:11 2026 /Applications/Visual Studio Code.app/Contents/Code Helper --type=gpu HOME=/x\n"
+	comms := parseComms("   88 /Applications/Visual Studio Code.app/Contents/Code Helper\n  junk\n")
+	got := parseList(out, comms, DispatchIDEnv, time.UTC)
+	if len(got) != 1 || got[0].Exe != "Code Helper" {
+		t.Fatalf("got %+v, want one row with Exe %q", got, "Code Helper")
 	}
 }
