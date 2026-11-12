@@ -158,11 +158,10 @@ func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	return n, code
 }
 
-// Seams for tests: the process table, the group signal, the liveness probe, the clock and the SIGTERM-to-SIGKILL wait.
+// Seams for tests: the process table, the group signal, the clock and the SIGTERM-to-SIGKILL wait.
 var (
 	listProcs   = proc.List
 	signalGroup = proc.SignalGroup
-	procAlive   = proc.Alive
 	reapNow     = time.Now
 	reapSleep   = time.Sleep
 )
@@ -245,7 +244,7 @@ func stopGroup(pid int) error {
 		return err
 	}
 	reapSleep(orphanGrace)
-	if !procAlive(pid) {
+	if !pidAlive(pid) {
 		return nil
 	}
 	return signalGroup(pid, syscall.SIGKILL)

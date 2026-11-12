@@ -154,7 +154,7 @@ func TestBuildDispatchesEnvelopeID(t *testing.T) {
 	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := buildDispatches(path, "", time.Now(), Activity{}, transcript.DispatchIDs(path))
+	got := buildDispatches(path, "", time.Now(), Activity{}, transcript.AppendDispatchIDs(nil, map[string]bool{}, []byte(line)))
 	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
 		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
 	}
@@ -165,7 +165,8 @@ func orphanFixture(t *testing.T, now time.Time, procs ...proc.Info) *[]string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var sent []string
-	origList, origSig, origAlive, origNow, origSleep := listProcs, signalGroup, procAlive, reapNow, reapSleep
+	stubPidAlive(t, func(int) bool { return true })
+	origList, origSig, origNow, origSleep := listProcs, signalGroup, reapNow, reapSleep
 	listProcs = func(string) ([]proc.Info, error) { return procs, nil }
 	signalGroup = func(pid int, sig syscall.Signal) error {
 		name := "TERM"
@@ -175,9 +176,9 @@ func orphanFixture(t *testing.T, now time.Time, procs ...proc.Info) *[]string {
 		sent = append(sent, fmt.Sprintf("%s %d", name, pid))
 		return nil
 	}
-	procAlive, reapNow, reapSleep = func(int) bool { return true }, func() time.Time { return now }, func(time.Duration) {}
+	reapNow, reapSleep = func() time.Time { return now }, func(time.Duration) {}
 	t.Cleanup(func() {
-		listProcs, signalGroup, procAlive, reapNow, reapSleep = origList, origSig, origAlive, origNow, origSleep
+		listProcs, signalGroup, reapNow, reapSleep = origList, origSig, origNow, origSleep
 	})
 	return &sent
 }

@@ -12,11 +12,9 @@ import (
 )
 
 // withLedgerDir points paths.ConfigDir (and so Path) at a scratch dir for the duration of the test.
-func withLedgerDir(t *testing.T) string {
+func withLedgerDir(t *testing.T) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	return dir
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 
 func TestAppendReadRoundTrip(t *testing.T) {
@@ -51,7 +49,7 @@ func TestReadMissingFileIsEmptyNotError(t *testing.T) {
 // TestReadSkipsMalformedLines: a truncated/garbage line is dropped, not failed on; well-formed
 // lines around it still come through.
 func TestReadSkipsMalformedLines(t *testing.T) {
-	dir := withLedgerDir(t)
+	withLedgerDir(t)
 	good1 := `{"ts":"2026-10-20T00:00:00Z","provider":"openai","model":"gpt-5","input":1,"output":1,"cache_read":0}`
 	bad := `{"ts":"2026-10-20T00:01` // truncated JSON
 	good2 := `not json at all`
@@ -63,7 +61,6 @@ func TestReadSkipsMalformedLines(t *testing.T) {
 	if err := os.WriteFile(Path(), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_ = dir
 
 	got, err := Read()
 	if err != nil {
@@ -128,7 +125,7 @@ func checkEntryFields(t *testing.T, m map[string]json.RawMessage, want map[strin
 	}
 }
 
-// TestAppendBestEffortOnUnwritableDir: Append is a no-op, not a panic, when the config dir path is
+// TestAppendBestEffortOnUnwritableDir: Append writes nothing and does not panic when the config dir path is
 // blocked by an existing plain file (os.MkdirAll fails).
 func TestAppendBestEffortOnUnwritableDir(t *testing.T) {
 	dir := t.TempDir()
@@ -138,14 +135,19 @@ func TestAppendBestEffortOnUnwritableDir(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(blocker, "sub"))
 	Append(Entry{Ts: time.Now(), Provider: "openai", Model: "gpt-5", Input: 1})
+	if got, err := os.ReadFile(blocker); err != nil || string(got) != "x" {
+		t.Errorf("blocker = %q, %v; want it untouched", got, err)
+	}
+	if _, err := os.Stat(Path()); err == nil {
+		t.Error("a ledger file exists under the blocked config dir")
+	}
 }
 
 func TestOldLinesParseAndProfileName(t *testing.T) {
-	dir := withLedgerDir(t)
+	withLedgerDir(t)
 	p := Path()
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
 	_ = os.WriteFile(p, []byte(`{"ts":"2026-10-20T12:00:00Z","provider":"prod","model":"m","input":4,"output":1,"cache_read":0}`+"\n"), 0o600)
-	_ = dir
 	got, err := Read()
 	if err != nil || len(got) != 1 {
 		t.Fatalf("Read = %v, %v", got, err)
