@@ -80,7 +80,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		pickWant = ""
 	}
 	pick := tb.Pick(ctx, alias, pickWant, loadState(), o)
-	pick.Skipped = slices.DeleteFunc(pick.Skipped, func(s router.Skip) bool { return offOrder(s.Agent, want) })
+	pick.Skipped = slices.DeleteFunc(pick.Skipped, func(s router.Skip) bool { return router.OffOrder(s.Agent, want) })
 	reg := loadRegistryWarn()
 	c := Chain{Want: want}
 	if nativeLead {
@@ -92,7 +92,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	c.Skipped = pickSkips(pick, nativeLead)
 	current, _ := models.Alias(alias)
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
-		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
+		current: current, dispatchID: router.NonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
@@ -157,12 +157,6 @@ func pickSkips(pick router.PickResult, nativeLead bool) []string {
 	return skipped
 }
 
-// offOrder reports a gate skip of an agent the order never holds: not the wanted agent, claude or the registry.
-func offOrder(label, want string) bool {
-	who, _, _ := strings.Cut(label, "·")
-	return who != want && who != "claude" && who != "registry"
-}
-
 // step is one hop of the fallback order: a pick candidate, how its cell is read, and whether it is the pin hop.
 type step struct {
 	i   int
@@ -173,7 +167,7 @@ type step struct {
 // steps is the fallback order over the pick: the requested target, the wanted agent's pin, then the last claude hop.
 func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool) (out []step, req int) {
 	pin := rc.pinIndex(cands, alias)
-	req = rc.requestedIndex(cands, pin)
+	req = router.RequestedIndex(cands, rc.want, rc.lead, pin)
 	if nativeLead { // opencode's own config is the requested target, and its hub pin is no hop of a native run
 		req, pin = -1, -1
 	}
@@ -183,27 +177,10 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	if pin >= 0 && rc.want != "claude" && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
 		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
 	}
-	if last := rc.claudeBackstop(cands, req); last >= 0 {
+	if last := router.ClaudeBackstop(cands, req, rc.mode); last >= 0 {
 		out = append(out, step{i: last, rc: rc})
 	}
 	return out, req
-}
-
-// claudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
-func (rc routeCtx) claudeBackstop(cands []router.Candidate, req int) int {
-	if rc.mode != router.FallbackAll && rc.mode != "" {
-		return -1
-	}
-	last := -1
-	for i, c := range cands {
-		if c.Agent == "claude" {
-			last = i
-		}
-	}
-	if last == req {
-		return -1
-	}
-	return last
 }
 
 // pinIndex is the pick candidate running the wanted agent on its own pin (profile, else its own login); -1 = none.
@@ -238,38 +215,11 @@ func (rc routeCtx) onPin(c router.Candidate) bool {
 	return false
 }
 
-// requestedIndex is the candidate the caller asked for: the wanted agent on the overlay workspace, the lead or its pin.
-func (rc routeCtx) requestedIndex(cands []router.Candidate, pin int) int {
-	on := func(profile string) int {
-		acct := router.ProviderAccount(profile)
-		return slices.IndexFunc(cands, func(c router.Candidate) bool {
-			return c.Agent == rc.want && (c.Profile == profile || c.Account == acct)
-		})
-	}
-	switch arm := router.ArmProfile(); {
-	case arm != "":
-		return on(arm)
-	case rc.want == "claude":
-		return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == "claude" })
-	case rc.lead != "":
-		return on(rc.lead)
-	}
-	return pin
-}
-
 // asPin is rc reading a candidate as the wanted agent's pin: no caller model, no lead.
 func (rc routeCtx) asPin() routeCtx {
 	rc.lead, rc.row, rc.exact, rc.callerModel, rc.explicitModel = "", "", "", "", false
-	rc.dispatchID = nonClaudeDispatchID("", false, rc.pins[rc.want].Model)
+	rc.dispatchID = router.NonClaudeDispatchID("", false, rc.pins[rc.want].Model)
 	return rc
-}
-
-// asksModel reports the caller's --model naming the model a pin cell already runs: the pin is the requested target.
-func (rc routeCtx) asksModel(cand router.Candidate, cell string) bool {
-	asked := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
-	a, _, okA := models.Resolve(asked)
-	b, _, okB := models.Resolve(cell)
-	return asked == cell || (okA && okB && a == b)
 }
 
 // addCandidates appends a dispatch to c for each step of the fallback order whose cell can run; the rest are skipped.
@@ -304,7 +254,7 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 	if skip != "" {
 		return Dispatch{}, skip, false, nil
 	}
-	if s.pin && s.i == req && rc.asksModel(cand, cell.Model) {
+	if s.pin && s.i == req && router.AsksModel(rc.callerModel, cand, cell.Model) {
 		return Dispatch{}, "", false, nil
 	}
 	if disp, skip, err = s.rc.buildDispatch(cand, cell); err != nil || skip != "" {
@@ -318,25 +268,13 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 
 // otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or overlay workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
-	if rc.askedWorkspace(cand) {
+	if router.AskedWorkspace(cand, rc.want) {
 		return false
 	}
 	if rc.lead != "" && cand.Agent == rc.want {
 		return cand.Profile != rc.lead && cand.Account != router.ProviderAccount(rc.lead) // an own-login row has no Profile
 	}
 	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
-}
-
-// askedWorkspace reports the wanted agent on the overlay workspace or inside a confinement: neither is a fallback.
-func (rc routeCtx) askedWorkspace(cand router.Candidate) bool {
-	if cand.Agent != rc.want {
-		return false
-	}
-	if arm := router.ArmProfile(); arm != "" && cand.Profile == arm {
-		return true // databricks:<p> asked for this workspace: running there is not a fallback
-	}
-	cp, _ := router.Confined() // the confinement admitted it: the pin was set aside, nothing fell back
-	return cp != ""
 }
 
 // same reports whether o runs the same agent, account, model and effort as d.
@@ -492,7 +430,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 	cell = cand.Cell
 	switch {
 	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
-		rc.claudeTierCell(&cell)
+		rc.tb.ClaudeTierCell(rc.want, rc.dispatchID, &cell)
 	case rc.callerOnProfile(cand): // the wanted agent's profile row runs the caller's --model, never its pin or tier
 		return rc.callerProfileCell(cand, cell)
 	case rc.pinnedCaller(cand):
@@ -597,17 +535,6 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 	return cell, ""
 }
 
-// claudeTierCell points cell at claude's lowest alias serving the non-Claude dispatch model.
-func (rc routeCtx) claudeTierCell(cell *router.Cell) {
-	t := rc.tb.LowestAliasServing(rc.want, rc.dispatchID)
-	if t == "" {
-		return
-	}
-	if tc, ok := rc.tb.Rows["claude"][t]; ok {
-		cell.Model, cell.Effort = tc.Model, tc.Effort
-	}
-}
-
 // buildDispatch turns cand's cell into a dispatch; skip is non-empty when it cannot run, err when its agent is unknown.
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
 	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
@@ -677,17 +604,6 @@ func lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dis
 		}
 	}
 	return disp, nil
-}
-
-// nonClaudeDispatchID is the non-Claude model the dispatch runs: the exact --model, else the wanted agent's model pin.
-func nonClaudeDispatchID(exact string, explicitModel bool, pinModel string) string {
-	if exact != "" || explicitModel || pinModel == "" {
-		return exact
-	}
-	if id, _, ok := models.Resolve(pinModel); ok && models.FamilyKind(id) != models.FamilyClaude {
-		return id
-	}
-	return ""
 }
 
 func (rc routeCtx) discoveryCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {

@@ -432,6 +432,36 @@ func (t *RouteTable) LowestAliasServing(agent, id string) string {
 	return ""
 }
 
+// ClaudeTierCell points cell at claude's lowest alias serving the non-Claude dispatch model.
+func (t *RouteTable) ClaudeTierCell(want, dispatchID string, cell *Cell) {
+	tier := t.LowestAliasServing(want, dispatchID)
+	if tier == "" {
+		return
+	}
+	if tc, ok := t.Rows["claude"][tier]; ok {
+		cell.Model, cell.Effort = tc.Model, tc.Effort
+	}
+}
+
+// NonClaudeDispatchID is the non-Claude model the dispatch runs: the exact --model, else the wanted agent's model pin.
+func NonClaudeDispatchID(exact string, explicitModel bool, pinModel string) string {
+	if exact != "" || explicitModel || pinModel == "" {
+		return exact
+	}
+	if id, _, ok := models.Resolve(pinModel); ok && models.FamilyKind(id) != models.FamilyClaude {
+		return id
+	}
+	return ""
+}
+
+// AsksModel reports the caller's --model naming the model a pin cell already runs: the pin is the requested target.
+func AsksModel(callerModel string, cand Candidate, cell string) bool {
+	asked := strings.TrimPrefix(callerModel, cand.Profile+":")
+	a, _, okA := models.Resolve(asked)
+	b, _, okB := models.Resolve(cell)
+	return asked == cell || (okA && okB && a == b)
+}
+
 // CellServing is agent's cell (any row, then the opencode sub-candidates when hub) whose model is exact.
 func (t *RouteTable) CellServing(agent, exact string, hub bool) (Cell, bool) {
 	serves := func(c Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
