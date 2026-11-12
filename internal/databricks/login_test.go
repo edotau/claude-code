@@ -221,12 +221,12 @@ func TestLoginForceSkipsReuse(t *testing.T) {
 	}
 }
 
-// With no Databricks profile, login and mint name the import command instead of `unknown provider ""`.
+// With no Databricks profile, login and mint name the import command instead of `unknown profile ""`.
 func TestNoDatabricksProfileNamesImport(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for name, run := range map[string]func([]string) int{"login": login, "mint": mint} {
 		code, _, stderr := captureOutput(t, func() int { return run([]string{"--dry-run"}) })
-		if code != 1 || !strings.Contains(stderr, "databricks import --apply") || strings.Contains(stderr, `unknown provider ""`) {
+		if code != 1 || !strings.Contains(stderr, "databricks import --apply") || strings.Contains(stderr, `unknown profile ""`) {
 			t.Errorf("%s: exit %d, stderr %q, want the no-profile message", name, code, stderr)
 		}
 	}
