@@ -107,9 +107,14 @@ func agentEffortResult(in *core.Input) core.Result {
 	return e.result()
 }
 
+// directAskRe matches a brief's opening ask command, with or without the global --host <host> in front.
+var directAskRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^Run: claude-code (--host \S+ )?agents ask `)
+})
+
 // directAsk is a brief that opens with its own ask command (the /<agent> and /coworker commands): never rewritten.
 func directAsk(task string) bool {
-	return strings.HasPrefix(task, "Run: claude-code agents ask ") && briefProfile(task) == "" && briefRoute(task) == ""
+	return directAskRe().MatchString(task) && briefProfile(task) == "" && briefRoute(task) == ""
 }
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
