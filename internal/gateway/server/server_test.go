@@ -763,3 +763,29 @@ func TestDatabricksCountTokensAnsweredLocally(t *testing.T) {
 		t.Fatalf("count_tokens = %d %s with %d upstream hits, want a local 200 estimate", resp.StatusCode, b, len(up.got()))
 	}
 }
+
+// A /v1/messages stream cut mid-body still writes its request line and meters its usage, then breaks the client stream.
+func TestMessagesStreamCutMidBodyIsLoggedAndMetered(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n")
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	})
+	t.Setenv("DATABRICKS_PROD_PAT", "tok")
+	row := fmt.Sprintf(`{"provider":"databricks","protocol":"anthropic","base_url":%q,"auth":{"type":"pat"},`+
+		`"models":{"opus":"m-opus","haiku":"m-haiku"}}`, up.URL)
+	logs := &lockedBuf{}
+	srv := setupRouter(t, `{"default":"prod","providers":{"databricks":{"prod":`+row+`}}}`, func(r *Router) { r.log = logs })
+	resp := post(t, srv.URL+"/p/prod/v1/messages", `{"model":"m-haiku","stream":true}`, nil)
+	if _, err := io.ReadAll(resp.Body); err == nil {
+		t.Error("client read the cut stream to a clean EOF, want it broken")
+	}
+	if got := ledgerSettled(t, 1); len(got) != 1 || got[0].Input != 7 {
+		t.Errorf("ledger = %+v, want one entry with 7 input tokens", got)
+	}
+	if line := logs.String(); !strings.Contains(line, " prod m-haiku ") || !strings.Contains(line, " stream=broken") {
+		t.Errorf("request log = %q, want a prod m-haiku line marked stream=broken", line)
+	}
+}
