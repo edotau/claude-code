@@ -26,7 +26,8 @@ with its Databricks requests sent through the other machine. Not a new agent or 
 2. Run `claude-code agents label <type>`: it prints the label, `<label>:`.
 3. Make ONE Agent tool call: `subagent_type: <type>`, description `<label>: <first ~8 words of the task>`, and a
    prompt whose first line is
-   `Run: claude-code --host <host|auto> agents ask --agent <type> --route databricks:<p|auto> [--model <m>] --tools`,
+   `Run: claude-code --host <host|auto> agents ask --agent <type> --route databricks:<p|auto> [--model <m>] --tools
+   --autonomous` (one line; codex has no autonomous mode and drops the flag with a note),
    then a blank line, then the task verbatim.
 
 Relay the leaf's report, its `ran on` line included; never do the task yourself. A refusal (no machine, no workspace,
