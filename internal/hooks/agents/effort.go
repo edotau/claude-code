@@ -40,6 +40,7 @@ var (
 type dispatchRun struct {
 	session  func() string
 	roster   map[string]string
+	efforts  map[string]string // frontmatter effort by agent name, filled by the same read as roster
 	registry func() (*providers.Registry, error)
 	line     *askLine // the brief's opening ask command, parsed (and its overlay loaded) once
 	lineTask string
@@ -52,17 +53,23 @@ var (
 )
 
 func newDispatchRun(session func() string) *dispatchRun {
-	return &dispatchRun{session: session, roster: map[string]string{}, registry: sync.OnceValues(loadRegistry)}
+	return &dispatchRun{session: session, roster: map[string]string{}, efforts: map[string]string{}, registry: sync.OnceValues(loadRegistry)}
 }
 
 // rosterModel is rosterModel(name), read once per run.
 func (r *dispatchRun) rosterModel(name string) string {
 	m, ok := r.roster[name]
 	if !ok {
-		m = rosterModel(name)
+		m, r.efforts[name] = rosterEntry(name)
 		r.roster[name] = m
 	}
 	return m
+}
+
+// rosterEffort is the named agent's frontmatter effort, from the same cached read as rosterModel.
+func (r *dispatchRun) rosterEffort(name string) string {
+	r.rosterModel(name)
+	return r.efforts[name]
 }
 
 // agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, label);
@@ -483,9 +490,17 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	tier, signal := router.EffortTierSignal(task)
 	model := models.AliasModel(tier)
 	updated["model"] = model
+	pinEffort(run, in, updated, tier)
 	return fmt.Sprintf("dispatch-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
 			" (set model explicitly to override).", tier, model),
 		fmt.Sprintf("dispatch-effort: %s → %s (%s)", tier, model, signal)
+}
+
+// pinEffort sets updated["effort"] to the classified tier in the model pin's rewrite, unless the call or agent file sets one.
+func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) {
+	if strings.TrimSpace(in.Nested("tool_input", "effort")) == "" && run.rosterEffort(in.Nested("tool_input", "subagent_type")) == "" {
+		updated["effort"] = tier
+	}
 }
 
 // explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).
@@ -502,18 +517,25 @@ func agentFile(name string) (string, bool) {
 	return filepath.Join(paths.ConfigDir(), "agents", name+".md"), true
 }
 
-// rosterModel is the named harness agent's frontmatter model ("" for a built-in or a path-shaped name).
-func rosterModel(name string) string {
+// rosterEntry is the named harness agent's frontmatter model and effort ("" for a built-in or a path-shaped name).
+func rosterEntry(name string) (model, effort string) {
 	file, ok := agentFile(name)
 	if !ok {
-		return ""
+		return "", ""
 	}
 	raw, err := readAgentFile(file)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	fm, _ := textutil.ParseFrontmatter(string(raw))
-	model, _ := fm["model"].(string)
+	model, _ = fm["model"].(string)
+	effort, _ = fm["effort"].(string)
+	return model, effort
+}
+
+// rosterModel is rosterEntry's model.
+func rosterModel(name string) string {
+	model, _ := rosterEntry(name)
 	return model
 }
 

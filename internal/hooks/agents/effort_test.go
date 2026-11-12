@@ -139,7 +139,7 @@ func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
 		`"isolation":"worktree","run_in_background":false,"subagent_type":"general-purpose"}}`
 	got, _ := runAgentEffort(t, in)
 	want := map[string]any{"prompt": "fix the typo in the help text", "description": "haiku: fix typo", "isolation": "worktree",
-		"run_in_background": false, "subagent_type": "general-purpose", "model": "haiku"}
+		"run_in_background": false, "subagent_type": "general-purpose", "model": "haiku", "effort": "low"}
 	if len(got) != len(want) {
 		t.Fatalf("updatedInput has %d keys, want %d: %v", len(got), len(want), got)
 	}
