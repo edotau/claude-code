@@ -211,9 +211,8 @@ func knowledgeFiles(root string) []string {
 
 // knowledgeNotes lists bank dir's knowledge/*.md, minus the tier's own README.md.
 func knowledgeNotes(dir string) []string {
-	m, _ := filepath.Glob(filepath.Join(knowledgeDir(dir), "*.md"))
 	var out []string
-	for _, f := range m {
+	for _, f := range globIn(knowledgeDir(dir), "*.md") {
 		if filepath.Base(f) != "README.md" {
 			out = append(out, f)
 		}

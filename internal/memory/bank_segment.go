@@ -45,8 +45,7 @@ func corpusFiles(root string) []corpusFile {
 		archiveOwners = append(archiveOwners, HomeBankDir())
 	}
 	for _, owner := range archiveOwners {
-		archived, _ := filepath.Glob(filepath.Join(owner, "archive", "*.md"))
-		for _, path := range archived {
+		for _, path := range globIn(archiveDir(owner), "*.md") {
 			out = append(out, corpusFile{"archive", path, segEntries})
 		}
 	}

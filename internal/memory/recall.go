@@ -19,10 +19,7 @@ import (
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
 func recallPicks(root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
-	q := strings.TrimSpace(query)
-	if rs := []rune(q); len(rs) > recallQueryCapRunes {
-		q = string(rs[:recallQueryCapRunes])
-	}
+	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
 	terms := contentQueryTerms(tokens)
 	var tr *recallTrace
@@ -372,8 +369,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	var cands []SearchHit
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		first, _, _ := strings.Cut(h.Block, "\n")
-		if (h.Bank == "archive") != archived || isSupersededTitle(first) {
+		if (h.Bank == "archive") != archived || isSupersededTitle(textutil.FirstLine(h.Block)) {
 			continue
 		}
 		if topAny == 0 {

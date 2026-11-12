@@ -425,9 +425,8 @@ func nativeLinkTargets(root string) map[string]string {
 // brokenNativeLinks reports only dangling links and links targeting the store root.
 func brokenNativeLinks(root string) []linkResult {
 	var targets map[string]string // built on the first broken link: it forks git and reads the catalog
-	matches, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
 	var out []linkResult
-	for _, link := range matches {
+	for _, link := range globIn(filepath.Join(paths.ConfigDir(), "projects"), "*/memory") {
 		target := nativeLinkTarget(link)
 		if target == "" {
 			continue

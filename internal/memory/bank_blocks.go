@@ -400,9 +400,6 @@ func ShowBlock(ref string) (string, string, error) {
 	derived := derivedRef.MatchString(ref)
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
-		if foundPath != "" { // already matched: a later unreadable entry must not discard the match
-			return nil
-		}
 		if errors.Is(err, fs.ErrNotExist) { // no store yet: nothing to find
 			return nil
 		}
@@ -417,6 +414,7 @@ func ShowBlock(ref string) (string, string, error) {
 		}
 		if b, ok := blockWithRef(p, ref, derived); ok {
 			foundPath, foundBlock = p, b
+			return filepath.SkipAll // stop at the first file holding it: the rest of the store need not be read
 		}
 		return nil
 	})

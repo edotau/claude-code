@@ -253,8 +253,7 @@ func findBlock(dir, id string) (file, block, src string, err error) {
 		return file, block, filepath.Join(dir, file), nil
 	}
 	for name := range idFiles {
-		matches, _ := filepath.Glob(filepath.Join(dir, "archive", strings.TrimSuffix(name, ".md")+"-*.md"))
-		for _, p := range matches {
+		for _, p := range globIn(archiveDir(dir), strings.TrimSuffix(name, ".md")+"-*.md") {
 			if b, rerr := blockIn(p, name, id); rerr == nil && b != "" {
 				return name, b, p, nil
 			}

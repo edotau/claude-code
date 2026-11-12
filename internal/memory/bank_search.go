@@ -47,8 +47,7 @@ type SearchHit struct {
 
 // Title is the hit's first line, marker-stripped and truncated.
 func (h SearchHit) Title() string {
-	first, _, _ := strings.Cut(h.Block, "\n")
-	return truncateLine(strings.TrimLeft(stripID(first), "#- "))
+	return truncateLine(strings.TrimLeft(stripID(textutil.FirstLine(h.Block)), "#- "))
 }
 
 func contentTerms(s string) []string {
@@ -115,7 +114,6 @@ func isSupersededTitle(first string) bool {
 
 // entryFromHit lifts a search hit to an Entry; a block without a persisted id gets its contentRef.
 func entryFromHit(h SearchHit) Entry {
-	first, _, _ := strings.Cut(h.Block, "\n")
 	id := blockRef(h.Block, h.ID)
 	typ := entryTypes[logicalName(h.File)]
 	switch {
@@ -125,7 +123,7 @@ func entryFromHit(h SearchHit) Entry {
 	default:
 		typ = "topic"
 	}
-	title := strings.TrimLeft(anyIDMark.ReplaceAllString(first, ""), "#- ")
+	title := strings.TrimLeft(anyIDMark.ReplaceAllString(textutil.FirstLine(h.Block), ""), "#- ")
 	return Entry{
 		ID: id, Date: entryDate.FindString(title), Type: typ, Title: truncateLine(title),
 		Body: strings.TrimSpace(anyIDMark.ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,

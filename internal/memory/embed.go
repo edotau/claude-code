@@ -82,11 +82,7 @@ var openEmbedClient = openDatabricksEmbed
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
 func entryEmbedText(e Entry) string {
-	r := []rune(e.Type + ": " + e.Body)
-	if len(r) > embedTextRunes {
-		r = r[:embedTextRunes]
-	}
-	return string(r)
+	return textutil.TruncateRunes(e.Type+": "+e.Body, embedTextRunes)
 }
 
 // freshEmbedCache is an empty cache for c's namespace.

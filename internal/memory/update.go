@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -192,8 +193,11 @@ func gitSinceBlock(transcript, cwd string) string {
 		b.WriteString(strings.Join(files, "\n"))
 		b.WriteString("\n")
 	}
-	return b.String()
+	return textutil.CapRunes(b.String(), gitBlockMaxRunes, "\n…(list truncated)\n")
 }
+
+// gitBlockMaxRunes keeps a huge working tree from pushing the worker prompt past the argv limit (agent.MaxPromptBytes).
+const gitBlockMaxRunes = 8000
 
 // mergeFileLists dedupes git log's --name-only paths with git status --porcelain's (status lines
 // carry a 2-char code prefix; strip it before merging).
