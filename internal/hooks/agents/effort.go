@@ -607,6 +607,9 @@ func applyProfile(run *dispatchRun, updated map[string]any, promptField, task st
 // routeProfile prepends the ask command to the prompt, once.
 func routeProfile(updated map[string]any, promptField, task, p string) (note string) {
 	agents := briefAgents(task)
+	if st, _ := updated["subagent_type"].(string); externalTypes[st] && !agentLineRe().MatchString(task) {
+		agents = []string{st} // with no Agent: line an external agent type runs as itself, as under Route:
+	}
 	if len(agents) == 0 {
 		agents = []string{"claude"}
 	}
