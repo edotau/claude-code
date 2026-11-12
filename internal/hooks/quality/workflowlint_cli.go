@@ -103,11 +103,7 @@ func lintScript(f string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: cannot read file: %v\n", f, err)
 		return 1
 	}
-	hits := append(LintPins(f, data), registryHidingDefects(f)...)
-	for _, hit := range hits {
-		fmt.Fprintln(stderr, hit)
-	}
-	return len(hits)
+	return printHits(stderr, append(LintPins(f, data), registryHidingDefects(f)...))
 }
 
 // parseCheckJS compiles each file as an AsyncFunction body (the Workflow runtime's shape), `export` stripped.
@@ -203,9 +199,7 @@ func unpinnedAgentCalls(name, src string) []string {
 // effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin — effort is the
 // second routing axis (skills/subagent-workflows/SKILL.md → Rules); unpinned runs at session effort, over-costing.
 func effortlessAgentCalls(name, src string) []string {
-	return agentCallsMissingSrc(name, src, func(window string) bool {
-		return hasTopLevelKey(window, "effort")
-	}, true)
+	return agentCallsMissingSrc(name, src, func(window string) bool { return hasTopLevelKey(window, "effort") }, true)
 }
 
 // agentCallsMissingSrc returns "name:line" per agent() call whose window fails pinned; exemptMarked honors lint:opus-ok
@@ -656,18 +650,5 @@ func metaHasNonLiteral(bare string) bool {
 
 // delimitedWindow returns src from open through its matching closer, counting depth on masked (stripStrings(src)).
 func delimitedWindow(src, masked string, open int, opener, closer byte) string {
-	depth := 0
-	i := open
-	for ; i < len(masked) && i < open+pinWindow; i++ {
-		switch masked[i] {
-		case opener:
-			depth++
-		case closer:
-			depth--
-			if depth == 0 {
-				return src[open : i+1]
-			}
-		}
-	}
-	return src[open:i]
+	return src[open:maskedGroupEnd(masked[:min(len(masked), open+pinWindow)], open, opener, closer)]
 }
