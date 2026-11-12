@@ -112,11 +112,11 @@ const robotsMax = 256
 var robotsTTL = 20 * time.Minute
 
 type robotsEntry struct {
-	body string
-	at   time.Time
+	rules []robotsRule
+	at    time.Time
 }
 
-// robotsCache holds each origin's robots.txt body across requests; a fetch error is never cached.
+// robotsCache holds each origin's parsed robots.txt rules across requests; a fetch error is never cached.
 var robotsCache = struct {
 	sync.Mutex
 	m map[string]robotsEntry
@@ -128,26 +128,27 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	if dead[origin] {
 		return false
 	}
-	body, ok := robotsBody(ctx, origin)
+	rules, ok := robotsBody(ctx, origin)
 	if !ok && dead != nil {
 		dead[origin] = true
 	}
-	_, blocked := robotsDisallows(parseRobots(body), u.RequestURI())
+	_, blocked := robotsDisallows(rules, u.RequestURI())
 	return ok && !blocked
 }
 
-// robotsBody is origin's robots.txt from robotsCache within robotsTTL, else freshly fetched and cached.
-func robotsBody(ctx context.Context, origin string) (string, bool) {
+// robotsBody is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched, parsed and cached.
+func robotsBody(ctx context.Context, origin string) ([]robotsRule, bool) {
 	robotsCache.Lock()
 	e, ok := robotsCache.m[origin]
 	robotsCache.Unlock()
 	if ok && time.Since(e.at) < robotsTTL {
-		return e.body, true
+		return e.rules, true
 	}
 	body, ok := fetchRobots(ctx, origin)
 	if !ok {
-		return "", false
+		return nil, false
 	}
+	rules := parseRobots(body)
 	robotsCache.Lock()
 	defer robotsCache.Unlock()
 	if len(robotsCache.m) >= robotsMax {
@@ -157,8 +158,8 @@ func robotsBody(ctx context.Context, origin string) (string, bool) {
 			}
 		}
 	}
-	robotsCache.m[origin] = robotsEntry{body: body, at: time.Now()}
-	return body, true
+	robotsCache.m[origin] = robotsEntry{rules: rules, at: time.Now()}
+	return rules, true
 }
 
 // fetchRobots returns the origin's robots.txt body ("" when missing); ok is false when it could not be read.

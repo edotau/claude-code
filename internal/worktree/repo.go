@@ -54,7 +54,11 @@ func ResolveRepo(cwd string) (*Repo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
 	}
-	commonDir := strings.TrimSpace(string(out))
+	return repoFromCommonDir(cwd, strings.TrimSpace(string(out)))
+}
+
+// repoFromCommonDir builds the Repo for an absolute git common dir, rejecting a bare or non-standard layout.
+func repoFromCommonDir(cwd, commonDir string) (*Repo, error) {
 	if filepath.Base(commonDir) != ".git" {
 		return nil, fmt.Errorf("%s: bare or non-standard git layout is not supported", cwd)
 	}
