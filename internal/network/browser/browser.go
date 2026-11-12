@@ -81,7 +81,8 @@ type browser struct {
 // Report is the full `network browser` result.
 type Report struct {
 	Browsers    []browser `json:"browsers"`
-	Default     string    `json:"default"` // the default browser's Name, "" when unresolved
+	Default     string    `json:"default"`                // the default browser's Name, "" when unresolved
+	DefaultErr  string    `json:"defaultError,omitempty"` // why default detection failed (not "unsupported default")
 	GeneratedAt time.Time `json:"generatedAt"`
 }
 
