@@ -211,18 +211,7 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
 	}
-	plans, ok := d.reg.AgentPlans[name]
-	if !ok {
-		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
-	}
-	id, plan, matched := "", providers.Plan{}, false
-	// a signed-out row holds no plan, whatever a "*" entry says, and needs its id only for the {id} placeholder
-	if st.mode != modeNone || strings.Contains(d.reg.AgentPlanFormat, "{id}") {
-		id = rawPlanID(d, name, st)
-	}
-	if st.mode != modeNone {
-		plan, matched = matchPlan(plans, id)
-	}
+	id, plan, matched := planFor(d, name, st)
 	if !matched && d.reg.AgentPlanFormat == "" {
 		return st.label()
 	}
@@ -234,6 +223,22 @@ func modeLabel(d *dialog, name string, st agentState) string {
 		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
 	return textutil.Truncate(out, labelMax)
+}
+
+// planFor is the raw plan id behind a row and the agentPlans entry matching it (none for a signed-out row).
+func planFor(d *dialog, name string, st agentState) (id string, plan providers.Plan, matched bool) {
+	plans, ok := d.reg.AgentPlans[name]
+	if !ok {
+		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
+	}
+	// a signed-out row holds no plan, whatever a "*" entry says, and needs its id only for the {id} placeholder
+	if st.mode != modeNone || strings.Contains(d.reg.AgentPlanFormat, "{id}") {
+		id = rawPlanID(d, name, st)
+	}
+	if st.mode != modeNone {
+		plan, matched = matchPlan(plans, id)
+	}
+	return id, plan, matched
 }
 
 // matchPlan picks the plan whose id equals the raw id, else the longest matching * glob.

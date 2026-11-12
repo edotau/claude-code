@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -161,14 +163,15 @@ func drain(pending []byte) ([]Key, []byte) {
 // terminal is the raw-mode session: cursor hidden, keys decoded onto a channel. Close restores
 // everything; callers defer it so a panic can't strand the shell in raw mode.
 type terminal struct {
-	fd   int
-	prev *termState
-	out  *os.File
-	in   *os.File
-	keys chan Key
-	stop chan struct{} // closed by Close — ends the key pump
-	done chan struct{} // closed by the key pump when it exits
-	once sync.Once
+	fd      int
+	prev    *termState
+	out     *os.File
+	in      *os.File
+	keys    chan Key
+	stop    chan struct{} // closed by Close — ends the key pump
+	done    chan struct{} // closed by the key pump when it exits
+	once    sync.Once
+	unguard func() // stops the SIGTERM/SIGHUP restore guard
 	// readErr is the read error that ended the key stream; written before keys closes.
 	readErr error
 }
@@ -187,13 +190,33 @@ func openTerminal() (*terminal, error) {
 	t := &terminal{fd: fd, prev: prev, out: os.Stdout, in: os.Stdin, keys: make(chan Key, 8),
 		stop: make(chan struct{}), done: make(chan struct{})}
 	fmt.Fprint(t.out, "\x1b[?25l") // hide cursor
+	t.unguard = restoreOnSignal(func() { fmt.Fprint(t.out, "\x1b[?25h"); _ = restore(fd, prev) })
 	go t.readKeys()
 	return t, nil
+}
+
+// restoreOnSignal runs undo, then exits 128+signal, on SIGTERM/SIGHUP: they skip deferred Close and strand the tty raw.
+func restoreOnSignal(undo func()) (stop func()) {
+	ch := make(chan os.Signal, 1)
+	done, once := make(chan struct{}), sync.Once{}
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		select {
+		case s := <-ch:
+			undo()
+			os.Exit(128 + int(s.(syscall.Signal)))
+		case <-done:
+		}
+	}()
+	return func() { once.Do(func() { signal.Stop(ch); close(done) }) }
 }
 
 // Close restores the terminal: cooked mode, cursor back, key pump stopped. Safe to call more than once.
 func (t *terminal) Close() error {
 	t.stopReader()
+	if t.unguard != nil {
+		t.unguard()
+	}
 	fmt.Fprint(t.out, "\x1b[?25h")
 	return restore(t.fd, t.prev)
 }

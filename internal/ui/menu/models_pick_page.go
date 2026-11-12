@@ -225,15 +225,19 @@ func pickCopilotModel(d *dialog) {
 			start = j
 			continue
 		}
-		id := pk.ids[j-len(pk.extra)]
-		if cat.Databricks {
-			saveAgentModel(d, "copilot", copilotCanonicalID(id))
-			return
-		}
-		if saveAgentModel(d, "copilot", id) {
-			clearIneligibleCopilotPins(d, id)
-		}
+		saveCopilotPick(d, cat, pk.ids[j-len(pk.extra)])
 		return
+	}
+}
+
+// saveCopilotPick pins id as copilot's model; a GitHub pick also drops the effort/context pins it cannot honor.
+func saveCopilotPick(d *dialog, cat copilot.CopilotCatalog, id string) {
+	if cat.Databricks {
+		saveAgentModel(d, "copilot", copilotCanonicalID(id))
+		return
+	}
+	if saveAgentModel(d, "copilot", id) {
+		clearIneligibleCopilotPins(d, id)
 	}
 }
 
@@ -249,19 +253,17 @@ type copilotPick struct {
 // the error is the SDK catalog being unavailable.
 func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilotPick, error) {
 	pk := copilotPick{title: modelTitle("copilot — model", "github", "copilot catalog")}
-	var list []copilot.SDKModel
-	if !cat.Databricks {
-		var err error
-		if list, err = copilotCatalog(d); err != nil {
-			return pk, err
-		}
-	}
-	pk.rows, pk.extra = copilotExtraRows(d, cur)
 	if cat.Databricks {
 		pk.title = modelTitle("copilot — model", "databricks", cat.Profile)
+		pk.rows, pk.extra = copilotExtraRowsNoSDK(d, cur)
 		pk.ids, pk.rows = appendDatabricksCopilotRows(cat, cur, pk.rows)
 		return pk, nil
 	}
+	list, err := copilotCatalog(d)
+	if err != nil {
+		return pk, err
+	}
+	pk.rows, pk.extra = copilotExtraRows(d, cur)
 	for _, m := range list {
 		if m.Enabled {
 			pk.ids = append(pk.ids, m.ID)
@@ -269,6 +271,14 @@ func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilot
 		}
 	}
 	return pk, nil
+}
+
+// copilotExtraRowsNoSDK is copilotExtraRows for Databricks endpoints: no SDK catalog fetch, cache left untouched.
+func copilotExtraRowsNoSDK(d *dialog, cur string) (rows [][2]string, runs []func() bool) {
+	loaded, list, err := d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr
+	d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr = true, nil, nil
+	defer func() { d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr = loaded, list, err }()
+	return copilotExtraRows(d, cur)
 }
 
 // copilotExtraRows are the Effort and Context rows shown above the model list, with their run funcs.

@@ -113,6 +113,10 @@ func Run(o Options, section string) int {
 		fmt.Fprintf(out, "configure: unknown section %q (%s)\n", section, strings.Join(SectionNames, "|"))
 		return 2
 	}
+	if _, known := agent.LookupSchema(o.Agent); o.Agent != "" && !known && slices.Contains(want, "agents") {
+		fmt.Fprintf(out, "configure: unknown agent %q; use --agent one of %s\n", o.Agent, strings.Join(agent.RosterNames(), ", "))
+		return 2
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)
@@ -439,16 +443,29 @@ func runAuthOption(d *dialog, kt configure.KeyTarget, o configure.AuthOption) bo
 		return true
 	}
 	if len(o.Mint) > 0 {
-		tok, err := runMint(o.Mint)
-		if err != nil {
-			d.printf("%s: %v\n", kt.Label, err)
-			return false
+		if done, ok := mintAuthValue(d, kt, o); done {
+			return ok
 		}
-		if tok != "" {
-			return storeValue(d, o.Env, tok)
-		}
-		d.printf("%s: no token found in the output; paste it instead\n", o.Env)
 	}
+	return pasteAuthValue(d, o)
+}
+
+// mintAuthValue runs o's mint command and stores its token; done is false when none was found (paste next).
+func mintAuthValue(d *dialog, kt configure.KeyTarget, o configure.AuthOption) (done, ok bool) {
+	tok, err := runMint(o.Mint)
+	if err != nil {
+		d.printf("%s: %v\n", kt.Label, err)
+		return true, false
+	}
+	if tok != "" {
+		return true, storeValue(d, o.Env, tok)
+	}
+	d.printf("%s: no token found in the output; paste it instead\n", o.Env)
+	return false, false
+}
+
+// pasteAuthValue opens the env's console page when known, then stores a hidden paste.
+func pasteAuthValue(d *dialog, o configure.AuthOption) bool {
 	if u := configure.ConsoleURLs[o.Env]; u != "" && d.shell().Confirm("Open "+u+" in your browser to create the key?") {
 		openBrowser(u)
 	}
@@ -522,34 +539,38 @@ func runAgents(d *dialog) bool {
 	}
 	ok := true
 	for _, name := range agentList {
-		s, _ := agent.LookupSchema(name)
-		target, note, rerr := s.ResolveTarget(d.reg, sel, false)
-		if errors.Is(rerr, agent.ErrOwnLogin) {
-			d.printf("%-10s runs on %s\n", name, configure.AfterUsing(note))
-			continue
-		}
-		if rerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, rerr, s.CLI.ConfigureHint)
+		if !reportAgentRoute(d, name, sel) {
 			ok = false
-			continue
 		}
-		if d.o.DryRun || d.o.Check { // read-only: Configure would start the router and store its secret
-			d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
-			continue
-		}
-		_, _, cerr := s.Configure(context.Background(), target)
-		if errors.Is(cerr, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
-			d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
-			continue
-		}
-		if cerr != nil {
-			d.printf("%-10s FIX: %v; %s\n", name, cerr, s.CLI.ConfigureHint)
-			ok = false
-			continue
-		}
-		d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
 	}
 	return ok
+}
+
+// reportAgentRoute prints where name routes (configuring it unless read-only); false when it needs a fix.
+func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
+	s, _ := agent.LookupSchema(name)
+	target, note, err := s.ResolveTarget(d.reg, sel, false)
+	if errors.Is(err, agent.ErrOwnLogin) {
+		d.printf("%-10s runs on %s\n", name, configure.AfterUsing(note))
+		return true
+	}
+	if err != nil {
+		d.printf("%-10s FIX: %v; %s\n", name, err, s.CLI.ConfigureHint)
+		return false
+	}
+	if !d.o.DryRun && !d.o.Check { // read-only: Configure would start the router and store its secret
+		_, _, err = s.Configure(context.Background(), target)
+	}
+	if errors.Is(err, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
+		d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
+		return true
+	}
+	if err != nil {
+		d.printf("%-10s FIX: %v; %s\n", name, err, s.CLI.ConfigureHint)
+		return false
+	}
+	d.printf("%-10s routes to %s (%s)\n", name, target.Provider.Name, target.Model)
+	return true
 }
 
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.

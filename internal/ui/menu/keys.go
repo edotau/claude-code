@@ -438,11 +438,24 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		d.printf("secrets: %d change(s) discarded\n", n)
 		return
 	}
+	dropStagedForDelete(d, deletes)
+	storePageKeys(d, page)
+	d.pendingDeletes = nil
+	deletePageKeys(d, deletes)
+	d.changed = true
+}
+
+// dropStagedForDelete unstages any Store of a name queued for deletion: the delete wins.
+func dropStagedForDelete(d *dialog, deletes []string) {
 	for _, name := range deletes {
 		if _, staged := d.pending[name]; staged {
-			restoreStaged(d, name, map[string]stagedKey{}) // the delete wins over any staged Store of the same name
+			restoreStaged(d, name, map[string]stagedKey{})
 		}
 	}
+}
+
+// storePageKeys seals each still-staged page key into the vault.
+func storePageKeys(d *dialog, page []string) {
 	for _, name := range page {
 		k, ok := d.pending[name]
 		if !ok {
@@ -455,7 +468,10 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		d.printf("saved %s to the vault (%s)\n", name, vault.Redact(k.val))
 		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
 	}
-	d.pendingDeletes = nil
+}
+
+// deletePageKeys deletes each name from the vault; a failed delete is restaged.
+func deletePageKeys(d *dialog, deletes []string) {
 	for _, name := range deletes {
 		if err := vault.Delete(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
@@ -464,7 +480,6 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 		}
 		d.printf("deleted %s\n", name)
 	}
-	d.changed = true
 }
 
 // stageDelete queues name for vault deletion on Submit (or the page's exit).

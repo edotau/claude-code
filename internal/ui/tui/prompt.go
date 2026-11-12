@@ -59,28 +59,10 @@ func Secret(prompt string, preview func(string) string) (string, error) {
 func SecretHint(hint, prompt string, preview func(string) string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !proc.IsTerminalFD(fd) {
-		if hint != "" {
-			fmt.Fprintln(os.Stdout, hint)
-		}
-		fmt.Fprint(os.Stdout, prompt)
-		line, err := stdinReader.ReadString('\n')
-		if err == io.EOF && line != "" {
-			err = nil // a final line without a trailing newline is still a good secret
-		}
-		return strings.TrimRight(line, "\r\n"), err
+		return secretFromPipe(hint, prompt)
 	}
 	hintShown := hint != "" && StdoutIsTerminal()
-	if preview == nil { // inline prompt: the hint goes above it; with a preview the hint sits under the prompt line
-		if hintShown {
-			fmt.Fprintln(os.Stdout, hint)
-		}
-		fmt.Fprint(os.Stdout, prompt)
-	} else {
-		fmt.Fprintln(os.Stdout, strings.TrimRight(prompt, " "))
-		if hintShown {
-			fmt.Fprintln(os.Stdout, hint)
-		}
-	}
+	printSecretPrompt(hint, prompt, hintShown, preview != nil)
 	onChange := func(b []byte) {
 		if hintShown && len(b) > 0 {
 			fmt.Fprint(os.Stdout, "\x1b[1A\x1b[M") // up onto the hint line, delete it: the input line moves up
@@ -95,6 +77,34 @@ func SecretHint(hint, prompt string, preview func(string) string) (string, error
 	b, err := readPassword(fd, onChange)
 	fmt.Fprintln(os.Stdout)
 	return string(b), err
+}
+
+// secretFromPipe is SecretHint off a terminal: a plain line read.
+func secretFromPipe(hint, prompt string) (string, error) {
+	if hint != "" {
+		fmt.Fprintln(os.Stdout, hint)
+	}
+	fmt.Fprint(os.Stdout, prompt)
+	line, err := stdinReader.ReadString('\n')
+	if err == io.EOF && line != "" {
+		err = nil // a final line without a trailing newline is still a good secret
+	}
+	return strings.TrimRight(line, "\r\n"), err
+}
+
+// printSecretPrompt writes the hint and prompt; the hint goes above an inline prompt, under the line when previewing.
+func printSecretPrompt(hint, prompt string, hintShown, previewing bool) {
+	if !previewing {
+		if hintShown {
+			fmt.Fprintln(os.Stdout, hint)
+		}
+		fmt.Fprint(os.Stdout, prompt)
+		return
+	}
+	fmt.Fprintln(os.Stdout, strings.TrimRight(prompt, " "))
+	if hintShown {
+		fmt.Fprintln(os.Stdout, hint)
+	}
 }
 
 // StdinIsTerminal reports whether stdin is a real terminal (a /dev/null char device is not).

@@ -4,6 +4,7 @@ package menu
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -96,7 +97,11 @@ func signInProfile(d *dialog, agent string) string {
 	if agent == "opencode" {
 		return opencode.OwnLogin
 	}
-	if names := configure.SeedProfiles(d.reg, agent); len(names) > 0 && d.reg != nil && d.reg.Providers[names[0]].Auth.Login == agent {
+	names := configure.SeedProfiles(d.reg, agent)
+	if len(names) == 0 || d.reg == nil {
+		return ""
+	}
+	if p := d.reg.Providers[names[0]]; p != nil && p.Auth.Login == agent {
 		return names[0]
 	}
 	return ""
@@ -133,13 +138,14 @@ func seedLabel(agent, profile string) string {
 	return seedOff
 }
 
-// seedDefaults is each agent's current choice; an agent with no profile set gets its own login pre-selected.
+// seedDefaults is each agent's choice; only a first run (no profile set) pre-selects each agent's own login.
 func seedDefaults(d *dialog) map[string]string {
 	recs := vault.AgentRecords(agentpkg.RosterNames())
+	firstRun := !slices.ContainsFunc(slices.Collect(maps.Values(recs)), func(r vault.AgentRecord) bool { return r.Profile != "" })
 	out := map[string]string{}
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
-		if out[a] == "" && a != "claude" && d.reg != nil {
+		if firstRun && out[a] == "" && a != "claude" && d.reg != nil {
 			out[a] = signInProfile(d, a)
 		}
 	}

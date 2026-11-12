@@ -1,4 +1,4 @@
-// Package menu lays out terminal menu rows: aligned columns, state brackets, section titles and the Enter row.
+// Package menu is the configure dialog: its sections, agent pages and key prompts, plus the row layout they share.
 package menu
 
 import (
