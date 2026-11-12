@@ -573,7 +573,7 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	}
 	top, err := gitInherit(repoPath, "rev-parse", "--show-toplevel")
 	if err != nil {
-		if strings.Contains(err.Error(), "not a git repository (or any of the parent directories)") {
+		if strings.Contains(err.Error(), "not a git repository (or any ") {
 			fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)
 		} else {
 			fmt.Fprintf(stderr, "Error: cannot resolve the git repository of %s: %v\n", repoPath, err)
