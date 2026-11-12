@@ -375,8 +375,7 @@ var (
 
 // codexResponsesModel swaps a model Responses cannot serve (the row's opus alias, gpt-oss) for the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
-	gpt := models.FamilyKind(model) == models.FamilyGPT && !models.ChatOnly(model)
-	if p.Preset != providers.PresetDatabricks || gpt || providers.ServesResponses(p, model) {
+	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
 		return model
 	}
 	return cmp.Or(providers.FirstResponsesModel(p), model)

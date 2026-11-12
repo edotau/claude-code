@@ -38,6 +38,7 @@ type Chain struct {
 	Want       string
 	Dispatches []Dispatch
 	Skipped    []string
+	Preflight  *Preflight // nil when the preflight failed nothing and skipped no check
 }
 
 // Single is a one-dispatch chain on r with the caller's request untouched (an explicit backend, or a test).
@@ -114,10 +115,16 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	current, _ := models.Alias(alias)
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
-		explicitModel: explicitModel, native: native}
+		explicitModel: explicitModel, native: native, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
+	}
+	if len(rc.pf.Failed)+len(rc.pf.Notes) > 0 {
+		if len(c.Dispatches) > 0 {
+			rc.pf.Chosen = hopTarget(c.Dispatches[0])
+		}
+		c.Preflight = rc.pf
 	}
 	return c, pick, nil
 }
@@ -297,6 +304,9 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		if err != nil {
 			return Chain{}, err
 		}
+		if f := explicitFinding(q, p); f != nil {
+			return Chain{}, &PreflightError{Finding: *f}
+		}
 		if !q.Native && isHubAgent(q.Agent) && p.OpencodeID != "" {
 			start, err := hubStart(reg, q.Agent, q.Profile)
 			if err != nil {
@@ -337,6 +347,7 @@ type routeCtx struct {
 	lead                          string // profile the wanted agent leads with; "" = its pin
 	current, dispatchID           string
 	explicitModel, native         bool
+	pf                            *Preflight // findings and notes the candidate checks add
 }
 
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
@@ -345,10 +356,10 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 	switch {
 	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
 		rc.claudeTierCell(&cell)
-	case rc.pinnedCaller(cand):
-		rc.pinnedCell(cand, &cell)
 	case rc.callerOnProfile(cand): // the wanted agent's profile row runs the caller's --model, never its pin or tier
 		return rc.callerProfileCell(cand, cell)
+	case rc.pinnedCaller(cand):
+		rc.pinnedCell(cand, &cell)
 	case rc.profileBacked(cand): // a Databricks dispatch serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
@@ -376,11 +387,14 @@ func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	}
 }
 
-// callerOnProfile reports the wanted agent on a registry profile asked for a concrete id (an alias keeps the tier).
+// callerOnProfile reports the wanted agent on a registry row asked for a concrete id, or any exact id on Databricks.
 func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 	concrete := rc.explicitModel && cmp.Or(rc.exact, rc.row) != "" && !slices.Contains(models.AliasNames, rc.callerModel)
-	known := cand.Profile != "" && rc.reg != nil && rc.reg.Providers[cand.Profile] != nil
-	return concrete && known && cand.Agent == rc.want && wireAgent(cand.Agent)
+	p := rc.reg.Row(cand.Profile)
+	if !concrete || p == nil || cand.Agent != rc.want {
+		return false
+	}
+	return wireAgent(cand.Agent) || (rc.exact != "" && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
 }
 
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
@@ -392,9 +406,14 @@ func wireAgent(name string) bool {
 // callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
 func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
 	model := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
-	wire, why := ProfileServes(cand.Agent, rc.reg.Providers[cand.Profile], model)
-	if why != "" {
-		return cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): " + why
+	wire, failed, note := CheckModel(cand.Agent, rc.reg.Providers[cand.Profile], model, time.Now())
+	if note != "" {
+		rc.pf.note(note)
+		refreshListing(cand.Profile)
+	}
+	if failed != nil {
+		rc.pf.fail(*failed)
+		return cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + failed.String()
 	}
 	cell.Model = wire
 	return cell, ""

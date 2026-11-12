@@ -109,6 +109,11 @@ func ServesResponses(p *Provider, model string) bool {
 	return models.ResponsesOnly(model)
 }
 
+// ResponsesServable reports a wire id codex can run on p: a non-chat-only GPT id, or one the menu marks Responses.
+func ResponsesServable(p *Provider, wire string) bool {
+	return (models.FamilyKind(wire) == models.FamilyGPT && !models.ChatOnly(wire)) || ServesResponses(p, wire)
+}
+
 // ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, else the catalog.
 func ResponsesID(id string) bool {
 	for _, m := range OpencodeMenu() {
