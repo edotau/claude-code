@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -49,7 +50,11 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		base = os.Environ()
 	}
 	base, _ = s.Mode.scrub(base, s.Keep)
-	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), s.dropper(ctx))
+	drop := s.dropper(ctx)
+	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
+	if doc := confinementDoc(); doc != "" && drop(agentconfig.OverlayVar+"=") { // one hop: only the confinement goes down
+		env = append(env, agentconfig.OverlayVar+"="+doc)
+	}
 	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
 	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
 	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy

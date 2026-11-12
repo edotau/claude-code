@@ -92,7 +92,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	opt("--profile", req.Provider)
 	opt("--effort", req.Effort)
 	opt("--as", req.Identity)
-	opt("--overlay", remoteOverlay()) // ApplyCoworker exports the confinement as env, which ssh does not carry
+	opt("--overlay", confinementDoc()) // ApplyCoworker exports the confinement as env, which ssh does not carry
 	opt("--session", req.SessionID)
 	opt("--system-prompt", req.SystemPrompt)
 	opt("--append-system-prompt", req.AppendSystemPrompt)
@@ -139,7 +139,7 @@ func remoteScriptTail(req RunOptions) []string {
 }
 
 func validateRemoteScript(bin, agentName string, req RunOptions) error {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, remoteOverlay(), req.WorkDir, req.SessionID, req.SystemPrompt,
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
@@ -151,12 +151,6 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 		}
 	}
 	return nil
-}
-
-// remoteOverlay is the inline overlay naming this process's confinement (HARNESS_COWORKER) for the far argv; "": none.
-func remoteOverlay() string {
-	provider, profile, _ := router.Coworker() // a bad value confines nothing here either
-	return agentconfig.InlineOverlay(provider, profile)
 }
 
 // remoteArgv is the full local ssh argv for one remote ask.

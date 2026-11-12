@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -88,7 +88,7 @@ func TestArmRouterRouteMintsSessionToken(t *testing.T) {
 	if want := fmt.Sprintf("dev/%d", os.Getpid()); !slices.Equal(mints, []string{want}) {
 		t.Errorf("mints = %v, want one for %s", mints, want)
 	}
-	t.Setenv(router.EnvCoworker, "")
+	t.Setenv(agentconfig.OverlayVar, "")
 	if _, _, key, _ := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); key != "rtr-secret-xyz" {
 		t.Errorf("unarmed routerRoute key = %q, want the router secret", key)
 	}

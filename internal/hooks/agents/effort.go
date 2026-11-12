@@ -609,7 +609,8 @@ func labelConfinement(coworker bool, task string, cfg agentconfig.Overlay) strin
 
 // coworkerPick is labelCell inside confinement confine: the env ask exports for that overlay, restored after.
 func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
-	env := map[string]string{router.EnvCoworker: confine}
+	provider, profile, _ := strings.Cut(confine, ":")
+	env := map[string]string{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, profile)}
 	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
 		env[providers.EnvSessionProfile] = p
 	}

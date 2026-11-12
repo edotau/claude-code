@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -372,7 +373,7 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 
 // Under overlay databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
 func TestOtherRouteFollowsArm(t *testing.T) {
-	t.Setenv(router.EnvCoworker, router.RouteDatabricks+":qa")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
 	rc := routeCtx{want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
 	if rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "qa"}) {
 		t.Error("the coworker workspace marked as another route")

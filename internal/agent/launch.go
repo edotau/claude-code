@@ -593,7 +593,7 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 	return nil
 }
 
-// ApplyOverlay layers r under req's --env (the shorthand wins) and unsets $COWORKER_OVERLAY in the child (one hop).
+// ApplyOverlay layers r under req's --env (the shorthand wins); the child's $COWORKER_OVERLAY is the confinement only.
 func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	if overlayIdle(r) {
 		return req
@@ -604,21 +604,27 @@ func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	}
 	req.Env = append(env, req.Env...)
 	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
-	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar})
+	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar}) // Environ re-adds the confinement
 	req.OverlaySet = slices.Sorted(maps.Keys(r.Set))
 	return req
 }
 
-// withOverlay layers r over an interactive plan the way ApplyOverlay does for a headless run; the launch's own Set wins.
+// confinementDoc is the inline overlay naming only this process's provider and profile (one hop); "": none.
+func confinementDoc() string {
+	provider, profile, _ := router.Coworker() // a bad value confines nothing here either
+	return agentconfig.InlineOverlay(provider, profile)
+}
+
+// withOverlay layers r over an interactive plan like ApplyOverlay; the vault's standing document never reaches it.
 func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
-	if overlayIdle(r) {
-		return p
-	}
 	set := maps.Clone(r.Set)
 	if set == nil {
 		set = map[string]string{}
 	}
 	maps.Copy(set, p.Set)
+	if doc := confinementDoc(); doc != "" {
+		set[agentconfig.OverlayVar] = doc
+	}
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)
 	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
 	p.Unset = slices.Concat(p.Unset, unset, []string{agentconfig.OverlayVar})

@@ -32,7 +32,7 @@ type Routing struct {
 	Opencode OpencodeRouting   `json:"opencode,omitzero"`
 }
 
-// Ladder names: default unless HARNESS_COWORKER=databricks:<p> asks (router.ladderName); a provider only filters default.
+// Ladder names: default unless a databricks:<p> confinement asks (router.ladderName); a provider only filters default.
 const (
 	LadderDefault    = "default"
 	LadderDatabricks = "databricks"

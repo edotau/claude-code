@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row an unsigned agent's pick falls through to
 	_ "github.com/edotau/claude-code/internal/codex"
@@ -528,7 +529,7 @@ func TestArmLabelIsPick(t *testing.T) {
 			pathstest.FakeVendor(t, "codex", "exit 0")
 			if armed {
 				vaulttest.SetRecord(t, "codex", "profile", "dev")
-				t.Setenv(router.EnvCoworker, "databricks:dev")
+				t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 			}
 			_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
 			if err != nil || len(res.Candidates) == 0 {
@@ -554,9 +555,9 @@ func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
 	vaulttest.SetRecord(t, "codex", "profile", "dev")
 	pathstest.FakeVendor(t, "codex", "exit 0")
-	t.Setenv(router.EnvCoworker, "")
+	t.Setenv(agentconfig.OverlayVar, "")
 	unconfined := cellModelFor(newDispatchRun(nil), "codex", "sonnet")
-	t.Setenv(router.EnvCoworker, "openai")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"openai"}`)
 	q := agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Provider: "openai", Fallback: router.FallbackAll, Preview: true}
 	_, res, err := agentpkg.Resolve(context.Background(), q) // what `ask --provider openai` runs
 	if err != nil || len(res.Candidates) == 0 || !strings.HasPrefix(res.Candidates[0].Account, "openai·") {
@@ -873,7 +874,7 @@ func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
 // TestArmProfileLineBlocked: under databricks:dev a Profile: line for another profile is blocked, dev's own passes.
 func TestArmProfileLineBlocked(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(router.EnvCoworker, "databricks:dev")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 	stubProfiles(t, []string{"dev", "qa"}, true)
 	res := effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))
 	if res.Decision != core.Block || !strings.Contains(res.Reason, "dispatch-effort: Profile: qa conflicts with databricks:dev") {
@@ -941,7 +942,7 @@ func TestCoworkerLineConflicts(t *testing.T) {
 		t.Errorf("a non-serving row = %+v, want a block naming the row kind", r)
 	}
 	servingRow = func(*dispatchRun, string) error { return nil }
-	t.Setenv(router.EnvCoworker, "databricks:qa")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
 	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "conflicts with databricks:qa") {
 		t.Errorf("leaving the armed coworker = %+v, want a block", r)
 	}
@@ -967,14 +968,15 @@ func TestCoworkerLineLabelIsArmedPick(t *testing.T) {
 	stubProfiles(t, []string{"dbx"}, true)
 	stubLabelModels(t, "", "")
 	labelCell = func(_ *dispatchRun, agent, alias string) string {
-		return agent + "-" + alias + "@" + os.Getenv(router.EnvCoworker)
+		p, prof, _ := router.Coworker()
+		return agent + "-" + alias + "@" + router.JoinCoworker(p, prof)
 	}
 	label := func(brief string) string {
 		d, _ := coworkerSpawn(t, "codex", brief).UpdatedInput["description"].(string)
 		return d
 	}
 	brief := label("Coworker: databricks:dbx\nx")
-	t.Setenv(router.EnvCoworker, "databricks:dbx")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
 	if armed := label("x"); brief != armed || !strings.Contains(brief, "@databricks:dbx: fix thing") {
 		t.Errorf("brief Coworker label %q, armed label %q, want the same pick inside databricks:dbx", brief, armed)
 	}

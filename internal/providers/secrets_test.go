@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -93,26 +92,5 @@ func TestResolveCustomEnvReadError(t *testing.T) {
 	vals, missing, err := ResolveCustomEnv(func(string) (string, bool) { return "", false })
 	if err == nil || len(vals) != 0 || len(missing) != 0 {
 		t.Errorf("ResolveCustomEnv(corrupt vault) = %v, %v, %v; want an error and nothing resolved", vals, missing, err)
-	}
-}
-
-func TestSetCustomEnvRefusesStoredDatabricksRoute(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	err := SetCustomEnv("HARNESS_COWORKER", "databricks:dev")
-	if err == nil || !strings.Contains(err.Error(), "HARNESS_COWORKER") || !strings.Contains(err.Error(), "overlay") {
-		t.Fatalf("err = %v, want a refusal naming HARNESS_COWORKER and the overlay", err)
-	}
-	if _, ok := CustomEnv()["HARNESS_COWORKER"]; ok {
-		t.Error("the refused route was stored")
-	}
-	for _, ok := range []string{"anthropic", "github:personal"} {
-		if err := SetCustomEnv("HARNESS_COWORKER", ok); err != nil {
-			t.Errorf("provider confinement %q is refused: %v", ok, err)
-		}
-	}
-	for _, bad := range []string{"first-party", "default", "local", "anthropic:"} {
-		if err := SetCustomEnv("HARNESS_COWORKER", bad); err == nil || !strings.Contains(err.Error(), "HARNESS_COWORKER") {
-			t.Errorf("SetCustomEnv(%q) = %v, want a refusal naming HARNESS_COWORKER", bad, err)
-		}
 	}
 }

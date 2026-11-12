@@ -2,7 +2,9 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +23,7 @@ func TestPickFollowsLadder(t *testing.T) {
 	}
 	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}} // claude outscores copilot (0.75) yet must still follow it
 	pickAt := func(route string) PickResult {
-		t.Setenv(EnvCoworker, route)
+		confine(t, route)
 		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
 			Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	}
@@ -50,7 +52,7 @@ func TestPickFollowsLadder(t *testing.T) {
 
 func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 	tb := testTable(t)
-	t.Setenv(EnvCoworker, "")
+	confine(t, "")
 	opts := PickOpts{Fallback: FallbackNone, Configured: allConfigured,
 		Now:     func() time.Time { return now0 },
 		Account: func(string, Cell) (string, string) { return "databricks·dev", BillCredits }}
@@ -58,7 +60,7 @@ func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 	if len(baseline.Candidates) != 1 || baseline.Candidates[0].Account != "databricks·dev" {
 		t.Fatalf("default route did not admit wanted resolved account: %+v", baseline)
 	}
-	t.Setenv(EnvCoworker, "openai")
+	confine(t, "openai")
 	got := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
 	if len(got.Candidates) != 0 {
 		t.Errorf("wanted account outside openai remained eligible: %+v", got.Candidates)
@@ -70,7 +72,7 @@ func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 
 func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
 	tb := testTable(t)
-	t.Setenv(EnvCoworker, "")
+	confine(t, "")
 	opts := PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
 	baseline := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
@@ -103,7 +105,7 @@ func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	tb.Ladders = nil
-	t.Setenv(EnvCoworker, "anthropic:ultra")
+	confine(t, "anthropic:ultra")
 	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	if len(r.Candidates) != 1 || r.Candidates[0].Account != "anthropic·ultra" {
@@ -112,6 +114,13 @@ func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "outside anthropic:ultra"}) {
 		t.Errorf("skips = %+v, want opencode·zen-free dropped as outside anthropic:ultra", r.Skipped)
 	}
+}
+
+// confine sets this process's confinement to provider[:profile] the way an ask exports it: an inline $COWORKER_OVERLAY.
+func confine(t *testing.T, v string) {
+	provider, profile, _ := strings.Cut(v, ":")
+	doc, _ := json.Marshal(map[string]string{"provider": provider, "profile": profile})
+	t.Setenv(overlayEnv, string(doc))
 }
 
 func TestParseCoworker(t *testing.T) {
@@ -148,7 +157,7 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(EnvCoworker, "databricks:dev")
+	confine(t, "databricks:dev")
 	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{Fallback: fallback, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
 		Pins: map[string]PinSpec{"codex": {Profile: "openai"}, "copilot": {Profile: "qa"}}})

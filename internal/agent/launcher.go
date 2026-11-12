@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -200,6 +201,9 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	o, err := agentconfig.LoadOverlay(opts.Overlay, os.Stdin)
 	if err != nil {
 		return agentconfig.Resolved{}, err
+	}
+	if p, prof, _ := router.Coworker(); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
+		o.Provider, o.Profile = "", "" // the inherited confinement, not this launch's routing (withOverlay hands it on)
 	}
 	if o.Routed() { // an interactive launch takes the env layer only: refuse, never silently ignore
 		return agentconfig.Resolved{}, errors.New("overlay " + strings.Join(agentconfig.RoutingKeys(), "/") +

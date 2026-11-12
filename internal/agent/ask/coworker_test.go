@@ -1,39 +1,23 @@
 package ask
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// A vault-pinned HARNESS_COWORKER arms its workspace when neither --overlay nor the process env names one.
-func TestApplyCoworkerVaultEnvSource(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks",`+
-		`"host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	vaulttest.Put(t, vault.Env, router.EnvCoworker, "databricks:qa")
-	t.Setenv(router.EnvCoworker, "") // ApplyCoworker exports into this process: restore after the test
-	t.Setenv(providers.EnvSessionProfile, "")
-	if err := ApplyCoworker("", "", "codex", "", router.FallbackAll); err != nil {
-		t.Fatalf("ApplyCoworker = %v", err)
-	}
-	if got, prof := os.Getenv(router.EnvCoworker), os.Getenv(providers.EnvSessionProfile); got != "databricks:qa" || prof != "qa" {
-		t.Fatalf("exported %s=%q %s=%q, want databricks:qa and qa", router.EnvCoworker, got, providers.EnvSessionProfile, prof)
-	}
-	vaulttest.Put(t, vault.Env, router.EnvCoworker, "bogus:qa")
-	t.Setenv(router.EnvCoworker, "")
-	err := ApplyCoworker("", "", "codex", "", router.FallbackAll)
-	if want := "vault env " + router.EnvCoworker + ": "; err == nil || !strings.HasPrefix(err.Error(), want) {
-		t.Fatalf("malformed vault value: err = %v, want prefix %q", err, want)
-	}
+// confine sets this process's confinement to provider[:profile] as ApplyCoworker exports it; "" is none.
+func confine(t *testing.T, v string) {
+	provider, profile, _ := strings.Cut(v, ":")
+	t.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, profile))
 }
 
 // ConfineLead fills an untyped lead from a non-Databricks confinement; a typed profile:model passes through untouched.
@@ -52,7 +36,7 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 		{"anthropic", "claude", "", "", "ultra", ""}, // claude reads a profile: its own CLI-login row
 	}
 	for _, c := range cases {
-		t.Setenv(router.EnvCoworker, c.coworker)
+		confine(t, c.coworker)
 		profile, provider := router.ConfineLead(c.agent, "", c.provider, c.model)
 		if profile != c.wantProfile || provider != c.wantProvider {
 			t.Errorf("%s %s --provider %q --model %q: ConfineLead = (%q, %q), want (%q, %q)",
@@ -64,12 +48,12 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 // confineLine is a batch line's only fence: an off-route profile or an agent with no account is refused.
 func TestConfineLineRefusesOffRouteBatchLine(t *testing.T) {
 	vaulttest.Use(t)
-	t.Setenv(router.EnvCoworker, "databricks:dev")
+	confine(t, "databricks:dev")
 	if _, err := confineLine("claude", agent.RunOptions{Provider: "qa"}); err == nil ||
 		!strings.Contains(err.Error(), "--profile qa: outside overlay databricks:dev") {
 		t.Errorf("off-workspace line: err = %v, want --profile qa: outside overlay databricks:dev", err)
 	}
-	t.Setenv(router.EnvCoworker, "openai")
+	confine(t, "openai")
 	if _, err := confineLine("copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
 		t.Errorf("copilot line under openai: err = %v, want copilot has no openai account", err)
 	}

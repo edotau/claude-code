@@ -23,7 +23,7 @@ import (
 var scrubPrefixes = []string{
 	"CLAUDE", "HARNESS_", "ANTHROPIC_", "OPENAI_", "AZURE_OPENAI_", "DATABRICKS_", "GEMINI_", "GOOGLE_", "COPILOT_",
 	"CODEX_", "OPENCODE_", "TAVILY_", "GH_", "GITHUB_", "WSL", "TMUX", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
-	"AGENT_ERROR_FALLBACK",
+	"AGENT_ERROR_FALLBACK", "COWORKER_OVERLAY",
 }
 
 // Tools are the host tools the suite shells out to; agent CLIs, tmux, tailscale and launchctl are deliberately absent.
