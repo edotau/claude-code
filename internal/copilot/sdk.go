@@ -595,8 +595,14 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o sdkOption
 	if o.ReasoningEffort != "" {
 		opts = &copilot.SetModelOptions{ReasoningEffort: &o.ReasoningEffort}
 	}
-	if err := session.SetModel(ctx, o.Model, opts); err != nil {
+	err := session.SetModel(ctx, o.Model, opts)
+	var rpcErr *copilot.RPCError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &rpcErr): // the runtime answered and refused the id; transport and ctx failures keep their own error
 		return fmt.Errorf("%w: select %s: %w", errUnregisteredPick, o.Model, err)
+	default:
+		return fmt.Errorf("select %s: %w", o.Model, err)
 	}
-	return nil
 }
