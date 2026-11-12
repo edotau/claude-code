@@ -281,7 +281,6 @@ var writers = map[string]string{
 	"internal/settings/settings.go:ResetSettings":              unversioned("foreign: owner-run settings.json reset and its .bak copy"),
 	"internal/settings/settings.go:SeedSettings":               unversioned("foreign: first-setup settings.json seed, only when missing"),
 	"internal/settings/settings.go:writeBackup":                unversioned("foreign: ResetSettings' .bak copy, created exclusively"),
-	"internal/vault/vault.go:snapshotBeforeMigration":          unversioned("foreign: pre-migration byte copy of the vault"),
 	"internal/setup/adopt.go:copyFile":                         unversioned("foreign: setup backup copy of user files"),
 	"internal/setup/nuke.go:createBackupFile":                  unversioned("foreign: nuke backup archive"),
 	"internal/setup/adopt.go:Record":                           "setup-state",

@@ -2,7 +2,6 @@
 package vault
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -38,11 +37,8 @@ var (
 	ErrWrongKey = errors.New("vault: master key does not match this vault")
 )
 
-// schemaVersion: 4 pins folded into records, 5 slots→aliases, 6 byok→discovery, 7 max→ultra; hkdfSchema: oldest read.
-const (
-	schemaVersion = ultraSchema
-	hkdfSchema    = 2
-)
+// schemaVersion is the one vault layout this build reads; the upgrades from older layouts live in git history.
+const schemaVersion = 7
 
 // Lock-wait bounds for bbolt opens; vars so tests can shorten them.
 var (
@@ -91,10 +87,10 @@ func checkSchema(t *Tx) error {
 	if n > schemaVersion {
 		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
 	}
-	if n < hkdfSchema && (len(t.Names(Secrets)) > 0 || len(t.Names(SettingsBackups)) > 0) {
-		return fmt.Errorf("vault schema %d: written by an older claude-code (pre-HKDF format); "+
-			"this build cannot read its secrets. Move state/vault.db aside and re-enter secrets with "+
-			"claude-code vault set, or run the older binary to export them first", n)
+	if n < schemaVersion {
+		return fmt.Errorf("vault: schema %d is older than this build reads (schema %d); open it once with a "+
+			"claude-code built before the vault migrations were removed (git history), or restore state/vault.db "+
+			"from a backup", n, schemaVersion)
 	}
 	return nil
 }
@@ -168,65 +164,19 @@ func Update(fn func(*Tx) error) error {
 		return err
 	}
 	defer db.Close()
-	restamped := false
-	from := 0
-	var off []string
-	if err := snapshotBeforeMigration(db, path); err != nil {
-		return err
-	}
-	err = db.Update(func(tx *bbolt.Tx) error {
+	return db.Update(func(tx *bbolt.Tx) error {
 		t := &Tx{tx}
-		var perr error
-		if from, off, restamped, perr = prepareTx(t); perr != nil {
-			return perr
+		if err := checkSchema(t); err != nil {
+			return err
+		}
+		// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
+		if _, ok := t.Get(Meta, "vault_id"); !ok {
+			if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
+				return err
+			}
 		}
 		return fn(t)
 	})
-	if err != nil {
-		return err
-	}
-	if restamped {
-		schemas.LogMigration("vault", from, schemaVersion, 0)
-		reportAgentsOff(off)
-	}
-	return nil
-}
-
-// prepareTx runs Update's schema check, vault_id backfill and migrations; restamped means it bumped from `from`.
-func prepareTx(t *Tx) (from int, off []string, restamped bool, err error) {
-	if err := checkSchema(t); err != nil {
-		return 0, nil, false, err
-	}
-	// A vault with no vault_id predates per-vault keyring accounts; backfill it once (R1).
-	if _, ok := t.Get(Meta, "vault_id"); !ok {
-		if err := t.Put(Meta, "vault_id", newVaultID()); err != nil {
-			return 0, nil, false, err
-		}
-	}
-	// checkSchema refused a pre-HKDF vault with secrets; any older stamp is re-stamped here, nothing to re-seal.
-	n := t.Schema()
-	if n >= schemaVersion {
-		return 0, nil, false, nil
-	}
-	if off, err = runMigrations(t, n); err != nil {
-		return 0, nil, false, err
-	}
-	return n, off, true, nil
-}
-
-// runMigrations runs every migration for a vault stamped n and re-stamps it; it returns the agents left off.
-func runMigrations(t *Tx, n int) (off []string, err error) {
-	if n < agentRecordSchema {
-		if off, err = migrateAgentPins(t); err != nil {
-			return nil, err
-		}
-	}
-	for _, step := range []func(*Tx) error{migrateSlotsToAliases, migrateByokToDiscovery, migrateMaxToUltra} {
-		if err := step(t); err != nil {
-			return nil, err
-		}
-	}
-	return off, t.SetSchema(schemaVersion)
 }
 
 // newVaultID is 16 random hex bytes, the identity its master key is stored under in the keyring (vault-key/<id>).
@@ -273,7 +223,7 @@ func (t *Tx) All(bucket string) map[string]string {
 	return m
 }
 
-// Names lists bucket's keys in bbolt's byte order (already sorted), never copying values; checkSchema runs it per tx.
+// Names lists bucket's keys in bbolt's byte order (already sorted), never copying values.
 func (t *Tx) Names(bucket string) []string {
 	names := make([]string, 0)
 	if t.tx == nil {
@@ -409,12 +359,6 @@ func probeSchema() (int, error) {
 	return n, err
 }
 
-// Schema is the layout number stamped in meta/schema (0 when unset).
-func (t *Tx) Schema() int {
-	s, _ := t.Get(Meta, "schema")
-	return parseSchema(s)
-}
-
 // parseSchema reads a stamped layout number; unset or malformed is 0.
 func parseSchema(s string) int {
 	n, _ := strconv.Atoi(s)
@@ -441,9 +385,6 @@ func tightenMode(path string) {
 	}
 }
 
-// SetSchema stamps meta/schema.
-func (t *Tx) SetSchema(n int) error { return t.Put(Meta, "schema", strconv.Itoa(n)) }
-
 // SnapshotTo copies the vault at path to w in one read txn (R8); its own bbolt.DB, not View, so it never nests.
 func SnapshotTo(path string, w io.Writer) error {
 	db, err := openReadOnly(path)
@@ -455,30 +396,4 @@ func SnapshotTo(path string, w io.Writer) error {
 		_, err := tx.WriteTo(w)
 		return err
 	})
-}
-
-// snapshotBeforeMigration copies an existing, older vault to paths.BackupPath before its first migrating write.
-func snapshotBeforeMigration(db *bbolt.DB, path string) error {
-	var buf bytes.Buffer
-	err := db.View(func(tx *bbolt.Tx) error {
-		if b := tx.Bucket([]byte(Meta)); b != nil && parseSchema(string(b.Get([]byte("schema")))) >= schemaVersion {
-			return nil
-		}
-		if tx.Bucket([]byte(Pins)) == nil {
-			return nil
-		}
-		_, err := tx.WriteTo(&buf)
-		return err
-	})
-	if err != nil || buf.Len() == 0 {
-		return err
-	}
-	return paths.AtomicWrite(paths.BackupPath(path, time.Now()), buf.Bytes(), 0600)
-}
-
-// reportAgentsOff prints one line per agent the migration left without a profile.
-func reportAgentsOff(off []string) {
-	for _, a := range off {
-		fmt.Fprintf(os.Stderr, "vault: %s left off (no profile); pick one in `claude-code configure` → \"Seed agent profiles\"\n", a)
-	}
 }
