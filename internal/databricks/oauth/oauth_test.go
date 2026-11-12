@@ -800,3 +800,21 @@ func TestLoginU2MPasteWithWrongStateIsRejected(t *testing.T) {
 		t.Errorf("error echoes the pasted URL: %v", err)
 	}
 }
+
+// Given a token endpoint that answers 307, Then the refresh fails on the 307 and the redirect target gets no request.
+func TestRefreshU2MFollowsNoRedirect(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer target.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+tokenPath, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	_, err := RefreshU2M(context.Background(), srv.URL, "ref-secret")
+	if err == nil || !strings.Contains(err.Error(), "307") {
+		t.Fatalf("err = %v, want an error naming HTTP 307", err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("redirect target received %d requests, want 0", n)
+	}
+}
