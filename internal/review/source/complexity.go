@@ -271,27 +271,30 @@ func buildComplexitySummary(results []FileResult, threshold string) ComplexitySu
 		TotalFindings: total, AverageScore: PyFloat(avg), Verdict: verdict, Results: NonNil(results)}
 }
 
-func printComplexityReport(w io.Writer, s ComplexitySummary) {
-	fmt.Fprintf(w, "Complexity Check — %d files, threshold %s\n", s.FilesAnalyzed, s.Threshold)
-	fmt.Fprintf(w, "Average score: %.0f/100   Findings: %d\n\n", float64(s.AverageScore), s.TotalFindings)
+func printComplexityReport(out io.Writer, s ComplexitySummary) error {
+	var w strings.Builder
+	fmt.Fprintf(&w, "Complexity Check — %d files, threshold %s\n", s.FilesAnalyzed, s.Threshold)
+	fmt.Fprintf(&w, "Average score: %.0f/100   Findings: %d\n\n", float64(s.AverageScore), s.TotalFindings)
 	for _, r := range s.Results {
 		if len(r.Findings) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "  %s  (score %d/100)\n", r.File, r.Score)
+		fmt.Fprintf(&w, "  %s  (score %d/100)\n", r.File, r.Score)
 		for _, f := range r.Findings {
 			loc := ""
 			if f.Line > 0 {
 				loc = fmt.Sprintf("  line %d", f.Line)
 			}
-			fmt.Fprintf(w, "    [%s] %s%s: %s\n", strings.ToUpper(f.Severity), f.Rule, loc, f.Message)
+			fmt.Fprintf(&w, "    [%s] %s%s: %s\n", strings.ToUpper(f.Severity), f.Rule, loc, f.Message)
 		}
-		fmt.Fprintln(w)
+		fmt.Fprintln(&w)
 	}
 	if s.TotalFindings == 0 {
-		fmt.Fprintln(w, "  No findings. Code looks appropriately simple.")
+		fmt.Fprintln(&w, "  No findings. Code looks appropriately simple.")
 	}
-	fmt.Fprintf(w, "Verdict: %s\n", s.Verdict)
+	fmt.Fprintf(&w, "Verdict: %s\n", s.Verdict)
+	_, err := io.WriteString(out, w.String())
+	return err
 }
 
 type complexityArgs struct {
@@ -363,7 +366,10 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	} else {
-		printComplexityReport(stdout, summary)
+		if err := printComplexityReport(stdout, summary); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
 	}
 	if failed > 0 {
 		return 1

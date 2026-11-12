@@ -247,8 +247,10 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 
 	var err error
 	if jsonOut {
-		b, _ := reviewsource.PyMarshalIndent(result)
-		_, err = fmt.Fprintln(stdout, string(b))
+		var b []byte
+		if b, err = reviewsource.PyMarshalIndent(result); err == nil {
+			_, err = fmt.Fprintln(stdout, string(b))
+		}
 	} else {
 		err = printAssumptions(stdout, source, findings, groups, verdict)
 	}

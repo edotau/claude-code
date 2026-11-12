@@ -453,7 +453,7 @@ func lineSmells(content string) []Smell {
 		lineNo := i + 1
 		trimmed := strings.TrimSpace(line)
 		skip := strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
-			strings.HasPrefix(trimmed, "import") || strings.HasPrefix(trimmed, "from")
+			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from")
 		if !skip {
 			if m, ok := magicNumberOnLine(line); ok {
 				smells = append(smells, Smell{Type: "magic_number", Severity: "low",
@@ -466,6 +466,12 @@ func lineSmells(content string) []Smell {
 		}
 	}
 	return smells
+}
+
+// isKeywordLine reports whether line starts with kw as a whole word.
+func isKeywordLine(line, kw string) bool {
+	rest, ok := strings.CutPrefix(line, kw)
+	return ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '(' || rest[0] == '*')
 }
 
 // functionSmells is the per-function slice of check_code_smells (kept separate to stay under 50 lines).
