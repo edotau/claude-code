@@ -228,14 +228,14 @@ func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 			{500, co, "vim"}, {600, co, "agy"}, {700, "/elsewhere", "claude"}}, nil
 	}
 	t.Cleanup(func() { scanProcs = origScan })
-	origArgs := procArgs
-	procArgs = func(pid int) (string, error) {
+	origArgs := argvOf
+	argvOf = func(pid int) ([]string, error) {
 		if pid == 600 {
-			return "/home/u/.gemini/bin/agy --hub --hub-port=1", nil // IDE hub daemon, not a working session
+			return []string{"/home/u/.gemini/bin/agy", "--hub", "--hub-port=1"}, nil // IDE hub daemon, not a working session
 		}
-		return "agent", nil
+		return []string{"agent"}, nil
 	}
-	t.Cleanup(func() { procArgs = origArgs })
+	t.Cleanup(func() { argvOf = origArgs })
 	parents := map[int]int{self: 100, 200: 100, 100: 1}
 	parentOf = func(pid int) (int, error) { return parents[pid], nil }
 	origName := commName
@@ -259,15 +259,15 @@ func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	stubProcesses(t, nil)
 	parentOf = func(pid int) (int, error) { return 0, nil }
 	scans := 0
-	origScan, origArgs, origName := scanProcs, procArgs, commName
+	origScan, origArgs, origName := scanProcs, argvOf, commName
 	scanProcs = func() ([]procCwd, error) {
 		scans++
 		return []procCwd{{101, co, "claude"}, {102, "/co/wt1", "claude"}, {103, "/co/wt3/sub", "codex"},
 			{104, "/co/.git/hooks", "claude"}, {105, "/co/src", "opencode"}, {106, "/elsewhere", "claude"}}, nil
 	}
-	procArgs = func(int) (string, error) { return "agent", nil }
+	argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
 	commName = func(int) string { return "" }
-	t.Cleanup(func() { scanProcs, procArgs, commName = origScan, origArgs, origName })
+	t.Cleanup(func() { scanProcs, argvOf, commName = origScan, origArgs, origName })
 	got, err := PeerAgents(co, linkedDirs)
 	if err != nil {
 		t.Fatal(err)
