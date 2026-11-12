@@ -137,9 +137,8 @@ func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error)
 		return png(w)
 	}
 	w = connWriter{in} // under launchd stdin and stdout are one socket; replies get a write deadline
-	_ = in.SetReadDeadline(time.Now().Add(serveReqWait))
-	line, err := bufio.NewReaderSize(in, 4096).ReadSlice('\n')
-	if err != nil || len(bytes.TrimSpace(line)) == 0 {
+	line, ok := readReqLine(in)
+	if !ok {
 		return png(w)
 	}
 	var req bridgeReq
@@ -147,6 +146,25 @@ func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error)
 		return replyErr(w, "bad request")
 	}
 	return serveFile(w, home, req.Path)
+}
+
+// readReqLine reads the request line; silence for serveReqWait means an old client, but a started line is awaited in full.
+func readReqLine(in net.Conn) ([]byte, bool) {
+	_ = in.SetReadDeadline(time.Now().Add(serveReqWait))
+	br := bufio.NewReaderSize(in, 4096)
+	var line []byte
+	for {
+		part, err := br.ReadSlice('\n')
+		line = append(line, part...)
+		if err == nil {
+			return line, len(bytes.TrimSpace(line)) > 0
+		}
+		var ne net.Error
+		if len(line) == 0 || !errors.As(err, &ne) || !ne.Timeout() {
+			return nil, false
+		}
+		_ = in.SetReadDeadline(time.Now().Add(sshTimeout)) // a partial line: the client is slow, not old
+	}
 }
 
 // connWriter writes to c with a fresh deadline per call, so a client that stops reading cannot block the server.
@@ -175,11 +193,13 @@ func serveFile(w io.Writer, home, path string) error {
 		return replyErr(w, "cannot open file")
 	}
 	defer func() { _ = f.Close() }()
+	if err := logServed(home, real); err != nil {
+		return replyErr(w, "audit log unavailable")
+	}
 	hdr, _ := json.Marshal(map[string]any{"ok": true, "size": size, "name": filepath.Base(real)})
 	if _, err := w.Write(append(hdr, '\n')); err != nil {
 		return err
 	}
-	logServed(home, real)
 	_, err = io.Copy(w, io.LimitReader(f, size))
 	return err
 }
@@ -276,6 +296,7 @@ var secretHomeDirs = []string{
 	".aws", ".netrc", ".config/gh", ".config/gcloud", ".kube", ".docker",
 	".databrickscfg", ".npmrc", ".git-credentials", ".pypirc", ".azure", ".config/databricks", ".codex",
 	".local/share/opencode", ".copilot", ".config/op", ".zsh_history", ".bash_history",
+	".claude.json", ".claude/.credentials.json", ".cargo/credentials.toml", ".gem/credentials",
 }
 
 // secretRoots lists the secret paths under home plus the config dir's state, both as named and as symlink targets.
@@ -290,21 +311,21 @@ func secretRoots(home string) []string {
 	return withTargets(named)
 }
 
-// logServed appends the served path (never its bytes) to the clip-serve log, best effort.
-func logServed(home, path string) {
-	if home == "" {
-		return
-	}
+// logServed appends the served path (never its bytes) to the clip-serve log; an error means the file must not be served.
+func logServed(home, path string) error {
 	log := filepath.Join(home, ".claude", "state", "harness", "clip-serve.log")
-	if os.MkdirAll(filepath.Dir(log), 0o700) != nil {
-		return
+	if err := os.MkdirAll(filepath.Dir(log), 0o700); err != nil {
+		return err
 	}
 	f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return
+		return err
 	}
-	defer func() { _ = f.Close() }()
-	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), path)
+	if _, err := fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), path); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // BridgeReady reports an SSH session whose forwarded clipboard socket is present and ours.
