@@ -31,10 +31,7 @@ func OverlayDoc() ([]byte, error) {
 	return doc, err
 }
 
-// RoutingOverlay returns the vault overlay's own routing object, unmerged with defaults.json: a nil
-// field means the overlay does not set it (provenance reads "default"); defaults.json always sets a
-// value once merged, so this is the only way to tell "the overlay set this" from "defaults.json did".
-// A missing overlay or routing key, or any load error, returns a zero Routing (every field unset).
+// RoutingOverlay is the overlay's routing object, unmerged with defaults.json: a nil field is unset; an error is zero.
 func RoutingOverlay() (Routing, error) {
 	doc, err := OverlayDoc()
 	if errors.Is(err, fs.ErrNotExist) {
@@ -233,9 +230,7 @@ func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
 	return &reg, nil
 }
 
-// Parse merges base with an optional overlay document; it always returns a non-nil Registry (even one
-// Validate rejects), so a caller that discards the error (router's "a broken registry still routes
-// on the embedded table" resilience) still has a usable reg to fall back from.
+// Parse merges base with an optional overlay; the Registry is never nil, even on an error, so callers can fall back.
 func Parse(base, overlay []byte) (*Registry, error) {
 	reg, err := decodeRegistry(base, nil)
 	if err != nil {

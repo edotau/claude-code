@@ -11,9 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// SetProviderFields merges fields into profile name of the user overlay at the raw-JSON level: never through
-// Provider.MarshalJSON (it redacts headers). An entry the overlay lacks is seeded from the built-in one first,
-// because an overlay entry replaces the built-in whole. Keeps the previous generation as overlay/providers.prev.
+// SetProviderFields merges fields into the overlay entry as raw JSON (MarshalJSON redacts headers); built-in seeds it.
 func SetProviderFields(name string, fields map[string]any) error {
 	return updateProviderFields(name, func(entry map[string]json.RawMessage) error {
 		for k, v := range fields {
