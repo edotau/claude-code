@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -75,7 +76,7 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	report := qualityReportFor(target, info.IsDir(), parsed.language)
+	report := qualityReportFor(target, info.IsDir(), parsed.language, stderr)
 
 	if parsed.jsonOut {
 		if err := emitQualityJSON(report, parsed.output, stdout); err != nil {
@@ -95,9 +96,9 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 }
 
 // qualityReportFor analyzes a directory or a single file; an analysis error becomes an errorResult report.
-func qualityReportFor(target string, isDir bool, language string) any {
+func qualityReportFor(target string, isDir bool, language string, warn io.Writer) any {
 	if isDir {
-		dr, err := analyzeDirectory(target, language)
+		dr, err := analyzeDirectory(target, language, warn)
 		if err != nil {
 			return errorResult{Error: err.Error()}
 		}
@@ -195,7 +196,8 @@ func FormatPyFloat(f float64) string {
 	return s
 }
 
-var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__": true, ".venv": true, "venv": true, "dist": true, "build": true}
+// skipParts are directory names never walked; venv, build and dist are decided by isOutputDir.
+var skipParts = map[string]bool{"node_modules": true, ".git": true, "__pycache__": true, ".venv": true}
 
 // pathHasSkippedPart mirrors `SKIP_PARTS & set(filepath.parts)`.
 func pathHasSkippedPart(path string) bool {
@@ -207,21 +209,40 @@ func pathHasSkippedPart(path string) bool {
 	return false
 }
 
+// isOutputDir reports a venv or build/dist directory holding output; a build/dist with .go files is a package.
+func isOutputDir(dir string) bool {
+	switch filepath.Base(dir) {
+	case "venv":
+		_, err := os.Stat(filepath.Join(dir, "pyvenv.cfg"))
+		return err == nil
+	case "build", "dist":
+		entries, err := os.ReadDir(dir)
+		return err == nil && !slices.ContainsFunc(entries, func(e os.DirEntry) bool { return strings.HasSuffix(e.Name(), ".go") })
+	}
+	return false
+}
+
 // walkDir is the traversal seam; tests wrap it to count the paths a walk visits.
 var walkDir = filepath.WalkDir
 
+// skipEntry reports a walk entry under a skipped part, or a directory below root that holds output.
+func skipEntry(root, p string, d os.DirEntry) bool {
+	rel, err := filepath.Rel(root, p)
+	return err != nil || pathHasSkippedPart(rel) || (d != nil && d.IsDir() && p != root && isOutputDir(p))
+}
+
 // walkSourceFiles calls fn for each non-skipped file under root and returns the paths the walk could not read.
-func walkSourceFiles(root string, fn func(p string)) []string {
+func walkSourceFiles(root string, warn io.Writer, fn func(p string)) []string {
 	var unreadable []string
 	_ = walkDir(root, func(p string, d os.DirEntry, err error) error {
-		if rel, rerr := filepath.Rel(root, p); rerr != nil || pathHasSkippedPart(rel) {
+		if skipEntry(root, p, d) {
 			if d != nil && d.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: skipping unreadable path %s: %v\n", p, err)
+			fmt.Fprintf(warn, "warning: skipping unreadable path %s: %v\n", p, err)
 			unreadable = append(unreadable, p)
 			return nil
 		}
@@ -235,7 +256,7 @@ func walkSourceFiles(root string, fn func(p string)) []string {
 }
 
 // analyzeDirectory ports code_quality_checker.analyze_directory.
-func analyzeDirectory(dir, language string) (directoryReport, error) {
+func analyzeDirectory(dir, language string, warn io.Writer) (directoryReport, error) {
 	var extensions []string
 	if language != "" {
 		extensions = Extensions[language]
@@ -245,7 +266,7 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 		}
 	}
 
-	results, failed := walkExtensions(dir, extensions)
+	results, failed := walkExtensions(dir, extensions, warn)
 	if len(results) == 0 && len(failed) > 0 {
 		return directoryReport{}, fmt.Errorf("analysis failed for %d files, e.g. %s", len(failed), failed[0])
 	}
@@ -271,14 +292,13 @@ func analyzeDirectory(dir, language string) (directoryReport, error) {
 	}, nil
 }
 
-// walkExtensions collects supported files in one traversal, retaining extension and path ordering; failed lists
-// the files whose analysis errored.
-func walkExtensions(dir string, extensions []string) (out []QualityReport, failed []string) {
+// walkExtensions collects supported files in one traversal; failed lists files whose analysis errored.
+func walkExtensions(dir string, extensions []string, warn io.Writer) (out []QualityReport, failed []string) {
 	byExtension := make(map[string][]string, len(extensions))
 	for _, ext := range extensions {
 		byExtension[ext] = nil
 	}
-	failed = walkSourceFiles(dir, func(p string) {
+	failed = walkSourceFiles(dir, warn, func(p string) {
 		for ext := range byExtension {
 			if strings.HasSuffix(p, ext) {
 				byExtension[ext] = append(byExtension[ext], p)
@@ -291,7 +311,7 @@ func walkExtensions(dir string, extensions []string) (out []QualityReport, faile
 		for _, m := range matches {
 			r, err := Quality(m)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: analysis failed: %v\n", err)
+				fmt.Fprintf(warn, "warning: analysis failed: %v\n", err)
 				failed = append(failed, m)
 				continue
 			}

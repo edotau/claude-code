@@ -26,7 +26,7 @@ const scopeBytesPerLine = 80
 // scopeExts are the source extensions the --paths listing keeps.
 var scopeExts = setOf(".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".rs", ".java")
 
-// scopeSkipDirs are directories the --paths listing never descends into, except an explicitly named root.
+// scopeSkipDirs are directories the --paths listing never lists, even when a path names one.
 var scopeSkipDirs = setOf("node_modules", ".venv", "vendor", "testdata")
 
 // scopeFile is one listed file with its size in bytes.
@@ -47,12 +47,12 @@ type scopeResult struct {
 	Packages []scopePackage `json:"packages"`
 }
 
-// RunScope lists the files a change touches (--range) or the source files under --paths, sized in bytes.
+// RunScope lists the files a change touches (--range) or the source files under --paths.
 func RunScope(args []string, stdout, stderr io.Writer) int {
 	fs := helptext.NewFlagSet("scope", helptext.Page{
 		Usage: "claude-code review scope (--range R | --paths p1,p2) [flags]",
-		About: "List the files a change touches, sized in bytes, or the source files under paths; --importers " +
-			"adds each Go package's in-repo importers.",
+		About: "List the files a change touches (--range sizes each at 80 bytes per changed line) or the " +
+			"source files under paths (sized on disk); --importers adds each Go package's in-repo importers.",
 	})
 	fs.SetOutput(stderr)
 	repo := fs.String("repo", ".", "Repository directory")
@@ -63,36 +63,50 @@ func RunScope(args []string, stdout, stderr io.Writer) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		fmt.Fprintf(stderr, "claude-code: %v\n", err)
-		return 2
-	}
-	if *diffRange == "" && *paths == "" {
-		fmt.Fprintln(stderr, "claude-code: scope needs --range or --paths")
-		return 2
+	if code := checkScopeArgs(*format, *diffRange, *paths, stderr); code != 0 {
+		return code
 	}
 	root, ok := resolveGitRepo([]string{*repo}, stderr)
 	if !ok {
 		return 1
 	}
-	files, err := scopeFiles(root, *diffRange, splitPaths(*paths))
+	result, err := buildScope(root, *diffRange, splitPaths(*paths), *importers)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
-	}
-	result := scopeResult{Files: files, Packages: []scopePackage{}}
-	if *importers {
-		pkgs, err := scopePackages(root, files)
-		if err != nil {
-			fmt.Fprintf(stderr, "Error: %v\n", err)
-			return 1
-		}
-		result.Packages = pkgs
 	}
 	if *format == helptext.JSON {
 		return printJSON(stdout, stderr, result)
 	}
 	return printScopeText(stdout, stderr, result)
+}
+
+// checkScopeArgs refuses an unknown format or a call with neither --range nor --paths (exit 2).
+func checkScopeArgs(format, diffRange, paths string, stderr io.Writer) int {
+	if err := helptext.CheckFormat(format); err != nil {
+		fmt.Fprintf(stderr, "claude-code: %v\n", err)
+		return 2
+	}
+	if diffRange == "" && paths == "" {
+		fmt.Fprintln(stderr, "claude-code: scope needs --range or --paths")
+		return 2
+	}
+	return 0
+}
+
+// buildScope lists the files and, with importers, the Go packages among them.
+func buildScope(root, diffRange string, paths []string, importers bool) (scopeResult, error) {
+	files, err := scopeFiles(root, diffRange, paths)
+	if err != nil {
+		return scopeResult{}, err
+	}
+	result := scopeResult{Files: files, Packages: []scopePackage{}}
+	if importers {
+		if result.Packages, err = scopePackages(root, files); err != nil {
+			return scopeResult{}, err
+		}
+	}
+	return result, nil
 }
 
 // scopeFiles lists the range's changed files when diffRange is set, else the source files under paths; sorted by path.
@@ -146,7 +160,7 @@ func parseNumstat(out string) []scopeFile {
 	return files
 }
 
-// numstatBytes sizes a file as (added+deleted) lines * 80; a binary file's "-" counts as 0 lines.
+// numstatBytes estimates a file as (added+deleted) lines * 80 bytes; a binary file's "-" counts as 0 lines.
 func numstatBytes(added, deleted string) int64 {
 	a, _ := strconv.Atoi(added)
 	d, _ := strconv.Atoi(deleted)

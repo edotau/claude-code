@@ -231,33 +231,50 @@ func (f *fenceState) skip(line string) bool {
 }
 
 func extractListSteps(text string) []string {
-	var steps []string
-	var current []string
-	building := false
+	var b stepBuilder
 	var fence fenceState
 	for _, line := range splitLines(text) {
 		stripped := strings.TrimSpace(line)
-		if fence.skip(line) {
-			if building {
-				current = append(current, line)
-			}
-		} else if building && headingRe().MatchString(line) && !stepRe().MatchString(stripped) {
-			steps = append(steps, strings.Join(current, "\n")) // a heading ends the last step's body
-			current, building = nil, false
-		} else if stepRe().MatchString(stripped) {
-			if building {
-				steps = append(steps, strings.Join(current, "\n"))
-			}
-			current = []string{stripped}
-			building = true
-		} else if building {
-			current = append(current, line)
+		switch {
+		case fence.skip(line):
+			b.add(line)
+		case b.building && headingRe().MatchString(line) && !stepRe().MatchString(stripped):
+			b.end() // a heading ends the last step's body
+		case stepRe().MatchString(stripped):
+			b.flush()
+			b.current, b.building = []string{stripped}, true
+		default:
+			b.add(line)
 		}
 	}
-	if building {
-		steps = append(steps, strings.Join(current, "\n"))
+	b.flush()
+	return b.steps
+}
+
+// stepBuilder accumulates the lines of the step being read.
+type stepBuilder struct {
+	steps, current []string
+	building       bool
+}
+
+// add appends a body line to the current step, if one is open.
+func (b *stepBuilder) add(line string) {
+	if b.building {
+		b.current = append(b.current, line)
 	}
-	return steps
+}
+
+// flush closes the current step into steps, if one is open.
+func (b *stepBuilder) flush() {
+	if b.building {
+		b.steps = append(b.steps, strings.Join(b.current, "\n"))
+	}
+}
+
+// end flushes the current step and leaves none open.
+func (b *stepBuilder) end() {
+	b.flush()
+	b.current, b.building = nil, false
 }
 
 func scoreStep(step string) (int, string) {

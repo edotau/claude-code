@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-var gateFileRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.(py|ts|tsx|js|jsx|go)$`) })
-var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s+\[WARN\]|^Verdict:`) })
-var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:`) })
+var gateVerdictLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s+\[WARN\]|^Verdict:|^  \S.*\(score \d+/100\)$`) })
+var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Noise ratio:|Verdict:|^  \S.*:$`) })
 
 func gateStagedFiles(repo string) []string {
 	out, err := gitInherit(repo, "diff", "--cached", "--name-only")
@@ -43,15 +43,14 @@ func gateComplexityFiles(repo string) []string {
 	}
 	var files []string
 	for name := range strings.SplitSeq(out, "\x00") {
-		if name != "" && gateFileRe().MatchString(name) {
+		if name != "" && source.DetectComplexityLang(name) != "" {
 			files = append(files, filepath.Join(repo, name))
 		}
 	}
 	return files
 }
 
-// stagedBlob reads a path's index (staged) content, so the gate scores exactly what the commit will contain.
-// It keeps the inherited GIT_INDEX_FILE, the same index gateComplexityFiles listed the paths from.
+// stagedBlob reads a path's staged content under the inherited GIT_INDEX_FILE, matching gateComplexityFiles.
 func stagedBlob(repo string) func(string) ([]byte, error) {
 	return func(p string) ([]byte, error) {
 		rel, err := filepath.Rel(repo, p)
@@ -62,6 +61,7 @@ func stagedBlob(repo string) func(string) ([]byte, error) {
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "git", "-C", repo, "show", ":./"+rel)
 		cmd.Env = os.Environ()
+		cmd.WaitDelay = proc.ExecWaitDelay
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
@@ -104,7 +104,10 @@ func runStagedComplexity(repo string, changed []string, out io.Writer) int {
 		}
 		mirrored = append(mirrored, dst)
 	}
-	return source.RunComplexity(append(mirrored, "--threshold", "medium"), out, out)
+	var buf bytes.Buffer
+	rc := source.RunComplexity(append(mirrored, "--threshold", "medium"), &buf, &buf)
+	_, _ = io.WriteString(out, strings.ReplaceAll(buf.String(), dir+string(filepath.Separator), ""))
+	return rc
 }
 
 func filterLines(text string, re *regexp.Regexp) (string, bool) {
@@ -182,7 +185,13 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 	}
 	repo = "."
 	for i, a := range args {
-		if a == "--repo" && i+1 < len(args) {
+		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !strings.HasPrefix(a, "-") || name != "repo" {
+			continue
+		}
+		if hasVal {
+			repo = val
+		} else if i+1 < len(args) {
 			repo = args[i+1]
 		}
 	}

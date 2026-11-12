@@ -41,6 +41,11 @@ func compileAll(patterns ...string) []*regexp.Regexp {
 	return out
 }
 
+// secretAssignRe matches a quoted value assigned to a secret-named key; groups 1 and 2 keep the key and quotes.
+var secretAssignRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)((?:password|secret|api_key|token)\s*[=:]\s*['"])[^'"]+(['"])`)
+})
+
 type riskPattern struct {
 	name     string
 	pattern  *regexp.Regexp
@@ -50,13 +55,13 @@ type riskPattern struct {
 
 var riskPatterns = sync.OnceValue(func() []riskPattern {
 	return []riskPattern{
-		{"hardcoded_secrets", regexp.MustCompile(`(?i)(password|secret|api_key|token)\s*[=:]\s*['"][^'"]+['"]`), "critical", "Potential hardcoded secret detected"},
+		{"hardcoded_secrets", secretAssignRe(), "critical", "Potential hardcoded secret detected"},
 		{"todo_fixme", regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX):`), "low", "TODO/FIXME comment found"},
 		{"console_log", regexp.MustCompile(`(?i)console\.(log|debug|info|warn|error)\(`), "medium", "Console statement found (remove for production)"},
 		{"debugger", regexp.MustCompile(`(?i)\bdebugger\b`), "high", "Debugger statement found"},
 		{"disable_eslint", regexp.MustCompile(`(?i)eslint-disable`), "medium", "ESLint rule disabled"},
 		{"any_type", regexp.MustCompile(`(?i):\s*any\b`), "medium", "TypeScript 'any' type used"},
-		{"sql_concatenation", regexp.MustCompile(`(?i)(SELECT|INSERT|UPDATE|DELETE).*\+.*['"]`), "critical", "Potential SQL injection (string concatenation in query)"},
+		{"sql_concatenation", regexp.MustCompile(`(?i)['"\x60]\s*(SELECT\s.*\sFROM\s|INSERT\s+INTO\s|UPDATE\s.*\sSET\s|DELETE\s+FROM\s).*\+.*['"]`), "critical", "Potential SQL injection (string concatenation in query)"},
 	}
 })
 
@@ -358,34 +363,34 @@ func analyzePR(repo, base, head string) (PRReport, error) {
 		return PRReport{}, fmt.Errorf("git log %s..%s: %w", base, head, err)
 	}
 	complexity := calculateComplexityScore(files, allRisks)
-
-	totalAdditions, totalDeletions := 0, 0
-	for _, f := range files {
-		totalAdditions += f.Additions
-		totalDeletions += f.Deletions
-	}
-
 	risksBySeverity := groupRisks(allRisks)
-
-	reviewOrder := []string{}
-	for i, f := range files {
-		if i >= 10 {
-			break
-		}
-		reviewOrder = append(reviewOrder, f.Path)
-	}
-
 	return PRReport{
-		Status: "analyzed",
-		Summary: &PRSummary{
-			FilesChanged: len(files), TotalAdditions: totalAdditions, TotalDeletions: totalDeletions,
-			ComplexityScore: complexity, ComplexityLabel: complexityLabel(complexity), Commits: commitCount,
-		},
+		Status:       "analyzed",
+		Summary:      summarizePR(files, complexity, commitCount),
 		Risks:        &risksBySeverity,
 		Files:        files,
 		CommitIssues: commitIssues,
-		ReviewOrder:  reviewOrder,
+		ReviewOrder:  reviewOrder(files),
 	}, nil
+}
+
+// summarizePR totals the files' line counts into the report's summary block.
+func summarizePR(files []PRFileAnalysis, complexity, commits int) *PRSummary {
+	s := &PRSummary{FilesChanged: len(files), ComplexityScore: complexity, ComplexityLabel: complexityLabel(complexity), Commits: commits}
+	for _, f := range files {
+		s.TotalAdditions += f.Additions
+		s.TotalDeletions += f.Deletions
+	}
+	return s
+}
+
+// reviewOrder is the paths of the first ten (priority-sorted) files.
+func reviewOrder(files []PRFileAnalysis) []string {
+	order := []string{}
+	for _, f := range files[:min(len(files), 10)] {
+		order = append(order, f.Path)
+	}
+	return order
 }
 
 // analyzeFiles fills each file's category, weight, change counts and risks in place and returns every risk found.

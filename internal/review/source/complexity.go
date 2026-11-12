@@ -1,6 +1,7 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -61,8 +62,8 @@ type ComplexitySummary struct {
 	Results       []FileResult `json:"results"`
 }
 
-// detectComplexityLang mirrors complexity_checker.detect_lang.
-func detectComplexityLang(path string) string {
+// DetectComplexityLang mirrors complexity_checker.detect_lang.
+func DetectComplexityLang(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".py":
 		return "python"
@@ -119,7 +120,7 @@ func deepestIndentUnits(text string) int {
 
 // analyzeFileComplexity ports complexity_checker.analyze_file.
 func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
-	lang := detectComplexityLang(path)
+	lang := DetectComplexityLang(path)
 	if lang == "" {
 		return nil, nil
 	}
@@ -127,11 +128,11 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 	if err != nil {
 		return nil, err
 	}
-	return complexityContent(path, string(data), lang, th), nil
+	return complexityContent(path, string(data), lang, th)
 }
 
 // complexityContent is analyzeFileComplexity over already-read text.
-func complexityContent(path, text, lang string, th ComplexityThresholds) *FileResult {
+func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileResult, error) {
 	lineCount := len(strings.Split(text, "\n"))
 	if text != "" && strings.HasSuffix(text, "\n") {
 		lineCount-- // splitlines() drops a trailing newline's empty tail; strings.Split does not.
@@ -146,7 +147,11 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) *FileRe
 	case "python":
 		findings = append(findings, analyzePython(text, lineCount, th)...)
 	case "go":
-		findings = append(findings, analyzeGo(path, text, th)...)
+		goFindings, err := analyzeGo(path, text, th)
+		if err != nil {
+			return nil, err
+		}
+		findings = append(findings, goFindings...)
 	default:
 		findings = append(findings, analyzeTypescript(text, lineCount, th)...)
 	}
@@ -162,7 +167,7 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) *FileRe
 	if score < 0 {
 		score = 0
 	}
-	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}
+	return &FileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}, nil
 }
 
 // importCountFinding is the shared import-coupling check.
@@ -206,13 +211,13 @@ func functionFindings(name string, line, length, cyclo, nest int, th ComplexityT
 }
 
 // collectComplexityFiles ports complexity_checker.collect_files (a target may be a file or a directory).
-func collectComplexityFiles(target string, extensions []string) []string {
+func collectComplexityFiles(target string, extensions []string, warn io.Writer) []string {
 	info, err := os.Stat(target)
 	if err == nil && !info.IsDir() {
 		return []string{target}
 	}
 	var files []string
-	unreadable := walkSourceFiles(target, func(p string) {
+	unreadable := walkSourceFiles(target, warn, func(p string) {
 		// Keep suffix matching: callers may request multi-part or overlapping extensions.
 		if hasComplexityExtension(p, extensions) {
 			files = append(files, p)
@@ -317,21 +322,25 @@ func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArg
 	return complexityArgs{targets: targets, threshold: *threshold, ext: *ext, jsonOut: *jsonOut}, 0, false
 }
 
-// RunComplexity is the complexity_checker.py CLI: findings are advisory; JSON output errors exit 1.
+// RunComplexity is the complexity_checker.py CLI: findings are advisory; output and Go syntax errors exit 1.
 func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	parsed, code, done := parseComplexityArgs(args, stdout, stderr)
 	if done {
 		return code
 	}
+	if err := checkTargets(parsed.targets, DetectComplexityLang); err != nil {
+		fmt.Fprintf(stderr, "review complexity: %v\n", err)
+		return 2
+	}
 	th := complexityThresholds[parsed.threshold]
 	extensions := parseExtensions(parsed.ext)
-	files := gatherComplexityFiles(parsed.targets, extensions)
+	files := gatherComplexityFiles(parsed.targets, extensions, stderr)
 	if len(files) == 0 {
 		return reportNoFiles(stdout, stderr, extensions, parsed.targets, parsed.jsonOut)
 	}
 
 	sort.Strings(files)
-	results := analyzeComplexityFiles(files, th, stderr)
+	results, failed := analyzeComplexityFiles(files, th, stderr)
 	summary := buildComplexitySummary(results, parsed.threshold)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, summary); err != nil {
@@ -345,7 +354,24 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	} else {
 		printComplexityReport(stdout, summary)
 	}
+	if failed > 0 {
+		return 1
+	}
 	return 0
+}
+
+// checkTargets refuses a named target that is missing or a file no analyzer handles; directories pass.
+func checkTargets(targets []string, language func(string) string) error {
+	for _, t := range targets {
+		info, err := os.Stat(t)
+		if err != nil {
+			return fmt.Errorf("%w; pass an existing file or directory", err)
+		}
+		if !info.IsDir() && language(t) == "" {
+			return fmt.Errorf("%s: unsupported file type %q; pass a source file or a directory", t, filepath.Ext(t))
+		}
+	}
+	return nil
 }
 
 func parseExtensions(list string) []string {
@@ -360,11 +386,11 @@ func parseExtensions(list string) []string {
 }
 
 // gatherComplexityFiles collects the files under every target, deduplicated by resolved path.
-func gatherComplexityFiles(targets, extensions []string) []string {
+func gatherComplexityFiles(targets, extensions []string, warn io.Writer) []string {
 	seen := map[string]bool{}
 	var files []string
 	for _, target := range targets {
-		for _, f := range collectComplexityFiles(target, extensions) {
+		for _, f := range collectComplexityFiles(target, extensions, warn) {
 			key := resolvePath(f)
 			if !seen[key] {
 				seen[key] = true
@@ -375,19 +401,22 @@ func gatherComplexityFiles(targets, extensions []string) []string {
 	return files
 }
 
-func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) []FileResult {
-	var results []FileResult
+// analyzeComplexityFiles scores each file; failed counts files whose Go source did not parse.
+func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.Writer) (results []FileResult, failed int) {
 	for _, f := range files {
 		r, err := analyzeFileComplexity(f, th)
 		if err != nil {
 			fmt.Fprintf(stderr, "[warning] could not read %s: %v\n", f, err)
+			if errors.Is(err, errGoSyntax) {
+				failed++
+			}
 			continue
 		}
 		if r != nil {
 			results = append(results, *r)
 		}
 	}
-	return results
+	return results, failed
 }
 
 // reportNoFiles ports the argparse "no files matched" branch (advisory unless JSON output fails).
@@ -431,12 +460,15 @@ func hasComplexityExtension(path string, extensions []string) bool {
 	return false
 }
 
-// analyzeGo scores Go source with go/ast; a parse error yields no findings (fail-open).
-func analyzeGo(path, text string, th ComplexityThresholds) []Finding {
+// errGoSyntax marks Go source that does not parse; RunComplexity exits 1 for it.
+var errGoSyntax = errors.New("go syntax error")
+
+// analyzeGo scores Go source with go/ast; source that does not parse is an error, never a clean score.
+func analyzeGo(path, text string, th ComplexityThresholds) ([]Finding, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, text, parser.SkipObjectResolution)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("%w: %w", errGoSyntax, err)
 	}
 	var findings []Finding
 	for _, decl := range file.Decls {
@@ -445,7 +477,7 @@ func analyzeGo(path, text string, th ComplexityThresholds) []Finding {
 		}
 	}
 	findings = append(findings, importCountFinding(len(file.Imports), th)...)
-	return findings
+	return findings, nil
 }
 
 func goFunctionFindings(fset *token.FileSet, fn *ast.FuncDecl, th ComplexityThresholds) []Finding {

@@ -129,15 +129,18 @@ func functionNameParams(groups []string) (string, string) {
 	return "anonymous", ""
 }
 
-// findFunctions ports quality_core.find_functions; each language pattern yields (name, params) group pairs.
-func findFunctions(content, language string) []FunctionInfo {
+// findFunctions ports quality_core.find_functions; Go source that does not parse is an error, not a regex fallback.
+func findFunctions(content, language string) ([]FunctionInfo, error) {
 	pattern, ok := functionPatterns()[language]
 	if !ok {
 		pattern = functionPatterns()["python"]
 	}
 	var goEnds []int
 	if language == "go" {
-		goEnds = goFunctionEnds(content)
+		var err error
+		if goEnds, err = goFunctionEnds(content); err != nil {
+			return nil, err
+		}
 	}
 	var out []FunctionInfo
 	for _, loc := range pattern.FindAllStringSubmatchIndex(content, -1) {
@@ -158,14 +161,14 @@ func findFunctions(content, language string) []FunctionInfo {
 			Complexity: calcCyclomaticComplexity(body),
 		})
 	}
-	return out
+	return out, nil
 }
 
-func goFunctionEnds(content string) []int {
+func goFunctionEnds(content string) ([]int, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "", content, parser.SkipObjectResolution)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("go syntax error: %w", err)
 	}
 	var ends []int
 	for _, decl := range file.Decls {
@@ -173,7 +176,7 @@ func goFunctionEnds(content string) []int {
 			ends = append(ends, fset.Position(fn.End()).Offset)
 		}
 	}
-	return ends
+	return ends, nil
 }
 
 // submatchStrings returns capture groups 1..n as strings ("" when a group did not participate).
@@ -252,14 +255,12 @@ func pythonHeaderEnd(content string, from int) int {
 			depth++
 		case ')':
 			depth--
-		case '#': // comment: skip to its newline, which the loop then handles
-			nl := strings.IndexByte(content[i:], '\n')
-			if nl < 0 {
+		case '#', '\'', '"':
+			next, ok := skipPythonLiteral(content, i)
+			if !ok {
 				return -1
 			}
-			i += nl - 1
-		case '\'', '"':
-			i = pythonStringEnd(content, i)
+			i = next
 		case ':':
 			if depth == 0 {
 				return i + 1
@@ -271,6 +272,18 @@ func pythonHeaderEnd(content string, from int) int {
 		}
 	}
 	return -1
+}
+
+// skipPythonLiteral returns the last index of the comment or string at i; false for an unterminated comment.
+func skipPythonLiteral(content string, i int) (int, bool) {
+	if content[i] != '#' {
+		return pythonStringEnd(content, i), true
+	}
+	nl := strings.IndexByte(content[i:], '\n')
+	if nl < 0 {
+		return 0, false
+	}
+	return i + nl - 1, true
 }
 
 // pythonStringEnd returns the index of the quote closing the string opened at i (len(content) if unclosed).
@@ -560,13 +573,20 @@ func Quality(path string) (QualityReport, error) {
 	if err != nil {
 		return QualityReport{}, fmt.Errorf("could not read file: %s: %w", path, err)
 	}
-	return QualityContent(path, string(data), lang)
+	r, err := QualityContent(path, string(data), lang)
+	if err != nil {
+		return QualityReport{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return r, nil
 }
 
 // QualityContent is Quality over already-read content; lang must be set.
 func QualityContent(path, content, lang string) (QualityReport, error) {
 	lineMetrics := countLines(content)
-	functions := findFunctions(content, lang)
+	functions, err := findFunctions(content, lang)
+	if err != nil {
+		return QualityReport{}, err
+	}
 	classes := findClasses(content, lang)
 	smells := checkCodeSmells(content, lang, functions, classes)
 	violations := checkSolidViolations(content)
