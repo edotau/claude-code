@@ -1,12 +1,20 @@
 package agentconfig
 
 import (
+	"bytes"
+	"encoding/base64"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Each tampered or tricked overlay document is refused with its own message; an own 0600 file loads.
@@ -82,5 +90,64 @@ func TestRefRuleRefusesRouteCredentialAndInternalRefs(t *testing.T) {
 	}
 	if _, err := LoadOverlay(`{"set":{"A":"@secret:MY_OWN"}}`, nil); err != nil {
 		t.Errorf("an ordinary ref: %v", err)
+	}
+}
+
+// An unset, keep or set entry naming a route endpoint or proxy is refused with the route-endpoint message, value unechoed.
+func TestOverlayUnsetKeepRefuseRouteEndpoints(t *testing.T) {
+	for _, doc := range []string{`{"unset":["ANTHROPIC_BASE_URL"]}`, `{"unset":["HTTPS_PROXY"]}`,
+		`{"keep":["OPENAI_BASE_URL"]}`, `{"set":{"AGY_LLM_GATEWAY_URL":"https://evil.example"}}`} {
+		_, err := LoadOverlay(doc, nil)
+		if !errors.Is(err, errBaseURL) {
+			t.Errorf("LoadOverlay(%s): err = %v, want %q", doc, err, errBaseURL)
+		} else if strings.Contains(err.Error(), "evil") {
+			t.Errorf("LoadOverlay(%s): err %q echoes the value", doc, err)
+		}
+	}
+}
+
+// ResolveOverlay fails closed naming the set key and ref (no value, no key-tool stderr); success swaps and clones.
+func TestResolveOverlayFailsClosedAndNeverEchoes(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "MY_OWN", "s3cr3t-value")
+	in := func() Overlay {
+		return Overlay{Set: map[string]string{"K": "@secret:MY_OWN", "PLAIN": "x"}, Unset: []string{"A"}, Keep: []string{"B"}}
+	}
+	o := in()
+	r, err := ResolveOverlay(o)
+	want := Resolved{Set: map[string]string{"K": "s3cr3t-value", "PLAIN": "x"}, Unset: []string{"A"}, Keep: []string{"B"}}
+	if err != nil || !reflect.DeepEqual(r, want) {
+		t.Fatalf("ResolveOverlay = %+v, %v; want %+v", r, err, want)
+	}
+	r.Unset[0], r.Keep[0] = "X", "X"
+	if !reflect.DeepEqual(o, in()) {
+		t.Errorf("ResolveOverlay shares or mutates its input: %+v", o)
+	}
+	cases := []struct {
+		o    Overlay
+		arm  func()
+		want string
+	}{
+		{Overlay{Set: map[string]string{"K": "@secret:MISSING"}}, func() {}, "overlay set K: @secret:MISSING is not in the vault"},
+		{in(), func() { // a wrong env key falls through to key_command, which fails loudly on stderr
+			k, err := vault.EnsureKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			vaulttest.Keyring(t)
+			vaulttest.Put(t, vault.Meta, "kid", k.Kid) // a recorded kid sends a mismatched key down the fallback chain
+			vaulttest.Put(t, vault.Meta, "key_command", `["sh","-c","echo LEAKED-STDERR >&2; exit 3"]`)
+			t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
+		}, "overlay set K: @secret:MY_OWN: " + vault.ErrWrongKey.Error()},
+	}
+	if runtime.GOOS == "windows" {
+		cases = cases[:1] // no sh for the failing key_command
+	}
+	leak := regexp.MustCompile(`LEAKED|s3cr3t`)
+	for _, c := range cases {
+		c.arm()
+		if _, err := ResolveOverlay(c.o); err == nil || !strings.HasPrefix(err.Error(), c.want) || leak.MatchString(err.Error()) {
+			t.Errorf("ResolveOverlay(%v): err = %v, want prefix %q and no value or key-tool stderr", c.o.Set, err, c.want)
+		}
 	}
 }
