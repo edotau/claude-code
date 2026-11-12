@@ -108,7 +108,7 @@ curl -X POST -u "$TOKEN:" -H "Content-Type: application/json" \
 - **Bulk delete stale devices**: list `/tailnet/-/devices`, filter by `lastSeen` against a threshold, `DELETE /device/{id}` for each. Throttle to avoid 429s.
 - **Get a device ID** quickly: `tailscale status --json` is faster than an API round-trip and works locally.
 - **Atomic policy updates**: always pass `If-Match` with the GET-returned `ETag`. Without it, a concurrent edit will silently overwrite yours.
-- **Programmatic device approval**: webhook on `nodeNeedsApproval` → check your external state → POST to `/device/{id}/authorized`. Refer to `references/device-management.md`.
+- **Programmatic device approval**: webhook on `nodeNeedsApproval` → check your external state → POST to `/device/{id}/authorized`.
 
 ## Where to find current information
 
