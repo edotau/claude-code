@@ -69,7 +69,7 @@ static menu: routing never touches the network.
 - A u2m (`oauth`) row may pair a service principal: `auth.spClientId` (not secret) plus the sealed secret
   `DATABRICKS_<PROFILE>_M2M`; `identity` is `auto` (default) | `user` | `sp`. Unpaired rows are unchanged.
 - Precedence: `--as` (carried by `providers.WithIdentity(ctx, as)`) > the row's `identity` > `auto`.
-- Headless dispatch (`agents ask`, `--batch`, `--background`/job, `--live`, `--remote`) with no `--as` runs a paired
+- Headless dispatch (`agents ask`, `--batch`, `--background`/job, `--live`, `--host`) with no `--as` runs a paired
   row left at `auto` as its SP first (`IdentityHeadless`), falling back to the user login with one stderr note when
   the SP secret is missing or its mint is rejected; `--as auto|user` overrides; the proxy gets it via
   `X-Claude-Code-Identity`. No credential path opens a browser: only `databricks login` (not on an `sp` row, which
@@ -82,15 +82,15 @@ static menu: routing never touches the network.
 `databricks login` on a profile with a paired service principal mints as it and opens no browser; `--as user`
 forces the browser login. The browser login (not `--as sp`, which rejects these flags) works without a local browser:
 
-- From another machine: `claude-code --remote <host> databricks login` forwards the callback port itself (the first
+- From another machine: `claude-code --host <host> databricks login` forwards the callback port itself (the first
   free local port from 8030 to 8050, or exactly `--port N`), adds `--no-browser`, and closes the forward when the
   login ends; open the printed URL in your own browser.
-- Sign-in only allowed on the host's own browser (company device policy): add `--remote-browser`; no forward, no
+- Sign-in only allowed on the host's own browser (company device policy): add `--host-browser`; no forward, no
   `--no-browser`, the host opens its browser (WSL: the Windows default browser) and the callback stays on that host.
 - By hand: `ssh -L 8030:localhost:8030 <host>`, then run `claude-code databricks login --no-browser --port 8030` on
   the host.
 - `--port N` listens on exactly N and fails if another process holds it; without it the callback walks 8030 to 8050.
-- `--no-browser` opens nothing and prints the URL plus an `ssh -L` hint naming this host (none under `--remote`).
+- `--no-browser` opens nothing and prints the URL plus an `ssh -L` hint naming this host (none under `--host`).
 - `--paste` also reads one line from stdin: with no forward, copy the failed `http://localhost:<port>/?code=...` URL
   from the browser's address bar and paste it. Its `state` is checked; the callback and the paste race, first wins.
 - `--dry-run` with these flags prints the port and modes and opens nothing.

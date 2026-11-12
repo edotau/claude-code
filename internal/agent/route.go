@@ -211,8 +211,8 @@ type RouteReq struct {
 	Fallback, WorkDir             string
 	Native, Preview               bool
 	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
-	Host                          bool   // Engine runs remotely as one unrouted dispatch (--remote)
-	Engine                        Engine // the resolved engine an explicit or --remote chain runs on
+	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
+	Engine                        Engine // the resolved engine an explicit or --host chain runs on
 	Refresh                       func(context.Context, string) bool
 }
 

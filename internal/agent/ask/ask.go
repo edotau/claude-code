@@ -97,7 +97,7 @@ func run(args []string, resume bool, verb string) int {
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
 	}
-	if remote.IsSelf(f.host) { // --remote naming this machine runs here
+	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
@@ -260,13 +260,13 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := overlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --remote
+	if err := overlayLocal(r.fileOv, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
 		return r.fail(err, 2)
 	}
 	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
-		return r.fail(err, 2)
+		return r.fail(fmt.Errorf("%s %w", remote.Flag, err), 2)
 	}
-	if remote.IsSelf(f.host) { // --remote naming this machine runs here
+	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
@@ -301,7 +301,7 @@ func (r *askRun) execute() int {
 	if r.jobRec != nil && r.jobRec.Live {
 		return agent.RunHolder(r.jobRec, newClient().Launcher)
 	}
-	var framed *bufio.Reader // set only for the remote end of `ask --remote`
+	var framed *bufio.Reader // set only for the remote end of `ask --host`
 	var prompt string
 	var err error
 	if f.stdinFramed {
@@ -319,7 +319,7 @@ func (r *askRun) execute() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
-	if framed != nil { // the remote end of `ask --remote`: stdin closing means the local side cancelled or vanished
+	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
 		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
 	}
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
@@ -399,7 +399,7 @@ func warnAskMemory(ag string, enableMemory bool) {
 	}
 }
 
-// routesItself: a record (no route flag typed), the --remote end, or no profile/provider leaves the lead to Prepare.
+// routesItself: a record (no route flag typed), the --host end, or no profile/provider leaves the lead to Prepare.
 func (r *askRun) routesItself() bool {
 	typed := helptext.Explicit(r.fs, "profile") || helptext.Explicit(r.fs, "provider") || helptext.Explicit(r.fs, "fallback")
 	return !typed || r.f.host != "" || (r.f.provider == "" && r.f.leadProvider == "")

@@ -61,8 +61,8 @@ var restartPage = helptext.Page{
 		"it is not restarted.\n" +
 		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
 		"open sessions alone do not block a restart.\n" +
-		"Each --host ssh tunnel is stopped too, unless the proxy was left busy;\n" +
-		"the next --host command starts it again.",
+		"Each --remote ssh tunnel is stopped too, unless the proxy was left busy;\n" +
+		"the next --remote command starts it again.",
 }
 
 // restartFlags declares `network restart`'s flags on fs.
@@ -106,7 +106,7 @@ func cmdRestart(args []string) int {
 	return code
 }
 
-// stopTunnels ends every recorded --host ssh tunnel (dry: reports them), one row per egress host.
+// stopTunnels ends every recorded --remote ssh tunnel (dry: reports them), one row per egress host.
 func stopTunnels(dry bool) []gateway.RestartRow {
 	var rows []gateway.RestartRow
 	for _, t := range egress.Tunnels() {

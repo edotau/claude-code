@@ -173,7 +173,7 @@ var (
 	MintSession  = gateway.MintSessionToken // mints a router session token for profile and pid
 )
 
-// ensureRouter is gateway.Ensure; under --host it brings the tunnel up here and returns the /via/<host> base.
+// ensureRouter is gateway.Ensure; under --remote it brings the tunnel up here and returns the /via/<host> base.
 func ensureRouter(ctx context.Context) (string, error) {
 	base, err := gateway.Ensure(ctx)
 	if err != nil || egress.Host() == "" {
@@ -185,10 +185,10 @@ func ensureRouter(ctx context.Context) (string, error) {
 	return gateway.ViaBase(base), nil
 }
 
-// RefuseDirect rejects --direct under --host: a direct agent calls the provider itself, around the tunnel.
+// RefuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
 func RefuseDirect(direct bool) error {
 	if direct && egress.Host() != "" {
-		return fmt.Errorf("--direct cannot be combined with --host %s: a direct agent would bypass the egress host", egress.Host())
+		return fmt.Errorf("--direct cannot be combined with --remote %s: a direct agent would bypass the egress host", egress.Host())
 	}
 	return nil
 }

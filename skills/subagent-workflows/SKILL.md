@@ -112,9 +112,9 @@ Legacy hook routing is supported but not needed for an ordinary dispatch:
 `--profile` leads then falls back unless `--fallback none` pins it; a brief profile does not add that flag.
 `--route` accepts `default`, `first-party` and `databricks[:<profile>|:auto]`; the brief `Route:` accepts only the
 Databricks arm and validates a named workspace. Use a leading `Run: claude-code agents ask …` (optionally with global
-`--host <h>`) and no `Profile:`/`Route:` lines to avoid their prompt rewrites in auto mode. The hook still rewrites
-some non-direct calls there; see `rules/harness/hooks.md`. `--host` runs here and tunnels Databricks requests;
-`--remote` runs the verb on the named host.
+`--remote <h>`) and no `Profile:`/`Route:` lines to avoid their prompt rewrites in auto mode. The hook still rewrites
+some non-direct calls there; see `rules/harness/hooks.md`. `--remote` runs here and tunnels Databricks requests;
+`--host` runs the verb on the named host.
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before
 review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged).

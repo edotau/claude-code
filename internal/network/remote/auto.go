@@ -18,13 +18,13 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Auto is the --remote value ResolveAuto turns into a host name.
+// Auto is the --host value ResolveAuto turns into a host name.
 const Auto = "auto"
 
-// HostEnv names the machine `--remote auto` runs on (process env, then vault env); unset, the tailnet is probed.
+// HostEnv names the machine `auto` resolves to (process env, then vault env); unset, the tailnet is probed.
 const HostEnv = "HARNESS_REMOTE_HOST"
 
-// autoHint closes every `--remote auto` failure: a vault env value is set in the vault document, not sealed.
+// autoHint closes every `auto` failure: a vault env value is set in the vault document, not sealed.
 const autoHint = "name the machine: `claude-code vault edit`, env " + HostEnv
 
 // autoProbeTimeout bounds the tailnet status read and each candidate's `claude-code version` over ssh.
@@ -42,7 +42,7 @@ var (
 	autoAnswers = answersVersion
 )
 
-// ResolveAuto turns `--remote auto` into HARNESS_REMOTE_HOST, else the one other tailnet machine that answers ssh.
+// ResolveAuto turns `--host auto` or `--remote auto` into HARNESS_REMOTE_HOST, else the one other tailnet machine that answers ssh.
 func ResolveAuto(host string) (string, error) {
 	if host != Auto {
 		return host, nil
@@ -55,17 +55,17 @@ func ResolveAuto(host string) (string, error) {
 	}
 	peers, err := autoPeers()
 	if err != nil {
-		return "", fmt.Errorf("--remote auto: %w; %s", err, autoHint)
+		return "", fmt.Errorf("auto: %w; %s", err, autoHint)
 	}
 	switch up := answering(peers); len(up) {
 	case 1:
 		_ = paths.WriteJSON(autoHostFile(), autoHost{Schema: autoHostSchema, At: time.Now(), Host: up[0]})
 		return up[0], nil
 	case 0:
-		return "", fmt.Errorf("--remote auto: no other online machine answers `claude-code version` over ssh (tried: %s); %s",
+		return "", fmt.Errorf("auto: no other online machine answers `claude-code version` over ssh (tried: %s); %s",
 			cmp.Or(strings.Join(peers, ", "), "none online"), autoHint)
 	default:
-		return "", fmt.Errorf("--remote auto: %d machines answer (%s); %s", len(up), strings.Join(up, ", "), autoHint)
+		return "", fmt.Errorf("auto: %d machines answer (%s); %s", len(up), strings.Join(up, ", "), autoHint)
 	}
 }
 

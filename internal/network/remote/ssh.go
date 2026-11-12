@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// BinEnv names the remote claude-code binary when --remote-bin is absent; else "claude-code" on the remote PATH.
+// BinEnv names the remote claude-code binary when --host-bin is absent; else "claude-code" on the remote PATH.
 const BinEnv = "HARNESS_REMOTE_BIN"
 
 // PathPrefix is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
@@ -111,19 +111,19 @@ var (
 	stdinTTY   = func() bool { return proc.IsTerminal(os.Stdin) }
 )
 
-// Run is `claude-code --remote <host> <verb …>`: the verb runs on host over ssh; a login's callback port is forwarded.
+// Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a login's callback port is forwarded.
 func Run(args []string) int {
 	host, rest, err := SplitHost(Flag, args)
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
 	if host, err = ResolveAuto(host); err != nil {
-		return helptext.FailUsage("%v", err)
+		return helptext.FailUsage("%s %v", Flag, err)
 	}
 	rest, port := loginForward(rest)
 	argv, err := hostArgv(host, rest, stdinTTY())
 	if err != nil {
-		return helptext.FailUsage("--remote: %v", err)
+		return helptext.FailUsage("--host: %v", err)
 	}
 	if port > 0 {
 		argv = withForward(argv, port)
@@ -136,13 +136,13 @@ func Run(args []string) int {
 		return exit.ExitCode()
 	}
 	if err != nil {
-		return helptext.Fail("--remote: %v", err)
+		return helptext.Fail("--host: %v", err)
 	}
 	return 0
 }
 
 // Flag is the global flag that runs a verb on another machine over ssh.
-const Flag = "--remote"
+const Flag = "--host"
 
 // SplitHost takes `<flag> H` or `<flag>=H` off the front; the rest is the verb and its args.
 func SplitHost(flag string, args []string) (string, []string, error) {
@@ -178,7 +178,7 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 	return sshArgv(host, tty, false, script)
 }
 
-// isLogin reports a remote `databricks login`, the one verb --remote forwards a port or opens a browser for.
+// isLogin reports a remote `databricks login`, the one verb --host forwards a port or opens a browser for.
 func isLogin(args []string) bool {
 	return len(args) > 1 && args[0] == "databricks" && args[1] == "login"
 }
@@ -211,15 +211,15 @@ var freeLocalPort = func(first, last int) int {
 	return first
 }
 
-// RemoteBrowser, on a --remote `databricks login`, opens the browser on the host instead of forwarding; never sent on.
-const RemoteBrowser = "--remote-browser"
+// HostBrowser, on a --host `databricks login`, opens the browser on the host instead of forwarding; never sent on.
+const HostBrowser = "--host-browser"
 
 // loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
 func loginForward(args []string) ([]string, int) {
 	if !isLogin(args) {
 		return args, 0
 	}
-	if i := slices.Index(args, RemoteBrowser); i >= 0 {
+	if i := slices.Index(args, HostBrowser); i >= 0 {
 		return slices.Delete(slices.Clone(args), i, i+1), 0
 	}
 	flags := flagValues(args[2:])
@@ -266,8 +266,8 @@ var tailnetHosts = func() []string {
 	return names
 }
 
-// Complete is tab completion behind --remote or egressFlag: host names, then local's candidates for the rest
-// (bash splits <flag>=<host> at the =), plus --remote-browser on a --remote login.
+// Complete is tab completion behind --host or egressFlag: host names, then local's candidates for the rest
+// (bash splits <flag>=<host> at the =), plus --host-browser on a --host login.
 func Complete(words []string, egressFlag string, local func([]string) []string) []string {
 	if len(words) == 0 || words[0] != Flag && words[0] != egressFlag {
 		return local(words)
@@ -288,8 +288,8 @@ func Complete(words []string, egressFlag string, local func([]string) []string) 
 	rest := words[skip:]
 	out := local(rest)
 	cur := rest[len(rest)-1]
-	if words[0] == Flag && isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(RemoteBrowser, cur) {
-		out = append(out, RemoteBrowser)
+	if words[0] == Flag && isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(HostBrowser, cur) {
+		out = append(out, HostBrowser)
 	}
 	return out
 }

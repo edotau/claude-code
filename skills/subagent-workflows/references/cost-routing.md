@@ -30,7 +30,7 @@ for research. An OpenCode run may write outside its intended workdir: verify the
 
 A flag an agent can't honor is named in the envelope's `dropped`, never silent. `ask --format stream-json` emits NDJSON
 events (`result` holds the envelope; each dispatch also writes `state/harness/dispatch/<id>.events.jsonl`); `--env
-NAME=VALUE` reaches every agent (credential-looking names refused); `--remote <h>` runs over ssh; `--agent claude|gemini
+NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs over ssh; `--agent claude|gemini
 --live` holds one session open and `agents send <id> "<task>"` feeds it (one turn in flight, ≤4 sessions).
 
 ## Fallback
@@ -41,7 +41,8 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--remote <h
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
   while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). **Score**:
   `0.5 × price + 0.5 × headroom`; accounts ≥90% used sort last.
-- **`--fallback all|agents|none`** (default `all`): `agents` stops before Claude, `none` fails fast instead of running
+- **`--fallback all|agents|none`** (default `all` when `AGENT_ERROR_FALLBACK` is set in the shell or vault env, else
+  `none`): `agents` stops before Claude, `none` fails fast instead of running
   on Claude; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
 - **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `<AGENT>_MODEL` > table cell;
   `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any other

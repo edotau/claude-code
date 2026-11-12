@@ -60,8 +60,8 @@ type Record struct {
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
 	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
 	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string     `json:"host,omitempty"`            // ask --remote: the ssh host the dispatch ran on
-	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --remote: the remote claude-code binary
+	Host           string     `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
+	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
 	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
 	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 	TaskID         string     `json:"task_id,omitempty"`         // ask --batch: the task line's id

@@ -96,7 +96,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
   for wide scans, audits and multi-file edits; verify the result with the diff stat, since its subagents are not
   briefed by us.
 - `ask --agent copilot`: both system-prompt flags are native (passed to the SDK as the system message), `--env`
-  honored, no `cost_usd`. Stream, `--remote` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and
+  honored, no `cost_usd`. Stream, `--host` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and
   lifecycle.
 - Resume the underlying CLI session directly with `copilot --resume <id>` (the native flag, not a
   `resume` subcommand).

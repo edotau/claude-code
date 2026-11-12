@@ -73,7 +73,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 - Resume the underlying CLI session directly with `opencode run --session <id>`.
 - `ask --agent opencode`: `--system-prompt` native, `--append-system-prompt` emulated (named in `emulated`), `--env`
-  honored, no `cost_usd`. Stream, `--remote` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and
+  honored, no `cost_usd`. Stream, `--host` and the generic lifecycle verbs: `cost-routing.md` → Ask flags and
   lifecycle.
 - On a Databricks row the interactive launch splits the menu over `<row>`, `<row>-gpt` and `<row>-claude`;
   a `--model` off the menu is refused.

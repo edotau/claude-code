@@ -26,7 +26,7 @@ func TestAskPackFlagCombos(t *testing.T) {
 		{"negative max-files", []string{"--dirs", ".", "--max-files", "-1"}, "negative"},
 		{"batch", []string{"--dirs", ".", "--batch", "-"}, "--batch"},
 		{"live", []string{"--files", "*.go", "--live"}, "--live"},
-		{"remote", []string{"--diff", "--remote", "box"}, "--remote"},
+		{"remote", []string{"--diff", "--host", "box"}, "--host"},
 	}
 	for _, tt := range refused {
 		t.Run(tt.name, func(t *testing.T) {

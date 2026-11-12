@@ -913,8 +913,8 @@ func TestPrepareRefusesPackWithHost(t *testing.T) {
 	client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
 	_, err := client.Prepare(context.Background(), RunOptions{Agent: "opencode", Prompt: "p", Host: "box",
 		Pack: &pack.Spec{Dirs: []string{"."}}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "--remote") {
-		t.Fatalf("Prepare() = %v, want a --remote refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "--host") {
+		t.Fatalf("Prepare() = %v, want a --host refusal", err)
 	}
 }
 
