@@ -64,6 +64,23 @@ func TestGuardedClientLiteralVsResolved(t *testing.T) {
 	}
 }
 
+// A 3xx goes back to the caller; the redirect target is never dialed.
+func TestGuardedClientNeverFollowsRedirect(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer target.Close()
+	first := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusFound))
+	defer first.Close()
+	resp, err := guardedClient().Do(testRequest(t, http.MethodGet, first.URL, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != target.URL || hits.Load() != 0 {
+		t.Errorf("status %d, Location %q, target hits %d; want a redirect to %s with no hit", resp.StatusCode, resp.Header.Get("Location"), hits.Load(), target.URL)
+	}
+}
+
 // resolveProxyHosts records the host of each scheme's proxy; the env lookup is stubbed because net/http caches it.
 func TestResolveProxyHosts(t *testing.T) {
 	for _, tc := range []struct {
