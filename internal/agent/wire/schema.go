@@ -105,17 +105,25 @@ func checkSchema(path string, v, sch any) error {
 	if !ok {
 		return nil // a true or absent schema allows any value
 	}
-	if t, ok := m["type"]; ok && !typeMatches(v, t) {
-		return fmt.Errorf("%s is %s, schema wants %v", path, jsonTypeName(v), t)
-	}
-	if enum, ok := m["enum"].([]any); ok && !slices.ContainsFunc(enum, func(e any) bool { return jsonEqual(e, v) }) {
-		return fmt.Errorf("%s is not one of the schema's enum values", path)
+	if err := checkTypeEnum(path, v, m); err != nil {
+		return err
 	}
 	switch x := v.(type) {
 	case map[string]any:
 		return checkSchemaObject(path, x, m)
 	case []any:
 		return checkSchemaArray(path, x, m)
+	}
+	return nil
+}
+
+// checkTypeEnum enforces a schema's type and enum keywords on v.
+func checkTypeEnum(path string, v any, m map[string]any) error {
+	if t, ok := m["type"]; ok && !typeMatches(v, t) {
+		return fmt.Errorf("%s is %s, schema wants %v", path, jsonTypeName(v), t)
+	}
+	if enum, ok := m["enum"].([]any); ok && !slices.ContainsFunc(enum, func(e any) bool { return jsonEqual(e, v) }) {
+		return fmt.Errorf("%s is not one of the schema's enum values", path)
 	}
 	return nil
 }
@@ -167,6 +175,44 @@ func schemaShape(sch any) error {
 	if !ok {
 		return nil
 	}
+	if err := keywordShape(m); err != nil {
+		return err
+	}
+	if err := propertiesShape(m); err != nil {
+		return err
+	}
+	if tuple, ok := m["items"].([]any); ok {
+		for _, s := range tuple {
+			if err := schemaShape(s); err != nil {
+				return err
+			}
+		}
+	} else if err := schemaShape(m["items"]); err != nil {
+		return err
+	}
+	return schemaShape(m["additionalItems"])
+}
+
+// propertiesShape rejects a non-object properties keyword and recurses into each property schema.
+func propertiesShape(m map[string]any) error {
+	props, has := m["properties"]
+	if !has {
+		return nil
+	}
+	pm, ok := props.(map[string]any)
+	if !ok {
+		return errors.New("properties must be an object")
+	}
+	for _, p := range pm {
+		if err := schemaShape(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// keywordShape rejects a malformed required or enum keyword.
+func keywordShape(m map[string]any) error {
 	if req, has := m["required"]; has {
 		names, ok := req.([]any)
 		if !ok {
@@ -183,27 +229,7 @@ func schemaShape(sch any) error {
 			return errors.New("enum must be an array")
 		}
 	}
-	if props, has := m["properties"]; has {
-		pm, ok := props.(map[string]any)
-		if !ok {
-			return errors.New("properties must be an object")
-		}
-		for _, p := range pm {
-			if err := schemaShape(p); err != nil {
-				return err
-			}
-		}
-	}
-	if tuple, ok := m["items"].([]any); ok {
-		for _, s := range tuple {
-			if err := schemaShape(s); err != nil {
-				return err
-			}
-		}
-	} else if err := schemaShape(m["items"]); err != nil {
-		return err
-	}
-	return schemaShape(m["additionalItems"])
+	return nil
 }
 
 // collectUnchecked adds every keyword in sch (and its properties and items) that checkSchema does not enforce.

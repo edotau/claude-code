@@ -137,19 +137,24 @@ func RanOn(res Result) string {
 	if who == "" {
 		return ""
 	}
-	fb := "none"
-	if res.Fallback != "" {
-		fb = "from " + res.Fallback
-	}
-	if res.Fallback != "" && res.Requested != "" { // the requested target is known: name it and the first reason
-		fb = "from " + res.Requested
-		first, _, _ := strings.Cut(res.FallbackReason, "; ")
-		if why := cmp.Or(res.RequestedWhy, first); why != "" {
-			fb += " (" + why + ")"
-		}
-	}
-	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb) +
+	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fallbackText(res)) +
 		ranOnCost(res)
+}
+
+// fallbackText is "none", or "from <origin>" naming the requested target and its first reason when known.
+func fallbackText(res Result) string {
+	if res.Fallback == "" {
+		return "none"
+	}
+	if res.Requested == "" {
+		return "from " + res.Fallback
+	}
+	fb := "from " + res.Requested
+	first, _, _ := strings.Cut(res.FallbackReason, "; ")
+	if why := cmp.Or(res.RequestedWhy, first); why != "" {
+		fb += " (" + why + ")"
+	}
+	return fb
 }
 
 // finalHop is the agent, account label and model of a run's last hop, falling back to the result's own.

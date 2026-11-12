@@ -203,7 +203,7 @@ func toolArg(input json.RawMessage) string {
 	case in.Path != "":
 		return in.Path
 	case in.Command != "":
-		return truncate(in.Command, 60)
+		return truncate(textutil.RedactSecrets(in.Command), 60)
 	default:
 		return in.Pattern
 	}
