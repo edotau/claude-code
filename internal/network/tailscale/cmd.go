@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -261,10 +260,8 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 }
 
 func tailscaleKey(ctx context.Context, o tsOpts) int {
-	key, err := mintKeyAudited(ctx, o.expiry, keyOpts{
-		Ephemeral: o.ephemeral, Preauthorized: o.preauth, Reusable: o.reusable,
-		Tags: textutil.SplitCSV(o.tags), Description: o.desc,
-	})
+	key, err := MintKey(ctx, KeyOptions{Expiry: o.expiry, Tags: o.tags, Description: o.desc,
+		Reusable: o.reusable, Ephemeral: o.ephemeral, Preauthorized: o.preauth})
 	if err != nil {
 		return helptext.Fail("network tailscale key: %v", err)
 	}
@@ -273,7 +270,7 @@ func tailscaleKey(ctx context.Context, o tsOpts) int {
 		return helptext.Fail("network tailscale key: writing key to stdout: %v", err)
 	}
 	if o.save {
-		if err := saveAuthKey(key.Key); err != nil {
+		if err := SaveAuthKey(key.Key); err != nil {
 			return helptext.Fail("network tailscale key: --save: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
@@ -285,32 +282,14 @@ func tailscaleExitNode(ctx context.Context, action string) int {
 	if !slices.Contains([]string{"on", "off", "approve"}, action) {
 		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
 	}
-	switch action {
-	case "on":
-		if err := advertiseExitNode(ctx, true); err != nil {
-			return helptext.Fail("network tailscale exit-node: %v", err)
-		}
-		audit.Log(audit.TailscaleExitNode, "self", "enable")
-		fmt.Println("tailscale: advertising as an exit node")
-	case "off":
-		if err := advertiseExitNode(ctx, false); err != nil {
-			return helptext.Fail("network tailscale exit-node: %v", err)
-		}
-		audit.Log(audit.TailscaleExitNode, "self", "disable")
-		fmt.Println("tailscale: no longer advertising as an exit node")
-	case "approve":
-		return tailscaleApproveExitNode(ctx)
-	}
-	return 0
-}
-
-func tailscaleApproveExitNode(ctx context.Context) int {
-	dns, err := approveSelfExitNode(ctx)
-	if err != nil {
+	msg, err := ExitNode(ctx, action)
+	if err != nil && action == "approve" {
 		return failSelfDevice("exit-node", err)
 	}
-	audit.Log(audit.TailscaleExitNode, dns, "approve")
-	fmt.Println("tailscale: exit-node routes approved")
+	if err != nil {
+		return helptext.Fail("network tailscale exit-node: %v", err)
+	}
+	fmt.Println(msg)
 	return 0
 }
 
