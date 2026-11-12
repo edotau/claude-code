@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -86,12 +88,29 @@ func rejectLocal(_, address string, _ syscall.RawConn) error {
 	if ip == nil {
 		return fmt.Errorf("proxy: unresolvable dial target %q", address)
 	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+	if localIP(ip) {
 		return fmt.Errorf(
 			"proxy: %s resolves into the local network (%s); spell a local gateway as a literal address in base_url",
 			address, ip)
 	}
 	return nil
+}
+
+// nonPublic are ranges net.IP's predicates miss; CGNAT 100.64/10 stays open: tailnet MagicDNS names resolve there.
+var nonPublic = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),   // "this network"
+	netip.MustParsePrefix("240.0.0.0/4"), // reserved, with the limited broadcast 255.255.255.255
+	netip.MustParsePrefix("::/96"),       // IPv4-compatible IPv6 (::127.0.0.1), which To4 does not unwrap
+}
+
+// localIP reports a loopback, private (incl. IPv6 unique-local), link-local, multicast, unspecified or nonPublic ip.
+func localIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	addr, _ := netip.AddrFromSlice(ip)
+	addr = addr.Unmap() // ::ffff:0.1.2.3 matches 0.0.0.0/8
+	return slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(addr) })
 }
 
 // stripVia takes a leading /via/<host> off the path and pins that egress host on the request; false after a 400.

@@ -29,6 +29,7 @@ const (
 	credTTL         = 60 * time.Second // providers.CredentialPresent cache: one keyring probe per provider per TTL
 	// router.LoadState cache: quota.json is read at most once per TTL, not per request
 	authStateTTL = 5 * time.Second
+	oauthMissTTL = 5 * time.Second    // a missing sealed token is re-read at most this often, so a new seal shows soon
 	oauthBeta    = "oauth-2025-04-20" // the anthropic-beta Claude Code sends with a subscription bearer token
 )
 
@@ -67,9 +68,9 @@ type Router struct {
 	// sha256 of the bearer the Files API refused; a new credential clears it
 	filesOff  string
 	filesTill time.Time // filesOff holds until then (filesOffTTL)
-	// cached vault CLAUDE_CODE_OAUTH_TOKEN (present results only), for the passthrough fallback
+	// cached vault CLAUDE_CODE_OAUTH_TOKEN ("" = none sealed), for the passthrough fallback
 	oauthTok string
-	oauthAt  time.Time         // oauthTok is valid until oauthAt+credTTL
+	oauthAt  time.Time         // oauthTok is valid until oauthAt+credTTL, a miss until oauthAt+oauthMissTTL
 	oauth    func() string     // reads the sealed subscription token; a seam for tests
 	headers  map[string]string // validated HARNESS_HEADERS, canonical names
 	// validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
@@ -378,21 +379,23 @@ func (r *Router) clearOnSuccess(p *providers.Provider, status int) {
 	}
 }
 
-// oauthToken is the vault's sealed subscription token, cached (present results only) for credTTL.
+// oauthToken is the vault's sealed subscription token, cached for credTTL, or oauthMissTTL when none is sealed.
 func (r *Router) oauthToken() string {
 	r.mu.Lock()
-	if now := r.now(); r.oauthTok != "" && now.Sub(r.oauthAt) < credTTL {
+	ttl := credTTL
+	if r.oauthTok == "" {
+		ttl = oauthMissTTL
+	}
+	if !r.oauthAt.IsZero() && r.now().Sub(r.oauthAt) < ttl {
 		tok := r.oauthTok
 		r.mu.Unlock()
 		return tok
 	}
 	r.mu.Unlock()
 	tok := r.oauth()
-	if tok != "" {
-		r.mu.Lock()
-		r.oauthTok, r.oauthAt = tok, r.now()
-		r.mu.Unlock()
-	}
+	r.mu.Lock()
+	r.oauthTok, r.oauthAt = tok, r.now()
+	r.mu.Unlock()
 	return tok
 }
 

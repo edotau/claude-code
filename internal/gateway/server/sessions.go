@@ -65,6 +65,7 @@ type sessionStore struct {
 	file      string
 	now       func() time.Time
 	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
+	unsaved   bool                          // the last write failed: memory (e.g. a revocation) is ahead of disk
 }
 
 func newSessionStore(now func() time.Time) *sessionStore {
@@ -123,10 +124,11 @@ func (s *sessionStore) saveLocked() error {
 	}
 	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].Hash < state.Sessions[j].Hash })
 	raw, err := json.Marshal(state)
-	if err != nil {
-		return err
+	if err == nil {
+		err = paths.AtomicWrite(s.file, raw, 0o600)
 	}
-	return paths.AtomicWrite(s.file, raw, 0o600)
+	s.unsaved = err != nil
+	return err
 }
 
 // errPersist marks a mint that failed on the server's own disk write, not on the request.
@@ -189,6 +191,7 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 	return nil
 }
 
+// revoke drops tok in memory even when the write fails (fail closed); count retries the write until it lands.
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -287,7 +290,7 @@ func (s *sessionStore) count() int {
 	dead := s.unbound(probe) // procStart may exec ps (darwin): never under mu
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.dropLocked(dead) || pruned {
+	if s.dropLocked(dead) || pruned || s.unsaved {
 		_ = s.saveLocked()
 	}
 	return len(s.m)
