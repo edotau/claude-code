@@ -347,12 +347,7 @@ func writeJournal(t *testing.T, id string, extra map[string]any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(JournalDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(JournalDir(), id+".json"), data, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(JournalDir(), id+".json"), string(data))
 }
 
 func nextBatch(t *testing.T) error {

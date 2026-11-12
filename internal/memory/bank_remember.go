@@ -99,16 +99,11 @@ func rememberedText(path, file, kind, fact, body string, now time.Time) (line, t
 	}
 	if file == "decisionLog.md" {
 		line = "## " + now.Format("2006-01-02") + " — " + fact
-		return line, prependedText(file, body, line)
+		header, blocks := entryBlocks(file, body) // newest-first: the new entry goes on top
+		return line, rejoin(header, append([]string{line}, blocks...))
 	}
 	line = "- " + strings.ToUpper(kind[:1]) + kind[1:] + ": " + fact
 	return line, appendedText(path, body, []string{line})
-}
-
-// prependedText is body with block inserted at the top of its entries — decisionLog.md is newest-first.
-func prependedText(base, body, block string) string {
-	header, blocks := entryBlocks(base, body)
-	return rejoin(header, append([]string{block}, blocks...))
 }
 
 // lastStampedID finds the id stamped on line's first line in text: the first exact match in a newest-first file, else the last.

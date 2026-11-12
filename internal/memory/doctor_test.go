@@ -578,9 +578,7 @@ func TestJournalProblemsNamesStaleJournal(t *testing.T) {
 	}
 	stale, fresh := filepath.Join(dir, "20261109T000000-old.json"), filepath.Join(dir, "20261109T010000-new.json")
 	for _, f := range []string{stale, fresh} {
-		if err := os.WriteFile(f, []byte(`{"schema":99}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		write(t, f, `{"schema":99}`)
 	}
 	if err := os.Chtimes(stale, now.Add(-2*time.Hour), now.Add(-2*time.Hour)); err != nil {
 		t.Fatal(err)
@@ -642,9 +640,7 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
-	if err := os.WriteFile(doctorNoticePath(""), []byte(notice), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, doctorNoticePath(""), notice)
 	got := doctorNotice("")
 	if !strings.HasPrefix(got, " memory review: ") {
 		t.Fatalf("doctorNotice prefix not found: %q", got)

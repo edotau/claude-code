@@ -184,9 +184,7 @@ func Dir(root string) string {
 // isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
 func isHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
 
-// root resolves --repo → $CLAUDE_PROJECT_DIR (only when it is a repo or the config dir) → git toplevel → cwd.
-// A launcher may stamp CLAUDE_PROJECT_DIR with a non-repo parent (e.g. $HOME); honoring that attached every
-// bank verb to a junk root instead of the repo the user is standing in.
+// root resolves --repo → $CLAUDE_PROJECT_DIR (only a repo or config dir: launchers may stamp $HOME) → toplevel → cwd.
 func root(repo string) string {
 	if repo != "" {
 		abs, _ := filepath.Abs(repo)

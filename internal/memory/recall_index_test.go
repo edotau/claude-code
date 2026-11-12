@@ -55,12 +55,7 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 
 func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(t, path, body)
 	if err := os.Chtimes(path, mtime, mtime); err != nil {
 		t.Fatal(err)
 	}
@@ -224,9 +219,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 		{"garbage", []byte(strings.Repeat("not a recall index", 8))},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			write(t, path, string(tt.data))
 			if len(readRecallIndex(path, f.stamp, nil)) != 0 {
 				t.Fatal("corrupt index was accepted")
 			}
