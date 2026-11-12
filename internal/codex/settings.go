@@ -3,7 +3,6 @@ package codex
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -552,8 +552,7 @@ func codexPathID(path string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	sum := sha256.Sum256([]byte(abs))
-	return abs, hex.EncodeToString(sum[:]), nil
+	return abs, textutil.SHA256Hex([]byte(abs)), nil
 }
 
 func putCodexSealed(tx *vault.Tx, key *vault.Key, name string, data []byte) error {
