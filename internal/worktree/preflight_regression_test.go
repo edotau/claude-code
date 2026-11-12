@@ -45,11 +45,12 @@ func TestRequireBranchPreservesGitFailures(t *testing.T) {
 
 func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	orig := gitWaitDelay
-	gitWaitDelay = 500 * time.Millisecond
+	gitWaitDelay = 200 * time.Millisecond
 	t.Cleanup(func() { gitWaitDelay = orig })
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	regressionFakeGit(t, fmt.Sprintf("/bin/sleep 10 &\necho $! > %q\nwait\n", pidFile))
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	timeout := 200 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	start := time.Now()
 	_, err := runGit(ctx, t.TempDir(), nil, "status")
@@ -58,7 +59,7 @@ func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	if err == nil || ctx.Err() == nil {
 		t.Fatalf("git call must fail after cancellation: err=%v ctx=%v", err, ctx.Err())
 	}
-	if elapsed >= time.Second+gitWaitDelay+2*time.Second {
+	if elapsed >= timeout+gitWaitDelay+2*time.Second {
 		t.Fatalf("cancelled git waited for inherited output pipes: %s", elapsed)
 	}
 }

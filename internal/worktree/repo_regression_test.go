@@ -12,7 +12,7 @@ import (
 
 func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
 	orig := probeTimeout
-	probeTimeout = time.Second
+	probeTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { probeTimeout = orig })
 	regressionFakeGit(t, fmt.Sprintf("exec /bin/sleep %d\n", int((probeTimeout+4*time.Second)/time.Second)))
 	start := time.Now()

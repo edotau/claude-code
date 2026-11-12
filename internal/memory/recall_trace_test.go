@@ -5,18 +5,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 )
 
 // --load cuts an over-budget block at a rune boundary within recallLoadCap and loads nothing once the budget is spent.
 func TestRecallLoadTruncatesOnRuneBoundary(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	id, err := Remember(root, "feedback", strings.Repeat("—", recallLoadCap), time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	const id = "00000001"
+	writeBank(t, "conventions.md", "# Conventions\n\n- Feedback: "+strings.Repeat("—", recallLoadCap)+" <!-- id:"+id+" -->\n")
 	_, block, err := ShowBlock(id)
 	if err != nil {
 		t.Fatal(err)
@@ -38,15 +34,9 @@ func TestRecallLoadTruncatesOnRuneBoundary(t *testing.T) {
 // TestRecallLoadStopsAfterCut: a rune-boundary cut leaves 1-2 bytes of budget, which must not print the next hit.
 func TestRecallLoadStopsAfterCut(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	long, err := Remember(root, "feedback", "x"+strings.Repeat("—", recallLoadCap), time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	short, err := Remember(root, "feedback", "short follow-up fact", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
+	const long, short = "00000001", "00000002"
+	writeBank(t, "conventions.md", "# Conventions\n\n- Feedback: xx"+strings.Repeat("—", recallLoadCap)+" <!-- id:"+long+" -->\n"+
+		"- Feedback: short follow-up fact <!-- id:"+short+" -->\n")
 	_, block, err := ShowBlock(long)
 	if err != nil {
 		t.Fatal(err)

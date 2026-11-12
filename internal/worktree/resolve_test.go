@@ -582,7 +582,8 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 // resolveWithAgent, the way cmdWorktreeMerge and Merge both call it) must never run at all.
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	t.Parallel()
-	repo, main, wt, plan := resolveFixtureConflictSetup(t)
+	repo, main, wt := preflightFixtureSetup(t)
+	plan := &MergePlan{WorktreePath: wt}
 	mainBefore := headOf(main)
 
 	if err := os.MkdirAll(operationsDir(), 0o755); err != nil {
