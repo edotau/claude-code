@@ -29,13 +29,12 @@ func SegmentsSep(cmd string) (out, seps []string) {
 			i, quote = j, q
 			continue
 		}
+		if next, q, ok := openQuote(cmd, i); ok {
+			b.WriteString(cmd[i : next+1])
+			i, quote = next, q
+			continue
+		}
 		switch {
-		case c == '\'' || c == '"':
-			quote = c
-		case c == '\\' && i+1 < len(cmd):
-			b.WriteByte(c)
-			i++
-			c = cmd[i]
 		case separatorStarts(cmd, i):
 			sep, end := separatorAt(cmd, i)
 			out, seps = append(out, b.String()), append(seps, sep)
@@ -46,6 +45,49 @@ func SegmentsSep(cmd string) (out, seps []string) {
 		b.WriteByte(c)
 	}
 	return append(out, b.String()), append(seps, "")
+}
+
+// QuoteAt is each byte's quote: 0 outside, '\” in '…', $'…' or a backslash escape, '"' in "…".
+func QuoteAt(cmd string) []byte {
+	at := make([]byte, len(cmd))
+	var quote byte
+	for i := 0; i < len(cmd); i++ {
+		if quote != 0 {
+			j, q := quotedStep(cmd, i, quote)
+			markQuoted(at, i, j, quote)
+			i, quote = j, q
+			continue
+		}
+		if next, q, ok := openQuote(cmd, i); ok {
+			markQuoted(at, i, next, q)
+			i, quote = next, q
+		}
+	}
+	return at
+}
+
+// markQuoted fills at[from..to] with the double-quote mark for "…" and the single-quote mark for everything else.
+func markQuoted(at []byte, from, to int, quote byte) {
+	kind := byte('\'')
+	if quote == '"' {
+		kind = '"'
+	}
+	for k := from; k <= to; k++ {
+		at[k] = kind
+	}
+}
+
+// openQuote reports an opener at s[i] (`$'`, `'`, `"`, backslash): its last byte and the quote state after it.
+func openQuote(s string, i int) (next int, quote byte, ok bool) {
+	switch c := s[i]; {
+	case c == '$' && i+1 < len(s) && s[i+1] == '\'':
+		return i + 1, ansiQuote, true
+	case c == '\'' || c == '"':
+		return i, c, true
+	case c == '\\' && i+1 < len(s):
+		return i + 1, 0, true
+	}
+	return i, 0, false
 }
 
 // separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3` and `&>file` redirections are not one.
@@ -214,6 +256,15 @@ func trimGroupOpen(out []string) []string {
 
 // quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
 func quotedStep(s string, i int, quote byte) (int, byte) {
+	if quote == ansiQuote { // inside $'…' a backslash escapes any byte, including the quote
+		if s[i] == '\\' && i+1 < len(s) {
+			return i + 1, quote
+		}
+		if s[i] == '\'' {
+			return i, 0
+		}
+		return i, quote
+	}
 	if s[i] == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
 		return i + 1, quote
 	}
@@ -222,6 +273,9 @@ func quotedStep(s string, i int, quote byte) (int, byte) {
 	}
 	return i, quote
 }
+
+// ansiQuote is the quote state of an open ANSI-C `$'…'` string.
+const ansiQuote = 1
 
 // dqEscapable are the bytes a backslash escapes inside POSIX double quotes; elsewhere it is literal.
 func dqEscapable(c byte) bool {
@@ -299,14 +353,15 @@ func substitutionAt(s string, i int, quote byte) (string, int, bool) {
 func matchParen(s string, open int) int {
 	depth, quote := 0, byte(0)
 	for i := open; i < len(s); i++ {
-		c := s[i]
 		if quote != 0 {
 			i, quote = quotedStep(s, i, quote)
 			continue
 		}
-		switch c {
-		case '\'', '"':
-			quote = c
+		if next, q, ok := openQuote(s, i); ok {
+			i, quote = next, q
+			continue
+		}
+		switch s[i] {
 		case '(':
 			depth++
 		case ')':
@@ -550,16 +605,16 @@ func ansiEscape(s string) (out string, n int, ok bool) {
 	if r, found := ansiSimple[s[0]]; found {
 		return r, 1, true
 	}
-	digits, base, bits := 0, 16, 8
+	maxDigits, base, bits := 0, 16, 8
 	switch c := s[0]; {
 	case c == 'x':
-		digits = 2
+		maxDigits = 2
 	case c == 'u':
-		digits, bits = 4, 32
+		maxDigits, bits = 4, 32
 	case c == 'U':
-		digits, bits = 8, 32
+		maxDigits, bits = 8, 32
 	case c >= '0' && c <= '7':
-		digits, base = 3, 8
+		maxDigits, base = 3, 8
 	default:
 		return "", 0, false
 	}
@@ -567,7 +622,10 @@ func ansiEscape(s string) (out string, n int, ok bool) {
 	if base == 16 {
 		start = 1
 	}
-	end := min(start+digits, len(s))
+	end := digitRun(s, start, maxDigits, base)
+	if end == 0 {
+		return "", 0, false
+	}
 	v, err := strconv.ParseUint(s[start:end], base, 32)
 	if err != nil {
 		return "", 0, false
@@ -576,4 +634,20 @@ func ansiEscape(s string) (out string, n int, ok bool) {
 		return string([]byte{byte(v)}), end, true
 	}
 	return string(rune(v)), end, true
+}
+
+// digitRun is the end of the run of up to maxDigits base-8 or base-16 digits at s[start:], or 0 when there are none.
+func digitRun(s string, start, maxDigits, base int) int {
+	digits := "01234567"
+	if base == 16 {
+		digits = "0123456789abcdefABCDEF"
+	}
+	end := start
+	for end < len(s) && end-start < maxDigits && strings.IndexByte(digits, s[end]) >= 0 {
+		end++
+	}
+	if end == start {
+		return 0
+	}
+	return end
 }

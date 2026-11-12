@@ -99,10 +99,13 @@ func attachDisk(volume string) (dev, tmp string, err error) {
 	cmd, cancel := diskCmd("hdiutil", "attach", "-nomount", fmt.Sprintf("ram://%d", sectors))
 	out, err := cmd.Output()
 	cancel()
+	fields := strings.Fields(string(out))
 	if err != nil {
+		if len(fields) > 0 {
+			detachDisk(fields[0]) // a timeout after the device exists must not leak its RAM
+		}
 		return "", "", fmt.Errorf("hdiutil attach: %w", err)
 	}
-	fields := strings.Fields(string(out))
 	if len(fields) == 0 {
 		return "", "", errors.New("hdiutil attach: no device in its output")
 	}

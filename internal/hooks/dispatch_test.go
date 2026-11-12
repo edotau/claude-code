@@ -214,7 +214,11 @@ func planBindingProbes() map[string]bindingProbe {
 	return map[string]bindingProbe{
 		"docs-plan-mirror": func(t *testing.T, cfg string) (string, func(core.Result) bool) {
 			draft := filepath.Join(cfg, "plans", "draft.md")
-			if err := os.MkdirAll(filepath.Dir(draft), 0o700); err != nil || os.WriteFile(draft, []byte("# Plan: probe\n"), 0o600) != nil {
+			err := os.MkdirAll(filepath.Dir(draft), 0o700)
+			if err == nil {
+				err = os.WriteFile(draft, []byte("# Plan: probe\n"), 0o600)
+			}
+			if err != nil {
 				t.Fatal("seed draft:", err)
 			}
 			return writeProbe(cfg, draft, ""), func(core.Result) bool {

@@ -225,6 +225,9 @@ func heredocTail(lines []string) bool {
 		}
 		if ok {
 			if end := heredocEnd(lines, i+1, delim, dash); end > i {
+				if i > 0 && runsWrittenFile().MatchString(lines[i]) {
+					return true // the start line itself runs a file
+				}
 				i = end
 				continue
 			}

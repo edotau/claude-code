@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -199,18 +200,20 @@ func ClaimCheck(in *core.Input) core.Result {
 
 // claimResult runs the edit or stage check against the live claims.
 func claimResult(ctx context.Context, in *core.Input) core.Result {
-	claims, err := liveClaims(in)
+	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
+	res := core.Result{}
+	if len(claims) > 0 {
+		v := claimView{ctx: ctx, in: in, claims: claims}
+		if in.ToolName == "Bash" {
+			res = v.stageCheck()
+		} else {
+			res = v.editCheck()
+		}
+	}
 	if err != nil {
-		return claimWarn(err)
+		res.Stderr = strings.TrimSpace(claimWarn(err).Stderr + "\n" + res.Stderr)
 	}
-	if len(claims) == 0 {
-		return core.Result{}
-	}
-	v := claimView{ctx: ctx, in: in, claims: claims}
-	if in.ToolName == "Bash" {
-		return v.stageCheck()
-	}
-	return v.editCheck()
+	return res
 }
 
 // claimWarn is the fail-open result for a check that could not run.
@@ -265,6 +268,9 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 	dirty := map[string]bool{}
 	for _, e := range proc.StatusEntries(raw) {
 		dirty[filepath.Join(top, e.Path)] = true
+		if e.From != "" {
+			dirty[filepath.Join(top, e.From)] = true // a rename or copy source is dirty too
+		}
 	}
 	return top, dirty, nil
 }
@@ -339,13 +345,21 @@ func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 // stageCheck asks (a leaf: blocks) when a git add/commit in the command would stage a dirty claimed file.
 func (v claimView) stageCheck() core.Result {
 	var res core.Result
+	var warns []string // a fail-open warning must not hide a later invocation in the chain
 	shell.EachGit(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
 			res = v.uninspectableVerdict()
 		}
-		return res.Decision != core.Allow || res.Stderr != ""
+		if res.Decision == core.Allow && res.Stderr != "" {
+			warns = append(warns, res.Stderr)
+			res = core.Result{}
+		}
+		return res.Decision != core.Allow
 	})
+	if len(warns) > 0 {
+		res.Stderr = strings.TrimSpace(strings.Join(warns, "\n") + "\n" + res.Stderr)
+	}
 	return res
 }
 
@@ -361,7 +375,8 @@ func (v claimView) uninspectableVerdict() core.Result {
 
 // stageVerdict checks one git invocation's staged set against the claims.
 func (v claimView) stageVerdict(target, verb string, args []string) core.Result {
-	if verb != "add" && verb != "commit" || interactive(verb, splitStage(verb, args).flags) {
+	w := splitStage(verb, args)
+	if verb != "add" && verb != "commit" || interactive(verb, w.flags) {
 		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, target)
@@ -374,6 +389,11 @@ func (v claimView) stageVerdict(target, verb string, args []string) core.Result 
 	scopes, err := stageScopes(v.ctx, top, target, verb, args)
 	if err != nil {
 		return claimWarn(err)
+	}
+	if w.trackedOnly(verb) {
+		if dirty, err = tracked(v.ctx, top, dirty); err != nil {
+			return claimWarn(err)
+		}
 	}
 	taken, claimed, err := v.takenPaths(top, dirty, scopes)
 	if err != nil {
@@ -612,6 +632,30 @@ func (w stageWords) stagesAll(verb string) bool {
 		_, all := stageFlag(verb, f)
 		return all
 	})
+}
+
+// trackedOnly reports commit -a or add -u without -A: the verbs that never stage an untracked file.
+func (w stageWords) trackedOnly(verb string) bool {
+	has := func(flags ...string) bool {
+		return slices.ContainsFunc(w.flags, func(f string) bool { return slices.Contains(flags, f) })
+	}
+	if verb == "commit" {
+		return w.stagesAll(verb)
+	}
+	return has("-u", "--update") && !has("-A", "--all")
+}
+
+// tracked is dirty without the untracked files.
+func tracked(ctx context.Context, top string, dirty map[string]bool) (map[string]bool, error) {
+	untracked, err := gitPaths(ctx, top, top, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	out := maps.Clone(dirty)
+	for _, p := range untracked {
+		delete(out, p)
+	}
+	return out, nil
 }
 
 // stageFlag classifies one add/commit flag: whether the next word is its value, and whether it stages all tracked.

@@ -212,12 +212,23 @@ func unsafeGitRune(r rune) bool {
 func readOnlyGitArgs(verb string, args []string) bool {
 	allowed, list := gitVerbFlags[verb], false
 	for _, a := range args {
-		if badGitArg(a, allowed) || !strings.HasPrefix(a, "-") && escapesPath(a) { // outside paths make diff an implicit --no-index
+		if badGitArg(a, allowed) || escapesArg(a) { // outside paths make diff an implicit --no-index
 			return false
 		}
 		list = list || a == "--list" || a == "-l"
 	}
 	return (verb != "branch" || list) && (verb != "grep" || grepArgsSafe(args))
+}
+
+// escapesArg is a path arg that leaves the checkout, or a short option with one attached (`-O/etc/x`).
+func escapesArg(a string) bool {
+	if strings.HasPrefix(a, "--") {
+		return false
+	}
+	if strings.HasPrefix(a, "-") {
+		return len(a) > 2 && escapesPath(a[2:])
+	}
+	return escapesPath(a)
 }
 
 // gitPathFlags take a file whose content git reads; abbreviations count, like gitBannedFlags.
