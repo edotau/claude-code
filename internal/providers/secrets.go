@@ -121,8 +121,25 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 
 // SetCustomEnv writes (raw != "") or deletes (raw == "") name in the vault env bucket, raw and unquoted.
 func SetCustomEnv(name, raw string) error {
-	if name == "HARNESS_ROUTE" && strings.HasPrefix(raw, "databricks") {
-		return fmt.Errorf("HARNESS_ROUTE=%s cannot be stored: the databricks route is a launch flag (--route databricks:<profile>)", raw)
+	if name == "HARNESS_COWORKER" {
+		if err := checkCoworkerEnv(raw); err != nil {
+			return err
+		}
 	}
 	return vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Env, name, raw) })
+}
+
+// checkCoworkerEnv admits a stored HARNESS_COWORKER of <provider>[:<profile>] for any provider but databricks.
+func checkCoworkerEnv(raw string) error {
+	provider, profile, named := strings.Cut(raw, ":")
+	switch {
+	case raw == "":
+		return nil
+	case strings.HasPrefix(raw, "databricks"):
+		return fmt.Errorf("HARNESS_COWORKER=%s cannot be stored: the databricks route is per dispatch (an overlay's provider/profile)", raw)
+	case !slices.Contains(providerKeys, provider) || (named && (profile == "" || strings.Contains(profile, ":"))):
+		keys := slices.DeleteFunc(ProviderKeys(), func(k string) bool { return k == "databricks" })
+		return fmt.Errorf("HARNESS_COWORKER=%s cannot be stored: want <provider>[:<profile>], provider one of %s", raw, strings.Join(keys, "|"))
+	}
+	return nil
 }

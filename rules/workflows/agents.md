@@ -27,10 +27,10 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 | Command | Does |
 | --- | --- |
 | `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on its own pin, on this machine or, with `--host <host>`, on that one: ONE Agent tool call (`subagent_type` = the name, dispatch per `CLAUDE.md` guideline 3) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
-| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [--remote <host>] [--profile <p>] [--model <m>] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code --remote auto agents ask --agent <type> --route databricks:auto --tools`. `--remote <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
+| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [--overlay <json\|file>] [--model <m>] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code agents ask --agent <type> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools`. `--overlay <json\|file>` replaces that document. Not a new agent or type |
 
 All five are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
-that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Route:` line passes `dispatch-effort` with its
+that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Coworker:` line passes `dispatch-effort` with its
 tool input unchanged (context notes only). What `auto` resolves to: `rules/harness/network.md`.
 
 ## Agent and command files

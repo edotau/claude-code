@@ -17,8 +17,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/server"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -207,7 +209,7 @@ func gatewayRoute(args []string) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
-	route := fs.String("route", "", "accounts: default|first-party|databricks[:<profile>] (default: by session profile)")
+	overlay := fs.String("overlay", "", "config: file, inline JSON, or - (stdin)")
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)
@@ -220,12 +222,17 @@ func gatewayRoute(args []string) int {
 	if !helptext.Explicit(fs, "fallback") {
 		*fallback = router.DefaultFallback()
 	}
-	if code := checkRouteFlags(name, *route, *profile, *format, *fallback, *want, *model); code != 0 {
+	ov, err := gatewayOverlay(fs, *overlay)
+	if err != nil {
+		return helptext.FailUsage(name+": %v", err)
+	}
+	if code := checkCoworkerFlags(name, ov.Confinement(), *profile, *format, *fallback, *want, *model); code != 0 {
 		return code
 	}
 	if err := ask.CheckArm(*want, *profile, *provider, *model, false); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
+	*profile, *provider = ask.ConfineLead(*want, *profile, *provider, *model)
 	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
 		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
 	_, res, err := agent.Resolve(context.Background(), q)
@@ -239,9 +246,21 @@ func gatewayRoute(args []string) int {
 	return renderGatewayRoute(name, res, *format)
 }
 
-// checkRouteFlags applies --route and validates the flags; a nonzero code is the exit status (preflight: 1, usage: 2).
-func checkRouteFlags(name, route, profile, format, fallback, want, model string) int {
-	if err := ask.ApplyRoute(route, profile, want, model, fallback); err != nil {
+// gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
+func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
+	if cmp.Or(value, os.Getenv(agentconfig.OverlayVar)) == "-" && proc.IsTerminal(os.Stdin) {
+		return agentconfig.Overlay{}, errors.New("--overlay -: stdin is a terminal; pipe the JSON document in, or pass a file")
+	}
+	cfg, err := agentconfig.LoadOverlay(value, os.Stdin)
+	if err == nil {
+		cfg.Fold(fs)
+	}
+	return cfg, err
+}
+
+// checkCoworkerFlags applies the overlay's confinement and validates the flags; nonzero is the exit (preflight: 1).
+func checkCoworkerFlags(name, coworker, profile, format, fallback, want, model string) int {
+	if err := ask.ApplyCoworker(coworker, profile, want, model, fallback); err != nil {
 		if _, ok := errors.AsType[*agent.PreflightError](err); ok {
 			return helptext.Fail(name+": %v", err)
 		}
@@ -431,8 +450,7 @@ func gatewaySpec() *helptext.Node {
 	routeFlags := []helptext.Flag{{Name: "model", Values: func() []string { return router.Aliases }},
 		{Name: "agent", Values: func() []string { return router.TableAgents }}, {Name: "task"},
 		{Name: "fallback", Values: func() []string { return router.FallbackModes }},
-		{Name: "route", Values: func() []string { return router.RouteModes }},
-		{Name: "profile"}, {Name: "provider"}, helptext.CompletionFormatFlag()}
+		{Name: "overlay"}, {Name: "profile"}, {Name: "provider"}, helptext.CompletionFormatFlag()}
 	return &helptext.Node{Flags: routeFlags, Sub: map[string]*helptext.Node{
 		"proxy": {
 			Flags: []helptext.Flag{

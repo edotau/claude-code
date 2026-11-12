@@ -407,7 +407,7 @@ func copilotRegistryEligible(direct bool, t providers.Target) bool {
 		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI && !armedOnMacOS()
 }
 
-// armedOnMacOS is a --route databricks:<p> run on macOS, where the registry is refused (home.go).
+// armedOnMacOS is an overlay databricks:<p> run on macOS, where the registry is refused (home.go).
 func armedOnMacOS() bool { return copilotGOOS == "darwin" && router.ArmProfile() != "" }
 
 // usesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.

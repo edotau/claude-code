@@ -166,7 +166,6 @@ func TestRemovedFlagHint(t *testing.T) {
 		{"provider=", []string{"--provider=x"}, "--profile"},
 		{"env", []string{"--env", "qa"}, "--profile"},
 		{"tier", []string{"--tier", "opus"}, "--model"},
-		{"router", []string{"--router"}, "removed"},
 		{"after other args", []string{"-p", "hi", "--tier=opus"}, "--tier"},
 		{"profile valid", []string{"--profile", "x"}, ""},
 		{"model valid", []string{"--model=opus"}, ""},

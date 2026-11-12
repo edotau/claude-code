@@ -356,7 +356,7 @@ func ghHosts(t *testing.T, user string) {
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv(router.EnvFallback, "1")
-	t.Setenv(router.EnvRoute, router.RouteDefault) // claude on a Databricks account means a Databricks session's ladder
+	t.Setenv(router.EnvCoworker, "") // no confinement: claude on a Databricks account is a Databricks session's ladder
 	oldAcct, oldRefresh := agent.ResolveAccount, ask.RouteRefresh
 	agent.ResolveAccount = func(ag string, _ router.Cell) (string, string) {
 		if ag == "claude" {

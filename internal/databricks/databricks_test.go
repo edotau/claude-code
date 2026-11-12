@@ -358,7 +358,7 @@ func TestCheckSmokeVerdict(t *testing.T) {
 // A removed flag exits 2 with its hint before any subverb, probe or child launch.
 func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
 	for _, args := range [][]string{
-		{"--env", "qa"}, {"check", "--env", "qa"}, {"check", "--provider=x"}, {"--tier", "opus"}, {"--router"}, {"check", "--1m"},
+		{"--env", "qa"}, {"check", "--env", "qa"}, {"check", "--provider=x"}, {"--tier", "opus"}, {"check", "--1m"},
 	} {
 		f := &fakeChild{smoke: "OK\n"}
 		useFake(t, f)

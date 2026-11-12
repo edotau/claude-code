@@ -35,13 +35,13 @@ feeds it (one turn in flight, ≤4 sessions).
 
 ## Fallback
 
-- **Order**: the requested target (agent, `--profile` or `--route` workspace, `--model`), then the agent's own pin
-  (its vault profile and model; skipped when it has none or the pin is what was requested), then Claude on the
+- **Order**: the requested target (agent, `--profile` or overlay `profile` workspace, `--model`), then the agent's own
+  pin (its vault profile and model; skipped when it has none or the pin is what was requested), then Claude on the
   current session. Nothing else: no sibling workspace, no other login of the agent, no other agent.
-  `claude-code gateway --agent <a>` shows the resolved order and skip gates. `--route` chooses an execution arm;
-  `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
-- **Pin hop left out**: inside `--route databricks:<p>` when the pin is another workspace (the arm refuses it; the
-  skip reads `outside databricks:<p>`), and with `--native`.
+  `claude-code gateway --agent <a>` shows the resolved order and skip gates. The overlay `provider` chooses an
+  execution arm; `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
+- **Pin hop left out**: inside an overlay `provider: databricks, profile: <p>` when the pin is another workspace
+  (the arm refuses it; the skip reads `outside databricks:<p>`), and with `--native`.
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
   while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). A gated
   step is skipped; the order does not change.

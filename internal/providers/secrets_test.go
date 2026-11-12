@@ -98,14 +98,21 @@ func TestResolveCustomEnvReadError(t *testing.T) {
 
 func TestSetCustomEnvRefusesStoredDatabricksRoute(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	err := SetCustomEnv("HARNESS_ROUTE", "databricks:dev")
-	if err == nil || !strings.Contains(err.Error(), "HARNESS_ROUTE") || !strings.Contains(err.Error(), "launch flag") {
-		t.Fatalf("err = %v, want a refusal naming HARNESS_ROUTE and the flag", err)
+	err := SetCustomEnv("HARNESS_COWORKER", "databricks:dev")
+	if err == nil || !strings.Contains(err.Error(), "HARNESS_COWORKER") || !strings.Contains(err.Error(), "overlay") {
+		t.Fatalf("err = %v, want a refusal naming HARNESS_COWORKER and the overlay", err)
 	}
-	if _, ok := CustomEnv()["HARNESS_ROUTE"]; ok {
+	if _, ok := CustomEnv()["HARNESS_COWORKER"]; ok {
 		t.Error("the refused route was stored")
 	}
-	if err := SetCustomEnv("HARNESS_ROUTE", "first-party"); err != nil {
-		t.Errorf("a non-databricks route is refused: %v", err)
+	for _, ok := range []string{"anthropic", "github:personal"} {
+		if err := SetCustomEnv("HARNESS_COWORKER", ok); err != nil {
+			t.Errorf("provider confinement %q is refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"first-party", "default", "local", "anthropic:"} {
+		if err := SetCustomEnv("HARNESS_COWORKER", bad); err == nil || !strings.Contains(err.Error(), "HARNESS_COWORKER") {
+			t.Errorf("SetCustomEnv(%q) = %v, want a refusal naming HARNESS_COWORKER", bad, err)
+		}
 	}
 }

@@ -26,7 +26,9 @@ paths:
 - Agent settings are vault-only, one record per agent (`vault` AGENT table); `--model` beats them.
   `switch` writes claude's record too.
 - Built-in providers are `internal/providers/defaults.json`; the vault's provider overlay replaces one by name.
-- Agents run on their pins (gemini on Google); per-call routes use `agents ask --route databricks[:<profile>|:auto]`.
+- Agents run on their pins (gemini on Google); per-call routes use
+  `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
+  An agent's own login: `--overlay '{"provider":"openai"}'` (codex), likewise `anthropic`, `github`, `google`.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract; nothing stores an arm default.
 
 ## Model selection

@@ -140,7 +140,7 @@ func TestArmRegistryEligibility(t *testing.T) {
 		want        bool
 	}{{"darwin", "databricks:dbx", false}, {"darwin", "", true}, {"linux", "databricks:dbx", true}} {
 		setGOOS(t, c.goos)
-		t.Setenv(router.EnvRoute, c.route)
+		t.Setenv(router.EnvCoworker, c.route)
 		if got := copilotRegistryEligible(false, dbx); got != c.want {
 			t.Errorf("%s route %q: registry eligible = %v, want %v", c.goos, c.route, got, c.want)
 		}

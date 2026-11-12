@@ -275,7 +275,7 @@ func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	return fallsThrough(r) && hopFailed(res, err)
 }
 
-// fallsThrough: an external agent's failed hop moves on; claude's only inside the databricks route (else never).
+// fallsThrough: an external agent's failed hop moves on; claude's only inside overlay databricks:<p> (else never).
 func fallsThrough(r Engine) bool {
 	s, ok := LookupSchema(r.Name())
 	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfile() != "")

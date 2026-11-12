@@ -1,6 +1,7 @@
 {
   "schema": 1,
+  "provider": "databricks", "profile": "qa", "model": "sonnet", "effort": "high", "fallback": "none", "remote": "auto",
   "set": {"LOG_LEVEL": "debug", "API_TOKEN": "@secret:EXAMPLE_API_TOKEN"},
-  "unset": ["HTTP_PROXY"],
+  "unset": ["NO_COLOR"],
   "keep": ["LANG"]
 }

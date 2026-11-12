@@ -526,7 +526,7 @@ const armDBX = `{"fallback":["qa"],"providers":{"databricks":{
 	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}},
 	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
-// Inside --route databricks:<p> the proxied child carries a session token minted for <p> and this pid, never the
+// Inside overlay databricks:<p> the proxied child carries a session token minted for <p> and this pid, never the
 // router secret; unarmed it carries none and the helper falls back to the secret.
 func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
@@ -554,7 +554,7 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	if _, set := p.Set[ProxyKeyEnv]; set || len(minted) != 0 {
 		t.Errorf("unarmed: %s set = %v, mints %v", ProxyKeyEnv, set, minted)
 	}
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	t.Setenv("HARNESS_COWORKER", "databricks:dev")
 	p = launch()
 	if got := p.Set[ProxyKeyEnv]; got != tok || !slices.Equal(minted, []string{"dev"}) {
 		t.Errorf("armed: %s is the minted token = %v (len %d), mints %v", ProxyKeyEnv, got == tok, len(got), minted)
@@ -585,7 +585,7 @@ func TestClaudeArmLaunchesMintOnce(t *testing.T) {
 	hermetic(t, armDBX)
 	mints := 0
 	stubMint(t, func(context.Context, string, int) (string, error) { mints++; return "cct_ONCE", nil })
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	t.Setenv("HARNESS_COWORKER", "databricks:dev")
 	for range 3 {
 		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
 		if err != nil || p.Set[ProxyKeyEnv] != "cct_ONCE" {
@@ -613,7 +613,7 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != direct {
 		t.Errorf("unarmed headless base = %q, want direct %s", p.Set["ANTHROPIC_BASE_URL"], direct)
 	}
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	t.Setenv("HARNESS_COWORKER", "databricks:dev")
 	p := launch("-p", "hi")
 	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/dev" || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
 		t.Errorf("armed headless: base %q, session token set %v; want /p/dev and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "")
@@ -643,7 +643,7 @@ func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	hermetic(t, armDBX)
 	const tok = "cct_ARM_TEST"
 	stubMint(t, func(context.Context, string, int) (string, error) { return tok, nil })
-	t.Setenv("HARNESS_ROUTE", "databricks:dev")
+	t.Setenv("HARNESS_COWORKER", "databricks:dev")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

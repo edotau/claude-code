@@ -213,7 +213,7 @@ func (t *RouteTable) gateLead(
 	return lead
 }
 
-// gateArm gates agent inside route databricks:<arm>: on arm, then (fallback permitting) on its own first-party logins.
+// gateArm gates agent inside route databricks:<arm>: on arm, then (fallback permitting) on its own logins.
 func (t *RouteTable) gateArm(
 	ctx context.Context, pg *pickGate, alias, agent, arm string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -222,7 +222,7 @@ func (t *RouteTable) gateArm(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, RouteDatabricks + ":" + arm + ": no provider registry"})
 		return nil
 	}
-	own := firstPartyRows(pg.reg, agent)
+	own := ownRows(pg.reg, agent)
 	armPinSkip(agent, spec.Profile, arm, own, res)
 	if agent == "claude" {
 		o.CanServe = nil // Serves covers external agents only; claude runs on the workspace and its own login
@@ -245,7 +245,7 @@ func (t *RouteTable) gateArm(
 	return group
 }
 
-// ArmOpencodeSub is opencode's own-login sub id, its one first-party hop inside the arm.
+// ArmOpencodeSub is opencode's own-login sub id, its one own-login hop inside the arm.
 const ArmOpencodeSub = "opencode-go"
 
 // armPinSkip records a pin the arm sets aside: a profile or opencode sub id that is neither arm nor agent's own login.
@@ -260,8 +260,8 @@ func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
 	res.Skipped = append(res.Skipped, Skip{label, gateLadder, armOutside(arm)})
 }
 
-// firstPartyRows lists agent's own-login rows: loginProfiles, plus for claude the anthropic CLI-login rows.
-func firstPartyRows(reg *providers.Registry, agent string) []string {
+// ownRows lists agent's own-login rows: loginProfiles, plus for claude the anthropic CLI-login rows.
+func ownRows(reg *providers.Registry, agent string) []string {
 	rows := loginProfiles(reg, agent)
 	if agent != "claude" {
 		return rows
@@ -306,7 +306,7 @@ func loginProfiles(reg *providers.Registry, agent string) []string {
 	return rows
 }
 
-// geminiRow reports a row gemini can run on: Google first-party, or a Databricks gateway row named on command.
+// geminiRow reports a row gemini can run on: Google's own, or a Databricks gateway row named on command.
 func geminiRow(reg *providers.Registry, name string) bool {
 	p := reg.Providers[name]
 	if p == nil {

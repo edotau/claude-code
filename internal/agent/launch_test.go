@@ -88,7 +88,7 @@ func TestArmRouterRouteMintsSessionToken(t *testing.T) {
 	if want := fmt.Sprintf("dev/%d", os.Getpid()); !slices.Equal(mints, []string{want}) {
 		t.Errorf("mints = %v, want one for %s", mints, want)
 	}
-	t.Setenv(router.EnvRoute, "")
+	t.Setenv(router.EnvCoworker, "")
 	if _, _, key, _ := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); key != "rtr-secret-xyz" {
 		t.Errorf("unarmed routerRoute key = %q, want the router secret", key)
 	}

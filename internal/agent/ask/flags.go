@@ -25,20 +25,20 @@ import (
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, route, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, retryAgent, overlayPath, overlayDebug string
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast, follow                                                                      bool
-	timeout, followIdle                                                                                                                                                                                                           time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                                                                  int
-	dirs, files                                                                                                                                                                                                                   string
-	diff, index                                                                                                                                                                                                                   bool
-	pack                                                                                                                                                                                                                          *pack.Spec
-	agents                                                                                                                                                                                                                        agentsFlag
-	attach                                                                                                                                                                                                                        attachFlag
-	keepEnv                                                                                                                                                                                                                       []string
-	permAllow, permAsk, permDeny                                                                                                                                                                                                  []string
-	permMode                                                                                                                                                                                                                      string
-	leadProvider                                                                                                                                                                                                                  string
-	env                                                                                                                                                                                                                           []string
+	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, retryAgent, overlay, overlayDebug string
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast, follow                                                           bool
+	timeout, followIdle                                                                                                                                                                                                time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                                                       int
+	dirs, files                                                                                                                                                                                                        string
+	diff, index                                                                                                                                                                                                        bool
+	pack                                                                                                                                                                                                               *pack.Spec
+	agents                                                                                                                                                                                                             agentsFlag
+	attach                                                                                                                                                                                                             attachFlag
+	keepEnv                                                                                                                                                                                                            []string
+	permAllow, permAsk, permDeny                                                                                                                                                                                       []string
+	permMode                                                                                                                                                                                                           string
+	leadProvider                                                                                                                                                                                                       string
+	env                                                                                                                                                                                                                []string
 }
 
 func askFlagSet() (*flag.FlagSet, *askFlags) {
@@ -47,7 +47,6 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.name, "agent", "claude", "agent, agents/<name>.md, <agent>:<name>, or an --agents key")
 	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
 	fs.StringVar(&f.fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
-	fs.StringVar(&f.route, "route", "", "accounts: default|first-party|databricks[:<profile>|:auto] (bare: the session's Databricks profile; auto: the least busy workspace passing the preflight)")
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
 	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the pin (--fallback none pins)")
 	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
@@ -83,7 +82,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, --route rides along")
+	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, the overlay's provider rides along")
 	fs.StringVar(&f.remoteBin, "host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
@@ -104,7 +103,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
 	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
 	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
-	fs.StringVar(&f.overlayPath, "overlay", "", "layer a JSON {set,unset,keep} file over the agent's env")
+	fs.StringVar(&f.overlay, "overlay", "", "config: file, inline JSON, or - (stdin)")
 	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
 }
 
@@ -306,7 +305,7 @@ type askTarget struct {
 	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
 	NoPersist, SafeMode, Native                                       *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
-	Host, RemoteBin, Fallback                                         *string
+	Host, RemoteBin, Fallback, Coworker                               *string
 	Timeout                                                           *time.Duration
 	Persona                                                           **agent.Schema
 	Pack                                                              **pack.Spec
@@ -338,6 +337,9 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy
 	}
+	if rec.Route != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
+		*t.Coworker = rec.Route
+	}
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
@@ -359,22 +361,21 @@ func loadJobRecord(id string) (agent.Record, error) {
 	return r, nil
 }
 
-// resolveOverlay checks the --env/--keep-env shorthand and resolves the file overlay's vault refs, failing closed; a
-// --background parent leaves the file to its --job child, which inherits $COWORKER_OVERLAY and resolves it itself.
-func resolveOverlay(file agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
+// resolveOverlay resolves the overlay's vault refs, failing closed; --background leaves that to its --job child.
+func resolveOverlay(ov agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
 	if _, err := agentconfig.FlagOverlay(env, keep); err != nil {
 		return agentconfig.Resolved{}, err
 	}
 	if background {
 		return agentconfig.Resolved{}, nil
 	}
-	return agentconfig.ResolveOverlay(file)
+	return agentconfig.ResolveOverlay(ov)
 }
 
-// overlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
-func overlayLocal(file agentconfig.Overlay, live bool, host string) error {
-	if !file.Empty() && (live || host != "") {
-		return errors.New("an overlay cannot reach --live or --host: run the agent locally")
+// overlayLocal refuses an overlay's env layer on --live or --host: neither carries it; routing keys alone pass.
+func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
+	if !ov.Empty() && (live || host != "") {
+		return errors.New("overlay set/unset/keep cannot reach --live or --host: run the agent locally")
 	}
 	return nil
 }

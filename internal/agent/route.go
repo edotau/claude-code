@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -122,6 +123,11 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
+	}
+	if len(c.Dispatches) > 0 { // a candidate the confinement set aside was never an attempt; only an empty chain names it
+		c.Skipped = slices.DeleteFunc(c.Skipped, func(s string) bool {
+			return slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return k.Outside() && s == k.Agent+": "+k.Reason })
+		})
 	}
 	if len(c.Dispatches) > 0 && databricksDispatch(reg, c.Dispatches[0]) {
 		rc.pf.note(proxyNote())
@@ -242,7 +248,7 @@ func (rc routeCtx) onPin(c router.Candidate) bool {
 	return false
 }
 
-// requestedIndex is the candidate the caller asked for: the wanted agent on the --route workspace, the lead or its pin.
+// requestedIndex is the candidate the caller asked for: the wanted agent on the overlay workspace, the lead or its pin.
 func (rc routeCtx) requestedIndex(cands []router.Candidate, pin int) int {
 	on := func(profile string) int {
 		acct := router.ProviderAccount(profile)
@@ -282,7 +288,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	armFailed := rc.armFinding()
 	for _, s := range steps {
 		cand := pick.Candidates[s.i]
-		if armFailed != nil && s.i == req { // the --route workspace failed its local check, like a failed model check
+		if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
 			c.Skipped = append(c.Skipped, cand.Agent+" ("+cmp.Or(cand.Account, cand.Profile)+"): preflight "+armFailed.String())
 			continue
 		}
@@ -316,13 +322,16 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	return c, nil
 }
 
-// otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or --route workspace.
+// otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or overlay workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
 	if arm := router.ArmProfile(); arm != "" && cand.Agent == rc.want && cand.Profile == arm {
 		return false // databricks:<p> asked for this workspace: running there is not a fallback
 	}
+	if cp, _ := router.Confined(); cp != "" && cand.Agent == rc.want {
+		return false // the confinement admitted it: the pin was set aside, nothing fell back
+	}
 	if rc.lead != "" && cand.Agent == rc.want {
-		return cand.Profile != rc.lead
+		return cand.Profile != rc.lead && cand.Account != router.ProviderAccount(rc.lead) // an own-login row has no Profile
 	}
 	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
 }
@@ -662,9 +671,18 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 	default:
 		var err error
 		disp, err = lookupDispatch(cand, cell, disp)
-		return disp, "", err
+		return rc.engineModel(cand, cell, disp), "", err
 	}
 	return disp, "", nil
+}
+
+// engineModel names the model gemini really runs on a Databricks row: its engine swaps a non-Gemini cell id at launch.
+func (rc routeCtx) engineModel(cand router.Candidate, cell router.Cell, disp Dispatch) Dispatch {
+	if p := rc.reg.Row(cand.Profile); cand.Agent == agentid.Gemini && GeminiGatewayRow(p) {
+		d := mustDriver(cand.Agent).(HeadlessDriver)
+		disp.Model = cand.Profile + ":" + d.Before(RunOptions{Model: disp.Model}, providers.Target{Provider: p, Model: cell.Model}).Model
+	}
+	return disp
 }
 
 // lookupDispatch sets disp's agent to cand's own engine; a claude dispatch runs the cell's alias.

@@ -623,14 +623,14 @@ func ledgerSettled(t *testing.T, want int) []tokenledger.Entry {
 	return got
 }
 
-// The 401 hint names the real helper flag (resolve --proxy; --router was removed).
+// The 401 hint names the real helper flag (resolve --proxy).
 func TestUnauthorizedHintNamesTokenProxy(t *testing.T) {
 	srv := setup(t, `{"default":"prod","providers":{}}`)
 	resp := post(t, srv.URL+"/v1/messages", `{}`, map[string]string{"X-Api-Key": "wrong"})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status %d, want 401", resp.StatusCode)
 	}
-	if b := body(t, resp); !strings.Contains(b, "resolve --proxy") || strings.Contains(b, "--router") {
+	if b := body(t, resp); !strings.Contains(b, "resolve --proxy") {
 		t.Errorf("401 body = %s, want resolve --proxy", b)
 	}
 }

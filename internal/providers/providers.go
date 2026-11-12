@@ -217,11 +217,11 @@ var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 // Dimension.Name(); today "price", "headroom"); this package only validates shape, router owns the scoring.
 var routeWeightNames = []string{"price", "headroom"}
 
-// FirstPartyAccountKeys are each vendor's own CLI login on its own subscription (router's first-party ladder).
-var FirstPartyAccountKeys = []string{"anthropic·ultra", "openai·chatgpt", "google·antigravity", "opencode·go"}
+// OwnLoginAccountKeys are each vendor's own CLI login on its own subscription (the hops a databricks route keeps).
+var OwnLoginAccountKeys = []string{"anthropic·ultra", "openai·chatgpt", "google·antigravity", "opencode·go"}
 
 // routeBillingKeys are the routing table's static account_key values; a "github·" prefix also passes (added at load).
-var routeBillingKeys = append(slices.Clone(FirstPartyAccountKeys), "github·copilot",
+var routeBillingKeys = append(slices.Clone(OwnLoginAccountKeys), "github·copilot",
 	"opencode·github-copilot", "opencode·openai", "opencode·nvidia", "opencode·zen-free")
 
 // routeOpencodeModelPrefixes are the prefixes an opencode override cell may carry.

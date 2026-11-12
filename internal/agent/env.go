@@ -50,7 +50,7 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	}
 	base, _ = s.Mode.scrub(base, s.Keep)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), s.dropper(ctx))
-	// a route hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
+	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
 	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
 	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
@@ -174,7 +174,7 @@ func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 	return scrubExcept(inherited, "", append(slices.Clone(proc.OwnLoginEnv[ls.own]), keepEnv...), keepEnv)
 }
 
-// dropForeignLogins drops the own-login env ctx's loginScrub forbids (a route hop, a probe); else env as is.
+// dropForeignLogins drops the own-login env ctx's loginScrub forbids (a coworker hop, a probe); else env as is.
 func dropForeignLogins(ctx context.Context, env, keepEnv []string) []string {
 	ls, ok := ctx.Value(loginScrubKey{}).(loginScrub)
 	if !ok {

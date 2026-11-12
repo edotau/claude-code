@@ -12,7 +12,7 @@ import (
 )
 
 // TestPickFollowsLadder: the seeded ladders order the agents after want, expand copilot's rung models, place claude
-// into the first rung after the leading one that it beats, and firstParty drops a non-first-party account.
+// into the first rung after the leading one that it beats; a provider confinement keeps that order on its accounts only.
 func TestPickFollowsLadder(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
@@ -21,7 +21,7 @@ func TestPickFollowsLadder(t *testing.T) {
 	}
 	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}} // claude outscores copilot (0.75) yet must still follow it
 	pickAt := func(route string) PickResult {
-		t.Setenv(EnvRoute, route)
+		t.Setenv(EnvCoworker, route)
 		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
 			Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	}
@@ -36,24 +36,21 @@ func TestPickFollowsLadder(t *testing.T) {
 		"claude/anthropic·ultra/claude-sonnet-5-5", "codex/openai·chatgpt/gpt-6.1-sol",
 		"opencode/opencode·zen-free/opencode/deepseek-v4.1-flash-free", "opencode/opencode·go/opencode-go/kimi-k3.1-pro",
 		"gemini/google·antigravity/gemini-3.8-flash"}
-	if got := order(pickAt(RouteDefault)); !slices.Equal(got, def) {
+	if got := order(pickAt("")); !slices.Equal(got, def) {
 		t.Errorf("default ladder order =\n%v\nwant\n%v", got, def)
 	}
-	fp := []string{"copilot/github·work-user/claude-sonnet-5.5", "claude/anthropic·ultra/claude-sonnet-5-5",
-		"codex/openai·chatgpt/gpt-6.1-sol", "gemini/google·antigravity/gemini-3.8-flash",
-		"opencode/opencode·go/opencode-go/kimi-k3.1-pro"}
-	r := pickAt(routeFirstParty)
-	if got := order(r); !slices.Equal(got, fp) {
-		t.Errorf("firstParty ladder order =\n%v\nwant\n%v", got, fp)
+	r := pickAt("github")
+	if got := order(r); !slices.Equal(got, def[:2]) {
+		t.Errorf("order under github =\n%v\nwant\n%v", got, def[:2])
 	}
-	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "not first-party"}) {
-		t.Errorf("firstParty skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
+	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "outside github"}) {
+		t.Errorf("skips under github = %+v, want opencode·zen-free dropped as outside github", r.Skipped)
 	}
 }
 
-func TestPickFirstPartyFiltersWantedResolvedAccount(t *testing.T) {
+func TestPickProviderFiltersWantedResolvedAccount(t *testing.T) {
 	tb := testTable(t)
-	t.Setenv(EnvRoute, RouteDefault)
+	t.Setenv(EnvCoworker, "")
 	opts := PickOpts{Fallback: FallbackNone, Configured: allConfigured,
 		Now:     func() time.Time { return now0 },
 		Account: func(string, Cell) (string, string) { return "databricks·dev", BillCredits }}
@@ -61,19 +58,19 @@ func TestPickFirstPartyFiltersWantedResolvedAccount(t *testing.T) {
 	if len(baseline.Candidates) != 1 || baseline.Candidates[0].Account != "databricks·dev" {
 		t.Fatalf("default route did not admit wanted resolved account: %+v", baseline)
 	}
-	t.Setenv(EnvRoute, routeFirstParty)
+	t.Setenv(EnvCoworker, "openai")
 	got := tb.Pick(context.Background(), "sonnet", "codex", State{}, opts)
 	if len(got.Candidates) != 0 {
-		t.Errorf("wanted non-first-party account remained eligible: %+v", got.Candidates)
+		t.Errorf("wanted account outside openai remained eligible: %+v", got.Candidates)
 	}
-	if !slices.Contains(got.Skipped, Skip{"codex·databricks·dev", gateLadder, "not first-party"}) {
-		t.Errorf("skips = %+v, want wanted resolved account rejected as not first-party", got.Skipped)
+	if !slices.Contains(got.Skipped, Skip{"codex·databricks·dev", gateLadder, "outside openai"}) {
+		t.Errorf("skips = %+v, want wanted resolved account rejected as outside openai", got.Skipped)
 	}
 }
 
 func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
 	tb := testTable(t)
-	t.Setenv(EnvRoute, RouteDefault)
+	t.Setenv(EnvCoworker, "")
 	opts := PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return true }}
 	baseline := tb.Pick(context.Background(), "sonnet", "copilot", State{}, opts)
@@ -98,38 +95,36 @@ func TestPickRejectsFallbackWithUnservableRungModel(t *testing.T) {
 	}
 }
 
-// TestFirstPartyRouteWithoutLadderStillFilters: an empty first-party ladder must not turn the first-party filter off.
-func TestFirstPartyRouteWithoutLadderStillFilters(t *testing.T) {
+// TestProviderConfinementWithoutLadderStillFilters: no stored ladder at all must not turn the provider filter off.
+func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tb.Ladders = map[string][]providers.Rung{providers.LadderDefault: tb.Ladders[providers.LadderDefault]}
-	t.Setenv(EnvRoute, routeFirstParty)
+	tb.Ladders = nil
+	t.Setenv(EnvCoworker, "anthropic:ultra")
 	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
-	for _, c := range r.Candidates {
-		if !firstPartyAccount(c.Account) {
-			t.Errorf("candidate %s/%s admitted on first-party route with no first-party ladder", c.Agent, c.Account)
-		}
+	if len(r.Candidates) != 1 || r.Candidates[0].Account != "anthropic·ultra" {
+		t.Errorf("candidates = %+v, want only anthropic·ultra with no ladder", r.Candidates)
 	}
-	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "not first-party"}) {
-		t.Errorf("skips = %+v, want opencode·zen-free dropped as not first-party", r.Skipped)
+	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "outside anthropic:ultra"}) {
+		t.Errorf("skips = %+v, want opencode·zen-free dropped as outside anthropic:ultra", r.Skipped)
 	}
 }
 
-func TestParseRoute(t *testing.T) {
-	for _, bad := range []string{"databricks:", "nope", "databricks:a:b", "default:dev", "first-party:dev", ":dev"} {
-		if _, _, err := ParseRoute(bad); err == nil {
-			t.Errorf("ParseRoute(%q) accepted", bad)
+func TestParseCoworker(t *testing.T) {
+	for _, bad := range []string{"databricks:", "nope", "databricks:a:b", "default", "first-party", "local", "anthropic:", ":dev"} {
+		if _, _, err := ParseCoworker(bad); err == nil {
+			t.Errorf("ParseCoworker(%q) accepted", bad)
 		}
 	}
-	for in, want := range map[string][2]string{"": {}, "default": {RouteDefault}, " first-party ": {routeFirstParty},
+	for in, want := range map[string][2]string{"": {}, " anthropic ": {"anthropic"}, "github:personal": {"github", "personal"},
 		"databricks": {RouteDatabricks}, "databricks:dev": {RouteDatabricks, "dev"}} {
-		mode, profile, err := ParseRoute(in)
-		if err != nil || [2]string{mode, profile} != want {
-			t.Errorf("ParseRoute(%q) = %q, %q, %v; want %q", in, mode, profile, err, want)
+		provider, profile, err := ParseCoworker(in)
+		if err != nil || [2]string{provider, profile} != want {
+			t.Errorf("ParseCoworker(%q) = %q, %q, %v; want %q", in, provider, profile, err, want)
 		}
 	}
 }
@@ -153,7 +148,7 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(EnvRoute, "databricks:dev")
+	t.Setenv(EnvCoworker, "databricks:dev")
 	return tb.Pick(context.Background(), "sonnet", want, State{}, PickOpts{Fallback: fallback, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false },
 		Pins: map[string]PinSpec{"codex": {Profile: "openai"}, "copilot": {Profile: "qa"}}})

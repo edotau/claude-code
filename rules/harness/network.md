@@ -11,7 +11,7 @@ paths:
 | Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port so the sign-in happens in your local browser, or `--host-browser` opens the host's (`rules/harness/providers.md` → Headless login) |
-| Run an ask here on the least busy Databricks workspace, requests through the other machine | `claude-code --remote auto agents ask --agent <a> --route databricks:auto --tools "<task>"` (what `/coworker` sends: `rules/workflows/agents.md` → Slash commands); `--host auto` instead runs the whole ask on that machine |
+| Run an ask here on the least busy Databricks workspace, requests through the other machine | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"` (what `/coworker` sends: `rules/workflows/agents.md` → Slash commands); `--host auto` instead runs the whole ask on that machine; an agent's own login: `--overlay '{"provider":"openai"}'` (codex), likewise `anthropic`, `github`, `google` |
 | Send Databricks requests out through a host | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `network restart` stops the tunnels |
 
 `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST` for the verb and its children.
@@ -23,16 +23,15 @@ by a provider's `auth.command` is that command's own traffic and is not tunnelle
 
 `--host auto` (`agents ask`, and the global flag) and `--remote auto` become a host name on this machine, before any
 ssh call: the env value `HARNESS_REMOTE_HOST` (process env, else the vault's: `claude-code vault edit` → `env`), else
-the one other
-online tailnet machine that answers `claude-code version` over ssh within 5 s, kept 10 minutes in
+the one other online tailnet machine that answers `claude-code version` over ssh within 5 s, kept 10 minutes in
 `state/harness/remote/auto-host.json`. No machine or more than one is an error that lists them; it never guesses.
 
-`--route databricks:auto` picks, among the Databricks serving rows that pass the local checks (a stored credential, no
-auth mark, and the model served to that agent; no token is requested, so a revoked login or an unreachable workspace
+An overlay `profile: auto` picks, among the Databricks serving rows that pass the local checks (a stored credential,
+no auth mark, and the model served to that agent; no token is requested, so a revoked login or an unreachable workspace
 is only found on the first request), the workspace not cooling from a rate limit with
 the fewest live dispatches (in-flight markers on its account plus running dispatch records routed to it; cap 24 per
 account); a tie goes to the one picked least recently (`state/harness/ask/route-auto.json`), then name order. From
-there it is `--route databricks:<that workspace>`: the `ran on` line and the dispatch record name it, and with
+there it is the overlay `profile: <that workspace>`: the `ran on` line and the dispatch record name it, and with
 `--host` the pick is made here and the concrete route is sent. No profile may be named `auto`. A `--host` ask
 that cannot run fails before the task with one line naming what the target lacks: the `claude-code` binary, the
 agent's CLI, the Databricks profile, or the model.

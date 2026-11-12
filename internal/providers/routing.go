@@ -34,15 +34,17 @@ type Routing struct {
 	Opencode OpencodeRouting   `json:"opencode,omitzero"`
 }
 
-// Ladder names: default unless HARNESS_ROUTE asks (router.ladderName); firstParty and databricks:<p> narrow accounts.
+// Ladder names: default unless HARNESS_COWORKER=databricks:<p> asks (router.ladderName); a provider only filters default.
 const (
 	LadderDefault    = "default"
-	LadderFirstParty = "firstParty"
 	LadderDatabricks = "databricks"
 )
 
 // ladderNames are the ladders routing.ladders may set.
-var ladderNames = []string{LadderDefault, LadderFirstParty, LadderDatabricks}
+var ladderNames = []string{LadderDefault, LadderDatabricks}
+
+// retiredLadder is a ladder name stored routing may still carry: it loads and is never read.
+const retiredLadder = "firstParty"
 
 // Rung is one ladder step: an agent, a provider or both; Models orders its vendor models (opencode: sub ids).
 type Rung struct {
@@ -197,6 +199,9 @@ func validateOpencodeRouting(o OpencodeRouting) []string {
 func validateLadders(r *Registry) []string {
 	var errs []string
 	for _, name := range slices.Sorted(maps.Keys(r.Routing.Ladders)) {
+		if name == retiredLadder {
+			continue
+		}
 		if !slices.Contains(ladderNames, name) {
 			errs = append(errs, fmt.Sprintf("routing.ladders names unknown ladder %q (%s)", name, strings.Join(ladderNames, ", ")))
 			continue

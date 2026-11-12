@@ -86,27 +86,28 @@ func armRegistry(t *testing.T, devExtra string) {
 		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN", devExtra)+`,`+row("qa", "QA_TOKEN", "")+`}}}`)
 	t.Setenv("DEV_TOKEN", "dapi-dev")
 	t.Setenv("QA_TOKEN", "dapi-qa")
-	t.Setenv(router.EnvRoute, "databricks:dev")
+	t.Setenv(router.EnvCoworker, "databricks:dev")
 }
 
 // Inside databricks:dev a hop runs only on dev or the agent's own login, isolated; anything else is fatal up front.
 func TestArmGuard(t *testing.T) {
 	cases := []struct {
-		name, devExtra, prof, route, fatal string
-		creds                              []string // the credential names the child keeps on a pass
+		name, devExtra, prof, fatal string
+		unarmed                     bool
+		creds                       []string // the credential names the child keeps on a pass
 	}{
 		{name: "another workspace", prof: "qa", fatal: "profile qa is outside databricks:dev"},
 		{name: "another agent's login", prof: "chatgpt", fatal: "profile chatgpt is outside databricks:dev"},
 		{name: "AI Gateway dev", devExtra: `,"options":{"wire":"ai-gateway"}`, prof: "dev", fatal: "AI Gateway wire"},
 		{name: "dev", prof: "dev"}, // proxied on the session token: no workspace token
 		{name: "own login", prof: "ultra"},
-		{name: "unarmed qa", prof: "qa", route: "default", creds: []string{"DEV_TOKEN", "QA_TOKEN"}},
+		{name: "unarmed qa", prof: "qa", unarmed: true, creds: []string{"DEV_TOKEN", "QA_TOKEN"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			armRegistry(t, c.devExtra)
-			if c.route != "" {
-				t.Setenv(router.EnvRoute, c.route)
+			if c.unarmed {
+				t.Setenv(router.EnvCoworker, "")
 			}
 			armGuardCase(t, c.prof, c.fatal, c.creds)
 		})
@@ -155,7 +156,7 @@ func TestArmPickAdmitsOnlyGuardAllowedHops(t *testing.T) {
 		pins map[string]string
 	}{
 		{"pinned to the workspace", map[string]string{"codex": "dev", "copilot": "dev", "gemini": "dev", "opencode": "dev"}},
-		{"pinned off the route", map[string]string{"codex": "openai", "copilot": "qa", "gemini": "qa", "opencode": "qa"}},
+		{"pinned off the coworker", map[string]string{"codex": "openai", "copilot": "qa", "gemini": "qa", "opencode": "qa"}},
 		{"pinned to own logins", map[string]string{"codex": "chatgpt", "copilot": "personal", "gemini": "antigravity",
 			"opencode": "opencode-go"}},
 	}

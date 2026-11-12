@@ -102,7 +102,7 @@ func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 	}
 	fmt.Fprintln(w, "dispatches")
 	for _, l := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
-		where := cmp.Or(l.Route, l.Provider, providers.AgentRecord(l.Agent).Profile, "own login") // no --route: its pinned profile
+		where := cmp.Or(l.Route, l.Provider, providers.AgentRecord(l.Agent).Profile, "own login") // no overlay provider: its pinned profile
 		prefix := fmt.Sprintf("  %s  %-15s  %-22s  %-6s", l.ID, where, strings.TrimPrefix(cmp.Or(l.Model, "default"), "databricks-"), l.Duration)
 		fmt.Fprintln(w, fitRow(prefix, cmp.Or(l.Task, l.Repo), "", width))
 	}

@@ -316,6 +316,9 @@ func checkAuthTypeChange(oldDoc, newDoc []byte) error {
 // providerKeys are the registry's provider keys, the parents of every profile.
 var providerKeys = []string{"anthropic", "databricks", "github", "openai", "google"}
 
+// ProviderKeys is providerKeys sorted: the names an overlay's provider and HARNESS_COWORKER accept.
+func ProviderKeys() []string { return slices.Sorted(slices.Values(providerKeys)) }
+
 // rawRow is one profile's raw JSON under its provider; raw == nil removes the built-in.
 type rawRow struct {
 	provider string

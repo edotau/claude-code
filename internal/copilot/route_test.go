@@ -325,7 +325,7 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 // Inside databricks:dbx a refused GitHub hop is an error naming why; it never moves the dispatch to a workspace.
 func TestArmCopilotGateRefusalIsError(t *testing.T) {
 	macFallbackScratch(t)
-	t.Setenv(router.EnvRoute, "databricks:dbx")
+	t.Setenv(router.EnvCoworker, "databricks:dbx")
 	orig := CopilotUsedPct
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 99, true }
 	t.Cleanup(func() { CopilotUsedPct = orig })

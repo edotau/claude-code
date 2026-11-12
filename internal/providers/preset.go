@@ -359,15 +359,20 @@ func ContextWindow(p *Provider, id string) int {
 func ServingRow(name string) error {
 	reg, err := Load()
 	if err != nil {
-		return fmt.Errorf("--route databricks:%s: %w", name, err)
+		return fmt.Errorf("overlay databricks:%s: %w", name, err)
 	}
-	switch p := reg.Providers[name]; {
+	return reg.ServingRow(name)
+}
+
+// ServingRow is the package ServingRow against an already loaded r.
+func (r *Registry) ServingRow(name string) error {
+	switch p := r.Providers[name]; {
 	case p == nil:
-		return fmt.Errorf("--route databricks:%s: no such profile", name)
+		return fmt.Errorf("overlay databricks:%s: no such profile", name)
 	case p.Preset != PresetDatabricks:
-		return fmt.Errorf("--route databricks:%s: not a Databricks profile", name)
+		return fmt.Errorf("overlay databricks:%s: not a Databricks profile", name)
 	case p.IsAIGateway():
-		return fmt.Errorf("--route databricks:%s: AI Gateway row; use a serving row", name)
+		return fmt.Errorf("overlay databricks:%s: AI Gateway row; use a serving row", name)
 	}
 	return nil
 }

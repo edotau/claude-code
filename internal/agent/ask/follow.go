@@ -143,8 +143,14 @@ func retryFor(t batchTask, bo batchOpts, agents []string) func(context.Context) 
 		}
 		req := t.Req
 		req.Agent, req.Fallback, req.Native = name, bo.Fallback, bo.Native
+		req, err := confineLine(name, req) // the new agent's own lead fill and account check, as buildTask does
 		cl := newClient()
-		return func(ctx context.Context) (*agent.Prepared, error) { return cl.Prepare(ctx, req, nil) }
+		return func(ctx context.Context) (*agent.Prepared, error) {
+			if err != nil {
+				return nil, fmt.Errorf("--retry-agent %s: %w", name, err)
+			}
+			return cl.Prepare(ctx, req, nil)
+		}
 	}
 	return nil
 }
