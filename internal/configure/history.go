@@ -2,6 +2,7 @@ package configure
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -85,9 +86,9 @@ func agentConfigs() []HistoryFile {
 	if codexCfg, err := paths.CodexConfigPath(""); err == nil {
 		out = append(out, HistoryFile{Label: "codex-config.toml", Path: codexCfg})
 	}
-	if cfgHome, err := os.UserConfigDir(); err == nil {
-		out = append(out, HistoryFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
-	}
+	// opencode reads $XDG_CONFIG_HOME or ~/.config on every OS; os.UserConfigDir is ~/Library/... on macOS.
+	cfgHome := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
+	out = append(out, HistoryFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
 	geminiHome := os.Getenv("GEMINI_CLI_HOME")
 	if geminiHome == "" {
 		geminiHome = home
