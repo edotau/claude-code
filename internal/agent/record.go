@@ -224,6 +224,14 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 }
 
+// finishSave is Finish then Save; a failed save goes to notify (the record stays at running), never to the run.
+func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {
+	r.Finish(res, err, took)
+	if serr := r.Save(); serr != nil && notify != nil {
+		notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", r.ID, serr))
+	}
+}
+
 func pruneDispatches(dir string) {
 	names, err := recordNames(dir)
 	if err != nil || len(names) <= dispatchKeep+dispatchPruneMargin { // best-effort: a failed listing skips this prune
@@ -363,10 +371,7 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 		}
 	}
 	logSink.Close()
-	rec.Finish(res, err, time.Since(begin))
-	if serr := rec.Save(); serr != nil && o.Notify != nil {
-		o.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", rec.ID, serr))
-	}
+	rec.finishSave(res, err, time.Since(begin), o.Notify)
 	return res, err
 }
 

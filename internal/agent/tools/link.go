@@ -23,7 +23,7 @@ type LinkResult struct {
 	Bin, Status, Detail string
 }
 
-// LinkResults computes Link' per-agent outcomes (applying the side effects on a real run),
+// LinkResults computes Link's per-agent outcomes (applying the side effects on a real run),
 // for callers that render a compact summary instead of one line per agent.
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult

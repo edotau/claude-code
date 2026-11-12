@@ -211,7 +211,7 @@ func reviewPrompt(adversarial bool, focus string) string {
 }
 
 // reviewArgs builds the `ask` argv for a review, attaching the diff as a temp file; cleanup removes it in foreground.
-func reviewArgs(agentName string, s diffScope, diff []byte, adversarial, background bool, focus, rubric, model string) ([]string, func(), error) {
+func reviewArgs(agentName string, diff []byte, adversarial, background bool, focus, rubric, model string) ([]string, func(), error) {
 	dir, err := paths.EnsureDispatchDir()
 	if err != nil {
 		return nil, nil, err
