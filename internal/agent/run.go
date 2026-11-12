@@ -81,7 +81,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 		}
 	}
 	if o.Pack != nil && p.remote != nil {
-		return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --remote")}
+		return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
 	}
 	p.Opts = o
 	p.Record = c.record(ctx, o, claim)
@@ -152,7 +152,7 @@ type clientUsageError struct{ error }
 
 func (clientUsageError) ExitCode() int { return 2 }
 
-// route is Resolve on o: o.Provider is a pinned backend, o.Lead a resolved lead, --remote one remote dispatch.
+// route is Resolve on o: o.Provider is a pinned backend, o.Lead a resolved lead, --host one remote dispatch.
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt),
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// EnvHost names the egress host for this process and its children; `claude-code --host <host>` sets it.
+// EnvHost names the egress host for this process and its children; `claude-code --remote <host>` sets it.
 const EnvHost = "HARNESS_EGRESS_HOST"
 
 // Host is the egress host from the environment, "" when requests leave directly.

@@ -1,6 +1,6 @@
 ---
-description: "Send a task to the copilot agent on this machine, on its own pin"
-argument-hint: "[--remote <host>] [--profile <p>] [--model <m>] <task>"
+description: "Send a task to the copilot agent on its own pin, here or on --host <host>"
+argument-hint: "[--host <host>] [--profile <p>] [--model <m>] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label copilot), Agent
 ---
@@ -8,12 +8,12 @@ allowed-tools: Bash(claude-code agents label copilot), Agent
 # /copilot
 
 ```text
-/copilot [--remote <host>] [--profile <p>] [--model <m>] <task>
+/copilot [--host <host>] [--profile <p>] [--model <m>] <task>
 ```
 
 Launcher only. Empty `$ARGUMENTS` or `help`: print the block above and stop. Otherwise:
 
-1. Take the leading `--remote <host>`, `--profile <p>` and `--model <m>` off `$ARGUMENTS`; the rest is the task.
+1. Take the leading `--host <host>`, `--profile <p>` and `--model <m>` off `$ARGUMENTS`; the rest is the task.
 2. Run `claude-code agents label copilot`: it prints the label, `<label>:`.
 3. Make ONE Agent tool call: `subagent_type: copilot`, description `<label>: <first ~8 words of the task>`, and a
    prompt whose first line is

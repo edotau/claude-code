@@ -14,7 +14,7 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 | To… | Run |
 | --- | --- |
 | Relay or explicitly requested script (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
-| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--remote <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
+| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
 | Owner prompt-box syntax | `@agent-<name>` selects a subagent; owner-only `/<agent>` and `/coworker` shortcuts below |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |
@@ -26,8 +26,8 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 
 | Command | Does |
 | --- | --- |
-| `/codex` · `/copilot` · `/gemini` · `/opencode` `[--remote <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on this machine, on its own pin: ONE Agent tool call (`subagent_type` = the name, dispatch per `CLAUDE.md` guideline 3) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
-| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [same flags] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code --host auto agents ask --agent <type> --route databricks:auto --tools`. `--host <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
+| `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on its own pin, on this machine or, with `--host <host>`, on that one: ONE Agent tool call (`subagent_type` = the name, dispatch per `CLAUDE.md` guideline 3) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
+| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [--remote <host>] [--profile <p>] [--model <m>] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code --remote auto agents ask --agent <type> --route databricks:auto --tools`. `--remote <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
 
 All five are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
 that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Route:` line passes `dispatch-effort` with its

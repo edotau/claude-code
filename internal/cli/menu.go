@@ -23,8 +23,8 @@ const nameWidth = 16
 var menuHeader = []string{
 	"usage: claude-code [<command>] [subcommand] [flags]",
 	"       claude-code <command> -h      per-command help",
-	"       claude-code --remote <h> ...  run a command on a tailnet host",
-	"       claude-code --host <h> ...    Databricks requests leave via <h>",
+	"       claude-code --host <h> ...    run a command on a tailnet host",
+	"       claude-code --remote <h> ...  Databricks requests leave via <h>",
 }
 
 // menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).

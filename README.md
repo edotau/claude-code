@@ -43,8 +43,8 @@ claude-code anthropic --model opus   # Claude Code, first-party (also sonnet | h
 claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
 claude-code qa          # Claude Code on that registry profile
 claude-code --resume    # a leading flag passes to claude, on the session provider
-claude-code --remote <h> doctor   # any verb on a tailnet host over ssh (a login's browser opens there)
-claude-code --host <h> databricks # runs here; only Databricks workspace requests leave through <h> (ssh SOCKS5)
+claude-code --host <h> doctor       # any verb on a tailnet host over ssh (a login's browser opens there)
+claude-code --remote <h> databricks # runs here; only Databricks workspace requests leave through <h> (ssh SOCKS5)
 ```
 
 ## Setup
@@ -185,9 +185,10 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
 | `DATABRICKS_CONFIG_FILE` | Databricks CLI config file (default `~/.databrickscfg`) |
 | `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
-| `HARNESS_EGRESS_HOST` | set by `--host <h>`: Databricks workspace requests leave through that ssh host |
-| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--remote` runs, after `--remote-bin` |
-| `HARNESS_REMOTE_HOST` | the machine `--remote auto` runs on (`rules/harness/network.md`) |
+| `AGENT_ERROR_FALLBACK` | set (shell or vault env, any value): a failed dispatch falls back (`--fallback all`); unset: it exits on the error (`none`) |
+| `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
+| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--host-bin` |
+| `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
@@ -417,7 +418,7 @@ every embedded (`//go:embed`) template.
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` |
-| Run an agent on another tailnet box | `claude-code agents ask --remote <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
+| Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make tailscale-cli` installs it) |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |

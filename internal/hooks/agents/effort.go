@@ -107,9 +107,9 @@ func agentEffortResult(in *core.Input) core.Result {
 	return e.result()
 }
 
-// directAskRe matches a brief's opening ask command, with or without the global --host <host> in front.
+// directAskRe matches a brief's opening ask command, with or without the global --remote <host> in front.
 var directAskRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^Run: claude-code (--host \S+ )?agents ask `)
+	return regexp.MustCompile(`^Run: claude-code (--remote \S+ )?agents ask `)
 })
 
 // runModelRe captures --model on a brief's opening ask command.

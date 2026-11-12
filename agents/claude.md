@@ -74,7 +74,7 @@ Tools, guards, background, model, input and output flags:
   Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level design
   is `Plan`'s.
 
-A live session (`ask --agent claude --live`, `agents send <id>`) and `--remote`:
+A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 
 ## Recommendations to the manager

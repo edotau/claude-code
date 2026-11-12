@@ -266,7 +266,7 @@ var writers = map[string]string{
 	"internal/catalog/discover.go:SpawnDiscover":             unversioned("foreign: /dev/null opened for a detached refresh"),
 	"internal/gateway/restart.go:claimRestartLocked":         unversioned("marker: watchdog proxy restart stamp"),
 	"internal/gateway/restart.go:Hold":                       unversioned("marker: deliberate proxy stop, watchdog stays off"),
-	"internal/network/egress/tunnel.go:writeRecord":          unversioned("runtime: --host ssh tunnel port and pid"),
+	"internal/network/egress/tunnel.go:writeRecord":          unversioned("runtime: --remote ssh tunnel port and pid"),
 	"internal/router/served.go:SaveServed":                   "served-models",
 	"internal/catalog/check.go:SaveCheckCache":               "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":    "token-expiry",

@@ -272,16 +272,16 @@ func Run(argv []string) int {
 }
 
 // egressFlag runs a verb here with its Databricks workspace requests leaving through an ssh host.
-const egressFlag = "--host"
+const egressFlag = "--remote"
 
-// runVia is `claude-code --host <host> <verb …>`: it pins the egress host for this process and its children.
+// runVia is `claude-code --remote <host> <verb …>`: it pins the egress host for this process and its children.
 func runVia(argv []string) int {
 	host, rest, err := remote.SplitHost(egressFlag, argv[1:])
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
-	if host, err = remote.ResolveAuto(host); err != nil { // `--host auto`: the other machine, as `--remote auto`
-		return helptext.Fail("%s: %v", egressFlag, err)
+	if host, err = remote.ResolveAuto(host); err != nil { // `--remote auto`: the other machine, as `--host auto`
+		return helptext.Fail("%s %v", egressFlag, err)
 	}
 	if err := egress.Valid(host); err != nil {
 		return helptext.FailUsage("%s: %v", egressFlag, err)

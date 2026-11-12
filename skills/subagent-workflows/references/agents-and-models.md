@@ -32,8 +32,8 @@ in each agent's registration package when a task depends on a boundary.
 `--route databricks:<profile>` selects the Databricks arm without changing the agent's persistent pin.
 `--route databricks:auto` chooses the workspace with the fewest live dispatches. `--fallback none` refuses a missing
 credential or unsupported route instead of changing agents. Other fallback policies must be explicit in the brief;
-report the actual run receipt, not a planned model. `--host <h>` keeps execution here and tunnels Databricks calls;
-`--remote <h>` executes on that host, where profiles resolve.
+report the actual run receipt, not a planned model. `--remote <h>` keeps execution here and tunnels Databricks calls;
+`--host <h>` executes on that host, where profiles resolve.
 
 ## Measurements
 

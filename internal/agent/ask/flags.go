@@ -83,8 +83,8 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	fs.StringVar(&f.host, "remote", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, --route rides along")
-	fs.StringVar(&f.remoteBin, "remote-bin", "", "remote claude-code path for --remote (default $"+remote.BinEnv+", then claude-code)")
+	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, --route rides along")
+	fs.StringVar(&f.remoteBin, "host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
 	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
@@ -133,7 +133,7 @@ func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 		return nil, errors.New("--max-files and --max-file-bytes cannot be negative")
 	}
 	if f.batchSrc != "" || f.live || f.host != "" {
-		return nil, errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --remote")
+		return nil, errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --host")
 	}
 	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
 		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
@@ -149,10 +149,10 @@ func askCheckCombos(fs *flag.FlagSet, name string, live, hasPersona bool, host s
 	return askHostEnvCombos(host, background, job, batchSrc, hasEnv)
 }
 
-// askHostEnvCombos rejects --remote with --background/--job/--batch, and --env with --background.
+// askHostEnvCombos rejects --host with --background/--job/--batch, and --env with --background.
 func askHostEnvCombos(host string, background bool, job, batchSrc string, hasEnv bool) error {
 	if host != "" && (background || job != "" || batchSrc != "") {
-		return errors.New("--remote cannot be combined with --background, --job or --batch")
+		return errors.New("--host cannot be combined with --background, --job or --batch")
 	}
 	if hasEnv && background {
 		return errors.New("--env cannot be combined with --background: env values are never stored in the dispatch record")
@@ -371,15 +371,15 @@ func resolveOverlay(file agentconfig.Overlay, env, keep []string, background boo
 	return agentconfig.ResolveOverlay(file)
 }
 
-// overlayLocal refuses a file overlay on --live or --remote: neither carries it, and --remote would expose it to ps.
+// overlayLocal refuses a file overlay on --live or --host: neither carries it, and --host would expose it to ps.
 func overlayLocal(file agentconfig.Overlay, live bool, host string) error {
 	if !file.Empty() && (live || host != "") {
-		return errors.New("an overlay cannot reach --live or --remote: run the agent locally")
+		return errors.New("an overlay cannot reach --live or --host: run the agent locally")
 	}
 	return nil
 }
 
-// parseAgentDefs parses --agents; --remote cannot carry an inline definition.
+// parseAgentDefs parses --agents; --host cannot carry an inline definition.
 func parseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
 	var defs map[string]*agent.Schema
 	if agents != "" {
@@ -389,7 +389,7 @@ func parseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
 		}
 	}
 	if host != "" && agents != "" {
-		return nil, errors.New("--remote cannot be combined with --agents: the remote cannot see an inline definition")
+		return nil, errors.New("--host cannot be combined with --agents: the remote cannot see an inline definition")
 	}
 	return defs, nil
 }
