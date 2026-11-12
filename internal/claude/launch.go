@@ -285,6 +285,9 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 		}
 	}
+	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
+		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
+	}
 }
 
 // set1MOff turns 1M off when the session endpoint lacks it: Claude Code assumes 1M for recognised ids. An explicit
