@@ -43,7 +43,7 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 		calls++
 		return []copilotsdk.ModelInfo{{ID: "account-b-model"}}, nil
 	}
-	got, err := refreshCatalog(context.Background())
+	got, err := refreshCatalog(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
 		t.Fatalf("refreshCatalog = %v, %v; listings = %d; want refusal before listing account-b", got, err, calls)
 	}

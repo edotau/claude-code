@@ -65,29 +65,36 @@ func ruleDecision(o sdkOptions, req copilot.PermissionRequest, calls []agent.Rul
 
 // ruleCalls are the Claude-style Tool(arg) names a request is judged as; none for kinds no rule names (memory).
 func ruleCalls(req copilot.PermissionRequest, workDir string) []agent.Rule {
-	switch r := req.(type) {
+	switch r := requestValue(req).(type) {
 	case rpc.PermissionRequestShell:
-		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
-	case *rpc.PermissionRequestShell:
 		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
 	case rpc.PermissionRequestWrite:
 		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
-	case *rpc.PermissionRequestWrite:
-		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
 	case rpc.PermissionRequestRead:
-		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
-	case *rpc.PermissionRequestRead:
 		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
 	case rpc.PermissionRequestURL:
 		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
-	case *rpc.PermissionRequestURL:
-		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
 	case rpc.PermissionRequestMCP:
-		return mcpCalls(r.ServerName, r.ToolName)
-	case *rpc.PermissionRequestMCP:
 		return mcpCalls(r.ServerName, r.ToolName)
 	}
 	return nil
+}
+
+// requestValue is req with a pointer to one of ruleCalls' kinds dereferenced, so each kind is matched once.
+func requestValue(req copilot.PermissionRequest) any {
+	switch r := req.(type) {
+	case *rpc.PermissionRequestShell:
+		return *r
+	case *rpc.PermissionRequestWrite:
+		return *r
+	case *rpc.PermissionRequestRead:
+		return *r
+	case *rpc.PermissionRequestURL:
+		return *r
+	case *rpc.PermissionRequestMCP:
+		return *r
+	}
+	return req
 }
 
 // mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
@@ -178,5 +185,5 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 	return &rpc.PermissionDecisionApproveOnce{}, nil
 }
 
-// webSearchServer is the harness Tavily MCP server (`network websearch`), the one MCP server the read-only tier may call.
+// webSearchServer is the harness Tavily MCP server (`network websearch`), the one the read-only tier may call.
 const webSearchServer = "web_search"

@@ -70,16 +70,9 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, err
 	}
-	var requested []string // empty stays nil so the pin or default applies
-	if m := models.Strip1M(t.Model); m != "" {
-		requested = []string{m}
-	}
-	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice(requested, ""))
-	if cr.Note != "" {
-		wire.EventLogFor(ctx).Emit("note", cr.Note)
-	}
+	cr, ref, err := selectTargetModel(ctx, reg, t, eps, base)
 	if err != nil {
-		return nil, fmt.Errorf("copilot: %w", err)
+		return nil, err
 	}
 	home, err := prepareCopilotHome(false)
 	if err != nil {
@@ -93,6 +86,24 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
 	return &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}, nil
+}
+
+// selectTargetModel selects t.Model (none: the pin or default) from eps, logging the selection's note.
+func selectTargetModel(ctx context.Context, reg *providers.Registry, t providers.Target, eps []CopilotEndpoint,
+	base string,
+) (copilotRegistry, string, error) {
+	var requested []string // empty stays nil so the pin or default applies
+	if m := models.Strip1M(t.Model); m != "" {
+		requested = []string{m}
+	}
+	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice(requested, ""))
+	if cr.Note != "" {
+		wire.EventLogFor(ctx).Emit("note", cr.Note)
+	}
+	if err != nil {
+		return cr, "", fmt.Errorf("copilot: %w", err)
+	}
+	return cr, ref, nil
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
@@ -110,7 +121,7 @@ func (rt *copilotRegistryRoute) close() {
 	_ = revokeSession(ctx, rt.token)
 }
 
-// copilotRegistryProvider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions or responses.
+// copilotRegistryProvider is one named upstream: Type anthropic|openai, WireAPI "" (anthropic), completions|responses.
 type copilotRegistryProvider struct {
 	Name    string
 	Type    string
@@ -150,8 +161,7 @@ var copilotWireRoute = map[string]struct{ typ, wireAPI string }{
 	providers.ProtocolResponses: {"openai", "responses"},
 }
 
-// copilotBuildRegistry maps profile p's endpoints to registry data against routerBase (the router root, no /p/<profile>).
-// An endpoint whose canonical id repeats an earlier one is dropped, so every id selects one model.
+// copilotBuildRegistry maps p's endpoints onto routerBase (no /p/<profile>); a repeated canonical id is dropped.
 func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEndpoint, routerBase string) copilotRegistry {
 	r := copilotRegistry{Profile: profile}
 	base := strings.TrimRight(routerBase, "/") + "/p/" + profile
@@ -253,8 +263,7 @@ var (
 	errRepeatedSelection = errors.New("model selected more than once")
 )
 
-// modelChoice is every place a model can come from, highest priority first: Requested (each --model given),
-// Pin (the vault pin value); none set picks the default.
+// modelChoice is a model's sources, highest first: Requested (each --model), Pin (the vault pin); none = the default.
 type modelChoice struct {
 	Requested []string
 	Pin       string
@@ -315,8 +324,7 @@ func (r copilotRegistry) find(s string, miss error) (string, error) {
 	return "", fmt.Errorf("%w: %q (profile %s)", miss, s, r.Profile)
 }
 
-// copilotEndpointWire is the passthrough wire for model on the Databricks row p (providers.WireFor) and its canonical id; a
-// Claude model, or any model on another row, rides anthropic. ok is false, with why, when p has no route serving it.
+// copilotEndpointWire is model's passthrough wire on Databricks row p and its canonical id; else anthropic; !ok = why.
 func copilotEndpointWire(p *providers.Provider, model string) (wire, canonical string, ok bool, why string) {
 	canonical = canonicalOf(model)
 	if p.Preset != providers.PresetDatabricks || models.FamilyKind(canonical) == models.FamilyClaude {
@@ -329,7 +337,7 @@ func copilotEndpointWire(p *providers.Provider, model string) (wire, canonical s
 // copilotMaxOutputTokens is the output cap current Claude/GPT tiers accept; a catalog-less id needs one.
 const copilotMaxOutputTokens = 32_000
 
-// copilotCaps returns id's context window and output cap: window and copilotMaxOutputTokens, lowered by any documented catalog limit.
+// copilotCaps is id's context window and output cap (window, copilotMaxOutputTokens), lowered by a catalog limit.
 func copilotCaps(window int, id string) (ctx, output int) {
 	ctx, output = window, copilotMaxOutputTokens
 	l, ok := models.Limits(id)
@@ -350,8 +358,7 @@ func CopilotRegistryFile(dir string, pid int) string {
 	return filepath.Join(dir, strconv.Itoa(pid)+".json")
 }
 
-// CopilotRuntimeDir creates (0700) and verifies the registry directory: a real dir, owned by this uid, mode 0700,
-// and memory-backed where the platform allows (see backingCheck).
+// CopilotRuntimeDir creates and verifies the registry dir: real, this uid's, mode 0700, memory-backed if possible.
 func CopilotRuntimeDir() (string, error) {
 	dir, err := paths.CopilotRuntimeDirPath()
 	if err != nil {
@@ -399,8 +406,7 @@ func copilotChoice(requested []string, profileModel string) modelChoice {
 // copilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
 const copilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
-// copilotRegistryEligible: a keyed Databricks profile the router can mint a session for (not direct, not a login,
-// not auth none/cli — the router cannot authenticate those rows), except armed on macOS, which runs routed BYOK.
+// copilotRegistryEligible: a keyed Databricks row the router mints for (no direct/login/none/cli), not armed on macOS.
 func copilotRegistryEligible(direct bool, t providers.Target) bool {
 	p := t.Provider
 	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
@@ -424,17 +430,9 @@ func configureCopilotRegistry(
 	}
 	p := t.Provider
 	requested, rest := splitModelFlags(args)
-	eps, err := discoverModels(ctx, reg, p)
+	r, ref, err := registrySelection(ctx, reg, t, requested, dry)
 	if err != nil {
-		return agent.RegistryLaunch{}, fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
-	}
-	rb, err := copilotRouterBase(ctx, dry)
-	if err != nil {
-		return agent.RegistryLaunch{}, fmt.Errorf("copilot: router: %w", err)
-	}
-	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested, t.Model))
-	if err != nil {
-		return agent.RegistryLaunch{}, fmt.Errorf("copilot: %w", err)
+		return agent.RegistryLaunch{}, err
 	}
 	file, files, token, err := registryFile(ctx, r, p.Name, os.Getpid(), dry)
 	revoke := func() { // a launch that never minted a token is a no-op
@@ -463,6 +461,25 @@ func configureCopilotRegistry(
 	}, nil
 }
 
+// registrySelection discovers t's profile models and selects requested (else t.Model, pin, default) on the router.
+func registrySelection(ctx context.Context, reg *providers.Registry, t providers.Target, requested []string, dry bool,
+) (copilotRegistry, string, error) {
+	p := t.Provider
+	eps, err := discoverModels(ctx, reg, p)
+	if err != nil {
+		return copilotRegistry{}, "", fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
+	}
+	rb, err := copilotRouterBase(ctx, dry)
+	if err != nil {
+		return copilotRegistry{}, "", fmt.Errorf("copilot: router: %w", err)
+	}
+	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested, t.Model))
+	if err != nil {
+		return copilotRegistry{}, "", fmt.Errorf("copilot: %w", err)
+	}
+	return r, ref, nil
+}
+
 // copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
 func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 	if !dry {
@@ -474,7 +491,7 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 	return gateway.ViaBase(gateway.Base(gateway.DefaultPort)), nil
 }
 
-// prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir; Exec writes it.
+// prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).
 func prepareRegistry(ctx context.Context, r copilotRegistry, profile string, pid int,
 ) (agent.LaunchFile, string, error) {
 	token, err := mintSession(ctx, profile, pid)
@@ -527,7 +544,7 @@ func splitModelFlags(args []string) (models, rest []string) {
 	return models, rest
 }
 
-// copilotSelect builds the registry for p behind the router and selects c; a model miss on a snapshot list relists once.
+// copilotSelect builds p's registry behind the router and selects c; a model miss on a snapshot list relists once.
 func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Provider, eps []CopilotEndpoint,
 	base string, c modelChoice,
 ) (copilotRegistry, string, error) {

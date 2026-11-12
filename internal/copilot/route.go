@@ -18,8 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// copilotGate keeps t unless it is copilot's GitHub login on an unworkable pin; then the Databricks fallback and its
-// notice — never another GitHub account.
+// copilotGate keeps t unless copilot's GitHub login is unworkable; then the Databricks fallback, never another account.
 func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
@@ -66,8 +65,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 		Reason: "copilot: " + detail + "; no credit-free route for copilot (no Databricks profile signed in)"}
 }
 
-// fallbackProfiles is the Databricks fallback's try order: this session's (else claude's pinned) profile, then every
-// Databricks row, the lead listed once.
+// fallbackProfiles is the fallback's try order: the session's (else claude's pinned) profile, then each Databricks row.
 func fallbackProfiles(reg *providers.Registry) []string {
 	lead := providers.SessionLead(nil, true)
 	names := []string{lead}
@@ -114,9 +112,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: " + s.CLI.ConfigureHint}
 }
 
-// copilotRouteDetail reports the copilot CLI's resolved dispatch (DescribeRoute): its own GitHub login,
-// BYOK with an anthropic key, or none — names/booleans/dispatch only, never a credential. On the
-// GitHub login dispatch it also names COPILOT_MODEL's source and the effort/context pins every launch reads.
+// copilotRouteDetail is copilot's resolved dispatch, never a credential; its GitHub login adds model source and pins.
 func copilotRouteDetail(reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
@@ -213,15 +209,15 @@ func (e copilotEngine) RenderSettings(ctx context.Context, s agent.Settings, env
 	return env, argv, emulated, cleanup, nil
 }
 
-// copilotWire wires BYOK; window is the model's context window (providers.ContextWindow), which sizes the prompt cap.
-func copilotWire(
-	p *providers.Provider, dialect, base, model string, window int, cred string, routed bool, h *agent.Headless,
-) ([]string, []string, error) {
-	typ, base, wire, modelID, err := copilotEndpoint(p, dialect, base, model, routed)
+// copilotWire wires BYOK; the target's context window (providers.ContextWindow) sizes the prompt cap.
+func copilotWire(r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
+	p, model := r.Provider, r.Model
+	typ, base, wire, modelID, err := copilotEndpoint(p, r.Dialect, r.Base, model, r.Routed)
 	if err != nil {
 		return nil, nil, err
 	}
-	window, output := copilotCaps(window, model)
+	client := providers.Target{Provider: r.Target.Provider, Model: r.Target.Model, OneM: r.Target.OneM}.ClientModel()
+	window, output := copilotCaps(providers.ContextWindow(r.Target.Provider, client), model)
 	env := []string{
 		proc.EnvCopilotProviderBaseURL + "=" + base,
 		proc.EnvCopilotProviderType + "=" + typ,
@@ -241,10 +237,10 @@ func copilotWire(
 	if n := models.PromptTokens(window, output); n > 0 {
 		env = append(env, proc.EnvCopilotProviderMaxPromptTokens+"="+strconv.Itoa(n))
 	}
-	return append(env, copilotCredEnv(p, cred)...), copilotArgv(h), nil
+	return append(env, copilotCredEnv(p, r.Cred)...), copilotArgv(h), nil
 }
 
-// copilotEndpoint picks the BYOK type and base; a non-Claude model on an anthropic dialect takes its openai|responses wire.
+// copilotEndpoint picks the BYOK type and base; a non-Claude model on anthropic takes its openai|responses wire.
 func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed bool) (typ, b, wire, modelID string, err error) {
 	if dialect != providers.ProtocolAnthropic {
 		return "openai", base, "", "", nil
@@ -285,9 +281,7 @@ func copilotCredEnv(p *providers.Provider, cred string) []string {
 	return env
 }
 
-// ValidateCopilotPins checks each pin whose effective provider is github-copilot against its live catalog.
-// Returns a warning when the catalog itself is unreachable (pin still written by the caller); an unknown
-// id is a hard error naming near matches, which the caller must surface before writing anything.
+// ValidateCopilotPins checks pins against their live catalog: unreachable warns (pin written), an unknown id errors.
 func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
 	fallback := providerFlag
 	if fallback == "" {
