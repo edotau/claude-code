@@ -225,27 +225,27 @@ func underAnyRoot(real string, roots []string) bool {
 
 // serveRoots lists the only trees a file may be served from: home and the temp roots, symlinks resolved.
 func serveRoots(home string) []string {
-	var roots []string
-	for _, d := range []string{home, os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"} {
-		if d == "" {
+	return withTargets([]string{home, os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"})
+}
+
+// withTargets returns each non-empty path followed by its symlink target when that resolves.
+func withTargets(ps []string) []string {
+	var out []string
+	for _, p := range ps {
+		if p == "" {
 			continue
 		}
-		roots = append(roots, d)
-		if r, err := filepath.EvalSymlinks(d); err == nil {
-			roots = append(roots, r)
+		out = append(out, p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			out = append(out, r)
 		}
 	}
-	return roots
+	return out
 }
 
 // underSecretRoot reports whether real is a denied root or inside one, by path string or by file identity.
 func underSecretRoot(real string, roots []string) bool {
-	for _, deny := range roots {
-		if paths.Within(real, deny) {
-			return true
-		}
-	}
-	return ancestorIsRoot(real, roots)
+	return underAnyRoot(real, roots) || ancestorIsRoot(real, roots)
 }
 
 // ancestorIsRoot reports whether an ancestor of real is os.SameFile as a denied root (case-insensitive FS safe).
@@ -280,7 +280,6 @@ var secretHomeDirs = []string{
 
 // secretRoots lists the secret paths under home plus the config dir's state, both as named and as symlink targets.
 func secretRoots(home string) []string {
-	var roots []string
 	var named []string
 	if cfg := paths.ConfigDir(); cfg != "" {
 		named = append(named, filepath.Join(cfg, "state"))
@@ -288,13 +287,7 @@ func secretRoots(home string) []string {
 	for _, d := range secretHomeDirs {
 		named = append(named, filepath.Join(home, filepath.FromSlash(d)))
 	}
-	for _, p := range named {
-		roots = append(roots, p)
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			roots = append(roots, r)
-		}
-	}
-	return roots
+	return withTargets(named)
 }
 
 // logServed appends the served path (never its bytes) to the clip-serve log, best effort.

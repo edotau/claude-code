@@ -207,19 +207,6 @@ func TestScheduleClearRefusedUnderTest(t *testing.T) {
 	}
 }
 
-func TestScheduleClearArgsAndStdin(t *testing.T) {
-	// testing.Testing() blocks the real path, so assert the contract through the seam directly.
-	var gotArgs []string
-	var gotStdin []byte
-	old := spawnClear
-	spawnClear = func(_ string, args []string, stdin []byte) error { gotArgs, gotStdin = args, stdin; return nil }
-	t.Cleanup(func() { spawnClear = old })
-	_ = spawnClear("self", []string{"clip-clear", "--after", "30s"}, []byte(Digest(secret)))
-	if string(gotStdin) != Digest(secret) || strings.Contains(strings.Join(gotArgs, " "), secret) {
-		t.Errorf("args=%v stdin=%q", gotArgs, gotStdin)
-	}
-}
-
 func TestErrorsNeverContainValue(t *testing.T) {
 	for _, p := range platforms {
 		t.Run(p.label, func(t *testing.T) {
