@@ -27,12 +27,13 @@ claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
-  (`CHECK=1` runs `configure --check` instead; `TAILSCALE=1` adds tailscale).
+  (`CHECK=1` runs `configure --check` instead).
 - `claude-code install --dry-run` previews; an existing `settings.json` is kept as yours and only checked for validity.
-- A missing agent CLI is reported, never downloaded. `make agent-clis` installs or updates them all and runs
-  `claude-code doctor` (`TOOLS=copilot,codex` picks; `DRY_RUN=1` previews); `claude-code install --tools=<name>` is
-  the same without the check. Each vendor installer runs with credentials scrubbed and puts its binary in
-  `~/.local/bin` (on `PATH`); install links it as `bin/<agent>`. Confirm with `<agent> --version`, the doctor
+- `make install` installs any missing agent CLI and Tailscale, never updating one already present
+  (`claude-code install --tools --missing`). `TOOLS=1` installs or updates them all and runs `claude-code doctor`
+  (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
+  installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
+  `bin/<agent>`. Confirm with `<agent> --version`, the doctor
   `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
 - `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
@@ -420,7 +421,7 @@ every embedded (`//go:embed`) template.
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
-| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make tailscale-cli` installs it) |
+| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |

@@ -200,7 +200,7 @@ func assertDryRunNpmPrefixes(t *testing.T, name, pkg, prefixA, prefixB, marker s
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	if err := Install(ctx, &out, []string{name}, true); err != nil {
+	if err := Install(ctx, &out, []string{name}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	// The code prints symlink-resolved prefixes; macOS TempDir lives under /var → /private/var.
@@ -227,7 +227,7 @@ func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	if err := Install(ctx, &out, []string{"opencode"}, false); !errors.Is(err, wantErr) {
+	if err := Install(ctx, &out, []string{"opencode"}, false, false); !errors.Is(err, wantErr) {
 		t.Fatalf("Install error = %v, want %v", err, wantErr)
 	}
 	if got := npmCleanupLines(out.String()); len(got) != 0 {
@@ -267,7 +267,7 @@ func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			var out bytes.Buffer
-			if err := Install(ctx, &out, []string{"opencode"}, false); err != nil {
+			if err := Install(ctx, &out, []string{"opencode"}, false, false); err != nil {
 				t.Fatal(err)
 			}
 			if got := npmCleanupLines(out.String()); len(got) != 0 {
@@ -353,7 +353,7 @@ func TestInstallSelectedCopilotDryRunReportsInstallDir(t *testing.T) {
 			})
 
 			var out bytes.Buffer
-			if err := Install(context.Background(), &out, []string{"copilot"}, true); err != nil {
+			if err := Install(context.Background(), &out, []string{"copilot"}, true, false); err != nil {
 				t.Fatal(err)
 			}
 			if want := "  into     " + wantDir; !strings.Contains(out.String(), want) {

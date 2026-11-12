@@ -64,19 +64,23 @@ func lookup(name string) (tool, bool) {
 	return tool{}, false
 }
 
-// Install installs/updates names (empty = all), retiring replaced npm-global copies and @google/gemini-cli.
-func Install(ctx context.Context, w io.Writer, names []string, dryRun bool) error {
+// Install installs/updates names (empty = all), retiring replaced npm-global copies and @google/gemini-cli;
+// missingOnly installs only binaries absent from PATH and never updates a present one.
+func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOnly bool) error {
 	sel, err := resolve(names)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, t := range sel {
-		fmt.Fprintf(w, "== %s ==\n", t.Name)
 		old := directInstall(t)
-		if old == "" {
+		if old == "" && t.Binary != "" {
 			old, _ = paths.LookPathReal(t.Binary)
 		}
+		if missingOnly && (t.Binary == "" || old != "") {
+			continue
+		}
+		fmt.Fprintf(w, "== %s ==\n", t.Name)
 		dir := installDir(t, old)
 		if err := runOne(ctx, w, t, old, dir, dryRun); err != nil {
 			fmt.Fprintf(w, "  error: %v\n", err)

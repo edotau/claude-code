@@ -104,7 +104,7 @@ func TestCompletionExact(t *testing.T) {
 		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
 		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
-		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--setup", "--tools", "--verbose"}},
+		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
 		{"theme flags", []string{"theme", "--"}, []string{"--palettes", "--reset"}},
 		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--format", "--git", "--mcp", "--prompts",
 			"--range", "--refresh", "--scan", "--secrets", "--since"}},
