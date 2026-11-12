@@ -26,9 +26,9 @@ import (
 )
 
 const (
-	sessionTTL     = 12 * time.Hour  // idle lifetime, renewed per accepted request while the process lives
-	sessionVerify  = 2 * time.Second // how long a liveness check is trusted
-	sessionPersist = time.Hour       // a slid expiry is written to disk once it leads the saved one by this much
+	sessionTTL     = 7 * 24 * time.Hour // idle lifetime, renewed per accepted request while the process lives
+	sessionVerify  = 2 * time.Second    // how long a liveness check is trusted
+	sessionPersist = time.Hour          // a slid expiry is written to disk once it leads the saved one by this much
 	sessionMax     = 256
 	sessionTokenPf = "cct_"
 )

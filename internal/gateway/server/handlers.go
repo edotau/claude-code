@@ -172,6 +172,9 @@ func retryAfter(v string, now time.Time) time.Duration {
 	return min(d, maxCooldown)
 }
 
+// registryRetry spaces vault reloads after a failed load.
+const registryRetry = 5 * time.Second
+
 // registry reloads on vault mtime changes, keeping the last good table on a bad overlay or a busy vault.
 func (r *Router) registry() (*providers.Registry, error) {
 	var stamp time.Time
@@ -186,6 +189,9 @@ func (r *Router) registry() (*providers.Registry, error) {
 	if reg, ok := r.cachedRegistry(stamp); ok { // another caller loaded it while this one waited
 		return reg, nil
 	}
+	if prev, backoff := r.registryBackoff(); backoff {
+		return prev, nil
+	}
 	reg, err := loadRegistry()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -193,12 +199,20 @@ func (r *Router) registry() (*providers.Registry, error) {
 		if r.reg == nil {
 			return nil, err
 		}
-		// regStamp stays behind so the next call retries providers.Load instead of caching the failure.
-		fmt.Fprintf(r.log, "proxy: keeping previous registry: %v\n", err)
+		// regStamp stays behind and retries wait out registryRetry, so a bad overlay is neither cached nor hammered.
+		r.regRetry = r.now().Add(registryRetry)
+		fmt.Fprintf(r.log, "proxy: keeping previous registry (retry in %s): %v\n", registryRetry, err)
 		return r.reg, nil
 	}
-	r.reg, r.regStamp = reg, stamp
+	r.reg, r.regStamp, r.regRetry = reg, stamp, time.Time{}
 	return reg, nil
+}
+
+// registryBackoff returns the previous registry while a failed load's retry window is still open.
+func (r *Router) registryBackoff() (*providers.Registry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reg, r.reg != nil && r.now().Before(r.regRetry)
 }
 
 // cachedRegistry returns the loaded table when it matches the vault stamp.
