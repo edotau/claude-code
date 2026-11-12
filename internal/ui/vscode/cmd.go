@@ -3,6 +3,7 @@ package vscode
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -26,13 +27,15 @@ func Run(args []string) int {
 			"settings.json is the User scope, which Settings Sync syncs; under\n" +
 			"~/.vscode-server it is the Machine scope, which Settings Sync skips.\n" +
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
-			"Link the Claude Code Agents extension into the detected extensions directory."})
+			"Link the Claude Code Agents extension into the detected extensions directory.\n" +
+			"Write one chatLanguageModels.json group per signed-in Databricks profile."})
 	var o syncOptions
 	fs.StringVar(&o.Template, "template", "", "settings template to merge (default: the one embedded in the binary)")
 	fs.StringVar(&o.Dest, "dest", "", "VS Code settings.json (default: platform-detected)")
 	fs.StringVar(&o.ExtensionsDir, "extensions-dir", "", "link the Agents extension here (default: platform-detected)")
 	fs.StringVar(&o.KeybindingsTemplate, "keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
 	fs.StringVar(&o.KeybindingsDest, "keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
+	fs.StringVar(&o.ModelsDest, "models-dest", "", "chatLanguageModels.json (default: beside --dest)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
 	if code, done := helptext.Parse(fs, args); done {
@@ -85,6 +88,10 @@ func (o vscodeReport) check() int {
 		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.ExtResult.Target)
 		drift = true
 	}
+	if !o.Models.Skip && o.Models.Result.Changed {
+		fmt.Fprintf(os.Stderr, "claude-code: vscode DRIFT %s\n", o.Models.Dest)
+		drift = true
+	}
 	if drift {
 		return 1
 	}
@@ -95,8 +102,10 @@ func (o vscodeReport) check() int {
 
 func (o vscodeReport) dryRun() {
 	reportDryRun("template", o.DestPath, o.Result.Changed)
-	reportKeybindings(o.Skip, o.Note, func() { reportDryRun("keybindings template", o.KbDestPath, o.KbResult.Changed) })
+	reportSkip("keybindings", o.Skip, o.Note, func() { reportDryRun("keybindings template", o.KbDestPath, o.KbResult.Changed) })
 	reportDryRun("extension", o.ExtResult.Target, o.ExtResult.Changed)
+	reportSkip("chat models", o.Models.Skip, o.Models.Note, func() { reportDryRun("chat models", o.Models.Dest, o.Models.Result.Changed) })
+	o.reportGroups()
 }
 
 func (o vscodeReport) apply() {
@@ -110,13 +119,22 @@ func (o vscodeReport) apply() {
 
 func (o vscodeReport) reportMerges() {
 	reportMerge("template", o.DestPath, o.Result)
-	reportKeybindings(o.Skip, o.Note, func() { reportMerge("keybindings template", o.KbDestPath, o.KbResult) })
+	reportSkip("keybindings", o.Skip, o.Note, func() { reportMerge("keybindings template", o.KbDestPath, o.KbResult) })
+	reportSkip("chat models", o.Models.Skip, o.Models.Note, func() { reportMerge("chat models", o.Models.Dest, o.Models.Result) })
+	o.reportGroups()
 }
 
-// reportKeybindings prints the skip note, or calls report, depending on whether syncKeybindings ran.
-func reportKeybindings(skip bool, note string, report func()) {
+// reportGroups lists the Databricks model-picker groups the chat models merge owns.
+func (o vscodeReport) reportGroups() {
+	if !o.Models.Skip && len(o.Models.Groups) > 0 {
+		fmt.Printf("claude-code: vscode chat model groups: %s\n", strings.Join(o.Models.Groups, ", "))
+	}
+}
+
+// reportSkip prints label's skip note, or calls report when that part ran.
+func reportSkip(label string, skip bool, note string, report func()) {
 	if skip {
-		fmt.Printf("claude-code: vscode keybindings skipped: %s\n", note)
+		fmt.Printf("claude-code: vscode %s skipped: %s\n", label, note)
 		return
 	}
 	report()
@@ -133,5 +151,5 @@ func reportDryRun(label, dest string, changed bool) {
 // Spec is the completion node for `theme vscode`.
 func Spec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("template"), helptext.Plain("dest"), helptext.Plain("extensions-dir"),
-		helptext.Plain("keybindings-template"), helptext.Plain("keybindings-dest"), helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
+		helptext.Plain("keybindings-template"), helptext.Plain("keybindings-dest"), helptext.Plain("models-dest"), helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
 }

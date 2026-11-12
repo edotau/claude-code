@@ -210,7 +210,7 @@ func agyLoginMarkers(home string) []string {
 // agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const agyDefaultModel = "gemini-3.8-flash-high"
 
-// agyGatewayArg returns the dotted catalog id agy lists for model (effort suffix dropped) and the --model agy takes in
+// agyGatewayArg returns the Databricks name agy lists for model (effort suffix dropped) and the --model agy takes in
 // gateway mode (base plus model's effort suffix); a non-Gemini id (a Databricks Claude slot) falls back to the
 // GEMINI_MODEL pin, else agyDefaultModel.
 func agyGatewayArg(model string) (base, arg string) {
@@ -231,7 +231,7 @@ func agyGatewayArg(model string) (base, arg string) {
 	return base, base + "-" + effort
 }
 
-// agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to a Gemini catalog id.
+// agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to the Databricks endpoint name.
 func agyGatewayBase(id string) (base, effort string, ok bool) {
 	if before, suffix, ok := splitEffort(id); ok {
 		if b, _, ok := agyGatewayBase(before); ok {
@@ -242,7 +242,7 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 	if !ok || models.FamilyKind(canonical) != models.FamilyGemini {
 		return "", "", false
 	}
-	return models.Wire("dotted", canonical), "", true
+	return models.Wire("databricks-serving", canonical), "", true // agy lists it as written: the name shows Databricks
 }
 
 // geminiGateway runs agy on the router's /p/<profile>/gemini route; agy holds only a profile-scoped session token.
@@ -278,9 +278,9 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 }
 
 // agyFlashLite is the model agy's flash-lite tier runs when the profile serves it.
-const agyFlashLite = "gemini-3.1-flash-lite"
+const agyFlashLite = "databricks-gemini-3-1-flash-lite"
 
-// agyServedGemini lists the READY Gemini models (dotted) in p's fresh cached listing; nil when cold. A var for tests.
+// agyServedGemini lists the READY Gemini endpoint names in p's fresh cached listing; nil when cold. A var for tests.
 var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
 	s, ok := router.LoadServed(p.Name)
 	if !ok || !s.Fresh(now) {

@@ -75,6 +75,11 @@ static menu: routing never touches the network.
   `<workspace>/serving-endpoints/anthropic`, codex `/serving-endpoints/responses` (stays on Responses), copilot and
   opencode `/serving-endpoints/chat/completions`. Probe a route with a real `claude-code agents ask`, not a hand-built
   `curl`.
+- VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile
+  (cached READY chat endpoints, full names) into `chatLanguageModels.json`, routed through `/p/<profile>/`; other
+  groups stay byte-for-byte. The file holds only `${input:harnessProxyToken}`: mint the value with
+  `claude-code gateway proxy --client-token <name>` (printed once; the vault keeps only its SHA-256), revoke with
+  `--revoke-client-token <name>`. The proxy accepts it only on Databricks serving rows' `/p/` routes (else 403).
 
 ## Databricks service-principal identity
 

@@ -66,6 +66,7 @@ type proxyOpts struct {
 	start, stop, restart, status, serve bool
 	port                                int
 	format                              *string
+	clientToken, revokeClientToken      string
 }
 
 func proxyFlags() (*flag.FlagSet, *proxyOpts) {
@@ -88,6 +89,8 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
 	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
+	fs.StringVar(&o.clientToken, "client-token", "", "mint a named editor token; print it once")
+	fs.StringVar(&o.revokeClientToken, "revoke-client-token", "", "delete the named editor token")
 	return fs, o
 }
 
@@ -104,7 +107,7 @@ func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 
 func (o *proxyOpts) modeCount() int {
 	n := 0
-	for _, b := range []bool{o.start, o.stop, o.restart, o.status, o.serve} {
+	for _, b := range []bool{o.start, o.stop, o.restart, o.status, o.serve, o.clientToken != "", o.revokeClientToken != ""} {
 		if b {
 			n++
 		}
@@ -114,14 +117,15 @@ func (o *proxyOpts) modeCount() int {
 
 func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
 	if o.modeCount() > 1 {
-		return helptext.Fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve"), false
+		return helptext.Fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve, " +
+			"--client-token, --revoke-client-token"), false
 	}
 	portSet := false
 	fs.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "port" })
 	if portSet && !o.serve {
 		return helptext.Fail("gateway proxy: --port needs --serve"), false
 	}
-	if *o.format == helptext.JSON && (o.start || o.stop || o.restart || o.serve) {
+	if *o.format == helptext.JSON && o.modeCount() > 0 && !o.status {
 		return helptext.Fail("gateway proxy: --format json applies to --status only"), false
 	}
 	return 0, true
@@ -146,6 +150,10 @@ func cmdGatewayProxy(args []string) int {
 		return proxyRestart(ctx)
 	case o.stop:
 		return proxyStopHold(ctx)
+	case o.clientToken != "":
+		return proxyClientToken(o.clientToken)
+	case o.revokeClientToken != "":
+		return proxyRevokeClientToken(o.revokeClientToken)
 	}
 	return proxyStatus(ctx, *o.format)
 }
@@ -160,6 +168,33 @@ func proxyStart(ctx context.Context) int {
 	if _, err := fmt.Println(base); err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
+	return 0
+}
+
+// proxyClientToken mints name's client token and prints it once to stdout; the instruction goes to stderr.
+func proxyClientToken(name string) int {
+	tok, err := server.MintClientToken(name)
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	fmt.Fprintln(os.Stderr, "claude-code: paste this once into VS Code's harnessProxyToken prompt; it is not shown again")
+	if _, err := fmt.Println(tok); err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	return 0
+}
+
+// proxyRevokeClientToken deletes name's client token; an unknown name exits 1.
+func proxyRevokeClientToken(name string) int {
+	existed, err := server.RevokeClientToken(name)
+	if err != nil {
+		return helptext.Fail("gateway proxy: %v", err)
+	}
+	if !existed {
+		fmt.Fprintf(os.Stderr, "claude-code: no client token named %s\n", name)
+		return 1
+	}
+	fmt.Printf("claude-code: revoked client token %s\n", name)
 	return 0
 }
 
@@ -477,6 +512,8 @@ func gatewaySpec() *helptext.Node {
 				{Name: "status", IsBool: true},
 				{Name: "serve", IsBool: true},
 				{Name: "port"},
+				{Name: "client-token"},
+				{Name: "revoke-client-token"},
 				helptext.CompletionFormatFlag(),
 			},
 		},

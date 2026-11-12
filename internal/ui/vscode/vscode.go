@@ -148,8 +148,8 @@ var defaultTemplate []byte
 
 // syncOptions are `theme vscode`'s paths; an empty field resolves to the platform default.
 type syncOptions struct {
-	Template, Dest, ExtensionsDir, KeybindingsTemplate, KeybindingsDest string
-	Check                                                               bool // never write (--check and --dry-run)
+	Template, Dest, ExtensionsDir, KeybindingsTemplate, KeybindingsDest, ModelsDest string
+	Check                                                                           bool // never write (--check and --dry-run)
 }
 
 // outcome is one sync run's results: settings template, keybindings and extension link.
@@ -161,6 +161,16 @@ type outcome struct {
 	Note       string
 	KbResult   mergeResult
 	ExtResult  extensionResult
+	Models     modelsOutcome
+}
+
+// modelsOutcome is the chatLanguageModels.json merge: its path, or why it was skipped.
+type modelsOutcome struct {
+	Dest   string
+	Skip   bool
+	Note   string
+	Result mergeResult
+	Groups []string // "<group> (<n> models)" per Databricks group written
 }
 
 // syncAll merges the settings and keybindings templates and links the Agents extension.
@@ -185,6 +195,9 @@ func syncAll(o syncOptions) (outcome, error) {
 			return out, err
 		}
 	}
+	if out.Models, err = syncModelsFor(o); err != nil {
+		return out, err
+	}
 	extDir := o.ExtensionsDir
 	if extDir == "" {
 		if extDir, err = defaultExtensionsDir(); err != nil {
@@ -206,4 +219,15 @@ func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bo
 	default:
 		return defaultKeybindingsDest()
 	}
+}
+
+// syncModelsFor resolves the chat models file next to the settings dest (or --models-dest) and merges it.
+func syncModelsFor(o syncOptions) (modelsOutcome, error) {
+	var m modelsOutcome
+	var err error
+	if m.Dest, m.Skip, m.Note, err = resolveModelsDest(o.ModelsDest, o.Dest); err != nil || m.Skip {
+		return m, err
+	}
+	m.Result, m.Groups, err = syncModels(m.Dest, o.Check)
+	return m, err
 }
