@@ -50,11 +50,6 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 	return agents, nil
 }
 
-// discoverSkills reads skills/<dir>/SKILL.md, symlinked dirs resolving inside skills/ included; skills/synced is out.
-func discoverSkills(skillsDir string) ([]Source, error) {
-	return discoverSources(skillsDir, "SKILL.md")
-}
-
 // validateUniqueNames rejects skills that would write to the same output name.
 func validateUniqueNames(sources []Source) error {
 	seen := make(map[string]string, len(sources))
@@ -77,8 +72,8 @@ func readDirOrNil(dir string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
-// discoverSources returns every child dir of root holding a regular <filename>; read errors propagate.
-func discoverSources(root, filename string) ([]Source, error) {
+// discoverSkills reads skills/<dir>/SKILL.md, symlinked dirs resolving inside skills/ included; skills/synced is out.
+func discoverSkills(root string) ([]Source, error) {
 	entries, err := readDirOrNil(root)
 	if err != nil {
 		return nil, err
@@ -89,7 +84,7 @@ func discoverSources(root, filename string) ([]Source, error) {
 		if !sourceDir(root, e) {
 			continue
 		}
-		defPath := filepath.Join(root, d, filename)
+		defPath := filepath.Join(root, d, "SKILL.md")
 		if ok, err := regularFile(defPath); err != nil {
 			return nil, err
 		} else if !ok {

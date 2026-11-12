@@ -357,10 +357,7 @@ func lostLinesFor(label, path string, theirs, next []byte) ([]string, error) {
 	} else {
 		base, err = os.ReadFile(baselinePath(label, path))
 	}
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	if err != nil && !os.IsNotExist(err) { // both loaders return nil bytes with an error
 		return nil, err
 	}
 	if base == nil {

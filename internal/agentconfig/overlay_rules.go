@@ -96,7 +96,6 @@ func configLocationName(up string) bool {
 }
 
 // routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set, keep and unset.
-// DATABRICKS_HOST was allowed by D7 (set+keep); the owner's 2026-11-03 pick supersedes D7 for it.
 func routeRedirectName(up string) bool {
 	switch up {
 	case "DATABRICKS_HOST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",

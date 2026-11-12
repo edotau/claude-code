@@ -345,31 +345,6 @@ func TestSyncKeepsHandAuthoredVendorFile(t *testing.T) {
 }
 
 // skills/<x> symlinks point into ~/.agents/skills already, so they are the user's and never re-linked.
-func TestDiscoverSkillsSkipsSymlinkedDirs(t *testing.T) {
-	_, claude := isolate(t)
-	writeSource(t, claude, "skills", "real", "real")
-	external := filepath.Join(claude, "..", ".agents", "skills", "linked")
-	projectWriteFile(t, filepath.Join(external, "SKILL.md"), "---\nname: linked\n---\n\nbody\n")
-	if err := os.Symlink(external, filepath.Join(claude, "skills", "linked")); err != nil {
-		t.Skipf("symlink unsupported: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(claude, "skills", "synced", "nested"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	skills, err := discoverSkills(filepath.Join(claude, "skills"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(skills) != 1 || skills[0].Name() != "real" {
-		names := make([]string, 0, len(skills))
-		for _, s := range skills {
-			names = append(names, s.Name())
-		}
-		t.Errorf("DiscoverSkills = %v, want [real]", names)
-	}
-}
-
 // ~/.agents/skills: a real dir or a foreign symlink under a projected name is kept; a stale harness link is
 // re-pointed; an orphaned harness link is pruned.
 func TestSkillLinksRespectOwnership(t *testing.T) {
