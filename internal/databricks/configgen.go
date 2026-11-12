@@ -263,6 +263,7 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
 		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = p.WireModel(aliasID(alias))
 	}
+	env["CLAUDE_CODE_AUTO_MODE_MODEL"] = p.WireModel(aliasID(models.Opus)) // classifier default is unserved here
 	if o.Model != "" {
 		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
 	}
