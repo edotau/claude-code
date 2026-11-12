@@ -42,8 +42,6 @@ func (codexEngine) Attach(prompt string, paths []string, _ bool) (string, error)
 	return agent.AttachInline(prompt, rest)
 }
 
-func (codexEngine) RanModel(t providers.Target) string { return codexRanModel(t) }
-
 func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	res, prompt, env, argv := p.Result, p.Prompt, p.Env, p.Argv
 	res.Emulated = append(res.Emulated, p.Emulated...)
@@ -120,10 +118,6 @@ func codexEffortArgv(s agent.Settings, argv []string) ([]string, []string, error
 	return slices.Insert(slices.Clone(argv), at, "-c", "model_reasoning_effort="+agentconfig.TOMLQuote(native)), emulated, nil
 }
 
-func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
-	return codexLogin(model, h)
-}
-
 func (codexEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
 	return codex(ctx, r.Provider, r.Base, r.Model, r.Cred, h)
 }
@@ -143,7 +137,7 @@ func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, 
 
 // Verify runs `codex login status`; a deadline or a killed process is transient, never "not signed in".
 func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
-	dropAuthMemo()
+	authState.Drop() // forget every memoized AuthStatus so the next call re-reads the login
 	bin, err := paths.AgentBin("codex")
 	if err != nil {
 		return providers.VerdictTransient, err.Error()
@@ -188,9 +182,6 @@ var (
 
 // authSoftTTL bounds how long a keyring-backed signed-in result is reused without an auth.json to stat.
 const authSoftTTL = 5 * time.Second
-
-// dropAuthMemo forgets every memoized AuthStatus so the next call re-reads the login.
-func dropAuthMemo() { authState.Drop() }
 
 // codexTokens is the "tokens" object of an auth.json body.
 type codexTokens struct {
@@ -281,10 +272,6 @@ func (codexEngine) LaunchArgs(file string, args []string) ([]string, error) {
 	}
 	return append(overrides, args...), nil
 }
-
-func (codexEngine) ProfileHint(o agent.LaunchOptions) error { return codexProfileHint(o) }
-
-func (codexEngine) RouteDetail() (string, bool) { return codexRouteDetail(), true }
 
 var (
 	codexJSONMu    sync.Mutex
@@ -381,8 +368,8 @@ func codexResponsesModel(p *providers.Provider, model string) string {
 	return cmp.Or(providers.FirstResponsesModel(p), model)
 }
 
-// codexRanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
-func codexRanModel(t providers.Target) string {
+// RanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
+func (codexEngine) RanModel(t providers.Target) string {
 	if t.Provider == nil {
 		return t.Model
 	}
@@ -447,8 +434,8 @@ func codexHeaderEnv(k string) string {
 	return b.String()
 }
 
-// codexLogin runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
-func codexLogin(model string, h *agent.Headless) ([]string, []string, error) {
+// Login runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
+func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
