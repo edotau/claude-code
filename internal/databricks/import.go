@@ -524,26 +524,69 @@ func existingAuthType(raw json.RawMessage) string {
 	return p.Auth.Type
 }
 
-// rowJSON renders the vault row for a planned candidate.
-func rowJSON(r importRow) (json.RawMessage, error) {
-	auth := map[string]any{"type": r.Auth}
+// rowJSON renders the vault row for a planned candidate, merged onto prev (the existing row, nil for an add).
+func rowJSON(r importRow, prev json.RawMessage) (json.RawMessage, error) {
+	out, auth := map[string]json.RawMessage{}, map[string]json.RawMessage{}
+	if len(prev) > 0 {
+		if err := json.Unmarshal(prev, &out); err != nil {
+			return nil, fmt.Errorf("existing row %s: %w", r.ID, err)
+		}
+		if raw, ok := out["auth"]; ok {
+			if err := json.Unmarshal(raw, &auth); err != nil {
+				return nil, fmt.Errorf("existing row %s auth: %w", r.ID, err)
+			}
+		}
+	}
+	dropStaleBaseURL(out, r.Host)
+	fields := map[string]any{"type": r.Auth}
 	if r.Auth == providers.AuthM2M {
-		auth["clientId"] = r.ClientID
+		fields["clientId"] = r.ClientID
 	}
 	if r.AccountID != "" {
-		auth["accountId"] = r.AccountID
+		fields["accountId"] = r.AccountID
 	}
 	if r.WorkspaceID != "" {
-		auth["workspaceId"] = r.WorkspaceID
+		fields["workspaceId"] = r.WorkspaceID
 	}
 	if r.PairingSet && r.Auth == providers.AuthOAuth {
-		auth["spClientId"] = r.SPClientID
+		fields["spClientId"] = r.SPClientID
 	}
-	out := map[string]any{"preset": "databricks", "host": r.Host, "auth": auth}
+	top := map[string]any{"preset": "databricks", "host": r.Host}
 	if r.identity != "" {
-		out["identity"] = r.identity
+		top["identity"] = r.identity
 	}
+	if err := setFields(auth, fields); err != nil {
+		return nil, err
+	}
+	if err := setFields(out, top); err != nil {
+		return nil, err
+	}
+	ab, err := json.Marshal(auth)
+	if err != nil {
+		return nil, err
+	}
+	out["auth"] = ab
 	return json.Marshal(out)
+}
+
+// dropStaleBaseURL removes a base_url that no longer lies under the imported host, so the import's host wins.
+func dropStaleBaseURL(row map[string]json.RawMessage, host string) {
+	var u string
+	if json.Unmarshal(row["base_url"], &u) == nil && !strings.HasPrefix(u, host) {
+		delete(row, "base_url")
+	}
+}
+
+// setFields marshals each value of fields over dst's key, leaving dst's other keys as they were.
+func setFields(dst map[string]json.RawMessage, fields map[string]any) error {
+	for k, v := range fields {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		dst[k] = b
+	}
+	return nil
 }
 
 // applyRows writes the add/replace rows into the overlay doc's providers map.
@@ -560,7 +603,7 @@ func applyRows(top map[string]json.RawMessage, rows []importRow) error {
 		if r.Action == "skip" {
 			continue
 		}
-		raw, err := rowJSON(r)
+		raw, err := rowJSON(r, provs[r.ID])
 		if err != nil {
 			return err
 		}
