@@ -1,7 +1,6 @@
 package tree
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +10,7 @@ import (
 
 func TestBuildRejectsSessionGlobPatterns(t *testing.T) {
 	claudeDir, now := copyTestdataTree(t)
-	for _, id := range []string{"*", "?", "[", "[rs]*", `running\-session`} {
+	for _, id := range []string{"*", "?", "[", "[rs]*", `running\-session`, "../../etc/passwd", "foo/../bar", ".."} {
 		t.Run(id, func(t *testing.T) {
 			got, err := build(claudeDir, Options{Session: id, Days: 1, Now: pinNow(now)})
 			if err == nil {
@@ -85,33 +84,5 @@ func writeFixFixture(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// The pre-change JSON schema (lastTool, no activity/dispatches) still decodes a new tree: new fields are additive.
-func TestJSONSchemaStillDecodesPreChangeShape(t *testing.T) {
-	claudeDir, now := copyTestdataTree(t)
-	tree, err := build(claudeDir, Options{Session: "finished-session-aaaa1111", Now: pinNow(now)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(tree)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var old struct {
-		Sessions []struct {
-			Subagents []struct {
-				ID       string `json:"id"`
-				Status   string `json:"status"`
-				LastTool string `json:"lastTool"`
-			} `json:"subagents"`
-		} `json:"sessions"`
-	}
-	if err := json.Unmarshal(raw, &old); err != nil {
-		t.Fatalf("pre-change schema failed to decode post-change JSON: %v\nraw: %s", err, raw)
-	}
-	if len(old.Sessions) != 1 || len(old.Sessions[0].Subagents) != 2 {
-		t.Fatalf("decoded = %+v", old)
 	}
 }

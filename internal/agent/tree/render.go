@@ -55,11 +55,7 @@ func computeColumnWidths(tree *Tree) columnWidths {
 			grow(sub)
 		}
 		for _, run := range s.Workflows {
-			for _, phase := range run.Phases {
-				for _, sub := range phase.Agents {
-					grow(sub)
-				}
-			}
+			forEachRunAgent(run, grow)
 		}
 	}
 	return c

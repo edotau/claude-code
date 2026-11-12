@@ -460,17 +460,6 @@ func TestFilterIdleSessionsKeepsActiveEvenWhenEmpty(t *testing.T) {
 	}
 }
 
-// --session feeds a filepath.Join/Glob pattern, so it must be a plain id.
-func TestBuildRejectsSessionPathTraversal(t *testing.T) {
-	t.Parallel()
-	dir, now := sharedFixture(t)
-	for _, bad := range []string{"../../etc/passwd", "foo/../bar", ".."} {
-		if _, err := build(dir, Options{Session: bad, Now: pinNow(now)}); err == nil {
-			t.Errorf("build(Session=%q) = nil error, want rejection of a non-plain session id", bad)
-		}
-	}
-}
-
 // --running prunes finished/error children of a kept session; the JSON view marshals the same pruned tree.
 func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
 	t.Parallel()
