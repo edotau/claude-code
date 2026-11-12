@@ -81,7 +81,7 @@ func newHookHost(req agent.RunOptions) *hookHost {
 	return h
 }
 
-// hostedBound is the hosted hooks; safeMode (--pure) keeps only the safety gate.
+// hostedBound is the hosted hooks; safeMode (--pure) keeps only the Gate groups (safety, permission).
 func hostedBound(safeMode bool) []hooks.Bound {
 	var bound []hooks.Bound
 	for _, b := range bindHooks() {
