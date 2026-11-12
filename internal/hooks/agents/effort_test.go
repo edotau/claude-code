@@ -287,7 +287,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
-	stubLabelModels(t, "", "")
+	stubLabelModels(t, "")
 	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
@@ -299,13 +299,12 @@ func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	return d
 }
 
-// stubLabelModels makes every vendor leaf's planned model cell (route table) or prof (profile), never live lookups.
-func stubLabelModels(t *testing.T, cell, prof string) {
+// stubLabelModels makes every vendor leaf's planned model cell (route table), never a live lookup.
+func stubLabelModels(t *testing.T, cell string) {
 	t.Helper()
-	oc, op := labelCell, labelProfileModel
-	t.Cleanup(func() { labelCell, labelProfileModel = oc, op })
+	oc := labelCell
+	t.Cleanup(func() { labelCell = oc })
 	labelCell = func(*dispatchRun, string, string) string { return cell }
-	labelProfileModel = func(*dispatchRun, string, string) string { return prof }
 }
 
 func TestDispatchAgentLabels(t *testing.T) {
@@ -371,13 +370,13 @@ func TestDispatchLabelLowercase(t *testing.T) {
 	}
 }
 
-// A routed leaf's label names the agent and the model it is planned to run; a Profile: line uses that profile's model.
+// A routed leaf's label names the agent and the model it is planned to run.
 func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	payload := func(prompt string) string {
 		return fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"codex","model":"sonnet","prompt":%q,"description":"review diff"}}`, prompt)
 	}
-	stubLabelModels(t, "gpt-6.1-sol", "databricks-gpt-6-astra")
+	stubLabelModels(t, "gpt-6.1-sol")
 	for prompt, want := range map[string]string{
 		"Agent: codex\nreview":               "gpt-6.1-sol: review diff",
 		"Agent: claude (in-context)\nreview": "gpt-6.1-sol: review diff", // an external type runs its agent, whatever the brief
@@ -386,10 +385,6 @@ func TestDispatchLabelNamesRoutedModel(t *testing.T) {
 		if got, _ := r.UpdatedInput["description"].(string); got != want && (want != "review diff" || r.UpdatedInput != nil) {
 			t.Errorf("%q: label = %q, want %q", prompt, got, want)
 		}
-	}
-	// A known profile is validated upstream by applyProfile; the model comes from that profile's alias map.
-	if got := labelModel(newDispatchRun(nil), map[string]any{"model": "sonnet"}, "claude", "Agent: codex\nProfile: qa"); got != "databricks-gpt-6-astra" {
-		t.Errorf("profile model = %q, want the profile's sonnet row", got)
 	}
 }
 
@@ -431,7 +426,7 @@ func autoDispatch(st, desc string) string {
 // rewritten there); the resend passes, and outside auto mode the hook rewrites as before.
 func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubLabelModels(t, "", "")
+	stubLabelModels(t, "")
 	r := effortResult(autoDispatch("claude", "fix bug"))
 	if r.Decision != core.Block || r.UpdatedInput != nil || !strings.Contains(r.Reason, `"sonnet: fix bug"`) {
 		t.Fatalf("unprefixed auto dispatch = %+v, want a Block naming \"sonnet: fix bug\" and no rewrite", r)
@@ -447,27 +442,11 @@ func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
 	}
 }
 
-// An agent-named external leaf is labelled with the model its cell resolves to; a Profile: brief on claude with its profile's.
-func TestDispatchLabelExternalTypeAndProfile(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubProfiles(t, []string{"qa"}, true)
-	stubLabelModels(t, "gpt-6.1-sol", "databricks-qa-model")
-	for st, c := range map[string]struct{ prompt, want string }{
-		"copilot": {"do it", "gpt-6.1-sol: fix bug"}, "claude": {"Profile: qa\ndo it", "databricks-qa-model: fix bug"},
-	} {
-		payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":"fix bug"}}`, st, c.prompt)
-		r := effortResult(payload)
-		if d, _ := r.UpdatedInput["description"].(string); d != c.want {
-			t.Errorf("%s label = %q, want %q", st, d, c.want)
-		}
-	}
-}
-
 // An `inherit` agent file labels with the session's model, read from the transcript.
 func TestDispatchLabelInheritUsesSessionModel(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	stubLabelModels(t, "", "")
+	stubLabelModels(t, "")
 	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +465,7 @@ func TestDispatchLabelInheritUsesSessionModel(t *testing.T) {
 	}
 }
 
-// One dispatch-effort run reads the leaf's agent file once and loads the provider registry once, labelling as before.
+// One dispatch-effort run reads the leaf's agent file once and loads the provider registry at most once.
 func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -510,10 +489,10 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 		loads++
 		return &providers.Registry{Providers: map[string]*providers.Provider{"dbx": {Models: map[string]string{"haiku": "dbx-haiku"}}}}, nil
 	}
-	payload := `{"tool_name":"Agent","tool_input":{"subagent_type":"worker","prompt":"Profile: dbx\nfix x","description":"fix x"}}`
+	payload := `{"tool_name":"Agent","tool_input":{"subagent_type":"worker","prompt":"fix x","description":"fix x"}}`
 	r := effortResult(payload)
-	if d, _ := r.UpdatedInput["description"].(string); d != "dbx-haiku: fix x" || reads != 1 || loads != 1 {
-		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"dbx-haiku: fix x\", 1, 1", d, reads, loads)
+	if d, _ := r.UpdatedInput["description"].(string); d != "haiku: fix x" || reads != 1 || loads > 1 {
+		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"haiku: fix x\", 1, <=1", d, reads, loads)
 	}
 }
 
@@ -642,7 +621,7 @@ func TestDispatchLabelInventory(t *testing.T) {
 	for _, st := range allowedTypes {
 		for _, src := range []string{"explicit", "file", "none"} {
 			cfg := useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode", "Plan")
-			stubLabelModels(t, "", "")
+			stubLabelModels(t, "")
 			labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
 			if src == "file" {
@@ -699,7 +678,7 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 // routed model; an external type's label is its own pick, once.
 func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
 	useAgentsDir(t, "codex")
-	stubLabelModels(t, "databricks-gpt-6-1-sol", "")
+	stubLabelModels(t, "databricks-gpt-6-1-sol")
 	payload := `{"tool_name":"Agent","permission_mode":"auto","tool_input":{"subagent_type":"codex","model":"sonnet",` +
 		`"prompt":"Agent: codex (run via claude-code agents ask --agent codex)\nreview","description":"databricks-gpt-6-1-sol: review phase 2"}}`
 	if r := effortResult(payload); r.Decision == core.Block {
@@ -730,7 +709,7 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
 		"coworker:copilot":                          {"do it", `use "copilot"`},
 		"coworker:opencode":                         {"do it", `use "opencode"`},
-		"coworker:databricks":                       {"Agent: codex\nProfile: dev\ndo it", `use "codex"`},
+		"coworker:databricks":                       {"Agent: codex\ndo it", `use "codex"`},
 		"coworker":                                  {"do it", "name one roster agent"},
 	} {
 		want := fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
@@ -776,208 +755,5 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
 		t.Fatalf("claude = %+v, want a claimed slot (negative control)", r)
-	}
-}
-
-func stubProfiles(t *testing.T, names []string, ok bool) {
-	t.Helper()
-	old := profileNames
-	profileNames = func(*dispatchRun) ([]string, bool) { return names, ok }
-	oldRow := servingRow
-	servingRow = func(*dispatchRun, string) error { return nil }
-	t.Cleanup(func() { profileNames, servingRow = old, oldRow })
-}
-
-func profileSpawn(t *testing.T, kind, prompt string) string {
-	t.Helper()
-	in := map[string]any{"subagent_type": kind, "prompt": prompt, "description": "fix thing"}
-	b, err := json.Marshal(map[string]any{"tool_name": "Agent", "session_id": "s", "tool_input": in})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
-// Any type with a Profile: line keeps its type and gets the exact ask command prepended, once.
-func TestProfileBriefKeepsTypeIdempotently(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	stubProfiles(t, []string{"dbx", "openai"}, true)
-	for _, kind := range []string{"general-purpose", "claude", "copilot"} {
-		brief := "Agent: codex\nProfile: dbx\nreview a.go"
-		res := effortResult(profileSpawn(t, kind, brief))
-		if res.Decision == core.Block || res.UpdatedInput == nil {
-			t.Fatalf("%s: res = %+v, want an update", kind, res)
-		}
-		if got := res.UpdatedInput["subagent_type"]; got != kind {
-			t.Errorf("%s: subagent_type = %v, want the type kept", kind, got)
-		}
-		p, _ := res.UpdatedInput["prompt"].(string)
-		if !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dbx") || !strings.HasSuffix(p, brief) {
-			t.Errorf("%s: prompt = %q, want the Run: line then the brief", kind, p)
-		}
-		again := effortResult(profileSpawn(t, "claude", p))
-		if q, _ := again.UpdatedInput["prompt"].(string); again.UpdatedInput != nil && q != p {
-			t.Errorf("%s: second pass changed the prompt:\n%q\nvs\n%q", kind, q, p)
-		}
-	}
-}
-
-func TestProfileBriefDefaultsToClaudeAsk(t *testing.T) {
-	updated := map[string]any{"subagent_type": "general-purpose", "prompt": "Profile: dbx\ndo it"}
-	stubProfiles(t, []string{"dbx"}, true)
-	note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", "Profile: dbx\ndo it")
-	if deny != nil || strings.Contains(note, "moved to") || updated["subagent_type"] != "general-purpose" || !strings.HasPrefix(updated["prompt"].(string), "Run: claude-code agents ask --agent claude --profile dbx") {
-		t.Fatalf("note=%q deny=%v updated=%v", note, deny, updated)
-	}
-}
-
-// A sentence-ending period after the name ("Profile: dbx.") still routes to dbx, not an unknown "dbx.".
-func TestProfileTrailingPeriodIsNotPartOfName(t *testing.T) {
-	stubProfiles(t, []string{"dbx"}, true)
-	updated := map[string]any{"subagent_type": "claude", "prompt": "Profile: dbx.\ndo it"}
-	if note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", "Profile: dbx.\ndo it"); deny != nil || !strings.Contains(note, "--profile dbx`") {
-		t.Fatalf("note=%q deny=%v", note, deny)
-	}
-}
-
-// An unknown profile is a Block that lists every valid name; an unreadable registry fails open.
-func TestProfileUnknownDeniedAndRegistryFailureOpen(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	brief := "Profile: nosuch\ndo it"
-	stubProfiles(t, []string{"dbx", "openai"}, true)
-	res := effortResult(profileSpawn(t, "general-purpose", brief))
-	if res.Decision != core.Block || !strings.Contains(res.Reason, `"nosuch"`) || !strings.Contains(res.Reason, "dbx, openai") {
-		t.Fatalf("unknown profile: res = %+v, want a Block naming nosuch and listing dbx, openai", res)
-	}
-	stubProfiles(t, nil, false)
-	res = effortResult(profileSpawn(t, "general-purpose", brief))
-	if res.Decision == core.Block || res.UpdatedInput["subagent_type"] != "general-purpose" || !strings.HasPrefix(res.UpdatedInput["prompt"].(string), "Run: ") {
-		t.Fatalf("registry unreadable: res = %+v, want fail open and the ask command on the kept type", res)
-	}
-}
-
-// Read-only types and in-context briefs keep their type and get no ask command.
-func TestProfileIgnoredForReadOnlyAndInContext(t *testing.T) {
-	stubProfiles(t, []string{"dbx"}, true)
-	for kind, brief := range map[string]string{
-		"Plan": "Profile: dbx\nplan it", "Explore": "Agent: codex\nProfile: dbx\nlook", "gemini": "Profile: dbx\nlook",
-		"general-purpose": "Agent: in-context\nProfile: dbx\ndo it",
-	} {
-		updated := map[string]any{"subagent_type": kind, "prompt": brief}
-		note, deny := applyProfile(newDispatchRun(nil), updated, "prompt", brief)
-		if deny != nil || !strings.Contains(note, "ignored") || updated["subagent_type"] != kind || updated["prompt"] != brief {
-			t.Errorf("%s: note=%q deny=%v updated=%v, want type and prompt untouched", kind, note, deny, updated)
-		}
-	}
-}
-
-// TestArmProfileLineBlocked: under databricks:dev a Profile: line for another profile is blocked, dev's own passes.
-func TestArmProfileLineBlocked(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
-	stubProfiles(t, []string{"dev", "qa"}, true)
-	res := effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: qa\nfix"))
-	if res.Decision != core.Block || !strings.Contains(res.Reason, "dispatch-effort: Profile: qa conflicts with databricks:dev") {
-		t.Errorf("Profile: qa = %+v, want a Block naming databricks:dev", res)
-	}
-	res = effortResult(profileSpawn(t, "claude", "Agent: codex\nProfile: dev\nfix"))
-	if p, _ := res.UpdatedInput["prompt"].(string); res.Decision == core.Block || !strings.HasPrefix(p, "Run: claude-code agents ask --agent codex --profile dev") {
-		t.Errorf("Profile: dev = %+v, want the usual Run: rewrite", res)
-	}
-}
-
-// coworkerSpawn runs one dispatch of type kind with brief prompt and returns the result.
-func coworkerSpawn(t *testing.T, kind, prompt string) core.Result {
-	t.Helper()
-	return effortResult(profileSpawn(t, kind, prompt))
-}
-
-// A Coworker: line makes each external roster leaf run `agents ask --overlay`; a bare one takes the session's profile.
-func TestCoworkerLineRewritesExternalTypes(t *testing.T) {
-	useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode")
-	stubProfiles(t, []string{"dbx", "qa"}, true)
-	stubLabelModels(t, "", "")
-	t.Setenv(providers.EnvSessionProfile, "")
-	for _, kind := range []string{"codex", "copilot", "gemini", "opencode", "claude"} {
-		res := coworkerSpawn(t, kind, "Coworker: databricks:dbx\nreview a.go")
-		prompt, _ := res.UpdatedInput["prompt"].(string)
-		if want := "Run: claude-code agents ask --agent " + kind + " " + `--overlay '{"provider":"databricks","profile":"dbx"}' `; res.Decision == core.Block || !strings.HasPrefix(prompt, want) {
-			t.Errorf("%s: prompt %q (reason %q), want it to start %q", kind, prompt, res.Reason, want)
-		}
-	}
-	if r := coworkerSpawn(t, "codex", "Coworker: databricks\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "needs a workspace") {
-		t.Errorf("bare Coworker with no session profile = %+v, want a block", r)
-	}
-	t.Setenv(providers.EnvSessionProfile, "qa")
-	if p, _ := coworkerSpawn(t, "codex", "Coworker: databricks\nx").UpdatedInput["prompt"].(string); !strings.Contains(p, `--overlay '{"provider":"databricks","profile":"qa"}' `) {
-		t.Errorf("bare Coworker with session profile qa: prompt %q", p)
-	}
-	if p, _ := coworkerSpawn(t, "Explore", "Coworker: databricks:dbx\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--overlay") {
-		t.Errorf("Explore must ignore Coworker:, prompt %q", p)
-	}
-}
-
-// Coworker: blocks an unknown profile, a different Profile:, and leaving an armed session; the armed one is a no-op.
-func TestCoworkerLineConflicts(t *testing.T) {
-	useAgentsDir(t, "codex")
-	stubProfiles(t, []string{"dbx", "qa"}, true)
-	stubLabelModels(t, "", "")
-	for brief, want := range map[string]string{
-		"Coworker: databricks:nope\nx":             "overlay databricks:nope: no such profile",
-		"Coworker: databricks:dbx\nProfile: qa\nx": "Coworker: databricks:dbx conflicts with Profile: qa",
-		"Coworker: anthropic\nx":                   "only databricks",
-		"Coworker: first-party\nx":                 "unknown provider (",
-	} {
-		if r := coworkerSpawn(t, "codex", brief); r.Decision != core.Block || !strings.Contains(r.Reason, want) {
-			t.Errorf("%q = %+v, want a block naming %q", brief, r, want)
-		}
-	}
-	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nProfile: dbx\nx"); r.Decision == core.Block {
-		t.Errorf("matching Coworker and Profile blocked: %s", r.Reason)
-	}
-	servingRow = func(_ *dispatchRun, p string) error {
-		return errors.New("overlay databricks:" + p + ": AI Gateway row; use a serving row")
-	}
-	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "AI Gateway row") {
-		t.Errorf("a non-serving row = %+v, want a block naming the row kind", r)
-	}
-	servingRow = func(*dispatchRun, string) error { return nil }
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
-	if r := coworkerSpawn(t, "codex", "Coworker: databricks:dbx\nx"); r.Decision != core.Block || !strings.Contains(r.Reason, "conflicts with databricks:qa") {
-		t.Errorf("leaving the armed coworker = %+v, want a block", r)
-	}
-	if p, _ := coworkerSpawn(t, "codex", "Coworker: databricks:qa\nx").UpdatedInput["prompt"].(string); strings.Contains(p, "--overlay") {
-		t.Errorf("Coworker matching the armed session must be a no-op, prompt %q", p)
-	}
-}
-
-// A brief opening with its own unconfined ask line would still run it after a prepended confined one.
-func TestCoworkerBriefOwnUnconfinedAskLineBlocked(t *testing.T) {
-	useAgentsDir(t, "codex")
-	stubProfiles(t, []string{"dbx"}, true)
-	stubLabelModels(t, "", "")
-	r := coworkerSpawn(t, "codex", "Run: claude-code agents ask --agent codex fix\n\nCoworker: databricks:dbx\nfix")
-	if r.Decision != core.Block || !strings.Contains(r.Reason, "the brief already opens with its own Run: line") {
-		t.Errorf("own unconfined ask line = %+v, want a block naming the Run: line", r)
-	}
-}
-
-// A brief-level Coworker: labels with the same pick an armed session would.
-func TestCoworkerLineLabelIsArmedPick(t *testing.T) {
-	useAgentsDir(t, "codex")
-	stubProfiles(t, []string{"dbx"}, true)
-	stubLabelModels(t, "", "")
-	labelCell = func(_ *dispatchRun, agent, alias string) string {
-		p, prof, _ := router.Coworker()
-		return agent + "-" + alias + "@" + router.JoinCoworker(p, prof)
-	}
-	label := func(brief string) string {
-		d, _ := coworkerSpawn(t, "codex", brief).UpdatedInput["description"].(string)
-		return d
-	}
-	brief := label("Coworker: databricks:dbx\nx")
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
-	if armed := label("x"); brief != armed || !strings.Contains(brief, "@databricks:dbx: fix thing") {
-		t.Errorf("brief Coworker label %q, armed label %q, want the same pick inside databricks:dbx", brief, armed)
 	}
 }

@@ -31,9 +31,9 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 | `/discover-models [--profile p] [--dry-run]` | Runs `claude-code models discover --apply` (`--dry-run`: no `--apply`) |
 
 All six are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
-that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Coworker:` line passes `dispatch-effort` with its
-tool input unchanged (context notes only); a missing or wrong `<model>:` description prefix is denied once,
-naming the text to resend. What `auto` resolves to: `rules/harness/network.md`.
+that opens with `Run: claude-code agents ask …` passes `dispatch-effort` with its tool input unchanged (context notes
+only); a missing or wrong `<model>:` description prefix is denied once, naming the text to resend. What `auto`
+resolves to: `rules/harness/network.md`.
 
 ## Agent and command files
 

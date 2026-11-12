@@ -85,7 +85,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, run once with the owner's approval (`rules/standards/quality.md`) |
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`skills/subagent-workflows/SKILL.md` → Test agent) |
-| A task the brief gives to another agent (`Agent:`, `Profile:`) | `claude-code agents ask --agent <agent>`; cost routing in `skills/subagent-workflows/references/cost-routing.md`; a named agent is binding, size is the manager's call |
+| A task the brief gives to another agent (`Agent:`, `Run:`) | `claude-code agents ask --agent <agent>`; cost routing in `skills/subagent-workflows/references/cost-routing.md`; a named agent is binding, size is the manager's call |
 | Wide codebase sweep | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d> "<task>"`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
