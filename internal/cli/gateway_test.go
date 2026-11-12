@@ -266,6 +266,7 @@ func assertRouteJSONSkipsAndLast(t *testing.T, res routeJSON) {
 // TestRouteVerbJSON: the pick's JSON carries weights, per-dimension scores, totals and each skip's gate.
 func TestRouteVerbJSON(t *testing.T) {
 	routeJSONFixture(t)
+	t.Setenv(router.EnvFallback, "1")
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return gatewayRoute([]string{"--model", "sonnet", "--agent", "copilot", "--format", "json"})
 	})
@@ -354,6 +355,7 @@ func ghHosts(t *testing.T, user string) {
 // TestRouteEndsNamesResolvedClaudeAccount: the router view resolves claude's actual backend, reported as .ends.
 func TestRouteEndsNamesResolvedClaudeAccount(t *testing.T) {
 	vaulttest.Use(t)
+	t.Setenv(router.EnvFallback, "1")
 	t.Setenv(router.EnvRoute, router.RouteDefault) // claude on a Databricks account means a Databricks session's ladder
 	oldAcct, oldRefresh := agent.ResolveAccount, ask.RouteRefresh
 	agent.ResolveAccount = func(ag string, _ router.Cell) (string, string) {

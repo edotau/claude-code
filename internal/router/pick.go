@@ -566,6 +566,17 @@ const (
 // FallbackModes lists the accepted --fallback values.
 var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}
 
+// EnvFallback set (process or vault env) means a failed dispatch falls back; unset means it exits on the error.
+const EnvFallback = "AGENT_ERROR_FALLBACK"
+
+// DefaultFallback is FallbackAll when EnvFallback is set non-empty (process env, else vault env), else FallbackNone.
+func DefaultFallback() string {
+	if strings.TrimSpace(os.Getenv(EnvFallback)) != "" || strings.TrimSpace(providers.CustomEnv()[EnvFallback]) != "" {
+		return FallbackAll
+	}
+	return FallbackNone
+}
+
 // gitTimeout bounds each git call so a hung one fails closed instead of blocking a pick.
 const gitTimeout = 10 * time.Second
 

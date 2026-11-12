@@ -94,6 +94,9 @@ func run(args []string, resume bool, verb string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if !helptext.Explicit(fs, "fallback") {
+		f.fallback = router.DefaultFallback()
+	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
 	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.checkArm, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
 		if code, done := phase(); done {
@@ -550,6 +553,9 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	})
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
+	}
+	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(os.Getenv(router.EnvFallback)) != "" {
+		*s.Fallback = router.FallbackAll
 	}
 	*prompt, *s.rubric = rec.Request.Prompt, ""
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
