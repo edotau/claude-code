@@ -131,6 +131,14 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 	return complexityContent(path, string(data), lang, th)
 }
 
+// testFileLines is the file-length cap of a Go test file (rules/standards/quality.md); 0 for any other path.
+func testFileLines(path string) int {
+	if strings.HasSuffix(path, "_test.go") {
+		return 1000
+	}
+	return 0
+}
+
 // complexityContent is analyzeFileComplexity over already-read text.
 func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileResult, error) {
 	lineCount := 0
@@ -139,9 +147,9 @@ func complexityContent(path, text, lang string, th ComplexityThresholds) (*FileR
 	}
 
 	var findings []Finding
-	if lineCount > th.MaxFileLines {
+	if maxLines := max(th.MaxFileLines, testFileLines(path)); lineCount > maxLines {
 		findings = append(findings, Finding{Rule: "file-length", Severity: "warn",
-			Message: fmt.Sprintf("%d lines (max %d). Consider splitting.", lineCount, th.MaxFileLines)})
+			Message: fmt.Sprintf("%d lines (max %d). Consider splitting.", lineCount, maxLines)})
 	}
 	switch lang {
 	case "python":

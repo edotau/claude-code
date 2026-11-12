@@ -40,6 +40,11 @@ corner cases you found or split it by behavior — never raise the limit.
   t.Cleanup(func() { peerAgents = orig })
   ```
 
+- **Fast first** — a new test runs in milliseconds: no sleep, real network, vault, daemon or spawned binary; shrink
+  timeouts through package vars and seed fixtures directly.
+- **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
+  feature. Every other test is proposed in the final report with its reason (the case, what it guards, its runtime);
+  the owner decides from that report. Judging a proposal, speed weighs most, then teeth, then no overlap.
 - **Never spawn the test binary** — `os.Executable()` is `go test`'s; stub every daemon-spawn seam.
 - **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash
   or 500 on bad input is a finding.
