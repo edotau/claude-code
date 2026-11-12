@@ -47,9 +47,19 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 		return applyProvider(provider, cmp.Or(p, iprof), agentName)
 	}
 	if err := applyArm(p, profile, agentName, model, fallback); err != nil {
-		return fmt.Errorf("%s%w", src, err)
+		return armErr(src, err)
 	}
 	return nil
+}
+
+var errNoWorkspace = errors.New("overlay provider databricks needs a profile: a workspace or auto")
+
+// armErr prefixes applyArm's error with its source; an env or vault value has no overlay to blame.
+func armErr(src string, err error) error {
+	if src != "" && errors.Is(err, errNoWorkspace) {
+		return fmt.Errorf("%sdatabricks needs a workspace: databricks:<profile> or databricks:auto", src)
+	}
+	return fmt.Errorf("%s%w", src, err)
 }
 
 // coworkerSource is the value ApplyCoworker applies and its error prefix: overlay > bare inherited databricks > vault.
@@ -159,7 +169,7 @@ func confineLine(agentName string, req agent.RunOptions) (agent.RunOptions, erro
 func applyArm(p, profile, agentName, model, fallback string) error {
 	if p == "" {
 		if p = bareArm(profile); p == "" {
-			return errors.New("overlay provider databricks needs a profile: a workspace or auto")
+			return errNoWorkspace
 		}
 	}
 	inherited, explicit := router.ArmProfile(), p != autoArm

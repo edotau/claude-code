@@ -67,7 +67,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.debugFile, "debug-file", "", "claude, gemini: write the agent's debug log to this path")
 	fs.Var(&f.attach, "attach", "attach a file (repeatable); task text precedes every attachment")
 	helptext.ListVar(fs, &f.keepEnv, "keep-env", "NAME,NAME", "keep NAME[,NAME] from the credential scrub (repeatable)", true)
-	helptext.ListVar(fs, &f.env, "env", "NAME=VALUE", "set NAME=VALUE in the agent's environment (repeatable); credential names are refused", false)
+	helptext.ListVar(fs, &f.env, "env", "NAME=VALUE", "agent env NAME=VALUE (repeatable); no credentials", false)
 	askRunFlags(fs, f)
 	return fs, f
 }
@@ -82,7 +82,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.enableMemory, "enable-memory", false, "copilot only: turn on session memory")
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
-	fs.StringVar(&f.host, "host", "", "run the ask on this ssh host (tailnet name, ssh alias, or auto: $"+remote.HostEnv+", else the one other tailnet machine); profiles resolve there, the confinement (provider[:profile]) rides along")
+	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
 	fs.StringVar(&f.remoteBin, "host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
@@ -103,8 +103,8 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
 	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
 	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
-	fs.StringVar(&f.overlay, "overlay", "", "config: file, inline JSON, or - (stdin)")
-	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "record each agent child's env names + salted fingerprints (never values) to <file>")
+	fs.StringVar(&f.overlay, "overlay", "", "config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "log child env names + salted hashes, never values")
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; every failure is a usage error (exit 2).

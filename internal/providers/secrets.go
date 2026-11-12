@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -136,10 +137,10 @@ func checkCoworkerEnv(raw string) error {
 	case raw == "":
 		return nil
 	case strings.HasPrefix(raw, "databricks"):
-		return fmt.Errorf("HARNESS_COWORKER=%s cannot be stored: the databricks route is per dispatch (an overlay's provider/profile)", raw)
+		return errors.New("HARNESS_COWORKER cannot name databricks in the vault: the databricks route is per dispatch (an overlay's provider/profile)")
 	case !slices.Contains(providerKeys, provider) || (named && (profile == "" || strings.Contains(profile, ":"))):
 		keys := slices.DeleteFunc(ProviderKeys(), func(k string) bool { return k == "databricks" })
-		return fmt.Errorf("HARNESS_COWORKER=%s cannot be stored: want <provider>[:<profile>], provider one of %s", raw, strings.Join(keys, "|"))
+		return fmt.Errorf("HARNESS_COWORKER cannot be stored: want <provider>[:<profile>], provider one of %s", strings.Join(keys, "|"))
 	}
 	return nil
 }

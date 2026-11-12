@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -245,12 +246,37 @@ func checkOverlaySchema(raw []byte) error {
 	return nil
 }
 
-// overlayJSONErr drops the offending character a syntax error quotes: it may be part of a value.
+// overlayJSONErr names the key a decode error is about, never its value or Go type names.
 func overlayJSONErr(err error) error {
 	if se, ok := errors.AsType[*json.SyntaxError](err); ok {
 		return fmt.Errorf("not valid JSON at byte %d", se.Offset)
 	}
+	if te, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
+		key, _, _ := strings.Cut(strings.TrimPrefix(te.Field, "."), ".")
+		return fmt.Errorf("%s: want %s", key, keyType(key))
+	}
+	if _, q, ok := strings.Cut(err.Error(), "json: unknown field "); ok { // encoding/json has no typed error for it
+		key, uerr := strconv.Unquote(q)
+		if uerr != nil {
+			key = q
+		}
+		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"set", "unset", "keep"})
+		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
+	}
 	return err
+}
+
+// keyType is the JSON type word a document key wants.
+func keyType(key string) string {
+	switch key {
+	case "schema":
+		return "a number"
+	case "set":
+		return "an object of string values"
+	case "unset", "keep":
+		return "a list of strings"
+	}
+	return "a string"
 }
 
 // FlagOverlay is the --env/--keep-env shorthand, checked by the same rules.
@@ -520,6 +546,8 @@ var setRules = []rule{
 	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 	{func(c *ruleCtx) bool { return c.reserved && c.isRef },
 		refuse(errors.New("reserved by the credential scrub: a vault ref cannot replace a route value"))},
+	{func(c *ruleCtx) bool { return c.reserved && nameRule(keepRules, c.name) != nil }, // keep refuses it too
+		refuse(errors.New("reserved by the credential scrub: no overlay can pass it (keep and @secret refs are refused too)"))},
 	{func(c *ruleCtx) bool { return c.reserved && !c.keep[c.up] },
 		refuse(errors.New("reserved by the credential scrub: add it to keep to pass your own value"))},
 	{func(c *ruleCtx) bool { return c.isRef }, func(c *ruleCtx) error { return refRule(c.ref, c.route) }},
