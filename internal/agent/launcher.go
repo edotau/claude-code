@@ -227,6 +227,9 @@ func agentModelTarget(name string, t providers.Target, sel providers.Selection, 
 }
 
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
+	if err := RefuseDirect(o.Direct); err != nil {
+		return Plan{}, err
+	}
 	if o.Direct {
 		ctx = WithDirect(ctx)
 	}

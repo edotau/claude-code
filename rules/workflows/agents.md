@@ -11,7 +11,7 @@ paths:
 | To… | Run |
 | --- | --- |
 | Ask another agent (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
-| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
+| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--remote <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
 | Same from the prompt box | `@agent-<name>` for a subagent (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the Agent tool with `subagent_type` set to that name |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |

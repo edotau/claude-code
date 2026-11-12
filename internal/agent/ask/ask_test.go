@@ -384,7 +384,7 @@ func assertDropped(t *testing.T, dropped []string, want ...string) {
 	}
 }
 
-// ask --host over a fake ssh: the remote start is dropped, events keep the remote host stamp, the local result carries
+// ask --remote over a fake ssh: the remote start is dropped, events keep the remote host stamp, the local result carries
 // the remote envelope's cost/structured/emulated/session plus local drops, and the banner goes to the dispatch log.
 func TestAskHostRelaysRemoteStream(t *testing.T) {
 	env := wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "hi there", SessionID: "sess-9",
@@ -401,7 +401,7 @@ func TestAskHostRelaysRemoteStream(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--format", "stream-json",
+	code, out := captureAskStdout(t, "--remote", "fakehost", "--remote-bin", bin, "--format", "stream-json",
 		"--attach", att, "--keep-env", "FOO", "do it")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -448,7 +448,7 @@ func TestAskHostErrorClassification(t *testing.T) {
 				lines = c.lines(t)
 			}
 			bin := hostFixture(t, "", lines, c.exit)
-			code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--format", "stream-json", "go")
+			code, out := captureAskStdout(t, "--remote", "fakehost", "--remote-bin", bin, "--format", "stream-json", "go")
 			if code == 0 {
 				t.Fatalf("want a failure exit:\n%s", out)
 			}
@@ -464,9 +464,9 @@ func TestAskHostRefusesLocalOnlyModes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	for _, extra := range [][]string{{"--background"}, {"--job", "abc"}, {"--batch", "-"}} {
-		args := append([]string{"--host", "fakehost", "--format", "json"}, extra...)
+		args := append([]string{"--remote", "fakehost", "--format", "json"}, extra...)
 		code, out := captureAskStdout(t, append(args, "task")...)
-		if code == 0 || !strings.Contains(out, "--host cannot be combined") {
+		if code == 0 || !strings.Contains(out, "--remote cannot be combined") {
 			t.Errorf("%v: code %d, out %q", extra, code, out)
 		}
 	}
@@ -501,7 +501,7 @@ func TestAskHostForwardsFallback(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	if code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "agents",
+	if code, out := captureAskStdout(t, "--remote", "fakehost", "--remote-bin", bin, "--fallback", "agents",
 		"--format", "json", "go"); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -520,12 +520,12 @@ func TestAskEnvRejectionNeverEchoesValue(t *testing.T) {
 	}
 }
 
-// ask --retry of a --host dispatch replays it on the same host through the same remote binary, never locally.
+// ask --retry of a --remote dispatch replays it on the same host through the same remote binary, never locally.
 func TestAskRetryOfHostDispatchRunsRemote(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--format", "json", "go")
+	code, out := captureAskStdout(t, "--remote", "fakehost", "--remote-bin", bin, "--format", "json", "go")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -546,7 +546,7 @@ func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	code, out := captureAskStdout(t, "--host", "fakehost", "--remote-bin", bin, "--fallback", "none", "--format", "json", "go")
+	code, out := captureAskStdout(t, "--remote", "fakehost", "--remote-bin", bin, "--fallback", "none", "--format", "json", "go")
 	var env wire.Envelope
 	if err := json.Unmarshal([]byte(out), &env); code != 0 || err != nil {
 		t.Fatalf("exit %d (%v):\n%s", code, err, out)

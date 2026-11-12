@@ -299,7 +299,7 @@ func MintM2M(ctx context.Context, host, clientID, clientSecret string) (Token, e
 
 const (
 	authorizePath = "/oidc/v1/authorize"
-	DefaultPort   = 8030 // first callback port tried; a --host login forwards it
+	DefaultPort   = 8030 // first callback port tried; a --remote login forwards it
 	PortSpan      = 20   // ports tried above DefaultPort when it is busy
 	loginTimeout  = 5 * time.Minute
 	failedPage    = "Login failed. You can close this tab."
@@ -592,15 +592,15 @@ func exchangeCode(ctx context.Context, h, code, verifier, redirect string) (Toke
 	return reply.token(reply.RefreshToken), nil
 }
 
-// ViaHostEnv carries the --host name into a remote login: the caller already forwards the port or opens the browser here.
+// ViaHostEnv carries the --remote name into a remote login: the caller already forwards the port or opens the browser here.
 const ViaHostEnv = "HARNESS_LOGIN_VIA_HOST"
 
-// forwardHint is the line after the URL: where the browser opens under --host, else the ssh -L command naming this host.
+// forwardHint is the line after the URL: where the browser opens under --remote, else the ssh -L command naming this host.
 func forwardHint(port int, noBrowser bool) string {
 	via := os.Getenv(ViaHostEnv)
 	switch {
 	case via != "" && noBrowser:
-		return "" // the --host caller printed its own forwarding line
+		return "" // the --remote caller printed its own forwarding line
 	case via != "":
 		return fmt.Sprintf("Opening the browser on %s; the page can take a second.\n", via)
 	case !noBrowser && os.Getenv("SSH_CONNECTION") == "":

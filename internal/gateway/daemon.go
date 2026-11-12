@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -66,6 +68,17 @@ func Base(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
 
 // SessionBase is the ANTHROPIC_BASE_URL for a session whose default provider is provider.
 func SessionBase(base, provider string) string { return base + "/p/" + provider }
+
+// ViaPrefix opens a router path whose upstream workspace requests leave through an egress host: /via/<host>/….
+const ViaPrefix = "/via/"
+
+// ViaBase is base, plus /via/<host> when this process runs under an egress host (`claude-code --host`).
+func ViaBase(base string) string {
+	if h := egress.Host(); h != "" {
+		return base + ViaPrefix + url.PathEscape(h)
+	}
+	return base
+}
 
 // ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
 const ClientHeader = "X-Claude-Code-Proxy"
@@ -208,6 +221,7 @@ func spawn() error {
 	defer lf.Close()
 	cmd := daemonCommand(exe)
 	cmd.Dir = paths.StateDir()
+	cmd.Env = proc.Drop(os.Environ(), nil, []string{egress.EnvHost}) // the egress host is per request (/via/<host>)
 	cmd.Stdout, cmd.Stderr = lf, lf
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
