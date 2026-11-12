@@ -2,11 +2,8 @@ package diff
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -112,120 +109,6 @@ type Report struct {
 	QualitySummary *QualitySummary `json:"quality_summary,omitempty"`
 }
 
-// loadJSONFile reads a JSON object from path and refuses one the validator rejects.
-func loadJSONFile(path string, validate func(map[string]any) error) (map[string]any, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	if m == nil {
-		return nil, errors.New("not a JSON object")
-	}
-	if err := validate(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// validatePRAnalysis accepts pr_analyzer output: status no_changes, or analyzed with object summary and risks.
-func validatePRAnalysis(m map[string]any) error {
-	switch status := mStr(m, "status"); status {
-	case "no_changes":
-		return nil
-	case "analyzed":
-	default:
-		return fmt.Errorf(`not PR analysis output: "status" is %q, want "analyzed" or "no_changes"`, status)
-	}
-	for _, key := range []string{"summary", "risks"} {
-		if v, ok := m[key]; ok && asMap(v) == nil {
-			return fmt.Errorf("not PR analysis output: %q must be an object", key)
-		}
-	}
-	risks := asMap(m["risks"])
-	for _, sev := range severityOrder {
-		if v, ok := risks[sev]; ok {
-			if _, isList := v.([]any); !isList {
-				return fmt.Errorf("not PR analysis output: risks.%s must be an array", sev)
-			}
-		}
-	}
-	return nil
-}
-
-// validateQualityAnalysis accepts quality output: "files" an array of objects, or "file" a string (single file).
-func validateQualityAnalysis(m map[string]any) error {
-	files, ok := m["files"]
-	if !ok {
-		if _, single := m["file"].(string); single {
-			return nil
-		}
-		return errors.New(`not quality analysis output: neither "files" nor "file" is present`)
-	}
-	list, isList := files.([]any)
-	if !isList {
-		return errors.New(`not quality analysis output: "files" must be an array`)
-	}
-	for _, f := range list {
-		if asMap(f) == nil {
-			return errors.New(`not quality analysis output: every "files" entry must be an object`)
-		}
-	}
-	return nil
-}
-
-func toGenericMap(v any) map[string]any {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return map[string]any{}
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return map[string]any{}
-	}
-	return m
-}
-
-func mStr(m map[string]any, key string) string {
-	if s, ok := m[key].(string); ok {
-		return s
-	}
-	return ""
-}
-
-// mFloat handles both json.Unmarshal's float64 and native int/float64 from our own runQualityChecker map.
-func mFloat(m map[string]any, key string) float64 {
-	switch v := m[key].(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	default:
-		return 0
-	}
-}
-
-func mInt(m map[string]any, key string) int {
-	return int(mFloat(m, key))
-}
-
-func mSlice(m map[string]any, key string) []any {
-	if s, ok := m[key].([]any); ok {
-		return s
-	}
-	return nil
-}
-
-func asMap(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
-		return m
-	}
-	return nil
-}
-
 // changedSourceFiles lists the source files added, copied, modified or renamed in base...head, relative to repo.
 // -z keeps non-ASCII and space-containing names unquoted; deleted files are excluded (they have no head content).
 func changedSourceFiles(repo, base, head string) ([]string, error) {
@@ -256,85 +139,24 @@ func headContent(repo, rev, name string) (string, error) {
 }
 
 // runQualityChecker ports run_quality_checker: source.QualityContent over each changed file as of the head commit.
-func runQualityChecker(repo, base, head string) (map[string]any, error) {
+func runQualityChecker(repo, base, head string) (*qualityInput, error) {
 	changed, err := changedSourceFiles(repo, base, head)
 	if err != nil {
 		return nil, err
 	}
-	var results []map[string]any
+	var reports []source.QualityReport
 	for _, name := range changed {
-		lang := source.DetectLanguage(name)
 		content, err := headContent(repo, head, name)
 		if err != nil {
 			return nil, fmt.Errorf("read %s at %s: %w", name, head, err)
 		}
-		qr, err := source.QualityContent(filepath.Join(repo, name), content, lang)
+		qr, err := source.QualityContent(filepath.Join(repo, name), content, source.DetectLanguage(name))
 		if err != nil {
 			return nil, fmt.Errorf("quality analysis of %s at %s: %w", name, head, err)
 		}
-		results = append(results, toGenericMap(qr))
+		reports = append(reports, qr)
 	}
-
-	avg := 100.0
-	totalSmells, totalViolations := 0, 0
-	if len(results) > 0 {
-		sum := 0.0
-		for _, r := range results {
-			sum += mFloat(r, "quality_score")
-			totalSmells += len(mSlice(r, "smells"))
-			totalViolations += len(mSlice(r, "solid_violations"))
-		}
-		avg = roundTo(sum/float64(len(results)), 1)
-	}
-	filesAny := make([]any, len(results))
-	for i, r := range results {
-		filesAny[i] = r
-	}
-	return map[string]any{
-		"files_analyzed":         len(results),
-		"average_score":          avg,
-		"total_code_smells":      totalSmells,
-		"total_solid_violations": totalViolations,
-		"files":                  filesAny,
-	}, nil
-}
-
-// extractQualityIssues flattens smells and solid_violations into {severity,type,message,file,line} items.
-func extractQualityIssues(qualityAnalysis map[string]any) []map[string]string {
-	var issues []map[string]string
-	for _, fr := range qualityFileResults(qualityAnalysis) {
-		path := mStr(fr, "file")
-		for _, s := range mSlice(fr, "smells") {
-			sm := asMap(s)
-			issues = append(issues, map[string]string{
-				"severity": orDefault(mStr(sm, "severity"), "medium"), "type": orDefault(mStr(sm, "type"), "smell"),
-				"message": mStr(sm, "message"), "file": path, "line": mStr(sm, "location"),
-			})
-		}
-		for _, v := range mSlice(fr, "solid_violations") {
-			vm := asMap(v)
-			issues = append(issues, map[string]string{
-				"severity": orDefault(mStr(vm, "severity"), "medium"), "type": orDefault(mStr(vm, "principle"), "solid"),
-				"message": mStr(vm, "message"), "file": path, "line": "",
-			})
-		}
-	}
-	return issues
-}
-
-// qualityFileResults returns the per-file maps of quality_analysis["files"], or the analysis itself (single file).
-func qualityFileResults(qualityAnalysis map[string]any) []map[string]any {
-	fileResults := mSlice(qualityAnalysis, "files")
-	if fileResults == nil {
-		return []map[string]any{qualityAnalysis}
-	}
-	var frs []map[string]any
-	for _, f := range fileResults {
-		if m := asMap(f); m != nil {
-			frs = append(frs, m)
-		}
-	}
-	return frs
+	return qualityInputOf(reports), nil
 }
 
 var verdictEmoji = map[string]string{"approve": "✅", "approve_with_suggestions": "✅", "request_changes": "⚠️", "block": "❌"}
