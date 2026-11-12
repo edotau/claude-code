@@ -373,7 +373,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if rc, done := r.applyRecord(); done {
 		return rc, true
 	}
-	f.tools = f.tools || f.readOnly // again: a --job/--retry record or a re-parsed flag may have overridden either
+	if err := recordTools(f); err != nil {
+		return r.fail(err, 2)
+	}
 	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
@@ -386,6 +388,15 @@ func (r *askRun) resolveRecord() (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// recordTools re-folds --read-only into tools after a --job/--retry record, refusing the tools pair it completes.
+func recordTools(f *askFlags) error {
+	f.tools = f.tools || f.readOnly
+	if err := askExclusive(f.background, f.job, f.tools, f.noTools); err != nil {
+		return fmt.Errorf("%w: the replayed record sets one; type it off (--tools=false --read-only=false or --no-tools=false)", err)
+	}
+	return nil
 }
 
 // applyRecord applies a --job record, else a --retry record under the overlay's fold.
@@ -481,21 +492,6 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.RemoteBin, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.remoteBin, f.rubric, f.background
 	return o
-}
-
-// askEnableOverlayDebug turns on --overlay-debug; it returns the exit code of a failure, else 0.
-func askEnableOverlayDebug(debugPath string) int {
-	if debugPath != "" {
-		if strings.HasPrefix(debugPath, "-") {
-			fmt.Fprintf(os.Stderr, "claude-code agents ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
-			return 2
-		}
-		if err := agentconfig.EnableOverlayDebug(debugPath); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay-debug:", err)
-			return 2
-		}
-	}
-	return 0
 }
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
@@ -663,93 +659,6 @@ func stdoutSink(format, dispatchID string) wire.Sink {
 		return wire.NewJSONLSink(os.Stdout, dispatchID)
 	}
 	return wire.NewTextSink(os.Stdout)
-}
-
-// askState is the askTarget plus the flag pointers --retry resets or --job clears.
-type askState struct {
-	askTarget
-	rubric *string
-	env    *[]string
-	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
-}
-
-// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
-func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
-	if job == "" {
-		return nil, 0, false
-	}
-	r, err := loadJobRecord(job)
-	if errors.Is(err, errJobNotFresh) {
-		return nil, failAskCode(format, *s.Name, err, 2), true
-	}
-	if err != nil {
-		return nil, failAsk(format, *s.Name, err), true
-	}
-	s.Apply(r, os.Stderr)
-	*prompt, *s.rubric = r.Request.Prompt, ""
-	return &r, 0, false
-}
-
-// loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
-	if retry == "" {
-		return 0, false
-	}
-	rec, err := agent.LoadRecord(retry)
-	if err != nil {
-		return failAsk(format, *s.Name, err), true
-	}
-	// The logged request wins; only flags typed on this command line override it.
-	s.Apply(rec, os.Stderr)
-	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
-	clearTyped(fs, s)
-	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
-		return failAskCode(format, *s.Name, err, 2), true
-	}
-	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(os.Getenv(router.EnvFallback)) != "" {
-		*s.Fallback = router.FallbackAll
-	}
-	*prompt, *s.rubric = rec.Request.Prompt, ""
-	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
-	return 0, false
-}
-
-// clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.
-func clearTyped(fs *flag.FlagSet, s *askState) {
-	fs.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "profile", "provider": // an explicit route on this command line replaces the logged lead
-			*s.lead = ""
-		case "attach":
-			*s.Attach = nil
-		case "keep-env":
-			*s.KeepEnv = nil
-		case "allow":
-			*s.PermAllow = nil
-		case "ask":
-			*s.PermAsk = nil
-		case "deny":
-			*s.PermDeny = nil
-		case "env":
-			*s.env = nil
-		}
-	})
-}
-
-// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
-func printDispatchLog(format string) int {
-	recs := agent.RecentRecords(20)
-	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail("ask", recs)
-	}
-	if len(recs) == 0 {
-		fmt.Println("no dispatches logged yet")
-		return 0
-	}
-	for _, r := range recs {
-		fmt.Print(r.LogLine())
-	}
-	return 0
 }
 
 // RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.

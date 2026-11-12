@@ -282,3 +282,19 @@ func abandonLive(rec *agent.Record, cause error) error {
 	}
 	return cause
 }
+
+// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
+func printDispatchLog(format string) int {
+	recs := agent.RecentRecords(20)
+	if format == helptext.JSON {
+		return helptext.WriteJSONOrFail("ask", recs)
+	}
+	if len(recs) == 0 {
+		fmt.Println("no dispatches logged yet")
+		return 0
+	}
+	for _, r := range recs {
+		fmt.Print(r.LogLine())
+	}
+	return 0
+}
