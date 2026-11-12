@@ -551,10 +551,6 @@ func RepoKeys() []string {
 	return out
 }
 
-// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// legacyOriginFile is the pre-vault per-store record; it is ignored (neither imported nor removed) and only skipped.
-const legacyOriginFile = ".origin"
-
 // OriginVersion is the schema version readOrigin accepts.
 const OriginVersion = 1
 
@@ -623,62 +619,24 @@ var originRows = func() (map[string]string, error) {
 	return rows, nil
 }
 
-// resolveOrigins maps keys to records: vault row, else index.md; fallback hits become rows if the vault allows.
+// resolveOrigins maps keys to their vault-row records; a key without a row gets a "no origin record" error.
 func resolveOrigins(keys []string) (found map[string]Origin, errs map[string]error, vaultErr error) {
 	rows, verr := originRows()
 	found, errs = map[string]Origin{}, map[string]error{}
-	var catalog map[string]Origin
-	var imports []Origin
 	for _, key := range keys {
 		dir := filepath.Join(StoreDir(), key)
-		if raw, ok := rows[key]; ok {
-			if o, err := decodeOrigin(dir, []byte(raw)); err != nil {
-				errs[key] = err
-			} else {
-				found[key] = o
-			}
-			continue
-		}
-		// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-		if catalog == nil {
-			catalog = catalogOrigins()
-		}
-		o, ok := catalog[key]
+		raw, ok := rows[key]
 		if !ok {
 			errs[key] = fmt.Errorf("%s: no origin record: %w", dir, fs.ErrNotExist)
 			continue
 		}
-		if err := validateOrigin(dir, o); err != nil {
+		if o, err := decodeOrigin(dir, []byte(raw)); err != nil {
 			errs[key] = err
-			continue
+		} else {
+			found[key] = o
 		}
-		found[key] = o
-		imports = append(imports, o)
-	}
-	if verr == nil && len(imports) > 0 {
-		_ = importOrigins(imports) // best effort on a read path: a failed import is retried by the next read
 	}
 	return found, errs, verr
-}
-
-// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// importOrigins writes the rows still absent in one transaction.
-func importOrigins(origins []Origin) error {
-	return vault.Update(func(t *vault.Tx) error {
-		for _, o := range origins {
-			if _, ok := t.Get(vault.MemoryOrigins, o.Key); ok {
-				continue // another process recorded it first
-			}
-			data, err := json.Marshal(o)
-			if err != nil {
-				return err
-			}
-			if err := t.Put(vault.MemoryOrigins, o.Key, string(data)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 // decodeOrigin parses and validates one stored record for dir.
@@ -772,26 +730,4 @@ type catalogOrigin struct {
 func catalogOriginComment(o Origin) string {
 	data, _ := json.Marshal(catalogOrigin{Origin: o.Origin, Aliases: o.Aliases})
 	return catalogOriginTag + string(data) + " -->"
-}
-
-// Migration: remove after 2026-11-17 once every machine has run a post-2026-10-20 build.
-// catalogOrigins parses the origin comments of index.md's repo rows ("- <key> — …"), keyed by store key.
-func catalogOrigins() map[string]Origin {
-	out := map[string]Origin{}
-	data, err := os.ReadFile(filepath.Join(StoreDir(), catalogFile))
-	if err != nil {
-		return out
-	}
-	for line := range strings.SplitSeq(string(data), "\n") {
-		key, rest, ok := strings.Cut(strings.TrimPrefix(line, "- "), " — ")
-		_, after, ok0 := strings.CutLast(rest, catalogOriginTag)
-		if !ok || !strings.HasPrefix(line, "- ") || !ok0 || !strings.HasSuffix(rest, " -->") {
-			continue
-		}
-		var c catalogOrigin
-		if json.Unmarshal([]byte(strings.TrimSuffix(after, " -->")), &c) == nil {
-			out[key] = Origin{Version: OriginVersion, Key: key, Origin: c.Origin, Aliases: cleanAliases(c.Aliases)}
-		}
-	}
-	return out
 }
