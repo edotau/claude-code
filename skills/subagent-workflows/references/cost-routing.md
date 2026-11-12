@@ -5,11 +5,10 @@ cheaper or wider; integration and final checks stay Claude's.
 
 ## Dispatch and routing
 
-Agent roles and the relay contract: `../SKILL.md` → Leaf types. Manager dispatch: `CLAUDE.md` guideline 3.
-Use the root machine's pins; pass an explicit route or model only when the task calls for one. Do not pin `dev`,
-`qa`, `prod` or a personal login based on historical measurements. `claude-code gateway --agent <a>` previews the
-current pick; `claude-code <agent> catalog` lists models. Aliases come from `internal/providers/defaults.json`
-and the vault overlay, resolved by `internal/models`; `internal/router/table.json` holds price/account rows.
+Agent roles and the relay contract: `../SKILL.md` → Leaf types. Use the root machine's pins; pass an explicit route
+or model only when the task calls for one. Do not pin `dev`, `qa`, `prod` or a personal login based on historical
+measurements. Aliases come from `internal/providers/defaults.json` and the vault overlay, resolved by
+`internal/models`; `internal/router/table.json` holds price/account rows.
 
 ### Shell roles
 
@@ -30,20 +29,30 @@ for research. An OpenCode run may write outside its intended workdir: verify the
 
 A flag an agent can't honor is named in the envelope's `dropped`, never silent. `ask --format stream-json` emits NDJSON
 events (`result` holds the envelope; each dispatch also writes `state/harness/dispatch/<id>.events.jsonl`); `--env
-NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs over ssh; `--agent claude|gemini
---live` holds one session open and `agents send <id> "<task>"` feeds it (one turn in flight, ≤4 sessions).
+NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs the ask on that host over ssh
+(`rules/harness/network.md`); `--agent claude|gemini --live` holds one session open and `agents send <id> "<task>"`
+feeds it (one turn in flight, ≤4 sessions).
 
 ## Fallback
 
-- **Ladder**: `routing.ladders` in `internal/providers/defaults.json` plus vault overrides.
-  `claude-code gateway --agent <a>` shows the resolved pick and skip gates. `--route` chooses an execution arm;
+- **Order**: the requested target (agent, `--profile` or `--route` workspace, `--model`), then the agent's own pin
+  (its vault profile and model; skipped when it has none or the pin is what was requested), then Claude on the
+  current session. Nothing else: no sibling workspace, no other login of the agent, no other agent.
+  `claude-code gateway --agent <a>` shows the resolved order and skip gates. `--route` chooses an execution arm;
   `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
+- **Pin hop left out**: inside `--route databricks:<p>` when the pin is another workspace (the arm refuses it; the
+  skip reads `outside databricks:<p>`), and with `--native`.
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
-  while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). **Score**:
-  `0.5 × price + 0.5 × headroom`; accounts ≥90% used sort last.
+  while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). A gated
+  step is skipped; the order does not change.
 - **`--fallback all|agents|none`** (default `all` when `AGENT_ERROR_FALLBACK` is set in the shell or vault env, else
-  `none`): `agents` stops before Claude, `none` fails fast instead of running
-  on Claude; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
+  `none`): `all` is the full order, `agents` stops after the pin, `none` runs the requested target only and exits
+  non-zero with the reason; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
+- **Announced**: a target the preflight refuses prints `preflight: <requested> failed <check> (<detail>); chose
+  <chosen>` (`preflight: note: <text>` for a skipped check) and lands in the dispatch record's `preflight` object.
+  A run that ended on another step reads `ask: ran on <agent> · <account> · <model> · fallback from <requested>
+  (<first reason>)`; the envelope carries `requested`. Codex asked for a model its workspace cannot serve over
+  Responses fails the `wire` check instead of running another model.
 - **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `<AGENT>_MODEL` > table cell;
   `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any other
   explicit `--fallback`.
@@ -52,5 +61,5 @@ NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>`
 
 ## Verify and compare
 
-Treat every answer as a claim: check `git diff --stat`, run the verification yourself. A leaf told to use an agent
-that did the work itself skipped the dispatch. Tally per agent: `agents ask --log`.
+Fan-in: `../SKILL.md` → Fan-in. A leaf told to use an agent that did the work itself skipped the dispatch. Tally per
+agent: `agents ask --log`.

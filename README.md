@@ -185,7 +185,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
 | `DATABRICKS_CONFIG_FILE` | Databricks CLI config file (default `~/.databrickscfg`) |
 | `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
-| `AGENT_ERROR_FALLBACK` | set (shell or vault env, any value): a failed dispatch falls back (`--fallback all`); unset: it exits on the error (`none`) |
+| `AGENT_ERROR_FALLBACK` | set (shell or vault env, any value): a failed dispatch falls back to the agent's pin, then Claude (`--fallback all`); unset: it exits on the error (`none`) |
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--host-bin` |
 | `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |

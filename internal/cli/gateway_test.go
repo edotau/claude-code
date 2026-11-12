@@ -489,7 +489,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			marker := parityEnv(t, "astra-par", tc.responses)
 			code, out, _ := hosttest.CaptureOutput(t, func() int {
 				return gatewayRoute(
-					[]string{"--agent", "codex", "--model", tc.model, "--fallback", "agents", "--format", "json"})
+					[]string{"--agent", "codex", "--profile", "astra-par", "--model", tc.model, "--fallback", "agents", "--format", "json"})
 			})
 			if code != 0 {
 				t.Fatalf("preview exit %d: %s", code, out)
@@ -500,7 +500,7 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 			}
 			chain, _, err := agent.RouteChainFor(context.Background(), "codex", tc.model, "sonnet",
 				router.FallbackAgents, false,
-				router.PickOpts{Refresh: ask.RouteRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
+				router.PickOpts{Lead: "astra-par", Refresh: ask.RouteRefresh, WorkRepo: func() bool { return router.IsWorkRepo("") }})
 			if err != nil {
 				t.Fatal(err)
 			}
