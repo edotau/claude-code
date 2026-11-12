@@ -100,8 +100,7 @@ func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 	return &rebuilt, true
 }
 
-// rebuildCodexGroup replaces a partially-filtered group's "hooks" array, preserving every other key
-// (matcher, or anything unknown) as raw bytes.
+// rebuildCodexGroup replaces the hooks array, preserving every other key as raw bytes.
 func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.RawMessage, error) {
 	obj, err := agentconfig.DecodeRawObject(raw)
 	if err != nil {
@@ -273,7 +272,7 @@ func mergeCodexTrust(raw string, entries map[string]string) string {
 	flushCodexTrust(&out, remaining, active)
 	next := out.String()
 	for _, key := range slices.Sorted(maps.Keys(remaining)) {
-		section := fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", key, remaining[key])
+		section := fmt.Sprintf("[hooks.state.%s]\ntrusted_hash = %s\n", agentconfig.TOMLQuote(key), agentconfig.TOMLQuote(remaining[key]))
 		next = agentconfig.AppendTOML(next, section)
 	}
 	return next
@@ -296,7 +295,7 @@ func flushCodexTrust(out *strings.Builder, remaining map[string]string, active s
 		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
 			out.WriteByte('\n')
 		}
-		fmt.Fprintf(out, "trusted_hash = %q\n", hash)
+		fmt.Fprintf(out, "trusted_hash = %s\n", agentconfig.TOMLQuote(hash))
 		delete(remaining, active)
 	}
 }

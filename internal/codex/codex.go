@@ -727,7 +727,8 @@ func codexLoginProbe(bin string) (error, bool) {
 }
 
 func codexLoginVerdict(ctx context.Context, out []byte, err error) (error, bool) {
-	text := strings.TrimSpace(string(out))
+	text, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	text, _, _ = strings.Cut(text, " - ")
 	ee, exited := errors.AsType[*exec.ExitError](err)
 	switch {
 	case err == nil && strings.Contains(strings.ToLower(text), "chatgpt"):

@@ -117,18 +117,10 @@ func readCodexStrings(raw string, want func(string) bool) (map[string]string, er
 	}
 	multiline, depth := "", 0
 	for _, line := range lines {
-		if multiline == "" && depth == 0 {
-			if err := scan.field(line); err != nil {
-				return nil, err
-			}
-		} else if scan.pendingKey != "" {
-			scan.pending += line
-		}
-		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
-		if scan.pendingKey != "" && multiline == "" {
-			if err := scan.finish(); err != nil {
-				return nil, err
-			}
+		var err error
+		multiline, depth, err = scan.line(line, multiline, depth)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if scan.pendingKey != "" {
@@ -142,6 +134,21 @@ type codexScan struct {
 	values              map[string]string
 	pendingKey, pending string
 	want                func(string) bool
+}
+
+func (c *codexScan) line(line, multiline string, depth int) (string, int, error) {
+	if multiline == "" && depth == 0 {
+		if err := c.field(line); err != nil {
+			return multiline, depth, err
+		}
+	} else if c.pendingKey != "" {
+		c.pending += line
+	}
+	multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
+	if c.pendingKey != "" && multiline == "" {
+		return multiline, depth, c.finish()
+	}
+	return multiline, depth, nil
 }
 
 // field records a top-level "key = value" line, or starts a pending multiline string.
@@ -525,13 +532,13 @@ func validateCodexOverlay(ov map[string]string) error {
 			if f.Key == key {
 				found = true
 				if !slices.Contains(f.Values, value) {
-					return fmt.Errorf("codex: invalid value for %s", key)
+					return fmt.Errorf("codex: invalid value for %s; choose one of: %s", key, strings.Join(f.Values, ", "))
 				}
 				break
 			}
 		}
 		if !found {
-			return fmt.Errorf("codex: unsupported preference %s", key)
+			return fmt.Errorf("codex: unsupported preference %s; use model_reasoning_effort or model_verbosity", key)
 		}
 	}
 	return nil

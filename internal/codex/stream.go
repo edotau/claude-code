@@ -110,8 +110,9 @@ func (s *codexStreamState) completedItem(ev codexEvent) error {
 		return s.sink.Emit(wire.Event{Type: wire.EventToolResult,
 			Tool: &wire.ToolRef{Name: "shell", ID: it.ID}, Text: it.AggregatedOutput, Status: status})
 	case "error":
-		s.failure = cmp.Or(it.Message, it.Text, "codex item error")
-		return wire.EmitError(s.log, s.sink, s.failure)
+		message := cmp.Or(it.Message, it.Text, "codex item error")
+		s.log.Emit("warning", message)
+		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
 	return nil
 }
