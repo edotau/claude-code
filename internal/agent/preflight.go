@@ -104,33 +104,53 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	fail := func(check, detail string) (string, *Finding, string) {
 		return "", &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}, ""
 	}
-	why := ""
-	if agentName == "claude" { // Serves covers external agents only
-		if wire = providers.SpellPin(p, model); wire == "" {
-			why = p.Name + " serves no " + model
-		}
-	} else {
-		wire, why = ProfileServes(agentName, p, model)
-	}
+	wire, why := preflightModelWire(agentName, p, model)
 	spelled := cmp.Or(wire, providers.SpellPin(p, model)) // a Responses agent's wire check runs before Serves' wording
 	switch {
-	case speaksResponses(agentName) && p.Preset == providers.PresetDatabricks && spelled != "" && !providers.ResponsesServable(p, spelled):
+	case preflightResponsesMismatch(agentName, p, spelled):
 		return fail("wire", p.Name+" serves no "+model+" over Responses")
 	case why != "":
 		return fail("served", why)
 	case p.Preset != providers.PresetDatabricks:
 		return wire, nil, ""
 	}
+	note, why = preflightEndpoint(p, wire, now)
+	if why != "" {
+		return fail("served", why)
+	}
+	return wire, nil, note
+}
+
+// preflightResponsesMismatch preserves the Responses wire refusal before the served-model refusal.
+func preflightResponsesMismatch(agentName string, p *providers.Provider, wire string) bool {
+	return speaksResponses(agentName) && p.Preset == providers.PresetDatabricks &&
+		wire != "" && !providers.ResponsesServable(p, wire)
+}
+
+// preflightModelWire permits agy's gateway transport without requiring a custom-base-URL dialect.
+func preflightModelWire(agentName string, p *providers.Provider, model string) (wire, why string) {
+	if agentName == "claude" || (agentName == "gemini" && GeminiGatewayRow(p)) {
+		if wire = providers.SpellPin(p, model); wire == "" {
+			why = p.Name + " serves no " + model
+		}
+	} else {
+		wire, why = ProfileServes(agentName, p, model)
+	}
+	return wire, why
+}
+
+// preflightEndpoint checks the cached workspace listing without making a model call.
+func preflightEndpoint(p *providers.Provider, wire string, now time.Time) (note, why string) {
 	listed, ready, fresh := router.ServedListed(p, wire, now)
 	switch {
 	case !fresh:
-		note = "served listing for " + p.Name + " is missing or older than 24h: endpoint check skipped (claude-code doctor --refresh)"
+		return "served listing for " + p.Name + " is missing or older than 24h: endpoint check skipped (claude-code doctor --refresh)", ""
 	case !listed:
-		return fail("served", p.Name+" lists no endpoint "+wire)
+		return "", p.Name + " lists no endpoint " + wire
 	case !ready:
-		return fail("served", wire+" is not a READY endpoint on "+p.Name)
+		return "", wire + " is not a READY endpoint on " + p.Name
 	}
-	return wire, nil, note
+	return "", ""
 }
 
 // CheckModelNoted is CheckModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).
