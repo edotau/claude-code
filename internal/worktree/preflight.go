@@ -446,28 +446,24 @@ func requireBranch(ctx context.Context, path string) (string, error) {
 // errDetachedHead is requireBranch's only "not on a branch" verdict; every other git failure is a real error.
 var errDetachedHead = errors.New("HEAD is detached, not on a branch")
 
-// unrelatedHistories reports whether source and target share no ancestor (asExitErr: exit 1 = clean answer).
-func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
-	_, err := runGit(ctx, repoPath, nil, "merge-base", sourceOID, targetOID)
-	if err == nil {
+// gitYesNo runs git in repoPath: exit 0 is true, the clean answer exit 1 is false, anything else an error.
+func gitYesNo(ctx context.Context, repoPath string, args ...string) (bool, error) {
+	_, err := runGit(ctx, repoPath, nil, args...)
+	if code, ok := asExitErr(err); ok && code == 1 {
 		return false, nil
 	}
-	if code, ok := asExitErr(err); ok && code == 1 {
-		return true, nil
-	}
-	return false, err
+	return err == nil, err
 }
 
-// isAncestor reports whether ancestor is reachable from descendant, with unrelatedHistories' exit-code contract.
+// unrelatedHistories reports whether source and target share no ancestor (merge-base exit 1 = none).
+func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
+	related, err := gitYesNo(ctx, repoPath, "merge-base", sourceOID, targetOID)
+	return !related && err == nil, err
+}
+
+// isAncestor reports whether ancestor is reachable from descendant.
 func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
-	_, err := runGit(ctx, repoPath, nil, "merge-base", "--is-ancestor", ancestor, descendant)
-	if err == nil {
-		return true, nil
-	}
-	if code, ok := asExitErr(err); ok && code == 1 {
-		return false, nil
-	}
-	return false, err
+	return gitYesNo(ctx, repoPath, "merge-base", "--is-ancestor", ancestor, descendant)
 }
 
 // gitDirsOf is path's git dir and common dir from one rev-parse.

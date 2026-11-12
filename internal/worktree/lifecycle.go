@@ -250,8 +250,7 @@ func cleanBusyReason(dest string, in func(string) ([]Proc, error)) (gitDir, reas
 	if err != nil {
 		return "", "lock check failed: " + err.Error()
 	}
-	locked, err := isLockedAt(gitDir)
-	if reason := lockReason(locked, err); reason != "" {
+	if reason := lockReason(isLockedAt(gitDir)); reason != "" {
 		return "", reason
 	}
 	if op, found, err := inProgressOp(ctx, dest, gitDir); err != nil {
@@ -366,10 +365,9 @@ type DiscardSummary struct {
 // CleanForce removes name even when dirty or unmerged and force-deletes its branch; still refuses in-use, locked, main.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
 	var result CleanResult
-	err := WithWorktreeLease(repo, name, func() error {
-		r, cleanErr := cleanForceInLease(repo, name, dryRun, report, os.Stderr)
-		result = r
-		return cleanErr
+	err := WithWorktreeLease(repo, name, func() (err error) {
+		result, err = cleanForceInLease(repo, name, dryRun, report, os.Stderr)
+		return err
 	})
 	return result, err
 }
