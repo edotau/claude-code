@@ -33,8 +33,11 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 	switch {
 	case err != nil:
 		return err
-	case provider == "":
-		return applyInherited(ip, iprof, agentName)
+	case provider == "": // an inherited non-Databricks confinement is re-checked for agentName; a workspace was applied
+		if ip == "" || ip == router.RouteDatabricks {
+			return nil
+		}
+		return applyProvider(ip, iprof, agentName)
 	}
 	if err := checkLeave(ip, iprof, provider, p); err != nil {
 		return err
@@ -43,14 +46,6 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 		return applyProvider(provider, cmp.Or(p, iprof), agentName)
 	}
 	return applyArm(p, profile, agentName, model, fallback)
-}
-
-// applyInherited re-checks an inherited non-Databricks confinement for agentName; a workspace was applied where set.
-func applyInherited(ip, iprof, agentName string) error {
-	if ip == "" || ip == router.RouteDatabricks {
-		return nil
-	}
-	return applyProvider(ip, iprof, agentName)
 }
 
 // exportConfinement sets $COWORKER_OVERLAY to provider[:p] alone: the router and nested dispatches read it there.

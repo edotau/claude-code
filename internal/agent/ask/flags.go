@@ -373,15 +373,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.Host, *t.RemoteBin = rec.Host, rec.RemoteBin
 	p := rec.Request.Permissions
 	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, agent.RuleStrings(p.Allow), agent.RuleStrings(p.Ask), agent.RuleStrings(p.Deny)
-	if t.Native != nil {
-		*t.Native = rec.Request.Native
-	}
-	if t.Pack != nil {
-		*t.Pack = rec.Request.Pack
-	}
-	if t.Persona != nil {
-		*t.Persona = rec.Request.Persona
-	}
+	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy
 	}

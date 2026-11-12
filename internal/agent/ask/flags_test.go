@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/pack"
 )
 
 // Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the spec the request carries.
@@ -121,7 +122,8 @@ func newAskTarget() *askTarget {
 		Tools: b(), ReadOnly: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), SafeMode: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
 		Host: s(), RemoteBin: s(), Fallback: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
-		PermMode: s(), PermAllow: new([]string), PermAsk: new([]string), PermDeny: new([]string)}
+		PermMode: s(), PermAllow: new([]string), PermAsk: new([]string), PermDeny: new([]string),
+		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema)}
 }
 
 // A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.

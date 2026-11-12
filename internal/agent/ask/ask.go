@@ -434,17 +434,14 @@ func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	st := &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
+	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
 		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
-		Native: &f.native, rubric: &f.rubric, env: &f.env}
-	st.Pack, st.Coworker = &f.pack, &r.recCoworker
-	st.lead = &r.lead
-	return st
+		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
 }
 
 // execute starts a live session or runs the one task.
