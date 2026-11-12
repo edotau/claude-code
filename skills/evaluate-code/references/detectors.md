@@ -70,6 +70,7 @@ The gate is opt-in by design and not in the seeded `settings.json`; higher level
 - **Level 3, PreToolUse:** declare it in `internal/settings/hookspec.go` (matcher `Bash`, command
   `claude-code review gate`), then the owner runs `claude-code configure --restore` (or edits `settings.json` by hand).
 - **Level 4:** parse the JSON verdict, for example
-  `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`,
+  `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`
+  (it exits 1 when no file matches, so skip it on a diff with no source files),
   and `claude-code review diff --diff origin/main...HEAD --json`. Choose `FAIL` only or `WARN` too per team
   tolerance; for a regulated repo also fail on CRITICAL/HIGH from `/security-review`.
