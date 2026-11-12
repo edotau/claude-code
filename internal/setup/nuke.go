@@ -431,13 +431,31 @@ func editedTracked(dir string) ([]string, error) {
 	return out, nil
 }
 
-// tarUnpushed writes the commits no remote has as a git bundle.
+// tarUnpushed writes the commits no remote has as a git bundle, staged in a temp file so it is never held in memory.
 func tarUnpushed(tw *tar.Writer, dir string) error {
-	data, err := gitOutput("-C", dir, "bundle", "create", "-", "--branches", "--not", "--remotes")
+	tmp, err := os.MkdirTemp("", "nuke-bundle-")
 	if err != nil {
 		return fmt.Errorf("bundle unpushed commits: %w", err)
 	}
-	return tarWriteBytes(tw, unpushedBundle, data, 0o600)
+	defer os.RemoveAll(tmp)
+	path := filepath.Join(tmp, unpushedBundle)
+	if _, err := gitOutput("-C", dir, "bundle", "create", path, "--branches", "--not", "--remotes"); err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: unpushedBundle, Mode: 0o600, Size: fi.Size(), ModTime: time.Now()}); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
 }
 
 func tarWriteBytes(tw *tar.Writer, name string, data []byte, mode os.FileMode) error {
