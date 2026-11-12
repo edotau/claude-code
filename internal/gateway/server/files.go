@@ -248,10 +248,6 @@ func (r *Router) storeFile(key, id string) {
 // uploadFile POSTs data to <route>/v1/files and returns the new file id.
 func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route string, data []byte,
 	mediaType string) (string, error) {
-	form, contentType, err := fileForm(data, mediaType)
-	if err != nil {
-		return "", err
-	}
 	login := http.Header{}
 	if p.Auth.Method() == providers.AuthCLI {
 		r.passthroughAuth(login, in, route)
@@ -259,6 +255,10 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	bearer := login.Get("Authorization")
 	if r.filesRefused(bearer) {
 		return "", errFilesSkipped
+	}
+	form, contentType, err := fileForm(data, mediaType)
+	if err != nil {
+		return "", err
 	}
 	quiet := in.WithContext(
 		context.WithValue(in.Context(), attemptsKey{}, new(int)),

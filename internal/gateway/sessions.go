@@ -48,16 +48,30 @@ func postSession(ctx context.Context, start bool, path string, body SessionReque
 			return err
 		}
 	}
+	st, err := readLiveState()
+	if err != nil {
+		return err
+	}
+	return postWithState(ctx, st, path, body, out)
+}
+
+// readLiveState returns the recorded daemon state, ErrNotRunning when absent or its pid is dead.
+func readLiveState() (State, error) {
 	st, err := ReadState()
 	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotRunning
+		return st, ErrNotRunning
 	}
 	if err != nil {
-		return fmt.Errorf("proxy: read state: %w", err)
+		return st, fmt.Errorf("proxy: read state: %w", err)
 	}
 	if !alive(st.PID) {
-		return ErrNotRunning
+		return st, ErrNotRunning
 	}
+	return st, nil
+}
+
+// postWithState verifies st's holder, then POSTs body with the router secret to the daemon.
+func postWithState(ctx context.Context, st State, path string, body SessionRequest, out *SessionResponse) error {
 	ctx, cancel := context.WithTimeout(ctx, sessionTimeout)
 	defer cancel()
 	if err := verifyHolder(ctx, st); err != nil {
@@ -121,18 +135,29 @@ const (
 
 var (
 	tokenEnsure = Ensure
-	tokenState  = Running
-	tokenMint   = MintSessionToken
+	tokenState  = readLiveState
+	tokenMint   = mintWithState
 )
 
-// Token ensures the daemon is running and mints a profile-scoped token bound to its PID.
+// Token ensures the daemon is running and mints a profile-scoped token bound to its PID in two health probes.
 func Token(ctx context.Context, profile string) (string, error) {
 	if _, err := tokenEnsure(ctx); err != nil {
 		return "", errors.New("proxy unavailable; run gateway proxy --start")
 	}
-	st, ok := tokenState(ctx)
-	if !ok {
+	st, err := tokenState()
+	if errors.Is(err, ErrNotRunning) {
 		return "", errors.New("proxy not running")
 	}
-	return tokenMint(ctx, profile, st.PID)
+	if err != nil {
+		return "", err
+	}
+	return tokenMint(ctx, st, profile)
+}
+
+func mintWithState(ctx context.Context, st State, profile string) (string, error) {
+	var out SessionResponse
+	if err := postWithState(ctx, st, SessionPath, SessionRequest{Profile: profile, PID: st.PID}, &out); err != nil {
+		return "", err
+	}
+	return out.Token, nil
 }
