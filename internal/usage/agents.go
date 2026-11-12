@@ -148,7 +148,7 @@ func sortModelsByTokens(models []agentModel) {
 }
 
 // claudeAgentUsage folds the verb's own transcript scan (already scoped to the window) into an agentUsage
-// row; per-model turn counts aren't tracked at the aggregate level, so only the total row carries Turns.
+// row; the total's Turns come from the in-window daily buckets, each model's from the aggregate.
 func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 	if scan == nil || scan.agg == nil || len(scan.agg.Models) == 0 {
 		return agentUsage{Agent: "claude", Note: "no sessions in window"}
@@ -164,7 +164,7 @@ func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 		total += tok
 		um := tokenMix{Input: int(u.InputTokens), Output: int(u.OutputTokens),
 			CacheRead: int(u.CacheReadTokens), CacheWrite: int(u.CacheCreationTokens)}
-		models = append(models, agentModel{Provider: providerOf(name, "anthropic"), Model: name, Tokens: tok, Mix: mixPtr(um)})
+		models = append(models, agentModel{Provider: providerOf(name, "anthropic"), Model: name, Turns: scan.agg.ModelTurns[name], Tokens: tok, Mix: mixPtr(um)})
 		mix.add(um)
 	}
 	sortModelsByTokens(models)
@@ -172,9 +172,7 @@ func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 		Mix: mixPtr(mix), Daily: scan.daily, ActiveDays: len(scan.daily)}
 }
 
-// codexLine mirrors a codex session line; its payload: turn_context carries the model, event_msg
-// carries token_count with the cumulative total_token_usage for the session so far; Timestamp is the
-// line's own RFC3339 clock, used to date each token_count line to its own local day.
+// codexLine mirrors a codex session line: turn_context carries the model, event_msg a cumulative token_count.
 type codexLine struct {
 	Type      string          `json:"type"`
 	Timestamp string          `json:"timestamp"`
@@ -277,7 +275,7 @@ func parseCodexSessionCtx(ctx context.Context, path string, cutoff time.Time, fa
 	return s
 }
 
-// addTokenCount folds one event_msg line into s as the growth over *prev; non token_count and out-of-window lines add nothing.
+// addTokenCount folds one event_msg line into s as growth over *prev; other and out-of-window lines add nothing.
 func (s *codexSessionSummary) addTokenCount(l codexLine, prev *codexCumulative, cutoff time.Time, fallbackDay string) {
 	var p codexEventMsg
 	if json.Unmarshal(l.Payload, &p) != nil || p.Type != "token_count" {
@@ -315,9 +313,7 @@ func addDayCount(days map[string]*dayCount, day string, tokens, turns int) {
 	c.turns += turns
 }
 
-// codexUsage walks ~/.codex/sessions for *.jsonl files modified within the window, one session per file;
-// only the token_count growth stamped inside the window is counted, and a session with none is not listed.
-// ctx is the shared usage budget; read errors or an expired budget mark the row incomplete.
+// codexUsage totals in-window token_count growth over ~/.codex/sessions; read errors or ctx expiry mark it incomplete.
 func codexUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	home, err := paths.CodexHome()
 	if err != nil {
@@ -329,10 +325,7 @@ func codexUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 
 	files, mtimeDay, errs := codexSessionFiles(ctx, dir, cutoff)
-	byModel := map[string]*agentModel{}
-	dayCounts := map[string]*dayCount{}
-	var total, totalTurns, sessions int
-	var mix tokenMix
+	acc := codexAcc{byModel: map[string]*agentModel{}, days: map[string]*dayCount{}}
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
@@ -342,30 +335,43 @@ func codexUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		if s.err != nil {
 			errs = append(errs, s.err)
 		}
-		if s.Model == "" || s.Turns == 0 {
-			continue
-		}
-		addCodexModel(byModel, s)
-		total += s.Tokens
-		totalTurns += s.Turns
-		mix.add(s.Mix)
-		sessions++
-		for day, d := range s.Days {
-			addDayCount(dayCounts, day, d.tokens, d.turns)
-		}
+		acc.add(s)
 	}
 	note := codexIncomplete(errs)
-	if sessions == 0 {
+	if acc.sessions == 0 {
 		return agentUsage{Agent: "codex", Note: cmp.Or(note, "no sessions in window")}
 	}
-	models := make([]agentModel, 0, len(byModel))
-	for _, m := range byModel {
+	models := make([]agentModel, 0, len(acc.byModel))
+	for _, m := range acc.byModel {
 		models = append(models, *m)
 	}
 	sortModelsByTokens(models)
-	daily := dailyFromCounts(dayCounts)
-	return agentUsage{Agent: "codex", Sessions: sessions, Turns: totalTurns, Tokens: total, Models: models,
-		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
+	daily := dailyFromCounts(acc.days)
+	return agentUsage{Agent: "codex", Sessions: acc.sessions, Turns: acc.turns, Tokens: acc.tokens, Models: models,
+		Mix: mixPtr(acc.mix), Daily: daily, ActiveDays: len(daily), Note: note}
+}
+
+// codexAcc totals the codex sessions that counted: per model, per day and overall.
+type codexAcc struct {
+	byModel                 map[string]*agentModel
+	days                    map[string]*dayCount
+	tokens, turns, sessions int
+	mix                     tokenMix
+}
+
+// add folds one session in; a session with no model or no in-window turns is not listed.
+func (a *codexAcc) add(s codexSessionSummary) {
+	if s.Model == "" || s.Turns == 0 {
+		return
+	}
+	addCodexModel(a.byModel, s)
+	a.tokens += s.Tokens
+	a.turns += s.Turns
+	a.mix.add(s.Mix)
+	a.sessions++
+	for day, d := range s.Days {
+		addDayCount(a.days, day, d.tokens, d.turns)
+	}
 }
 
 // codexIncomplete is the note for a codex total built from partial reads: "" when no read failed.
@@ -488,9 +494,8 @@ type opencodeModelRow struct {
 	CostUSD  float64 `json:"cost_usd"`
 }
 
-// opencodeUsage reads opencode's local sqlite store (tokens.total includes reasoning, so the mix's output does too):
-// assistant messages since cutoff, grouped overall
-// for Sessions/Turns/Tokens/Cost and separately by providerID/modelID for the Models breakdown.
+// opencodeUsage reads opencode's sqlite store: assistant messages since cutoff, overall and by providerID/modelID.
+// tokens.total includes reasoning, so the mix's output does too.
 func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dbPath := paths.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
 	if dbPath == "" {
@@ -608,7 +613,7 @@ func copilotProvider(r copilotModelRow) string {
 const copilotTokenSum = `SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)+COALESCE(cache_read_tokens,0)+COALESCE(cache_write_tokens,0))`
 
 // copilotUsage reads the GitHub Copilot CLI's local sqlite store: assistant_usage_events since cutoff
-// (created_at is a 'YYYY-MM-DD HH:MM:SS' UTC string), grouped overall and by model.
+// (created_at is ISO 'YYYY-MM-DDTHH:MM:SS.sssZ', so datetime() normalizes it), grouped overall and by model.
 func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dbPath, err := copilotDBPath()
 	if err != nil {
@@ -619,7 +624,7 @@ func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	}
 
 	cutoffStr := cutoff.UTC().Format("2006-01-02 15:04:05")
-	where := fmt.Sprintf(`created_at >= '%s'`, cutoffStr)
+	where := fmt.Sprintf(`datetime(created_at) >= '%s'`, cutoffStr)
 
 	totalsQ := fmt.Sprintf(`SELECT COUNT(*) AS turns, %s AS tokens, COUNT(DISTINCT session_id) AS sessions,
 		COALESCE(SUM(input_tokens),0) AS input, COALESCE(SUM(output_tokens),0) AS output,

@@ -93,6 +93,9 @@ func Handoff(source, cwd, note string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(turns) == 0 {
+		return "", fmt.Errorf("%s has no user or assistant text to hand off", source)
+	}
 	if note == "" {
 		note = "pick up where the transcript ends"
 	}

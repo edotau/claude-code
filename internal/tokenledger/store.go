@@ -2,7 +2,6 @@
 package tokenledger
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Entry is one metered proxy request; never content, keys or headers. Older lines lack the attribution fields
@@ -53,15 +53,13 @@ func Read() ([]Entry, error) {
 	}
 	defer f.Close()
 	var out []Entry
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
+	err = textutil.EachLineErr(f, func(line []byte) {
 		var e Entry
-		if _, err := schemas.Decode(format, sc.Bytes(), &e); err == nil {
+		if _, err := schemas.Decode(format, line, &e); err == nil {
 			out = append(out, e)
 		}
-	}
-	return out, sc.Err()
+	})
+	return out, err
 }
 
 // ProfileName is the registry row that served the entry; pre-attribution lines stored it in Provider.
