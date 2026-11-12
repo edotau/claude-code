@@ -110,6 +110,9 @@ func cmdVaultSet(args []string) int {
 		}
 		return vaultSetTailscalePiped(*apiKey, *dryRun)
 	}
+	if *apiKey {
+		return helptext.FailUsage("vault set: --api-key needs --tailscale")
+	}
 	if len(names) == 0 && !*dryRun && tui.StdinIsTerminal() {
 		return menu.Secrets(menu.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
@@ -212,6 +215,9 @@ func vaultList(args []string) int {
 	if *ts {
 		if len(names) > 0 {
 			return vaultUsageErr("ls", names)
+		}
+		if *format != "" {
+			return helptext.FailUsage("vault ls: --format does not apply with --tailscale")
 		}
 		vaultdoc.Tailscale(os.Stdout)
 		return 0
@@ -349,11 +355,11 @@ func vaultGetKey() int {
 		fmt.Fprintln(os.Stderr, "vault get --key:", err)
 		return 1
 	}
+	audit.Log(audit.KeyReveal, k.Kid, "")
 	if _, err := fmt.Println(k.Raw()); err != nil {
 		fmt.Fprintln(os.Stderr, "vault get --key:", err)
 		return 1
 	}
-	audit.Log(audit.KeyReveal, k.Kid, "")
 	return 0
 }
 

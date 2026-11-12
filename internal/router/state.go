@@ -392,6 +392,9 @@ func parseClockReset(low string, now time.Time) (time.Time, bool) {
 	}
 	h, _ := strconv.Atoi(m[1])
 	mi, _ := strconv.Atoi(m[2])
+	if !validClock(h, mi, m[3]) {
+		return time.Time{}, false
+	}
 	if ap := strings.ReplaceAll(m[3], ".", ""); ap == "pm" && h < 12 {
 		h += 12
 	} else if ap == "am" && h == 12 {
@@ -402,6 +405,11 @@ func parseClockReset(low string, now time.Time) (time.Time, bool) {
 		t = time.Date(now.Year(), now.Month(), now.Day()+1, h, mi, 0, 0, now.Location())
 	}
 	return t, true
+}
+
+// validClock reports whether h:mi is a real time; a 12-hour clock (ampm set) needs h in 1..12.
+func validClock(h, mi int, ampm string) bool {
+	return mi <= 59 && h <= 23 && (ampm == "" || (h >= 1 && h <= 12))
 }
 
 // parseInReset reads "try again in N unit" as now plus that duration.

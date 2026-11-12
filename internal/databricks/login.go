@@ -376,6 +376,11 @@ func rollbackHint(id, was string, switched bool) {
 
 // switchAuthType sets providers.<id>.auth.type (oauth, pat or m2m) through the force path and prints the diff.
 func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
+	return switchAuthTypeTo(os.Stdout, p, authType, dryRun)
+}
+
+// switchAuthTypeTo is switchAuthType with the diff and kept-key lines written to w.
+func switchAuthTypeTo(w io.Writer, p *providers.Provider, authType string, dryRun bool) error {
 	if err := checkAuthType(p, authType); err != nil {
 		return err
 	}
@@ -388,11 +393,11 @@ func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	if !printDiff(os.Stdout, oldDoc, newDoc) {
-		fmt.Println("no overlay change")
+	if !printDiff(w, oldDoc, newDoc) {
+		fmt.Fprintln(w, "no overlay change")
 	}
 	for _, k := range kept {
-		fmt.Printf("kept custom auth.%s (not derived from cliProfile)\n", k)
+		fmt.Fprintf(w, "kept custom auth.%s (not derived from cliProfile)\n", k)
 	}
 	return nil
 }
@@ -427,6 +432,9 @@ func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, a
 		if err := json.Unmarshal(b, &auth); err != nil {
 			return nil, fmt.Errorf("%s: auth: %w", p.Name, err)
 		}
+	}
+	if auth == nil { // a JSON null auth value decodes to a nil map
+		auth = map[string]json.RawMessage{}
 	}
 	auth["type"] = json.RawMessage(`"` + authType + `"`)
 	kept := dropDerivedCommands(p, auth)

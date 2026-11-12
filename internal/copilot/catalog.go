@@ -522,7 +522,13 @@ func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool)
 	ok = true
 	completed := 0
 	for _, name := range names {
-		p, _ := reg.Get(name)
+		p, err := reg.Get(name)
+		if err != nil {
+			ok = false
+			results = append(results, DiscoverResult{Profile: name, Additions: []providers.ModelInfo{}, Destinations: []string{},
+				Status: "error", Note: err.Error()})
+			continue
+		}
 		r := discoverPickerProfile(p, apply)
 		if r.Status == "error" {
 			ok = false

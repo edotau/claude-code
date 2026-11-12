@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"sort"
@@ -66,6 +67,7 @@ func importCfg(args []string) int {
 	if err != nil {
 		return fail("import: %v", err)
 	}
+	warnUnmatchedRenames(cands, rename)
 	var existing map[string]json.RawMessage
 	if _, _, err := providers.UpdateOverlayDoc(false, func(top map[string]json.RawMessage, _ *vault.Tx) error {
 		existing = existingRows(top)
@@ -79,6 +81,15 @@ func importCfg(args []string) int {
 	}
 	options := importOptions{Rename: rename, Replace: *replace, Pair: choices}
 	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
+}
+
+// warnUnmatchedRenames notes each --rename OLD that matches no config section.
+func warnUnmatchedRenames(cands []cfgCandidate, rename map[string]string) {
+	for _, old := range slices.Sorted(maps.Keys(rename)) {
+		if !slices.ContainsFunc(cands, func(c cfgCandidate) bool { return c.Name == old }) {
+			fmt.Fprintf(os.Stderr, "claude-code databricks import: warning: --rename %s matches no config section\n", old)
+		}
+	}
 }
 
 // importCandidates lists the profiles at path, narrowed by the picker when pick is set; each parser note is a warning.

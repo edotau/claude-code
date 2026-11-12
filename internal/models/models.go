@@ -61,10 +61,17 @@ func atLeast(major, minor, wantMajor, wantMinor int) bool {
 }
 
 // Strip1M removes the client-only [1m] marker; no upstream accepts it on the wire.
-func Strip1M(id string) string { return strings.TrimSuffix(id, marker1M) }
+func Strip1M(id string) string {
+	if Has1M(id) {
+		return id[:len(id)-len(marker1M)]
+	}
+	return id
+}
 
-// Has1M reports a trailing client-only [1m] marker.
-func Has1M(id string) bool { return strings.HasSuffix(id, marker1M) }
+// Has1M reports a trailing client-only [1m] marker, any case.
+func Has1M(id string) bool {
+	return len(id) >= len(marker1M) && strings.EqualFold(id[len(id)-len(marker1M):], marker1M)
+}
 
 func isFamily(s string) bool { return s == Opus || s == Sonnet || s == Haiku || s == Fable }
 
@@ -239,7 +246,7 @@ func UseCase(id, name string) string {
 			return k.use
 		}
 	}
-	if use, ok := familyUse[FamilyOf(id)]; ok {
+	if use, ok := familyUse[FamilyOf(strings.ToLower(id))]; ok {
 		return use
 	}
 	switch {

@@ -271,6 +271,9 @@ func mergeOverlay(reg *Registry, overlay []byte) error {
 
 // applyOverlay merges overlay fields o into base, cell by cell for routes and whole-value for scalars.
 func applyOverlay(base, o *Registry) error {
+	if err := applyProviderOverlay(base, o); err != nil { // first, so a refused overlay leaves base untouched
+		return err
+	}
 	if o.Default != "" {
 		base.Default = o.Default
 	}
@@ -287,7 +290,7 @@ func applyOverlay(base, o *Registry) error {
 		base.AgentPlanFormat = o.AgentPlanFormat
 	}
 	applyRoutingOverlay(&base.Routing, &o.Routing)
-	return applyProviderOverlay(base, o)
+	return nil
 }
 
 // applyProviderOverlay merges o's profiles into base; a null profile removes a built-in.
@@ -297,19 +300,22 @@ func applyProviderOverlay(base, o *Registry) error {
 	}
 	var errs []error
 	for _, n := range slices.Sorted(maps.Keys(o.Providers)) {
-		p := o.Providers[n]
+		if p, prev := o.Providers[n], base.Providers[n]; p != nil && prev != nil && prev.Provider != p.Provider {
+			errs = append(errs, fmt.Errorf("profile %q is defined under both %s and %s; profile names are unique across providers",
+				n, prev.Provider, p.Provider))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	for n, p := range o.Providers {
 		if p == nil { // "name": null removes a built-in
 			delete(base.Providers, n)
 			continue
 		}
-		if prev, ok := base.Providers[n]; ok && prev.Provider != p.Provider {
-			errs = append(errs, fmt.Errorf("profile %q is defined under both %s and %s; profile names are unique across providers",
-				n, prev.Provider, p.Provider))
-			continue
-		}
 		base.Providers[n] = p
 	}
-	return errors.Join(errs...)
+	return nil
 }
 
 // applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies

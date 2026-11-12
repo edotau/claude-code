@@ -399,15 +399,19 @@ func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
 func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
 	vendorHost(t)
 	var n, again atomic.Int32
-	done := make(chan map[string][]wire.Envelope, 1)
-	go func() {
-		_, got := runRetryBatch(t, poolOptions{},
-			vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
-			vendorTask(t, "b", "", "ok", "", &n, &n),
-			vendorTask(t, "c", "", "ok", "", &n, &n))
-		done <- got
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	tasks := []batchTask{vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
+		vendorTask(t, "b", "", "ok", "", &n, &n), vendorTask(t, "c", "", "ok", "", &n, &n)}
+	go func() { // only the test goroutine may call t.Fatalf, so it decodes after the batch ends
+		defer close(done)
+		runTasks(t.Context(), tasks, poolOptions{Out: &buf, ID: "batch-r", Jobs: 1})
 	}()
-	got := recvWithin(t, done, 20*time.Second, "batch deadlocked: a retried task leaked its slot")
+	recvWithin(t, done, 20*time.Second, "batch deadlocked: a retried task leaked its slot")
+	got := map[string][]wire.Envelope{}
+	for _, env := range decodePoolEnvelopes(t, &buf) {
+		got[env.TaskID] = append(got[env.TaskID], env)
+	}
 	for _, id := range []string{"a", "b", "c"} {
 		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
 			t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
@@ -1158,7 +1162,7 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 	if runs.Load() != 0 {
 		t.Errorf("the queued dispatch ran %d times on an auth-dead account", runs.Load())
 	}
-	if ln := envLine(out, "second"); ln != "" && !strings.Contains(ln, `"kind":"auth"`) {
+	if ln := envLine(out, "second"); !strings.Contains(ln, `"kind":"auth"`) {
 		t.Errorf("second task's envelope = %s, want an auth error", ln)
 	}
 }
@@ -1172,7 +1176,7 @@ func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
 	}
-	if ln := envLine(out, "limited"); ln != "" && !strings.Contains(ln, `"kind":"auth"`) {
+	if ln := envLine(out, "limited"); !strings.Contains(ln, `"kind":"auth"`) {
 		t.Errorf("limited task's envelope = %s, want an auth error", ln)
 	}
 }

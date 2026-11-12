@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +129,7 @@ func patRow(name string) (*providers.Provider, func() error, error) {
 		return nil, noop, err
 	}
 	undo := func() error { return restoreOverlayAuth(name, prevAuth) }
-	if err := switchAuthType(p, providers.AuthPAT, false); err != nil {
+	if err := switchAuthTypeTo(io.Discard, p, providers.AuthPAT, false); err != nil {
 		return nil, noop, err
 	}
 	if reg, err = providers.Load(); err != nil {
@@ -336,7 +337,10 @@ func copyToken(ctx context.Context, tok string, after time.Duration) int {
 		return fail("token: copy: %v", err)
 	}
 	if err := clipboard.ScheduleClear(after, tok); err != nil {
-		return fail("token: copied, but the timed clear failed: %v", err)
+		if _, cerr := clipboard.ClearIfMatch(ctx, clipboard.Digest(tok)); cerr != nil {
+			return fail("token: copied, the timed clear failed (%v) and so did clearing now: %v", err, cerr)
+		}
+		return fail("token: the timed clear failed (%v); cleared the clipboard now", err)
 	}
 	fmt.Printf("copied · clears in %s\n", after)
 	return 0

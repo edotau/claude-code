@@ -135,20 +135,28 @@ func serveChild(ctx context.Context, cancel context.CancelCauseFunc, rec *Record
 func (s *liveSession) awaitChild(ctx context.Context, ln net.Listener, exited chan error, stdin io.Closer,
 	tail *retry.TailBuffer) error {
 	var wg sync.WaitGroup
-	go s.accept(ctx, ln, &wg)
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		s.accept(ctx, ln, &wg)
+	}()
 	var cause error
 	select {
 	case <-ctx.Done():
 		cause = context.Cause(ctx)
 	case werr := <-exited:
 		exited <- werr
-		cause = fmt.Errorf("%s exited: %w", s.name, ChildErr(context.Background(), s.name, werr, tail))
+		cause = fmt.Errorf("%s exited", s.name)
+		if cerr := ChildErr(context.Background(), s.name, werr, tail); cerr != nil {
+			cause = fmt.Errorf("%s exited: %w", s.name, cerr)
+		}
 	}
 	s.idle.Stop()
 	_ = ln.Close()
 	s.cancel(cause) // kills the child process group via CommandContext
 	<-exited        //nolint:errcheck // cancel above ended the child, so its exit error says nothing new
 	_ = stdin.Close()
+	<-acceptDone // accept adds to wg, so it must stop before Wait
 	wg.Wait()
 	_ = os.Remove(LiveSocket(s.rec.ID))
 	return s.finish(cause)

@@ -346,8 +346,7 @@ func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
 	case slices.Contains(Aliases, m) && p != nil && p.Models[m] != "":
 		return p.Models[m], ""
 	case slices.Contains(Aliases, m):
-		cell, _ := lp.t.Cell(c.Agent, m)
-		return cell.Model, ""
+		return lp.aliasCell(c, m)
 	case p == nil:
 		return m, ""
 	}
@@ -359,6 +358,15 @@ func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
 		return "", "rung model " + sp + " is not READY on " + c.Account
 	}
 	return sp, ""
+}
+
+// aliasCell is the table cell's model for alias m on c's agent; why is non-empty when there is none.
+func (lp ladderPick) aliasCell(c Candidate, m string) (model, why string) {
+	cell, ok := lp.t.Cell(c.Agent, m)
+	if !ok {
+		return "", "no " + m + " cell for " + c.Agent
+	}
+	return cell.Model, ""
 }
 
 // placeClaude puts claude into the first rung after the leading one whose best total it beats, else after the ladder.
