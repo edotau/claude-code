@@ -75,8 +75,10 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
-		row2 = appendSep(row2, twoSeg{key: "context", text: "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct)))})
-		row2 = appendSep(row2, twoSeg{key: "tokens", text: textutil.CompactCount(int64(d.tokens)) + "/" + textutil.CompactCount(int64(d.size))})
+		ctx := "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct)))
+		toks := textutil.CompactCount(int64(d.tokens)) + "/" + textutil.CompactCount(int64(d.size))
+		row2 = appendSep(row2, twoSeg{key: "context", text: ctx})
+		row2 = appendSep(row2, twoSeg{key: "tokens", text: toks})
 	}
 	if d.week >= 0 {
 		row2 = appendSep(row2, twoSeg{key: "limit7d", text: fmt.Sprintf("7d %s %d%%", twoBar(float64(d.week), 10), d.week)})
@@ -124,7 +126,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 	for _, s := range row {
 		if bg := th[s.key]["bg"]; bg != "" {
 			b.WriteString(ansi.BgSeq(mode, ansi.Hex(bg)))
-		} else if len(th) == 0 && !s.bare { // a ramp-only palette backs each cell and separator with a dark shade of its own ramp color
+		} else if len(th) == 0 && !s.bare { // ramp-only palette: back each cell with a dark shade of its ramp color
 			mid := float64(i) + float64(utf8.RuneCountInString(s.text)-1)/2
 			b.WriteString(ansi.BgSeq(mode, ansi.Mix(ansi.GradAt(stops, mid/float64(max(total-1, 1))), ansi.RGB{}, twoShade)))
 		}

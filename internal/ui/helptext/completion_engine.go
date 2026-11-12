@@ -168,13 +168,7 @@ func (e Engine) Candidates(words []string) []string {
 		cur = words[len(words)-1]
 		words = words[:len(words)-1]
 	}
-	// bash splits `--flag=val` into `--flag`, `=`, `val` and completes only the value part.
-	split := false
-	if n := len(words); cur == "=" && n > 0 && strings.HasPrefix(words[n-1], "-") {
-		cur, words, split = words[n-1]+"=", words[:n-1], true
-	} else if n >= 2 && words[n-1] == "=" && strings.HasPrefix(words[n-2], "-") {
-		cur, words, split = words[n-2]+"="+cur, words[:n-2], true
-	}
+	cur, words, split := rejoinInlineFlag(cur, words)
 	path, node, rest := e.knownPath(words)
 	if strings.HasPrefix(cur, "-") && strings.Contains(cur, "=") {
 		out := inlineFlagCandidates(path, node, cur)
@@ -192,6 +186,18 @@ func (e Engine) Candidates(words []string) []string {
 		}
 	}
 	return out
+}
+
+// rejoinInlineFlag undoes bash's split of `--flag=val` into `--flag`, `=`, `val`; split reports it did.
+func rejoinInlineFlag(cur string, words []string) (string, []string, bool) {
+	n := len(words)
+	if cur == "=" && n > 0 && strings.HasPrefix(words[n-1], "-") {
+		return words[n-1] + "=", words[:n-1], true
+	}
+	if n >= 2 && words[n-1] == "=" && strings.HasPrefix(words[n-2], "-") {
+		return words[n-2] + "=" + cur, words[:n-2], true
+	}
+	return cur, words, false
 }
 
 func (e Engine) nextCompletionCandidates(path []string, node *Node, rest []string, cur string) []string {
