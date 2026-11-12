@@ -118,28 +118,28 @@ func (b *idleBody) Close() error {
 
 func (r *Router) relayChat(w *statusWriter, in *http.Request, resp *http.Response, t providers.Target,
 	clientModel string, stream bool) (bool, error) {
-	// Per-token providers tee raw bytes so the ledger can scrape usage without changing translate's API.
-	var capture *bytes.Buffer
-	body2 := io.Reader(resp.Body)
+	if !stream {
+		return relayChatBuffered(w, in, resp.Body, t, clientModel)
+	}
+	// Per-token providers tee the stream's tail so the ledger can scrape usage without changing translate's API.
+	var tail *tailBuffer
+	body := io.Reader(resp.Body)
 	if metered(t.Provider) {
-		capture = &bytes.Buffer{}
-		body2 = io.TeeReader(resp.Body, capture)
+		tail = &tailBuffer{}
+		body = io.TeeReader(resp.Body, tail)
 	}
-	if stream {
-		return r.relayChatStream(w, in, body2, capture, t, clientModel)
-	}
-	return relayChatBuffered(w, in, body2, capture, t, clientModel)
+	return r.relayChatStream(w, in, body, tail, t, clientModel)
 }
 
 // relayChatStream translates an SSE chat stream; false and the error only when nothing was written yet.
-func (r *Router) relayChatStream(w *statusWriter, in *http.Request, body io.Reader, capture *bytes.Buffer,
+func (r *Router) relayChatStream(w *statusWriter, in *http.Request, body io.Reader, tail *tailBuffer,
 	t providers.Target, clientModel string) (bool, error) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	// No explicit 200: a read error before the first event writes nothing, so the caller can still fail over.
 	err := translate.StreamChat(w, flusher(w), body, clientModel)
-	if capture != nil {
-		logLedgerUsage(in, t.Provider, t.Model, scrapeChatUsage(capture.Bytes()))
+	if tail != nil {
+		logLedgerUsage(in, t.Provider, t.Model, scrapeChatUsage(tail.buf))
 	}
 	if err != nil && w.status == 0 {
 		return false, err
@@ -151,14 +151,14 @@ func (r *Router) relayChatStream(w *statusWriter, in *http.Request, body io.Read
 }
 
 // relayChatBuffered reads a whole chat reply, translates it, and writes it as one JSON response.
-func relayChatBuffered(w *statusWriter, in *http.Request, body io.Reader, capture *bytes.Buffer, t providers.Target,
+func relayChatBuffered(w *statusWriter, in *http.Request, body io.Reader, t providers.Target,
 	clientModel string) (bool, error) {
 	b, err := io.ReadAll(io.LimitReader(body, maxBody))
 	if err != nil {
 		return false, err
 	}
-	if capture != nil {
-		logLedgerUsage(in, t.Provider, t.Model, scrapeChatUsage(capture.Bytes()))
+	if metered(t.Provider) {
+		logLedgerUsage(in, t.Provider, t.Model, scrapeChatUsage(b))
 	}
 	ab, err := translate.FromChatResponse(b, clientModel)
 	if err != nil {
