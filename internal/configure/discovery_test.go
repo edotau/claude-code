@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"sync/atomic"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -24,17 +23,15 @@ const listing = `{"endpoints":[
 {"name":"databricks-cold-1","task":"llm/v1/chat","state":{"ready":"NOT_READY"}},
 {"name":"databricks-embed-1","task":"llm/v1/embeddings","state":{"ready":"READY"}}]}`
 
-// workspace serves identity and listing for profiles dev (serving) and gw (AI Gateway); hits counts every request.
-func workspace(t *testing.T) (hits *atomic.Int32) {
+// workspace serves identity and listing for profiles dev (serving) and gw (AI Gateway).
+func workspace(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("DATABRICKS_DEV_PAT", "synthetic-discovery-pat")
 	t.Setenv("DATABRICKS_GW_PAT", "synthetic-discovery-pat")
-	hits = new(atomic.Int32)
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
 		if r.URL.Path == "/api/2.0/preview/scim/v2/Me" {
 			_, _ = w.Write([]byte(`{"id":"discovery-subject","active":true}`))
 			return
@@ -53,7 +50,6 @@ func workspace(t *testing.T) (hits *atomic.Int32) {
 			t.Fatal(err)
 		}
 	}
-	return hits
 }
 
 // An agent outside the roster is refused by name.
