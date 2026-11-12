@@ -249,6 +249,60 @@ func dedupeCandidates(cs []Candidate) []Candidate {
 	})
 }
 
+// OffOrder reports a gate skip of an agent the order never holds: not the wanted agent, claude or the registry.
+func OffOrder(label, want string) bool {
+	who, _, _ := strings.Cut(label, "·")
+	return who != want && who != "claude" && who != "registry"
+}
+
+// ClaudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
+func ClaudeBackstop(cands []Candidate, req int, mode string) int {
+	if mode != FallbackAll && mode != "" {
+		return -1
+	}
+	last := -1
+	for i, c := range cands {
+		if c.Agent == "claude" {
+			last = i
+		}
+	}
+	if last == req {
+		return -1
+	}
+	return last
+}
+
+// RequestedIndex is the candidate the caller asked for: the wanted agent on the overlay workspace, the lead or its pin.
+func RequestedIndex(cands []Candidate, want, lead string, pin int) int {
+	on := func(profile string) int {
+		acct := ProviderAccount(profile)
+		return slices.IndexFunc(cands, func(c Candidate) bool {
+			return c.Agent == want && (c.Profile == profile || c.Account == acct)
+		})
+	}
+	switch arm := ArmProfile(); {
+	case arm != "":
+		return on(arm)
+	case want == "claude":
+		return slices.IndexFunc(cands, func(c Candidate) bool { return c.Agent == "claude" })
+	case lead != "":
+		return on(lead)
+	}
+	return pin
+}
+
+// AskedWorkspace reports the wanted agent on the overlay workspace or inside a confinement: neither is a fallback.
+func AskedWorkspace(cand Candidate, want string) bool {
+	if cand.Agent != want {
+		return false
+	}
+	if arm := ArmProfile(); arm != "" && cand.Profile == arm {
+		return true // databricks:<p> asked for this workspace: running there is not a fallback
+	}
+	cp, _ := Confined() // the confinement admitted it: the pin was set aside, nothing fell back
+	return cp != ""
+}
+
 // skipNoRow records that agent has no row at alias.
 func skipNoRow(res *PickResult, agent, alias string) {
 	res.Skipped = append(res.Skipped, Skip{agent, gateRow, "no " + alias + " row"})
