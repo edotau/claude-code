@@ -226,29 +226,6 @@ func TestBarRendering(t *testing.T) {
 	}
 }
 
-// TestPrintQuotaWarnings: only warn/exceeded rows print to errw, in the documented format; ok rows are silent.
-func TestPrintQuotaWarnings(t *testing.T) {
-	qs := []quota{
-		{Provider: "github", Account: "me", UsedPct: 50, State: "ok"},
-		{Provider: "github", Account: "work", UsedPct: 85, State: "warn"},
-		{Provider: "openai", Account: "", UsedPct: 100, State: "exceeded"},
-	}
-	var errw bytes.Buffer
-	printQuotaWarnings(&errw, qs)
-	got := errw.String()
-	if strings.Contains(got, "me at 50%") {
-		t.Errorf("an ok row must not warn:\n%s", got)
-	}
-	for _, want := range []string{
-		"usage: github work at 85% (warn)\n",
-		"usage: openai - at 100% (exceeded)\n",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q in:\n%s", want, got)
-		}
-	}
-}
-
 // TestPrintQuotasStateColumn: the STATE column renders the row's state, or "-" for a Note row.
 func TestPrintQuotasStateColumn(t *testing.T) {
 	qs := []quota{

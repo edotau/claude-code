@@ -317,13 +317,9 @@ var readLedger = tokenledger.Read
 // <id>/subagents/workflows/*/agent-*.jsonl — a session id is unique but its parent project-dir
 // encoding isn't known to the caller, so every project dir is tried.
 func usageFilesForSession(claudeDir, id string) ([]string, error) {
-	pattern := filepath.Join(claudeDir, "projects", "*", id, "subagents", "*.jsonl")
-	matches, err := filepath.Glob(pattern)
+	matches, err := transcript.SessionAgentFiles(filepath.Join(claudeDir, "projects", "*", id))
 	if err != nil {
-		return nil, fmt.Errorf("usage: glob %s: %w", pattern, err)
-	}
-	for _, run := range transcript.WorkflowRunDirs(filepath.Join(claudeDir, "projects", "*", id)) {
-		matches = append(matches, transcript.WorkflowAgentFiles(run)...)
+		return nil, fmt.Errorf("usage: glob session %s: %w", id, err)
 	}
 	return dedupeFiles(matches), nil
 }
@@ -339,14 +335,11 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 
 	var files []string
 	for _, dir := range sessionDirs {
-		matches, globErr := filepath.Glob(filepath.Join(dir, "subagents", "*.jsonl"))
+		matches, globErr := transcript.SessionAgentFiles(dir)
 		if globErr != nil {
 			return nil, fmt.Errorf("usage: glob %s: %w", dir, globErr)
 		}
 		files = append(files, matches...)
-		for _, run := range transcript.WorkflowRunDirs(dir) {
-			files = append(files, transcript.WorkflowAgentFiles(run)...)
-		}
 	}
 	cutoff := windowCutoff(days)
 	files = slices.DeleteFunc(files, func(f string) bool {

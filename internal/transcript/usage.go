@@ -118,15 +118,6 @@ func ReadResponses(path string) ([]Response, error) {
 	return acc.Responses, nil
 }
 
-// SummarizeFile totals every response in one transcript file (see ReadResponses).
-func SummarizeFile(path string) (*FileSummary, error) {
-	resps, err := ReadResponses(path)
-	if err != nil {
-		return nil, err
-	}
-	return SummarizeResponses(resps), nil
-}
-
 // SummarizeResponses totals a set of responses, e.g. the in-window subset of one file.
 func SummarizeResponses(resps []Response) *FileSummary {
 	s := &FileSummary{Models: map[string]*ModelUsage{}, Turns: len(resps), ModelTurns: map[string]int{}, perMin: map[int64]int64{}}
@@ -195,11 +186,6 @@ func WorkflowRunDirs(sessionDir string) []string {
 	if err != nil {
 		return nil
 	}
-	return keepDirs(matches)
-}
-
-// keepDirs filters a glob result down to directories, sorted.
-func keepDirs(matches []string) []string {
 	var dirs []string
 	for _, m := range matches {
 		if info, err := os.Stat(m); err == nil && info.IsDir() {
@@ -208,6 +194,15 @@ func keepDirs(matches []string) []string {
 	}
 	slices.Sort(dirs)
 	return dirs
+}
+
+// SessionAgentFiles lists a session dir's subagents/*.jsonl plus its workflow agents; the path may hold glob wildcards.
+func SessionAgentFiles(sessionDir string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "*.jsonl"))
+	for _, run := range WorkflowRunDirs(sessionDir) {
+		files = append(files, WorkflowAgentFiles(run)...)
+	}
+	return files, err
 }
 
 // WorkflowAgentFiles lists one run dir's agent transcripts; the agent-*.jsonl shape keeps the sibling

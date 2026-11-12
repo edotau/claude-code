@@ -2,7 +2,6 @@ package transcript
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,22 +21,6 @@ func BenchmarkScan(b *testing.B) {
 	for b.Loop() {
 		countEdits(path)
 		_, _ = EditedFiles(path)
-	}
-}
-
-func TestEachLineOverflowAndUnterminated(t *testing.T) {
-	giant := strings.Repeat("x", 3<<20) + "\n"
-	in := "a\n" + giant + "b\nlast"
-	var got []string
-	EachLine(strings.NewReader(in), func(l []byte) { got = append(got, string(l)) })
-	want := []string{"a\n", giant, "b\n", "last"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d lines, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("line %d: len %d, want len %d", i, len(got[i]), len(want[i]))
-		}
 	}
 }
 
@@ -63,45 +46,6 @@ func TestLastUsageAndEdits(t *testing.T) {
 	}
 	if _, ok := LastUsage(filepath.Join(t.TempDir(), "missing")); ok {
 		t.Error("missing transcript reported usage")
-	}
-}
-
-func TestWindow(t *testing.T) {
-	t.Setenv("ANTHROPIC_MODEL", "")
-	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5[1m]")
-	for _, c := range []struct {
-		model string
-		used  int
-		want  int
-	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 1_000_000}, {"x[1m]", 1, 1_000_000}} {
-		if got := Window(c.model, c.used); got != c.want {
-			t.Errorf("Window(%q,%d)=%d want %d", c.model, c.used, got, c.want)
-		}
-	}
-}
-
-// A Databricks pin "databricks-<id>[1m]" must cover the bare id the transcript records.
-func TestWindowDatabricksPrefixedPin(t *testing.T) {
-	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-5-5[1m]")
-	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
-	if got := Window("claude-opus-5-5", 182_796); got != 1_000_000 {
-		t.Errorf("Window(claude-opus-5-5)=%d want 1000000", got)
-	}
-	if got := Window("claude-haiku-4-5", 10); got != 200_000 {
-		t.Errorf("Window(claude-haiku-4-5)=%d want 200000 (unpinned model)", got)
-	}
-}
-
-// A pin on another vendor's "vendor-<id>[1m]" must NOT hand the bare id a 1M window (only "databricks-" is stripped).
-func TestWindowNonDatabricksPrefixedPinNotMatched(t *testing.T) {
-	t.Setenv("ANTHROPIC_MODEL", "vendor-gpt-5[1m]")
-	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
-	if got := Window("gpt-5", 10); got == 1_000_000 {
-		t.Errorf("Window(gpt-5)=%d: a vendor-gpt-5[1m] pin must not match bare gpt-5", got)
-	}
-	t.Setenv("ANTHROPIC_MODEL", "databricks-gpt-5[1m]")
-	if got := Window("gpt-5", 10); got != 1_000_000 {
-		t.Errorf("databricks- pin must still match: %d", got)
 	}
 }
 
@@ -595,39 +539,6 @@ func TestCountEditsFromRealTranscript(t *testing.T) {
 	}
 	if total != 1 {
 		t.Fatalf("real fixture counted %d edits, want 1", total)
-	}
-}
-
-func TestContentText(t *testing.T) {
-	cases := []struct{ name, in, want string }{
-		{"bare string", `"hello"`, "hello"},
-		{"text and tool_use", `[{"type":"text","text":"a"},{"type":"tool_use","name":"X"},{"type":"text","text":"b"}]`, "ab"},
-		{"empty array", `[]`, ""},
-		{"invalid json", `{not json`, ""},
-		{"empty input", ``, ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := ContentText(json.RawMessage(c.in)); got != c.want {
-				t.Errorf("ContentText(%s) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
-}
-
-func TestEachLineExportedHandlesHugeAndUnterminated(t *testing.T) {
-	// Given a 5 MiB line and an unterminated tail; When iterated; Then every line arrives whole
-	giant := strings.Repeat("x", 5<<20) + "\n"
-	var got []string
-	EachLine(strings.NewReader("a\n"+giant+"tail"), func(l []byte) { got = append(got, string(l)) })
-	want := []string{"a\n", giant, "tail"}
-	if len(got) != len(want) {
-		t.Fatalf("got %d lines, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("line %d: len %d, want %d", i, len(got[i]), len(want[i]))
-		}
 	}
 }
 

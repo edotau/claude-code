@@ -10,9 +10,18 @@ import (
 	"time"
 )
 
+// summarizeFile totals every response in path uncached.
+func summarizeFile(path string) (*FileSummary, error) {
+	resps, err := ReadResponses(path)
+	if err != nil {
+		return nil, err
+	}
+	return SummarizeResponses(resps), nil
+}
+
 // addFile summarizes path uncached and folds it into agg.
 func addFile(agg *UsageAggregate, path string) error {
-	s, err := SummarizeFile(path)
+	s, err := summarizeFile(path)
 	if err != nil {
 		return err
 	}
@@ -64,12 +73,12 @@ func TestUsageAggregateMissingFile(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileFixtures pins SummarizeFile against the same fixture AddFile is pinned against
+// TestSummarizeFileFixtures pins summarizeFile against the same fixture AddFile is pinned against
 // (usage --workflows reuses this helper for per-run/per-phase wall time and turn counts).
 func TestSummarizeFileFixtures(t *testing.T) {
-	s, err := SummarizeFile("testdata/usage_a.jsonl")
+	s, err := summarizeFile("testdata/usage_a.jsonl")
 	if err != nil {
-		t.Fatalf("SummarizeFile(usage_a): %v", err)
+		t.Fatalf("summarizeFile(usage_a): %v", err)
 	}
 	// usage_a has 2 assistant records with usage (the 3rd line is malformed, the 4th is a user record).
 	if s.Turns != 2 {
@@ -90,21 +99,15 @@ func TestSummarizeFileFixtures(t *testing.T) {
 // TestSummarizeFileNoTimestamps confirms a file with unparseable/absent timestamps degrades to a
 // zero span rather than erroring — the WALL column must print "-", never a 1970-based duration.
 func TestSummarizeFileNoTimestamps(t *testing.T) {
-	s, err := SummarizeFile("testdata/usage_no_timestamps.jsonl")
+	s, err := summarizeFile("testdata/usage_no_timestamps.jsonl")
 	if err != nil {
-		t.Fatalf("SummarizeFile: %v", err)
+		t.Fatalf("summarizeFile: %v", err)
 	}
 	if s.Turns != 1 {
 		t.Errorf("Turns = %d, want 1", s.Turns)
 	}
 	if !s.First.IsZero() || !s.Last.IsZero() {
 		t.Errorf("span = [%s, %s], want zero/zero", s.First, s.Last)
-	}
-}
-
-func TestSummarizeFileMissingFile(t *testing.T) {
-	if _, err := SummarizeFile("testdata/does-not-exist.jsonl"); err == nil {
-		t.Error("SummarizeFile on a missing file: want error, got nil")
 	}
 }
 
@@ -115,9 +118,9 @@ func TestSummarizeFileMissingFile(t *testing.T) {
 // give input 8, output 262; the last-line-wins fix must give input 2, output 247 for that response. The
 // fifth line is synthetic (no message.id) and must count as its own, separate response.
 func TestSummarizeFileDedupesByMessageID(t *testing.T) {
-	s, err := SummarizeFile("testdata/usage_dedup.jsonl")
+	s, err := summarizeFile("testdata/usage_dedup.jsonl")
 	if err != nil {
-		t.Fatalf("SummarizeFile(usage_dedup): %v", err)
+		t.Fatalf("summarizeFile(usage_dedup): %v", err)
 	}
 	if s.Turns != 2 {
 		t.Errorf("Turns = %d, want 2 (one deduped response + one standalone no-id line)", s.Turns)
@@ -150,9 +153,9 @@ func TestSummarizeFileOversizedLineDoesNotAbortScan(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	s, err := SummarizeFile(path)
+	s, err := summarizeFile(path)
 	if err != nil {
-		t.Fatalf("SummarizeFile: %v", err)
+		t.Fatalf("summarizeFile: %v", err)
 	}
 	if s.Turns != 3 {
 		t.Fatalf("Turns = %d, want 3 (the oversized line must not abort the scan of the line after it)", s.Turns)
@@ -222,5 +225,44 @@ func TestWorkflowPhaseFromMeta(t *testing.T) {
 				t.Errorf("phase = %q, warning %q; want %q, warning=%v", got, errw.String(), tc.want, tc.warn)
 			}
 		})
+	}
+}
+
+func TestWindow(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5[1m]")
+	for _, c := range []struct {
+		model string
+		used  int
+		want  int
+	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 1_000_000}, {"x[1m]", 1, 1_000_000}} {
+		if got := Window(c.model, c.used); got != c.want {
+			t.Errorf("Window(%q,%d)=%d want %d", c.model, c.used, got, c.want)
+		}
+	}
+}
+
+// A Databricks pin "databricks-<id>[1m]" must cover the bare id the transcript records.
+func TestWindowDatabricksPrefixedPin(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-5-5[1m]")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
+	if got := Window("claude-opus-5-5", 182_796); got != 1_000_000 {
+		t.Errorf("Window(claude-opus-5-5)=%d want 1000000", got)
+	}
+	if got := Window("claude-haiku-4-5", 10); got != 200_000 {
+		t.Errorf("Window(claude-haiku-4-5)=%d want 200000 (unpinned model)", got)
+	}
+}
+
+// A pin on another vendor's "vendor-<id>[1m]" must NOT hand the bare id a 1M window (only "databricks-" is stripped).
+func TestWindowNonDatabricksPrefixedPinNotMatched(t *testing.T) {
+	t.Setenv("ANTHROPIC_MODEL", "vendor-gpt-5[1m]")
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
+	if got := Window("gpt-5", 10); got == 1_000_000 {
+		t.Errorf("Window(gpt-5)=%d: a vendor-gpt-5[1m] pin must not match bare gpt-5", got)
+	}
+	t.Setenv("ANTHROPIC_MODEL", "databricks-gpt-5[1m]")
+	if got := Window("gpt-5", 10); got != 1_000_000 {
+		t.Errorf("databricks- pin must still match: %d", got)
 	}
 }

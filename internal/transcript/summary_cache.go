@@ -64,7 +64,7 @@ func SummaryCachePath() string {
 	return filepath.Join(paths.StateDir(), "transcript", "summary.json")
 }
 
-// SummaryCache memoizes SummarizeFile per absolute path across runs, keyed by size and mtime; one goroutine each.
+// SummaryCache memoizes ReadResponses per absolute path across runs, keyed by size and mtime; one goroutine each.
 type SummaryCache struct {
 	path         string
 	old, cur     map[string]summaryRow
