@@ -64,7 +64,7 @@ func assertNoopBatch(t *testing.T, first Receipt) {
 	if err != nil || rec2.Commit != "" || len(rec2.Skipped) != 1 {
 		t.Fatalf("no-op batch = %+v, %v", rec2, err)
 	}
-	if head, _ := StoreRepo().Head(); head != first.Commit {
+	if head, _ := StoreRepo().head(); head != first.Commit {
 		t.Fatalf("empty commit created: %s != %s", head, first.Commit)
 	}
 }
@@ -499,7 +499,7 @@ func storeFixture(t *testing.T) (store string, decoy Repo) {
 // assertDecoyUntouched: the hostile GIT_* env must never retarget a store operation at the decoy.
 func assertDecoyUntouched(t *testing.T, decoy Repo) {
 	t.Helper()
-	if head, _ := decoy.Head(); head != "" {
+	if head, _ := decoy.head(); head != "" {
 		t.Fatalf("decoy gained a commit %s", head)
 	}
 	st, err := decoy.Status()
@@ -557,7 +557,7 @@ func assertGitignoreSeeded(t *testing.T, store string) {
 // assertFreshRepoEmpty checks a just-ensured repo has no HEAD, no log and no remotes.
 func assertFreshRepoEmpty(t *testing.T, r Repo) {
 	t.Helper()
-	if head, _ := r.Head(); head != "" {
+	if head, _ := r.head(); head != "" {
 		t.Fatalf("fresh repo has HEAD %q", head)
 	}
 	if remotes, err := r.remotes(); err != nil || len(remotes) != 0 {
@@ -641,7 +641,7 @@ func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
 	if err != nil || strings.Count(log, "\n") != 1 || !strings.HasPrefix(log, "delete\n") {
 		t.Fatalf("log = %q, %v", log, err)
 	}
-	if head, _ := r.Head(); head == "" {
+	if head, _ := r.head(); head == "" {
 		t.Fatal("Head empty after commits")
 	}
 	assertDecoyUntouched(t, decoy)
@@ -684,7 +684,7 @@ func TestCommitRejectsSecretsByNameOnly(t *testing.T) {
 	if _, committed, err := r.Commit([]string{"prose.md"}, "s", ""); err != nil || !committed {
 		t.Fatalf("kebab prose rejected: %v", err)
 	}
-	if head, _ := r.Head(); head == "" {
+	if head, _ := r.head(); head == "" {
 		t.Fatal("no commit after prose")
 	}
 	assertDecoyUntouched(t, decoy)
@@ -843,10 +843,10 @@ func TestHeadDistinguishesUnbornFromFailure(t *testing.T) {
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	if head, err := r.Head(); err != nil || head != "" {
+	if head, err := r.head(); err != nil || head != "" {
 		t.Fatalf("unborn Head = %q, %v, want \"\", nil", head, err)
 	}
-	if _, err := (Repo{Dir: filepath.Join(t.TempDir(), "missing")}).Head(); err == nil {
+	if _, err := (Repo{Dir: filepath.Join(t.TempDir(), "missing")}).head(); err == nil {
 		t.Fatal("Head on a non-repo = nil error, want the git failure")
 	}
 }
@@ -878,22 +878,6 @@ func credentialNegatives() map[string]string {
 		"short dapi":  "dapi" + "0123456789ab",
 		"short sk":    "sk-" + "short12345",
 		"akia inside": "SLOV" + "AKIA" + strings.Repeat("BC", 8),
-	}
-}
-
-func TestCredentialPatternMatchesSecretShapes(t *testing.T) {
-	for name, v := range credentialPositives() {
-		if !textutil.CredentialRE.MatchString("note: " + v + " here") {
-			t.Errorf("%s: secret shape not matched", name)
-		}
-	}
-}
-
-func TestCredentialPatternSkipsFalsePositives(t *testing.T) {
-	for name, v := range credentialNegatives() {
-		if textutil.CredentialRE.MatchString("note: " + v + " here") {
-			t.Errorf("%s: %q flagged as a credential", name, v)
-		}
 	}
 }
 

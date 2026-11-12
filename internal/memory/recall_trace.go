@@ -65,7 +65,7 @@ func (t *recallTrace) candidate(c recallPick, need int, sem *Semantic) {
 		r.Outcome = "superseded"
 	}
 	if sem != nil {
-		if cos, ok := sem.CosineHit(c.Hit); ok {
+		if cos, ok := sem.cosineHit(c.Hit); ok {
 			r.Cosine = &cos
 		}
 	}
@@ -117,7 +117,7 @@ func (t *recallTrace) selected(picks []recallPick) {
 	context, _, _ := recallContext(picks)
 	for i, p := range picks {
 		outcome := "over cap"
-		line := "- " + p.Entry.Pointer()
+		line := "- " + p.Entry.pointer()
 		if i < recallBodies {
 			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 		}

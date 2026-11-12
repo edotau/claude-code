@@ -124,7 +124,7 @@ func entryCosines(t *testing.T, sem *Semantic, root string) (gamma, delta float6
 	}
 	for _, h := range hits {
 		e := entryFromHit(h)
-		cos, ok := sem.CosineHit(h)
+		cos, ok := sem.cosineHit(h)
 		if !ok {
 			t.Fatalf("entry %s has no vector", e.ID)
 		}
@@ -175,7 +175,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.Embed(ctx, texts)
+		return inner.EmbedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, c); err != nil || calls != 1 {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
-	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", EmbedFunc: c.Embed}
+	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", EmbedFunc: c.EmbedFunc}
 	expireEmbed(t)
 	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 1 {
 		t.Errorf("same model name on another workspace must re-EmbedFunc: n=%d err=%v", n, err)
@@ -295,7 +295,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.Embed(ctx, texts)
+		return inner.EmbedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestEmbedGoesThroughRouterWithSecret(t *testing.T) {
 	var proxyHits, directHits []string
 	px, direct := vecServer(t, &proxyHits, 200), vecServer(t, &directHits, 200)
 	c := embedViaRouter(t, direct.URL, px.URL)
-	vecs, err := c.Embed(context.Background(), []string{"q"})
+	vecs, err := c.EmbedFunc(context.Background(), []string{"q"})
 	if err != nil || len(vecs) != 1 || len(vecs[0]) != 3 {
 		t.Fatalf("Embed = %v, %v", vecs, err)
 	}
@@ -376,7 +376,7 @@ func TestEmbedFallsBackToDirectWhenRouterFails(t *testing.T) {
 				px.Close()
 			}
 			c := embedViaRouter(t, direct.URL, base)
-			vecs, err := c.Embed(context.Background(), []string{"q"})
+			vecs, err := c.EmbedFunc(context.Background(), []string{"q"})
 			if err != nil || len(vecs) != 1 {
 				t.Fatalf("Embed = %v, %v; want the direct fallback's vector", vecs, err)
 			}
@@ -579,7 +579,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.Embed(ctx, texts)
+		return inner.EmbedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)

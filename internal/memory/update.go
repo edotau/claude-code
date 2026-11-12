@@ -109,8 +109,8 @@ func readUpdateResult(sessionID string) (UpdateResult, bool) {
 	return r, r.Status != ""
 }
 
-// NeedsAttention: a recorded failure, or a pending dispatch past the grace window (the worker died).
-func (r UpdateResult) NeedsAttention(now time.Time) bool {
+// needsAttention: a recorded failure, or a pending dispatch past the grace window (the worker died).
+func (r UpdateResult) needsAttention(now time.Time) bool {
 	return r.Status == updateFailed || (r.Status == updatePending && now.Sub(r.Time) > updateGrace)
 }
 
@@ -141,28 +141,35 @@ func historicalBlock(historical bool) string {
 }
 
 // firstTranscriptTimestamp is the session's first "timestamp" (scopes `git log --since`); zero when absent.
-func firstTranscriptTimestamp(transcript string) time.Time {
-	f, err := os.Open(transcript)
-	if err != nil {
-		return time.Time{}
-	}
-	defer f.Close()
-	r := bufio.NewReader(f)
-	for range 20 { // the first records may be snapshots with no timestamp
-		line, err := r.ReadBytes('\n')
+func firstTranscriptTimestamp(transcript string) (first time.Time) {
+	scanTranscriptHead(transcript, 20, func(line []byte) bool { // the first records may be snapshots with no timestamp
 		var rec struct {
 			Timestamp string `json:"timestamp"`
 		}
-		if json.Unmarshal(line, &rec) == nil {
-			if t, perr := time.Parse(time.RFC3339, rec.Timestamp); perr == nil {
-				return t
-			}
+		if json.Unmarshal(line, &rec) != nil {
+			return false
 		}
-		if err != nil {
-			break
+		t, err := time.Parse(time.RFC3339, rec.Timestamp)
+		first = t
+		return err == nil
+	})
+	return first
+}
+
+// scanTranscriptHead feeds up to n leading JSONL lines of path to visit, stopping when it returns true.
+func scanTranscriptHead(path string, n int, visit func(line []byte) bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	r := bufio.NewReader(f)
+	for range n {
+		line, err := r.ReadBytes('\n')
+		if visit(line) || err != nil {
+			return
 		}
 	}
-	return time.Time{}
 }
 
 // gitSinceBlock lists this session's commits and touched files; empty without a timestamp or git repo.

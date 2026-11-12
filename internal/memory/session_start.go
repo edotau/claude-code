@@ -34,7 +34,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 		resetSeen(sessionID, cwd, out)
 	}
 	// An update worker is never the next "previous session"; a non-UUID (probe) id must not clobber the pointer.
-	if LooksLikeSessionID(sessionID) && !IsUpdateChild() {
+	if looksLikeSessionID(sessionID) && !IsUpdateChild() {
 		writeChain(chain, sessionID)
 	}
 	return out
@@ -62,7 +62,7 @@ func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 		spawn.dream(cwd)
 	}
 	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
-	if LooksLikeSessionID(sessionID) {
+	if looksLikeSessionID(sessionID) {
 		spawn.catchup(cwd, sessionID)
 	}
 }
@@ -86,7 +86,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 	if prevID != sessionID {
 		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
 	}
-	if res, ok := readUpdateResult(prevID); ok && res.NeedsAttention(now) {
+	if res, ok := readUpdateResult(prevID); ok && res.needsAttention(now) {
 		hint := ""
 		if res.Log != "" {
 			hint = " (log: " + res.Log + ")"
@@ -270,7 +270,7 @@ func sessionRootPath(sessionID string) string {
 
 // SessionRoot uses the launch repository when available, otherwise the hook payload cwd.
 func SessionRoot(sessionID, cwd string) string {
-	if !LooksLikeSessionID(sessionID) || IsUpdateChild() {
+	if !looksLikeSessionID(sessionID) || IsUpdateChild() {
 		return cwd
 	}
 	data, err := os.ReadFile(sessionRootPath(sessionID))
@@ -298,7 +298,7 @@ func sessionRootFor(cwd string) string {
 
 // recordSessionRoot preserves the first SessionStart root across resume and compaction.
 func recordSessionRoot(sessionID, cwd string) {
-	if !LooksLikeSessionID(sessionID) || IsUpdateChild() || SessionRoot(sessionID, "") != "" {
+	if !looksLikeSessionID(sessionID) || IsUpdateChild() || SessionRoot(sessionID, "") != "" {
 		return
 	}
 	root := sessionRootFor(cwd)

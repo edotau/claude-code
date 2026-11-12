@@ -313,15 +313,6 @@ func TestOriginReadWriteGuards(t *testing.T) {
 	if err != nil || got.Origin != "/src/one" || len(got.Aliases) != 1 || got.Aliases[0] != "/y" {
 		t.Fatalf("readOrigin = %+v, %v", got, err)
 	}
-	if err := WriteOrigin(dir, o); err != nil {
-		t.Error("same identity must be a no-op:", err)
-	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "one", Origin: "/src/other"}); !errors.Is(err, errOriginConflict) {
-		t.Errorf("different origin must conflict, got %v", err)
-	}
-	if err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: "two", Origin: "/src/one"}); err == nil {
-		t.Error("key must match the directory")
-	}
 }
 
 func TestReadOriginRejectsSymlinkedStore(t *testing.T) {

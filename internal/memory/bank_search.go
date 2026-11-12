@@ -130,8 +130,8 @@ func entryFromHit(h SearchHit) Entry {
 	}
 }
 
-// Pointer is the one-line reference `memory search <id>` expands: id · date · title.
-func (e Entry) Pointer() string {
+// pointer is the one-line reference `memory search <id>` expands: id · date · title.
+func (e Entry) pointer() string {
 	date := e.Date
 	if date == "" {
 		date = "undated"
@@ -139,8 +139,8 @@ func (e Entry) Pointer() string {
 	return e.ID + " · " + date + " · " + e.Title
 }
 
-// TypeRank orders entry types for recall: decisions and conventions first, session narrative last.
-func (e Entry) TypeRank() int {
+// typeRank orders entry types for recall: decisions and conventions first, session narrative last.
+func (e Entry) typeRank() int {
 	switch e.Type {
 	case "decision", "convention":
 		return 0

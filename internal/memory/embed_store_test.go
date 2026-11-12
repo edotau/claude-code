@@ -359,7 +359,7 @@ func TestEmbedNamespaceChangeIgnoresForeignLease(t *testing.T) {
 			if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 				t.Fatal(err)
 			}
-			other := &EmbedClient{Profile: c.Profile, Model: change.model, Namespace: change.namespace, EmbedFunc: c.Embed}
+			other := &EmbedClient{Profile: c.Profile, Model: change.model, Namespace: change.namespace, EmbedFunc: c.EmbedFunc}
 			n, _, err := embedChanged(context.Background(), root, other)
 			if err != nil || n != 1 || calls != 2 {
 				t.Fatalf("namespace change inside lease: n=%d calls=%d err=%v", n, calls, err)

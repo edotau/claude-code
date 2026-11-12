@@ -67,16 +67,12 @@ type vectorRow struct {
 	BlockHash string `json:"block_hash,omitempty"`
 }
 
-// EmbedClient embeds texts with one named model; Embed honours ctx.
+// EmbedClient embeds texts with one named model; EmbedFunc honours ctx.
 type EmbedClient struct {
 	Profile   string // the profile whose cache this client reads and writes
 	Model     string
 	Namespace string // profile|host|model: vectors are comparable only within one namespace
 	EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
-}
-
-func (c *EmbedClient) Embed(ctx context.Context, texts []string) ([][]float32, error) {
-	return c.EmbedFunc(ctx, texts)
 }
 
 // openEmbedClient builds a model client; an empty profile uses the agent record.
@@ -536,7 +532,7 @@ func decodeEmbeddings(raw []byte) ([][]float32, error) {
 func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
 	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
 		j := min(i+embedBatch, len(texts))
-		vecs, err := r.c.Embed(ctx, texts[i:j])
+		vecs, err := r.c.EmbedFunc(ctx, texts[i:j])
 		if err == nil && len(vecs) != j-i {
 			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
 		}
@@ -698,7 +694,7 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 	if cache.Namespace == "" || c.Namespace != cache.Namespace { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: fmt.Errorf("%w: belongs to another workspace or model", errEmbedMismatch)}
 	}
-	vecs, err := c.Embed(ctx, []string{query})
+	vecs, err := c.EmbedFunc(ctx, []string{query})
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
 	}

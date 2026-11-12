@@ -97,7 +97,7 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 		}
 		return true
 	}
-	extra, semSeen := sem.Candidates(files, segs, recallBodies+recallPointers, recallCosineAdmit, skip)
+	extra, semSeen := sem.candidates(files, segs, recallBodies+recallPointers, recallCosineAdmit, skip)
 	if trace != nil {
 		have := map[string]bool{}
 		for _, h := range ranked {
@@ -129,7 +129,7 @@ func recallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
 			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 			bodies = append(bodies, p.Hit)
 		} else {
-			fmt.Fprintf(&b, "\n- %s", p.Entry.Pointer())
+			fmt.Fprintf(&b, "\n- %s", p.Entry.pointer())
 		}
 		hits = append(hits, p.Hit)
 	}
@@ -211,7 +211,7 @@ func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
 
 	var lines []string
 	for _, p := range picks[:min(recallK, len(picks))] {
-		lines = append(lines, "\n- "+textutil.CapRunes(p.Entry.Pointer(), agentRecallPreviewRunes, "…"))
+		lines = append(lines, "\n- "+textutil.CapRunes(p.Entry.pointer(), agentRecallPreviewRunes, "…"))
 		ids = append(ids, p.Entry.ID)
 	}
 	block, n := capRecallLines(lines)
@@ -289,8 +289,8 @@ func orderRecall(picks []recallPick) {
 			return picks[i].Score > picks[j].Score
 		}
 		a, b := picks[i].Entry, picks[j].Entry
-		if a.TypeRank() != b.TypeRank() {
-			return a.TypeRank() < b.TypeRank()
+		if a.typeRank() != b.typeRank() {
+			return a.typeRank() < b.typeRank()
 		}
 		return a.Date > b.Date // an undated entry ("") sorts last
 	})
@@ -397,7 +397,7 @@ func scoreRecall(c recallPick, top float64, admitted bool, sem *Semantic) (float
 	if sem == nil {
 		return kw, admitted
 	}
-	cos, ok := sem.CosineHit(c.Hit)
+	cos, ok := sem.cosineHit(c.Hit)
 	if !ok {
 		return kw, admitted
 	} // Entries without a current vector retain their full keyword score.
@@ -437,8 +437,8 @@ const seenMaxAge = 7 * 24 * time.Hour
 // sessionIDShape matches a Claude Code session id (UUID), rejecting probe/test payloads like "probe-x".
 var sessionIDShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// LooksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
-func LooksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
+// looksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
+func looksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
 
 // blockKey identifies a block by its whitespace-normalized text.
 func blockKey(block string) string {
@@ -457,7 +457,7 @@ func seenPath(sessionID string) string {
 
 // resetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
 func resetSeen(sessionID, root, surface string) {
-	if !LooksLikeSessionID(sessionID) {
+	if !looksLikeSessionID(sessionID) {
 		return
 	}
 	p := seenPath(sessionID)

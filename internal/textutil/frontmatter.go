@@ -19,10 +19,10 @@ var fmRes = sync.OnceValue(func() (r struct {
 
 // ParseFrontmatter parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
 func ParseFrontmatter(content string) (map[string]any, string) {
-	// BOM/CRLF-normalize first: stripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
+	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
 	// A closing --- that ends the file has no trailing newline; add one so the delimiter matches.
-	prefix, rest := stripFrontMatter([]byte(strings.TrimSuffix(content, "\n") + "\n"))
+	prefix, rest := StripFrontMatter([]byte(strings.TrimSuffix(content, "\n") + "\n"))
 	if prefix == nil {
 		return map[string]any{}, content
 	}
@@ -81,8 +81,8 @@ func (p *fmParser) continuation(line string) {
 	}
 }
 
-// stripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters kept) from source; prefix is nil if absent.
-func stripFrontMatter(source []byte) (prefix, content []byte) {
+// StripFrontMatter splits a leading "---\n" ... "\n---\n" block (delimiters kept) from source; prefix is nil if absent.
+func StripFrontMatter(source []byte) (prefix, content []byte) {
 	delim := []byte("---\n")
 	if !bytes.HasPrefix(source, delim) {
 		return nil, source

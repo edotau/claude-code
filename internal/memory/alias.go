@@ -110,7 +110,7 @@ func planAlias(opt AliasOptions, canon string) (aliasResult, *aliasPlan, error) 
 	if !ok {
 		return aliasResult{}, nil, fmt.Errorf("unknown store key %q (see the catalog: %s)", opt.Into, filepath.Join(StoreDir(), catalogFile))
 	}
-	if tgt.Origin.Accepts(canon) {
+	if tgt.Origin.accepts(canon) {
 		return aliasResult{}, nil, fmt.Errorf("%s already resolves to store %q", canon, tgt.Key)
 	}
 	res := aliasResult{Key: tgt.Key}

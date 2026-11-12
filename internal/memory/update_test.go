@@ -226,7 +226,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, _ := readUpdateResult("11111111-1111-1111-1111-111111111111")
-	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.NeedsAttention(time.Now()) {
+	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.needsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
 	if !strings.Contains(mustRead(t, filepath.Join(dir, nativeIndexFile)), "updated-by-child") {
@@ -234,7 +234,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	}
 	assertUpdateFailure(t, root)
 	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-updateGrace - time.Minute)}
-	if !stale.NeedsAttention(time.Now()) {
+	if !stale.needsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}
 }
@@ -246,7 +246,7 @@ func assertUpdateFailure(t *testing.T, root string) {
 	if err := update(updateOptions{Run: bad, CWD: root, Session: "s2"}); err == nil {
 		t.Error("failing agent must return an error")
 	}
-	if r, _ := readUpdateResult("s2"); r.Status != updateFailed || r.BankUpdated || !r.NeedsAttention(time.Now()) {
+	if r, _ := readUpdateResult("s2"); r.Status != updateFailed || r.BankUpdated || !r.needsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
 	}
 }
