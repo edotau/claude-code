@@ -1,6 +1,7 @@
 package copilot
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -190,6 +191,9 @@ func discoverySource(p *providers.Provider) (source, skip string) {
 	source, skip = providers.DiscoverySource(p)
 	if isGithubProfile(p) {
 		skip = profileCatalogSupport(p)
+	}
+	if source == "" && skip != "" { // nothing to list live: name where its models are chosen instead
+		skip += "; choose its models in the vendor CLI itself"
 	}
 	return source, skip
 }
@@ -427,15 +431,19 @@ type DiscoverResult struct {
 // discoverLive is the live catalog call; tests swap it for a canned listing.
 var discoverLive = discoverProfileModels
 
-// missingKeyNote explains an API-key profile with no key stored ("" when it has one or uses another auth type).
+// missingKeyNote explains a key profile whose key is absent or unreadable ("" when it resolves or is no key row).
 func missingKeyNote(ctx context.Context, p *providers.Provider) string {
 	if p.Auth.Type != providers.AuthKey {
 		return ""
 	}
-	if _, err := providers.Credential(ctx, p); err != nil {
-		return "no API key stored for this profile; add one with `claude-code vault set " + p.Auth.Env + "`"
+	if _, err := providers.Credential(ctx, p); err == nil {
+		return ""
 	}
-	return ""
+	name := cmp.Or(providers.SecretName(p.Provider, p.Name, providers.AuthKey), p.Auth.Env)
+	if _, err := vault.HasSecretErr(name); err != nil || providers.CredentialPresent(p) {
+		return "this profile's API key could not be read; check the vault with `claude-code doctor`"
+	}
+	return "no API key stored for this profile; add one with `claude-code vault set " + name + "`"
 }
 
 // discoverUsable is p's live listing, or a skip note when p has no API key or its account lists nothing.
@@ -444,9 +452,17 @@ func discoverUsable(ctx context.Context, p *providers.Provider) (live []provider
 		return nil, note, nil
 	}
 	if live, err = discoverLive(ctx, p); err == nil && len(live) == 0 {
-		note = "the catalog listed no models for this account"
+		note = "the catalog listed no models for this account; " + emptyCatalogStep(p)
 	}
 	return live, note, err
+}
+
+// emptyCatalogStep is what to check when p's live catalog lists nothing.
+func emptyCatalogStep(p *providers.Provider) string {
+	if isGithubProfile(p) {
+		return "check `gh auth status` and that " + cmp.Or(p.Login, "the account") + " holds a Copilot seat"
+	}
+	return "check the profile's credential with `claude-code doctor`"
 }
 
 // discoverPickerProfile live-discovers p's models and previews (or, with apply, appends) the saved picker additions.

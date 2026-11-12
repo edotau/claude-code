@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -40,14 +41,18 @@ func OpencodeTableModels() (string, string, bool) {
 	return sonnet.Model, haiku.Model, true
 }
 
-// databricksTiers is table.json's "databricks" table: each alias's ordered bucket of canonical ids, shared by agents.
-var databricksTiers = sync.OnceValue(func() map[string][]string {
-	var f struct {
-		Databricks map[string][]string `json:"databricks"`
-	}
-	_ = json.Unmarshal(tableJSON, &f) // a malformed table.json fails LoadFrom, which every pick runs first
-	return f.Databricks
+// parsedTable is table.json decoded once per process; LoadFrom clones what it mutates.
+var parsedTable = sync.OnceValues(func() (fileTable, error) {
+	var f fileTable
+	err := json.Unmarshal(tableJSON, &f)
+	return f, err
 })
+
+// databricksTiers is table.json's "databricks" table: each alias's ordered bucket of canonical ids, shared by agents.
+func databricksTiers() map[string][]string {
+	f, _ := parsedTable() // a malformed table.json fails LoadFrom, which every pick runs first
+	return f.Databricks
+}
 
 // DatabricksModel is the first member of alias's bucket agent runs and nothing marks unusable, for p; "" if none.
 func DatabricksModel(agent, alias string, p *providers.Provider) string {
@@ -55,12 +60,13 @@ func DatabricksModel(agent, alias string, p *providers.Provider) string {
 		return ""
 	}
 	now, st := time.Now(), LoadState()
+	dead := deadAccounts(ProviderAccount(p.Name)) // dead[0] is p's own account, where MarkUnserved writes
 	for _, id := range databricksTiers()[alias] {
 		wire := SpellServed(p, id, now)
 		if _, _, known := models.Resolve(id); !known && wire == id {
 			continue // an unlisted id with no READY endpoint to spell it by
 		}
-		if bucketRunnable(agent, p, wire) && !tierUnusable(st, p, wire, now) {
+		if bucketRunnable(agent, p, wire) && !tierUnusable(st, dead, p, wire, now) {
 			return wire
 		}
 	}
@@ -80,12 +86,12 @@ func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
 	return true
 }
 
-// tierUnusable reports wire missing or not READY in p's fresh listing, or quota-dead on p's account.
-func tierUnusable(st State, p *providers.Provider, wire string, now time.Time) bool {
+// tierUnusable reports wire missing or not READY in p's fresh listing, marked unserved, or quota-dead on dead.
+func tierUnusable(st State, dead []string, p *providers.Provider, wire string, now time.Time) bool {
 	if _, ready, fresh := ServedListed(p, wire, now); fresh && !ready {
 		return true // ready is false for an unlisted endpoint too
 	}
-	return st.accountModelDead(ProviderAccount(p.Name), wire, now)
+	return unservedMarked(st[dead[0]], p, wire, now) || st.modelDeadOn(dead, wire, now)
 }
 
 // Price is USD per 1M tokens.
@@ -138,6 +144,16 @@ type fileTable struct {
 	Weights     map[string]float64         `json:"weights"`
 	Rows        map[string]map[string]Cell `json:"rows"`
 	OpencodeSub map[string]map[string]Cell `json:"opencode_sub"`
+	Databricks  map[string][]string        `json:"databricks"`
+}
+
+// cloneRows copies rows two levels deep, so a table's overlay never writes the shared parse.
+func cloneRows(rows map[string]map[string]Cell) map[string]map[string]Cell {
+	out := make(map[string]map[string]Cell, len(rows))
+	for id, byAgent := range rows {
+		out[id] = maps.Clone(byAgent)
+	}
+	return out
 }
 
 // rowAlias is the alias name of a Claude row id when an alias currently points at it, else "".
@@ -169,11 +185,12 @@ func Load() (*RouteTable, error) {
 // LoadFrom loads the table against an explicit registry and Copilot gh user; Load() is the normal entry
 // point, this is for tests and callers that already hold a registry.
 func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
-	var f fileTable
-	if err := json.Unmarshal(tableJSON, &f); err != nil {
+	f, err := parsedTable()
+	if err != nil {
 		return nil, fmt.Errorf("router: table.json: %w", err)
 	}
-	t := RouteTable{Billing: f.Billing, Weights: f.Weights, ByModel: f.Rows, OpencodeRowOverridden: map[string]bool{}}
+	t := RouteTable{Billing: maps.Clone(f.Billing), Weights: maps.Clone(f.Weights), ByModel: cloneRows(f.Rows),
+		OpencodeRowOverridden: map[string]bool{}}
 	copilotKey := copilotUnpinned
 	if ghUser != "" {
 		copilotKey = "github·" + ghUser

@@ -105,10 +105,12 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	fail := func(check, detail string) (string, *Finding, string) {
 		return "", &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}, ""
 	}
-	served := router.SpellServed(p, model, now) // an unlisted id the workspace serves as databricks-<id>
+	served := ServedSpelling(agentName, p, model, now)
 	wire, why := preflightModelWire(agentName, p, served)
 	spelled := cmp.Or(wire, providers.SpellPin(p, served)) // a Responses agent's wire check runs before Serves' wording
 	switch {
+	case unlisted(p, spelled, now): // a fresh listing without it beats the wire wording: the endpoint does not exist
+		return fail("served", p.Name+" lists no endpoint "+spelled)
 	case preflightResponsesMismatch(agentName, p, spelled):
 		return fail("wire", p.Name+" serves no "+model+" over Responses")
 	case why != "":
@@ -121,6 +123,29 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 		return fail("served", why)
 	}
 	return wire, nil, note
+}
+
+// ServedSpelling is id as agentName asks p for it: databricks-<id> where served; claude never takes GPT/Gemini.
+func ServedSpelling(agentName string, p *providers.Provider, id string, now time.Time) string {
+	if fam := models.FamilyKind(id); agentName == "claude" && (fam == models.FamilyGPT || fam == models.FamilyGemini) {
+		return providers.SpellPin(p, id)
+	}
+	return router.SpellServed(p, id, now)
+}
+
+// launchWire is the model a launch requests from p for id: ServedSpelling, else p's plain wire spelling.
+func launchWire(agentName string, p *providers.Provider, id string) string {
+	id = models.Strip1M(id)
+	return cmp.Or(ServedSpelling(agentName, p, id, time.Now()), p.WireModel(id))
+}
+
+// unlisted reports a Databricks row whose fresh listing has no endpoint wire.
+func unlisted(p *providers.Provider, wire string, now time.Time) bool {
+	if p.Preset != providers.PresetDatabricks || wire == "" {
+		return false
+	}
+	listed, _, fresh := router.ServedListed(p, wire, now)
+	return fresh && !listed
 }
 
 // preflightResponsesMismatch preserves the Responses wire refusal before the served-model refusal.
@@ -223,4 +248,75 @@ func modelFinding(q RouteReq, pf *Preflight) *Finding {
 		return nil
 	}
 	return explicitFinding(q, reg.Providers[name], pf)
+}
+
+// previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.
+func previewServes(tb *router.RouteTable, model string, profiles []*providers.Provider) error {
+	if model == "" || model == router.DiscoveryModel || tb.AliasOf(model) != "" {
+		return nil
+	}
+	if id, _, ok := models.Resolve(model); ok {
+		if models.FamilyKind(id) == models.FamilyClaude {
+			return fmt.Errorf("--model %q names no alias or version the table routes", model)
+		}
+		return nil
+	}
+	now := time.Now()
+	for _, p := range profiles {
+		if _, ready, fresh := router.ServedListed(p, router.SpellServed(p, strings.TrimPrefix(model, p.Name+":"), now), now); fresh && ready {
+			return nil
+		}
+	}
+	return notServedErr(model, profiles)
+}
+
+// notServedErr is the one-line refusal of a model no preview profile serves, naming the listing that shows what is.
+func notServedErr(model string, profiles []*providers.Provider) error {
+	if len(profiles) == 0 {
+		return fmt.Errorf("--model %s: no catalog id, and no Databricks profile on this route serves it; "+
+			"claude-code models --live --profile <p> lists what <p> serves", model)
+	}
+	return fmt.Errorf("--model %s: not a READY endpoint on %s; claude-code models --live --profile %s lists what it serves",
+		model, profiles[0].Name, profiles[0].Name)
+}
+
+// firstName is the first profile's name, "" for none.
+func firstName(profiles []*providers.Provider) string {
+	if len(profiles) == 0 {
+		return ""
+	}
+	return profiles[0].Name
+}
+
+// previewProfiles is the Databricks rows q may run on: a typed profile:model, the overlay, the lead, the agent's pin.
+func previewProfiles(q RouteReq, lead string) []*providers.Provider {
+	reg := loadRegistryWarn()
+	typed, _, _ := strings.Cut(q.Model, ":")
+	names := []string{typed, router.ArmProfile(), q.Profile, lead}
+	if pins, err := AgentPins(); err == nil {
+		names = append(names, pins[q.Agent].Profile)
+	}
+	var out []*providers.Provider
+	for _, n := range names {
+		if p := reg.Row(n); p != nil && p.Preset == providers.PresetDatabricks && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// sameModel reports a dispatch model ([profile:]wire) naming want, with or without the databricks- prefix.
+func sameModel(dispatched, want string) bool {
+	if _, after, ok := strings.Cut(dispatched, ":"); ok {
+		dispatched = after
+	}
+	norm := func(s string) string {
+		return strings.TrimPrefix(strings.ToLower(models.Strip1M(strings.TrimSpace(s))), models.DatabricksPrefix)
+	}
+	if _, after, ok := strings.Cut(want, ":"); ok {
+		want = after
+	}
+	a, _, okA := models.Resolve(dispatched)
+	b, _, okB := models.Resolve(want)
+	return norm(dispatched) == norm(want) || (okA && okB && a == b)
 }

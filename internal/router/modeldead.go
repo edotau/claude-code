@@ -1,6 +1,7 @@
 package router
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -32,9 +33,19 @@ func (s State) ModelDead(account, model string, now time.Time) bool {
 
 // accountModelDead checks the account's own mark, then the gateway's mark on its profile ("<provider>·<p>" → p).
 func (s State) accountModelDead(account, model string, now time.Time) bool {
-	if s.ModelDead(account, model, now) {
-		return true
+	return s.modelDeadOn(deadAccounts(account), model, now)
+}
+
+// deadAccounts is what accountModelDead reads for account: the account, then its profile's gateway account.
+func deadAccounts(account string) []string {
+	out := []string{account}
+	if _, p, ok := strings.Cut(account, "·"); ok && p != "" && p != "own" {
+		out = append(out, ProviderAccount(p))
 	}
-	_, p, ok := strings.Cut(account, "·")
-	return ok && p != "" && p != "own" && s.ModelDead(ProviderAccount(p), model, now)
+	return out
+}
+
+// modelDeadOn reports a live quota-dead mark on model under any of accounts.
+func (s State) modelDeadOn(accounts []string, model string, now time.Time) bool {
+	return slices.ContainsFunc(accounts, func(a string) bool { return s.ModelDead(a, model, now) })
 }

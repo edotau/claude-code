@@ -50,8 +50,7 @@ func tierModel(p *providers.Provider, alias string) string {
 	return cmp.Or(router.DatabricksModel("copilot", alias, p), p.Models[alias])
 }
 
-// copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
-// else the first Databricks profile whose credential resolves, else RouteNone. detail names why GitHub was refused.
+// copilotDatabricksFallback: session, else pinned, else first credentialed Databricks row; detail: why not GitHub.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.RouteInfo {
 	for _, name := range fallbackProfiles(reg) {
 		if p := reg.Providers[name]; p.DatabricksUsable() {
@@ -88,8 +87,7 @@ func copilotGithubRow(reg *providers.Registry) (*providers.Provider, bool) {
 	return reg.LoginProfile("github", "copilot")
 }
 
-// describeCopilotRoute: 1) copilot's GitHub login on a workable pin; 2) the Databricks fallback; 3) BYOK with the
-// registry anthropic provider's key; 4) none.
+// describeCopilotRoute: GitHub login on a workable pin, else Databricks fallback, else anthropic-key BYOK, else none.
 func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile is the route
 		p := reg.Providers[pin]

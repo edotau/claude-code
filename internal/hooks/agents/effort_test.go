@@ -80,7 +80,7 @@ func effortHome(t *testing.T, agents ...string) string {
 func TestAgentEffortSystemMessageAndContextBothPresent(t *testing.T) {
 	effortHome(t)
 	doc := runAgentEffortFull(t, `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`)
-	if want := "dispatch-effort: low → haiku (mechanical)"; doc.SystemMessage != want {
+	if want := "dispatch-effort: low → haiku effort=low (mechanical)"; doc.SystemMessage != want {
 		t.Errorf("systemMessage = %q, want %q", doc.SystemMessage, want)
 	}
 	if doc.HSO.AdditionalContext == "" {

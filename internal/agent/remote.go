@@ -72,8 +72,7 @@ func remoteTarget(agentName string, req RunOptions) string {
 	return agentName
 }
 
-// remoteScript is the POSIX sh line run on the remote: every element is single-quoted, the prompt is never in it.
-// --env values do ride this line, so they are visible to the remote `ps` (and, base64-wrapped, to the local one).
+// remoteScript is the single-quoted POSIX sh line run remotely, never the prompt; --env values show in both `ps`.
 func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
 	if err := validateRemoteScript(bin, agentName, req); err != nil {
 		return "", err

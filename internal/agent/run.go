@@ -713,7 +713,15 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
 		return reg, t, nil
 	}
-	return reg, providers.ParseTarget(reg, req.Model, sel.Provider), nil
+	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
+}
+
+// servedTarget is t with its model in preflight's spelling: a bare id the workspace serves runs as databricks-<id>.
+func servedTarget(agentName string, t providers.Target) providers.Target {
+	if t.Provider != nil && t.Provider.Preset == providers.PresetDatabricks {
+		t.Model = launchWire(agentName, t.Provider, t.Model)
+	}
+	return t
 }
 
 // "<profile>:<alias>" resolves like --provider <profile> --model <alias>.

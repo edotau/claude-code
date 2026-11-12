@@ -47,6 +47,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 	if err != nil {
 		return t, own, note, err
 	}
+	t = servedTarget(s.Name, t)
 	t, modelNote := ResolveAgentModel(ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")

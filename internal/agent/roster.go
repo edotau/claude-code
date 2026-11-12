@@ -385,8 +385,8 @@ func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 		t.Model = p.Models[a.Flag]
 	case alias:
 		return t, fmt.Sprintf("%s has no %s model; keeping %s", p.Name, a.Flag, t.Model)
-	default:
-		t.Model = p.WireModel(models.Strip1M(a.Flag))
+	default: // preflight's spelling: a bare id the workspace serves runs as databricks-<id>
+		t.Model = launchWire(a.Agent, p, a.Flag)
 	}
 	return t, ""
 }

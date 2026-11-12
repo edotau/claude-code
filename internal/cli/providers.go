@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -323,12 +324,12 @@ func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format s
 func printDiscoverText(results []copilot.DiscoverResult) error {
 	var b strings.Builder
 	for _, r := range results {
-		fmt.Fprintf(&b, "%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, r.Source, r.Discovered, len(r.Additions))
+		fmt.Fprintf(&b, "%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, cmp.Or(r.Source, "none"), r.Discovered, len(r.Additions))
 		for _, m := range r.Additions {
 			fmt.Fprintf(&b, "  + %s\n", m.ID)
 		}
 		if len(r.Destinations) > 0 {
-			fmt.Fprintf(&b, "  destinations: %v\n", r.Destinations)
+			fmt.Fprintf(&b, "  destinations: %s\n", strings.Join(r.Destinations, ", "))
 		}
 		if r.Note != "" {
 			fmt.Fprintf(&b, "  %s\n", r.Note)
