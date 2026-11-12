@@ -50,7 +50,7 @@ func TestCodexRedirectCleansOriginalNpmInstall(t *testing.T) {
 	serveCodexRegressionRelease(t)
 
 	var out bytes.Buffer
-	if err := Install(context.Background(), &out, []string{"codex"}, false); err != nil {
+	if err := Install(context.Background(), &out, []string{"codex"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	assertInstalledCodexBinary(t, "codex", "#!/bin/sh\nprintf 'codex 1.2.3\\n'\n")

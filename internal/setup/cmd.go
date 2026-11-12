@@ -209,7 +209,7 @@ func CleanSpec() *helptext.Node {
 // InstallSpec is the completion node for the install verb, with its `--setup` modes.
 func InstallSpec() *helptext.Node {
 	flag, boolFlag, valuedFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag
-	return &helptext.Node{Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("verbose"), valuedFlag("tools", tools.Names), valuedFlag("setup", modes)}, Sub: map[string]*helptext.Node{"--setup": {Sub: map[string]*helptext.Node{
+	return &helptext.Node{Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("verbose"), boolFlag("missing"), valuedFlag("tools", tools.Names), valuedFlag("setup", modes)}, Sub: map[string]*helptext.Node{"--setup": {Sub: map[string]*helptext.Node{
 		"adopt":     {Flags: []helptext.Flag{flag("from"), flag("into"), boolFlag("dry-run"), flag("label")}},
 		"nuke":      {Flags: []helptext.Flag{flag("dir"), boolFlag("apply"), boolFlag("keep-memory"), boolFlag("account"), boolFlag("cli")}},
 		"workspace": {Sub: map[string]*helptext.Node{"init": {Flags: []helptext.Flag{flag("with"), boolFlag("dry-run")}}, "link": {}, "status": {}}},
@@ -239,8 +239,8 @@ func (t *toolsFlag) Set(s string) error {
 
 func (t *toolsFlag) IsBoolFlag() bool { return true } // allows the bare "--tools" form
 
-func installTools(names []string, dry bool) int {
-	if err := tools.Install(context.Background(), os.Stdout, names, dry); err != nil {
+func installTools(names []string, dry, missing bool) int {
+	if err := tools.Install(context.Background(), os.Stdout, names, dry, missing); err != nil {
 		return helptext.Fail("install --tools: %v", err)
 	}
 	return 0
@@ -266,6 +266,7 @@ func RunInstall(args []string) int {
 	verbose := fs.Bool("verbose", false, "print every step in full, instead of one line each")
 	var tf toolsFlag
 	fs.Var(&tf, "tools", "install or update tools only: bare = all, =name,... selects")
+	missing := fs.Bool("missing", false, "with --tools: install only absent tools, never update")
 	setupMode := fs.String("setup", "", "adopt|nuke|workspace: migrate, wipe, or scope .claude/ (first arg)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -273,8 +274,11 @@ func RunInstall(args []string) int {
 	if *setupMode != "" {
 		return helptext.Fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
 	}
+	if *missing && !tf.set {
+		return helptext.Fail("install: --missing needs --tools")
+	}
 	if tf.set {
-		return installTools(tf.names, *dry)
+		return installTools(tf.names, *dry, *missing)
 	}
 	if err := install(os.Stdout, *dry, *verbose); err != nil {
 		return helptext.Fail("install: %v", err)

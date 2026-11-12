@@ -59,8 +59,10 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 
 # `claude-code install` links the bare shims, seeds a missing settings.json and writes bash completion (helptext.Install).
 .PHONY: install
-install: compile mdsmith rtk  ## Build + install + lint/vuln tools (DEV_TOOLS=0: skip)
+install: compile mdsmith rtk  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
+	@$(if $(TOOLS),$(BIN) install --tools$(if $(filter-out 1,$(TOOLS)),=$(TOOLS)) && $(BIN) doctor,\
+		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
@@ -110,16 +112,11 @@ examples: help-svg  ## Regenerate the README menu image
 	@echo -e "$(C_OK)menu image regenerated; review git diff docs/"
 
 .PHONY: bootstrap
-bootstrap:  ## Set up a fresh box (TAILSCALE=1 adds tailscale)
+bootstrap:  ## Set up a fresh box: toolchain, install, configure
 	@$(MAKE) go-toolchain
 	@$(MAKE) install
-	@$(if $(filter 1,$(TAILSCALE)),$(MAKE) tailscale-cli)
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
-.PHONY: agent-clis
-agent-clis: compile  ## Install/update agent CLIs, then doctor (TOOLS=a,b; DRY_RUN=1)
-	$(BIN) install --tools$(if $(TOOLS),=$(TOOLS))$(if $(filter 1,$(DRY_RUN)), --dry-run)
-	@$(if $(filter 1,$(DRY_RUN)),true,$(BIN) doctor)
 
 INTO ?= $(HOME)/.claude
 .PHONY: adopt
@@ -128,15 +125,6 @@ adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	$(MAKE) go-toolchain compile && \
 	CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
 	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
-
-.PHONY: tailscale-cli
-tailscale-cli:  ## Install the Tailscale client
-	@if command -v tailscale >/dev/null 2>&1; then echo -e "$(C_OK)tailscale found: $$(tailscale version | head -1)"; exit 0; fi; \
-	case "$$(uname -s)" in \
-	  Darwin) brew install --cask tailscale-app ;; \
-	  Linux)  sh -c "$$(curl -fsSL https://tailscale.com/install.sh)" ;; \
-	  *) echo "install tailscale manually: https://tailscale.com/download"; exit 1 ;; \
-	esac
 
 .PHONY: go-toolchain
 go-toolchain:  ## Install go.mod's Go to ~/.local/go if missing
@@ -230,7 +218,7 @@ MAX     ?= 3
 LINT_AGENT := $(patsubst on,copilot,$(filter-out off,$(AGENT)))
 LINT_KINDS := $(or $(if $(filter go,$(WHAT)),go),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT))
 .PHONY: fmt
-fmt:  ## Format + auto-fix go, md, js; an agent fixes the rest (AGENT=off)
+fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
 	$(GO) fmt $(PKGS) >/dev/null
 	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
@@ -341,7 +329,7 @@ verify: audit  ## audit + doctor + proxy status
 TARGET ?= nested-podman
 IMAGE ?= claude-code-harness:$(TARGET)
 .PHONY: image image-audit image-shell
-image:  ## Build the Ubuntu harness image from git's view of the checkout (TARGET=base|nested-podman)
+image:  ## Ubuntu image of non-ignored files (TARGET=base|nested-podman)
 	TARGET=$(TARGET) IMAGE=$(IMAGE) docker/image.sh build
 
 image-audit: image  ## Run make audit inside a fresh Ubuntu container
