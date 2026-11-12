@@ -327,7 +327,7 @@ func embedProvider() *providers.Provider {
 	if err != nil {
 		return nil
 	}
-	for name := range embedProfiles {
+	for name := range embedProfiles(context.Background()) {
 		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
 			return p
 		}

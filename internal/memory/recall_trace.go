@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -87,7 +88,7 @@ func (t *recallTrace) scores(c recallPick, boost float64) {
 // recallCacheInfo is diagnostic I/O, never used by the hook's normal path.
 func recallCacheInfo(t *recallTrace) {
 	t.CacheAge = "missing"
-	for name := range embedProfiles {
+	for name := range embedProfiles(context.Background()) {
 		if !safeProfile.MatchString(name) {
 			continue
 		}
