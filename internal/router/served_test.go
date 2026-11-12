@@ -145,25 +145,25 @@ func TestServedPerProfileIsolation(t *testing.T) {
 	}
 }
 
-// a pin the fresh listing lacks is swapped: copilot takes any READY menu entry, codex only a Responses one.
-func TestPinnedModelSwapsUnservedPin(t *testing.T) {
+// an explicit pin the fresh listing lacks is never swapped; an alias pick is: copilot takes any READY entry, codex a Responses one.
+func TestPinnedModelNeverSwapsExplicitPin(t *testing.T) {
 	p := dbxProv("dev")
 	stubServed(t, []providers.OpencodeModel{chatX, respA},
 		listing("dev", map[string]string{"m-x": "READY", "m-a": "READY"}))
 	cell := Cell{Model: "m-pin", Account: "databricks·dev"}
-	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "m-pin", time.Now()); got != "m-x" {
-		t.Errorf("copilot swap = %q, want m-x (any READY)", got)
+	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "m-pin", time.Now()); got != "m-pin" {
+		t.Errorf("explicit pin = %q, want m-pin kept", got)
 	}
-	if got, _ := pinnedModel("codex", "sonnet", cell, p, "m-pin", time.Now()); got != "m-a" {
-		t.Errorf("codex swap = %q, want m-a (Responses only)", got)
+	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "", time.Now()); got != "m-x" {
+		t.Errorf("copilot alias swap = %q, want m-x (any READY)", got)
 	}
-	if got, _ := pinnedModel("codex", "sonnet", cell, p, "m-a", time.Now()); got != "m-a" {
-		t.Errorf("a READY pin = %q, want it kept", got)
+	if got, _ := pinnedModel("codex", "sonnet", cell, p, "", time.Now()); got != "m-a" {
+		t.Errorf("codex alias swap = %q, want m-a (Responses only)", got)
 	}
 }
 
-// the swap Skip names an explicit pin only: an alias-alias swap and a discovery request add none.
-func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
+// an explicit unserved pin is refused with a Skip; an empty or discovery pin never is.
+func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
 	tb := testTable(t) // first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY"}))
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
@@ -175,13 +175,13 @@ func TestGateProfileSwapSkipOnlyForExplicitPin(t *testing.T) {
 	skips := func(pin string) bool {
 		res := &PickResult{}
 		tb.gateProfile(context.Background(), reg, "sonnet", "codex", "dev", pin, "", State{}, PickOpts{}, time.Now(), allConfigured, res)
-		return slices.ContainsFunc(res.Skipped, func(s Skip) bool { return strings.Contains(s.Reason, "is not READY on dev") })
+		return slices.ContainsFunc(res.Skipped, func(s Skip) bool { return strings.Contains(s.Reason, "is not served on dev") })
 	}
 	if !skips("m-pin") {
-		t.Error("an explicit unserved pin must surface a swap Skip")
+		t.Error("an explicit unserved pin must surface a Skip")
 	}
 	if skips("") || skips(DiscoveryModel) {
-		t.Error("an empty or discovery pin must not surface a swap Skip")
+		t.Error("an empty or discovery pin must not surface a Skip")
 	}
 }
 
