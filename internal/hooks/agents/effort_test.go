@@ -626,10 +626,10 @@ func writeAgentFile(t *testing.T, cfg, spec string) {
 // allowedTypes are the dispatch types the inventory covers: the seven-file roster shape plus the built-ins.
 var allowedTypes = []string{"claude", "codex", "copilot", "gemini", "opencode", "Explore", "Plan", "general-purpose"}
 
-// inventoryLabel is the label oracle: an external type shows its stubbed pick "<agent>-<tier>", a Claude-run type its model.
+// inventoryLabel is the label oracle: an external type shows its ask's classified pick "<agent>-sonnet", else its model.
 func inventoryLabel(st, model string) string {
 	if externalTypes[st] {
-		return st + "-" + model
+		return st + "-sonnet" // the ask classifies "review the diff" as sonnet, whatever the relay's own model
 	}
 	return model
 }

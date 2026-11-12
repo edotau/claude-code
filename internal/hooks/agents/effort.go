@@ -72,8 +72,7 @@ func (r *dispatchRun) rosterEffort(name string) string {
 	return r.efforts[name]
 }
 
-// agentEffortResult is the pin step as a Result: a spawn gets one UpdatedInput (model pin, recall block, label);
-// a Workflow gets the former workflow-lint rewrite or a Block.
+// agentEffortResult is the pin step: a spawn gets one UpdatedInput (pin, recall, label), a Workflow its lint result.
 func agentEffortResult(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		return quality.WorkflowResult(in)
@@ -111,18 +110,18 @@ func agentEffortResult(in *core.Input) core.Result {
 	return e.result()
 }
 
-// directAskRe matches a brief's opening ask command, with or without the global --remote <host> in front.
+// directAskRe matches a brief's opening ask command (`agents ask` or `<agent> ask`), past an optional --remote <host>.
 var directAskRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^Run: claude-code (--remote \S+ )?agents ask `)
+	return regexp.MustCompile(`^Run: claude-code (--remote \S+ )?(agents|codex|copilot|gemini|opencode) ask `)
 })
 
 // opensWithAsk is a task whose first line, past leading blank space as briefHeader reads it, is an ask command.
 func opensWithAsk(task string) bool { return directAskRe().MatchString(strings.TrimSpace(task)) }
 
-// askLine is a brief's opening ask command: its --agent and --model, and its --overlay document when one loads.
+// askLine is a brief's opening ask command: its --agent, --model, last word (the prompt), and --overlay document.
 type askLine struct {
-	agent, model string
-	cfg          agentconfig.Overlay
+	agent, model, prompt string
+	cfg                  agentconfig.Overlay
 }
 
 // opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
@@ -140,12 +139,16 @@ func parseAskLine(task string) askLine {
 		return askLine{}
 	}
 	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
-	words, skip := shellFields(line), 4 // past "Run: claude-code agents ask", which opensWithAsk matched
+	words, verb := shellFields(line), 2 // "Run: claude-code <verb> ask", which opensWithAsk matched
 	if words[2] == "--remote" {
-		skip = 6 // and the global "--remote <host>"
+		verb = 4 // past the global "--remote <host>"
 	}
-	words = words[min(skip, len(words)):]
-	l := askLine{agent: flagValue(words, "agent"), model: flagValue(words, "model")}
+	agent := strings.TrimPrefix(words[verb], "agents") // `<agent> ask` is `agents ask --agent <agent>`
+	words = words[min(verb+2, len(words)):]
+	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model")}
+	if n := len(words); n > 0 && !isFlag(words[n-1]) {
+		l.prompt = words[n-1]
+	}
 	value := flagValue(words, "overlay")
 	if value == "" || value == "-" { // "" would read $COWORKER_OVERLAY, "-" the hook's stdin: no prediction
 		return l
@@ -230,8 +233,7 @@ var builtinTypes = []string{"Explore", "general-purpose"}
 // listAgents loads the agent definitions; a seam so tests count or fail the read.
 var listAgents = project.DiscoverAgents
 
-// dispatchTypes is every allowed subagent_type, sorted: each agents/<name>.md plus builtinTypes; a dir that is
-// unreadable or holds no agent falls back to the roster with one notice, so it never blocks every dispatch.
+// dispatchTypes is every allowed subagent_type, sorted; an unreadable or empty agents/ falls back to the roster.
 func dispatchTypes() []string {
 	dir := filepath.Join(paths.ConfigDir(), "agents")
 	srcs, err := listAgents(dir)
@@ -340,8 +342,7 @@ func (e *effortPlan) coworker(promptField, task string) *core.Result {
 	return deny
 }
 
-// label puts the model the dispatch runs on first in its description: a rewrite normally, a one-time deny in auto
-// mode, where a rewritten tool input is rejected by the classifier.
+// label prefixes the description with the run's model: a rewrite, or in auto mode (rewrites rejected) a one-time deny.
 func (e *effortPlan) label(task string, auto bool) *core.Result {
 	if !auto {
 		changed, _ := applyLabel(e.run, e.updated, task)
@@ -454,7 +455,7 @@ func briefExternal(task string) string {
 	return named[0]
 }
 
-// profileApplies is true when the brief's Profile: line reaches a leaf of type st (read-only and in-context leaves ignore it).
+// profileApplies is true when the brief's Profile: line reaches leaf type st (read-only, in-context leaves ignore it).
 func profileApplies(st, task string) bool {
 	return briefProfile(task) != "" && !readOnlyTypes[st] && !inContextBrief(task)
 }
@@ -534,8 +535,7 @@ func rosterEntry(name string) (model, effort string) {
 	return model, effort
 }
 
-// agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it
-// asks for the session model). No roster file = a built-in, the classifier applies; a path-shaped name is refused.
+// agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included.
 func agentPinsModel(run *dispatchRun, name string) bool {
 	if name == "" {
 		return false // no subagent_type = a fresh general-purpose agent, nothing to defer to
@@ -549,12 +549,12 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 // labelModel is the one precedence: Run: line model, Coworker pick, Profile: model, work agent's cell, own model.
 func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
 	line := run.opening(task)
-	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
-		return m // the brief's own ask command names the model: the label says what runs
-	}
 	agent := line.workAgent(st, task)
 	confine := labelConfinement(coworkerApplies(st, task), task, line.cfg)
-	switch tier := labelTier(run, updated, st); {
+	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
+		return explicitLabel(run, confine, cmp.Or(agent, agentid.Claude), m)
+	}
+	switch tier := pickTier(run, updated, st, agent, cmp.Or(line.prompt, task)); {
 	case confine != "":
 		return coworkerPick(run, confine, cmp.Or(agent, agentid.Claude), tier)
 	case profileApplies(st, task):
@@ -563,6 +563,22 @@ func labelModel(run *dispatchRun, updated map[string]any, st, task string) strin
 		return labelCell(run, agent, tier)
 	}
 	return ownModel(run, updated, st)
+}
+
+// explicitLabel is the ask's model as the run spells it inside confine (a Databricks endpoint name), else as typed.
+func explicitLabel(run *dispatchRun, confine, agent, model string) string {
+	if confine == "" {
+		return model
+	}
+	return cmp.Or(coworkerPick(run, confine, agent, model), model)
+}
+
+// pickTier is the alias the run picks from: an external agent's ask classifies its prompt, as ask does with no --model.
+func pickTier(run *dispatchRun, updated map[string]any, st, agent, task string) string {
+	if agent != "" {
+		return router.RuleClassifier{}.Alias(task)
+	}
+	return labelTier(run, updated, st)
 }
 
 // labelTier is the alias the pick starts from: the dispatch's model, else the agent file's, else sonnet.
@@ -632,8 +648,7 @@ func profileModelFor(run *dispatchRun, profile, alias string) string {
 	return models.Strip1M(reg.Providers[profile].Models[alias])
 }
 
-// cellModelFor is the model a leaf runs: the first candidate of the no-run route preview (what `gateway` picks), else
-// the table prediction when the preview finds nothing runnable.
+// cellModelFor is the model a leaf runs: the no-run preview's first candidate, else the route table's prediction.
 func cellModelFor(run *dispatchRun, agent, alias string) string {
 	pins, err := agentpkg.AgentPins()
 	if err != nil {
@@ -751,8 +766,7 @@ func inContextBrief(task string) bool {
 	return m != nil && strings.Contains(strings.ToLower(m[1]), "in-context")
 }
 
-// applyProfile prepends the exact ask command to a Profile: dispatch. deny is a Block
-// for an unknown profile; note is "" when the brief names no profile or the dispatch is already routed.
+// applyProfile prepends the ask command to a Profile: dispatch; deny blocks an unknown profile, "" note = no change.
 func applyProfile(run *dispatchRun, updated map[string]any, promptField, task string) (note string, deny *core.Result) {
 	p := briefProfile(task)
 	if p == "" {

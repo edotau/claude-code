@@ -87,7 +87,7 @@ func TestLeafGateKeepsBothNotes(t *testing.T) {
 	in.StopHookActive = true
 	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
 	r, blocked := leafStopBlock(in, "a1")
-	if blocked || !strings.Contains(r.SystemMessage, "finished with no ran-on line") || !strings.Contains(r.SystemMessage, "limit reached") {
+	if blocked || !strings.Contains(r.SystemMessage, "hand-back BLOCKED: no `ask: ran on` receipt") || !strings.Contains(r.SystemMessage, "limit reached") {
 		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
 	}
 }

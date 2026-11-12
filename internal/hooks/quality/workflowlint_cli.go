@@ -296,11 +296,17 @@ func topLevelKeyAt(src, key string) []keyHit {
 			i = skipQuoted(masked, i, c)
 			continue
 		}
-		if inOptionsObject(masked, open) && strings.HasPrefix(masked[i:], key+":") && (i == 0 || !isIdentByte(masked[i-1])) && atKeyPosition(masked, i) {
+		if bareKeyAt(masked, open, i, key) {
 			out = append(out, keyHit{i, i + len(key) + 1})
 		}
 	}
 	return out
+}
+
+// bareKeyAt is an unquoted `key:` starting at masked[i] in a key position of the call's options object.
+func bareKeyAt(masked string, open []int, i int, key string) bool {
+	return inOptionsObject(masked, open) && strings.HasPrefix(masked[i:], key+":") && (i == 0 || !isIdentByte(masked[i-1])) &&
+		atKeyPosition(masked, i)
 }
 
 // inOptionsObject reports whether the innermost bracket is the call's options `{`: directly inside the call's `(`,

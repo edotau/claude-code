@@ -511,10 +511,13 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
 	body := string(first) + "\n"
 	var bodySb206 strings.Builder
-	for _, r := range toolResults {
+	for i, r := range toolResults { // each result answers a Bash call that ran an ask, the only results the gate reads
+		id := "toolu_" + strconv.Itoa(i)
+		call, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": `claude-code agents ask --agent codex "x"`}}}}})
 		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
-			{"type": "tool_result", "content": r}}}})
-		bodySb206.WriteString(string(line) + "\n")
+			{"type": "tool_result", "tool_use_id": id, "content": r}}}})
+		bodySb206.WriteString(string(call) + "\n" + string(line) + "\n")
 	}
 	body += bodySb206.String()
 	tx := filepath.Join(dir, "agent-a1.jsonl")
@@ -575,7 +578,7 @@ func TestRanOnRanOnFailOpenCap(t *testing.T) {
 	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls")
 	in.StopHookActive = true
 	r, blocked := leafStopBlock(in, "a1")
-	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
+	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, "a1: hand-back BLOCKED: no `ask: ran on` receipt") {
 		t.Fatalf("got %+v blocked=%v, want an allow with the ran-on message", r, blocked)
 	}
 }
@@ -675,14 +678,14 @@ func TestRanOnGateBlocksThreeTimes(t *testing.T) {
 		in := leafTx(t, "gemini", "Objective: review internal/gemini, read-only\n", "ls output")
 		for n := 1; n <= 3; n++ { // literal: the 4th stop passes
 			r, blocked := leafStopBlock(in, "a1")
-			if !blocked || !strings.Contains(r.Reason, "--read-only") {
-				t.Fatalf("form %d stop %d: got %+v blocked=%v, want a Block naming --read-only", form, n, r, blocked)
+			if !blocked || !strings.Contains(r.Reason, "Run the brief's `Run:` line exactly as written, flags unchanged.") {
+				t.Fatalf("form %d stop %d: got %+v blocked=%v, want a Block naming the Run: line", form, n, r, blocked)
 			}
 			appendLines(t, in.AgentTranscriptPath, gateBlockLines(r.Reason)[form])
 			in.StopHookActive = form == 1
 		}
 		r, blocked := leafStopBlock(in, "a1")
-		if blocked || !strings.Contains(r.SystemMessage, "a1: finished with no ran-on line") {
+		if blocked || !strings.Contains(r.SystemMessage, "a1: hand-back BLOCKED: no `ask: ran on` receipt") {
 			t.Fatalf("form %d stop %d: got %+v blocked=%v, want a pass with the ran-on note", form, 4, r, blocked)
 		}
 	}

@@ -71,8 +71,7 @@ func handoffPrompt(in *core.Input, pct int) core.Result {
 	}
 }
 
-// contextCheckpoint: once per threshold crossing with nothing in flight, spawn an update and prompt a handoff.
-// in already carries the session root (Stop resolves it once).
+// contextCheckpoint: once per crossing with nothing in flight, spawn an update and prompt a handoff; in has the root.
 func contextCheckpoint(in *core.Input) core.Result {
 	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
@@ -83,28 +82,9 @@ func contextCheckpoint(in *core.Input) core.Result {
 	}
 	threshold, prompt := stewardPct()
 	flag := filepath.Join(paths.StateDir(), "checkpoint", filepath.Base(in.SessionID))
-	_, statErr := os.Stat(flag)
-	if pct < threshold {
-		if statErr == nil { // re-arm after a compaction or clear
-			_ = os.Remove(flag)
-		}
+	if !claimCrossing(in, flag, pct, threshold) {
 		return core.Result{}
 	}
-	if statErr == nil || inFlight(in, time.Now()) {
-		return core.Result{}
-	}
-	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
-		fmt.Fprintf(os.Stderr, "context-checkpoint: %v\n", err)
-		return core.Result{}
-	}
-	f, err := os.OpenFile(flag, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // O_EXCL: a concurrent Stop loses the race
-	if err != nil {
-		if !os.IsExist(err) {
-			fmt.Fprintf(os.Stderr, "context-checkpoint: write flag %s: %v\n", flag, err)
-		}
-		return core.Result{}
-	}
-	_ = f.Close()
 	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
 	if !memory.DispatchCheckpoint(updateRequest(in), time.Now()) { // under the stamp lock, like UpdateIfNew
 		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")
@@ -115,6 +95,38 @@ func contextCheckpoint(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	return handoffPrompt(in, pct)
+}
+
+// claimCrossing writes flag for a first crossing of threshold with nothing in flight; below it, it re-arms.
+func claimCrossing(in *core.Input, flag string, pct, threshold int) bool {
+	_, statErr := os.Stat(flag)
+	if pct < threshold {
+		if statErr == nil { // re-arm after a compaction or clear
+			_ = os.Remove(flag)
+		}
+		return false
+	}
+	if statErr == nil || inFlight(in, time.Now()) {
+		return false
+	}
+	return createFlag(flag)
+}
+
+// createFlag creates flag exclusively; false when it exists (a concurrent Stop won) or cannot be written.
+func createFlag(flag string) bool {
+	if err := os.MkdirAll(filepath.Dir(flag), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "context-checkpoint: %v\n", err)
+		return false
+	}
+	f, err := os.OpenFile(flag, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // O_EXCL: a concurrent Stop loses the race
+	if err != nil {
+		if !os.IsExist(err) {
+			fmt.Fprintf(os.Stderr, "context-checkpoint: write flag %s: %v\n", flag, err)
+		}
+		return false
+	}
+	_ = f.Close()
+	return true
 }
 
 // Stop runs the context checkpoint and memory update; only the memory update can block the stop.

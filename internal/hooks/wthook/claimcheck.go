@@ -93,36 +93,48 @@ func siblingLeaf(in *core.Input) func(worktree.Claim) string {
 
 // leafEnded: the leaf's last assistant turn ended its turn, or handed back and the hand-back's result is not a denial.
 func leafEnded(transcript string) bool {
-	f, err := os.Open(transcript)
-	if err != nil {
+	lines, ok := tailLines(transcript)
+	if !ok {
 		return false
 	}
-	defer f.Close()
-	if st, err := f.Stat(); err == nil && st.Size() > leafTail {
-		_, _ = f.Seek(-leafTail, io.SeekEnd)
-	}
-	b, _ := io.ReadAll(f)
-	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	failed := map[string]bool{} // tool_use_id → is_error, for results after the last assistant turn
 	for _, line := range slices.Backward(lines) {
 		var rec leafRecord
 		if json.Unmarshal([]byte(line), &rec) != nil {
 			continue
 		}
-		if rec.Type != "assistant" {
-			for _, c := range rec.Message.Content {
-				if c.Type == "tool_result" {
-					failed[c.ToolUseID] = c.IsError
-				}
-			}
-			continue
+		if rec.Type == "assistant" {
+			return turnEnded(rec, failed)
 		}
-		return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c leafContent) bool {
-			isErr, seen := failed[c.ID]
-			return c.Type == "tool_use" && c.Name == "SubagentHandback" && seen && !isErr
-		})
+		for _, c := range rec.Message.Content {
+			if c.Type == "tool_result" {
+				failed[c.ToolUseID] = c.IsError
+			}
+		}
 	}
 	return false
+}
+
+// tailLines is the last leafTail bytes of transcript split into lines; false when it cannot be opened.
+func tailLines(transcript string) ([]string, bool) {
+	f, err := os.Open(transcript)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil && st.Size() > leafTail {
+		_, _ = f.Seek(-leafTail, io.SeekEnd)
+	}
+	b, _ := io.ReadAll(f)
+	return strings.Split(strings.TrimSpace(string(b)), "\n"), true
+}
+
+// turnEnded: an assistant turn that ended, or a SubagentHandback whose later result is not a denial.
+func turnEnded(rec leafRecord, failed map[string]bool) bool {
+	return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c leafContent) bool {
+		isErr, seen := failed[c.ID]
+		return c.Type == "tool_use" && c.Name == "SubagentHandback" && seen && !isErr
+	})
 }
 
 // leafRecord is the slice of a transcript line leafEnded reads; a denied tool call's result carries is_error.
