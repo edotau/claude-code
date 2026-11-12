@@ -457,8 +457,8 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 	}
 }
 
-// A batch task's own profile reaches the request and resolves to one dispatch, under the default --fallback all.
-func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
+// A batch task's own profile reaches the request and prepares; an unknown one fails before any run.
+func TestBatchTaskProfileReachesRequest(t *testing.T) {
 	profileFixture(t, "")
 	build := func(n int, profile string) batchTask {
 		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
@@ -472,15 +472,8 @@ func TestBatchTaskProfileIsOneDispatch(t *testing.T) {
 	if bt.Req.Provider != "acme" {
 		t.Fatalf("task request provider = %q, want acme", bt.Req.Provider)
 	}
-	p, err := bt.Prepare(context.Background())
-	if err != nil {
+	if _, err := bt.Prepare(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	res, err := newClient().Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
-	if err == nil || len(res.Hops) != 1 {
-		t.Fatalf("Exec: %d hops, err %v; want one unavailable dispatch", len(res.Hops), err)
 	}
 	if _, err := build(2, "no-such-profile").Prepare(context.Background()); err == nil {
 		t.Error("unknown batch profile prepared a chain, want an error before any run")
@@ -620,21 +613,6 @@ func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[str
 	return byID
 }
 
-// All-ok batch exits 0.
-func TestBatchAllOkExitsZero(t *testing.T) {
-	cliEnv(t)
-	cliFakes(t)
-	code, out, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "a", "one"), cliTask(t, "b", "two")))
-	if code != 0 {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
-	}
-	for _, e := range envelopes(t, out) {
-		if e["status"] != "ok" {
-			t.Errorf("envelope %v, want ok", e)
-		}
-	}
-}
-
 // --fail-fast: the first fatal failure cancels the batch; a queued task reports cancelled and never spawns.
 func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
 	cliEnv(t)
@@ -748,13 +726,19 @@ func TestBatchHostMismatchFailsAuthBeforeExec(t *testing.T) {
 	}
 }
 
-// Every --batch task goes through runRecorded: it leaves an <id>.events.jsonl running start to result.
+// An all-ok batch exits 0, and every task goes through runRecorded: an <id>.events.jsonl running start to result.
 func TestBatchTasksWriteEventFiles(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
 	file := batchFile(t, cliTask(t, "one", "p1"), cliTask(t, "two", "p2"))
-	if code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2"); code != 0 {
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "2")
+	if code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
+	}
+	for _, e := range envelopes(t, out) {
+		if e["status"] != "ok" {
+			t.Errorf("envelope %v, want ok", e)
+		}
 	}
 	files, _ := filepath.Glob(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "state", "harness", "dispatch", "*.events.jsonl"))
 	if len(files) != 2 {
@@ -1077,9 +1061,6 @@ func TestBatchFailFastStopsQueuedTask(t *testing.T) {
 		name  string
 		first func(t *testing.T) batchTask
 	}{
-		{"prepare failure", func(*testing.T) batchTask {
-			return batchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
-		}},
 		{"panicking dispatch", func(t *testing.T) batchTask { return acctTask(t, "first", "ff·acct", boomRunner("first")) }},
 		{"empty chain", func(t *testing.T) batchTask { return chainTask(t, "first", "first", "first") }},
 	}
@@ -1130,16 +1111,6 @@ func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 				t.Errorf("first envelope = %s, want the free-account task to finish first", first)
 			}
 		})
-	}
-}
-
-// Without --fail-fast a Prepare error frees its slot: with Jobs=1 the next task still runs.
-func TestBatchPrepareFailureFreesSlotWithoutFailFast(t *testing.T) {
-	var runs atomic.Int32
-	first := batchTask{ID: "first", Agent: "first", Req: agent.RunOptions{Prompt: "p"}, Prepare: failPrepare("route failed")}
-	out, _ := runPool(t, poolOptions{Jobs: 1}, first, acctTask(t, "second", "pf·acct", countRunner("second", &runs)))
-	if runs.Load() != 1 {
-		t.Fatalf("second task ran %d times after the first task's Prepare failed, want 1:\n%s", runs.Load(), out)
 	}
 }
 

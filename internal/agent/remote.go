@@ -83,47 +83,36 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	}
 	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, router.FallbackNone)),
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
-	opt := func(flag, v string) {
-		if v != "" {
-			w = append(w, flag, textutil.ShellQuote(v))
-		}
-	}
-	opt("--model", req.Model)
-	opt("--profile", req.Provider)
-	opt("--effort", req.Effort)
-	opt("--as", req.Identity)
-	opt("--overlay", confinementDoc()) // ApplyCoworker exports the confinement as env, which ssh does not carry
-	opt("--session", req.SessionID)
-	opt("--system-prompt", req.SystemPrompt)
-	opt("--append-system-prompt", req.AppendSystemPrompt)
-	opt("--output-schema", req.OutputSchema)
+	w = appendOpt(w, "--model", req.Model)
+	w = appendOpt(w, "--profile", req.Provider)
+	w = appendOpt(w, "--effort", req.Effort)
+	w = appendOpt(w, "--as", req.Identity)
+	w = appendOpt(w, "--overlay", confinementDoc()) // ApplyCoworker exports the confinement as env, which ssh does not carry
+	w = appendOpt(w, "--session", req.SessionID)
+	w = appendOpt(w, "--system-prompt", req.SystemPrompt)
+	w = appendOpt(w, "--append-system-prompt", req.AppendSystemPrompt)
+	w = appendOpt(w, "--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
 		w = append(w, "--workdir", textutil.QuotePath(remote.HomePath(req.WorkDir)))
 	}
 	if req.Timeout > 0 {
-		opt("--timeout", req.Timeout.String())
+		w = appendOpt(w, "--timeout", req.Timeout.String())
 	}
 	for _, kv := range req.Env {
-		opt("--env", kv)
+		w = appendOpt(w, "--env", kv)
 	}
 	return strings.Join(append(w, remoteScriptTail(req)...), " "), nil
 }
 
 // remoteScriptTail is remoteScript's permission and switch flags, each value single-quoted.
 func remoteScriptTail(req RunOptions) []string {
-	var w []string
-	opt := func(flag, v string) {
-		if v != "" {
-			w = append(w, flag, textutil.ShellQuote(v))
-		}
-	}
-	opt("--mode", req.Permissions.Mode)
+	w := appendOpt(nil, "--mode", req.Permissions.Mode)
 	for _, set := range []struct {
 		flag  string
 		rules []Rule
 	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
 		for _, s := range RuleStrings(set.rules) {
-			opt(set.flag, s)
+			w = appendOpt(w, set.flag, s)
 		}
 	}
 	for _, b := range []struct {
@@ -136,6 +125,14 @@ func remoteScriptTail(req RunOptions) []string {
 		}
 	}
 	return w
+}
+
+// appendOpt appends flag and its single-quoted value to w; an empty value appends nothing.
+func appendOpt(w []string, flag, v string) []string {
+	if v == "" {
+		return w
+	}
+	return append(w, flag, textutil.ShellQuote(v))
 }
 
 func validateRemoteScript(bin, agentName string, req RunOptions) error {

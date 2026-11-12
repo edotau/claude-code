@@ -70,7 +70,7 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 // writeReport prints rep to stdout as one JSON line or as text, returning any write failure.
 func writeReport(rep roles.Report, format string) error {
 	if format == helptext.JSON {
-		return printJSONLine(rep)
+		return agent.WriteJSONLine(os.Stdout, rep)
 	}
 	return rep.Text(os.Stdout)
 }
@@ -123,7 +123,7 @@ func failSpawn(rec *agent.Record, err error) error {
 // printLegID prints a detached leg's id: one JSON line, or the label and ask's background-start text.
 func printLegID(label string, rec agent.Record, format string) error {
 	if format == helptext.JSON {
-		return printJSONLine(struct {
+		return agent.WriteJSONLine(os.Stdout, struct {
 			Label string `json:"label"`
 			ID    string `json:"id"`
 			Log   string `json:"log"`

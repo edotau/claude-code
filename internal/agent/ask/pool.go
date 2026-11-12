@@ -3,7 +3,6 @@ package ask
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -132,7 +131,7 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	allOK := true
 	emit := func(env wire.Envelope, ok bool) {
 		env.BatchID = o.ID
-		if !writeEnvelope(o.Out, env) {
+		if o.Out != nil && agent.WriteJSONLine(o.Out, env) != nil {
 			cancel() // nobody reads stdout any more: stop spending tokens
 			ok = false
 		}
@@ -247,16 +246,6 @@ func (b *batchRun) retry(ctx context.Context, t batchTask, first wire.Envelope) 
 	env, _ := b.run(ctx, t, p)
 	env.Hops = append(slices.Clone(first.Hops), env.Hops...)
 	return env
-}
-
-// writeEnvelope writes env as one JSON line; false only when the write itself failed.
-func writeEnvelope(w io.Writer, env wire.Envelope) bool {
-	body, err := json.Marshal(env)
-	if err != nil || w == nil {
-		return true
-	}
-	_, werr := w.Write(append(body, '\n'))
-	return werr == nil
 }
 
 // taskFailure is the error envelope of a task that never ran.
