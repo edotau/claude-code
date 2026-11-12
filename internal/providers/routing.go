@@ -274,9 +274,7 @@ func validRouteRow(key string) bool {
 	return ok && slices.Contains(RouteAliases, models.FamilyOf(canonical))
 }
 
-// UpdateRouting reads the providers overlay's routing object, applies fn to it, validates the merged
-// registry, and writes it back, keeping the previous generation as overlay/providers.prev. Mirrors
-// updateProviderFields in overlay.go.
+// UpdateRouting applies fn to the overlay's routing object, validates the merge and writes it, keeping providers.prev.
 func UpdateRouting(fn func(*Routing) error) error {
 	return vault.Update(func(tx *vault.Tx) error {
 		old, _ := tx.Get(vault.Overlay, "providers")

@@ -28,9 +28,7 @@ const (
 // base64ish catches high-entropy tokens that don't match a known prefix.
 var base64ish = regexp.MustCompile(`^[A-Za-z0-9_+/=-]{32,}$`)
 
-// LooksLikeSecret is the credential-shape heuristic for a single, already-isolated value (a JSON leaf
-// or a KEY=value RHS): known token prefixes, a JWT shape, or base64-ish noise; ${ENV} refs, file paths,
-// and obvious placeholders are never flagged.
+// LooksLikeSecret is the credential-shape heuristic for one isolated value; ${ENV} refs and placeholders never match.
 func LooksLikeSecret(val string) bool {
 	return LooksLikeSecretGeneric(val, true)
 }
@@ -74,9 +72,7 @@ func knownSecretShape(val string) bool {
 	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2 // JWT
 }
 
-// secretPattern is the substring regex used over raw text (git diff lines) where a value cannot be
-// isolated first; narrower than LooksLikeSecret (no bare base64 rule) to avoid flooding history scans
-// with incidental base64 blobs.
+// secretPattern scans raw git diff lines; narrower than LooksLikeSecret (no bare base64 rule) to avoid noise.
 var secretPattern = regexp.MustCompile(
 	`(` + textutil.GitHubPattern(20) + `|` +
 		`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
@@ -149,9 +145,7 @@ func parseGitLogLine(line, commit, file string, hunk bool) (string, string, bool
 	return commit, file, false, hunk
 }
 
-// ScanGit audits dir's git history for secret-shaped ADDITIONS (lines a commit introduced), never
-// printing the matched line itself — only which commit and file introduced it. since caps the scan
-// to the last N commits (0 = full history); rev limits it to a revision range (e.g. @{u}..HEAD). Read-only: runs `git log -p`, nothing else.
+// ScanGit reports secret-shaped additions in dir's history by commit and file, never the line; since caps commits.
 func ScanGit(out io.Writer, dir, rev string, since int) int {
 	fmt.Fprintln(out, "== git history credential scan ==")
 	if strings.HasPrefix(rev, "-") { // a leading '-' would be parsed by git log as an option

@@ -59,8 +59,7 @@ func warnVault(what string, err error) {
 // AgentRecord is agent's vault record (zero value when unset or unreadable).
 func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] }
 
-// CopilotModel is the one resolver every copilot agent launch, the configure page and doctor share:
-// the record's model first, else the github provider's opus alias (no pin = no behavior change).
+// CopilotModel is the copilot launch, configure page and doctor resolver: the record's model, else github's opus alias.
 func CopilotModel(reg *Registry) (model, source string) {
 	if m := AgentRecord("copilot").Model; m != "" {
 		return m, "pin"
@@ -74,9 +73,7 @@ func CopilotModel(reg *Registry) (model, source string) {
 	return "", "github-copilot default"
 }
 
-// CopilotLogin resolves the copilot record's profile: that github profile's Login ("" when it has none), and the profile.
-// No record profile (copilot off), or a name that is no github profile, yields ("", "") = gh's active account;
-// the vault's github-auth pin is a separate setting and never feeds copilot's login.
+// CopilotLogin is the copilot record's github profile Login and name; ("", "") = gh's account; ignores github-auth.
 func CopilotLogin(reg *Registry) (login, profile string) {
 	pin := AgentRecord("copilot").Profile
 	if pin == "" {
@@ -112,8 +109,7 @@ func GithubAccountLogin(reg *Registry, name string) string {
 	return name
 }
 
-// CodexModel resolves the codex record's model: it if set, else "" — codex's own default (config.toml's
-// model, then its ChatGPT-login provider's opus alias) decides.
+// CodexModel resolves the codex record's model; "" leaves codex's own default (config.toml, then its login's opus).
 func CodexModel() (model, source string) {
 	return pinned(AgentRecord("codex").Model)
 }

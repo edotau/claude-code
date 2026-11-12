@@ -55,10 +55,7 @@ func SetCredential(p *Provider, h http.Header, cred string) {
 // anthropicOAuthBeta is the header Claude Code's own client sends alongside a setup-token bearer.
 const anthropicOAuthBeta = "oauth-2025-04-20"
 
-// LiveModels GETs the provider's model catalog: Databricks serving-endpoints, else Anthropic /v1/models, else OpenAI
-// /models. A passthrough provider (subscription) has no credential this command can mint on its own, so it
-// tries the stored setup-token as a bearer credential; ErrPassthrough means even that is unavailable, and the
-// caller falls back to the registry's own configured models.
+// LiveModels GETs p's catalog (Databricks endpoints, Anthropic, else OpenAI); ErrPassthrough = no credential.
 func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 	entries, err := liveModelEntries(ctx, p)
 	ids := make([]string, len(entries))

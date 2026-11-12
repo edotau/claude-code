@@ -12,9 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// FallbackModels covers the two providers whose live catalog can fail for a known reason: subscription
-// (passthrough, no API key) falls back to the registry's configured Claude models; chatgpt (no /models
-// route) falls back to codex's local model cache. Any other provider's error is returned unchanged.
+// FallbackModels serves subscription from the registry's Claude models and chatgpt from codex's cache.
 func FallbackModels(p *Provider, liveErr error) ([]ModelInfo, string, error) {
 	if p.Provider == "openai" && p.Auth.Login == "codex" {
 		if cached, cerr := codexCachedModels(); cerr == nil && len(cached) > 0 {
@@ -75,9 +73,7 @@ var modelDeniedRE = regexp.MustCompile(`limit: 0|exceeded your current quota|ins
 const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
 	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`
 
-// accountRE covers the broader markers meaning "this ACCOUNT is exhausted" (plan window, credits, a hard
-// HTTP 402), as opposed to a transient rate limit worth waiting out: a 402 body, "usage limit ... try again at
-// <time>", or a monthly/weekly plan quota.
+// accountRE covers markers meaning this ACCOUNT is exhausted (plan window, credits, a 402), not a rate limit.
 var accountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
 
 // hardAccountRE is accountRE's subset ModelDenied vetoes on: a 402, "payment required", "usage limit", a
@@ -86,19 +82,13 @@ var accountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment requ
 // (modelDeniedRE), and that one is a MODEL-specific denial, not account-wide exhaustion.
 var hardAccountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
 
-// ModelDenied reports whether a 429 body or error text denies this MODEL outright on the current key; the
-// caller should demote to the provider's next alias instead of retrying the same model. Account-wide
-// exhaustion (hardAccountRE: a 402, "payment required", a named plan window, or credits out) takes
-// precedence — a body like "402 payment required: insufficient_quota" means the whole account is dead,
-// not just this model, so demoting to a lower alias on the same exhausted account would only fail again.
+// ModelDenied reports whether text denies this MODEL on the key (demote); hardAccountRE exhaustion vetoes it.
 func ModelDenied(text string) bool {
 	low := strings.ToLower(text)
 	return modelDeniedRE.MatchString(low) && !hardAccountRE.MatchString(low)
 }
 
-// IsQuota reports whether a 429/402 body or error text means the account is exhausted (credits, plan
-// window, or a model-denial that leaves no lower alias to try) rather than a transient rate limit worth
-// waiting out; the caller should mark the account exhausted instead of retrying.
+// IsQuota reports whether text means the account is exhausted (credits, plan window, model denial), not a rate limit.
 func IsQuota(text string) bool {
 	low := strings.ToLower(text)
 	return accountRE.MatchString(low) || modelDeniedRE.MatchString(low)
