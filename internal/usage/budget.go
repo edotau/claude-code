@@ -64,7 +64,7 @@ func readBudgetCache(path string) *budgetCache {
 func writeBudgetCache(path string, c budgetCache) {
 	c.Schema = budgetSchema
 	if err := paths.WriteJSON(path, c); err != nil { // best-effort: the rows are still returned
-		fmt.Fprintln(os.Stderr, "usage: budget cache write failed:", err)
+		fmt.Fprintln(os.Stderr, "claude-code: budget cache write failed:", err)
 	}
 }
 
