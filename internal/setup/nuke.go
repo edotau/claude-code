@@ -76,7 +76,7 @@ func planNuke(dir string, keepMemory bool) (nukePlan, error) {
 	if err != nil {
 		return plan, err
 	}
-	hasGit := isGitRepo(dir)
+	hasGit := paths.FileExists(filepath.Join(dir, ".git"))
 	for _, e := range entries {
 		if e.Name() == ".git" {
 			continue
@@ -214,11 +214,6 @@ func printPlan(w io.Writer, plan nukePlan) {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
 	}
-}
-
-func isGitRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil
 }
 
 // classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or

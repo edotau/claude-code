@@ -229,7 +229,7 @@ var writers = map[string]string{
 	"internal/hooks/quality/stop_format.go:StopFormat":         "stop-format",
 	"internal/memory/watch.go:claimWatcher":                    unversioned("marker: idle watcher claim file"),
 	"internal/memory/watch.go:IdleUpdateWatch":                 unversioned("marker: idle watcher claim file, restamped with the watcher pid"),
-	"internal/setup/install_steps.go:copyBinary":               unversioned("foreign: installed binary"),
+	"internal/setup/install_steps.go:installBinaryTarget":      unversioned("foreign: installed binary"),
 	"internal/agent/launch.go:WriteFiles":                      unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
 	"internal/setup/install_steps.go:seedTmuxConf":             unversioned("foreign: user tmux.conf"),
 	"internal/doctor/mcphealth.go:mcpList":                     unversioned("foreign: temp output of claude mcp list"),
