@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -840,5 +841,22 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 		if a := got[i].hdr.Get("Authorization"); a != "Bearer dev-workspace-token" {
 			t.Errorf("%s: upstream Authorization is not dev's workspace credential", c.path)
 		}
+	}
+}
+
+// A request refused before routing leaves a "refused" log line that never carries the secret it sent.
+func TestRefusedRequestIsLogged(t *testing.T) {
+	vaulttest.Use(t)
+	r := newRouter(secret)
+	var log bytes.Buffer
+	r.log = &log
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() })
+	resp := post(t, srv.URL+"/p/qa/v1/messages", `{"model":"m1"}`, map[string]string{"X-Api-Key": "wrong-secret-value"})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", resp.StatusCode)
+	}
+	if got := log.String(); !strings.Contains(got, "refused 401 POST /p/qa/v1/messages") || strings.Contains(got, "wrong-secret-value") {
+		t.Errorf("log %q, want a refused 401 line without the secret", got)
 	}
 }
