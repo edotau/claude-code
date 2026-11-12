@@ -57,6 +57,7 @@ type peer struct {
 
 // Local is this node's status.
 type Local struct {
+	ID           string // the stable node id, which the admin API accepts as a device id
 	BackendState string
 	DNSName      string
 	IPs          []string
@@ -77,6 +78,7 @@ type rawStatus struct {
 }
 
 type rawNode struct {
+	ID             string
 	DNSName        string
 	TailscaleIPs   []string
 	OS             string
@@ -168,6 +170,7 @@ func Status(ctx context.Context) (Local, error) {
 		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
 	}
 	local := Local{
+		ID:               raw.Self.ID,
 		BackendState:     raw.BackendState,
 		DNSName:          raw.Self.DNSName,
 		IPs:              raw.Self.TailscaleIPs,

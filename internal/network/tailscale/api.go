@@ -28,8 +28,8 @@ var apiBaseURL = defaultBaseURL
 var errNoCredential = errors.New(
 	"tailscale: no credential (set TAILSCALE_OAUTH_CLIENT_ID/_SECRET or TAILSCALE_API_KEY)")
 
-// errNoDevice: no admin-API device carries any of this node's tailnet addresses.
-var errNoDevice = errors.New("could not match this node's address to a device (is it connected?)")
+// errNoDevice: `tailscale status` reported no node id for this box.
+var errNoDevice = errors.New("tailscale status reports no node id for this box (is it connected?)")
 
 // The admin-API credential names, stored in the vault.
 const (
@@ -87,16 +87,10 @@ func selfDevice(ctx context.Context) (*Client, Local, string, error) {
 	if err != nil { // errNotRunning included: st.IPs would be stale and never match a device
 		return nil, Local{}, "", err
 	}
-	devices, err := client.Devices(ctx)
-	if err != nil {
-		return nil, Local{}, "", err
+	if st.ID == "" {
+		return nil, Local{}, "", errNoDevice
 	}
-	for _, d := range devices {
-		if slices.ContainsFunc(d.Addresses, func(a string) bool { return slices.Contains(st.IPs, a) }) {
-			return client, st, d.ID, nil
-		}
-	}
-	return nil, Local{}, "", errNoDevice
+	return client, st, st.ID, nil // the status node id is the admin API's device id: no device listing needed
 }
 
 // Client talks to the admin API; token mints (and caches) the bearer, re-minted once on a 401.
@@ -234,12 +228,12 @@ type device struct {
 	EnabledRoutes []string  `json:"enabledRoutes,omitempty"`
 }
 
-// Devices lists every device on the tailnet via GET /tailnet/-/devices.
+// Devices lists every device on the tailnet; fields=all because the default listing omits enabledRoutes.
 func (c *Client) Devices(ctx context.Context) ([]device, error) {
 	var out struct {
 		Devices []device `json:"devices"`
 	}
-	if err := c.request(ctx, http.MethodGet, "/tailnet/-/devices", nil, &out); err != nil {
+	if err := c.request(ctx, http.MethodGet, "/tailnet/-/devices?fields=all", nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Devices, nil
