@@ -94,7 +94,7 @@ func initialResult(cs agent.Schema, t providers.Target) (wire.Result, error) {
 	return res, nil
 }
 
-// runCredentials are the run's secrets to mask: route env credentials, secret-named --env values and the registry token.
+// runCredentials are the run's secrets to mask: route env credentials, secret-named --env values, the registry token.
 func runCredentials(opts sdkOptions, env []string, req agent.RunOptions) []string {
 	creds := credentialValues(slices.Concat(env, req.Env))
 	if opts.Token != nil {
@@ -132,19 +132,27 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if opts, err = newSDKOptions(bin, env, req, st); err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
+	if err := routeOptions(&opts, route, env, req, t); err != nil {
+		return opts, nil, done, err
+	}
+	return opts, env, done, nil
+}
+
+// routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.
+func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, req agent.RunOptions, t providers.Target) error {
 	if route != nil {
-		route.apply(&opts)
+		route.apply(opts)
 	}
 	// the SDK child gets exactly buildClientOptions' env; its base drops foreign credentials under ctx isolation
 	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet); err != nil {
-		return opts, nil, done, copilotFatal(err)
+		return copilotFatal(err)
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
-	applyCopilotToken(&opts, env)
+	applyCopilotToken(opts, env)
 	if route == nil && t.Provider.Auth.Login == "" && router.ArmProfile() != "" {
-		armBYOK(&opts)
+		armBYOK(opts)
 	}
-	return opts, env, done, nil
+	return nil
 }
 
 // armBYOK keeps the GitHub login off an armed BYOK hop's model traffic; the CLI can still read its Keychain login.
@@ -199,8 +207,7 @@ var otherInstructionFiles = []string{
 	filepath.Join(".github", "copilot-instructions.md"), filepath.Join(".github", "instructions"),
 }
 
-// sameInstructions is home's copilot-instructions.md when workDir's CLAUDE.md, its only instruction file, is already
-// inside it (the runtime would load that text twice, ~7 KB per request); "" otherwise.
+// sameInstructions is home's copilot-instructions.md when it holds workDir's sole CLAUDE.md (else loaded twice, ~7 KB).
 func sameInstructions(home, workDir string) string {
 	own, err := os.ReadFile(filepath.Join(workDir, "CLAUDE.md"))
 	if own = bytes.TrimSpace(own); err != nil || len(own) == 0 {
@@ -300,8 +307,7 @@ func (copilotEngine) Login(p *providers.Provider, model string, h *agent.Headles
 }
 
 func (copilotEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
-	client := providers.Target{Provider: r.Target.Provider, Model: r.Target.Model, OneM: r.Target.OneM}.ClientModel()
-	return copilotWire(r.Provider, r.Dialect, r.Base, r.Model, providers.ContextWindow(r.Target.Provider, client), r.Cred, r.Routed, h)
+	return copilotWire(r, h)
 }
 
 func (e copilotEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
@@ -318,6 +324,12 @@ func (copilotEngine) Gate(reg *providers.Registry, t providers.Target) (provider
 
 // GateExplicit also turns a gate move off the pinned GitHub profile into a quota error and keeps the requested tier.
 func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	if req.Fallback == router.FallbackNone {
+		if err := gateNoFallback(t); err != nil {
+			return providers.Target{}, "", err
+		}
+		return t, "", nil
+	}
 	from := t.Provider
 	t, note, err := copilotGate(reg, t)
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
@@ -327,6 +339,18 @@ func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registr
 		t.Model = tierModel(t.Provider, tier) // the fallback serves the requested tier, not its default opus
 	}
 	return t, note, err
+}
+
+// gateNoFallback refuses an unworkable GitHub target under fallback none instead of moving it to Databricks.
+func gateNoFallback(t providers.Target) error {
+	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
+		return nil
+	}
+	if detail, ok := pinnedHeadroom(context.Background(), t.Provider.Login); !ok {
+		return copilotFatal(fmt.Errorf("%s; GitHub profile %s refused: fallback none forbids the Databricks "+
+			"move (fix the account or drop fallback none)", detail, t.Provider.Name))
+	}
+	return nil
 }
 
 func (e copilotEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
@@ -420,8 +444,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 // Seams for the mid-dispatch quota hand-off; tests replace them.
 var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
 
-// copilotQuotaHandoff marks the exhausted account and returns a redacted handoff for the next fallback dispatch;
-// partialSession and partialText are what the failed run got out.
+// copilotQuotaHandoff marks the exhausted account and returns a redacted handoff of the failed run's partial output.
 func copilotQuotaHandoff(
 	req agent.RunOptions, res wire.Result, partialSession, partialText string, cause error, creds []string,
 ) (wire.Result, error) {
@@ -436,7 +459,7 @@ func copilotQuotaHandoff(
 	return res, cause
 }
 
-// resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (its opus).
+// resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (opus).
 func resumeAlias(model string) string {
 	if _, alias, ok := strings.Cut(model, ":"); ok {
 		model = alias

@@ -52,8 +52,7 @@ func copilotPinLoginErr() (string, error) {
 	return login, err
 }
 
-// copilotAuthSource (no network): the pinned profile's gh login, a stored token, gh's active account, then
-// copilot's own order (env token, its stored login) when gh holds no account; none when the registry can't load.
+// copilotAuthSource (offline): pinned gh login, stored token, gh active, env token, copilot login; none if no registry.
 func copilotAuthSource() (copilotAuth, bool) {
 	a, ok, err := copilotAuthSourceErr()
 	return a, ok && err == nil // an unreadable registry may hide a pin, so no other account is used
@@ -91,29 +90,11 @@ func authSourceFor(pin string) (copilotAuth, bool) {
 	return copilotAuth{}, false
 }
 
-// copilotLaunchTokenFor is the token a launch injects (COPILOT_GITHUB_TOKEN for the CLI, GitHubToken for the SDK),
-// or "" to leave copilot on its own credential; logs the source. login is the target GitHub row's; "" uses the pin.
+// copilotLaunchTokenFor is the token a launch injects for login ("" = the pin), or "" for copilot's own; logs it.
 func copilotLaunchTokenFor(login string) (string, error) {
-	var a copilotAuth
-	var ok bool
-	if login != "" { // an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
-		a, ok = authSourceFor(login)
-		if !ok {
-			return "", fmt.Errorf("copilot: GitHub user %s is not logged in to gh; run `gh auth login`", login)
-		}
-	} else {
-		pin, err := copilotPinLoginErr()
-		if err != nil {
-			return "", fmt.Errorf("copilot: cannot read the provider registry to check the pinned GitHub account "+
-				"(launch refused): %w", err)
-		}
-		if a, ok = authSourceFor(pin); !ok && pin != "" { // the harness fails rather than run on another account
-			return "", fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure "+
-				"github` (no other account is used)", pin)
-		}
-	}
-	if !ok {
-		return "", nil
+	a, ok, err := launchAuth(login)
+	if err != nil || !ok {
+		return "", err
 	}
 	tok, how := copilotToken(a)
 	if a.Source == srcPinned && tok == "" {
@@ -123,6 +104,28 @@ func copilotLaunchTokenFor(login string) (string, error) {
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
 	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
 	return tok, nil
+}
+
+// launchAuth is the account a launch runs on: login's gh account, else the pin's; ok false = copilot's own credential.
+func launchAuth(login string) (copilotAuth, bool, error) {
+	if login != "" { // an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
+		a, ok := authSourceFor(login)
+		if !ok {
+			return a, false, fmt.Errorf("copilot: GitHub user %s is not logged in to gh; run `gh auth login`", login)
+		}
+		return a, true, nil
+	}
+	pin, err := copilotPinLoginErr()
+	if err != nil {
+		return copilotAuth{}, false, fmt.Errorf("copilot: cannot read the provider registry to check the pinned GitHub "+
+			"account (launch refused): %w", err)
+	}
+	a, ok := authSourceFor(pin)
+	if !ok && pin != "" { // the harness fails rather than run on another account
+		return a, false, fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure "+
+			"github` (no other account is used)", pin)
+	}
+	return a, ok, nil
 }
 
 // RefreshAccount re-fetches a stale account for copilotUsedPct; a var so tests stay offline.
@@ -158,8 +161,7 @@ const refreshCap = time.Second
 // copilotWorkablePct is the used credit share at which a copilot GitHub-login dispatch is no longer started.
 const copilotWorkablePct = 95.0
 
-// copilotHeadroom reports whether user is a gh login whose credits are verified under copilotWorkablePct, plus the
-// notice detail naming the account and its verified share.
+// copilotHeadroom: user is a gh login verified under copilotWorkablePct; detail names the account and its share.
 func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) {
 	switch {
 	case user == "":
@@ -435,16 +437,6 @@ func GHToken(account string) string {
 	return v
 }
 
-// CopilotToken is the token copilot would run with, resolved quietly (no stderr, no audit) for catalog lookups.
-func CopilotToken() string {
-	a, ok := copilotAuthSource()
-	if !ok {
-		return ""
-	}
-	tok, _ := copilotToken(a)
-	return tok
-}
-
 // copilotToken fetches a gh-sourced account's token; how names the command used (or why it fell back).
 func copilotToken(a copilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
@@ -510,7 +502,7 @@ func (copilotEngine) Plan(_ context.Context, st providers.AuthState) providers.S
 	return providers.Subscription{Raw: raw, Name: providers.CopilotPlanName(raw), Account: account}
 }
 
-// copilotTierCmd is the plan lookup seam; tests replace it. A non-empty token asks as that account, not gh's active one.
+// copilotTierCmd is the plan lookup seam (tests replace it); a non-empty token asks as that account, not gh's active.
 var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 	spec := agent.EnvSpec{Mode: agent.EnvAgent}
 	if token != "" {

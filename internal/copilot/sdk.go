@@ -55,8 +55,7 @@ type sdkOptions struct {
 	InstructionDirs, SkillDirs, AgentDirs []string
 	// InlineInstructions, when set, replaces discovery of every instruction file (see sameInstructions).
 	InlineInstructions string
-	// Providers+Models switch to the multi-provider route: Model is a provider/id of Models, Token feeds every
-	// provider's BearerTokenProvider (set by the SDK layer), and the child runs in a private login-free home.
+	// Providers+Models: the multi-provider route (Model = provider/id, Token feeds each BearerTokenProvider, no login).
 	Providers []copilotRegistryProvider
 	Models    []copilotRegistryModel
 	Token     func() (string, error)
@@ -143,16 +142,14 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 // leafExcludedTools are the sub-agent and workflow tools a headless leaf must not use (~20 KB of schemas per request).
 var leafExcludedTools = []string{"task", "write_agent", "read_agent", "list_agents", "run_dynamic_workflow", "dynamic_workflows_manage"}
 
-// toolOnlySections are the runtime's system-prompt sections that only teach tool use, background tasks and PR/commit
-// handling; a run with tools denied drops them (~8.6 KB per request).
+// toolOnlySections are system-prompt sections only about tools, tasks and PRs; a tools-denied run drops them (~8.6 KB).
 var toolOnlySections = map[string]copilot.SectionOverride{
 	copilot.SectionToolEfficiency:      {Action: copilot.SectionActionRemove},
 	copilot.SectionToolInstructions:    {Action: copilot.SectionActionRemove},
 	copilot.SectionRuntimeInstructions: {Action: copilot.SectionActionRemove},
 }
 
-// systemMessage is o.System in append mode (the SDK guardrails stay), nil when empty; with tools denied it is
-// customize mode minus toolOnlySections, o.System still appended.
+// systemMessage appends o.System (guardrails stay), nil when empty; tools denied: customize minus toolOnlySections.
 func systemMessage(o sdkOptions) *copilot.SystemMessageConfig {
 	if !o.AllowAllTools {
 		sections := maps.Clone(toolOnlySections)
@@ -191,8 +188,7 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 	}
 }
 
-// providerFromEnv lifts the BYOK block into the session: the server-mode runtime ignores COPILOT_PROVIDER_* env.
-// Last duplicate wins (exec's rule): copilotWire blanks each credential var, then appends the real one.
+// providerFromEnv lifts BYOK env into the session (server mode ignores COPILOT_PROVIDER_*); last duplicate wins.
 func providerFromEnv(env []string) *copilot.ProviderConfig {
 	get := func(key string) string {
 		for _, kv := range slices.Backward(env) {
@@ -242,8 +238,7 @@ func parseProviderHeaders(raw string) map[string]string {
 	return out
 }
 
-// wellKnownModel maps a gateway Claude id to copilot's catalog form (claude-sonnet-5.5), so the runtime applies
-// its Claude settings (no temperature, reasoning, limits); any other id passes through unchanged.
+// wellKnownModel maps a gateway Claude id to copilot's form (claude-sonnet-5.5) so Claude settings apply; else as is.
 func wellKnownModel(id string) string {
 	canonical, _, ok := models.Resolve(id)
 	if !ok || models.FamilyKind(canonical) != models.FamilyClaude {
@@ -265,8 +260,7 @@ type SDKModel struct {
 	Enabled         bool     // Policy == nil or Policy.State == "enabled"
 }
 
-// CatalogOptions is the auth shape every catalog listing needs: a resolved launch-account token
-// (CopilotToken), or "" to fall back to the copilot CLI's own stored login.
+// CatalogOptions is a listing's auth: a resolved account token (catalogAuth), else "" for the CLI's own login.
 func CatalogOptions(cliPath, token string) sdkOptions {
 	if token != "" {
 		return sdkOptions{CLIPath: cliPath, GitHubToken: token}

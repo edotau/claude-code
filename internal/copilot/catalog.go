@@ -19,9 +19,13 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ListModels lists the GitHub Copilot catalog through the SDK on the launch account's token (its own login, never BYOK).
+// ListModels lists the GitHub Copilot catalog through the SDK on the launch account's token (never BYOK).
 func ListModels(ctx context.Context) ([]providers.ModelInfo, error) {
-	list, err := launchCatalog(ctx, CopilotToken())
+	_, tok, _, err := catalogAuth("")
+	if err != nil {
+		return nil, err
+	}
+	list, err := launchCatalog(ctx, tok)
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +52,7 @@ func launchCatalog(ctx context.Context, token string) ([]SDKModel, error) {
 	return SDKListModels(ctx, CatalogOptions(bin, token))
 }
 
-// copilotCapabilities joins copilot's capability flags and premium-billing multiplier into one
-// "vision · reasoning · x2" string; "" when the model carries none of them.
+// copilotCapabilities is m's flags and billing multiplier as "vision · reasoning · x2"; "" when it has none.
 func copilotCapabilities(m SDKModel) string {
 	var parts []string
 	if m.Vision {
@@ -77,7 +80,7 @@ type catalogSnapshot struct {
 	Models       []SDKModel
 }
 
-// readCatalogSnapshot is the sealed snapshot for auth and tok; ok is false on a miss, another account or any vault error.
+// readCatalogSnapshot is the sealed snapshot for auth and tok; ok false on a miss, another account or a vault error.
 func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
 	raw, found, err := vault.ReadSecret(catalogRecord)
 	if err != nil || !found {
@@ -91,13 +94,22 @@ func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
 	return s, true
 }
 
-// catalogToken is auth's token for a listing; a gh-sourced account without one is an error, never another account's catalog.
+// catalogToken is auth's listing token; a gh-sourced account without one errors, never another account's catalog.
 func catalogToken(auth copilotAuth) (string, error) {
 	tok, _ := copilotToken(auth)
 	if tok == "" && (auth.Source == srcPinned || auth.Source == srcActive) {
 		return "", fmt.Errorf("copilot: no token for GitHub account %s; refusing to list another account's catalog", auth.Account)
 	}
 	return tok, nil
+}
+
+// catalogAuth is the account a listing runs on: login's gh account, else the pin's; ok false = the CLI's own login.
+func catalogAuth(login string) (auth copilotAuth, tok string, ok bool, err error) {
+	if auth, ok, err = launchAuth(login); err != nil || !ok {
+		return auth, "", false, err
+	}
+	tok, err = catalogToken(auth)
+	return auth, tok, true, err
 }
 
 // saveCatalogSnapshot seals the snapshot under catalogRecord.
@@ -112,8 +124,7 @@ func saveCatalogSnapshot(s catalogSnapshot) error {
 	})
 }
 
-// Catalog is the copilot model catalog: the sealed snapshot of the current GitHub auth with no network (an expired one
-// also spawns a detached refresh), else a live listing that is sealed.
+// Catalog is the current GitHub auth's sealed snapshot (expired: also a detached refresh), else a sealed live listing.
 func Catalog(ctx context.Context) ([]SDKModel, error) {
 	if auth, ok := copilotAuthSource(); ok {
 		if tok, err := catalogToken(auth); err == nil {
@@ -125,30 +136,25 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 			}
 		}
 	}
-	return refreshCatalog(ctx)
+	return refreshCatalog(ctx, "")
 }
 
-// spawnCatalogRefresh starts a detached discovery for the GitHub profile, when the registry names one.
+// spawnCatalogRefresh starts a detached discovery for copilot's own GitHub profile, when the registry names one.
 func spawnCatalogRefresh() {
 	reg, err := providers.Load()
 	if err != nil {
 		return
 	}
-	if name := catalog.GithubProfile(reg); name != "" {
-		catalog.SpawnDiscover(name, false)
+	if p, ok := copilotGithubRow(reg); ok && p != nil {
+		catalog.SpawnDiscover(p.Name, false)
 	}
 }
 
-// refreshCatalog lists the catalog live on the launch account's token and seals it, whatever the snapshot's age.
-func refreshCatalog(ctx context.Context) ([]SDKModel, error) {
-	auth, ok := copilotAuthSource() // read once, so the listing and its seal name the same account
-	tok := ""
-	if ok {
-		t, err := catalogToken(auth)
-		if err != nil {
-			return nil, err
-		}
-		tok = t
+// refreshCatalog lists live on login's account ("" = the launch account's) and seals it, whatever the snapshot's age.
+func refreshCatalog(ctx context.Context, login string) ([]SDKModel, error) {
+	auth, tok, ok, err := catalogAuth(login) // read once, so the listing and its seal name the same account
+	if err != nil {
+		return nil, err
 	}
 	list, err := launchCatalog(ctx, tok)
 	if err != nil {
@@ -177,7 +183,7 @@ func RefreshProfile(ctx context.Context, name string) error {
 	p := reg.Providers[name]
 	switch {
 	case isGithubProfile(p):
-		_, err = refreshCatalog(ctx)
+		_, err = refreshCatalog(ctx, p.Login) // that row's own account, not the pin's
 		return err
 	case p != nil && p.Preset == providers.PresetDatabricks:
 		_, err = relistCopilotEndpoints(ctx, reg, p)
@@ -229,8 +235,7 @@ func discoverProfileModels(ctx context.Context, p *providers.Provider) ([]provid
 	return enabledModelInfos(list), nil
 }
 
-// copilotModelInfos is a launch's read of p's models: the sealed snapshot with no network when one is remembered,
-// else the identity-checked read. An expired snapshot is served and refreshed by a detached process.
+// copilotModelInfos is p's models for a launch: a remembered snapshot (expired: refreshed detached), else checked.
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
 	spawn := func(profile string) bool { return catalog.SpawnDiscover(profile, false) }
@@ -245,8 +250,7 @@ func copilotUsable(infos []providers.ModelInfo) bool {
 	return len(copilotServingChatRows(infos, nil)) > 0
 }
 
-// copilotCheckedModelInfos reads p's models snapshot-first with the identity validated; a scope, identity or vault
-// failure lists live as it always did.
+// copilotCheckedModelInfos reads p's models snapshot-first, identity checked; a scope/identity/vault error lists live.
 func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
 	scope, old, found, err := copilotSnapshot(ctx, p)
@@ -369,7 +373,7 @@ func copilotEndpointRows(infos []providers.ModelInfo, snapshot bool, err error) 
 	return rows, nil
 }
 
-// copilotServingChatRows keeps READY llm/v1/chat endpoints in order, marking those on menu (with or without "databricks-").
+// copilotServingChatRows keeps READY llm/v1/chat endpoints in order, marking menu ones (with or without "databricks-").
 func copilotServingChatRows(infos []providers.ModelInfo, menu []providers.OpencodeModel) []CopilotEndpoint {
 	onMenu := make(map[string]bool, len(menu))
 	for _, m := range menu {

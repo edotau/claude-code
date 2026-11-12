@@ -30,8 +30,8 @@ func TestCopilotLaunchTokenRefusesOnRegistryLoadError(t *testing.T) {
 	if err == nil || tok != "" {
 		t.Fatalf("copilotLaunchTokenFor(\"\") = (%q, %v), want an error and no token", tok, err)
 	}
-	if got := CopilotToken(); got != "" {
-		t.Errorf("CopilotToken() = %q, want no token on a registry load error", got)
+	if _, got, _, err := catalogAuth(""); err == nil || got != "" {
+		t.Errorf("catalogAuth(\"\") = (%q, %v), want an error and no token on a registry load error", got, err)
 	}
 }
 
