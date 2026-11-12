@@ -60,6 +60,13 @@ func (t *RouteTable) gateProfile(
 	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), now)
 	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	noteNotReady(res, agent, pin, model, c.Model, p)
+	return t.gateProfileCell(ctx, agent, pin, c, p, st, o, now, configured, res)
+}
+
+func (t *RouteTable) gateProfileCell(
+	ctx context.Context, agent, pin string, c Cell, p *providers.Provider, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
 		return nil
@@ -89,29 +96,10 @@ func DefaultBilling(p *providers.Provider) string {
 	return BillSubscription
 }
 
-// pinnedModel resolves the pin's model at now, then swaps one a fresh served listing marks not READY for the first
-// READY one; the second result says why a Discovery request fell back to the alias.
+// pinnedModel resolves pins, swaps freshly unready models for READY ones, and reports Discovery fallback reasons.
 func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) (string, string) {
 	if modelPin == DiscoveryModel {
-		why := ""
-		switch {
-		case agent != "copilot" && agent != "opencode":
-			why = "discovery requires copilot or opencode; using alias"
-		case p == nil || p.Preset != providers.PresetDatabricks:
-			why = "discovery requires Databricks; using alias"
-		default:
-			model, err := pickPool(agent, p, DiscoveryPool(), now)
-			switch {
-			case err != nil:
-				why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
-			case model == "":
-				why = "discovery pool has no served model; using alias"
-			default:
-				return model, ""
-			}
-		}
-		model, _ := pinnedModel(agent, alias, cell, p, "", now)
-		return model, why
+		return discoveryPinnedModel(agent, alias, cell, p, now)
 	}
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
 	if p != nil && p.Preset == providers.PresetDatabricks {
@@ -122,6 +110,28 @@ func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin
 		}
 	}
 	return m, ""
+}
+
+func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider, now time.Time) (string, string) {
+	why := ""
+	switch {
+	case agent != "copilot" && agent != "opencode":
+		why = "discovery requires copilot or opencode; using alias"
+	case p == nil || p.Preset != providers.PresetDatabricks:
+		why = "discovery requires Databricks; using alias"
+	default:
+		model, err := pickPool(agent, p, DiscoveryPool(), now)
+		switch {
+		case err != nil:
+			why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
+		case model == "":
+			why = "discovery pool has no served model; using alias"
+		default:
+			return model, ""
+		}
+	}
+	model, _ := pinnedModel(agent, alias, cell, p, "", now)
+	return model, why
 }
 
 // selectPinnedModel: model pin, else own-account cell, else Databricks tier, else alias; codex gets a Responses model.

@@ -66,8 +66,7 @@ func Fits(c Claim, lim Limits) (bool, Snapshot) {
 	return ok, snap
 }
 
-// TryClaim prunes, counts and writes the markers in ONE locked section; on lock contention it writes first,
-// counts second and removes its own markers when over cap. The Snapshot excludes this claim.
+// TryClaim counts/writes under one lock; contention rolls back over-cap writes; Snapshot excludes this claim.
 func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	dir := Dir()
 	if c.Owner <= 0 || os.MkdirAll(dir, 0o700) != nil {
@@ -88,11 +87,15 @@ func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	if ran {
 		return ok, snap
 	}
+	return claimWithoutLock(dir, c, lim)
+}
+
+func claimWithoutLock(dir string, c Claim, lim Limits) (bool, Snapshot) {
 	if !writeMarkers(dir, c) {
 		Release(c.Owner, c.ID)
 		return true, Snapshot{} // nothing claimed: fail open like every other infra error
 	}
-	snap = scan(dir, time.Now(), true)
+	snap := scan(dir, time.Now(), true)
 	snap.Total -= c.n()
 	if c.Account != "" {
 		snap.Per = cloneCounts(snap.Per)
@@ -304,7 +307,7 @@ func newScanner(now time.Time) *scanner {
 	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}, answers: map[string]bool{}}
 }
 
-// live: dispatches and markers without a session follow ownerLive; a spawn marker follows its agent's meta.json and transcript.
+// live checks dispatch/sessionless markers by owner; spawn markers by agent metadata and transcript.
 func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 	owner, _ := Owner(name)
 	id := strings.TrimPrefix(name, Prefix+strconv.Itoa(owner)+"-")
@@ -380,8 +383,7 @@ func readMeta(path string) (meta, bool) {
 // scanChunk is the read size of answered: memory is bounded by it, not by the transcript size.
 const scanChunk = 64 << 10
 
-// answered: the session transcript holds a tool_result for this spawn (refused or finished without a PostToolUse).
-// Leaf markers of one Workflow share the id, so the result is memoized for the scan.
+// answered memoizes tool_result lookup per transcript/id; Workflow leaf markers share the id.
 func (s *scanner) answered(transcript, id string) bool {
 	if id == "" {
 		return false

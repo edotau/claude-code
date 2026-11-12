@@ -64,9 +64,7 @@ type PickOpts struct {
 	// Refresh re-fetches one stale account and records it; the pick then rereads that entry.
 	Refresh func(ctx context.Context, account string) bool
 	Now     func() time.Time
-	// WorkRepo reports whether the current repo is a configured work repo, so the opencode sub-pick never
-	// offers a free Zen candidate there; nil defaults to IsWorkRepo("") (the cwd's git remote), so callers
-	// that never heard of this rule still get it for free.
+	// WorkRepo blocks free Zen on work repos; nil checks the cwd via IsWorkRepo.
 	WorkRepo func() bool
 	// Pins is every agent's routing pins, read once by the caller (agent.AgentPins).
 	Pins map[string]PinSpec
@@ -121,8 +119,7 @@ type Dimension interface {
 // Dimensions are the scored axes; table.json's weights must name exactly these.
 var Dimensions = []Dimension{priceDim{}, headroomDim{}}
 
-// Pick gates then scores the agents for alias: want first when it passes the gates, then the other agents by ladder
-// rung, then total score (low accounts after non-low); claude under FallbackAll goes last unless the ladder places it.
+// Pick gates/scores want first, then ladder/score (low after non-low); FallbackAll Claude is last unless placed.
 func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o PickOpts) PickResult {
 	now, configured := time.Now(), o.Configured
 	if o.Now != nil {
@@ -157,6 +154,7 @@ func (t *RouteTable) pick(
 	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
 	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(), alias: alias, now: now, res: &res}
 	firstG = lp.admitGroups(firstG)
+	lastG = lp.admitGroups(lastG)
 	restG, lastG = lp.l.claim(restG, lastG)
 	firstG, restG = lp.l.armSplit(firstG, restG)
 	units := lp.units(restG)
@@ -201,8 +199,7 @@ func deadLast(cs []Candidate, st State, now time.Time, res *PickResult) []Candid
 // refreshConcurrency bounds the stale-account refreshes one pick runs at once.
 const refreshConcurrency = 4
 
-// refreshStale dry-runs the pick to collect the stale accounts it would refresh, refreshes them concurrently into st,
-// and returns a Refresh that skips those so the real pick never re-fetches one serially.
+// refreshStale dry-picks stale accounts, refreshes concurrently, and prevents repeat refreshes in the real pick.
 func (t *RouteTable) refreshStale(
 	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
 ) func(context.Context, string) bool {
@@ -271,8 +268,7 @@ func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
 	return out
 }
 
-// gateAgent runs one agent through the row/configured/account/exhausted gates, recording a Skip on failure.
-// It returns a group of candidates from this one agent — one, unless it's opencode's free+backup pair.
+// gateAgent records failed gates; returns one candidate, or opencode’s free winner plus its paid backup.
 func (t *RouteTable) gateAgent(
 	ctx context.Context, alias, agent string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -327,19 +323,12 @@ func (t *RouteTable) gateAccount(
 	return Candidate{Agent: accountProvider(name), Cell: c, State: s, Billing: billing}, true
 }
 
-// opencodeOrder is the sub-pick's fixed order: the free Zen catalog first, then the ladder's paid backends
-// (defaults.json opencodeLadder, vault-overridable) — owner decision, not the composite score, picks the
-// backend; price/headroom only break a tie between sub-candidates sharing one order position.
+// opencodeOrder is free Zen then configured paid order; scores only break ties at the same position (owner policy).
 func (t *RouteTable) opencodeOrder() []string {
 	return slices.Concat([]string{"zen-free"}, t.OpencodeLadder)
 }
 
-// gateOpencodeCandidate runs the opencode sub-pick at alias: zen-free first (skipped at opus or on a work
-// repo, BillFree), then each ladder id in order, every one gated on its own login (configured,
-// which checks the cell's model prefix) and quota. The first to clear every gate wins; a low account sorts
-// after the non-low ones while otherwise keeping this order. It returns nil when every sub-candidate was skipped.
-// When the winner bills free, the first surviving paid sub-candidate rides along right after it, so a stalled
-// free dispatch has a ready backup without a second opencode pick.
+// gateOpencodeCandidate gates logins/quota/free rules in order; a free winner keeps its first paid backup adjacent.
 func (t *RouteTable) gateOpencodeCandidate(
 	ctx context.Context, alias, only string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -421,9 +410,7 @@ func (t *RouteTable) gateOpencodeSub(
 	return opencodeSub{id, c, billing, cand.State}, true
 }
 
-// gatherCandidates runs the wanted agent, then (unless suppressed) the other agents, then claude under
-// FallbackAll. Each gate call's group (usually one candidate, two for a free opencode winner + its paid
-// backup) stays together as one element, so a later sort over groups never splits the pair.
+// gatherCandidates gates want, other agents, then FallbackAll Claude; free+paid groups remain inseparable.
 func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) []Candidate) (first, rest, last [][]Candidate) {
 	if want != "" {
 		if cs := gate(want); len(cs) > 0 {
@@ -580,10 +567,7 @@ func DefaultFallback() string {
 // gitTimeout bounds each git call so a hung one fails closed instead of blocking a pick.
 const gitTimeout = 10 * time.Second
 
-// workRepoMarkers loads the configured work-repo markers (routing.opencode.workRepoMarkers): remote-URL
-// substrings, a host suffix or an owner/org path segment, checked case-insensitively against every
-// remote's URL. Empty markers with no error (the default) means no repo is a work repo. A registry load
-// error is reported, not swallowed: IsWorkRepo fails closed on it (free blocked), never fails open.
+// workRepoMarkers loads case-insensitive remote substrings; empty means personal, errors fail closed in IsWorkRepo.
 var workRepoMarkers = func() ([]string, error) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -592,8 +576,7 @@ var workRepoMarkers = func() ([]string, error) {
 	return reg.Routing.Opencode.Markers(), nil
 }
 
-// gitRemoteURLs is the exec seam over `git -C dir remote -v`; tests replace it. It lists every
-// remote's fetch and push URLs (both lines `remote -v` prints per remote).
+// gitRemoteURLs lists fetch/push URLs via git remote -v; tests replace this seam.
 var gitRemoteURLs = perDir(func(dir string) ([]string, error) {
 	if dir == "" {
 		dir = "."
@@ -651,10 +634,7 @@ var gitInRepo = perDir(func(dir string) (bool, error) {
 	return false, err
 })
 
-// IsWorkRepo reports whether any of dir's git remotes (fetch or push URL) name a configured work host or
-// org (workRepoMarkers); "" checks the current working directory. No markers configured (and no load
-// error) is personal, with no git call at all. Not a git repo, or no remotes, is personal. A markers
-// load error, or a git error inside a real repo (e.g. corrupt config), fails closed as work.
+// IsWorkRepo matches remote markers; empty markers/non-repos are personal, registry or git errors fail closed.
 func IsWorkRepo(dir string) bool {
 	markers, err := workRepoMarkers()
 	if err != nil {
@@ -677,6 +657,10 @@ func IsWorkRepo(dir string) bool {
 	if err != nil {
 		return true // git errored inside a repo: fail closed
 	}
+	return matchesWorkMarkers(urls, markers)
+}
+
+func matchesWorkMarkers(urls, markers []string) bool {
 	for _, u := range urls {
 		u = strings.ToLower(u)
 		for _, m := range markers {

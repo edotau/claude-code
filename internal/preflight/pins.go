@@ -82,6 +82,10 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 		p.Status = StatusOK
 		return p
 	}
+	return checkProfile(reg, p, name, now)
+}
+
+func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pin {
 	prov := reg.Providers[p.Profile]
 	if prov == nil {
 		p.Status, p.Detail = statusStale, "profile "+p.Profile+" is not in the registry"

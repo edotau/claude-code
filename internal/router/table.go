@@ -109,8 +109,7 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// RouteTable is the loaded routing table: Rows[agent][alias] for each alias's current row, ByModel[claudeID][agent]
-// for every row, and each account key's billing type.
+// RouteTable holds alias rows, canonical model rows, and account billing types.
 type RouteTable struct {
 	Billing map[string]string  `json:"billing"`
 	Weights map[string]float64 `json:"weights"`
@@ -118,17 +117,13 @@ type RouteTable struct {
 	Rows map[string]map[string]Cell `json:"-"`
 	// ByModel holds every row, keyed by canonical Claude id, then agent.
 	ByModel map[string]map[string]Cell `json:"-"`
-	// OpencodeSub are opencode's own sub-candidates, keyed by sub id (opencode-go, github-copilot, openai,
-	// nvidia, zen-free) then alias; a missing alias (zen-free has no "opus") means that id never serves it.
+	// OpencodeSub maps sub id then alias; a missing alias (e.g. zen-free opus) is never served.
 	OpencodeSub map[string]map[string]Cell `json:"-"`
-	// OpencodeLadder is the sub-pick's paid-backend order (set from the registry in LoadFrom, not JSON):
-	// zen-free always runs first, then this order. Empty keeps whatever defaults.json/the vault overlay set.
+	// OpencodeLadder is paid order from LoadFrom; zen-free runs first; empty keeps registry defaults/overlay.
 	OpencodeLadder []string `json:"-"`
-	// OpencodeRouting is the registry's routing.opencode object (set from the registry in LoadFrom, not
-	// JSON): work-repo markers, which aliases zen-free may serve, and the free dispatch's stall deadline.
+	// OpencodeRouting holds registry work markers, free aliases and stall deadlines, populated by LoadFrom.
 	OpencodeRouting providers.OpencodeRouting `json:"-"`
-	// OpencodeRowOverridden marks an alias whose Rows["opencode"] cell a route overlay touched directly (set
-	// from the registry in LoadFrom): that explicit operator intent wins over the sub-pick at that alias.
+	// OpencodeRowOverridden marks explicit overlay cells that override the sub-pick, populated by LoadFrom.
 	OpencodeRowOverridden map[string]bool `json:"-"`
 	// Ladders are the registry's routing.ladders (set in LoadFrom): the fallback order after want, by ladder name.
 	Ladders map[string][]providers.Rung `json:"-"`
@@ -182,8 +177,7 @@ func Load() (*RouteTable, error) {
 	return LoadFrom(reg, copilotUserFrom(reg))
 }
 
-// LoadFrom loads the table against an explicit registry and Copilot gh user; Load() is the normal entry
-// point, this is for tests and callers that already hold a registry.
+// LoadFrom loads against an explicit registry and Copilot user; Load is the normal entry point.
 func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
 	f, err := parsedTable()
 	if err != nil {
@@ -274,13 +268,11 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 	if !ok {
 		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", agent, key)
 	}
-	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
-		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
-		if err != nil {
-			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)
-		}
-		c.Account = acct
+	account, err := overlayCellAccount(agent, key, o, c)
+	if err != nil {
+		return "", err
 	}
+	c.Account = account
 	c.Model = cmp.Or(o.Model, c.Model)
 	c.Effort = cmp.Or(o.Effort, c.Effort)
 	if o.Account != "" {
@@ -293,8 +285,7 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 	return id, nil
 }
 
-// CopilotUser is the pinned copilot account name Copilot bills (github·<name>): the pinned github profile;
-// the router never picks another account.
+// CopilotUser is the pinned github profile billed as github·<name>; the router never picks another account.
 func CopilotUser() string {
 	reg, _ := providers.Load()
 	return copilotUserFrom(reg)
@@ -336,8 +327,7 @@ func (t *RouteTable) Cell(agent, alias string) (Cell, bool) {
 	return c, ok
 }
 
-// AliasOf maps a --model value to its alias: an alias name, a table cell's model, a Claude id's family, or a
-// registry alias id; "" when nothing matches (the classifier decides then).
+// AliasOf maps aliases, table models, Claude families or registry alias ids; unmatched returns "" for classification.
 func (t *RouteTable) AliasOf(model string) string {
 	model = models.Strip1M(strings.TrimSpace(model))
 	if model == "" {
@@ -387,4 +377,15 @@ func (t *RouteTable) registryAliasOf(bare string) string {
 		}
 	}
 	return ""
+}
+
+func overlayCellAccount(agent, key string, o providers.RouteCell, c Cell) (string, error) {
+	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
+		if err != nil {
+			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)
+		}
+		c.Account = acct
+	}
+	return c.Account, nil
 }
