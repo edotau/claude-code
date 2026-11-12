@@ -2,6 +2,7 @@
 package diff
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -92,12 +93,16 @@ func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 	return out, true
 }
 
-// getDiff returns (text, exitCode); exitCode is 1 if --file is missing or git diff failed.
+// getDiff returns (text, exitCode); exitCode is 1 if --file is unreadable or git diff failed.
 func getDiff(repo, diffRange, file string, stderr io.Writer) (string, int) {
 	if file != "" {
 		b, err := os.ReadFile(file)
-		if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintf(stderr, "[error] %s not found\n", file)
+			return "", 1
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "[error] read %s: %v\n", file, err)
 			return "", 1
 		}
 		return string(b), 0

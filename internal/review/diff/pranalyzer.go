@@ -76,6 +76,7 @@ type PRRisk struct {
 // PRFileAnalysis is the per-file entry in a PRReport.
 type PRFileAnalysis struct {
 	Path           string   `json:"path"`
+	OldPath        string   `json:"-"`
 	Status         string   `json:"status"`
 	Category       string   `json:"category"`
 	PriorityWeight int      `json:"priority_weight"`
@@ -171,7 +172,11 @@ func parseNameStatus(out string) []PRFileAnalysis {
 		if status == "" {
 			status = "modified"
 		}
-		files = append(files, PRFileAnalysis{Path: tok[i+n], Status: status})
+		f := PRFileAnalysis{Path: tok[i+n], Status: status}
+		if status == "renamed" {
+			f.OldPath = tok[i+1]
+		}
+		files = append(files, f)
 		i += n + 1
 	}
 	return files
@@ -179,8 +184,13 @@ func parseNameStatus(out string) []PRFileAnalysis {
 
 // patchFor returns the base...head patch for one file; a git failure is an error, never an empty diff.
 // The pathspec is top-relative and literal: name-status paths are repo-root relative, and glob characters match.
-func patchFor(repo, path, base, head string) (string, error) {
-	return refDiff(repo, base, head, nil, ":(top,literal)"+path)
+// A rename's oldPath joins the pathspec so git pairs the two sides and a pure rename shows no changed lines.
+func patchFor(repo, path, oldPath, base, head string) (string, error) {
+	paths := []string{":(top,literal)" + path}
+	if oldPath != "" {
+		paths = append(paths, ":(top,literal)"+oldPath)
+	}
+	return refDiff(repo, base, head, nil, paths...)
 }
 
 func categorizeFile(filepath string) (string, int) {
@@ -384,7 +394,7 @@ func analyzeFiles(repo, base, head string, files []PRFileAnalysis) ([]PRRisk, er
 	var allRisks []PRRisk
 	for i := range files {
 		category, weight := categorizeFile(files[i].Path)
-		d, err := patchFor(repo, files[i].Path, base, head)
+		d, err := patchFor(repo, files[i].Path, files[i].OldPath, base, head)
 		if err != nil {
 			return nil, fmt.Errorf("diff %s: %w", files[i].Path, err)
 		}

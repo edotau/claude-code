@@ -41,3 +41,13 @@ func TestTruncateDelegatesAndKeepsNoCapForNonPositiveWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestDropEmptyColsShortRow(t *testing.T) {
+	head, cols, rows := DropEmptyCols([]string{"A", "B", "C"}, []int{4, 0}, [][]string{{"x"}, {"y", "", "z"}})
+	if len(head) != 2 || head[1] != "C" || len(cols) != 2 || cols[0] != 4 || cols[1] != 0 {
+		t.Fatalf("head %v cols %v, want [A C] with widths [4 0]", head, cols)
+	}
+	if len(rows[0]) != 2 || rows[0][1] != "" || rows[1][1] != "z" {
+		t.Errorf("rows %v, want the short row padded with an empty cell", rows)
+	}
+}

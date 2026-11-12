@@ -231,7 +231,7 @@ func scmSpec() *helptext.Node {
 		"pr": {Sub: map[string]*helptext.Node{
 			"list":   leaf(helptext.Plain("state"), helptext.Plain("author"), helptext.Plain("limit")),
 			"view":   leaf(),
-			"diff":   leaf(),
+			"diff":   {},
 			"create": leaf(helptext.Plain("title"), helptext.Plain("body-file"), helptext.Plain("base"), helptext.BoolFlag("draft")),
 		}},
 		"checks":  leaf(helptext.Plain("sha")),

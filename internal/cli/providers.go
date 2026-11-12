@@ -443,8 +443,10 @@ func modelPinAliases() []string {
 
 // modelsSpec is the completion node for the models verb.
 func modelsSpec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("unpin"), helptext.BoolFlag("live"),
-		{Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
+	discover := &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("apply"),
+		helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
+	return &helptext.Node{Sub: map[string]*helptext.Node{"discover": discover}, Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames),
+		helptext.BoolFlag("unpin"), helptext.BoolFlag("live"), {Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }
 
 // switchSpec is the completion node for the switch verb.

@@ -233,7 +233,7 @@ func prunableSessionState(name string) bool {
 			return true
 		}
 	}
-	for _, prefix := range []string{"update-", "harvest-", "dream-", "catchup-"} {
+	for _, prefix := range []string{"update-", "dream-", "catchup-"} {
 		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, ".log") {
 			return true
 		}

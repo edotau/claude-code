@@ -77,8 +77,12 @@ func agentsSpec() *helptext.Node {
 	}}
 }
 
-// agentSpec is the one completion subtree for every agent verb (codex, copilot, opencode, gemini).
-func agentSpec() *helptext.Node {
+// agentSpec is the completion subtree builder for one agent verb (codex, copilot, opencode, gemini).
+func agentSpec(name string) func() *helptext.Node {
+	return func() *helptext.Node { return agentNode(name) }
+}
+
+func agentNode(name string) *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"ask":    {Flags: askSpecFlags()},
@@ -95,7 +99,7 @@ func agentSpec() *helptext.Node {
 		"on":       {},
 		"off":      {},
 		"setup":    {Flags: []helptext.Flag{formatFlag()}},
-		"catalog":  catalogSpec(),
+		"catalog":  catalogSpec(name),
 	}}
 }
 

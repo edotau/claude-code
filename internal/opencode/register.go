@@ -43,8 +43,8 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 	}
 	if OpencodeCopilotLoginPresent() {
 		if p, ok := reg.LoginProfile("github", "copilot"); ok {
-			if main, small, mok := opencodeCopilotModelIDs(reg); mok {
-				return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: main, SmallModel: small,
+			if main, _, mok := opencodeCopilotModelIDs(reg); mok {
+				return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: main,
 					Reason: "opencode's own GitHub Copilot login (opencode auth login)", OK: true}
 			}
 			return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name,
