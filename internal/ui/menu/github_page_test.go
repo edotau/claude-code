@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -57,7 +58,7 @@ done
 }
 
 func TestGithubAuthLineFlagsPinnedProfileWithoutLogin(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	vaulttest.UseKeyring(t)
 	if err := vault.SetGitHubAuth("work"); err != nil {
 		t.Fatal(err)
@@ -70,7 +71,7 @@ func TestGithubAuthLineFlagsPinnedProfileWithoutLogin(t *testing.T) {
 }
 
 func TestGithubAuthLineNamesDanglingPin(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	vaulttest.UseKeyring(t)
 	if err := vault.SetGitHubAuth("gone"); err != nil {
 		t.Fatal(err)
@@ -86,7 +87,7 @@ func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake gh requires a POSIX shell")
 	}
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho tok\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -116,7 +117,7 @@ func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
 
 func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *bytes.Buffer) {
 	t.Helper()
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	vaulttest.UseKeyring(t)
 	var switched []string
 	orig := copilot.SwitchGH
@@ -167,23 +168,8 @@ func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
 	}
 }
 
-// githubScratch isolates CLAUDE_CONFIG_DIR, HOME, XDG, PATH and every credential env var github.go
-// reads, so a test never touches a real gh/copilot login or a real vault overlay.
-func githubScratch(t *testing.T) {
-	t.Helper()
-	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
-		t.Setenv(k, "")
-	}
-}
-
 func TestSignInPrintsVendorBinError(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	_, err := paths.AgentBin("copilot")
 	if err == nil {
 		t.Fatal("expected missing vendor")
@@ -198,7 +184,7 @@ func TestSignInPrintsVendorBinError(t *testing.T) {
 // The piped `configure github` report prints only booleans, provider/model names and the fix commands —
 // never a token-shaped string, even when a real-looking GitHub token sits in the environment.
 func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_FAKEtokenlookingvalue1234567890")
 	var out bytes.Buffer
 	_ = Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "github")

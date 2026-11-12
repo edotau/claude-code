@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/usage"
@@ -21,7 +22,7 @@ import (
 
 // An unreadable registry hides any GitHub pin, so the launch must be refused, never run on another account's token.
 func TestCopilotLaunchTokenRefusesOnRegistryLoadError(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	t.Setenv("GH_TOKEN", "other-account-token")
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
@@ -92,7 +93,7 @@ func TestCopilotUsedPctBacksOffAndCapsRefresh(t *testing.T) {
 
 // An unreadable registry may hide a GitHub pin: the presence gate and headroom must say so, not read it as unpinned.
 func TestUnreadableRegistryIsNotReadAsUnpinned(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	t.Setenv("GH_TOKEN", "other-account-token")
 	vaulttest.Put(t, vault.Overlay, "providers", "{not json")
@@ -185,7 +186,7 @@ func TestFetchGitHubLoginCapsBody(t *testing.T) {
 
 // An unworkable seat's notice carries the last check's note: a Free seat says it has no premium credits plainly.
 func TestCopilotHeadroomNamesCheckNote(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	gh := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", gh)
 	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte("github.com:\n    users:\n        free:\n            oauth_token: x\n        gone:\n            oauth_token: x\n    user: free\n"), 0o600); err != nil {

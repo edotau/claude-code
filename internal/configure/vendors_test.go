@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -169,7 +170,7 @@ func readOverlay(t *testing.T) map[string]json.RawMessage {
 // WriteGithubCopilotModels merges opus/sonnet/haiku into providers.github.personal.models in the user's
 // overlay, preserving every other provider entry and root key byte-for-byte.
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	existing := `{"default":"gw","providers":{"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}}},"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", existing)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
@@ -201,7 +202,7 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 
 // The overlay's prior bytes are retained in the vault when the new overlay replaces it.
 func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	original := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"models":{"opus":"old-opus"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "new-opus", models.Sonnet: "new-sonnet", models.Haiku: "new-haiku"}
@@ -226,7 +227,7 @@ func TestWriteGithubCopilotModelsKeepsPreviousOverlay(t *testing.T) {
 // github-copilot provider overlay; it must never touch the COPILOT_MODEL pin that copilot's own
 // launch and configure page read, even when a pin is already set to something else.
 func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
@@ -240,7 +241,7 @@ func TestWriteGithubCopilotModelsLeavesCopilotModelPinUntouched(t *testing.T) {
 // fallback="auto" is rejected outright: opencode's own catalog has no "auto" alias, so substituting
 // it right back in would defeat the whole point of opencode_fallback. The overlay must stay untouched.
 func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "auto"}
 	err := WriteGithubCopilotModels(picks, "auto")
 	if err == nil {
@@ -256,7 +257,7 @@ func TestWriteGithubCopilotModelsRejectsAutoFallback(t *testing.T) {
 
 // fallback="" (no alias resolved to "auto") leaves any opencode_fallback the overlay already set alone.
 func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	original := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"opencode_fallback":"mai-code-1.1-flash","models":{"opus":"old-opus"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", original)
 	picks := map[string]string{models.Opus: "claude-opus-5.5", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
@@ -278,28 +279,13 @@ func TestWriteGithubCopilotModelsEmptyFallbackLeavesExistingUnchanged(t *testing
 
 // Every opus/sonnet/haiku alias must be a non-empty id; a missing one is rejected before anything is written.
 func TestWriteGithubCopilotModelsRejectsEmptySlot(t *testing.T) {
-	githubScratch(t)
+	hosttest.GithubScratch(t)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err == nil {
 		t.Fatal("WriteGithubCopilotModels: want an error for an empty sonnet alias")
 	}
 	if _, err := providers.OverlayDoc(); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a rejected pick set must not write the overlay at all: got %v, want fs.ErrNotExist", err)
-	}
-}
-
-// githubScratch isolates CLAUDE_CONFIG_DIR, HOME, XDG, PATH and every credential env var github.go
-// reads, so a test never touches a real gh/copilot login or a real vault overlay.
-func githubScratch(t *testing.T) {
-	t.Helper()
-	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
-		t.Setenv(k, "")
 	}
 }
 

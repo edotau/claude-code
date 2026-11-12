@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -17,7 +18,7 @@ import (
 
 func catalogScratch(t *testing.T) {
 	t.Helper()
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	t.Setenv("COPILOT_HOME", t.TempDir())
