@@ -36,18 +36,19 @@ path. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 | Leaf | Role | Output |
 | --- | --- | --- |
-| `claude` | In-context work on the session model | Status and verification |
+| `claude` | In-context work on Sonnet unless the call names a model | Status and verification |
 | `codex` | Cross-family review, plan vetting, delegated edits | Verdict or status with evidence |
 | `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
 | `gemini` | Read-only research and codebase sweeps | Cited findings |
 | `opencode` | Code/docs work and requested model discovery | Status and verification |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
-| `Plan` | Read-only design on the session model | Plan in `docs/templates/plan.md` form |
+| `Plan` | Read-only design on Opus unless the call names a model | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in general work when the named roles do not fit | Brief's requested report |
 
 `claude-code agents label <type> --brief FILE` prints the label; `--model` previews a dispatch model,
-`--session-model` supplies the parent model when the transcript cannot. `claude` and `Plan` keep frontmatter
-`model: inherit`; external wrappers' frontmatter controls the relay, not the vendor model. The root machine's
+`--session-model` supplies the parent model when the transcript cannot. `claude` defaults to `sonnet` and `Plan` to
+`opus`; pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). External
+wrappers' frontmatter controls the relay, not the vendor model. The root machine's
 pins and per-call flags select external execution; never overwrite another machine's pins.
 
 ### External relay contract

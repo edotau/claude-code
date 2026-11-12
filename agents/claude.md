@@ -1,8 +1,8 @@
 ---
 name: claude
 description: |
-  In-context implementation, design, simplification and review on the session model; one scoped terminal leaf.
-model: inherit
+  In-context implementation, design, simplification and review on Sonnet by default; one scoped terminal leaf.
+model: sonnet
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 maxTurns: 150
@@ -12,8 +12,8 @@ maxTurns: 150
 
 ## Role
 
-Implements, simplifies and reviews one scoped task on the session model. This file defines a terminal leaf;
-the main session owns orchestration. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
+Implements, simplifies and reviews one scoped task on Sonnet unless the call names a model. This file defines a
+terminal leaf; the main session owns orchestration. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ### The one rule that defines a leaf: you are terminal
 

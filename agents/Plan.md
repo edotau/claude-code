@@ -1,9 +1,9 @@
 ---
 name: Plan
 description: |
-  Read-only planning on the session model; return docs/templates/plan.md with a tickable Tasks checklist.
+  Read-only planning on Opus by default; return docs/templates/plan.md with a tickable Tasks checklist.
 tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
-model: inherit
+model: opus
 ---
 
 # Plan
