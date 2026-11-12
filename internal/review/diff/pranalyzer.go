@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -127,7 +126,7 @@ func gitInherit(repo string, args ...string) (string, error) {
 	return proc.RunGitInherit(ctx, repo, args...)
 }
 
-// refDiff runs `git diff <opts> base...head [-- paths]`, retrying the two-dot form only when the merge-base form errors.
+// refDiff runs `git diff <opts> base...head [-- paths]`, retrying two-dot only when the merge-base form errors.
 func refDiff(repo, base, head string, opts []string, paths ...string) (string, error) {
 	run := func(revs ...string) (string, error) {
 		args := append(append([]string{"diff"}, opts...), revs...)
@@ -179,8 +178,9 @@ func parseNameStatus(out string) []PRFileAnalysis {
 }
 
 // patchFor returns the base...head patch for one file; a git failure is an error, never an empty diff.
+// The pathspec is top-relative and literal: name-status paths are repo-root relative, and glob characters match.
 func patchFor(repo, path, base, head string) (string, error) {
-	return refDiff(repo, base, head, nil, path)
+	return refDiff(repo, base, head, nil, ":(top,literal)"+path)
 }
 
 func categorizeFile(filepath string) (string, int) {
@@ -267,8 +267,7 @@ func calculateComplexityScore(files []PRFileAnalysis, allRisks []PRRisk) int {
 		}
 	}
 	score := tierPoints(len(files), 20, 10, 5) + tierPoints(total, 500, 200, 50)
-	score += int(math.Min(2, float64(critical)))
-	score += int(math.Min(2, float64(high)))
+	score += min(2, critical) + min(2, high)
 	return min(max(score, 1), 10)
 }
 
