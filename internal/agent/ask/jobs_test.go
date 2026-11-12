@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -108,6 +109,25 @@ func TestLiveRequestCarriesReadOnlyAndPermissions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Permissions, perms) {
 		t.Errorf("Permissions = %+v, want %+v", got.Permissions, perms)
+	}
+}
+
+// A live holder runs one hop with no chain: an inherited confinement's profile beats the typed or pinned one.
+func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
+	vaulttest.Use(t)
+	for _, tc := range []struct{ confinement, typed, want string }{
+		{"databricks:qa", "dev", "qa"},
+		{"openai:acme", "", "acme"},
+		{"", "dev", "dev"}, // unconfined: the typed profile stands
+	} {
+		confine(t, tc.confinement)
+		if tc.confinement == "" {
+			t.Setenv(agentconfig.OverlayVar, "")
+		}
+		f := askFlags{provider: tc.typed}
+		if got := liveRequest((&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
+			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
+		}
 	}
 }
 
