@@ -77,7 +77,7 @@ func stateTargets() []target {
 	s := statePath
 	return []target{
 		{
-			name: "dispatch-log", doc: "state/harness/dispatch: ask records (newest 200 kept), their logs + review-*.diff attachments",
+			name: "dispatch-log", doc: fmt.Sprintf("dispatch records past the newest %d, their logs and diffs", agent.DispatchKeep()),
 			globs: func() []string {
 				return []string{s("dispatch", "*.json"), s("dispatch", "*.log"),
 					s("dispatch", "*"+paths.DispatchEventsSuffix), s("dispatch", "review-*.diff")}
@@ -85,11 +85,11 @@ func stateTargets() []target {
 			keep: dispatchKeeper(),
 		},
 		{
-			name: "codex-audit", doc: "state/harness/codex: codex routing audit logs (routing-*.jsonl), aged by --older-than",
+			name: "codex-audit", doc: "codex routing audit logs (routing-*.jsonl)",
 			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
 		},
 		{
-			name: "memory-state", doc: "state/harness/memory: aged session state, worker logs and orphan global/memories access logs",
+			name: "memory-state", doc: "aged memory session state, worker logs, orphan access logs",
 			globs: func() []string {
 				return []string{
 					s("memory", "update-*.log"), s("memory", "stamp-*"),
@@ -102,7 +102,7 @@ func stateTargets() []target {
 			keep: memoryStateKeeper(),
 		},
 		{
-			name: "hook-state", doc: "per-session hook flags and plan records; obsolete plans-scratch/*.partial.lock age out after one day",
+			name: "hook-state", doc: "per-session hook flags and plan records; stale partial locks",
 			globs: func() []string {
 				return []string{
 					s("checkpoint", "*"), s("plans-scratch", "*.dest"), s("stop-format", "*.json"), s("agents-inflight", "*"),
@@ -119,12 +119,12 @@ func daemonTargets() []target {
 		{
 			// proxy.json/router.secret are the DAEMON's live state (removed by the daemon itself on
 			// exit); only its log is debris, and an active proxy keeps rewriting it past any cutoff.
-			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio; state and secret are never swept)",
+			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio only)",
 			globs: func() []string { return []string{statePath("proxy.log"), statePath("router.log")} },
 		},
 		{
 			// <pid>.json registries in the runtime dir carry a session token; a dead pid's file is garbage at any age.
-			name: "copilot-registry", doc: "copilot BYOK registry files of dead pids in the runtime dir (live pids kept)",
+			name: "copilot-registry", doc: "copilot BYOK registry files of dead pids",
 			globs: func() []string {
 				if g := paths.CopilotRegistryGlob(); g != "" {
 					return []string{g}
@@ -135,7 +135,7 @@ func daemonTargets() []target {
 			keep:    paths.CopilotRegistryKeep,
 		},
 		{
-			name: "settings-backups", doc: "state/harness/backups/setup/* + backups/.claude.json.backup.* (CLI), aged; the revert mirror is never swept",
+			name: "settings-backups", doc: "state/harness/backups/setup/* and .claude.json.backups",
 			globs: func() []string {
 				return []string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
@@ -143,7 +143,7 @@ func daemonTargets() []target {
 		{
 			// Every plugin update leaves the previous version dir behind; only the installPath in
 			// installed_plugins.json is live, so the rest is rebuildable debris (a reinstall re-fetches it).
-			name: "plugin-versions", doc: "plugins/cache/<marketplace>/<plugin>/<version> dirs no longer named by installed_plugins.json",
+			name: "plugin-versions", doc: "plugin cache versions installed_plugins.json no longer names",
 			globs: stalePluginVersions,
 		},
 	}
@@ -156,7 +156,7 @@ func cliSessionTargets() []target {
 		{
 			// jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/ are the Claude
 			// Code CLI's own per-session debris (see .gitignore); nothing in this binary prunes them.
-			name: "cli-state", doc: "Claude Code CLI per-session debris: jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/",
+			name: "cli-state", doc: "CLI per-session debris: jobs, file-history, todos, ...",
 			globs: func() []string {
 				return []string{
 					g("jobs", "*"), g("file-history", "*"), g("session-env", "*"), g("paste-cache", "*"),
@@ -166,7 +166,7 @@ func cliSessionTargets() []target {
 		},
 		{
 			// Rebuilt by every `agents sync`/install; kept by default because diffing it shows what each agent reads.
-			name: "projections", doc: "state/projections: per-vendor agent/instruction renders (opt-in: --target projections)",
+			name: "projections", doc: "state/projections: per-vendor agent renders (opt-in)",
 			globs: func() []string { return []string{g("state", "projections", "*")} }, ageless: true, optIn: true,
 		},
 		{
@@ -197,7 +197,7 @@ func cliCacheTargets() []target {
 			optIn: true,
 		},
 		{
-			name: "cli-caches", doc: "Claude Code CLI rebuildable caches/logs: cache/, image-cache/, debug/, statsig/, logs/, usage-data/, stats-cache.json, mcp-needs-auth-cache.json",
+			name: "cli-caches", doc: "CLI rebuildable caches and logs: cache, debug, logs, statsig...",
 			globs: func() []string {
 				return []string{
 					g("cache", "*"), g("image-cache", "*"), g("debug", "*"), g("statsig", "*"),
@@ -232,20 +232,30 @@ func Clean(args []string, out, errw io.Writer) int {
 		}
 		return 0
 	}
-	age, err := parseAge(*olderThan)
-	if err != nil {
-		fmt.Fprintln(errw, "clean:", err)
-		return 2
-	}
-	selected, err := selectTargets(all, *want)
-	if err != nil {
-		fmt.Fprintln(errw, "clean:", err)
-		return 2
-	}
+	return runClean(all, cleanOpts{want: *want, olderThan: *olderThan, apply: !*dryRun, yes: *yesFlag}, errw)
+}
 
-	apply := !*dryRun
+// cleanOpts are Clean's parsed flags.
+type cleanOpts struct {
+	want, olderThan string
+	apply, yes      bool
+}
+
+// runClean resolves the age and targets, confirms sessions, then sweeps the nested dir and every target.
+func runClean(all []target, o cleanOpts, errw io.Writer) int {
+	age, err := parseAge(o.olderThan)
+	if err != nil {
+		fmt.Fprintln(errw, "clean:", err)
+		return 2
+	}
+	selected, err := selectTargets(all, o.want)
+	if err != nil {
+		fmt.Fprintln(errw, "clean:", err)
+		return 2
+	}
+	apply := o.apply
 	cutoff := time.Now().Add(-age)
-	if apply && !confirmSessions(selected, cutoff, *olderThan, *yesFlag, errw) {
+	if apply && !confirmSessions(selected, cutoff, o.olderThan, o.yes, errw) {
 		fmt.Fprintln(errw, "clean: sessions not confirmed — nothing deleted")
 		return 2
 	}
@@ -255,7 +265,7 @@ func Clean(args []string, out, errw io.Writer) int {
 	for _, t := range selected {
 		sweepTarget(errw, t, cutoff, apply, &tot)
 	}
-	printSummary(errw, tot, *olderThan, len(selected), apply)
+	printSummary(errw, tot, o.olderThan, len(selected), apply)
 	if tot.failed > 0 {
 		return 1
 	}
@@ -494,8 +504,22 @@ func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) 
 	return sz, true, nil
 }
 
-// protected guards the vault and memory store behind the sweep globs.
+// underLinkedDir reports a symlinked dir between the config dir and p: a glob through it reaches outside.
+func underLinkedDir(p string) bool {
+	root := filepath.Clean(paths.ConfigDir())
+	for d := filepath.Dir(p); filepath.Clean(d) != root && paths.Within(d, root); d = filepath.Dir(d) {
+		if fi, err := os.Lstat(d); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// protected guards the vault, the memory store and anything reached through a symlinked dir behind the sweep globs.
 func protected(p string) bool {
+	if underLinkedDir(p) {
+		return true
+	}
 	p = filepath.Clean(p)
 	vaultPath := filepath.Clean(vault.Path())
 	if p == vaultPath || strings.HasPrefix(p, vaultPath+".") {
@@ -683,10 +707,15 @@ func nestedKeepReasons(dir string, e os.DirEntry, user map[string]any) []string 
 	if local == nil {
 		return []string{e.Name() + " (unreadable JSON)"}
 	}
+	return unmatchedKeys(e.Name(), local, user)
+}
+
+// unmatchedKeys lists "<file>:<key>" for each key of local that user settings do not hold at the same value.
+func unmatchedKeys(file string, local, user map[string]any) []string {
 	var keep []string
 	for k, v := range local {
 		if uv, ok := user[k]; !ok || !reflect.DeepEqual(uv, v) {
-			keep = append(keep, e.Name()+":"+k)
+			keep = append(keep, file+":"+k)
 		}
 	}
 	return keep

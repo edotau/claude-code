@@ -87,29 +87,28 @@ func workspaceInit(o workspaceInitOpts) error {
 	if err != nil {
 		return err
 	}
-	actions := workspacePlan(root, with)
-	for _, a := range actions {
-		fmt.Fprintf(o.Out, "%-7s %s\n", a.verb, a.path)
-		if a.apply == nil {
-			continue
-		}
-		if o.DryRun {
-			if a.verb == "error" {
-				if err := a.apply(); err != nil {
-					return fmt.Errorf("%s %s: %w", a.verb, a.path, err)
-				}
-			}
-			continue
-		}
-		if err := a.apply(); err != nil {
-			return fmt.Errorf("%s %s: %w", a.verb, a.path, err)
-		}
+	if err := runWorkspaceActions(o, workspacePlan(root, with)); err != nil {
+		return err
 	}
 	if _, err := os.Stat(filepath.Join(root, "CLAUDE.md")); os.IsNotExist(err) {
 		fmt.Fprintln(o.Out, "hint    no CLAUDE.md at the root: run /init in Claude Code to write one")
 	}
 	if !o.DryRun {
 		audit.Log(audit.SetupWorkspace, root, "init:"+strings.Join(with, ","))
+	}
+	return nil
+}
+
+// runWorkspaceActions prints each action and applies it unless --dry-run; an error action fails even a dry run.
+func runWorkspaceActions(o workspaceInitOpts, actions []workspaceAction) error {
+	for _, a := range actions {
+		fmt.Fprintf(o.Out, "%-7s %s\n", a.verb, a.path)
+		if a.apply == nil || (o.DryRun && a.verb != "error") {
+			continue
+		}
+		if err := a.apply(); err != nil {
+			return fmt.Errorf("%s %s: %w", a.verb, a.path, err)
+		}
 	}
 	return nil
 }
@@ -343,17 +342,25 @@ func workspaceStatusKind(dot, kind string, out io.Writer) error {
 		if err != nil || p == dir || d.Name() == ".gitkeep" {
 			return err
 		}
-		rel, _ := filepath.Rel(dir, p)
-		state, target, err := workspaceEntryState(kind, rel, p)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(out, "%-9s %-16s %s%s\n", kind, state, rel, target)
-		if d.IsDir() && kind == "skills" {
-			return fs.SkipDir // SkipDir on a file would skip its siblings; WalkDir never descends symlinks
-		}
-		return nil
+		return workspaceStatusRow(kind, dir, p, d, out)
 	})
+}
+
+// workspaceStatusRow prints one entry's row; a namespace dir under agents/commands only holds rows of its own.
+func workspaceStatusRow(kind, dir, p string, d fs.DirEntry, out io.Writer) error {
+	if d.IsDir() && kind != "skills" {
+		return nil
+	}
+	rel, _ := filepath.Rel(dir, p)
+	state, target, err := workspaceEntryState(kind, rel, p)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "%-9s %-16s %s%s\n", kind, state, rel, target)
+	if d.IsDir() {
+		return fs.SkipDir // SkipDir on a file would skip its siblings; WalkDir never descends symlinks
+	}
+	return nil
 }
 
 // workspaceEntryState classifies one entry: a symlink is linked; a local copy whose name also exists

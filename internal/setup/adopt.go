@@ -84,6 +84,8 @@ func splitNUL(out []byte) []string {
 var (
 	errAlreadyCheckout = errors.New("already a checkout: use git pull")
 	errNotAClone       = errors.New("not a git checkout (missing .git)")
+	errIntoInsideFrom  = errors.New("--into is inside --from, which adopt deletes: stage the clone outside the target")
+	errBadLabel        = errors.New("--label must be a plain name, not a path")
 )
 
 // adoptOpts configures adopt.
@@ -136,13 +138,19 @@ func adopt(opts adoptOpts) error {
 	return nil
 }
 
-// adoptPreflight refuses an Into that is already a checkout and a From that is not a clone.
+// adoptPreflight refuses a path-like label, an Into that is a checkout or inside From, and a From that is no clone.
 func adoptPreflight(opts adoptOpts) error {
+	if l := opts.Label; l == "." || l == ".." || strings.ContainsAny(l, `/\`) {
+		return fmt.Errorf("%w: %q", errBadLabel, opts.Label)
+	}
 	if _, err := os.Stat(filepath.Join(opts.Into, ".git")); err == nil {
 		return errAlreadyCheckout
 	}
 	if _, err := os.Stat(filepath.Join(opts.From, ".git")); err != nil {
 		return fmt.Errorf("%s: %w", opts.From, errNotAClone)
+	}
+	if paths.Within(paths.CanonDeep(opts.Into), paths.CanonDeep(opts.From)) {
+		return fmt.Errorf("%s in %s: %w", opts.Into, opts.From, errIntoInsideFrom)
 	}
 	return nil
 }

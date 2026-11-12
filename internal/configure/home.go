@@ -76,10 +76,14 @@ func CodexWired(path string) bool {
 	if start < 0 {
 		return false
 	}
-	var command string
-	var argsOK bool
+	command, argsOK := codexMCPEntry(string(raw[start:end]))
+	return filepath.Base(command) == "claude-code" && argsOK
+}
+
+// codexMCPEntry reads the command value and whether args is exactly codexArgs from one MCP table's text.
+func codexMCPEntry(table string) (command string, argsOK bool) {
 	state, depth := "", 0
-	for line := range strings.SplitSeq(string(raw[start:end]), "\n") {
+	for line := range strings.SplitSeq(table, "\n") {
 		if key, value, ok := strings.Cut(line, "="); ok && state == "" && depth == 0 { // text inside strings is no key
 			value = strings.TrimSpace(value)
 			switch strings.TrimSpace(key) {
@@ -93,7 +97,7 @@ func CodexWired(path string) bool {
 		}
 		state, depth = agentconfig.TOMLLineState(line, state, depth)
 	}
-	return filepath.Base(command) == "claude-code" && argsOK
+	return command, argsOK
 }
 
 // codexArgs is the web_search table's args value.
