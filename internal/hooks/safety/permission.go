@@ -3,6 +3,7 @@
 package safety
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -141,7 +142,8 @@ func gateArgs(in *core.Input, tool string) []string {
 			return out
 		}
 	}
-	return pathForms(in.CWD, gatePath(in))
+	return pathForms(in.CWD, cmp.Or(in.Nested("tool_input", "file_path"), in.Nested("tool_input", "filePath"),
+		in.Nested("tool_input", "path")))
 }
 
 // patchFiles are the files an apply_patch body adds, updates, deletes or moves to.
@@ -161,15 +163,6 @@ func patchFiles(patch string) []string {
 var patchKeys = []string{"patchText", "patch", "input", "command"}
 
 var patchHeaders = []string{"*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"}
-
-func gatePath(in *core.Input) string {
-	for _, key := range []string{"file_path", "filePath", "path"} {
-		if p := in.Nested("tool_input", key); p != "" {
-			return p
-		}
-	}
-	return ""
-}
 
 // pathForms are p's cwd-relative and absolute spellings, as typed and symlink-resolved; "" stays "".
 func pathForms(cwd, p string) []string {

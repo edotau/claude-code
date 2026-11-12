@@ -138,7 +138,9 @@ func dropInertHeredocs(cmd string) string {
 		}
 		end := heredocEnd(lines, i+1, delim, dash)
 		// An unquoted delimiter expands substitutions in the body, so a body holding one is not inert.
-		if end < 0 || !quoted && expandsSubstitution(strings.Join(lines[i+1:end], "\n")) {
+		if end < 0 || !quoted && slices.ContainsFunc(lines[i+1:end], func(l string) bool {
+			return strings.Contains(l, "$(") || strings.Contains(l, "`")
+		}) {
 			return -1
 		}
 		return end
@@ -153,11 +155,6 @@ func heredocEnd(lines []string, from int, delim string, dash bool) int {
 		}
 	}
 	return -1
-}
-
-// expandsSubstitution reports a heredoc body holding a `$(…)` or backtick substitution.
-func expandsSubstitution(body string) bool {
-	return strings.Contains(body, "$(") || strings.Contains(body, "`")
 }
 
 // inertHeredocStart parses a lone `cat|tee … <<DELIM` line that only writes a file; anything fancier is not inert.

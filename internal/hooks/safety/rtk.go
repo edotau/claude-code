@@ -18,18 +18,14 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// rtkMachineReadable are flags whose whole point is exact, parseable output. Compressing those
-// breaks every downstream parser — this harness's own gates read `git status --porcelain`, and
-// a diff stat drives transcript tooling. A command carrying one of these bypasses rtk.
+// rtkMachineReadable are flags asking for exact, parseable output (gates read `git status --porcelain`): bypass rtk.
 var rtkMachineReadable = []string{
 	"--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status",
 	"--numstat", "--shortstat", "--raw", "-z", "--null", "--format-version", "--parseable", "--parse",
 	"--show-current",
 }
 
-// rtkValueSubcommands name a git subcommand whose stdout is a VALUE to consume, not a report to read.
-// The flag list cannot catch these: `git rev-parse HEAD` carries no flag at all, yet its single line
-// is parsed verbatim — compressing it corrupts the caller exactly as compressing porcelain would.
+// rtkValueSubcommands are git subcommands whose stdout is a value parsed verbatim (`git rev-parse HEAD` has no flag).
 var rtkValueSubcommands = map[string]bool{
 	"rev-parse": true, "rev-list": true, "config": true, "describe": true, "symbolic-ref": true,
 	"hash-object": true, "cat-file": true, "ls-files": true, "ls-tree": true, "ls-remote": true,
@@ -40,7 +36,7 @@ var rtkValueSubcommands = map[string]bool{
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func RTKRewrite(in *core.Input) core.Result {
-	if !rtkApplies(in) {
+	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
 		return core.Result{}
 	}
 	bin := paths.RTKBinary()
@@ -97,18 +93,13 @@ func rtkFirstShadowNotice(session string) bool {
 	return f.Close() == nil
 }
 
-// rtkApplies reports whether the hook handles in at all: a Claude session's Bash call.
-func rtkApplies(in *core.Input) bool {
-	return in.Agent() == core.AgentClaude && (in.ToolName == "" || in.ToolName == "Bash")
-}
-
-// rtkRewritten asks `rtk rewrite` for cmd's replacement: exit 0 or 3 with different non-empty stdout.
-// Anything else, a timeout or an error is "" (leave unchanged).
+// rtkRewritten is `rtk rewrite`'s replacement for cmd (exit 0 or 3, changed stdout); anything else is "" (unchanged).
 func rtkRewritten(bin, cmd string) string {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "rewrite", cmd).Output()
-	if !rtkExitOK(err) {
+	var ee *exec.ExitError
+	if err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 3) {
 		return ""
 	}
 	got := strings.TrimSpace(string(out))
@@ -116,12 +107,6 @@ func rtkRewritten(bin, cmd string) string {
 		return ""
 	}
 	return got
-}
-
-// rtkExitOK reports whether `rtk rewrite` exited 0 or 3, the two codes that carry a rewrite.
-func rtkExitOK(err error) bool {
-	var ee *exec.ExitError
-	return err == nil || errors.As(err, &ee) && ee.ExitCode() == 3
 }
 
 // rtkEnvAltered matches a command that assigns, exports, unsets or clears PATH or HOME (over-matching is safe).
@@ -141,8 +126,7 @@ func rtkAbsolute(cmd, word string) string {
 	return rtkCommandWord().ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(word, "$", "$$")+"${3}")
 }
 
-// rtkWord spells bin for the shell so allow rules stay machine-independent: bare rtk when PATH finds bin (onPath),
-// else `"$HOME/<rest>"` under home, else the quoted absolute path.
+// rtkWord spells bin so allow rules stay machine-independent: bare rtk on PATH, else `"$HOME/<rest>"`, else quoted.
 func rtkWord(bin, home string, onPath bool) string {
 	if onPath {
 		return "rtk"
@@ -166,8 +150,7 @@ func rtkWrapped(word, bin string) bool {
 	return word == "rtk" || word == bin
 }
 
-// rtkVetoed reports whether the harness keeps cmd out of rtk: already wrapped, git in a linked worktree,
-// any commit (the plan tick reads git's own output), machine-readable flags, or git value subcommands.
+// rtkVetoed reports whether cmd stays out of rtk: wrapped, linked-worktree git, any commit, machine flags, value git.
 func rtkVetoed(cmd, cwd, bin string) bool {
 	tokens := shell.Tokens(cmd)
 	if len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd.MatchString(cmd) {
@@ -216,8 +199,7 @@ func rtkMachineReadableFlag(cmd string) bool {
 	return false
 }
 
-// rtkGitArgs returns the argv after `git` when the segment runs git, else nil. Wrappers (env, sudo, time…) are
-// seen through so the vetoes still apply to them; whether rtk rewrites a wrapped command is rtk's own call.
+// rtkGitArgs is the argv after `git` when the segment runs git (seen through env, sudo, time…), else nil.
 func rtkGitArgs(seg string) []string {
 	rest, _ := shell.Unwrap(shell.Tokens(seg), "")
 	if len(rest) == 0 || rest[0] != "git" {
@@ -226,8 +208,7 @@ func rtkGitArgs(seg string) []string {
 	return rest[1:]
 }
 
-// rtkGitInLinkedWorktree reports whether any chain segment runs git from a linked worktree: the cwd, a
-// `cd <dir>` target or a `git -C <dir>` target.
+// rtkGitInLinkedWorktree reports whether a chain segment runs git from a linked worktree (cwd, `cd`, or `git -C`).
 func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 	if !slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool { return rtkGitArgs(seg) != nil }) {
 		return false
@@ -278,16 +259,13 @@ func rtkAbsDir(d, cwd string) (string, bool) {
 	return filepath.Join(cwd, d), true
 }
 
-// gitRTKGlobalValueFlags are git's own options that CONSUME the next argument. Their values must not
-// be mistaken for the subcommand: `git -C /repo rev-parse` would otherwise classify as "/repo".
+// gitRTKGlobalValueFlags are git options that CONSUME the next argument: `git -C /repo rev-parse` is not "/repo".
 var gitRTKGlobalValueFlags = map[string]bool{
 	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true,
 	"--exec-path": true, "--super-prefix": true, "--config-env": true,
 }
 
-// gitRTKSubcommand returns the subcommand from git's argv tail, skipping global options and the
-// values they consume. "" when there is none, or on an UNRECOGNIZED option — fail closed, because
-// guessing wrong here compresses a value the caller parses verbatim.
+// gitRTKSubcommand is the subcommand in git's argv tail; "" when none or on an UNRECOGNIZED option (fail closed).
 func gitRTKSubcommand(args []string) string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
