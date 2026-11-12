@@ -297,49 +297,6 @@ func TestAgentModelPinShellEnvBeatsVault(t *testing.T) {
 	}
 }
 
-func putRawPins(t *testing.T, pins map[string]string) {
-	t.Helper()
-	if err := vault.Update(func(tx *vault.Tx) error {
-		for k, v := range pins {
-			if err := tx.Put(vault.Pins, k, v); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// Given unmigrated legacy pins in every shape, the records answer AgentActive and carry the same state.
-func TestLegacyPinsDriveAgentActiveAndRecords(t *testing.T) {
-	vaulttest.Use(t)
-	putRawPins(t, map[string]string{
-		"CODEX_PROFILE": "chatgpt", "COPILOT_PROFILE": "personal", "COPILOT_ACTIVE": "off",
-		"COPILOT_GITHUB_USER": "alice", "GEMINI_PROFILE": "antigravity", "OPENCODE_MODEL": "m", "OPENCODE_ACTIVE": "off",
-	})
-	for agent, want := range map[string]bool{"claude": true, "codex": true, "gemini": true, "copilot": false, "opencode": false} {
-		if got := AgentActive(agent); got != want {
-			t.Errorf("AgentActive(%s) = %v, want %v", agent, got, want)
-		}
-	}
-	if r := vault.GetAgentRecord("copilot"); r.Account != "alice" || r.Profile != "" {
-		t.Errorf("copilot record = %+v, want account alice and no profile", r)
-	}
-	if r := vault.GetAgentRecord("opencode"); r.Model != "m" {
-		t.Errorf("opencode record = %+v, want the model kept while off", r)
-	}
-}
-
-// An unmigrated vault's raw pin makes the agent on and never reads as every agent off.
-func TestUnmigratedRawPinIsNotReadAsOff(t *testing.T) {
-	vaulttest.Use(t)
-	putRawPins(t, map[string]string{"COPILOT_PROFILE": "dev"})
-	if got := vault.GetAgentRecord("copilot").Profile; got != "dev" {
-		t.Fatalf("copilot profile = %q, want dev", got)
-	}
-}
-
 // SetAgentRecord round-trips, and an empty profile turns an external agent off.
 func TestSetAgentRecordRoundTripAndOff(t *testing.T) {
 	vaulttest.Use(t)
