@@ -88,10 +88,11 @@ func agyGuardRules(deny []string, out io.Writer) []string {
 			continue
 		}
 		if i := strings.IndexAny(cmd, "*?["); i >= 0 { // agy matches command rules by token prefix, never by glob
-			if cmd = strings.TrimSpace(cmd[:i]); cmd == "" {
-				fmt.Fprintf(out, "gemini-settings: note: %q has no literal prefix for an agy rule, skipped\n", r)
+			if strings.Trim(cmd[i:], "*?") != "" || strings.TrimSpace(cmd[:i]) == "" { // only a trailing glob keeps its prefix
+				fmt.Fprintf(out, "gemini-settings: note: %q is not a trailing glob; an agy prefix rule would widen it, skipped\n", r)
 				continue
 			}
+			cmd = strings.TrimSpace(cmd[:i])
 			fmt.Fprintf(out, "gemini-settings: note: %q written as the agy prefix rule command(%s)\n", r, cmd)
 		}
 		rules = append(rules, "command("+cmd+")")
