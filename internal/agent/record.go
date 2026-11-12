@@ -295,7 +295,7 @@ func LoadRecord(id string) (Record, error) {
 	}
 	dir := paths.DispatchDir()
 	name := id + ".json"
-	if filepath.Base(name) == name && !strings.ContainsRune(name, '\x00') {
+	if id == filepath.Base(id) && !strings.Contains(id, "..") {
 		if r, err := readRecord(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
 			return r, err
 		}

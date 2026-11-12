@@ -650,10 +650,11 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	skipOffUnix(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "child-got-sigint")
+	ready := filepath.Join(dir, "ready")
 	childScript := filepath.Join(dir, "child.sh")
 	leaderScript := filepath.Join(dir, "leader.sh")
 
-	childBody := "#!/bin/sh\ntrap 'touch \"" + marker + "\"; exit 0' INT\nsleep 30 &\nwait\n"
+	childBody := "#!/bin/sh\ntrap 'touch \"" + marker + "\"; exit 0' INT\n: > \"" + ready + "\"\nsleep 30 &\nwait\n"
 	if err := os.WriteFile(childScript, []byte(childBody), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -673,8 +674,12 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 		_ = leader.Wait()
 	})
 
-	// give both processes time to install their traps before signalling, else SIGINT can race trap installation.
-	time.Sleep(200 * time.Millisecond)
+	// The leader installs its trap before launching the child, which acknowledges after installing its own.
+	for deadline := time.Now().Add(2 * time.Second); !paths.FileExists(ready); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("child never acknowledged signal-handler readiness")
+		}
+	}
 
 	if err := interrupt(leaderPid); err != nil {
 		t.Fatalf("interrupt(leaderPid) = %v, want nil", err)
