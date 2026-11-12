@@ -371,14 +371,27 @@ var ErrRemoteWithHost = errors.New("remote with a host: drop one (the far machin
 // checkRouting applies routeKeys' rules in order, then the cross-key ones; an error names the key, never its value.
 func (o Overlay) checkRouting() error {
 	for _, k := range routeKeys {
-		switch v := k.get(o); {
-		case v == "":
-		case strings.TrimSpace(v) == "" || strings.ContainsFunc(v, unicode.IsControl):
-			return errors.New(k.name + ": blank or holds a control character")
-		case k.ok != nil && !k.ok(v):
-			return errors.New(k.name + ": " + k.msg)
+		if err := k.check(k.get(o)); err != nil {
+			return err
 		}
 	}
+	return o.checkCrossKeys()
+}
+
+// check is one routing key's own rule for value v; "" is unset and passes.
+func (k routeKey) check(v string) error {
+	switch {
+	case v == "":
+	case strings.TrimSpace(v) == "" || strings.ContainsFunc(v, unicode.IsControl):
+		return errors.New(k.name + ": blank or holds a control character")
+	case k.ok != nil && !k.ok(v):
+		return errors.New(k.name + ": " + k.msg)
+	}
+	return nil
+}
+
+// checkCrossKeys applies the rules spanning several routing keys: profile needs provider, remote excludes host.
+func (o Overlay) checkCrossKeys() error {
 	switch {
 	case o.Profile != "" && o.Provider == "":
 		return errors.New("profile: needs a provider")

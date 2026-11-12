@@ -53,7 +53,7 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Setenv(router.EnvCoworker, c.coworker)
-		profile, provider := ConfineLead(c.agent, "", c.provider, c.model)
+		profile, provider := router.ConfineLead(c.agent, "", c.provider, c.model)
 		if profile != c.wantProfile || provider != c.wantProvider {
 			t.Errorf("%s %s --provider %q --model %q: ConfineLead = (%q, %q), want (%q, %q)",
 				c.coworker, c.agent, c.provider, c.model, profile, provider, c.wantProfile, c.wantProvider)

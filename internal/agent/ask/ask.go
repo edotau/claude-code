@@ -243,7 +243,7 @@ func (r *askRun) checkArm() (int, bool) {
 	if batchLines {
 		return 0, false
 	}
-	profile, provider := ConfineLead(r.ag, f.provider, f.leadProvider, f.model)
+	profile, provider := router.ConfineLead(r.ag, f.provider, f.leadProvider, f.model)
 	r.confined = r.confined || profile != f.provider || provider != f.leadProvider
 	f.provider, f.leadProvider = profile, provider
 	return 0, false

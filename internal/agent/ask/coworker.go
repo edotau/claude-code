@@ -35,10 +35,8 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 	switch {
 	case err != nil:
 		return fmt.Errorf("%s%w", src, err)
-	case provider == "" && (ip == "" || ip == router.RouteDatabricks): // an inherited workspace was applied where it was set
-		return nil
 	case provider == "":
-		return applyProvider(ip, iprof, agentName)
+		return applyInherited(ip, iprof, agentName)
 	}
 	if err := checkLeave(ip, iprof, provider, p); err != nil {
 		return err
@@ -50,6 +48,14 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 		return armErr(src, err)
 	}
 	return nil
+}
+
+// applyInherited re-checks an inherited non-Databricks confinement for agentName; a workspace was applied where set.
+func applyInherited(ip, iprof, agentName string) error {
+	if ip == "" || ip == router.RouteDatabricks {
+		return nil
+	}
+	return applyProvider(ip, iprof, agentName)
 }
 
 var errNoWorkspace = errors.New("overlay provider databricks needs a profile: a workspace or auto")
@@ -121,34 +127,13 @@ func confinedAgent(agentName string) error {
 	return canUse(reg, agentName, cp)
 }
 
-// ConfineLead fills an untyped lead from a non-Databricks confinement: its pinned profile, else its provider.
-func ConfineLead(agentName, profile, provider, model string) (string, string) {
-	cp, cprof := router.Confined()
-	switch {
-	case cp == "" || profile != "" || strings.Contains(model, ":"):
-		return profile, provider
-	case cprof != "": // a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
-		return cprof, ""
-	case provider != "":
-		return profile, provider
-	case agentName != "claude":
-		return "", cp
-	}
-	if reg, err := providers.Load(); err == nil { // claude reads a profile, never a provider lead: its own login row
-		if own := router.OwnProfiles(reg, agentName, cp); len(own) > 0 {
-			return own[0], ""
-		}
-	}
-	return "", ""
-}
-
 // confineLine fills a batch line's untyped lead for its own agent, as checkArm and resolveLead do for a single ask.
 func confineLine(agentName string, req agent.RunOptions) (agent.RunOptions, error) {
 	err := cmp.Or(checkNative(req.Native), confinedAgent(agentName), CheckArm(agentName, req.Provider, "", req.Model, false))
 	if err != nil {
 		return req, err // the line's own profile and model, checked like the typed flags
 	}
-	profile, provider := ConfineLead(agentName, req.Provider, "", req.Model)
+	profile, provider := router.ConfineLead(agentName, req.Provider, "", req.Model)
 	if req.Lead != "" || (profile == req.Provider && provider == "") {
 		return req, nil
 	}
@@ -167,18 +152,36 @@ func confineLine(agentName string, req agent.RunOptions) (agent.RunOptions, erro
 
 // applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks the row and exports it.
 func applyArm(p, profile, agentName, model, fallback string) error {
+	p, explicit, err := armWorkspace(p, profile, agentName, model)
+	if err != nil {
+		return err
+	}
+	if err := checkArmRow(p, explicit, fallback); err != nil {
+		return err
+	}
+	if err := os.Setenv(router.EnvCoworker, router.JoinCoworker(router.RouteDatabricks, p)); err != nil {
+		return err
+	}
+	return os.Setenv(providers.EnvSessionProfile, p)
+}
+
+// armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.
+func armWorkspace(p, profile, agentName, model string) (string, bool, error) {
 	if p == "" {
 		if p = bareArm(profile); p == "" {
-			return errNoWorkspace
+			return "", false, errNoWorkspace
 		}
 	}
-	inherited, explicit := router.ArmProfile(), p != autoArm
-	if !explicit {
-		var err error
-		if p, err = autoWorkspace(agentName, model); err != nil {
-			return err
-		}
+	if p != autoArm {
+		return p, true, nil
 	}
+	p, err := autoWorkspace(agentName, model)
+	return p, false, err
+}
+
+// checkArmRow refuses leaving the inherited workspace, a non-serving row, and an explicit one failing its preflight.
+func checkArmRow(p string, explicit bool, fallback string) error {
+	inherited := router.ArmProfile()
 	if inherited != "" && p != inherited {
 		return errLeave(router.RouteDatabricks, inherited)
 	}
@@ -186,14 +189,9 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 		return err
 	}
 	if explicit && inherited == "" && fallback == router.FallbackNone {
-		if err := workspaceRefusal(p); err != nil {
-			return err
-		}
+		return workspaceRefusal(p)
 	}
-	if err := os.Setenv(router.EnvCoworker, router.JoinCoworker(router.RouteDatabricks, p)); err != nil {
-		return err
-	}
-	return os.Setenv(providers.EnvSessionProfile, p)
+	return nil
 }
 
 // workspaceRefusal is the PreflightError of an explicit workspace failing its local check; nil when it passes.

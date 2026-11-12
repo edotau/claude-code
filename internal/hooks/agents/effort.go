@@ -96,13 +96,7 @@ func agentEffortResult(in *core.Input) core.Result {
 		e.note, e.systemMessage = pinModel(e.run, in, updated, task)
 		e.changed = e.changed || e.note != ""
 	}
-	if deny := e.profile(promptField, task); deny != nil {
-		return *deny
-	}
-	if deny := e.coworker(promptField, task); deny != nil {
-		return *deny
-	}
-	if deny := e.label(task, auto); deny != nil {
+	if deny := e.rewrite(promptField, task, auto); deny != nil {
 		return *deny
 	}
 	e.discovery(in, task, auto)
@@ -319,6 +313,17 @@ func (e *effortPlan) profile(promptField, task string) *core.Result {
 	return nil
 }
 
+// rewrite applies the Profile: line, the Coworker: line and the label in order; the first deny wins.
+func (e *effortPlan) rewrite(promptField, task string, auto bool) *core.Result {
+	if deny := e.profile(promptField, task); deny != nil {
+		return deny
+	}
+	if deny := e.coworker(promptField, task); deny != nil {
+		return deny
+	}
+	return e.label(task, auto)
+}
+
 // coworker applies a brief's Coworker: line; a non-nil result denies the dispatch.
 func (e *effortPlan) coworker(promptField, task string) *core.Result {
 	note, deny := applyCoworker(e.run, e.updated, promptField, task)
@@ -531,10 +536,10 @@ func labelModel(run *dispatchRun, updated map[string]any, st, task string) strin
 		return m // the brief's own ask command names the model: the label says what runs
 	}
 	agent := line.workAgent(st, task)
-	ws := labelWorkspace(coworkerApplies(st, task), task, line.cfg)
+	confine := labelConfinement(coworkerApplies(st, task), task, line.cfg)
 	switch tier := labelTier(run, updated, st); {
-	case ws != "":
-		return coworkerPick(run, ws, cmp.Or(agent, agentid.Claude), tier)
+	case confine != "":
+		return coworkerPick(run, confine, cmp.Or(agent, agentid.Claude), tier)
 	case profileApplies(st, task):
 		return labelProfileModel(run, briefProfile(task), tier)
 	case agent != "":
@@ -555,21 +560,27 @@ func labelTier(run *dispatchRun, updated map[string]any, st string) string {
 	return tier
 }
 
-// labelWorkspace is the workspace the label picks inside: a Coworker: line's, else the Run: line config's; "" for none.
-func labelWorkspace(coworker bool, task string, cfg agentconfig.Overlay) string {
+// labelConfinement is the provider[:profile] the label picks inside: a Coworker: line's, else the Run: line config's.
+func labelConfinement(coworker bool, task string, cfg agentconfig.Overlay) string {
 	if coworker {
-		p, _ := coworkerWorkspace(task)
-		return p
+		if p, _ := coworkerWorkspace(task); p != "" {
+			return router.JoinCoworker(router.RouteDatabricks, p)
+		}
+		return ""
 	}
-	if cfg.Provider != router.RouteDatabricks || cfg.Profile == "auto" {
-		return "" // auto resolves at run time, another provider needs ask's lead rule: the pin-based label stands
+	if cfg.Provider == router.RouteDatabricks && (cfg.Profile == "" || cfg.Profile == "auto") {
+		return "" // auto resolves at run time: the pin-based label stands
 	}
-	return cfg.Profile
+	return cfg.Confinement()
 }
 
-// coworkerPick is labelCell inside databricks:<p>: the env ask exports for that overlay, restored after.
-func coworkerPick(run *dispatchRun, p, agent, tier string) string {
-	for k, v := range map[string]string{router.EnvCoworker: router.RouteDatabricks + ":" + p, providers.EnvSessionProfile: p} {
+// coworkerPick is labelCell inside confinement confine: the env ask exports for that overlay, restored after.
+func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
+	env := map[string]string{router.EnvCoworker: confine}
+	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
+		env[providers.EnvSessionProfile] = p
+	}
+	for k, v := range env {
 		old, had := os.LookupEnv(k)
 		_ = os.Setenv(k, v)
 		defer restoreEnv(k, old, had)
@@ -623,7 +634,10 @@ func cellModelFor(run *dispatchRun, agent, alias string) string {
 
 // previewModel is the preview's first candidate model without its `<profile>:` prefix; "" when nothing runs.
 func previewModel(agent, alias string) string {
-	_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: agent, Model: alias, Fallback: router.FallbackAll, Preview: true})
+	profile, provider := router.ConfineLead(agent, "", "", alias) // the lead gateway and ask fill under a confinement
+	q := agentpkg.RouteReq{Agent: agent, Model: alias, Profile: profile, Provider: provider,
+		Fallback: router.FallbackAll, Preview: true}
+	_, res, err := agentpkg.Resolve(context.Background(), q)
 	if err != nil || len(res.Candidates) == 0 {
 		return ""
 	}
