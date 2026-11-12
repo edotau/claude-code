@@ -86,9 +86,13 @@ func (s Selection) ClientModel(alias string) string {
 }
 
 // NeedsRouter reports whether the session must go through the loopback router: an alias crosses providers, a model
-// rides a wire other than anthropic (AnthropicRoute), the provider has no Anthropic route, or a failover ladder is set.
+// rides a non-anthropic wire, the provider lacks an Anthropic route or renames ids, or a failover ladder is set.
 func (s Selection) NeedsRouter(reg *Registry) bool {
 	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
+		return true
+	}
+	// Claude Code's own model ids (the auto-mode classifier's claude-sonnet-5[1m]) reach a renaming wire only rewritten.
+	if id, ok := models.Alias(models.Sonnet); ok && s.Provider.WireModel(id) != id {
 		return true
 	}
 	for _, t := range s.Aliases {

@@ -212,8 +212,8 @@ func TestNeedsRouterNonClaudeSlotOnDualRouteProvider(t *testing.T) {
 		t.Error("non-Claude opus on a provider with an openai route must need the router")
 	}
 	reg, sel = presetSel(t, "databricks-claude-opus-5-5", "databricks-claude-sonnet-5-5")
-	if sel.NeedsRouter(reg) {
-		t.Error("all-Claude aliases on the preset row must stay direct")
+	if !sel.NeedsRouter(reg) {
+		t.Error("all-Claude aliases on the preset row must need the router: it renames Claude Code's built-in ids")
 	}
 }
 
