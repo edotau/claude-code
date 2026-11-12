@@ -600,7 +600,7 @@ func TestClaudeArmLaunchesMintOnce(t *testing.T) {
 	}
 }
 
-// Armed, a headless dev hop goes through /p/dev on the session token; interactive and unarmed launches stay direct.
+// Every dev launch goes through /p/dev; only an armed launch carries the session token.
 func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	hermetic(t, `{"fallback":[],"providers":{"databricks":{"dev":{"preset":"databricks",
 		"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
@@ -612,20 +612,20 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 		}
 		return p
 	}
-	const direct = "https://dev.cloud.databricks.com/serving-endpoints/anthropic"
-	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != direct {
-		t.Errorf("unarmed headless base = %q, want direct %s", p.Set["ANTHROPIC_BASE_URL"], direct)
+	const proxied = "http://127.0.0.1:4000/p/dev"
+	if p := launch("-p", "hi"); p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "" {
+		t.Errorf("unarmed headless base = %q, want %s with no session token", p.Set["ANTHROPIC_BASE_URL"], proxied)
 	}
 	t.Setenv("COWORKER_OVERLAY", `{"provider":"databricks","profile":"dev"}`)
 	p := launch("-p", "hi")
-	if p.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:4000/p/dev" || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
+	if p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
 		t.Errorf("armed headless: base %q, session token set %v; want /p/dev and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "")
 	}
 	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
 		t.Errorf("armed headless helper %s, want resolve --proxy", overlayFile(p).Data)
 	}
-	if p := launch(); p.Set["ANTHROPIC_BASE_URL"] != direct || p.Set[ProxyKeyEnv] != "" {
-		t.Errorf("armed interactive base = %q, want direct %s with no session token", p.Set["ANTHROPIC_BASE_URL"], direct)
+	if p := launch(); p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
+		t.Errorf("armed interactive base = %q, session token set %v; want %s and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "", proxied)
 	}
 }
 
