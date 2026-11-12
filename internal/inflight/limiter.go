@@ -319,7 +319,7 @@ func (s *scanner) live(name string, mod time.Time, transcript string) bool {
 		return s.agentLive(a, mod, transcript)
 	}
 	if s.now.Sub(mod) > settle && s.answered(transcript, base) {
-		return false // refused or failed before an agent existed; Settle covers a meta.json not yet written
+		return false // refused or failed before an agent existed; settle covers a meta.json not yet written
 	}
 	return ownerLive(name, mod, s.now, s.trusted)
 }

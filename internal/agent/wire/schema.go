@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -53,11 +52,7 @@ func Structured(answer, schema string) (raw json.RawMessage, unchecked []string,
 	if err = checkSchema("answer", v, sch); err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", errSchema, err)
 	}
-	for k := range skipped {
-		unchecked = append(unchecked, k)
-	}
-	sort.Strings(unchecked)
-	return json.RawMessage(span), unchecked, nil
+	return json.RawMessage(span), slices.Sorted(maps.Keys(skipped)), nil
 }
 
 // decodeExact decodes one JSON value with numbers kept as json.Number, so no integer loses precision.

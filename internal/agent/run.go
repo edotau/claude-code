@@ -87,10 +87,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	p.Record = c.record(ctx, o, claim)
 	if o.Pack != nil {
 		if err := c.packPrompt(ctx, p); err != nil { // the record is already claimed on disk: close it
-			p.Record.Finish(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time))
-			if serr := p.Record.Save(); serr != nil && c.Notify != nil {
-				c.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", p.Record.ID, serr))
-			}
+			p.Record.finishSave(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time), c.Notify)
 			return nil, err
 		}
 	}
@@ -198,10 +195,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
 			res := wire.Result{Agent: p.Chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}
-			p.Record.Finish(res, err, time.Since(p.Record.Time))
-			if serr := p.Record.Save(); serr != nil && d.Notify != nil {
-				d.Notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", p.Record.ID, serr))
-			}
+			p.Record.finishSave(res, err, time.Since(p.Record.Time), d.Notify)
 			return res, err
 		}
 		defer p.pack.remove()

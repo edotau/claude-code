@@ -261,7 +261,7 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 		kind = retry.KindFatal
 	}
 	if detail != "" {
-		msg += ": " + detail
+		msg += ": " + textutil.RedactSecrets(detail)
 	}
 	return &retry.Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
 }

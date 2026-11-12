@@ -31,12 +31,11 @@ func (s Schema) Setup() Report {
 	}
 	binCheck := binaryCheck(s)
 	loginCheck := loginCheck(s)
-	rep := Report{
+	return Report{
 		Agent:  s.Name,
 		Checks: []Check{binCheck, loginCheck, s.routeCheck(), s.projectionCheck()},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
-	return rep
 }
 
 // binaryCheck looks up the agent executable via paths.AgentBin.

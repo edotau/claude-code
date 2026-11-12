@@ -316,8 +316,7 @@ func IsResultError(err error) bool {
 func CustomEnv() map[string]string { return customEnv() }
 
 // Dispatch names a RouteInfo's resolved credential path. Why: Anthropic's terms forbid subscription OAuth
-// in third-party tools, so neither chain below ever offers the Claude subscription (passthrough, no
-// login) as a dispatch.
+// in third-party tools, so no route ever offers the Claude subscription (passthrough, no login) as a dispatch.
 const (
 	RouteCopilotLogin  = "copilot-login"
 	RouteOwnLogin      = "own-login"

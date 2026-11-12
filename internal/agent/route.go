@@ -673,9 +673,6 @@ func discoveryRepick(agent, alias string, cell router.Cell, p *providers.Provide
 // capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
 var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
 
-// endpointErr is a workspace's answer for a serving endpoint that does not exist (captured from codex on Databricks).
-var endpointErr = regexp.MustCompile(`ENDPOINT_NOT_FOUND`)
-
 // servedRepickFor is a codex Databricks dispatch's repick when the switch is on and the caller named no exact model.
 func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 	p := rc.codexDatabricks(cand)
@@ -722,7 +719,7 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 	switch msg := err.Error(); {
 	case disp.repick != nil && capabilityErr.MatchString(msg):
 		return disp.repick(lreq.Model)
-	case disp.servedRepick != nil && endpointErr.MatchString(msg):
+	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
 		return disp.servedRepick(lreq.Model)
 	}
 	return ""

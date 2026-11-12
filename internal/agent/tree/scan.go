@@ -211,7 +211,7 @@ func toolArg(input json.RawMessage) string {
 
 // stripPaths removes the session cwd and collapses $HOME to "~" wherever either appears in s.
 func stripPaths(s, home, cwd string) string {
-	if cwd != "" {
+	if cwd != "" && cwd != "/" { // a root cwd would delete every slash
 		s = strings.ReplaceAll(s, cwd+"/", "")
 		s = strings.ReplaceAll(s, cwd, "")
 	}

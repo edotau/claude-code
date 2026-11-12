@@ -319,7 +319,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		if ierr := p.backoffWait(ctx, wait); ierr != nil {
 			return abandoned(ierr, attempt, last, earlier, true)
 		}
-		if ctx.Err() != nil {
+		if p.terminal(ctx, last, nil) { // cancelled during the wait: fatal, like a cancel during the attempt
 			return fail()
 		}
 	}
