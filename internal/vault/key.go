@@ -26,16 +26,14 @@ import (
 var keyringLookup = KeyringLookup
 var keyringSet = osKeyringSet
 
-// UseKeyringSeams swaps the lookup/set functions this package shells out to for the OS
-// keyring, returning a restore func; exported solely for vaulttest's FakeKeyring.
+// UseKeyringSeams swaps the OS keyring lookup/set seams and returns a restore func; only vaulttest calls it.
 func UseKeyringSeams(lookup func(string) (string, bool, error), set func(string, string) error) (restore func()) {
 	savedLookup, savedSet := keyringLookup, keyringSet
 	keyringLookup, keyringSet = lookup, set
 	return func() { keyringLookup, keyringSet = savedLookup, savedSet }
 }
 
-// testHookAfterKey runs right after UpdateSealed selects a key and before it opens the sealing
-// tx; a spec test uses it to pause a writer mid-rotation (TestStaleWriterRetries).
+// testHookAfterKey runs between UpdateSealed's key pick and its tx, so a test can pause a writer mid-rotation.
 var testHookAfterKey = func() {}
 
 // errStaleKey means a rotation landed between UpdateSealed selecting its key and the tx; the caller retries.
@@ -68,8 +66,7 @@ var keyCache struct {
 	flights map[keyFlightKey]*keyFlight
 }
 
-// invalidateKey clears the per-process key cache so the next MasterKey call re-resolves from the
-// keyring/env/key_command instead of serving a key a concurrent rotation has since retired.
+// invalidateKey clears the per-process key cache so the next MasterKey re-resolves instead of serving a retired key.
 func invalidateKey() {
 	keyCache.Lock()
 	defer keyCache.Unlock()
@@ -211,9 +208,7 @@ func keyringRecoverable(err error) bool {
 	return errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringNoAnswer)
 }
 
-// parseKeyCommandArgv decodes meta/key_command as a validated JSON argv array: no shell is ever
-// involved, so a quoted executable path or an argument containing spaces or quotes needs no
-// quoting grammar of our own (R6).
+// parseKeyCommandArgv decodes meta/key_command as a JSON argv array, so no shell or quoting grammar is involved (R6).
 func parseKeyCommandArgv(raw string) ([]string, error) {
 	var argv []string
 	if err := json.Unmarshal([]byte(raw), &argv); err != nil {
@@ -228,8 +223,7 @@ func parseKeyCommandArgv(raw string) ([]string, error) {
 	return argv, nil
 }
 
-// runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key
-// scoped to vaultID.
+// runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key for vaultID.
 func runKeyCommand(raw, vaultID string) (*Key, error) {
 	argv, err := parseKeyCommandArgv(raw)
 	if err != nil {
@@ -238,7 +232,7 @@ func runKeyCommand(raw, vaultID string) (*Key, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = 250 * time.Millisecond
+	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("vault: key_command: %w", ctx.Err())
@@ -402,8 +396,7 @@ func genesisKey(id string) (*Key, error) {
 	return newK, nil
 }
 
-// ensureVaultID materializes the vault file (and its random vault_id) if neither exists yet, and
-// returns the id; Update backfills vault_id on any pre-existing vault that predates it.
+// ensureVaultID creates the vault file and its random vault_id when absent, and returns the id.
 func ensureVaultID() (string, error) {
 	var id string
 	err := Update(func(t *Tx) error {
@@ -584,8 +577,7 @@ func retireKid(t *Tx, kid string) error {
 	return t.Put(Meta, "retired", string(data))
 }
 
-// UpdateSealed selects a key outside the tx and verifies meta/kid inside it; a stale key (a
-// rotation landed between selection and commit) is refreshed and retried, bounded at 3 attempts.
+// UpdateSealed picks a key outside the tx and checks meta/kid inside it; a stale key is retried, up to 3 attempts.
 func UpdateSealed(fn func(*Tx, *Key) error) error {
 	var err error
 	for range 3 {
@@ -618,8 +610,7 @@ func UpdateSealed(fn func(*Tx, *Key) error) error {
 	return err
 }
 
-// ReadSecret reads one record and its kid in a single coherent View, then opens it with the key
-// for that exact kid, retrying once if a concurrent rotation invalidated the key mid-read (R3).
+// ReadSecret reads a record and its kid in one View, opens it with that kid's key, retrying once on a rotation (R3).
 func ReadSecret(name string) (value string, found bool, err error) {
 	return readSealed(Secrets, name)
 }
@@ -643,8 +634,7 @@ func readSealed(bucket, name string) (value string, found bool, err error) {
 	return value, found, nil
 }
 
-// readSealedAll reads names and their kid in one coherent View, then opens them with that kid's key, retrying once
-// if a concurrent rotation invalidated the key mid-read (R3).
+// readSealedAll is ReadSecret for many names: one View, that kid's key, one retry on a concurrent rotation (R3).
 func readSealedAll(bucket string, names []string) (map[string]string, error) {
 	for attempt := range 2 {
 		var id, kid, command string

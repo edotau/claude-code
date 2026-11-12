@@ -18,19 +18,19 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 )
 
-// service labels every account this harness stores (the service name for secret-tool, the
-// -s argument for `security`).
+// service labels every account this harness stores (secret-tool's service, `security -s`).
 const service = "claude-code"
 
-// timeout bounds one keyring call; a locked keyring can otherwise block on an unlock prompt
-// with no agent to answer it.
+// timeout bounds one keyring call; a locked keyring can otherwise block on an unanswered unlock prompt.
 var timeout = 3 * time.Second
+
+// waitDelay bounds how long a killed key or keyring tool may hold its output pipes open.
+const waitDelay = 250 * time.Millisecond
 
 // downFor is how long one keyring timeout fast-fails later calls before the next call re-probes the tool.
 var downFor = time.Minute
 
-// downLatch fast-fails keyring calls for downFor after a timeout, so a loop over many names
-// (`configure provider --list`) pays the timeout once, and a long-lived process recovers after it.
+// downLatch fast-fails keyring calls for downFor after a timeout, so a loop over many names pays it once.
 type downLatch struct{ until atomic.Int64 }
 
 // Store(true) opens the fast-fail window from now; Store(false) closes it.
@@ -50,8 +50,7 @@ var down downLatch
 // ErrKeyringNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
 
-// ErrKeyringUnavailable means the tool ran and failed for a reason other than "not stored" (a genuine
-// keyring failure, not a positively established absence).
+// ErrKeyringUnavailable means the tool ran and failed for a reason other than "not stored".
 var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 
 // errKeyringNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
@@ -88,9 +87,7 @@ func KeyringAvailable() bool {
 	return err == nil
 }
 
-// KeyringLookup looks up name in the OS keyring. err is ErrKeyringNoAnswer when the tool timed out or the
-// `down` latch is already set, errKeyringNoTool when no tool is on PATH for this OS; a plain,
-// positively-established miss reads as ("", false, nil).
+// KeyringLookup reads name from the OS keyring; a positively established miss is ("", false, nil).
 func KeyringLookup(name string) (value string, found bool, err error) {
 	if name == "" {
 		return "", false, nil
@@ -104,7 +101,7 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := lookupCommand(ctx, name)
-	cmd.WaitDelay = 250 * time.Millisecond
+	cmd.WaitDelay = waitDelay
 	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
 		down.Store(true)
@@ -153,13 +150,14 @@ func osKeyringSet(name, value string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*timeout)
 	defer cancel()
 	cmd := storeCommand(ctx, name, value)
-	cmd.WaitDelay = 250 * time.Millisecond
+	cmd.WaitDelay = waitDelay
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		down.Store(true)
 	}
 	// The tool's output carries the reason (unlock refused, no D-Bus); `security -i` exits 0 even on failure.
-	msg := strings.TrimSpace(strings.ReplaceAll(string(out), value, "<redacted>"))
+	escaped := quote(value)[1 : len(quote(value))-1] // `security -i` may echo the -w argument in its escaped form
+	msg := strings.TrimSpace(strings.NewReplacer(escaped, "<redacted>", value, "<redacted>").Replace(string(out)))
 	if err := storeFailure(name, msg, err); err != nil {
 		return err
 	}
@@ -169,6 +167,20 @@ func osKeyringSet(name, value string) error {
 
 // checkKeyringSet refuses a store before any tool runs: bad name or value, no tool, or a keyring already down.
 func checkKeyringSet(name, value string) error {
+	if err := checkStoreInput(name, value); err != nil {
+		return err
+	}
+	if !KeyringAvailable() {
+		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", keyringGOOS)
+	}
+	if down.Load() {
+		return errors.New("keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead")
+	}
+	return nil
+}
+
+// checkStoreInput refuses an empty name, an empty value, or either spanning more than one line.
+func checkStoreInput(name, value string) error {
 	if name == "" {
 		return errors.New("keyring: empty name")
 	}
@@ -178,12 +190,6 @@ func checkKeyringSet(name, value string) error {
 	// A newline in either half would end the `security -i` command early and run the rest as another.
 	if strings.ContainsAny(name+value, "\r\n") {
 		return fmt.Errorf("keyring: %s: name or value spans more than one line", name)
-	}
-	if !KeyringAvailable() {
-		return fmt.Errorf("keyring: no keyring tool on PATH for %s — set HARNESS_VAULT_KEY or meta/key_command instead", keyringGOOS)
-	}
-	if down.Load() {
-		return errors.New("keyring: the keyring did not answer earlier this run — set HARNESS_VAULT_KEY or meta/key_command instead")
 	}
 	return nil
 }

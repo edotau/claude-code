@@ -27,8 +27,7 @@ var EnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Pair is one NAME=value line.
 type Pair struct{ Name, Value string }
 
-// ParseDotenv reads strict NAME=value lines (optional `export `, one pair of matching quotes stripped), skipping
-// blanks and # lines; every other line is a "line N: …" problem, and a read error is one too — nothing is guessed.
+// ParseDotenv reads strict NAME=value lines, skipping blanks and # lines; any other line is a "line N: …" problem.
 func ParseDotenv(r io.Reader) (pairs []Pair, problems []string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
@@ -215,8 +214,7 @@ func quoteDotenvValue(v string) string {
 	return `"` + v + `"`
 }
 
-// warnIfUntrackedDefault warns on stderr when path is the default ./.env and a git work tree here does
-// not gitignore it; git absent, not a repo, or already ignored all skip silently — nothing to warn about.
+// warnIfUntrackedDefault warns on stderr when path is the default ./.env and this git work tree does not ignore it.
 func warnIfUntrackedDefault(path string) {
 	if path != ".env" {
 		return

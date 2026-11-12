@@ -33,8 +33,7 @@ func Width() int {
 	return 80
 }
 
-// Text lays out each selected section (uppercase heading + aligned rows, in
-// Sections order), painting every section when color is on (agents paints its own rows).
+// Text lays out each selected section (heading + aligned rows, Sections order), painted when color is on.
 func Text(doc Doc, stored []vault.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSecretsText(stored, width) },
@@ -321,8 +320,7 @@ func presetEnvs(names []string) string {
 	return strings.Join(parts, " ")
 }
 
-// vaultRoutingText renders the providers overlay's nested routing object (weights, cells, subagents,
-// opencode's sub-pick knobs) as dotted-path rows, in the style of vaultProvidersText's own flatten.
+// vaultRoutingText renders the providers overlay's routing object as dotted-path rows.
 func vaultRoutingText(raw json.RawMessage, width int) string {
 	reg, head, done := overlayRegistry("ROUTING", raw, width)
 	if done {
@@ -351,8 +349,7 @@ func overlayRegistry(title string, raw json.RawMessage, width int) (reg provider
 	return reg, head, false
 }
 
-// vaultRoutingJSON is `vault ls --format json`'s "routing" value: the providers overlay's nested
-// routing object, or null when the overlay carries none.
+// vaultRoutingJSON is `vault ls --format json`'s "routing" value: the overlay's routing object, or null.
 func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
 	if isBlankJSON(providersRaw) {
 		return json.RawMessage("null"), nil

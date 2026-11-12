@@ -197,8 +197,7 @@ func migrateSlotsToAliases(t *Tx) error {
 	return t.PutAgentRecords(recs)
 }
 
-// migrateByokToDiscovery moves the "byok-models" overlay value to "discovery-models" and the "byok" model pins to
-// "discovery"; a value already under the new key wins, and a vault with neither is untouched.
+// migrateByokToDiscovery moves "byok-models" to "discovery-models"; a value already under the new key wins.
 func migrateByokToDiscovery(t *Tx) error {
 	if old, ok := t.Get(Overlay, oldPoolKey); ok {
 		if cur, has := t.Get(Overlay, PoolKey); !has || cur == "" {
@@ -229,6 +228,11 @@ func migrateMaxToUltra(t *Tx) error {
 	if err := t.PutAgentRecords(recs); err != nil {
 		return err
 	}
+	return migrateProvidersMaxToUltra(t)
+}
+
+// migrateProvidersMaxToUltra renames "max" in the providers overlay; an explicit "ultra" already there wins.
+func migrateProvidersMaxToUltra(t *Tx) error {
 	raw, ok := t.Get(Overlay, "providers")
 	if !ok || raw == "" {
 		return nil
@@ -239,27 +243,40 @@ func migrateMaxToUltra(t *Tx) error {
 	}
 	var def string
 	var fallback []string
-	var rows map[string]map[string]json.RawMessage
 	_ = json.Unmarshal(doc["default"], &def)
 	_ = json.Unmarshal(doc["fallback"], &fallback)
-	_ = json.Unmarshal(doc["providers"], &rows)
 	if def == "max" {
 		doc["default"], _ = json.Marshal("ultra")
 	}
 	if i := slices.Index(fallback, "max"); i >= 0 {
-		fallback[i] = "ultra"
+		if slices.Contains(fallback, "ultra") {
+			fallback = slices.Delete(fallback, i, i+1)
+		} else {
+			fallback[i] = "ultra"
+		}
 		doc["fallback"], _ = json.Marshal(fallback)
 	}
-	if row, ok := rows["anthropic"]["max"]; ok {
-		delete(rows["anthropic"], "max")
-		rows["anthropic"]["ultra"] = row
-		doc["providers"], _ = json.Marshal(rows)
-	}
+	renameMaxRow(doc)
 	b, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
 	return t.Put(Overlay, "providers", string(b))
+}
+
+// renameMaxRow moves the anthropic "max" row to "ultra" in doc; when both exist the "max" row is dropped.
+func renameMaxRow(doc map[string]json.RawMessage) {
+	var rows map[string]map[string]json.RawMessage
+	_ = json.Unmarshal(doc["providers"], &rows)
+	row, ok := rows["anthropic"]["max"]
+	if !ok {
+		return
+	}
+	delete(rows["anthropic"], "max")
+	if _, has := rows["anthropic"]["ultra"]; !has {
+		rows["anthropic"]["ultra"] = row
+	}
+	doc["providers"], _ = json.Marshal(rows)
 }
 
 func maxToUltra(p string) string {
@@ -299,8 +316,7 @@ var OwnLoginProfiles = map[string]string{
 	agentid.Codex: "chatgpt", agentid.Copilot: "personal", agentid.Gemini: "antigravity", agentid.OpenCode: "zen-free",
 }
 
-// keepOwnLogin gives each profile-less agent that was not ACTIVE=off its own-login profile (the old unset = on);
-// it runs only while a legacy pin key remains, so once the migration deletes them a cleared profile stays cleared.
+// keepOwnLogin gives each profile-less, not-ACTIVE=off agent its own-login profile, only while a legacy pin remains.
 func keepOwnLogin(recs map[string]AgentRecord, pins map[string]string) {
 	legacy := false
 	for k := range pins {

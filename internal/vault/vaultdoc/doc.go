@@ -26,8 +26,7 @@ import (
 // errChanged reports that the vault moved between Export and importDoc; importDoc wrote nothing.
 var errChanged = errors.New("vault changed while you edited; nothing saved")
 
-// Doc is the editable, non-secret vault view: secrets and overlay/providers.prev never appear (D-a).
-// Agents is the agents overlay plus the agent records under "records".
+// Doc is the editable, non-secret vault view (no secrets, no providers.prev); Agents carries "records" (D-a).
 type Doc struct {
 	Pins      map[string]string `json:"pins"`
 	Env       map[string]string `json:"env"`
@@ -446,8 +445,7 @@ func sameJSON(a, b json.RawMessage) bool {
 	return errA == nil && errB == nil && bytes.Equal(ca, cb)
 }
 
-// importTx applies the validated doc d inside the vault transaction when the stored config still equals orig;
-// it returns the agent records that were stored before the write.
+// importTx writes d when the stored config still equals orig and returns the records stored before the write.
 func importTx(t *vault.Tx, orig []byte, d Doc, recs map[string]vault.AgentRecord) (curRecs map[string]vault.AgentRecord, err error) {
 	cur, err := docFrom(t)
 	if err != nil {
