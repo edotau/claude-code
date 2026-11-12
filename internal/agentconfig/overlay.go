@@ -4,10 +4,6 @@ package agentconfig
 import (
 	"bytes"
 	"cmp"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,7 +12,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -26,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -297,7 +291,7 @@ func overlayJSONErr(err error) error {
 func keyType(key string) string {
 	switch key {
 	case "schema":
-		return "a number"
+		return "an integer"
 	case "set":
 		return "an object of string values"
 	case "unset", "keep":
@@ -431,7 +425,7 @@ func (o Overlay) checkCrossKeys() error {
 }
 
 // errEnvName refuses a malformed name; nameErr never echoes it (it may be a pasted token).
-var errEnvName = errors.New("want an env-style name (A-Z, 0-9, _)")
+var errEnvName = errors.New("want an env-style name (letters, digits, _; not starting with a digit)")
 
 func nameErr(label, name string, err error) error {
 	if err == errEnvName {
@@ -476,265 +470,4 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 		}
 	}
 	return nil
-}
-
-// credentialName reports a credential-shaped name: AUTH anywhere, or a redaction segment (KEY, TOKEN, PAT, ...).
-func credentialName(up string) bool {
-	return strings.Contains(up, "AUTH") || providers.IsSecretName(up)
-}
-
-// rule is one refusal: the first whose match holds decides the result, even when its err returns nil.
-type rule struct {
-	match func(c *ruleCtx) bool
-	err   func(c *ruleCtx) error
-}
-
-// ruleCtx is one name (and for set, its value) under test; up is the upper-cased name.
-type ruleCtx struct {
-	name, up, val, ref string
-	isRef, reserved    bool
-	keep               map[string]bool
-	route              func(string) bool
-}
-
-func refuse(err error) func(*ruleCtx) error { return func(*ruleCtx) error { return err } }
-
-func runRules(rules []rule, c *ruleCtx) error {
-	for _, r := range rules {
-		if r.match(c) {
-			return r.err(c)
-		}
-	}
-	return nil
-}
-
-// nameRules are the checks keep and unset names share: a malformed, route-redirecting or config-relocating name.
-var nameRules = []rule{
-	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errEnvName)},
-	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
-	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
-}
-
-var keepRules = slices.Concat(nameRules, []rule{
-	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
-		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))}})
-
-// unsetRules refuse dropping a name the launch itself sets for its route: a lost endpoint would keep the credential.
-var unsetRules = slices.Concat(nameRules, []rule{
-	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") },
-		refuse(errors.New("harness-owned: the launch sets it for its route; use --profile"))}})
-
-func nameRule(rules []rule, name string) error {
-	return runRules(rules, &ruleCtx{name: name, up: strings.ToUpper(name)})
-}
-
-// flagSetRules are the --env rule set: name checks plus the value's credential shape.
-var flagSetRules = []rule{
-	{func(c *ruleCtx) bool { return c.name == "" || strings.ContainsAny(c.name, " \t") },
-		refuse(errors.New("want NAME=VALUE"))},
-	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)}, // before the scrub check
-	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
-	{func(c *ruleCtx) bool { return envReserved(c.name, c.up) },
-		refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
-	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
-		refuse(errors.New("harness-owned"))},
-	{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
-		refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
-}
-
-var errBaseURL = errors.New("a route endpoint, proxy or TLS setting: pick the endpoint with --profile; " +
-	"an override would send the route's credential elsewhere")
-
-var errConfigLocation = errors.New("an agent config, permission or routing setting: the harness sets it per launch; use --profile")
-
-// configLocationName reports a name that injects or relocates an agent's config or route; refused in set, keep and unset.
-func configLocationName(up string) bool {
-	switch up {
-	case "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_TUI_CONFIG", proc.EnvCopilotProvidersConfig, "COPILOT_HOME",
-		"COPILOT_ALLOW_ALL", "COPILOT_ASSISTED_APPROVAL", "COPILOT_CUSTOM_INSTRUCTIONS_DIRS",
-		"COPILOT_API_URL", "COPILOT_GH_HOST", "CODEX_HOME", proc.EnvClaudeConfigDir, proc.EnvAnthropicCustomHeaders,
-		"XDG_CONFIG_HOME", "GEMINI_CLI_HOME":
-		return true
-	}
-	return up == "OPENCODE_PERMISSION" || strings.HasPrefix(up, "OPENCODE_DISABLE_") ||
-		strings.HasSuffix(up, "_CONFIG_CONTENT") || strings.HasPrefix(up, proc.CopilotProviderPrefix)
-}
-
-// routeRedirectName reports a name that can redirect a route credential or weaken TLS; refused in set, keep and unset.
-// DATABRICKS_HOST was allowed by D7 (set+keep); the owner's 2026-11-03 pick supersedes D7 for it.
-func routeRedirectName(up string) bool {
-	switch up {
-	case "DATABRICKS_HOST", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NODE_TLS_REJECT_UNAUTHORIZED",
-		"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "AGY_LLM_GATEWAY_HEADERS":
-		return true
-	}
-	return slices.ContainsFunc(redirectSuffixes, func(s string) bool { return strings.HasSuffix(up, s) })
-}
-
-var redirectSuffixes = []string{"_BASE_URL", "_API_BASE", "_ENDPOINT", "_GATEWAY_URL", "_PROXY_URL", "_CA_CERT"}
-
-// envReserved reports a name (as typed or upper-cased) the harness credential scrub withholds.
-func envReserved(name, up string) bool { return proc.EnvBlocked(name) || proc.EnvBlocked(up) }
-
-var setRules = []rule{
-	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errEnvName)},
-	{func(c *ruleCtx) bool {
-		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, OverlayVar)
-	},
-		refuse(errors.New("harness-owned"))},
-	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
-	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
-	{func(c *ruleCtx) bool { return c.reserved && c.isRef },
-		refuse(errors.New("reserved by the credential scrub: a vault ref cannot replace a route value"))},
-	{func(c *ruleCtx) bool { return c.reserved && nameRule(keepRules, c.name) != nil }, // keep refuses it too
-		refuse(errors.New("reserved by the credential scrub: no overlay can pass it (keep and @secret refs are refused too)"))},
-	{func(c *ruleCtx) bool { return c.reserved && !c.keep[c.up] },
-		refuse(errors.New("reserved by the credential scrub: add it to keep to pass your own value"))},
-	{func(c *ruleCtx) bool { return c.isRef }, func(c *ruleCtx) error { return refRule(c.ref, c.route) }},
-	{func(c *ruleCtx) bool { return strings.ContainsRune(c.val, 0) }, refuse(errors.New("value holds a NUL byte"))},
-	{func(c *ruleCtx) bool { return strings.HasPrefix(c.val, providers.SecretRef) },
-		refuse(errors.New("malformed @secret reference: want @secret or @secret:<NAME>"))},
-	{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
-		refuse(errors.New("looks like a credential: store it with `claude-code vault set`, reference it as @secret:<NAME>"))},
-}
-
-// setRule checks one set entry against rules; route reports a profile's route credential (providers.RouteSecretGuard).
-func setRule(rules []rule, name, val string, keep map[string]bool, route func(string) bool) error {
-	up := strings.ToUpper(name)
-	ref, isRef := providers.SecretRefName(name, val)
-	c := &ruleCtx{name: name, up: up, val: val, ref: ref, isRef: isRef, keep: keep, route: route,
-		reserved: envReserved(name, up)}
-	return runRules(rules, c)
-}
-
-// refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
-func refRule(ref string, route func(string) bool) error {
-	switch {
-	case !vault.EnvName.MatchString(ref):
-		return errors.New("want @secret:<NAME> with an env-style NAME")
-	case providers.InternalSecretName(ref):
-		return fmt.Errorf("@secret:%s is harness-internal", ref)
-	case route(ref):
-		return fmt.Errorf("@secret:%s is a profile's route credential: use --profile", ref)
-	}
-	return nil
-}
-
-// overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
-const overlayDebugVar = "COWORKER_OVERLAY_DEBUG"
-
-const overlayDebugSaltVar = overlayDebugVar + "_SALT"
-
-// OverlayDebugOn reports whether RecordOverlayDebug writes: COWORKER_OVERLAY_DEBUG and its _SALT are both set.
-func OverlayDebugOn() bool {
-	path, salt := overlayDebugEnv()
-	return path != "" && salt != ""
-}
-
-func overlayDebugEnv() (path, salt string) {
-	return os.Getenv(overlayDebugVar), os.Getenv(overlayDebugSaltVar)
-}
-
-type overlayDebugRecord struct {
-	Label string            `json:"label"`
-	Agent string            `json:"agent"`
-	PID   int               `json:"pid"`
-	Names []string          `json:"names"`
-	FP    map[string]string `json:"fp"`
-}
-
-// EnableOverlayDebug turns recording on for this process and its children (ask --overlay-debug <file>). The path is
-// made absolute so nested dispatches write the same file; its salt lives beside it as <file>.salt (0600), reused when
-// present so every run appended to one file fingerprints with one salt.
-func EnableOverlayDebug(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if os.Getenv(overlayDebugSaltVar) == "" {
-		salt, err := overlayDebugSalt(abs + ".salt")
-		if err != nil {
-			return err
-		}
-		if err := os.Setenv(overlayDebugSaltVar, salt); err != nil {
-			return err
-		}
-	}
-	return os.Setenv(overlayDebugVar, abs)
-}
-
-// overlayDebugSalt reads the salt beside the log, or links a fully written one into place (the loser reads the winner's).
-func overlayDebugSalt(path string) (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	salt := hex.EncodeToString(b)
-	switch err := linkSalt(path, salt); {
-	case err == nil:
-		return salt, nil
-	case !errors.Is(err, os.ErrExist):
-		return "", err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return "", err
-	}
-	got, err := os.ReadFile(path)
-	if err != nil || len(got) == 0 {
-		return "", errors.Join(err, errors.New("empty salt file "+path))
-	}
-	return strings.TrimSpace(string(got)), nil
-}
-
-// linkSalt writes salt to a temp file and links it to path: atomic, and ErrExist if path exists (never half-written).
-func linkSalt(path, salt string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // the temp name only; path keeps the hard link
-	_, werr := tmp.WriteString(salt)
-	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
-		return err
-	}
-	return os.Link(tmp.Name(), path)
-}
-
-// RecordOverlayDebug appends env's names and HMAC-SHA256 fingerprints (last duplicate wins, as exec does).
-func RecordOverlayDebug(agentName string, env []string) {
-	path, salt := overlayDebugEnv()
-	if path == "" || salt == "" {
-		return
-	}
-	rec := overlayDebugRecord{Label: os.Getenv(overlayDebugVar + "_LABEL"), Agent: agentName, PID: os.Getpid(), FP: map[string]string{}}
-	m := hmac.New(sha256.New, []byte(salt)) // one MAC reused across names
-	for _, kv := range env {
-		name, val, _ := strings.Cut(kv, "=")
-		m.Reset()
-		m.Write([]byte(val))
-		if _, seen := rec.FP[name]; !seen {
-			rec.Names = append(rec.Names, name)
-		}
-		rec.FP[name] = hex.EncodeToString(m.Sum(nil))[:16]
-	}
-	slices.Sort(rec.Names)
-	line, err := json.Marshal(rec)
-	if err == nil {
-		err = appendOverlayDebug(path, append(line, '\n'))
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: overlay debug:", err)
-	}
-}
-
-func appendOverlayDebug(path string, line []byte) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := f.Chmod(0o600); err != nil { // a pre-existing file keeps its mode on open
-		return errors.Join(err, f.Close())
-	}
-	_, werr := f.Write(line)
-	return errors.Join(werr, f.Close())
 }

@@ -50,7 +50,7 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 	return agents, nil
 }
 
-// discoverSkills reads skills/<dir>/SKILL.md, including symlinked dirs resolving inside skills/; skills/synced is excluded.
+// discoverSkills reads skills/<dir>/SKILL.md, symlinked dirs resolving inside skills/ included; skills/synced is out.
 func discoverSkills(skillsDir string) ([]Source, error) {
 	return discoverSources(skillsDir, "SKILL.md")
 }
@@ -86,21 +86,13 @@ func discoverSources(root, filename string) ([]Source, error) {
 	var out []Source
 	for _, e := range entries {
 		d := e.Name()
-		if d == "synced" {
-			continue
-		}
-		if !e.Type().IsDir() && (e.Type()&os.ModeSymlink == 0 || !symlinkInside(root, filepath.Join(root, d))) {
+		if !sourceDir(root, e) {
 			continue
 		}
 		defPath := filepath.Join(root, d, filename)
-		info, err := os.Stat(defPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("stat %s: %w", defPath, err)
-		}
-		if !info.Mode().IsRegular() {
+		if ok, err := regularFile(defPath); err != nil {
+			return nil, err
+		} else if !ok {
 			continue
 		}
 		src, err := loadSource(defPath, d)
@@ -110,6 +102,26 @@ func discoverSources(root, filename string) ([]Source, error) {
 		out = append(out, src)
 	}
 	return out, nil
+}
+
+// sourceDir reports whether e is a dir of root, or a symlink to one inside it, other than synced.
+func sourceDir(root string, e os.DirEntry) bool {
+	if e.Name() == "synced" {
+		return false
+	}
+	return e.Type().IsDir() || e.Type()&os.ModeSymlink != 0 && symlinkInside(root, filepath.Join(root, e.Name()))
+}
+
+// regularFile reports whether path is a regular file; a missing path is false, any other stat error is returned.
+func regularFile(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("stat %s: %w", path, err)
+	}
+	return info.Mode().IsRegular(), nil
 }
 
 // symlinkInside reports whether link resolves to a directory inside root other than root/synced.

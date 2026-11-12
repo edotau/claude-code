@@ -95,7 +95,7 @@ func runSync(opts Options) int {
 	}
 	var res syncResult
 	for _, pname := range in.names {
-		res.add(syncProjectionAssets(out, pname, in.root, in.home, in.skillsDir, in.agents, in.skills, docs, hasDocs, dryRun, prune))
+		res.add(syncProjectionAssets(out, pname, in, docs, hasDocs, dryRun, prune))
 	}
 	header(out, "skills")
 	agentsSkills := agentsSkillsDir(in.home)
@@ -117,7 +117,7 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	names := Names()
 	if opts.Agent != "" {
 		if _, known := targets[opts.Agent]; !known {
-			fmt.Fprintf(os.Stderr, "sync: unknown vendor %q (want one of %s)\n", opts.Agent, strings.Join(names, ", "))
+			fmt.Fprintf(os.Stderr, "sync: unknown agent %q (want one of %s)\n", opts.Agent, strings.Join(names, ", "))
 			return in, 2, false
 		}
 		names = []string{opts.Agent}
@@ -221,17 +221,17 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 	return 0
 }
 
-func syncProjectionAssets(out io.Writer, name, root, home, skillsDir string, agents, skills []Source, docs string, hasDocs, dryRun, prune bool) syncResult {
+func syncProjectionAssets(out io.Writer, name string, in syncInputs, docs string, hasDocs, dryRun, prune bool) syncResult {
 	header(out, name)
 	tg := targets[name]
-	res := syncProjection(out, name, tg, agents, Dir(root, name), tg.home(home), dryRun, prune)
+	res := syncProjection(out, name, tg, in.agents, Dir(in.root, name), tg.home(in.home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
-		res.add(syncSkillLinks(out, skills, skillsDir, tg.skills(home), prune, dryRun))
+		res.add(syncSkillLinks(out, in.skills, in.skillsDir, tg.skills(in.home), prune, dryRun))
 	}
-	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(home, rel)), Root(root, name)) {
-		res.record(writeProjection(out, filepath.Join(Root(root, name), filepath.Base(rel)), docs, dryRun))
-		res.record(writeOwnedFile(out, filepath.Join(home, rel), docs, dryRun))
+	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(in.home, rel)), Root(in.root, name)) {
+		res.record(writeProjection(out, filepath.Join(Root(in.root, name), filepath.Base(rel)), docs, dryRun))
+		res.record(writeOwnedFile(out, filepath.Join(in.home, rel), docs, dryRun))
 	}
 	return res
 }

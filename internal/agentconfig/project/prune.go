@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/jeduden/mdsmith/pkg/markdown"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // isGeneratedFile reports whether path is a regular file (not a symlink) whose first body line is a sync banner.
@@ -35,10 +35,7 @@ func isGeneratedSkillDir(path string) bool {
 
 // hasGeneratedBanner reports whether a banner is the first non-empty body line after any frontmatter.
 func hasGeneratedBanner(text string) bool {
-	body := text
-	if prefix, rest := markdown.StripFrontMatter([]byte(text)); prefix != nil {
-		body = string(rest)
-	}
+	_, body := textutil.ParseFrontmatter(text)
 	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -54,7 +51,7 @@ func hasGeneratedBanner(text string) bool {
 	return false
 }
 
-// pruneEntries removes every entry of dir that match accepts (returning the PRUNE reason), counting removals and failures.
+// pruneEntries removes each entry of dir that match accepts (with the PRUNE reason), counting removals and failures.
 func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), remove func(string) error, dryRun bool) syncResult {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -110,23 +107,38 @@ func removeGeneratedSkillDir(path, root string) error {
 	if err != nil {
 		return err
 	}
-	// Check before deleting anything: a hand-added entry would fail the final rmdir after SKILL.md was gone.
-	for _, e := range entries {
-		if e.Type()&os.ModeSymlink == 0 && e.Name() != "SKILL.md" {
-			return fmt.Errorf("refusing to delete %s: holds %s", path, e.Name())
-		}
+	if err := refuseHandAdded(path, entries); err != nil {
+		return err
 	}
 	// Symlinks, then the SKILL.md marker, then the dir: the marker survives any failure before the last step.
-	for _, e := range entries {
-		if e.Type()&os.ModeSymlink == 0 {
-			continue
-		}
-		if err := os.Remove(filepath.Join(path, e.Name())); err != nil {
-			return err
-		}
+	if err := removeSymlinks(path, entries); err != nil {
+		return err
 	}
 	if err := os.Remove(filepath.Join(path, "SKILL.md")); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return os.Remove(path)
+}
+
+// refuseHandAdded errs on an entry that is no symlink or SKILL.md; checked first, as the final rmdir would fail.
+func refuseHandAdded(path string, entries []os.DirEntry) error {
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 && e.Name() != "SKILL.md" {
+			return fmt.Errorf("refusing to delete %s: holds %s", path, e.Name())
+		}
+	}
+	return nil
+}
+
+// removeSymlinks deletes the symlink entries of dir.
+func removeSymlinks(dir string, entries []os.DirEntry) error {
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }

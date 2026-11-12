@@ -37,7 +37,7 @@ func TestConfigOverlayAbsent(t *testing.T) {
 
 // TestLoadMergesOverlayVendorWhole: an overlay vendor entry replaces the built-in whole (no field-level merge).
 func TestLoadMergesOverlayVendorWhole(t *testing.T) {
-	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["github"]}}}}`)
+	writeOverlay(t, `{"agents":{"opencode":{"permission":{"sandboxMode":"read-only"}}}}`)
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestLoadMergesOverlayVendorWhole(t *testing.T) {
 	}
 }
 
-// TestOverlayNullVendorRemovesIt: "name": null in the overlay deletes the built-in vendor, mirroring providers.Parse.
+// TestOverlayNullVendorRemovesIt: "name": null in the overlay clears the built-in agent's knobs.
 func TestOverlayNullVendorRemovesIt(t *testing.T) {
 	writeOverlay(t, `{"agents":{"gemini":null}}`)
 	cfg, err := LoadConfig()
@@ -69,7 +69,7 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 
 // TestOverlayGuardRulesReplaceWholesale: GuardRules in the overlay replace the defaults wholesale, like Providers.Fallback.
 func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
-	writeOverlay(t, `{"guardRules":{"ask":["only-this"],"deny":["also-only-this"]}}`)
+	writeOverlay(t, `{"guardRules":{"deny":["also-only-this"]}}`)
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +80,11 @@ func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	}
 }
 
-// TestOverlayEmptyGuardRulesClearDefaults: an overlay that PRESENTS guardRules with empty ask/deny
-// arrays clears the defaults (matches TestOverlayGuardRulesReplaceWholesale's non-empty case);
+// TestOverlayEmptyGuardRulesClearDefaults: an overlay that PRESENTS guardRules with an empty deny
+// array clears the defaults (matches TestOverlayGuardRulesReplaceWholesale's non-empty case);
 // presence, not length, decides the replace.
 func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
-	writeOverlay(t, `{"guardRules":{"ask":[],"deny":[]}}`)
+	writeOverlay(t, `{"guardRules":{"deny":[]}}`)
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func checkGeminiDefaults(t *testing.T, gemini vault.AgentRecord) {
 
 // The overlay key is "agents"; a stale "vendors" overlay is ignored.
 func TestOverlayReadsAgentsNotVendors(t *testing.T) {
-	writeOverlay(t, `{"agents":{"opencode":{"mcp":{"allow":["only-agents"]}}}}`)
+	writeOverlay(t, `{"agents":{"opencode":{"permission":{"sandboxMode":"only-agents"}}}}`)
 	if doc, err := configOverlay(); err != nil || !strings.Contains(string(doc), "only-agents") {
 		t.Fatalf("OverlayDoc = %q, %v", doc, err)
 	}

@@ -33,9 +33,7 @@ func AppendTOML(raw, section string) string {
 	return raw + "\n" + section
 }
 
-// InsertTopLevelTOML puts section before the first real top-level table header (outside multiline
-// strings and open arrays), dropping any pre-existing top-level assignment section itself also sets,
-// so TOML never ends up with duplicate keys; with no such header in raw, it falls back to AppendTOML.
+// InsertTopLevelTOML puts section before raw's first top-level table header, dropping top-level keys it re-sets.
 func InsertTopLevelTOML(raw, section string) string {
 	keys := topLevelKeysOf(section)
 	lines := strings.SplitAfter(raw, "\n")
@@ -52,8 +50,7 @@ func InsertTopLevelTOML(raw, section string) string {
 	return before + section + "\n" + after
 }
 
-// topLevelKeysOf returns the bare key names section assigns before its own first table header, i.e.
-// the keys an insert must not duplicate in whatever top-level text already precedes it.
+// topLevelKeysOf returns the bare key names section assigns before its own first table header.
 func topLevelKeysOf(section string) []string {
 	var keys []string
 	for l := range tomlLines(strings.SplitAfter(section, "\n")) {
@@ -87,8 +84,7 @@ func TOMLKeyName(raw string) string {
 	return key
 }
 
-// dropTopLevelKeys removes whole lines (including multiline/array continuations) that assign one of
-// keys at true top level (depth 0, outside multiline strings), leaving same-named keys inside a table.
+// dropTopLevelKeys removes top-level assignments of keys, continuation lines included; table keys stay.
 func dropTopLevelKeys(raw string, keys []string) string {
 	if len(keys) == 0 || raw == "" {
 		return raw
@@ -111,8 +107,7 @@ func assignsKey(line string, keys []string) bool {
 	return ok && slices.Contains(keys, TOMLKeyName(key))
 }
 
-// FirstTopLevelHeaderIndex finds the first line whose "[" is a genuine top-level table header: outside
-// any multiline string and outside an open (possibly multiline) array; -1 when raw has none.
+// FirstTopLevelHeaderIndex finds the first top-level table header line, outside strings and arrays; -1 for none.
 func FirstTopLevelHeaderIndex(lines []string) int {
 	for l := range tomlLines(lines) {
 		if l.Top && strings.HasPrefix(strings.TrimSpace(l.Text), "[") {
@@ -144,8 +139,7 @@ func tomlLines(lines []string) iter.Seq[tomlLine] {
 	}
 }
 
-// TOMLLineState extends tomlMultilineState with bracket depth, so a "["-led continuation line inside
-// an open (possibly multiline) array is never mistaken for a table header.
+// TOMLLineState tracks multiline-string state and bracket depth, so an array continuation is no table header.
 func TOMLLineState(line, state string, depth int) (string, int) {
 	for i := 0; i < len(line); {
 		if state != "" {
@@ -212,36 +206,68 @@ var ErrOpenString = errors.New("unterminated multiline string")
 // tripleString parses a TOML triple-quoted string at the start of value, trimming the first newline.
 func tripleString(value string) (parsed, rest string, err error) {
 	quote := value[:3]
-	end := strings.Index(value[3:], quote)
+	end, after := tripleEnd(value[3:], quote[0])
 	if end < 0 {
 		return "", "", ErrOpenString
 	}
 	body := strings.TrimPrefix(strings.TrimPrefix(value[3:3+end], "\r"), "\n")
-	rest = value[3+end+3:]
-	if quote == "\"\"\"" {
-		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r", ""), "\n", `\n`)
-		if body, err = strconv.Unquote(`"` + quoteBare(body) + `"`); err != nil {
-			return "", "", err
-		}
+	rest = value[3+after:]
+	if quote[0] == '"' {
+		body, err = multilineBasic(body)
 	}
-	return body, rest, nil
+	return body, rest, err
 }
 
-// quoteBare escapes each unescaped `"` in s, keeping existing backslash pairs such as `\"` intact.
-func quoteBare(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
+// tripleEnd finds the closing triple quote in s: the last three of a 3-5 quote run (two may end the body).
+func tripleEnd(s string, quote byte) (end, after int) {
+	for i := 0; i < len(s); {
 		switch {
-		case s[i] == '\\' && i+1 < len(s):
-			b.WriteString(s[i : i+2])
-			i++
-		case s[i] == '"':
-			b.WriteString(`\"`)
+		case quote == '"' && s[i] == '\\':
+			i += 2
+		case s[i] == quote:
+			run := len(s[i:]) - len(strings.TrimLeft(s[i:], string(quote)))
+			if run >= 3 {
+				run = min(run, 5)
+				return i + run - 3, i + run
+			}
+			i += run
 		default:
-			b.WriteByte(s[i])
+			i++
 		}
 	}
-	return b.String()
+	return -1, -1
+}
+
+// multilineBasic unescapes a """ body: a line-ending backslash joins lines, other newlines become \n.
+func multilineBasic(body string) (string, error) {
+	var b strings.Builder
+	for i := 0; i < len(body); i++ {
+		switch c := body[i]; {
+		case c == '\\' && i+1 < len(body):
+			if j := lineEndingBackslash(body, i); j > 0 {
+				i = j - 1
+				continue
+			}
+			b.WriteString(body[i : i+2])
+			i++
+		case c == '"':
+			b.WriteString(`\"`)
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c != '\r':
+			b.WriteByte(c)
+		}
+	}
+	return strconv.Unquote(`"` + b.String() + `"`)
+}
+
+// lineEndingBackslash returns the index past the whitespace a backslash at i trims, or 0 when no newline follows it.
+func lineEndingBackslash(body string, i int) int {
+	rest := strings.TrimLeft(body[i+1:], " \t")
+	if !strings.HasPrefix(rest, "\n") && !strings.HasPrefix(rest, "\r\n") {
+		return 0
+	}
+	return len(body) - len(strings.TrimLeft(rest, " \t\r\n"))
 }
 
 // TOMLStringValue strictly parses one basic, literal or triple-quoted string value, allowing a trailing comment.
@@ -303,28 +329,20 @@ func TOMLTableName(line string) string {
 
 // headerClose is the index of the `]` closing a table header, skipping any `]` inside quoted key parts; -1 if none.
 func headerClose(line string) int {
-	var quote byte // open key quote (" or '), 0 outside quotes
-	escaped := false
-	for i := 1; i < len(line); i++ {
-		c := line[i]
-		switch {
-		case quote == '"' && escaped:
-			escaped = false
-		case quote == '"' && c == '\\':
-			escaped = true
-		case quote != 0 && c == quote:
-			quote = 0
-		case quote != 0:
-		case c == '"' || c == '\'':
-			quote = c
-		case c == ']':
+	for i := 1; i < len(line); {
+		switch c := line[i]; c {
+		case '"', '\'':
+			i = skipQuoted(line, i+1, c)
+		case ']':
 			return i
+		default:
+			i++
 		}
 	}
 	return -1
 }
 
-// SplitInlineTable splits top-level TOML inline-table commas, ignoring quoted strings.
+// SplitInlineTable splits top-level TOML inline-table commas, ignoring quoted strings and nested tables or arrays.
 func SplitInlineTable(s string) []string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "{")
@@ -335,26 +353,13 @@ func SplitInlineTable(s string) []string {
 	}
 	var parts []string
 	depth, start := 0, 0
-	var quote rune // the open string delimiter (" or '), 0 outside a string
-	escaped := false
-	for i, r := range s {
-		if quote != 0 {
-			switch {
-			case escaped:
-				escaped = false
-			case r == '\\' && quote == '"':
-				escaped = true
-			case r == quote:
-				quote = 0
-			}
-			continue
-		}
-		switch r {
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
 		case '"', '\'':
-			quote = r
-		case '{':
+			i = skipQuoted(s, i+1, c) - 1
+		case '{', '[':
 			depth++
-		case '}':
+		case '}', ']':
 			depth--
 		case ',':
 			if depth == 0 {
