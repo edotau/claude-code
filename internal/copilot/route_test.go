@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -22,16 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// pinsScratch isolates CLAUDE_CONFIG_DIR, PATH and the provider credential env so pin checks never touch the host.
-func pinsScratch(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", providers.EnvSessionProfile} {
-		t.Setenv(k, "")
-	}
-}
 
 func TestValidateDatabricksCopilotPin(t *testing.T) {
 	served := map[string][]string{
@@ -77,7 +68,7 @@ func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
 
 // A pin naming a provider other than github-copilot is never checked against the copilot catalog.
 func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	warn, err := ValidateCopilotPins("", []string{"opus=openai:gpt-5"})
 	if err != nil || warn != "" {
 		t.Fatalf("warn=%q err=%v, want no-op for a non-copilot pin", warn, err)
@@ -86,7 +77,7 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 
 // A github-copilot pin (provider:model or --provider fallback) only warns when the live catalog is unreachable.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	for flag, pin := range map[string]string{"": "opus=personal:claude-opus-5.5", "personal": "opus=claude-opus-5.5"} {
 		warn, err := ValidateCopilotPins(flag, []string{pin})
 		if err != nil || !strings.Contains(warn, "could not verify") {
@@ -98,7 +89,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 // doctor's/profile's output over a github-copilot pin or route never prints anything secret-looking:
 // no bearer token, no raw API key value, only the env var NAME.
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
 	warn, _ := ValidateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
@@ -149,7 +140,7 @@ func TestHeadlessAutonomousFlags(t *testing.T) {
 
 // An explicit GitHub target is gated on its own login, not the copilot record's (here pinned to Databricks).
 func TestCopilotGateUsesTargetLogin(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
 	gh := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", gh)
@@ -169,7 +160,7 @@ func TestCopilotGateUsesTargetLogin(t *testing.T) {
 
 // An explicit GitHub row's login wins over a stored COPILOT_GITHUB_TOKEN and over the record's pin.
 func TestCopilotLaunchTokenForTargetLogin(t *testing.T) {
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
 	gh := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", gh)
@@ -283,7 +274,7 @@ func TestCopilotGateNoticeFreeSeatOnMacOS(t *testing.T) {
 // macFallbackScratch is a hermetic macOS host with no GitHub login and one keyed Databricks profile, dbx.
 func macFallbackScratch(t *testing.T) {
 	t.Helper()
-	pinsScratch(t)
+	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
 	setGOOS(t, "darwin")
 	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", providers.CopilotTokenEnv} {

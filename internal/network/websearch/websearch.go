@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -244,7 +245,10 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 	var readErr error
 	for {
-		raw, tooLong, err := readLine(reader, maxLineBytes)
+		raw, tooLong, err := textutil.ReadLineCapped(reader, maxLineBytes)
+		if err == io.EOF && (len(raw) > 0 || tooLong) {
+			err = nil // the unterminated last line is served; the next read reports EOF
+		}
 		if err != nil {
 			if err != io.EOF {
 				readErr = err
@@ -289,31 +293,6 @@ func parseRequest(raw []byte, send func(map[string]any)) (req rpcRequest, ok boo
 
 // maxLineBytes caps one JSON-RPC line; a longer line is drained and answered with a parse error.
 const maxLineBytes = 4 * 1024 * 1024
-
-// readLine returns the next line without its newline; a line over max is drained and flagged tooLong.
-func readLine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error) {
-	for {
-		chunk, err := r.ReadSlice('\n')
-		if !tooLong {
-			if len(line)+len(chunk) > max {
-				tooLong, line = true, nil
-			} else {
-				line = append(line, chunk...)
-			}
-		}
-		switch err {
-		case bufio.ErrBufferFull:
-			continue
-		case nil:
-			return line, tooLong, nil
-		case io.EOF:
-			if len(line) > 0 || tooLong {
-				return line, tooLong, nil
-			}
-		}
-		return nil, false, err
-	}
-}
 
 // run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
 func run(ctx context.Context) int {

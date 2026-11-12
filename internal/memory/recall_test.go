@@ -199,7 +199,7 @@ func slowVecServer(t *testing.T, slow time.Duration) *httptest.Server {
 
 func useEmbedServer(t *testing.T, srv *httptest.Server) *EmbedClient {
 	t.Helper()
-	t.Setenv("CLAUDE_PROFILE", "fake") // NewSemantic reads the session profile's cache
+	t.Setenv("CLAUDE_PROFILE", "fake") // embedQuery reads the session profile's cache
 	c := &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}

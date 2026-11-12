@@ -162,6 +162,26 @@ func HermeticEnv(t testing.TB) {
 	}
 }
 
+// PinScratch isolates CLAUDE_CONFIG_DIR, PATH and the provider credential env so pin writes never touch the host.
+func PinScratch(t testing.TB) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "CLAUDE_PROFILE"} {
+		t.Setenv(k, "")
+	}
+}
+
+// GithubScratch is HermeticEnv plus an empty PATH and no GitHub/Copilot login, so no real gh/copilot state is read.
+func GithubScratch(t testing.TB) {
+	t.Helper()
+	HermeticEnv(t)
+	t.Setenv("PATH", t.TempDir())
+	for _, k := range []string{"GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+}
+
 // TierHarness points HOME/CLAUDE_CONFIG_DIR at a temp config tree and neutralizes an ambient vendor env.
 func TierHarness(t *testing.T) string {
 	t.Helper()

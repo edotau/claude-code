@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // batchLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
@@ -49,7 +50,7 @@ func readTaskLines(r io.Reader) ([]parsedLine, error) {
 	var out []parsedLine
 	br := bufio.NewReader(r)
 	for n := 1; ; n++ {
-		line, tooLong, err := agent.ReadLineCapped(br, maxTaskLine)
+		line, tooLong, err := textutil.ReadLineCapped(br, maxTaskLine)
 		if tooLong {
 			out = append(out, parsedLine{N: n, Err: fmt.Errorf("line %d: over the %d byte line limit", n, maxTaskLine)})
 		} else if len(bytes.TrimSpace(line)) > 0 {
