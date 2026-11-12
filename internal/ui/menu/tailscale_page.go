@@ -87,7 +87,7 @@ func tsSignIn(d *dialog) {
 	d.printf("tailscale: signed in as %s\n", strings.TrimSuffix(st.DNSName, "."))
 }
 
-// tsAdminKey reads the OAuth client id and secret, refuses a half pair, and stores both like the secrets row.
+// tsAdminKey reads the OAuth client id and secret, refuses a half pair, and seals both in the vault at once.
 func tsAdminKey(d *dialog) {
 	var creds []tailscale.Cred
 	for _, name := range tailscale.SetNames(false) {
@@ -102,11 +102,11 @@ func tsAdminKey(d *dialog) {
 		d.printf("admin key: %v; nothing changed\n", err)
 		return
 	}
-	for _, c := range creds {
-		if !storeValue(d, c.Name, c.Value) {
-			return
-		}
+	if err := tailscale.StoreCreds(creds); err != nil {
+		d.printf("admin key: %v; nothing changed\n", err)
+		return
 	}
+	d.println("admin key: sealed in the vault")
 }
 
 // tsAuthKey asks the key's options, mints it, prints it once and seals it as TAILSCALE_AUTHKEY.
