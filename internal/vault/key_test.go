@@ -274,7 +274,7 @@ func TestKeyCommandArgvJSON(t *testing.T) {
 	}
 }
 
-// parseKeyCommandArgv accepts only a JSON argv array with a nonempty executable; later arguments may be empty (R6).
+// ParseKeyCommandArgv accepts only a JSON argv array with a nonempty executable; later arguments may be empty (R6).
 func TestParseKeyCommandArgv(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw string
@@ -287,9 +287,9 @@ func TestParseKeyCommandArgv(t *testing.T) {
 		{"empty_later_argument", `["helper", "--label", ""]`, []string{"helper", "--label", ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseKeyCommandArgv(tc.raw)
+			got, err := ParseKeyCommandArgv(tc.raw)
 			if (err == nil) != (tc.want != nil) || !slices.Equal(got, tc.want) {
-				t.Fatalf("parseKeyCommandArgv(%q) = %#v, %v; want %#v", tc.raw, got, err, tc.want)
+				t.Fatalf("ParseKeyCommandArgv(%q) = %#v, %v; want %#v", tc.raw, got, err, tc.want)
 			}
 		})
 	}

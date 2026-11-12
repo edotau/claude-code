@@ -246,7 +246,7 @@ func cleanBusyReason(dest string, in func(string) ([]Proc, error)) (gitDir, reas
 	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	gitDir, err := gitDirOf(ctx, dest)
+	gitDir, _, err := gitDirsOf(ctx, dest)
 	if err != nil {
 		return "", "lock check failed: " + err.Error()
 	}
@@ -414,7 +414,7 @@ func forceBusyReason(repo *Repo, dest string) string {
 	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	gitDir, err := gitDirOf(ctx, dest)
+	gitDir, _, err := gitDirsOf(ctx, dest)
 	if err != nil {
 		return lockReason(false, err)
 	}

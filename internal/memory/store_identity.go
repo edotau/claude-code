@@ -716,18 +716,3 @@ func foldOrigin(dir string, o Origin, drop string) error {
 		return t.Put(vault.MemoryOrigins, key, string(data))
 	})
 }
-
-// catalogOriginTag opens the machine-readable origin comment BuildCatalog appends to each repo row.
-const catalogOriginTag = " <!-- origin: "
-
-// catalogOrigin is the comment's JSON payload; json.Marshal escapes '>' so a path can never close the comment.
-type catalogOrigin struct {
-	Origin  string   `json:"origin"`
-	Aliases []string `json:"aliases,omitempty"`
-}
-
-// catalogOriginComment is the trailing comment recording o on its catalog row.
-func catalogOriginComment(o Origin) string {
-	data, _ := json.Marshal(catalogOrigin{Origin: o.Origin, Aliases: o.Aliases})
-	return catalogOriginTag + string(data) + " -->"
-}

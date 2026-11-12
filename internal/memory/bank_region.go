@@ -100,7 +100,7 @@ func BuildCatalog(now time.Time) (string, error) {
 		if !last.IsZero() {
 			when = last.Format("2006-01-02")
 		}
-		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md%s\n", e.Key, storeHook(e), when, e.Key, catalogOriginComment(e.Origin))
+		fmt.Fprintf(&b, "- %s — %s · last %s → %s/MEMORY.md\n", e.Key, storeHook(e), when, e.Key)
 	}
 	writeKnowledgeRows(&b, entries)
 	if err := writeHomeRows(&b); err != nil {

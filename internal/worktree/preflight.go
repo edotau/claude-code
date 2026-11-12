@@ -65,9 +65,8 @@ func gitEnv(extra ...string) []string {
 
 // runGit is the one seam over git here and in merge.go, so tests fake failures; extraEnv is appended (nil = none).
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = gitEnv(extraEnv...)
-	cmd.WaitDelay = gitWaitDelay // after cancel, stop waiting on inherited pipes instead of blocking
+	cmd := gitCmd(ctx, append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	return cmd.Output()
 }
 
@@ -118,7 +117,7 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 	}
 	plan := &MergePlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
 		AfterResolution: trackedOnlyWorktree}
-	if plan.WorktreeGitDir, err = gitDirOf(ctx, worktreePath); err != nil {
+	if plan.WorktreeGitDir, _, err = gitDirsOf(ctx, worktreePath); err != nil {
 		return nil, err
 	}
 	return plan, nil
@@ -229,7 +228,7 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]string, func() error, error) {
 	if commonDir == "" {
 		var err error
-		if commonDir, err = commonDirOf(ctx, repoPath); err != nil {
+		if _, commonDir, err = gitDirsOf(ctx, repoPath); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -416,7 +415,7 @@ func markerExists(gitDir, name string) (bool, error) {
 // inProgressOp reports the mid-operation marker in gitDir ("" = look it up); only IsNotExist means none.
 func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bool, err error) {
 	if gitDir == "" {
-		if gitDir, err = gitDirOf(ctx, path); err != nil {
+		if gitDir, _, err = gitDirsOf(ctx, path); err != nil {
 			return "", false, err
 		}
 	}
@@ -471,14 +470,6 @@ func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (boo
 	return false, err
 }
 
-func commonDirOf(ctx context.Context, path string) (string, error) {
-	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", fmt.Errorf("git-common-dir in %s: %w", path, err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // gitDirsOf is path's git dir and common dir from one rev-parse.
 func gitDirsOf(ctx context.Context, path string) (gitDir, commonDir string, err error) {
 	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
@@ -490,14 +481,6 @@ func gitDirsOf(ctx context.Context, path string) (gitDir, commonDir string, err 
 		return "", "", fmt.Errorf("git dirs in %s: unexpected rev-parse output %q", path, out)
 	}
 	return gitDir, commonDir, nil
-}
-
-func gitDirOf(ctx context.Context, path string) (string, error) {
-	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-dir")
-	if err != nil {
-		return "", fmt.Errorf("git-dir in %s: %w", path, err)
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 // gitErrorDetail recovers a failed command's stderr from an *exec.ExitError, so a block reports git's reason.

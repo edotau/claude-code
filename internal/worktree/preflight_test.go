@@ -82,7 +82,7 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	if strings.TrimSpace(string(out)) != "" {
 		t.Fatalf("main checkout has uncommitted changes: %q", out)
 	}
-	gitDir, err := gitDirOf(context.Background(), main)
+	gitDir, _, err := gitDirsOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestPreflightInProgressOperation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(main, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gitDir, err := gitDirOf(context.Background(), main)
+	gitDir, _, err := gitDirsOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 		t.Skip("permission checks don't apply when running as root")
 	}
 	_, _, wt := preflightFixtureSetup(t)
-	gitDir, err := gitDirOf(context.Background(), wt)
+	gitDir, _, err := gitDirsOf(context.Background(), wt)
 	if err != nil {
 		t.Fatal(err)
 	}

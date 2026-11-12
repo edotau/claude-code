@@ -333,14 +333,6 @@ type LoginOptions struct {
 // loopback serves one callback port on every loopback family the host has.
 type loopback struct{ ls []net.Listener }
 
-func (l *loopback) Close() error {
-	var err error
-	for _, ln := range l.ls {
-		err = errors.Join(err, ln.Close())
-	}
-	return err
-}
-
 // listenPorts binds 127.0.0.1 (and ::1 if present) on the first free port in first..last; first == last is exact.
 func listenPorts(first, last int) (*loopback, int, error) {
 	var lc net.ListenConfig

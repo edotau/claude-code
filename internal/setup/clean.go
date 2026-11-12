@@ -117,8 +117,7 @@ func stateTargets() []target {
 func daemonTargets() []target {
 	return []target{
 		{
-			// proxy.json/router.secret are the DAEMON's live state (removed by the daemon itself on
-			// exit); only its log is debris, and an active proxy keeps rewriting it past any cutoff.
+			// proxy.json is the DAEMON's live state (removed on exit); only its log is debris, and a live proxy rewrites it.
 			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio only)",
 			globs: func() []string { return []string{statePath("proxy.log"), statePath("router.log")} },
 		},

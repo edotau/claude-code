@@ -26,6 +26,15 @@ import (
 	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
+// Close closes every listener; production closes them through the callback server.
+func (l *loopback) Close() error {
+	var err error
+	for _, ln := range l.ls {
+		err = errors.Join(err, ln.Close())
+	}
+	return err
+}
+
 // freePort returns a currently free loopback port.
 func freePort(t *testing.T) int {
 	t.Helper()

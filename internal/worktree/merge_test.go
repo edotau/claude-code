@@ -21,7 +21,7 @@ func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 	mainBefore := headOf(main)
 	wtBefore := headOf(wt)
 
-	commonDir, err := commonDirOf(context.Background(), main)
+	_, commonDir, err := gitDirsOf(context.Background(), main)
 	if err != nil {
 		t.Fatal(err)
 	}

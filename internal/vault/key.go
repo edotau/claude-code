@@ -39,11 +39,7 @@ var testHookAfterKey = func() {}
 // errStaleKey means a rotation landed between UpdateSealed selecting its key and the tx; the caller retries.
 var errStaleKey = errors.New("vault: master key is stale")
 
-// account is the keyring account for a vault's current master key; account+"."+kid is the
-// immutable, never-deleted account every key — current or retired — is durably stored under,
-// written BEFORE any ciphertext is committed under that kid (R1, R2, R4). account alone is a
-// convenience pointer to whichever kid is current: resolveKey/matchKey fall back to the per-kid
-// account whenever the pointer is stale, absent, or shared by a copied root mid-rotation.
+// account is the keyring pointer to a vault's current key; account+"."+kid is the immutable per-kid key (R1, R2, R4).
 func account(id string) string { return "vault-key/" + id }
 
 // keyFlightKey names one resolution; concurrent callers with the same key share a single resolver run.
@@ -98,15 +94,7 @@ func MasterKey() (*Key, string, error) {
 	return resolveKey(id, kid, command)
 }
 
-// resolveKey resolves the key expected to carry kid for vault id, trying HARNESS_VAULT_KEY, the
-// per-process cache, the keyring account, then key_command — the shared core MasterKey and
-// ReadSecret both use, parameterized so a reader can anchor on a kid it captured earlier (R3).
-//
-// An explicitly configured key_command is tried whenever the keyring could not positively
-// establish absence (ErrUnavailable/ErrNoAnswer — a locked session, no tool, Windows), not only on
-// a clean miss: the keyring plane going dark must not strand the documented recovery path (R3/#3).
-// A genuine keyring error with no usable alternative still surfaces as ErrLocked with the
-// recovery instructions, never the raw keyring error.
+// resolveKey finds the key for kid: env, cache, keyring, then key_command, which also runs when the keyring is dark.
 func resolveKey(id, kid, command string) (*Key, string, error) {
 	if v := os.Getenv("HARNESS_VAULT_KEY"); v != "" {
 		k, err := parseKey(v, id)
@@ -208,8 +196,8 @@ func keyringRecoverable(err error) bool {
 	return errors.Is(err, ErrKeyringUnavailable) || errors.Is(err, ErrKeyringNoAnswer)
 }
 
-// parseKeyCommandArgv decodes meta/key_command as a JSON argv array, so no shell or quoting grammar is involved (R6).
-func parseKeyCommandArgv(raw string) ([]string, error) {
+// ParseKeyCommandArgv decodes meta/key_command as a JSON argv array, so no shell or quoting grammar is involved (R6).
+func ParseKeyCommandArgv(raw string) ([]string, error) {
 	var argv []string
 	if err := json.Unmarshal([]byte(raw), &argv); err != nil {
 		return nil, fmt.Errorf("vault: key_command must be a JSON array of strings: %w", err)
@@ -225,7 +213,7 @@ func parseKeyCommandArgv(raw string) ([]string, error) {
 
 // runKeyCommand runs raw's decoded argv directly (no shell) and parses its stdout as a master key for vaultID.
 func runKeyCommand(raw, vaultID string) (*Key, error) {
-	argv, err := parseKeyCommandArgv(raw)
+	argv, err := ParseKeyCommandArgv(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -243,11 +231,7 @@ func runKeyCommand(raw, vaultID string) (*Key, error) {
 	return parseKey(string(out), vaultID)
 }
 
-// matchKey resolves k against the vault's recorded kid: a direct hit returns k unchanged; a
-// mismatch falls back to the immutable per-kid account, then to key_command if one is configured
-// and wasn't already the source, before giving up with an error naming every source tried (R1,
-// R2). A genuine keyring error on the fallback lookup is folded into that error text, never
-// surfaced raw, so a locked/no-tool keyring never masquerades as "wrong key".
+// matchKey resolves k against the vault's recorded kid, falling back to the per-kid account, then key_command (R1, R2).
 func matchKey(id string, k *Key, source, kid, command string) (*Key, string, error) {
 	if k != nil && (kid == "" || k.Kid == kid) {
 		return k, source, nil
@@ -693,10 +677,7 @@ type Key struct {
 	raw         string // the base64 value this key was parsed from; rotation retains it as-is (R4)
 }
 
-// parseKey turns a base64 master-key value into a Key scoped to vaultID. Kid identifies the root
-// itself (stable across vaults so retired-key accounts and matchKey stay vault-independent); the
-// AEAD seals under K = HKDF(sha256, root, salt=vaultID, info=secretsInfo, 32) so a root reused
-// across two vaults still yields distinct ciphertext keys, without changing who can decrypt.
+// parseKey turns a base64 master-key value into a Key scoped to vaultID; the AEAD key is HKDF-salted by vaultID.
 func parseKey(value, vaultID string) (*Key, error) {
 	trimmed := strings.TrimSpace(value)
 	root, err := base64.StdEncoding.DecodeString(trimmed)
@@ -727,8 +708,7 @@ func newAEAD(root []byte, vaultID, info string) (cipher.AEAD, error) {
 	return cipher.NewGCMWithRandomNonce(block)
 }
 
-// Raw returns the base64-encoded master key value k was parsed from — the same encoding
-// HARNESS_VAULT_KEY accepts. Callers must only print it through an explicit, audited reveal path.
+// Raw returns the base64 master key k was parsed from; print it only through an explicit, audited reveal path.
 func (k *Key) Raw() string { return k.raw }
 
 func (k *Key) Seal(name, value string) []byte {
