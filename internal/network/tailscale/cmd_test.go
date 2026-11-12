@@ -364,27 +364,14 @@ func TestNetworkTailscaleModeParsing(t *testing.T) {
 	}
 }
 
-func TestNetworkTailscaleRouteEmptyValueExitsTwo(t *testing.T) {
-	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--route", ""}) })
-	if code != 2 {
-		t.Errorf("--route with empty value: exit %d, want 2; stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stderr, "requires a peer name") {
-		t.Errorf("stderr = %q, want a message about requiring a peer name", stderr)
-	}
-}
-
-func TestNetworkTailscaleRouteValueStartingWithDashExitsTwo(t *testing.T) {
-	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
-	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return Cmd([]string{"--route",
-			"-invalid"})
-	})
-	if code != 2 {
-		t.Errorf("--route with dash-value: exit %d, want 2; stderr=%q", code, stderr)
+func TestNetworkTailscaleRouteRejectsBadValueExitsTwo(t *testing.T) {
+	for _, value := range []string{"", "-invalid"} {
+		hermeticTailscaleSecrets(t)
+		fakeTailscaleOnPATH(t, "Running")
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--route", value}) })
+		if code != 2 || !strings.Contains(stderr, "requires a peer name") {
+			t.Errorf("--route %q: exit %d stderr %q, want 2 and a message about requiring a peer name", value, code, stderr)
+		}
 	}
 }
 

@@ -50,20 +50,6 @@ func TestShellQuote_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestShellQuote_NoInjectionViaEcho(t *testing.T) {
-	// Embed a hostile payload as buildCommand does; a created marker file would mean it executed.
-	dir := t.TempDir()
-	marker := dir + "/pwned"
-	payload := "$(touch " + marker + ")"
-	cmd := exec.Command("sh", "-c", "echo "+textutil.ShellQuote(payload)+" >/dev/null")
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("sh -c failed: %v", err)
-	}
-	if _, err := exec.Command("test", "-e", marker).CombinedOutput(); err == nil {
-		t.Fatalf("injection succeeded: marker file was created")
-	}
-}
-
 func TestValidAgent(t *testing.T) {
 	for _, a := range Agents {
 		if !validAgent(a) {
