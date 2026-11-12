@@ -424,6 +424,31 @@ type DiscoverResult struct {
 	Note         string                `json:"note,omitempty"`
 }
 
+// discoverLive is the live catalog call; tests swap it for a canned listing.
+var discoverLive = discoverProfileModels
+
+// missingKeyNote explains an API-key profile with no key stored ("" when it has one or uses another auth type).
+func missingKeyNote(ctx context.Context, p *providers.Provider) string {
+	if p.Auth.Type != providers.AuthKey {
+		return ""
+	}
+	if _, err := providers.Credential(ctx, p); err != nil {
+		return "no API key stored for this profile; add one with `claude-code vault set " + p.Auth.Env + "`"
+	}
+	return ""
+}
+
+// discoverUsable is p's live listing, or a skip note when p has no API key or its account lists nothing.
+func discoverUsable(ctx context.Context, p *providers.Provider) (live []providers.ModelInfo, note string, err error) {
+	if note = missingKeyNote(ctx, p); note != "" {
+		return nil, note, nil
+	}
+	if live, err = discoverLive(ctx, p); err == nil && len(live) == 0 {
+		note = "the catalog listed no models for this account"
+	}
+	return live, note, err
+}
+
 // discoverPickerProfile live-discovers p's models and previews (or, with apply, appends) the saved picker additions.
 func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 	r := DiscoverResult{Provider: p.Provider, Profile: p.Name, Additions: []providers.ModelInfo{}, Destinations: []string{}, Status: "skipped"}
@@ -435,10 +460,14 @@ func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	live, err := discoverProfileModels(ctx, p)
+	live, note, err := discoverUsable(ctx, p)
 	if err != nil {
 		r.Status = "error"
 		r.Note = err.Error() + " (no fallback saved)"
+		return r
+	}
+	if note != "" {
+		r.Note = note
 		return r
 	}
 	r.Discovered = len(live)
