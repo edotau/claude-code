@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -383,8 +384,8 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	cur, _ := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "core.hooksPath").Output()
-	if strings.TrimSpace(string(cur)) == ".githooks" {
+	cur, _ := proc.RunGitInherit(ctx, root, "config", "--get", "core.hooksPath")
+	if strings.TrimSpace(cur) == ".githooks" {
 		return
 	}
 	fmt.Fprintln(w, "githooks core.hooksPath → .githooks")
