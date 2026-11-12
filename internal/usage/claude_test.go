@@ -604,22 +604,30 @@ func TestClaudeQuotasCacheTTLFromEnv(t *testing.T) {
 	}
 }
 
-func TestClaudeUsageRejectsMissingWindows(t *testing.T) {
+// A window-less answer is noted on the first fetch, cached for the TTL (no refetch) and unknown to CachedSevenDay.
+func TestClaudeUsageCachesMissingWindowsAsUnknown(t *testing.T) {
 	for _, body := range []string{`{}`, `{"five_hour":null,"seven_day":null}`, `{"five_hour":{"utilization":0}}`} {
 		t.Run(body, func(t *testing.T) {
 			validClaudeCreds(t)
 			setClaudeCacheDir(t)
+			var hits int
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits++
 				_, _ = io.WriteString(w, body)
 			}))
 			defer srv.Close()
 			stubClaudeOAuthURL(t, srv.URL)
-			rows := claudeQuotas(context.Background())
-			if len(rows) != 1 || rows[0].Note != "usage unavailable: unreadable response" {
-				t.Fatalf("missing windows fabricated successful quota rows: %+v", rows)
+			for run := 1; run <= 2; run++ {
+				rows := claudeQuotas(context.Background())
+				if len(rows) != 1 || rows[0].Note != "usage unavailable: unreadable response" {
+					t.Fatalf("run %d: missing windows fabricated successful quota rows: %+v", run, rows)
+				}
 			}
-			if cache := readClaudeUsageCache(claudeUsageCachePath()); cache != nil {
-				t.Fatalf("missing windows were cached: %+v", cache)
+			if hits != 1 {
+				t.Errorf("network hits = %d, want 1 (negative entry honours the TTL)", hits)
+			}
+			if _, _, ok := CachedSevenDay(time.Hour); ok {
+				t.Error("CachedSevenDay reported a window for a window-less answer")
 			}
 		})
 	}
