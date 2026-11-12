@@ -343,7 +343,7 @@ func ReadRecent(n int) ([]Record, error) {
 	return out, err
 }
 
-// RunRecordedOpts tunes RunRecorded for the caller's stdout contract.
+// RunRecordedOpts tunes runRecorded for the caller's stdout contract.
 type RunRecordedOpts struct {
 	Job      bool         // a --job child: stdout is the log, so out is dropped and the log keeps events + stderr only
 	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `<agent> result` reads it)
@@ -414,4 +414,23 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 		res.Answer = string(log)
 	}
 	return wire.NewEnvelope(res, runErr, rec.ID)
+}
+
+// buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
+func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
+	if jobRec != nil {
+		return *jobRec // same id: a job run continues the record it was spawned from
+	}
+	rec := ClaimRecord(name, req, time.Now())
+	cwd := workdir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	rec.Repo = RepoRoot(ctx, cwd)
+	rec.Owner = inflight.SessionOwner()
+	rec.Log = rec.LogPath()
+	if !background {
+		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
+	}
+	return rec
 }

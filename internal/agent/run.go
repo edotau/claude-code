@@ -10,14 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
@@ -159,18 +157,14 @@ func SelectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (nam
 		return "", err
 	}
 	if def != nil {
+		model := def.Model
+		if model == "inherit" { // the definition has no model of its own
+			model = ""
+		}
 		o.Persona = def
-		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, defModel(def)), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
+		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, model), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
 	}
 	return name, nil
-}
-
-// defModel is the definition's model for routing; "inherit" means no model of its own.
-func defModel(def *Schema) string {
-	if def.Model == "inherit" {
-		return ""
-	}
-	return def.Model
 }
 
 type clientUsageError struct{ error }
@@ -487,221 +481,6 @@ func StatusOf(e *retry.Error) string {
 	return wire.StatusError
 }
 
-// Caps declares which RunOptions fields an agent honors; Prompt, Timeout and Attach are always honored.
-type Caps struct {
-	Model, Provider, Effort, WorkDir, SessionID, Tools, NoTools, Autonomous, Fleet, Memory, NoPersist, SafeMode, DebugFile, Direct Level
-	ReadOnly                                                                                                                       Level
-	SystemPrompt, AppendSystemPrompt, Env, OutputSchema, Persona                                                                   Level
-	Permissions                                                                                                                    Level // reads RunOptions.Permissions
-}
-
-// Level is how an agent honors one flag: its own flag (Native), a harness shim (Emulated), or not at all (None).
-type Level uint8
-
-const (
-	None Level = iota
-	Emulated
-	Native
-)
-
-func (l Level) String() string { return [...]string{"none", "emulated", "native"}[min(l, Native)] }
-
-// Engine is one agent backend.
-type Engine interface {
-	Name() string
-	Caps() Caps
-	Available() error
-	Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error)
-}
-
-// Engines lists every agent in roster order.
-func Engines() []Engine {
-	var out []Engine
-	for _, s := range rows() {
-		out = append(out, engineFor(s.Name))
-	}
-	return out
-}
-
-// engineFor is the registered roster agent name as an Engine: its own, else a CLI engine over its headless driver.
-func engineFor(name string) Engine {
-	if e, ok := mustDriver(name).(Engine); ok {
-		return e
-	}
-	return newCLIEngine(name)
-}
-
-// Lookup finds an agent by name.
-func Lookup(name string) (Engine, error) {
-	if _, ok := lookupRow(name); ok {
-		return engineFor(name), nil
-	}
-	return nil, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(RosterNames(), "|"))
-}
-
-// applyCaps clears fields the agent cannot honor and names each drop; Emulated flags run a harness shim here.
-func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []string) {
-	drop := func(l Level, set bool, flag string, clear func()) {
-		if set && l == None {
-			dropped = append(dropped, flag)
-			clear()
-		}
-	}
-	drop(c.Model, req.Model != "", "--model="+req.Model, func() { req.Model = "" })
-	drop(c.Provider, req.Provider != "", "--provider="+req.Provider, func() { req.Provider = "" })
-	drop(c.Effort, req.Effort != "", "--effort="+req.Effort, func() { req.Effort = "" })
-	drop(c.WorkDir, req.WorkDir != "", "--workdir="+req.WorkDir, func() { req.WorkDir = "" })
-	drop(c.SessionID, req.SessionID != "", "--session="+req.SessionID, func() { req.SessionID = "" })
-	drop(c.ReadOnly, req.ReadOnly, "--read-only (tools off)", func() { req.ReadOnly, req.Tools = false, false }) // fail closed
-	drop(c.Tools, req.Tools, "--tools", func() { req.Tools = false })
-	drop(c.NoTools, req.NoTools, "--no-tools", func() { req.NoTools = false })
-	drop(c.Autonomous, req.Autonomous, "--autonomous", func() { req.Autonomous = false })
-	drop(c.Fleet, req.Fleet, "--fleet", func() { req.Fleet = false })
-	drop(c.Memory, req.EnableMemory, "--enable-memory", func() { req.EnableMemory = false })
-	drop(c.NoPersist, req.NoPersist, "--no-persist", func() { req.NoPersist = false })
-	drop(c.SafeMode, req.SafeMode, "--safe-mode", func() { req.SafeMode = false })
-	drop(c.Direct, req.Direct, "--direct", func() { req.Direct = false })
-	drop(c.DebugFile, req.DebugFile != "", "--debug-file="+req.DebugFile, func() { req.DebugFile = "" })
-	drop(c.Env, len(req.Env) > 0, "--env", func() { req.Env = nil })
-	drop(c.Permissions, !req.Permissions.IsZero(), "--allow/--ask/--mode", func() { req.Permissions = Permissions{} })
-	drop(c.Persona, req.Persona != nil, "persona="+personaName(req.Persona), func() { req.Persona = nil })
-	if req.Persona != nil && c.Persona == Emulated {
-		req, dropped = emulatePersona(c, req, dropped)
-		emulated = append(emulated, "persona")
-	}
-	for _, sp := range []struct {
-		field *string
-		level Level
-		flag  string
-	}{{&req.SystemPrompt, c.SystemPrompt, "--system-prompt"}, {&req.AppendSystemPrompt, c.AppendSystemPrompt, "--append-system-prompt"}} {
-		if *sp.field != "" && sp.level == Emulated {
-			req.Prompt, *sp.field = Preamble(*sp.field)+req.Prompt, ""
-			emulated = append(emulated, sp.flag)
-		}
-	}
-	drop(c.SystemPrompt, req.SystemPrompt != "", "--system-prompt", func() { req.SystemPrompt = "" })
-	drop(c.AppendSystemPrompt, req.AppendSystemPrompt != "", "--append-system-prompt", func() { req.AppendSystemPrompt = "" })
-	if req.OutputSchema != "" && c.OutputSchema != Native { // the answer is validated either way; only the instruction differs
-		req.Prompt += wire.SchemaInstruction(req.OutputSchema)
-		emulated = append(emulated, "--output-schema")
-	}
-	return req, dropped, emulated
-}
-
-// ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).
-var ReadOnlyDeny = []Rule{{Tool: "Bash"}, {Tool: "Write"}, {Tool: "Edit"}}
-
-// refusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
-func refusePermissions(c Caps, agentName string, p Permissions) error {
-	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
-		return nil
-	}
-	what := "permission deny rules"
-	if len(p.Deny) == 0 {
-		what = "--mode plan"
-	}
-	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
-}
-
-// explicitChain is r alone on the caller's explicit backend (--provider or provider:model), carrying that backend's
-// account: a remembered exhaustion skips it without an attempt, and a quota failure is recorded on it.
-func explicitChain(r Engine, req RunOptions) Chain {
-	c := Single(r)
-	acct, billing := explicitAccount(r, req)
-	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
-	if req.Model == router.DiscoveryModel {
-		reg := loadRegistryWarn()
-		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
-	}
-	if e := accountRefused(c.Dispatches[0]); e != nil && e.Kind == retry.KindQuota {
-		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + e.Err.Error()}}
-	}
-	return c
-}
-
-// withAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
-func withAlias(c Chain, alias string) Chain {
-	if len(c.Dispatches) != 1 || alias == "" {
-		return c
-	}
-	disp := c.Dispatches[0]
-	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
-	c.Dispatches = []Dispatch{disp}
-	return c
-}
-
-// dispatchRequest is req for dispatch: the wanted dispatch keeps an explicit caller model; every other dispatch drops the original
-// provider and session (they belong to the dispatch that minted them) and runs its cell, the caller's --effort winning.
-func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
-	disp.discoveryNote()
-	out := req
-	if disp.unroutedDispatch {
-		return out
-	}
-	if !first {
-		out.Provider, out.SessionID = "", ""
-	}
-	if !disp.keepCaller {
-		out.Model = disp.Model
-	}
-	if out.Effort == "" {
-		out.Effort = disp.Effort
-	}
-	return armClaudeProfile(leadProfile(out, disp), disp)
-}
-
-// leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, never on the pin.
-func leadProfile(out RunOptions, disp Dispatch) RunOptions {
-	cp, _ := router.Confined()
-	provider, profile, ok := strings.Cut(disp.Account, "·")
-	if !ok || out.Provider != "" || (provider != cp && profile != out.Lead) {
-		return out
-	}
-	if reg, err := providers.Load(); err == nil && reg.Providers[profile] != nil {
-		out.Provider = profile
-	}
-	return out
-}
-
-// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
-func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
-	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
-		return out
-	}
-	prof, model, ok := strings.Cut(out.Model, ":")
-	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
-		out.Provider, out.Model = prof, model
-	}
-	return out
-}
-
-type coolKey struct{}
-
-// withCoolKey names the provider account a Run under ctx shares its rate limit with.
-func withCoolKey(ctx context.Context, key string) context.Context {
-	return context.WithValue(ctx, coolKey{}, key)
-}
-
-// fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
-func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(string)) {
-	if !aliasDenied(r, *req, e) {
-		return
-	}
-	cur := cmp.Or(req.Model, models.Opus)
-	if next := models.NextAlias(cur); next != "" {
-		if notify != nil {
-			notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
-		}
-		req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
-	}
-}
-
-// aliasDenied reports e as a rate or quota refusal of req's alias model (none: opus) on an agent that takes --model.
-func aliasDenied(r Engine, req RunOptions, e *retry.Error) bool {
-	return e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
-		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model))
-}
-
 // checkStructured fills res's structured answer; a schema failure also sets res.Status.
 func checkStructured(res *wire.Result, schema, agentName string) *retry.Error {
 	var verr error
@@ -711,67 +490,6 @@ func checkStructured(res *wire.Result, schema, agentName string) *retry.Error {
 		return e
 	}
 	return nil
-}
-
-// ResolveRequestTarget applies --provider then --model (alias, id, or provider:model) to the registry; an id a Claude alias
-// currently backs takes the session's alias selection, so CLAUDE_<TIER>_MODEL pins win.
-func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, providers.Target{}, err
-	}
-	return resolveIn(reg, req)
-}
-
-// resolveIn is ResolveRequestTarget against an already loaded registry.
-func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
-	req = profileAliasRequest(reg, req)
-	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
-	if sel.Provider == nil || (err != nil && req.Model == "") {
-		return nil, providers.Target{}, err
-	}
-	if req.Model == "" {
-		return reg, sel.Aliases[models.Opus], nil
-	}
-	if t, ok := sel.Aliases[req.Model]; ok {
-		return reg, t, nil
-	}
-	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
-		return reg, t, nil
-	}
-	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
-}
-
-// servedTarget is t with its model in preflight's spelling: a bare id the workspace serves runs as databricks-<id>.
-func servedTarget(agentName string, t providers.Target) providers.Target {
-	if t.Provider != nil && t.Provider.Preset == providers.PresetDatabricks {
-		t.Model = launchWire(agentName, t.Provider, t.Model)
-	}
-	return t
-}
-
-// "<profile>:<alias>" resolves like --provider <profile> --model <alias>.
-func profileAliasRequest(reg *providers.Registry, req RunOptions) RunOptions {
-	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
-		req.Provider, req.Model = name, alias
-	}
-	return req
-}
-
-// aliasTarget is the session's target for a canonical Claude id that an alias backs (any spelling), [1m] kept.
-func aliasTarget(sel providers.Selection, model string) (providers.Target, bool) {
-	canonical, oneM, ok := models.Resolve(model)
-	if !ok {
-		return providers.Target{}, false
-	}
-	t, ok := sel.Aliases[models.AliasOf(canonical)]
-	if ok && t.Model == "auto" { // a router alias names no model: the typed id stays exact
-		return providers.Target{}, false
-	}
-	if ok && oneM {
-		t.OneM = true
-	}
-	return t, ok
 }
 
 const streamBuffer = 1024
@@ -942,23 +660,4 @@ func ValidateAs(as, ag string) error {
 		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)
 	}
 	return nil
-}
-
-// buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
-	if jobRec != nil {
-		return *jobRec // same id: a job run continues the record it was spawned from
-	}
-	rec := ClaimRecord(name, req, time.Now())
-	cwd := workdir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	rec.Repo = RepoRoot(ctx, cwd)
-	rec.Owner = inflight.SessionOwner()
-	rec.Log = rec.LogPath()
-	if !background {
-		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
-	}
-	return rec
 }

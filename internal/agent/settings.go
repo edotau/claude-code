@@ -19,7 +19,7 @@ type Settings struct {
 	Agent       string
 	Record      vault.AgentRecord // agentconfig.Settings(Agent)
 	Effort      string            // request (flag or routed cell) > Record.Effort; "" = the CLI's default
-	Permissions Permissions       // ResolvePermissions(record policy, request)
+	Permissions Permissions       // resolvePermissions(record policy, request)
 	Target      providers.Target  // the resolved profile row and model; Provider nil on the agent's own login
 
 	Tools, Autonomous, SafeMode bool

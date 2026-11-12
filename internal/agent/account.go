@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -103,4 +104,30 @@ func copilotLoginAccount() string {
 		return "github·" + u
 	}
 	return ""
+}
+
+// explicitChain is r alone on the caller's explicit backend and its account, so exhaustion skips it and quota marks it.
+func explicitChain(r Engine, req RunOptions) Chain {
+	c := Single(r)
+	acct, billing := explicitAccount(r, req)
+	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
+	if req.Model == router.DiscoveryModel {
+		reg := loadRegistryWarn()
+		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
+	}
+	if e := accountRefused(c.Dispatches[0]); e != nil && e.Kind == retry.KindQuota {
+		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + e.Err.Error()}}
+	}
+	return c
+}
+
+// withAlias runs c's lone explicit dispatch on the router's alias when the caller named no model.
+func withAlias(c Chain, alias string) Chain {
+	if len(c.Dispatches) != 1 || alias == "" {
+		return c
+	}
+	disp := c.Dispatches[0]
+	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
+	c.Dispatches = []Dispatch{disp}
+	return c
 }

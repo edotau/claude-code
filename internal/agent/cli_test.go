@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -156,5 +157,46 @@ func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	}
 	if got := SchemaFor("opencode").OwnProfile(); got != "opencode" {
 		t.Errorf("OwnProfile(opencode) = %q, want the agent name when no row names its login", got)
+	}
+}
+
+// "<profile>:<alias>" resolves like --provider <profile> --model <alias>; anything else is left alone.
+func TestResolveTargetProfileTierRewrite(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5","haiku":"claude-haiku-4-5"}}}}}`)
+	_, want, err := ResolveRequestTarget(RunOptions{Provider: "dev", Model: "opus"})
+	if err != nil || want.Provider == nil || want.Provider.Name != "dev" {
+		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
+	}
+
+	t.Run("dev:opus equals --provider dev --model opus", func(t *testing.T) {
+		_, got, err := ResolveRequestTarget(RunOptions{Model: "dev:opus"})
+		if err != nil || got.Provider == nil || got.Provider.Name != "dev" || got.Model != want.Model {
+			t.Errorf("dev:opus = %+v (%v), want provider dev model %q", got, err, want.Model)
+		}
+	})
+	t.Run("full id keeps its prior behaviour", assertFullIDTargetRewrite)
+	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) { assertUnknownTargetRewrite(t, want.Model) })
+	t.Run("the explicit backend is still seen", func(t *testing.T) {
+		req := RunOptions{Model: "dev:opus"}
+		if !explicitBackend(req) {
+			t.Error("ExplicitBackend(dev:opus) must stay true")
+		}
+		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "databricks·dev" {
+			t.Errorf("explicitAccount = %q, want databricks·dev", acct)
+		}
+	})
+}
+
+// A canonical Claude id takes the session's alias selection, so a CLAUDE_<TIER>_MODEL pin wins over the typed id.
+func TestResolveTargetCanonicalIDTakesTheTierPin(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
+		`"auth":{"type":"key","env":"DEV_TEST_KEY"},"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5"}}}}}`)
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "claude-sonnet-5")
+	_, got, err := ResolveRequestTarget(RunOptions{Provider: "dev", Model: "claude-sonnet-5-5"})
+	if err != nil || got.Model != "claude-sonnet-5" {
+		t.Errorf("claude-sonnet-5-5 = %+v (%v), want the pinned claude-sonnet-5", got, err)
 	}
 }

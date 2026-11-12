@@ -374,7 +374,7 @@ func pinRoute(name, pin string) (string, error) {
 	if pin == "" {
 		return "", nil
 	}
-	if own, err := OwnLogin(name, pin); own || err != nil {
+	if own, err := isOwnLogin(name, pin); own || err != nil {
 		return "", err
 	}
 	reg, err := providers.Load()

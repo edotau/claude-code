@@ -3,17 +3,13 @@ package agent
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
@@ -63,31 +59,9 @@ func SwapLoadState(wrap func(prev func() router.State) func() router.State) func
 	return func() { loadState = prev }
 }
 
-// modelRow resolves a --model (or alias) value to the route-table row it names: the alias the pick runs at and the
-// canonical Claude id of the row. exact is the canonical id of a non-Claude model, which only agents serving it may run.
-func modelRow(model string) (alias, row, exact string) {
-	if model == router.DiscoveryModel {
-		return "", "", ""
-	}
-	canonical, _, ok := models.Resolve(model)
-	switch {
-	case !ok && strings.TrimSpace(model) != "": // not in the catalog: still an exact request, never a silent default
-		return "", "", strings.TrimSpace(model)
-	case !ok:
-		return "", "", ""
-	case models.FamilyKind(canonical) != models.FamilyClaude:
-		return "", "", canonical
-	}
-	alias = cmp.Or(models.AliasOf(canonical), models.FamilyOf(canonical))
-	if !slices.Contains(router.Aliases, alias) {
-		alias = ""
-	}
-	return alias, canonical, ""
-}
-
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
-	alias, row, exact := modelRow(model)
+	alias, row, exact := router.ModelRow(model)
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
 }
 
@@ -500,19 +474,6 @@ func explicitEngine(q RouteReq, pf *Preflight) (Engine, error) {
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
 const LeadSession = "session"
 
-// firstOutputDeadline is the free-dispatch stall deadline from the registry, else OpencodeRouting's 90s floor.
-func firstOutputDeadline() time.Duration {
-	reg, err := providers.Load()
-	if err != nil {
-		return (providers.OpencodeRouting{}).FirstOutput()
-	}
-	return reg.Routing.Opencode.FirstOutput()
-}
-
-// ErrStalled is the sentinel a dispatch's Run returns when its stream went silent past the stall deadline: a
-// fatal, unwrapped failure, so Do never retries it but dispatchUnavailable falls through to the chain's backup dispatch.
-var ErrStalled = errors.New("dispatch stalled: no output within the stall deadline")
-
 // routeCtx is the per-pick state routeChain's candidate helpers share.
 type routeCtx struct {
 	tb                            *router.RouteTable
@@ -578,12 +539,6 @@ func (rc routeCtx) onWire(agent string) bool {
 	return rc.exact != "" || speaksResponses(agent) || isHubAgent(agent)
 }
 
-// wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
-func wireAgent(name string) bool {
-	s, ok := lookupRow(name)
-	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !isHubAgent(name) && !speaksResponses(name)
-}
-
 // callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
 func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
 	model := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
@@ -594,20 +549,6 @@ func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (r
 	}
 	cell.Model = wire
 	return cell, ""
-}
-
-// ProfileServes is model as p spells it when a fresh listing does not mark it NOT_READY and agentName Serves it there.
-func ProfileServes(agentName string, p *providers.Provider, model string) (wire, why string) {
-	if wire = providers.SpellPin(p, model); wire == "" {
-		return "", "serves no " + model
-	}
-	if ready, fresh := router.ServedReady(p, wire, time.Now()); fresh && !ready {
-		return "", "serves no " + wire + " (not a READY endpoint on " + p.Name + ")"
-	}
-	if ok, why := Serves(agentName, p, wire); !ok {
-		return "", why
-	}
-	return wire, ""
 }
 
 // profileBacked reports a non-hub profile candidate facing an exact non-Claude model.
@@ -622,7 +563,7 @@ func (rc routeCtx) olderRow(cand router.Candidate) bool {
 
 // exactCell points cell at the cell serving the exact model; skip is non-empty for a non-wanted agent with none.
 func (rc routeCtx) exactCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
-	sc, ok := cellServing(rc.tb, cand.Agent, rc.exact)
+	sc, ok := rc.tb.CellServing(cand.Agent, rc.exact, isHubAgent(cand.Agent))
 	if !ok && cand.Agent != rc.want {
 		return cell, cand.Agent + ": serves no " + rc.exact
 	}
@@ -630,12 +571,6 @@ func (rc routeCtx) exactCell(cand router.Candidate, cell router.Cell) (router.Ce
 		cell.Model, cell.Effort = sc.Model, sc.Effort
 	}
 	return cell, ""
-}
-
-// speaksResponses reports an agent whose schema lists the Responses dialect (codex): it needs a Responses route.
-func speaksResponses(agentName string) bool {
-	s, ok := lookupRow(agentName)
-	return ok && slices.Contains(s.CLI.Dialects, providers.ProtocolResponses)
 }
 
 // profileCell validates a profile-backed candidate against the exact model: codex needs a Responses route for it,
@@ -665,7 +600,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 
 // claudeTierCell points cell at claude's lowest alias serving the non-Claude dispatch model.
 func (rc routeCtx) claudeTierCell(cell *router.Cell) {
-	t := lowestAliasServing(rc.tb, rc.want, rc.dispatchID)
+	t := rc.tb.LowestAliasServing(rc.want, rc.dispatchID)
 	if t == "" {
 		return
 	}
@@ -737,7 +672,7 @@ func lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dis
 	}
 	disp.Agent = r
 	if cand.Agent == "claude" {
-		disp.Model = claudeCellModel(cell.Model)
+		disp.Model = router.ClaudeCellModel(cell.Model)
 		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
 			disp.Model = cand.Profile + ":" + disp.Model
 		}
@@ -754,61 +689,6 @@ func nonClaudeDispatchID(exact string, explicitModel bool, pinModel string) stri
 		return id
 	}
 	return ""
-}
-
-// lowestAliasServing is the lowest router alias (haiku up) whose cell for agentName resolves to id, else "".
-// Several aliases may share id (codex gpt-6.1-sol at opus and sonnet); a caller that named an alias never reaches this.
-func lowestAliasServing(tb *router.RouteTable, agentName, id string) string {
-	for _, alias := range slices.Backward(router.Aliases) {
-		if c, ok := tb.Rows[agentName][alias]; ok {
-			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
-				return alias
-			}
-		}
-	}
-	return ""
-}
-
-// claudeCellModel is the model a routed claude dispatch runs: the alias a canonical row id backs, so the session's
-// selection (CLAUDE_<TIER>_MODEL pins, auto-[1m]) resolves it; an older row without an alias stays its canonical id.
-func claudeCellModel(cell string) string {
-	canonical, _, ok := models.Resolve(cell)
-	if !ok {
-		return cell
-	}
-	return cmp.Or(models.AliasOf(canonical), canonical)
-}
-
-// cellServing is agentName's table cell (any row, then opencode's sub-candidates) whose model is exact.
-func cellServing(tb *router.RouteTable, agentName, exact string) (router.Cell, bool) {
-	serves := func(c router.Cell) bool { id, _, ok := models.Resolve(c.Model); return ok && id == exact }
-	for _, row := range slices.Sorted(maps.Keys(tb.ByModel)) {
-		if c, ok := tb.ByModel[row][agentName]; ok && serves(c) {
-			return c, true
-		}
-	}
-	if !isHubAgent(agentName) {
-		return router.Cell{}, false
-	}
-	for _, sub := range slices.Sorted(maps.Keys(tb.OpencodeSub)) {
-		for _, alias := range slices.Sorted(maps.Keys(tb.OpencodeSub[sub])) {
-			if c := tb.OpencodeSub[sub][alias]; serves(c) {
-				return c, true
-			}
-		}
-	}
-	return router.Cell{}, false
-}
-
-// watchFreeDispatch sets the idle timeout on r when billing is free; any other agent (or billing) passes through.
-func watchFreeDispatch(r Engine, billing string) Engine {
-	if billing != router.BillFree {
-		return r
-	}
-	if hl, ok := r.(HubEngine); ok {
-		return hl.WithFirstOutput(firstOutputDeadline())
-	}
-	return r
 }
 
 func (rc routeCtx) discoveryCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {
@@ -837,7 +717,7 @@ func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, pro
 	cell, _ := tb.Cell(disp.Agent.Name(), alias)
 	p, prefix := discoveryProvider(disp, reg, profile)
 	if p != nil && p.Preset == providers.PresetDatabricks {
-		disp.repick = discoveryRepick(disp.Agent.Name(), alias, cell, p, prefix)
+		disp.repick = router.DiscoveryRepick(disp.Agent.Name(), alias, cell, p, prefix)
 	}
 	if picked && router.IsPoolModel(p, disp.Model) {
 		return disp
@@ -861,32 +741,13 @@ func discoveryProvider(disp Dispatch, reg *providers.Registry, profile string) (
 	return p, p.Name + ":"
 }
 
-// discoveryRepick skips the failed model for this agent, then returns the next pool pick ("" if unchanged).
-func discoveryRepick(agent, alias string, cell router.Cell, p *providers.Provider, prefix string) func(string) string {
-	return func(failed string) string {
-		wire := strings.TrimPrefix(failed, prefix)
-		if router.SkipDiscovery(agent, p, wire) == "" {
-			return ""
-		}
-		next, _ := router.PinnedModel(agent, alias, cell, p, router.DiscoveryModel)
-		if next == "" || next == wire {
-			return ""
-		}
-		fmt.Fprintf(os.Stderr, "discovery: %s skipped for %s (model capability)\n", wire, agent)
-		return prefix + next
-	}
-}
-
-// capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
-var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
-
 // servedRepickFor is a codex Databricks dispatch's repick when the switch is on and the caller named no exact model.
 func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {
 	p := rc.codexDatabricks(cand)
 	if p == nil || !providers.ServedRoutingOn() || rc.exact != "" || (rc.callerModel != "" && rc.row == "") {
 		return nil
 	}
-	return func(failed string) string { return servedRepick(p, failed) }
+	return func(failed string) string { return router.NextServed(p, failed) }
 }
 
 // codexDatabricks is cand's profile row when a Responses-wire agent dispatches on a Databricks profile, else nil.
@@ -898,102 +759,4 @@ func (rc routeCtx) codexDatabricks(cand router.Candidate) *providers.Provider {
 		return p
 	}
 	return nil
-}
-
-// servedRepick marks the failed model gone on p and returns the next READY Responses model, "" when there is none.
-func servedRepick(p *providers.Provider, failed string) string {
-	prefix := p.Name + ":"
-	wire := strings.TrimPrefix(failed, prefix)
-	if err := router.MarkUnserved(p, wire); err != nil {
-		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", wire, err)
-	}
-	next, _ := router.ServedFirst(p, true, time.Now())
-	if next == "" || next == wire {
-		return ""
-	}
-	fmt.Fprintf(os.Stderr, "served: %s unavailable on %s; using %s\n", wire, p.Name, next)
-	return prefix + next
-}
-
-// retryModel is the next model after a model-capability (discovery) or endpoint-gone (served) failure, else "".
-func retryModel(disp Dispatch, lreq RunOptions, err error) string {
-	if err == nil {
-		return ""
-	}
-	if retry.Progressed(err) {
-		return "" // text or tools already ran: a re-run on the next model would repeat them
-	}
-	switch msg := err.Error(); {
-	case disp.repick != nil && capabilityErr.MatchString(msg):
-		return disp.repick(lreq.Model)
-	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
-		return disp.servedRepick(lreq.Model)
-	}
-	return ""
-}
-
-func (disp Dispatch) discoveryNote() {
-	if disp.note == "" {
-		return
-	}
-	fmt.Fprintln(os.Stderr, disp.note)
-}
-
-// previewRoute resolves the pick through the chain `ask` runs, so each candidate carries the model it would execute;
-// a dispatch dropped after the pick (model or profile gate) moves to Skipped.
-func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.PickResult, error) {
-	tb, err := router.Load()
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
-	}
-	profiles := previewProfiles(q, lead)
-	if err := previewServes(tb, q.Model, profiles); err != nil {
-		return Chain{}, router.PickResult{}, err
-	}
-	chain, pick, err := chainFor(ctx, q, previewHint(tb, q.Model, q.Task), lead)
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
-	}
-	if _, _, exact := modelRow(q.Model); exact != "" && !slices.ContainsFunc(chain.Dispatches, func(d Dispatch) bool {
-		return sameModel(d.Model, exact)
-	}) {
-		return Chain{}, router.PickResult{}, fmt.Errorf("--model %s: no %s candidate runs it; claude-code models --live "+
-			"--profile %s lists what is served", q.Model, cmp.Or(q.Agent, "routed"), cmp.Or(firstName(profiles), "<p>"))
-	}
-	return chain, previewOutcome(chain, pick), nil
-}
-
-func previewHint(tb *router.RouteTable, model, task string) string {
-	hint := tb.AliasOf(model)
-	if hint == "" && task != "" {
-		hint = router.RuleClassifier{}.Alias(task)
-	}
-	if hint == "" {
-		hint = router.Aliases[1]
-	}
-	return hint
-}
-
-func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
-	res := pick
-	res.Candidates = nil
-	for _, d := range chain.Dispatches {
-		if d.rung < 1 || d.rung > len(pick.Candidates) {
-			continue
-		}
-		c := pick.Candidates[d.rung-1]
-		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
-			c.Model, c.Effort = d.Model, d.Effort
-		}
-		res.Candidates = append(res.Candidates, c)
-	}
-	res.Skipped = slices.Clone(pick.Skipped)
-	for _, s := range chain.Skipped {
-		if slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return s == k.Agent+": "+k.Reason }) {
-			continue
-		}
-		who, why, _ := strings.Cut(s, ": ")
-		res.Skipped = append(res.Skipped, router.Skip{Agent: who, Gate: "model", Reason: why})
-	}
-	return res
 }

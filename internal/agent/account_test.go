@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -33,5 +38,29 @@ func TestResolveAccountFollowsSessionProfile(t *testing.T) {
 	}
 	if acct, _ := resolveAccount("codex", router.Cell{Model: "gpt-6.1-sol", Account: "openai·chatgpt"}); acct != "" {
 		t.Errorf("codex login cell account = %q, want it kept (empty override)", acct)
+	}
+}
+
+// An explicit backend stays one dispatch, records its own quota failure, and is skipped without an attempt after.
+func TestExplicitChainRecordsAndGates(t *testing.T) {
+	setConfigDir(t)
+	codex := &fakeRunner{name: "codex", errs: []error{errors.New("insufficient_quota: you exceeded your current quota")}, emptyAnswer: true}
+	req := RunOptions{Prompt: "p", Provider: "openai"}
+	c := explicitChain(codex, req)
+	if len(c.Dispatches) != 1 || c.Dispatches[0].Account != "openai·openai" {
+		t.Fatalf("chain = %+v, want one dispatch on openai·openai", c)
+	}
+	if _, err := runWithFallback(context.Background(), c, req, wire.Discard, nil); err == nil {
+		t.Fatal("the quota failure must surface")
+	}
+	if e := loadState()["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
+		t.Fatalf("openai·openai not marked: %+v", e)
+	}
+	again := explicitChain(codex, req)
+	if len(again.Dispatches) != 0 || len(again.Skipped) != 1 || !strings.Contains(again.Skipped[0], "openai·openai exhausted") {
+		t.Fatalf("second explicit chain = %+v, want a gate skip", again)
+	}
+	if len(codex.seen) != 1 {
+		t.Errorf("attempts = %d, want 1 (the gate stops the second)", len(codex.seen))
 	}
 }

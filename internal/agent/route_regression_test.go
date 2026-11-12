@@ -58,27 +58,6 @@ func TestRouteChainStampsRungOnEveryDispatch(t *testing.T) {
 	}
 }
 
-// A preview leads only with an explicit lead; the session profile alone adds none (callers behave as before).
-func TestPreviewRouteLeadsOnlyWhenAsked(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
-	t.Setenv("CLAUDE_PROFILE", "no-such-row")
-	for _, lead := range []string{"", "no-such-row"} {
-		q := RouteReq{Agent: "codex", Task: "x", Lead: lead, Fallback: router.FallbackAll, Preview: true}
-		_, res, err := Resolve(context.Background(), q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var skips []string
-		for _, s := range res.Skipped {
-			skips = append(skips, s.Reason)
-		}
-		if got := strings.Contains(strings.Join(skips, "\n"), "no-such-row"); got != (lead != "") {
-			t.Fatalf("lead %q: skip naming no-such-row = %v, skipped %+v", lead, got, res.Skipped)
-		}
-	}
-}
-
 // A broken registry warns once per process, not on every route or preview.
 func TestRegistryLoadWarningPrintsOnce(t *testing.T) {
 	vaulttest.Use(t)

@@ -314,3 +314,19 @@ func readPoolOverlay() ([]string, error) {
 	})
 	return out, err
 }
+
+// DiscoveryRepick skips the failed model for agent, then returns the next pool pick ("" if unchanged).
+func DiscoveryRepick(agent, alias string, cell Cell, p *providers.Provider, prefix string) func(string) string {
+	return func(failed string) string {
+		wire := strings.TrimPrefix(failed, prefix)
+		if SkipDiscovery(agent, p, wire) == "" {
+			return ""
+		}
+		next, _ := PinnedModel(agent, alias, cell, p, DiscoveryModel)
+		if next == "" || next == wire {
+			return ""
+		}
+		fmt.Fprintf(os.Stderr, "discovery: %s skipped for %s (model capability)\n", wire, agent)
+		return prefix + next
+	}
+}

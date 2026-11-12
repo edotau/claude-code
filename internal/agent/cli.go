@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/models"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
@@ -362,4 +363,64 @@ func DirectCtx(ctx context.Context, req RunOptions) context.Context {
 // PrepareCLI resolves req's route and headless argv for the named roster CLI.
 func PrepareCLI(ctx context.Context, name string, req RunOptions) (CLIPrep, error) {
 	return newCLIEngine(name).prepare(ctx, req)
+}
+
+// ResolveRequestTarget applies --provider then --model to the registry; an aliased Claude id takes the session's pin.
+func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, providers.Target{}, err
+	}
+	return resolveIn(reg, req)
+}
+
+// resolveIn is ResolveRequestTarget against an already loaded registry.
+func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
+	req = profileAliasRequest(reg, req)
+	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
+	if sel.Provider == nil || (err != nil && req.Model == "") {
+		return nil, providers.Target{}, err
+	}
+	if req.Model == "" {
+		return reg, sel.Aliases[models.Opus], nil
+	}
+	if t, ok := sel.Aliases[req.Model]; ok {
+		return reg, t, nil
+	}
+	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
+		return reg, t, nil
+	}
+	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
+}
+
+// servedTarget is t with its model in preflight's spelling: a bare id the workspace serves runs as databricks-<id>.
+func servedTarget(agentName string, t providers.Target) providers.Target {
+	if t.Provider != nil && t.Provider.Preset == providers.PresetDatabricks {
+		t.Model = launchWire(agentName, t.Provider, t.Model)
+	}
+	return t
+}
+
+// "<profile>:<alias>" resolves like --provider <profile> --model <alias>.
+func profileAliasRequest(reg *providers.Registry, req RunOptions) RunOptions {
+	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
+		req.Provider, req.Model = name, alias
+	}
+	return req
+}
+
+// aliasTarget is the session's target for a canonical Claude id that an alias backs (any spelling), [1m] kept.
+func aliasTarget(sel providers.Selection, model string) (providers.Target, bool) {
+	canonical, oneM, ok := models.Resolve(model)
+	if !ok {
+		return providers.Target{}, false
+	}
+	t, ok := sel.Aliases[models.AliasOf(canonical)]
+	if ok && t.Model == "auto" { // a router alias names no model: the typed id stays exact
+		return providers.Target{}, false
+	}
+	if ok && oneM {
+		t.OneM = true
+	}
+	return t, ok
 }
