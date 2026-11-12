@@ -37,7 +37,8 @@ func enabledModelInfos(list []SDKModel) []providers.ModelInfo {
 	out := make([]providers.ModelInfo, 0, len(list))
 	for _, m := range list {
 		if m.Enabled {
-			out = append(out, modelInfo(m))
+			out = append(out, providers.ModelInfo{ID: m.ID, Name: m.Name, UseCase: models.UseCase(m.ID, m.Name),
+				Capabilities: copilotCapabilities(m)})
 		}
 	}
 	return out
@@ -356,11 +357,6 @@ func discoverCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *p
 	return copilotEndpointRows(copilotModelInfos(ctx, reg, p))
 }
 
-// checkedCopilotEndpoints is discoverCopilotEndpoints with the identity validated on every read, for explicit commands.
-func checkedCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *providers.Provider) ([]CopilotEndpoint, error) {
-	return copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p))
-}
-
 // copilotEndpointRows keeps the READY chat endpoints of a model read, marking the curated-menu ones.
 func copilotEndpointRows(infos []providers.ModelInfo, snapshot bool, err error) ([]CopilotEndpoint, error) {
 	if err != nil {
@@ -408,16 +404,11 @@ func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile st
 	if !ok || p == nil || p.Preset != providers.PresetDatabricks {
 		return CopilotCatalog{Source: "GitHub Copilot catalog"}, nil
 	}
-	rows, err := checkedCopilotEndpoints(ctx, reg, p)
+	rows, err := copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p)) // identity validated on every read
 	if err != nil {
 		return CopilotCatalog{}, err
 	}
 	return CopilotCatalog{Source: name + " serving endpoints", Profile: name, Databricks: true, Rows: rows}, nil
-}
-
-// modelInfo is m as a provider model row: its use case and capability string.
-func modelInfo(m SDKModel) providers.ModelInfo {
-	return providers.ModelInfo{ID: m.ID, Name: m.Name, UseCase: models.UseCase(m.ID, m.Name), Capabilities: copilotCapabilities(m)}
 }
 
 // DiscoverResult is one profile's `models discover` outcome.

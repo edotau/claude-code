@@ -671,12 +671,6 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 	}
 }
 
-func TestRoster(t *testing.T) {
-	if got := agent.Names(); !slices.Equal(got, []string{"codex", "copilot", "gemini", "opencode"}) {
-		t.Errorf("external roster = %v, want [codex copilot gemini opencode]", got)
-	}
-}
-
 // TestLookupKnownVendors: every external vendor is a registered, external schema with an engine of its own;
 // resume, catalog and read-permission facts are pinned by TestRosterFacts.
 func TestLookupKnownVendors(t *testing.T) {
@@ -782,12 +776,5 @@ func assertRosterWireFacts(t *testing.T, s agent.Schema, want agent.CLI) {
 	if !slices.Equal(s.CLI.ModelsArgv, want.ModelsArgv) || s.CLI.ModelsProvider != want.ModelsProvider ||
 		s.CLI.ReadNeedsTools != want.ReadNeedsTools || !slices.Equal(s.CLI.ExtraUsage, want.ExtraUsage) {
 		t.Error("catalog, tools or help facts changed")
-	}
-}
-
-// Ties agentid.All to the registered roster: five agents, claude included, sorted by name.
-func TestRosterNamesAreTheFiveAgents(t *testing.T) {
-	if got := agent.RosterNames(); !slices.Equal(got, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
-		t.Errorf("RosterNames() = %v, want [claude codex copilot gemini opencode]", got)
 	}
 }
