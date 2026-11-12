@@ -142,7 +142,7 @@ func TestLastDispatchErrorBeyondOtherAgentsRecentJobs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := lastDispatchError("codex"); got != want {
+	if got := lastDispatchError("codex", time.Time{}); got != want {
 		t.Fatalf("newest failed codex dispatch hidden by newer jobs: got %q, want %q", got, want)
 	}
 }

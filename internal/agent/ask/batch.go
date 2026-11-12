@@ -41,13 +41,18 @@ type parsedLine struct {
 	Err  error
 }
 
+// maxTaskLine caps one JSONL task line; a longer line fails alone.
+const maxTaskLine = 1 << 20
+
 // readTaskLines decodes JSONL tasks; a malformed line or unknown field is that line's Err, never the whole batch's.
 func readTaskLines(r io.Reader) ([]parsedLine, error) {
 	var out []parsedLine
 	br := bufio.NewReader(r)
 	for n := 1; ; n++ {
-		line, err := br.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
+		line, tooLong, err := agent.ReadLineCapped(br, maxTaskLine)
+		if tooLong {
+			out = append(out, parsedLine{N: n, Err: fmt.Errorf("line %d: over the %d byte line limit", n, maxTaskLine)})
+		} else if len(bytes.TrimSpace(line)) > 0 {
 			out = append(out, decodeTaskLine(line, n))
 		}
 		if errors.Is(err, io.EOF) {
@@ -101,7 +106,13 @@ var planTaskRE = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`)
 // parseTask validates one line like the ask flags; on error the task keeps its id and agent.
 func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
 	seen map[string]bool) (batchTask, error) {
-	t := batchTask{ID: cmp.Or(l.Task.ID, "t"+strconv.Itoa(l.N)), Agent: cmp.Or(l.Task.Agent, agentName)}
+	t := batchTask{ID: l.Task.ID, Agent: cmp.Or(l.Task.Agent, agentName)}
+	if t.ID == "" { // a default id must not collide with an explicit id taken earlier
+		t.ID = "t" + strconv.Itoa(l.N)
+		for i := 2; seen[t.ID]; i++ {
+			t.ID = "t" + strconv.Itoa(l.N) + "-" + strconv.Itoa(i)
+		}
+	}
 	if l.Err != nil {
 		return t, l.Err
 	}
