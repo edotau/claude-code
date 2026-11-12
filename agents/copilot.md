@@ -6,7 +6,7 @@ tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
 color: cyan
-maxTurns: 16
+maxTurns: 60
 ---
 
 # Copilot — Test Surface · Last Mile
