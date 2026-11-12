@@ -202,8 +202,12 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 }
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
-func RecallExplain(w io.Writer, repo, query string) {
-	_, trace := recallPicks(RepoRoot(repo), os.Getenv(SessionIDEnv), query, true, true)
+func RecallExplain(w io.Writer, repo, query string) error {
+	top, err := ResolveRepo(repo)
+	if err != nil {
+		return err
+	}
+	_, trace := recallPicks(top, os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)
@@ -215,6 +219,7 @@ func RecallExplain(w io.Writer, repo, query string) {
 		}
 		explainRow(w, row, files[row.File])
 	}
+	return nil
 }
 
 func explainFiles(w io.Writer, rows []recallCandidate) map[string]int {

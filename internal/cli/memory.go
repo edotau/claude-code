@@ -259,7 +259,11 @@ func cmdMemoryInit(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "init", args); done {
 		return code
 	}
-	if err := memory.InitBank(os.Stdout, memory.RepoRoot(*repo)); err != nil {
+	root, err := memory.ResolveRepo(*repo)
+	if err != nil {
+		return helptext.FailUsage("memory init: %v", err)
+	}
+	if err := memory.InitBank(os.Stdout, root); err != nil {
 		return helptext.Fail("memory init: %v", err)
 	}
 	return 0
@@ -276,7 +280,10 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	root := memory.RepoRoot(*repo)
+	root, err := memory.ResolveRepo(*repo)
+	if err != nil {
+		return helptext.FailUsage("memory remember: %v", err)
+	}
 	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
@@ -325,8 +332,11 @@ func cmdMemorySearch(args []string) int {
 	if code, done := q.parse(args); done {
 		return code
 	}
-	res := memory.Search(memory.SearchOptions{Repo: *q.repo, All: *q.all, Query: q.terms, K: *q.k,
+	res, err := memory.Search(memory.SearchOptions{Repo: *q.repo, All: *q.all, Query: q.terms, K: *q.k,
 		Expand: q.termCount == 1 && !q.json()})
+	if err != nil {
+		return helptext.FailUsage("memory search: %v", err)
+	}
 	if res.Block != "" {
 		printMemoryBlock(res.Path, res.Block)
 		return 0
@@ -390,7 +400,11 @@ func cmdMemoryPath(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "path", args); done {
 		return code
 	}
-	fmt.Println(memory.Dir(memory.RepoRoot(*repo)))
+	root, err := memory.ResolveRepo(*repo)
+	if err != nil {
+		return helptext.FailUsage("memory path: %v", err)
+	}
+	fmt.Println(memory.Dir(root))
 	return 0
 }
 
@@ -480,9 +494,7 @@ func cmdMemoryTimeline(args []string) int {
 	return 0
 }
 
-// cmdMemoryPromote moves/surfaces one block by id: "home" is a deterministic move, settled both
-// sides; "rules"/"skill"/"claude-md" print the block + target for a human/agent to apply by hand
-// (model residue) — Go never writes those targets. `memory index` already settles caps on its own.
+// cmdMemoryPromote moves a block to home, or prints a block and target for a human to apply (never writes them).
 func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
 	to := fs.String("to", "", "promotion target: home, rules or skill (claude-md: dream only)")
@@ -494,7 +506,11 @@ func cmdMemoryPromote(args []string) int {
 	if len(pos) != 1 || *to == "" {
 		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
 	}
-	out, err := memory.Promote(memory.RepoRoot(*repo), pos[0], *to, *dryRun, time.Now())
+	root, err := memory.ResolveRepo(*repo)
+	if err != nil {
+		return helptext.FailUsage("memory promote: %v", err)
+	}
+	out, err := memory.Promote(root, pos[0], *to, *dryRun, time.Now())
 	if err != nil {
 		return helptext.Fail("memory promote: %v", err)
 	}
@@ -543,7 +559,9 @@ func memoryRecallExplain(repo, query string, conflict bool) int {
 	if conflict {
 		return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
 	}
-	memory.RecallExplain(os.Stdout, repo, query)
+	if err := memory.RecallExplain(os.Stdout, repo, query); err != nil {
+		return helptext.FailUsage("memory recall: %v", err)
+	}
 	return 0
 }
 
@@ -557,7 +575,10 @@ func cmdMemoryRecall(args []string) int {
 	if *explain {
 		return memoryRecallExplain(*q.repo, q.terms, *q.all || q.json() || *load != 0)
 	}
-	hits, _ := memory.SearchRepo(*q.repo, *q.all, q.terms, *q.k)
+	hits, _, err := memory.SearchRepo(*q.repo, *q.all, q.terms, *q.k)
+	if err != nil {
+		return helptext.FailUsage("memory recall: %v", err)
+	}
 	return memoryRecallEmit(hits, *q.format, *load)
 }
 

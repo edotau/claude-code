@@ -59,8 +59,7 @@ func readRecallIndex(path string, stamp exeStamp, want map[fileKey]bool) map[fil
 	return m
 }
 
-// readIndexEntries decodes count entries from data; false when any is mis-framed or trailing bytes remain.
-// Entries outside want are skipped unvalidated, and a wanted entry with an invalid segment is a miss.
+// readIndexEntries decodes count entries; false on mis-framing or trailing bytes, and a bad wanted segment is a miss.
 func readIndexEntries(data []byte, count uint32, want map[fileKey]bool) (map[fileKey]indexed, bool) {
 	m := make(map[fileKey]indexed)
 	for range count {
@@ -167,11 +166,7 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	path := filepath.Join(StateDir(), recallIndexFile)
 	var index map[fileKey]indexed
 	if ok {
-		want := make(map[fileKey]bool, len(files))
-		for _, f := range files {
-			want[fileKey{f.Path, f.Mode}] = true
-		}
-		index = readRecallIndex(path, stamp, want)
+		index = readFilesIndex(path, stamp, files)
 	}
 	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
@@ -193,13 +188,28 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 			added[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}
-	if len(added) > 0 && os.MkdirAll(filepath.Dir(path), 0o755) == nil { // re-read under the lock: keep peers' entries
-		_, _ = paths.TryFileLock(path+".lock", time.Second, func() error {
-			cur := readRecallIndex(path, stamp, nil)
-			maps.Copy(cur, added)
-			pruneMissing(cur, stats)
-			return writeRecallIndex(path, stamp, cur)
-		})
-	}
+	persistIndex(path, stamp, added, stats)
 	return segs
+}
+
+// readFilesIndex is the persisted index restricted to files' (path, mode) keys.
+func readFilesIndex(path string, stamp exeStamp, files []corpusFile) map[fileKey]indexed {
+	want := make(map[fileKey]bool, len(files))
+	for _, f := range files {
+		want[fileKey{f.Path, f.Mode}] = true
+	}
+	return readRecallIndex(path, stamp, want)
+}
+
+// persistIndex merges added into the on-disk index and drops files that no longer exist.
+func persistIndex(path string, stamp exeStamp, added map[fileKey]indexed, stats map[string]bool) {
+	if len(added) == 0 || os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	_, _ = paths.TryFileLock(path+".lock", time.Second, func() error { // re-read under the lock: keep peers' entries
+		cur := readRecallIndex(path, stamp, nil)
+		maps.Copy(cur, added)
+		pruneMissing(cur, stats)
+		return writeRecallIndex(path, stamp, cur)
+	})
 }

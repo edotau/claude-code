@@ -55,8 +55,8 @@ const (
 	updateFailed  = "failed"
 )
 
-// updateGrace must exceed the worker's own timeout, or a healthy long update reads as lost.
-const updateGrace = 16 * time.Minute
+// updateGrace must exceed the worker's home-lock wait plus its own timeout, or a healthy queued update reads as lost.
+var updateGrace = homeLockWait + updateTimeout + time.Minute
 
 // updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy; a var for tests.
 var updateLockWait = 5 * time.Second
@@ -117,8 +117,7 @@ func (r UpdateResult) NeedsAttention(now time.Time) bool {
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
-// agentUpdatePrompt frames `claude-code memory update`'s procedure for an agent that has no slash
-// commands; the procedure itself is one copy, embedded at prompts/update.md.
+// agentUpdatePrompt frames `memory update` for an agent without slash commands; procedure: prompts/update.md.
 func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) {
 	ref, err := Reference("update")
 	if err != nil {
@@ -141,8 +140,7 @@ func historicalBlock(historical bool) string {
 	return ""
 }
 
-// firstTranscriptTimestamp is the first "timestamp" among the leading JSONL lines — the session's
-// start time, used to scope `git log --since`. Zero time when absent or unparseable.
+// firstTranscriptTimestamp is the session's first "timestamp" (scopes `git log --since`); zero when absent.
 func firstTranscriptTimestamp(transcript string) time.Time {
 	f, err := os.Open(transcript)
 	if err != nil {
@@ -167,9 +165,7 @@ func firstTranscriptTimestamp(transcript string) time.Time {
 	return time.Time{}
 }
 
-// gitSinceBlock appends this session's commits and touched files (committed + working tree) so the
-// narrative pass does not have to re-derive them. Empty when the transcript carries no timestamp or
-// cwd is not a git repo — the pass still runs from the brief alone.
+// gitSinceBlock lists this session's commits and touched files; empty without a timestamp or git repo.
 func gitSinceBlock(transcript, cwd string) string {
 	since := firstTranscriptTimestamp(transcript)
 	if since.IsZero() || cwd == "" {
@@ -199,8 +195,7 @@ func gitSinceBlock(transcript, cwd string) string {
 // gitBlockMaxRunes keeps a huge working tree from pushing the worker prompt past the argv limit (agent.MaxPromptBytes).
 const gitBlockMaxRunes = 8000
 
-// mergeFileLists dedupes git log's --name-only paths with git status --porcelain's (status lines
-// carry a 2-char code prefix; strip it before merging).
+// mergeFileLists dedupes git log's --name-only paths with status --porcelain's (2-char code prefix stripped).
 func mergeFileLists(nameOnly, porcelain string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -229,9 +224,7 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 	return out
 }
 
-// tagBlock extracts DECISION/BUG/NEXT/NOTE tags from the whole transcript and appends a filing
-// instruction when any exist. Extraction failure (missing file, bad JSON) degrades to no block;
-// the update itself must never fail because of tags.
+// tagBlock files the transcript's DECISION/BUG/NEXT/NOTE tags; an extraction failure degrades to no block, never fails.
 func tagBlock(transcript string) string {
 	f, err := os.Open(transcript)
 	if err != nil {
@@ -272,11 +265,7 @@ func update(o updateOptions) error {
 	o = updateDefaults(o)
 	prior, _ := readUpdateResult(o.Session)
 	record := func(status string, updated bool) error {
-		err := writeUpdateResult(o.Session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: prior.Log})
-		if err != nil {
-			return fmt.Errorf("record update result: %w", err)
-		}
-		return nil
+		return recordUpdateResult(o.Session, prior.Log, status, updated)
 	}
 	dir := Dir(o.CWD)
 	var run updateRun
@@ -290,6 +279,15 @@ func update(o updateOptions) error {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
 	return record(updateOK, run.updated)
+}
+
+// recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
+func recordUpdateResult(session, log, status string, updated bool) error {
+	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log})
+	if err != nil {
+		return fmt.Errorf("record update result: %w", err)
+	}
+	return nil
 }
 
 // uncoverStamp resets a dispatch stamp ("bg") to zero covered edits, keeping its time so the Stop cooldown still holds.
@@ -402,8 +400,7 @@ const (
 
 var tagKinds = []string{"DECISION:", "BUG:", "NEXT:", "NOTE:"}
 
-// extractTags streams transcript JSONL and returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT
-// text blocks only — user, tool_result and system content never contribute a tag.
+// extractTags returns every DECISION/BUG/NEXT/NOTE line from ASSISTANT text blocks only.
 func extractTags(r io.Reader) ([]tag, error) {
 	var tags []tag
 	seen := map[string]bool{}

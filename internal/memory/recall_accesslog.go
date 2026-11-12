@@ -73,22 +73,23 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 		return
 	}
 	lines := accessLines(now, entries, reason)
-	// Rotate, trim and append under one lock: concurrent hooks and verbs must never interleave the renames.
-	write := func() error {
-		maybeRotateAccessLog(path, now)
-		maybeTrimAccessLog(path, now)
-		l := lines
-		if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
-			l = accessLines(now, newToday(path, now, entries), reason)
-		}
-		if l == "" {
-			return nil
-		}
-		return appendAccessLines(path, l)
-	}
+	write := func() error { return rotateAndAppend(path, now, entries, reason, lines) }
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
 		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
 	}
+}
+
+// rotateAndAppend rotates, trims and appends under one lock: concurrent hooks and verbs must never interleave the renames.
+func rotateAndAppend(path string, now time.Time, entries []string, reason, lines string) error {
+	maybeRotateAccessLog(path, now)
+	maybeTrimAccessLog(path, now)
+	if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
+		lines = accessLines(now, newToday(path, now, entries), reason)
+	}
+	if lines == "" {
+		return nil
+	}
+	return appendAccessLines(path, lines)
 }
 
 // newToday drops entries (and repeats within entries) that path already holds as a recall inject on now's UTC day.

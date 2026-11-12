@@ -179,13 +179,16 @@ func searchAll(query string, k int) []SearchHit {
 }
 
 // SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
-func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string) {
+func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
 	if all {
 		root := root(repo)
-		return searchAll(q, k), root
+		return searchAll(q, k), root, nil
 	}
-	root := RepoRoot(repo) // a store name from the catalog, else a checkout path
-	return searchBanks(root, q, k), root
+	top, err := ResolveRepo(repo)
+	if err != nil {
+		return nil, "", err
+	}
+	return searchBanks(top, q, k), top, nil
 }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.

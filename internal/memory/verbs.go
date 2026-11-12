@@ -34,17 +34,20 @@ type searchResult struct {
 }
 
 // Search ranks blocks for the query and logs the access; a block reference expands in place when allowed.
-func Search(o SearchOptions) searchResult {
+func Search(o SearchOptions) (searchResult, error) {
 	now := time.Now()
 	if o.Expand && idRef.MatchString(o.Query) {
 		if path, block, err := ShowBlock(o.Query); err == nil {
 			logShown(path, o.Query, AccessSearch, now)
-			return searchResult{Path: path, Block: block}
+			return searchResult{Path: path, Block: block}, nil
 		}
 	}
-	hits, root := SearchRepo(o.Repo, o.All, o.Query, o.K)
+	hits, root, err := SearchRepo(o.Repo, o.All, o.Query, o.K)
+	if err != nil {
+		return searchResult{}, err
+	}
 	logHits(root, hits, AccessSearch, now)
-	return searchResult{Hits: hits}
+	return searchResult{Hits: hits}, nil
 }
 
 // Show returns one block by id and logs the access.
@@ -68,7 +71,11 @@ func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 
 // ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
 func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
-	dir, err := EnsureRepoDir(RepoRoot(repo))
+	top, err := ResolveRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := EnsureRepoDir(top)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +109,7 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, err := resolveRepo(o.Repo)
+	root, err := ResolveRepo(o.Repo)
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
@@ -245,7 +252,7 @@ func RunDream(o DreamRunOptions) error {
 
 // DigestRepo writes the repo bank's digest and returns its path.
 func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	root, err := resolveRepo(repo)
+	root, err := ResolveRepo(repo)
 	if err != nil {
 		return "", err
 	}
@@ -282,7 +289,7 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, err := resolveRepo(o.Repo)
+	root, err := ResolveRepo(o.Repo)
 	if err != nil {
 		return err
 	}
@@ -314,7 +321,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) error {
-	root, err := resolveRepo(repo)
+	root, err := ResolveRepo(repo)
 	if err != nil {
 		return err
 	}
@@ -337,9 +344,7 @@ func TimelineReport(w io.Writer, repo string, n int) error {
 //go:embed prompts/*.md
 var promptsFS embed.FS
 
-// Reference loads the model-residue prompt for verb from the embedded prompts/<verb>.md — the one
-// copy of each procedure; a background job and its CLI verb print the same text.
-// A missing or empty file is an error: a job must never run on a silently empty prompt.
+// Reference loads verb's embedded prompts/<verb>.md; a missing or empty file errs, never a silent empty prompt.
 func Reference(verb string) (string, error) {
 	data, err := promptsFS.ReadFile("prompts/" + verb + ".md")
 	if err != nil {

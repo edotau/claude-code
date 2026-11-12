@@ -290,8 +290,7 @@ func embedDBBroken(err error) bool {
 // quarantineEmbedDB moves a damaged or zero-byte embeddings.db aside so the next write open creates a fresh one.
 func quarantineEmbedDB() error { return os.Rename(embedDBPath(), embedDBPath()+".damaged") }
 
-// RefreshDue reads the mint lease and claim without taking a write lock or opening an endpoint; host is the
-// profile's current endpoint host, so a record minted against another host is due even inside its lease.
+// RefreshDue reads the mint lease and claim lock-free; a record minted against another host is due inside its lease.
 func (s *boltVectorStore) RefreshDue(profile, host string, now time.Time) bool {
 	if !safeProfile.MatchString(profile) {
 		return false
@@ -310,15 +309,20 @@ func (s *boltVectorStore) RefreshDue(profile, host string, now time.Time) bool {
 		if embedValid(rec, now) && rec.Namespace == embedNamespace(profile, host, rec.Model) {
 			return nil
 		}
-		if b := tx.Bucket(embedClaimBucket); b != nil {
-			if v := b.Get([]byte(profile)); len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now) {
-				return nil
-			}
-		}
-		due = true
+		due = !embedClaimLive(tx, profile, now)
 		return nil
 	})
 	return err == nil && due
+}
+
+// embedClaimLive reports whether another worker's unexpired mint claim for profile is recorded.
+func embedClaimLive(tx *bbolt.Tx, profile string, now time.Time) bool {
+	b := tx.Bucket(embedClaimBucket)
+	if b == nil {
+		return false
+	}
+	v := b.Get([]byte(profile))
+	return len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now)
 }
 
 // embedProvider is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
@@ -346,11 +350,7 @@ func embedProfile() string {
 // refreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
 func refreshEmbeddings(root, profile, host string, now time.Time) bool {
 	stamp := filepath.Join(StateDir(), embedCachePre+profile+".refresh")
-	stampFresh := func() bool {
-		st, err := os.Stat(stamp)
-		return err == nil && now.Sub(st.ModTime()) < embedClaimTTL
-	}
-	if IsUpdateChild() || !safeProfile.MatchString(profile) || embedBackedOff(profile, now) || stampFresh() {
+	if IsUpdateChild() || !safeProfile.MatchString(profile) || embedBackedOff(profile, now) || refreshStampFresh(stamp, now) {
 		return false
 	}
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
@@ -358,10 +358,7 @@ func refreshEmbeddings(root, profile, host string, now time.Time) bool {
 	}
 	spawned := false
 	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
-		if stampFresh() {
-			return nil
-		}
-		if !vectorStore.RefreshDue(profile, host, now) {
+		if refreshStampFresh(stamp, now) || !vectorStore.RefreshDue(profile, host, now) {
 			return nil
 		}
 		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
@@ -374,6 +371,12 @@ func refreshEmbeddings(root, profile, host string, now time.Time) bool {
 		return nil
 	})
 	return spawned
+}
+
+// refreshStampFresh reports a refresh launched within embedClaimTTL.
+func refreshStampFresh(stamp string, now time.Time) bool {
+	st, err := os.Stat(stamp)
+	return err == nil && now.Sub(st.ModTime()) < embedClaimTTL
 }
 
 // embedBackedOff reports a recent endpoint failure, when a mint would only fail and retry.

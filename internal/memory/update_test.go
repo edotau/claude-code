@@ -233,7 +233,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 		t.Error("update did not settle/index the bank")
 	}
 	assertUpdateFailure(t, root)
-	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-20 * time.Minute)}
+	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-updateGrace - time.Minute)}
 	if !stale.NeedsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}

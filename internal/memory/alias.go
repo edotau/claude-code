@@ -199,6 +199,11 @@ func (p *aliasPlan) foldOne(path, rel string, data []byte, src, tgt repoEntry, r
 		p.addWrite(tgt.Dir, rel, data, res, "copy "+rel)
 		return nil
 	}
+	return p.foldExisting(rel, dst, cur, data, src, tgt, res)
+}
+
+// foldExisting merges src's file into the target's existing one: logs merge, replace files archive, others must match.
+func (p *aliasPlan) foldExisting(rel, dst string, cur, data []byte, src, tgt repoEntry, res *aliasResult) error {
 	archived := filepath.Dir(rel) == "archive" && archiveName.MatchString(filepath.Base(rel)) // rotated monthly log
 	switch {
 	case appendOnly[rel] || archived:
@@ -280,8 +285,7 @@ func mergeNativeIndex(tgt, src string) (string, int, error) {
 	return tgt + strings.Join(add, "\n") + "\n", len(add), nil
 }
 
-// mergeLog adds the source blocks missing from the target (by persisted id, else same text); dated logs
-// stay newest-first, conventions append.
+// mergeLog adds the source blocks missing from the target (by id, else text); dated logs stay newest-first.
 func mergeLog(name, tgt, src string) (string, int) {
 	hdr, blocks := entryBlocks(name, tgt)
 	_, sblocks := entryBlocks(name, src)
@@ -336,8 +340,7 @@ func sortNewestFirst(all []string) []string {
 	return sorted
 }
 
-// projectLinksTo lists <cfg>/projects/*/memory symlinks that resolve to dir; an unreadable entry is an error,
-// since a link it hides would dangle once the source store is removed.
+// projectLinksTo lists projects/*/memory symlinks resolving to dir; an unreadable entry errs, as its link would dangle.
 func projectLinksTo(dir string) ([]string, error) {
 	want := paths.CanonDeep(dir)
 	projects := filepath.Join(paths.ConfigDir(), "projects")

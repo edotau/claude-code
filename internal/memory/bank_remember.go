@@ -16,8 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// RememberTypes maps `memory remember --type` to the bank file it writes: a "project" fact is a
-// dated decisionLog.md entry (newest first); every other kind is a conventions.md bullet.
+// RememberTypes maps --type to its file: "project" is a dated decisionLog.md entry, the rest conventions.md bullets.
 var RememberTypes = map[string]string{
 	"project":   "decisionLog.md",
 	"user":      "conventions.md",
@@ -28,8 +27,7 @@ var RememberTypes = map[string]string{
 // afterRememberWrite runs between Remember's stamped write and its settle, under the lock; tests race a rival there.
 var afterRememberWrite = func() {}
 
-// Remember writes fact into root's bank under kind's file, settles to stamp a fresh id, and
-// returns that id (so a caller can round-trip it through `memory recall`).
+// Remember writes fact under kind's file, settles to stamp an id, and returns that id.
 func Remember(root, kind, fact string, now time.Time) (string, error) {
 	file, ok := RememberTypes[kind]
 	if !ok {
@@ -140,8 +138,7 @@ var now = time.Now
 
 var labelUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
-// appendReport appends in's report to dir/reports/<date>-<label>.md and each decision to <date>-decisions.md.
-// Both files are created when missing (the decisions file even with no decisions); it returns their paths.
+// appendReport appends in's report to reports/<date>-<label>.md and its decisions to <date>-decisions.md; returns both.
 func appendReport(dir, label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")

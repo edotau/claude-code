@@ -241,8 +241,7 @@ func prunableSessionState(name string) bool {
 	return false
 }
 
-// staleSessionRoot reports a root-<id>[.lock] or count-/stamp-/watch-<id>.lock file whose session has no
-// count-/stamp-/watch- file newer than cutoff.
+// staleSessionRoot reports a root-<id> or <prefix>-<id>.lock file whose session has no newer count/stamp/watch file.
 func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 	base, isLock := strings.CutSuffix(name, ".lock")
 	id, ok := strings.CutPrefix(base, "root-")
@@ -306,24 +305,27 @@ func recordSessionRoot(sessionID, cwd string) {
 	if root == "" {
 		return
 	}
-	// Check and write under a per-session lock, rechecking inside it, so racing hooks keep one first root.
-	path := sessionRootPath(sessionID)
-	err := os.MkdirAll(filepath.Dir(path), 0o700)
-	if err == nil {
-		var ran bool
-		ran, err = paths.TryFileLock(path+".lock", sessionRootLockWait, func() error {
-			if SessionRoot(sessionID, "") != "" {
-				return nil
-			}
-			return paths.AtomicWrite(path, []byte(root+"\n"), 0o600)
-		})
-		if err == nil && !ran {
-			err = fmt.Errorf("%w: %s.lock", paths.ErrLockTimeout, path)
-		}
-	}
-	if err != nil {
+	if err := writeSessionRoot(sessionID, root); err != nil {
 		fmt.Fprintf(os.Stderr, "memory-start: record session root: %v\n", err)
 	}
+}
+
+// writeSessionRoot writes root under a per-session lock, rechecking inside it, so racing hooks keep one first root.
+func writeSessionRoot(sessionID, root string) error {
+	path := sessionRootPath(sessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	ran, err := paths.TryFileLock(path+".lock", sessionRootLockWait, func() error {
+		if SessionRoot(sessionID, "") != "" {
+			return nil
+		}
+		return paths.AtomicWrite(path, []byte(root+"\n"), 0o600)
+	})
+	if err == nil && !ran {
+		err = fmt.Errorf("%w: %s.lock", paths.ErrLockTimeout, path)
+	}
+	return err
 }
 
 // SessionIDEnv is the env var Claude Code sets in every live session's tools.
@@ -356,8 +358,7 @@ func projectCWD(path string) string {
 	return found
 }
 
-// LiveTranscript resolves the running session's transcript: <id>.jsonl under projects/<cwd-slug>, else any project.
-// It returns "" when sessionID is blank or no file exists, so a bare `memory update` outside a session stays a no-op.
+// LiveTranscript is <id>.jsonl under the cwd's project, else any project; "" for a blank id or no file (a no-op).
 func LiveTranscript(cwd, sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -370,14 +371,13 @@ func LiveTranscript(cwd, sessionID string) string {
 	if p := filepath.Join(projects, paths.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
-	if m := globIn(projects, "*/"+id); len(m) > 0 {
+	if m := globIn(projects, "*/"+globLiteral(id)); len(m) > 0 {
 		return m[0]
 	}
 	return ""
 }
 
-// Surface caps: a character budget under hooks' 9,500-char additionalContext cap
-// (~1,000 left for the note); indexCapChars bounds the fallback MEMORY.md index.
+// Surface caps: a budget under hooks' 9,500-char additionalContext cap (~1,000 left for the note).
 const (
 	totalCapChars = 8500
 	indexCapChars = 2500
@@ -389,8 +389,7 @@ const (
 	homeFocusCapChars = 800
 )
 
-// sessionSurface is the session preload, capped at totalCapChars ("" when empty): root's focus sections plus the home bank's, and one pointer to the other
-// repos (no catalog rows); Claude Code loads the repo's MEMORY.md (with its generated bank region) itself.
+// sessionSurface is the capped session preload: root's and home's focus sections plus a pointer to other repos.
 func sessionSurface(root string) string {
 	dir := Dir(root)
 	var parts []string
@@ -449,8 +448,7 @@ func nativeLinked(root, dir string) bool {
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
 func sectionBody(text, heading string) string { return sectionBodies(text, heading)[0] }
 
-// sectionBodies is sectionBody for each heading, in order, from one parse of text.
-// AST headings so a "## heading"-shaped line inside a fenced code block never ends the section early.
+// sectionBodies is sectionBody per heading from one AST parse, so a "## " line inside a fence never ends a section.
 func sectionBodies(text string, headings ...string) []string {
 	doc := markdown.Parse([]byte(text))
 	heads := level2Headings(doc.Body)
@@ -477,8 +475,7 @@ type headingSpan struct {
 	lineStart, lineEnd int
 }
 
-// level2Headings returns every "## " heading's title and line span (lineEnd after the trailing "\n").
-// body is already front-matter-free (a Document.Body), so it parses directly with no re-stripping.
+// level2Headings returns every "## " heading's title and line span; body is already front-matter-free.
 func level2Headings(body []byte) []headingSpan {
 	var out []headingSpan
 	root := markdown.ParseContext(body, parser.NewContext())

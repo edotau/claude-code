@@ -96,8 +96,7 @@ func createExcl(p, body string) error {
 	return nil
 }
 
-// isProjectContextTemplate reports whether root's projectContext.md still equals the scaffold
-// template — unfilled, so `memory init` should still offer its enrichment procedure.
+// isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
 func isProjectContextTemplate(root string) bool {
 	data, err := os.ReadFile(filepath.Join(Dir(root), "projectContext.md"))
 	if err != nil {
@@ -220,8 +219,7 @@ var bankFiles = []string{
 	"decisionLog.md", "conventions.md", "sessionHistory.md",
 }
 
-// BankFiles exports the six typed filenames for callers outside this package (e.g. internal/setup)
-// that must watch them without duplicating the list.
+// BankFiles exports the six typed filenames for callers outside this package.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 
 // sessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
@@ -236,7 +234,7 @@ var BankLockWait = 5 * time.Second
 // ErrBankBusy is returned when the bank lock is not granted within the wait.
 var ErrBankBusy = errors.New("memory store busy: another harness worker holds the bank lock")
 
-// BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (plan §3.1: no .lock.lock variants).
+// BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (no .lock.lock variants).
 func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
 
 // storeLockDir is state's lock dir for dir's bank (its base name, "home" for the home bank), created 0700.
@@ -250,8 +248,7 @@ func storeLockDir(dir string) string {
 	return d
 }
 
-// WithBankLock runs fn holding the bank lock; wait<=0 means BankLockWait. Lock order: worker claim → bank → git index.
-// Not reentrant: *Locked helpers never take it, so settlement cannot deadlock on itself.
+// WithBankLock runs fn under the bank lock (wait<=0 = BankLockWait); not reentrant, so *Locked helpers never take it.
 func WithBankLock(wait time.Duration, fn func() error) error {
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
 		return err
@@ -285,7 +282,7 @@ func GitToplevel(dir string) string {
 	return strings.TrimSpace(out)
 }
 
-// linkResult is one projects/<slug>/memory link the harness maintains (Appendix D: native follows the symlink).
+// linkResult is one projects/<slug>/memory link the harness maintains (native auto-memory follows the symlink).
 type linkResult struct {
 	Link, Target string
 	Action       string // linked | ok | relinked | blocked

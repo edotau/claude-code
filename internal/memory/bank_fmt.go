@@ -1,7 +1,6 @@
 package memory
 
-// Wraps long lines in the bank markdown the harness writes (never index.md, never MEMORY.md): the six
-// typed files, archive/*.md, handoffs/*.md and reports/*.md, across every repo store and home/.
+// Wraps long lines in the bank markdown the harness writes (never index.md or MEMORY.md), across every store and home/.
 
 import (
 	"errors"
@@ -92,8 +91,7 @@ func mdFilesIn(dir string) ([]string, error) {
 	return out, nil
 }
 
-// formatBank wraps every target file; check=true writes nothing and only reports. changed lists what
-// would (or did) change; commitStore settles the result the same way `memory index` does.
+// formatBank wraps every target file; check=true writes nothing and only reports what would change.
 func formatBank(check bool) (changed []string, err error) {
 	if check {
 		return formatBankLocked(true)
@@ -146,9 +144,7 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 	return changed, nil
 }
 
-// formatBankMarkdown wraps text's over-width list/paragraph lines; fenced code, tables, headings, front
-// matter and comment-only lines pass through untouched. Words rejoin with single spaces, so runs of spaces
-// collapse; idempotent: a line already ≤ BankFmtMaxLine never changes, so a second pass is a no-op.
+// formatBankMarkdown wraps over-width list/paragraph lines idempotently (space runs collapse); fences, tables pass.
 func formatBankMarkdown(text string) string {
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
@@ -196,11 +192,7 @@ func passThroughLine(trimmed string) bool {
 		bankFmtComment.MatchString(trimmed)
 }
 
-// groupLogicalLines splits text's physical lines into logical-line groups: a continuation line that
-// wrapBankLine would have produced (leading spaces matching its predecessor's content column) joins
-// that predecessor's group; every fence/front-matter/heading/comment/blank/table line, and every new
-// bullet/ordered/paragraph line, starts its own group. Mirrors formatBankMarkdown's state machine line
-// for line so the two can never drift on what counts as "one line".
+// groupLogicalLines groups physical lines into logical lines, mirroring formatBankMarkdown's state machine exactly.
 func groupLogicalLines(text string) [][]string {
 	text = strings.TrimRight(text, "\n")
 	if text == "" {
@@ -215,8 +207,7 @@ func groupLogicalLines(text string) [][]string {
 	return g.groups
 }
 
-// lineGrouper is groupLogicalLines' state machine; contCol is the content column an indent-only
-// continuation must match (-1 = none open).
+// lineGrouper is groupLogicalLines' state machine; contCol is the column a continuation must match (-1 = none).
 type lineGrouper struct {
 	groups  [][]string
 	scan    bankScan
@@ -251,8 +242,7 @@ func (g *lineGrouper) content(line string) {
 	}
 }
 
-// logicalLineCount is len(groupLogicalLines(text)) — the cap unit every bank line cap counts in: a
-// wrapped bullet or paragraph counts once, matching the pre-wrap line count exactly.
+// logicalLineCount is len(groupLogicalLines(text)), the unit every bank line cap counts in.
 func logicalLineCount(text string) int {
 	return len(groupLogicalLines(text))
 }
@@ -265,8 +255,7 @@ func listItem(line string) []string {
 	return bankFmtOrdered.FindStringSubmatch(line)
 }
 
-// wrapBankLine wraps one list-item or paragraph line at word boundaries, never inside an inline code
-// span, a link, or an HTML comment; a line already within the cap passes through unchanged.
+// wrapBankLine wraps one line at word boundaries, never inside a code span, link or HTML comment.
 func wrapBankLine(line string) []string {
 	if utf8.RuneCountInString(line) <= BankFmtMaxLine {
 		return []string{line}
@@ -294,9 +283,7 @@ func wrapBankLine(line string) []string {
 	return out
 }
 
-// bankFmtTokenize splits s into words on a bare space, except a space inside a code span, link or
-// HTML comment: those stay glued to whatever touches them, so a token like "(`cmd`;" never gains a
-// space the original line didn't have.
+// bankFmtTokenize splits s on bare spaces; spaces inside a code span, link or HTML comment stay glued.
 func bankFmtTokenize(s string) []string {
 	protected := make([]bool, len(s))
 	for _, sp := range bankFmtSpan.FindAllStringIndex(s, -1) {
