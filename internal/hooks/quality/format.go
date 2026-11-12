@@ -233,8 +233,8 @@ func formatPython(path string) bool {
 		}
 	}
 	// ruff-only chain: check --fix covers autoflake (F401/F841) + isort (I); format is black-compatible.
-	fixed := run(root, "ruff", "check", "--fix", "--quiet", path)
-	return run(root, "ruff", "format", "--quiet", path) || fixed
+	run(root, "ruff", "check", "--fix", "--quiet", path) // exits 1 on lint it cannot fix, so only format decides clean
+	return run(root, "ruff", "format", "--quiet", path)
 }
 
 // classicPythonChain runs ruff check --fix, autoflake, isort, black — each only when the project declares
