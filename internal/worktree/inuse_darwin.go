@@ -13,14 +13,12 @@ import (
 )
 
 func init() {
-	processesIn = scanIn
 	scanProcs = scanProcsDarwin
 	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
 	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
-// scanProcsDarwin shells out to lsof once (stdlib os/exec only, no cgo) since macOS has no /proc. The -F fields
-// are p(id), c(omm), n(ame); -w mutes warnings, so only exit 1 with empty stderr means "nothing matched".
+// scanProcsDarwin runs lsof once (no /proc on macOS); -w mutes warnings: only exit 1 + empty stderr = no match.
 func scanProcsDarwin() ([]procCwd, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()

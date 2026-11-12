@@ -142,8 +142,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 	return repo, top, path, true, nil
 }
 
-// editedLedger reads the ledger at path (reopened first when closed) and returns that text and it with edit applied;
-// a ledger that vanished returns equal strings. The caller holds the lock.
+// editedLedger returns the ledger text at path (reopened if closed) and with edit applied; the caller holds the lock.
 func editedLedger(repo *Repo, top, path string, now time.Time, edit func(string) string) (cur, next string, err error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

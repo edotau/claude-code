@@ -14,9 +14,7 @@ import (
 // staleAfter is the age threshold past which an entry's last-activity evidence marks it Stale.
 const staleAfter = 14 * 24 * time.Hour
 
-// Entry is one worktree, from git's registration, the filesystem, or both. Flags overlap (an entry
-// can be Dirty and Stale at once); a failed inspection appends to Problems and leaves the affected
-// boolean at its safe default (Dirty=true, Merged=false) rather than claiming "clean".
+// Entry is one worktree; a failed inspection appends to Problems and leaves the fail-safe default (Dirty, not Merged).
 type Entry struct {
 	Path           string
 	Branch         string // short branch name, "" when detached
@@ -36,9 +34,7 @@ type Entry struct {
 	gitDir         string // dest's git-dir when the caller already resolved it
 }
 
-// List returns every worktree under repo.Root: the union of git's own registration and the immediate
-// directories on disk, each inspected and classified. Entries outside repo.Root (including the main
-// checkout's own registration record) are out of scope for this lifecycle and excluded.
+// List returns every worktree under repo.Root (git registration plus directories on disk), each inspected.
 func List(repo *Repo) ([]Entry, error) {
 	registered, err := listPorcelain(repo)
 	if err != nil {
@@ -50,18 +46,18 @@ func List(repo *Repo) ([]Entry, error) {
 	}
 	target, targetErr := currentBranch(repo.Main)
 	now := time.Now()
+	in := firstLook()
 	for i := range entries {
 		entries[i].Orphaned = entries[i].Registered != entries[i].Exists // Prunable/Locked come from git's porcelain
 		if entries[i].Exists {
 			inspect(repo, &entries[i], target, targetErr, now)
-			_, entries[i].Busy = cleanBusyReason(entries[i].Path)
+			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
 		}
 	}
 	return entries, nil
 }
 
-// listPorcelain parses `git worktree list --porcelain -z`, scoped to records under repo.Root; the
-// main checkout's own record and any worktree registered outside repo.Root are not this lifecycle's.
+// listPorcelain parses `git worktree list --porcelain -z`, keeping only records under repo.Root.
 func listPorcelain(repo *Repo) ([]Entry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -88,8 +84,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 	return entries, nil
 }
 
-// splitRecords breaks porcelain -z output into per-worktree blocks: fields are NUL-terminated, and
-// an empty field (two consecutive NULs) marks the end of one record.
+// splitRecords breaks porcelain -z output into per-worktree blocks (a doubled NUL ends one).
 func splitRecords(out string) []string {
 	var recs []string
 	for rec := range strings.SplitSeq(out, "\x00\x00") {
@@ -121,8 +116,7 @@ func parseRecord(rec string) Entry {
 	return e
 }
 
-// unionFilesystem adds an Exists=true, Registered=false entry for every immediate directory under
-// repo.Root that listPorcelain didn't already find, and marks every registered entry's Exists by stat.
+// unionFilesystem adds an unregistered entry for each directory under repo.Root git did not list, and stats Exists.
 func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	byPath := map[string]int{}
 	for i, e := range registered {
@@ -149,9 +143,7 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 	return registered, nil
 }
 
-// inspect fills Dirty, Merged, Stale and activity evidence on e, which must already exist on disk.
-// A failed git call appends to Problems and leaves the affected field at its fail-safe default:
-// Dirty=true (never silently "clean"), Merged=false (never silently eligible for removal).
+// inspect fills Dirty, Merged, Stale and activity on e; a failed git call goes to Problems with the fail-safe default.
 func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time) {
 	e.Dirty = true
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -212,8 +204,7 @@ func gitDirFromPath(path string) (string, error) {
 	return dir, nil
 }
 
-// activity picks the newer of the reflog and the index as last-use evidence, else the worktree directory's
-// mtime; each is a heuristic, named in ActivitySource for the caller.
+// activity picks the newer of the reflog and index as last-use evidence, else the directory mtime (named in source).
 func activity(gitDir, worktreePath string) (time.Time, string) {
 	var best time.Time
 	source := ""
@@ -248,8 +239,7 @@ func currentBranch(main string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// asExitErr extracts a process exit code, so callers tell git's clean exit 1 ("no") from a real failure
-// (anything else, including a non-ExitError like a missing binary).
+// asExitErr extracts a process exit code, so callers tell git's clean exit 1 ("no") from a real failure.
 func asExitErr(err error) (int, bool) {
 	type exitCoder interface{ ExitCode() int }
 	if ee, ok := err.(exitCoder); ok {
@@ -258,8 +248,7 @@ func asExitErr(err error) (int, bool) {
 	return 0, false
 }
 
-// EligibleForClean mirrors the bar Clean rechecks live (cleanBusyReason, cleanInspectReason);
-// list only offers the command, never acts.
+// EligibleForClean mirrors the bar Clean rechecks live (cleanBusyReason, cleanInspectReason); list never acts.
 func (e Entry) EligibleForClean() bool {
 	return e.Exists && !e.Orphaned && !e.Locked && !e.Dirty && e.Merged && e.Busy == "" && len(e.Problems) == 0
 }

@@ -1,6 +1,4 @@
-// Package worktree is the deterministic Go lifecycle for ~/worktrees/<repo>/<name>: identity,
-// listing/classification, and safe create/clean. Shared by the worktree-create/-remove hooks and the
-// `claude-code worktree` verb, with merge and agent-assisted resolve on top.
+// Package worktree is the lifecycle for ~/worktrees/<repo>/<name>: identity, list, create/clean, merge, agent resolve.
 package worktree
 
 import (
@@ -14,8 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Repo is a git repository's canonical identity for worktree purposes: the main checkout (never a
-// linked worktree) plus the conventional root holding every worktree created or discovered for it.
+// gitFatalExit is the exit status git uses for "fatal:" errors such as running outside a repository.
+const gitFatalExit = 128
+
+// Repo is a repository's canonical identity: the main checkout (never a linked worktree) and its worktree root.
 type Repo struct {
 	Main string // canonical main checkout path
 	Root string // Root(Main): ~/worktrees/<basename(Main)>
@@ -23,9 +23,7 @@ type Repo struct {
 	CommonDir string
 }
 
-// worktreeRoot is the one worktree home shared with native Claude Code: ~/worktrees, under the
-// canonical home so it compares equal to the resolved paths git reports (a symlinked $HOME would otherwise
-// disown every registered worktree).
+// worktreeRoot is ~/worktrees under the canonical home, so a symlinked $HOME still matches git's resolved paths.
 func worktreeRoot() string {
 	home, _ := os.UserHomeDir()
 	home = paths.Canon(home)
@@ -44,15 +42,15 @@ func gitCmd(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// ResolveRepo resolves cwd (a main checkout, a linked worktree, or any subdirectory of either) to its
-// canonical git identity. --git-common-dir is absolute and identical from anywhere inside the repo, so
-// this is the one call that makes worktree/subdir/main all agree without reading .git pointer files.
+// ResolveRepo resolves cwd (main, linked worktree or a subdirectory) to its identity via the absolute --git-common-dir.
 func ResolveRepo(cwd string) (*Repo, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if err != nil {
+	if code, isExit := asExitErr(err); isExit && code == gitFatalExit && ctx.Err() == nil {
 		return nil, fmt.Errorf("%s is not inside a git repository", cwd)
+	} else if err != nil {
+		return nil, fmt.Errorf("git rev-parse in %s: %w", cwd, err)
 	}
 	return repoFromCommonDir(cwd, strings.TrimSpace(string(out)))
 }
@@ -62,13 +60,14 @@ func repoFromCommonDir(cwd, commonDir string) (*Repo, error) {
 	if filepath.Base(commonDir) != ".git" {
 		return nil, fmt.Errorf("%s: bare or non-standard git layout is not supported", cwd)
 	}
+	if _, err := os.UserHomeDir(); err != nil {
+		return nil, fmt.Errorf("%s: cannot place worktrees without a home directory (set HOME): %w", cwd, err)
+	}
 	main := paths.Canon(filepath.Dir(commonDir))
 	return &Repo{Main: main, Root: Root(main), CommonDir: commonDir}, nil
 }
 
-// resolveWorktreeBounded validates name and returns the path a worktree called name occupies under
-// repo.Root, rejecting traversal, a symlink at the destination, and a name already occupied by a
-// directory that is not actually a worktree of this repo (a foreign basename collision).
+// resolveWorktreeBounded returns where name lives under repo.Root, rejecting traversal, symlinks and collisions.
 func resolveWorktreeBounded(repo *Repo, name string) (string, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
@@ -118,14 +117,9 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 	return dest, nil
 }
 
-// rejectLiveCheckoutRoot refuses repo.Root when it canonically IS, or lives inside, repo.Main — the
-// check ownsWorktree does for an EXISTING dest, run here unconditionally so a worktree root symlinked
-// into the live checkout is rejected even before `create` would otherwise materialize a brand-new
-// directory inside it. repo.Root (or its parent, worktreeRoot()) is resolved via its longest EXISTING
-// prefix — plain paths.Canon() would silently skip every symlink when repo.Root's own basename doesn't
-// exist yet, which is exactly the case on a first `create` for this repo.
+// rejectLiveCheckoutRoot refuses a repo.Root that is, or sits inside, repo.Main, resolving its longest EXISTING prefix.
 func rejectLiveCheckoutRoot(repo *Repo) error {
-	rootCanon := paths.CanonDeep(repo.Root)
+	rootCanon := paths.CanonDeep(repo.Root) // Canon would skip every symlink while Root's basename does not exist yet
 	mainCanon := paths.Canon(repo.Main)
 	if paths.Within(rootCanon, mainCanon) {
 		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
@@ -133,49 +127,26 @@ func rejectLiveCheckoutRoot(repo *Repo) error {
 	return nil
 }
 
-// ownsWorktree reports whether dest is itself a worktree sharing repo's common git dir — the only
-// reliable way to tell "this is our worktree" from "something else already lives at this path". It
-// rejects dest outright when it is the live main checkout or a subdirectory of it (e.g. a symlinked
-// ~/worktrees/<repo> pointing straight at the main checkout would otherwise let a name like "internal"
-// resolve to the live checkout's own subdirectory), and requires dest to be a worktree *root* — its own
-// `--show-toplevel` must equal dest — so a subdirectory of some other checkout can't pass common-dir
-// equality alone and be mistaken for a worktree.
+// ownsWorktree reports whether dest is a worktree root sharing repo's common dir, never the live checkout or inside it.
 func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
-	destCanon := paths.Canon(dest)
+	destCanon := paths.Canon(dest) // a ~/worktrees/<repo> symlinked to main would let name "internal" resolve inside it
 	mainCanon := paths.Canon(repo.Main)
 	if paths.Within(destCanon, mainCanon) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
-	isRoot, err := isWorktreeRoot(ctx, dest, destCanon)
-	if err != nil || !isRoot {
-		return false, err
+	top, ok, err := revParseCanon(ctx, dest, "--show-toplevel")
+	if err != nil || !ok || top != destCanon {
+		return false, err // not a git repo is a collision, and a subdirectory of some checkout is not a worktree root
 	}
-	return sharesCommonDir(ctx, repo, dest)
+	common, ok, err := revParseCanon(ctx, dest, "--git-common-dir")
+	return ok && common == paths.Canon(filepath.Join(repo.Main, ".git")), err
 }
 
-// isWorktreeRoot reports whether dest's own `--show-toplevel` is destCanon; a non-git dest is a collision.
-func isWorktreeRoot(ctx context.Context, dest, destCanon string) (bool, error) {
-	topOut, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel").Output()
+// revParseCanon runs `git rev-parse --path-format=absolute flag` in dir; ok is false when git itself fails there.
+func revParseCanon(ctx context.Context, dir, flag string) (path string, ok bool, err error) {
+	out, err := gitCmd(ctx, "-C", dir, "rev-parse", "--path-format=absolute", flag).Output()
 	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		return false, nil // not a git repo at all is a collision, not a resolution error
+		return "", false, ctx.Err()
 	}
-	top := paths.Canon(strings.TrimSpace(string(topOut)))
-	return top == destCanon, nil // otherwise dest is a subdirectory of some checkout's worktree root
-}
-
-// sharesCommonDir reports whether dest's git common dir is repo's own.
-func sharesCommonDir(ctx context.Context, repo *Repo, dest string) (bool, error) {
-	out, err := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
-	if err != nil {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		return false, nil
-	}
-	common := paths.Canon(strings.TrimSpace(string(out)))
-	wantCommon := paths.Canon(filepath.Join(repo.Main, ".git"))
-	return common == wantCommon, nil
+	return paths.Canon(strings.TrimSpace(string(out))), true, nil
 }

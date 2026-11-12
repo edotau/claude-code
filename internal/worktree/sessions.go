@@ -30,8 +30,7 @@ const claimTail = 1 << 20
 // ClaimsDir holds the claims ledger, one <owner pid>-<session slug>.jsonl per session.
 func ClaimsDir() string { return filepath.Join(paths.StateDir(), "hooks", "claims") }
 
-// ScanClaims calls fn for each claim in a live owner's file (alive probes the pid); a dead owner's file is removed.
-// A live file that fails to open or scan is joined into the returned error; the other files are still scanned.
+// ScanClaims calls fn per claim of a live owner (a dead owner's file is removed); scan errors are joined.
 func ScanClaims(alive func(int) bool, fn func(pid int, slug string, c Claim)) error {
 	entries, err := os.ReadDir(ClaimsDir())
 	if os.IsNotExist(err) {
@@ -97,8 +96,7 @@ func scanFile(file string, fn func(Claim)) error {
 	return sc.Err()
 }
 
-// holders maps each claimed path in paths to "session <slug> (pid N)" or "leaf <id> of session …" labels.
-// On a scan error it still returns the holders it read, alongside the error.
+// holders maps each claimed path to its session or leaf label; on a scan error it still returns what it read.
 func holders(alive func(int) bool, want []string) (map[string][]string, error) {
 	set := map[string]map[string]bool{}
 	for _, p := range want {

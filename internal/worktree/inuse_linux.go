@@ -14,15 +14,13 @@ import (
 )
 
 func init() {
-	processesIn = scanIn
 	scanProcs = scanProcsLinux
 	procArgs = procCmdlineLinux
 	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
 	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
-// scanProcsLinux walks /proc once; a readlink that fails (permission denied, or the process already exited)
-// is skipped since a process we can't inspect isn't ours to report.
+// scanProcsLinux walks /proc once; a process whose cwd cannot be read (denied or exited) is skipped.
 func scanProcsLinux() ([]procCwd, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
