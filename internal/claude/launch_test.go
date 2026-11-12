@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -572,6 +573,44 @@ func TestClaudeArmProxyCarriesSessionToken(t *testing.T) {
 	}
 	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
 		t.Errorf("armed overlay %s, want the resolve --proxy helper", overlayFile(p).Data)
+	}
+}
+
+// An interactive proxied launch warns that Remote Control is lost; a headless one stays quiet.
+func TestClaudeProxiedInteractiveWarnsRemoteControl(t *testing.T) {
+	hermetic(t, armDBX)
+	const warn = "Remote Control is unavailable through the proxy; launch a direct login session to keep it"
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{{nil, true}, {[]string{"-p", "hi"}, false}} {
+		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, tc.args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Contains(p.Warnings, warn); got != tc.want {
+			t.Errorf("args %q: warned = %v, want %v (warnings %q)", tc.args, got, tc.want, p.Warnings)
+		}
+	}
+}
+
+// The auto-mode classifier model is the provider-qualified opus id, not Claude Code's unserved default.
+func TestSetModelAliasEnvPinsAutoModeModel(t *testing.T) {
+	hermetic(t, armDBX)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := providers.Select(reg, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := agent.Plan{Set: map[string]string{}}
+	setModelAliasEnv(&plan, sel)
+	want := sel.ClientModel(models.Opus)
+	got := plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"]
+	if !strings.HasPrefix(got, "databricks-") || !strings.Contains(got, "opus") || got != want {
+		t.Errorf("auto-mode model = %q, want opus id %q", got, want)
 	}
 }
 
