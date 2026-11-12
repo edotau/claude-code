@@ -182,7 +182,7 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.m, textutil.SHA256Hex([]byte(tok))) // stays deleted in memory even if the save fails: fail closed
+	delete(s.m, textutil.SHA256Hex([]byte(tok)))
 	return s.saveLocked()
 }
 
