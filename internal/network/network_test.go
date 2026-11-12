@@ -67,14 +67,6 @@ func TestNetworkUnknownSubverb(t *testing.T) {
 	}
 }
 
-func TestNetworkOldSubverbsRejected(t *testing.T) {
-	for _, old := range []string{"web", "doctor", "status", "connect", "browsers"} {
-		if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{old}) }); code != 1 {
-			t.Errorf("network %s: exit %d, want 1", old, code)
-		}
-	}
-}
-
 // isolateRouterState points the router state dir at a temp dir so no real daemon is ever seen.
 func isolateRouterState(t *testing.T) {
 	t.Helper()

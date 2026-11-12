@@ -139,58 +139,33 @@ func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
 	}
 }
 
-// An API-key-only credential never calls the network either — only the OAuth pair mints a token.
-func TestDoctorAPIKeyOnlyNeverCallsNetwork(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	var hits int
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-	}))
-	defer ts.Close()
-	old := apiBaseURL
-	apiBaseURL = ts.URL
-	t.Cleanup(func() { apiBaseURL = old })
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-set")
-	ok, detail := Doctor(context.Background())
-	if !ok {
-		t.Errorf("Doctor() ok = false, detail = %q", detail)
-	}
-	if hits != 0 {
-		t.Errorf("hits = %d, want 0: an API key must never mint an OAuth token", hits)
-	}
-}
-
-// No credential at all: still no network call.
-func TestDoctorAbsentCredentialNeverCallsNetwork(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	var hits int
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-	}))
-	defer ts.Close()
-	old := apiBaseURL
-	apiBaseURL = ts.URL
-	t.Cleanup(func() { apiBaseURL = old })
-	ok, detail := Doctor(context.Background())
-	if !ok {
-		t.Errorf("Doctor() ok = false, detail = %q", detail)
-	}
-	if hits != 0 {
-		t.Errorf("hits = %d, want 0: no credential must never mint an OAuth token", hits)
-	}
-}
-
-func TestDoctorNeverLogsCredentialValue(t *testing.T) {
-	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	t.Setenv("TAILSCALE_API_KEY", "tskey-api-should-never-appear")
-	_, detail := Doctor(context.Background())
-	if strings.Contains(detail, "tskey-api-should-never-appear") {
-		t.Errorf("detail leaked the credential value: %q", detail)
+// Neither an API key alone nor no credential at all calls the network — only the OAuth pair mints a token.
+func TestDoctorWithoutOAuthPairNeverCallsNetwork(t *testing.T) {
+	const apiKey = "tskey-api-should-never-appear"
+	for name, key := range map[string]string{"api key only": apiKey, "no credential": ""} {
+		t.Run(name, func(t *testing.T) {
+			stubCLI(t, catScript(t, "status_running.json"))
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+			var hits int
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+			defer ts.Close()
+			old := apiBaseURL
+			apiBaseURL = ts.URL
+			t.Cleanup(func() { apiBaseURL = old })
+			if key != "" {
+				t.Setenv("TAILSCALE_API_KEY", key)
+			}
+			ok, detail := Doctor(context.Background())
+			if !ok {
+				t.Errorf("Doctor() ok = false, detail = %q", detail)
+			}
+			if hits != 0 {
+				t.Errorf("hits = %d, want 0: without an OAuth pair nothing may mint a token", hits)
+			}
+			if key != "" && strings.Contains(detail, key) {
+				t.Errorf("detail leaked the credential value: %q", detail)
+			}
+		})
 	}
 }
