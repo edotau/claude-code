@@ -72,7 +72,7 @@ func opencodeSyncVerify(p *providers.Provider, snapshot *serving.Snapshot, ids [
 	checks, err := serving.Probe(ctx, p, targets,
 		serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
 	if err != nil {
-		return errors.New("serving verification did not complete; no discovery/menu writes")
+		return fmt.Errorf("serving verification did not complete; no discovery/menu writes: %w", err)
 	}
 	snapshot.Checks = serving.SanitizeChecks(checks)
 	snapshot.CheckedAt = time.Now().UTC()

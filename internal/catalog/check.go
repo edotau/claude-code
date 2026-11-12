@@ -68,7 +68,17 @@ func check(p *providers.Provider, targets []serving.CheckTarget, o serving.Check
 	for i := range results {
 		results[i].CheckedAt = now
 	}
-	return results, SaveCheckCache(CheckCache{CheckedAt: now, Provider: p.Name, Results: merged(p.Name, results)}), nil
+	return results, saveMerged(p.Name, results, now), nil
+}
+
+// saveMerged merges results into the cache under its lock, so concurrent runs keep each other's rows.
+func saveMerged(profile string, results []serving.CheckResult, now time.Time) error {
+	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
+		return err
+	}
+	return paths.WithFileLock(CheckCachePath(), func() error {
+		return SaveCheckCache(CheckCache{CheckedAt: now, Provider: profile, Results: merged(profile, results)})
+	})
 }
 
 // checkNow is the check cache's clock.
@@ -143,12 +153,17 @@ func checkCell(cache map[string]serving.CheckResult, id string) string {
 		cell = fmt.Sprintf("%s %d", r.Status, r.HTTP)
 	}
 	if age := checkNow().Sub(r.CheckedAt); !r.CheckedAt.IsZero() && age > checkAgeAfter {
-		if age < 24*time.Hour {
-			return fmt.Sprintf("%s (%dh)", cell, int(age/time.Hour))
-		}
-		return fmt.Sprintf("%s (%dd)", cell, int(age/(24*time.Hour)))
+		return cell + " (" + ageLabel(age) + ")"
 	}
 	return cell
+}
+
+// ageLabel is an age in whole hours under a day, else whole days.
+func ageLabel(age time.Duration) string {
+	if age < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(age/time.Hour))
+	}
+	return fmt.Sprintf("%dd", int(age/(24*time.Hour)))
 }
 
 // checkFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.

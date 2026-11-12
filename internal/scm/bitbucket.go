@@ -158,8 +158,19 @@ func (h *BitbucketHost) pages(ctx context.Context, path string, q url.Values, li
 		if page.IsLastPage || len(page.Values) == 0 || (limit > 0 && len(all) >= limit) {
 			return all, nil
 		}
-		start = page.NextPageStart
+		var err error
+		if start, err = advance(start, page.NextPageStart); err != nil {
+			return nil, err
+		}
 	}
+}
+
+// advance refuses a nextPageStart that does not move forward, which would loop on the same page forever.
+func advance(start, next int) (int, error) {
+	if next <= start {
+		return 0, fmt.Errorf("bitbucket paging stalled: nextPageStart %d does not advance past %d", next, start)
+	}
+	return next, nil
 }
 
 func (h *BitbucketHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
@@ -178,10 +189,7 @@ func (h *BitbucketHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	}
 	prs := []PR{}
 	for _, r := range raws {
-		if o.Author == "@me" && !h.inRepo(r.ToRef) {
-			continue
-		}
-		if o.Author != "" && o.Author != "@me" && !strings.EqualFold(o.Author, r.Author.User.Name) && !strings.EqualFold(o.Author, r.Author.User.Slug) {
+		if !h.wanted(o.Author, r) {
 			continue
 		}
 		prs = append(prs, r.pr())
@@ -190,6 +198,17 @@ func (h *BitbucketHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 		}
 	}
 	return prs, nil
+}
+
+// wanted reports whether a listed PR passes the author filter ("@me" keeps this repo's own PRs).
+func (h *BitbucketHost) wanted(author string, r bbPR) bool {
+	switch author {
+	case "":
+		return true
+	case "@me":
+		return h.inRepo(r.ToRef)
+	}
+	return strings.EqualFold(author, r.Author.User.Name) || strings.EqualFold(author, r.Author.User.Slug)
 }
 
 func (h *BitbucketHost) inRepo(r ref) bool {
@@ -249,15 +268,9 @@ func (h *BitbucketHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 }
 
 func (h *BitbucketHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
-	if id != "" {
-		pr, err := h.View(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		sha = pr.HeadSHA
-	}
-	if sha == "" {
-		return nil, fmt.Errorf("no commit to check: PR %q has no head commit", id)
+	sha, err := h.commitOf(ctx, id, sha)
+	if err != nil {
+		return nil, err
 	}
 	checks := []Check{}
 	for start := 0; ; {
@@ -276,9 +289,29 @@ func (h *BitbucketHost) Checks(ctx context.Context, id, sha string) ([]Check, er
 		if page.IsLastPage || len(page.Values) == 0 {
 			break
 		}
-		start = page.NextPageStart
+		if start, err = advance(start, page.NextPageStart); err != nil {
+			return nil, err
+		}
 	}
 	return checks, nil
+}
+
+// commitOf is the PR's head commit when id is set, else sha; it errors when neither names a commit.
+func (h *BitbucketHost) commitOf(ctx context.Context, id, sha string) (string, error) {
+	if id != "" {
+		pr, err := h.View(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		sha = pr.HeadSHA
+	}
+	switch {
+	case sha != "":
+		return sha, nil
+	case id == "":
+		return "", errors.New("no commit to check: pass a PR id or --sha")
+	}
+	return "", fmt.Errorf("no commit to check: PR %q has no head commit", id)
 }
 
 func buildState(s string) string {
