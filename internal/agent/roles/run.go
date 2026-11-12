@@ -249,7 +249,7 @@ func Lookup(name string) (Role, error) {
 	return Role{}, fmt.Errorf("unknown role %q (%s)", name, strings.Join(names, "|"))
 }
 
-// vaultRoles is the overlay table, or nil when none is set or the vault is unreadable; malformed JSON is an error.
+// vaultRoles is the overlay table, or nil when none is set; an unreadable vault or malformed JSON is an error.
 func vaultRoles() ([]Role, error) {
 	var out []Role
 	var perr error
@@ -263,7 +263,10 @@ func vaultRoles() ([]Role, error) {
 		}
 		return nil
 	})
-	if err != nil || perr != nil {
+	if err != nil {
+		return nil, fmt.Errorf("read vault role overlay: %w", err)
+	}
+	if perr != nil {
 		return nil, perr
 	}
 	return out, nil
