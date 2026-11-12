@@ -192,7 +192,7 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 	}
 	dir := Dir(root)
 	_, block, _, err := findBlock(dir, id)
-	if err != nil && !isHomeBank(root) {
+	if errors.Is(err, errNoBlock) && !isHomeBank(root) { // a real read error is not "absent"
 		_, block, _, err = findBlock(HomeBankDir(), id)
 	}
 	if err != nil {

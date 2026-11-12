@@ -113,6 +113,9 @@ func dreamStamp(root string) (t time.Time, failed, ok bool) {
 // dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
 func dreamDue(cwd string, now time.Time) bool {
 	stamp, failed, ok := dreamStamp(cwd)
+	if ok && stamp.After(now) { // a future stamp (clock moved back) would block dreaming until it passes
+		stamp, failed, ok = time.Time{}, false, false
+	}
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}

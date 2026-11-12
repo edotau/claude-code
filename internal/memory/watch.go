@@ -71,11 +71,31 @@ func retakeDeadClaim(claim string) bool {
 	return ran && err == nil && retaken
 }
 
-// watcherDead reports whether the claim names a pid that is gone; an empty claim is a watcher still starting.
+// claimGrace is how long an empty claim counts as a watcher still starting before it is a dead leftover.
+const claimGrace = time.Minute
+
+// watcherDead reports whether the claim names a pid that is gone, or is empty for longer than claimGrace.
 func watcherDead(claim string) bool {
 	b, err := os.ReadFile(claim)
+	if err != nil {
+		return false
+	}
 	pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
-	return err == nil && perr == nil && ownerDead(pid)
+	if perr != nil {
+		fi, serr := os.Stat(claim)
+		return len(b) == 0 && serr == nil && time.Since(fi.ModTime()) > claimGrace
+	}
+	return ownerDead(pid)
+}
+
+// releaseEmptyClaim removes the empty claim spawnIdleWatcher made for a watcher that exits before writing its pid.
+func releaseEmptyClaim(session string) {
+	if session == "" {
+		return
+	}
+	if fi, err := os.Stat(watchClaimPath(session)); err == nil && fi.Size() == 0 {
+		_ = os.Remove(watchClaimPath(session))
+	}
 }
 
 // WatchOptions are `memory watch`'s parsed flags; Stderr receives its messages.
@@ -91,10 +111,12 @@ func IdleUpdateWatch(o WatchOptions) int {
 	stderr := o.Stderr
 	if o.Session == "" || o.Transcript == "" || o.Idle <= 0 {
 		fmt.Fprintln(stderr, "memory watch: --session, --transcript and a positive --idle are required")
+		releaseEmptyClaim(o.Session)
 		return 2
 	}
 	if fi, err := os.Stat(o.CWD); err != nil || !fi.IsDir() {
 		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", o.CWD)
+		releaseEmptyClaim(o.Session)
 		return 2
 	}
 	// The claim holds this pid so a later Stop retakes it after a kill; the defer frees it for a fresh watcher.

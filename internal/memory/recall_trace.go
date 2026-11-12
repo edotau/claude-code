@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -190,11 +189,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 			if budget < recallLoadCap {
 				continue // only the first block is cut; a later one that does not fit whole is skipped, never a fragment
 			}
-			cut := budget - wrapper
-			for cut > 0 && !utf8.RuneStart(block[cut]) {
-				cut--
-			}
-			block = block[:cut]
+			block = textutil.CutBytes(block, budget-wrapper)
 		}
 		fmt.Fprintf(out, "\n<!-- %s -->\n%s\n", h.ID, block)
 		budget -= wrapper + len(block)
