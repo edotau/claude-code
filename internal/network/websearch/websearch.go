@@ -602,10 +602,12 @@ func publicIP(ip net.IP) bool {
 		ip.IsUnspecified() {
 		return false
 	}
-	if v4 := ip.To4(); v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64)) {
-		return false
-	}
-	return true
+	return !reservedV4(ip.To4())
+}
+
+// reservedV4 is true for an IPv4 in 0.0.0.0/8 or CGNAT 100.64.0.0/10; nil (not IPv4) is false.
+func reservedV4(v4 net.IP) bool {
+	return v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64))
 }
 
 // fetchPageText GETs one http(s) result URL as plain text; "" keeps the snippet; other schemes are refused.

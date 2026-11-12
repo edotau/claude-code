@@ -27,8 +27,8 @@ var (
 // IsLocalHost reports whether host names this machine: localhost, its hostname, or its tailnet name/IPs.
 func IsLocalHost(ctx context.Context, host string) bool {
 	h := strings.ToLower(strings.TrimSuffix(host, "."))
-	if _, at, ok := strings.Cut(h, "@"); ok {
-		h = at
+	if strings.Contains(h, "@") { // an explicit ssh user is a request to ssh, never to run here
+		return false
 	}
 	if h == "localhost" || h == "127.0.0.1" || h == "::1" || isOwnHostname(h) {
 		return true
