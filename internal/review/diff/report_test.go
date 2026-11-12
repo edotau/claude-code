@@ -116,16 +116,6 @@ func TestRunReportRejectsInvalidPRSummary(t *testing.T) {
 	}
 }
 
-func TestGenerateReportReturnsPRSummaryMarshalError(t *testing.T) {
-	_, err := generateReport("", "", "", map[string]any{
-		"status":  "analyzed",
-		"summary": map[string]any{"unsupported": make(chan int)},
-	}, map[string]any{})
-	if err == nil || !strings.Contains(err.Error(), "summary") {
-		t.Fatalf("generateReport() error = %v, want a contextual summary marshal error", err)
-	}
-}
-
 func TestMarkdownReportSectionLimits(t *testing.T) {
 	var r Report
 	for i := range 12 {
@@ -193,19 +183,24 @@ func TestGenerateActionItemsMergesCategory(t *testing.T) {
 }
 
 func TestGenerateReportFailsWhenQualityDiffFails(t *testing.T) {
-	_, err := generateReport(t.TempDir(), "nobase", "nohead", map[string]any{"status": "skipped"}, nil)
+	_, err := generateReport(t.TempDir(), "nobase", "nohead", &prInput{Status: "skipped"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "git diff") {
 		t.Fatalf("generateReport() error = %v, want a git diff failure, not a clean quality pass", err)
 	}
 }
 
 func TestGenerateReportSingleFileQualitySummary(t *testing.T) {
-	quality := map[string]any{
-		"file": "app.py", "quality_score": 72.5,
-		"smells":           []any{map[string]any{"type": "long_method"}, map[string]any{"type": "magic_number"}},
-		"solid_violations": []any{map[string]any{"principle": "SRP"}},
+	path := filepath.Join(t.TempDir(), "quality.json")
+	body := `{"file": "app.py", "quality_score": 72.5, "smells": [{"type": "long_method"}, {"type": "magic_number"}],` +
+		` "solid_violations": [{"principle": "SRP"}]}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	got, err := generateReport("", "", "", map[string]any{"status": "no_changes"}, quality)
+	quality, err := loadQualityAnalysisFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := generateReport("", "", "", &prInput{Status: "no_changes"}, quality)
 	want := &QualitySummary{FilesAnalyzed: 1, AverageScore: 72.5, TotalCodeSmells: 2, TotalSolidViolations: 1}
 	if err != nil || !reflect.DeepEqual(got.QualitySummary, want) {
 		t.Fatalf("single-file summary = %+v, %v; want %+v", got.QualitySummary, err, want)
