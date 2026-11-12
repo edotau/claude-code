@@ -35,6 +35,17 @@ func Truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
+// CutBytes is the longest prefix of s of at most n bytes that ends on a rune boundary.
+func CutBytes(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:max(n, 0)]
+}
+
 // TruncateRunes hard-cuts s to the first n runes with no ellipsis, mirroring Python's s[:n] slicing.
 func TruncateRunes(s string, n int) string { return CapRunes(s, n, "") }
 

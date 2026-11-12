@@ -17,6 +17,9 @@ import (
 // gitTimeout bounds one In call, so a hanging git hook fails the test instead of the whole binary.
 var gitTimeout = 60 * time.Second
 
+// setupTimeout bounds building and copying the template repo; tests shrink gitTimeout, never this.
+const setupTimeout = 2 * time.Minute
+
 var (
 	seq     atomic.Int64
 	once    sync.Once
@@ -49,7 +52,9 @@ func RepoAt(t *testing.T, dir string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.CommandContext(context.Background(), "cp", "-a", tmpl+"/.", dir).CombinedOutput(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "cp", "-a", tmpl+"/.", dir).CombinedOutput(); err != nil {
 		t.Fatalf("copy template repo %s to %s: %v %s", tmpl, dir, err, out)
 	}
 	return dir
@@ -77,8 +82,10 @@ func buildTemplate() {
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	steps := [][]string{{"init", "-q", "-b", "main"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t.com"},
 		{"commit", "--allow-empty", "-q", "-m", "init"}}
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
+	defer cancel()
 	for _, args := range steps {
-		cmd := exec.CommandContext(context.Background(), "git", args...)
+		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = tmpl
 		cmd.Env = env
 		if out, err := cmd.CombinedOutput(); err != nil {

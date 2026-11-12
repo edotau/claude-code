@@ -175,6 +175,9 @@ func everyLineNames(root, plan, abs string) bool {
 func namesOnly(root string, fields []string, abs string) bool {
 	names := false
 	for i, tok := range fields {
+		if strings.ContainsAny(tok, ";&|<>`$()\\") {
+			return false // a chained, substituted or redirected command is not just this file's formatter
+		}
 		tok = strings.Trim(tok, `"'`)
 		if tok == abs {
 			names = true
@@ -303,6 +306,8 @@ func run(dir, name string, args ...string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, p, args...)
 	cmd.Dir = dir
+	proc.OwnGroup(cmd)          // the timeout kills the formatter's whole group, wrapper-spawned children included
+	cmd.WaitDelay = time.Second // grandchildren holding the output pipe must not outlive the timeout
 	return cmd.Run() == nil
 }
 

@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -89,11 +88,7 @@ func Log(a Action, resource, detail string) {
 			// Drop a resource that cannot fit even without detail.
 			return
 		}
-		n := len(event.Detail) / 2
-		for n > 0 && !utf8.RuneStart(event.Detail[n]) {
-			n--
-		}
-		event.Detail = event.Detail[:n]
+		event.Detail = textutil.CutBytes(event.Detail, len(event.Detail)/2)
 	}
 	file := logFile()
 	dir := filepath.Dir(file)

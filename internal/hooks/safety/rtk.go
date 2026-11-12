@@ -116,14 +116,46 @@ var rtkEnvAltered = sync.OnceValue(func() *regexp.Regexp {
 		`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
 })
 
-// rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|` or a newline.
+// rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|`, `(`, a backtick or a newline.
 var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|&&|\|\||[;|\n])(\s*)rtk(\s|$)`)
+	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
 })
 
 // rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
 func rtkAbsolute(cmd, word string) string {
-	return rtkCommandWord().ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(word, "$", "$$")+"${3}")
+	out := rtkAbsolutePass(cmd, word)
+	if strings.Count(cmd, "rtk") < 2 { // a match eats its trailing separator, so only a second rtk needs a second pass
+		return out
+	}
+	return rtkAbsolutePass(out, word)
+}
+
+// rtkAbsolutePass rewrites only matches whose prefix the shell runs; quoted text like '(rtk x)' stays as data.
+func rtkAbsolutePass(cmd, word string) string {
+	quote := shell.QuoteAt(cmd)
+	var b strings.Builder
+	last := 0
+	for _, m := range rtkCommandWord().FindAllStringSubmatchIndex(cmd, -1) {
+		if p := m[2]; p < m[3] && !rtkPrefixRuns(cmd, quote, p) {
+			continue
+		}
+		b.WriteString(cmd[last:m[5]])
+		b.WriteString(word)
+		b.WriteString(cmd[m[6]:m[7]])
+		last = m[1]
+	}
+	return b.String() + cmd[last:]
+}
+
+// rtkPrefixRuns reports whether the separator at cmd[p] is live shell syntax rather than quoted text.
+func rtkPrefixRuns(cmd string, quote []byte, p int) bool {
+	switch quote[p] {
+	case 0:
+		return true
+	case '"':
+		return cmd[p] == '`' || cmd[p] == '(' && p > 0 && cmd[p-1] == '$'
+	}
+	return false
 }
 
 // rtkWord spells bin so allow rules stay machine-independent: bare rtk on PATH, else `"$HOME/<rest>"`, else quoted.

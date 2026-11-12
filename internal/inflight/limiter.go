@@ -186,6 +186,7 @@ func writeMarkers(dir string, c Claim) bool {
 func writeMarker(dir, name, body string) bool {
 	tmp := filepath.Join(dir, ".tmp-"+name)
 	if os.WriteFile(tmp, []byte(body), 0o600) != nil {
+		_ = os.Remove(tmp) // drop a partial temp file
 		return false
 	}
 	if os.Rename(tmp, filepath.Join(dir, name)) != nil {
