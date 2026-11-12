@@ -39,6 +39,10 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 			return
 		}
 		if err != nil {
+			if sw, ok := w.(*statusWriter); ok { // the handler logs and meters first, then breaks the stream
+				sw.aborted = true
+				return
+			}
 			panic(http.ErrAbortHandler) // a mid-body upstream failure must reach the client as a broken stream
 		}
 	}
@@ -68,9 +72,25 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status int
-	rc     *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
-	errBuf []byte                   // the first bytes of an error reply (status >= 400), for the request log
+	status  int
+	rc      *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
+	errBuf  []byte                   // the first bytes of an error reply (status >= 400), for the request log
+	aborted bool                     // relay hit a mid-body upstream failure: abort once logged and metered
+}
+
+// brokenDiag marks a request line whose upstream reply broke mid-body.
+func brokenDiag(sw *statusWriter) string {
+	if sw.aborted {
+		return " stream=broken"
+	}
+	return ""
+}
+
+// abortIfBroken breaks the client's stream (http.ErrAbortHandler) when relay saw the upstream fail mid-body.
+func (s *statusWriter) abortIfBroken() {
+	if s.aborted {
+		panic(http.ErrAbortHandler)
+	}
 }
 
 // errBufMax bounds how much of an error reply the request log may read its code and message from.
@@ -157,9 +177,12 @@ func (r *Router) relayChatStream(w *statusWriter, in *http.Request, body io.Read
 // relayChatBuffered reads a whole chat reply, translates it, and writes it as one JSON response.
 func relayChatBuffered(w *statusWriter, in *http.Request, body io.Reader, t providers.Target,
 	clientModel string) (bool, error) {
-	b, err := io.ReadAll(io.LimitReader(body, maxBody))
+	b, err := io.ReadAll(io.LimitReader(body, maxBody+1))
 	if err != nil {
 		return false, err
+	}
+	if len(b) > maxBody {
+		return false, fmt.Errorf("upstream reply exceeds %d bytes", maxBody)
 	}
 	if metered(t.Provider) {
 		logLedgerUsage(in, t.Provider, t.Model, scrapeChatUsage(b))

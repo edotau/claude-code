@@ -116,8 +116,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if count {
 		kind = " kind=count_tokens"
 	}
-	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond), kind, viaDiag(req), errDiag(sw.errBuf))
+	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
+		time.Since(start).Round(time.Millisecond), kind, viaDiag(req), errDiag(sw.errBuf), brokenDiag(sw))
+	sw.abortIfBroken()
 }
 
 // withLaunchIdentity puts the launch's IdentityHeader (--as, or headless) on req's context for the credential mint.
