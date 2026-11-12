@@ -1,6 +1,6 @@
 // Package project projects agents/ into every agent's native subagent dir (rendered under state/projections),
 // links skills/ into ~/.agents/skills (plus agy's and copilot's own skills dirs), and renders each agent's
-// global instruction file (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md).
+// global instruction file (~/.codex/AGENTS.md, ~/.gemini/GEMINI.md, ~/.copilot/copilot-instructions.md).
 package project
 
 import (

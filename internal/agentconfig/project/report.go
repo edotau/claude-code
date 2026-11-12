@@ -77,7 +77,7 @@ func originOf(verb, path string) string {
 	switch {
 	case verb == "EXTRA":
 		return "extra"
-	case strings.Contains(path, "/skills/"):
+	case strings.Contains(filepath.ToSlash(path), "/skills/"):
 		return "skill"
 	}
 	for _, t := range targets {

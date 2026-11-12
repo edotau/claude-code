@@ -1,8 +1,9 @@
 package project
 
 import (
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
@@ -35,12 +36,7 @@ var targets = map[string]projectionTarget{
 
 // Names lists the sync targets, sorted.
 func Names() []string {
-	names := make([]string, 0, len(targets))
-	for n := range targets {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(targets))
 }
 
 func sub(parts ...string) func(string) string {
