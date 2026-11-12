@@ -70,12 +70,6 @@ func (e Entry) ProfileName() string {
 	return e.Provider
 }
 
-// TotalsBySession is SessionTotals with the read error dropped; callers that cache the result must use SessionTotals.
-func TotalsBySession(id string) (in, out, cacheRead int) {
-	in, out, cacheRead, _ = SessionTotals(id)
-	return in, out, cacheRead
-}
-
 // SessionTotals sums tokens of every entry stamped with the parent session id ("" matches nothing); read errors return.
 func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	if id == "" {

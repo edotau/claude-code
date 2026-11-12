@@ -155,7 +155,7 @@ func TestOldLinesParseAndProfileName(t *testing.T) {
 	if got[0].ProfileName() != "prod" || got[0].Session != "" || got[0].Agent != "" {
 		t.Errorf("old entry = %+v", got[0])
 	}
-	if in, _, _ := TotalsBySession(""); in != 0 {
+	if in, _, _, _ := SessionTotals(""); in != 0 {
 		t.Error("empty id must match nothing")
 	}
 }
