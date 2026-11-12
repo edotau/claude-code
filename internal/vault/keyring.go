@@ -140,8 +140,6 @@ func lookupFailure(err error) error {
 		return nil // only a positively established absence
 	case keyringGOOS == "darwin" && exit.ExitCode() == 44:
 		return nil // only a positively established absence
-	case stderr != "":
-		return fmt.Errorf("%w: %s", ErrKeyringUnavailable, stderr)
 	}
 	return ErrKeyringUnavailable
 }

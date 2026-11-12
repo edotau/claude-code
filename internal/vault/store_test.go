@@ -962,8 +962,8 @@ func TestResolveKeyEnvMismatchNoFallbackErrorsWrongKey(t *testing.T) {
 	}
 }
 
-// A failing key_command's error carries the command's stderr, so a misconfigured command is diagnosable.
-func TestKeyCommandFailureIncludesStderr(t *testing.T) {
+// A failing key_command's error names the exit status but never its stderr, which may hold key material.
+func TestKeyCommandFailureOmitsStderr(t *testing.T) {
 	useKeyringVault(t)
 	const msg = "custom fail message for stderr capture"
 	putVault(t, Meta, "key_command", writeKeyCommandScript(t, "echo '"+msg+"' >&2\nexit 7"))
@@ -971,8 +971,8 @@ func TestKeyCommandFailureIncludesStderr(t *testing.T) {
 	if err == nil {
 		t.Fatal("MasterKey succeeded with a failing key_command")
 	}
-	if !strings.Contains(err.Error(), msg) {
-		t.Errorf("MasterKey error = %q, want it to contain the command's stderr %q", err.Error(), msg)
+	if got := err.Error(); strings.Contains(got, msg) || !strings.Contains(got, "exit status 7") {
+		t.Errorf("MasterKey error = %q, want the exit status and none of the command's stderr %q", got, msg)
 	}
 }
 
