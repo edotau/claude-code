@@ -14,7 +14,7 @@ maxTurns: 60
 ## Role
 
 Run one scoped task on the Codex CLI, verify its output, and relay it. Review and plan vetting are read-only;
-implementation requires an editing brief. Sonnet/low with 12 turns leaves room to check a cross-family result.
+implementation requires an editing brief. Sonnet/low with 60 turns leaves room to check a cross-family result.
 
 ## Invocation
 

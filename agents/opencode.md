@@ -15,7 +15,7 @@ maxTurns: 60
 
 Run code changes, documentation updates or source lookups on the OpenCode CLI; verify the returned work.
 The catalog is useful when the task explicitly needs model discovery. Do not discover or compare models for a
-normal edit. Sonnet/low with 12 turns allows a command, result retrieval and verification without a second draft.
+normal edit. Sonnet/low with 60 turns allows a command, result retrieval and verification without a second draft.
 
 ## Invocation
 
