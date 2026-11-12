@@ -51,8 +51,7 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 				Reason: "opencode's own GitHub Copilot login, but no sonnet/haiku model configured for github-copilot"}
 		}
 	}
-	s, _ := agent.LookupSchema("opencode")
-	return agent.RouteInfo{Agent: "opencode", Route: agent.RouteNone, Reason: "no route for opencode: " + s.CLI.ConfigureHint}
+	return agent.RouteInfo{Agent: "opencode", Route: agent.RouteNone, Reason: "no route for opencode: " + row.CLI.ConfigureHint}
 }
 
 // opencodeRouteDetail reports configure --restore routes, files and login booleans, never credentials.

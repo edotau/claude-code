@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -57,8 +56,7 @@ func databricksRoutes(p *providers.Provider, dialect, base string, routed bool) 
 		return "", "", "", fmt.Errorf("opencode: provider %s lacks a responses route", p.Name)
 	}
 	if routed { // base is the session base plus the dialect suffix routerRoute added
-		s, _ := agent.LookupSchema("opencode")
-		sfx := s.CLI.RouterSuffix
+		sfx := row.CLI.RouterSuffix
 		sess := strings.TrimSuffix(base, sfx[dialect])
 		chatBase, respBase, claudeBase = sess+sfx[providers.ProtocolOpenAI], sess+sfx[providers.ProtocolResponses], sess+sfx[providers.ProtocolAnthropic]+"/v1"
 	}

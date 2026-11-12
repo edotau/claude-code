@@ -1,8 +1,6 @@
 package opencode
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // pluginJS is the plugin template; renderPlugin fills in __BIN__ and __MODULES__ (JSON literals) and __HOSTEDENV__.
@@ -166,8 +165,7 @@ func writePlugin() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(body)
-	dest := filepath.Join(paths.StateDir(), "opencode", "harness-hooks-"+hex.EncodeToString(sum[:6])+".js")
+	dest := filepath.Join(paths.StateDir(), "opencode", "harness-hooks-"+textutil.SHA256Hex(body)[:12]+".js")
 	if _, err := paths.WriteIfChanged(dest, body, 0o600); err != nil {
 		return "", fmt.Errorf("opencode plugin: %w", err)
 	}
