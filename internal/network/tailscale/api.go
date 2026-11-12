@@ -121,6 +121,16 @@ func NewClient() (*Client, error) {
 	return nil, errNoCredential
 }
 
+// CheckAdmin proves the stored admin credential works by listing devices.
+func CheckAdmin(ctx context.Context) error {
+	c, err := NewClient()
+	if err != nil {
+		return err
+	}
+	_, err = c.Devices(ctx)
+	return err
+}
+
 // ValidateCreds proves an OAuth client id and secret work: it mints a token with them and lists devices.
 func ValidateCreds(ctx context.Context, clientID, clientSecret string) error {
 	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}

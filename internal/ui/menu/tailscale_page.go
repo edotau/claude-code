@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -18,7 +19,14 @@ var (
 	tsMint     = tailscale.MintKey
 	tsExitNode = tailscale.ExitNode
 	tsValidate = tailscale.ValidateCreds
+	tsCheck    = tailscale.CheckAdmin
 )
+
+// tsAdminVerdict caches the admin credential check for a minute; tsAdminKey clears it after a change.
+var tsAdminVerdict struct {
+	at   time.Time
+	text string
+}
 
 // tsNetTimeout bounds one admin-API or `tailscale set` action.
 const tsNetTimeout = 30 * time.Second
@@ -32,7 +40,7 @@ func runTailscale(d *dialog) {
 	runTailscalePage(d)
 }
 
-// runTailscalePage loops status, sign in (while not connected), admin key, auth key and exit node until Back.
+// runTailscalePage loops status, login, admin key, auth key and exit node until Back.
 func runTailscalePage(d *dialog) {
 	s := tsShell(d)
 	act := func(name, detail string, run func()) shellRow {
@@ -40,31 +48,58 @@ func runTailscalePage(d *dialog) {
 	}
 	s.Run("tailscale", func() []shellRow {
 		st, err := tailscaleStatus(context.Background())
-		state := "not connected"
+		state := ansi.SpanOff + "not connected" + ansi.SpanEnd
 		if err == nil {
 			host, _, _ := strings.Cut(st.DNSName, ".")
-			state = "running · " + host
+			state = host + " · " + tsGreen("running")
 		}
-		rows := []shellRow{act("status", state, func() { runRemote(d) })}
-		if err != nil {
-			rows = append(rows, act("sign in", "run tailscale login; prints the sign-in URL", func() { tsSignIn(d) }))
+		login := "browser sign-in"
+		if err == nil {
+			login = "add or switch account"
 		}
-		admin := map[bool]string{true: "present", false: "absent"}[configure.HasAdminCredential()]
+		rows := []shellRow{act("status", state, func() { runRemote(d) }), act("login", login, func() { tsSignIn(d) })}
+		auth := "mint, show once"
+		if _, had, _ := vault.ReadSecret("TAILSCALE_AUTHKEY"); had {
+			auth += " · " + tsGreen("vault")
+		}
 		return append(rows,
-			act("admin key", "seal the OAuth client id and secret · "+admin, func() { tsAdminKey(d, s) }),
-			act("auth key", "mint TAILSCALE_AUTHKEY (90d), show once, seal in vault", func() { tsAuthKey(d, s) }),
-			act("exit node", tsExitState(st, err)+" · on, off or approve", func() { tsExitNodeMenu(d, s) }))
+			act("admin key", "OAuth client · "+tsAdminState(), func() { tsAdminKey(d, s) }),
+			act("auth key", auth, func() { tsAuthKey(d, s) }),
+			act("exit node", "advertise this box · "+tsExitState(st, err), func() { tsExitNodeMenu(d, s) }))
 	})
 }
 
-// tsExitState is this box's exit-node state from Status: advertised and approved, or not.
+// tsExitState is this box's current exit-node option in green: on (unapproved when not yet approved) or off.
 func tsExitState(st tailscale.Local, err error) string {
-	if err != nil {
-		return "unknown"
+	switch {
+	case err != nil:
+		return ansi.SpanOff + "unknown" + ansi.SpanEnd
+	case !st.ExitNodeOption:
+		return tsGreen("off")
+	case !st.ExitNodeApproved:
+		return tsGreen("on") + " · unapproved"
 	}
-	adv := map[bool]string{true: "advertised", false: "not advertised"}[st.ExitNodeOption]
-	return adv + " · " + map[bool]string{true: "approved", false: "not approved"}[st.ExitNodeApproved]
+	return tsGreen("on")
 }
+
+// tsAdminState is absent, valid (green) or invalid (yellow): the stored credential tried against the admin API.
+func tsAdminState() string {
+	if !configure.HasAdminCredential() {
+		return ansi.SpanOff + "absent" + ansi.SpanEnd
+	}
+	if time.Since(tsAdminVerdict.at) > time.Minute {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tsAdminVerdict.text = tsGreen("valid")
+		if tsCheck(ctx) != nil {
+			tsAdminVerdict.text = ansi.SpanWarn + "invalid" + ansi.SpanEnd
+		}
+		tsAdminVerdict.at = time.Now()
+	}
+	return tsAdminVerdict.text
+}
+
+func tsGreen(s string) string { return ansi.SpanOK + s + ansi.SpanEnd }
 
 // forgetTailscaleStatus drops the cached Status so the next read sees a sign-in or exit-node change.
 func forgetTailscaleStatus() {
@@ -76,13 +111,13 @@ func forgetTailscaleStatus() {
 // tsSignIn runs `tailscale login` on the terminal, then reports the machine name status now shows.
 func tsSignIn(d *dialog) {
 	if err := tsLogin(context.Background(), d.o.In, d.out, d.out); err != nil {
-		d.printf("sign in: %v\n", err)
+		d.printf("login: %v\n", err)
 		return
 	}
 	forgetTailscaleStatus()
 	st, err := tailscaleStatus(context.Background())
 	if err != nil {
-		d.printf("sign in: login finished, but status reports %v\n", err)
+		d.printf("login: finished, but status reports %v\n", err)
 		return
 	}
 	d.printf("tailscale: signed in as %s\n", strings.TrimSuffix(st.DNSName, "."))
@@ -119,6 +154,7 @@ func tsAdminKey(d *dialog, s *shell) {
 		return
 	}
 	d.println("admin key: sealed in the vault")
+	tsAdminVerdict.at = time.Time{}
 }
 
 // tsAuthKey asks the key's options, mints it, prints it once and seals it as TAILSCALE_AUTHKEY.
