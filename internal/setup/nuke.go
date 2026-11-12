@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -241,17 +242,58 @@ func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	if !hasGit {
 		return out, nil
 	}
-	rels, err := untrackedUnder(dir, ".") // untracked and git-ignored alike: RemoveAll deletes both
+	rels, err := untrackedUnder(dir, ".") // every untracked, non-ignored file: the plan labels them untracked too
 	if err != nil {
 		return nil, err
 	}
-	return append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
-		return slices.Contains(out, r) || strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") ||
-			strings.HasPrefix(r, "plans/")
-	})...), nil
+	out = append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
+		return strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/")
+	})...)
+	ignored, err := ignoredUserContent(dir)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, ignored...), nil
 }
 
-// untrackedUnder lists the untracked files under repo/sub, git-ignored ones included. A scan error (e.g. an unreadable subdir
+// userContentDirs are the user-authored trees whose git-ignored files nuke also archives before deleting them.
+var userContentDirs = []string{"agents", "commands", "skills", "rules"}
+
+// ignoredUserContent lists git-ignored files under userContentDirs, skipping credential-shaped ones (named on stderr).
+func ignoredUserContent(repo string) ([]string, error) {
+	var out []string
+	for _, sub := range userContentDirs {
+		fi, err := os.Stat(filepath.Join(repo, sub))
+		if err != nil || !fi.IsDir() {
+			continue // absent: nothing to archive
+		}
+		raw, err := gitOutput("-C", repo, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", sub)
+		if err != nil {
+			return nil, fmt.Errorf("list ignored %s: %w", sub, err)
+		}
+		for _, rel := range splitNUL(raw) {
+			if credentialShaped(filepath.Join(repo, rel)) {
+				fmt.Fprintf(os.Stderr, "nuke: not archiving credential-shaped ignored file %s\n", rel)
+				continue
+			}
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
+// credentialShaped matches the credential-file names and content shapes the memory bank also refuses.
+func credentialShaped(path string) bool {
+	base := filepath.Base(path)
+	if base == ".credentials.json" || base == ".env" || strings.HasPrefix(base, ".env.") ||
+		strings.HasSuffix(base, ".pem") || strings.HasSuffix(base, ".key") {
+		return true
+	}
+	data, err := os.ReadFile(path)
+	return err == nil && textutil.CredentialRE.Match(data)
+}
+
+// untrackedUnder lists the untracked files under repo/sub. A scan error (e.g. an unreadable subdir
 // blocking `git ls-files`) must not be mistaken for "nothing untracked": it propagates instead.
 func untrackedUnder(repo, sub string) ([]string, error) {
 	fi, err := os.Stat(filepath.Join(repo, sub))
@@ -264,7 +306,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 	if !fi.IsDir() {
 		return nil, nil
 	}
-	out, err := exec.Command("git", "-C", repo, "ls-files", "-z", "--others", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
+	out, err := exec.Command("git", "-C", repo, "ls-files", "-z", "--others", "--exclude-standard", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
 	if err != nil {
 		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
 	}
