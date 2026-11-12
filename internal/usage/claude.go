@@ -186,11 +186,9 @@ func CachedSevenDay(maxAge time.Duration) (utilization float64, resetsAt string,
 	if c == nil || len(c.Body) == 0 || claudeNow().Sub(c.FetchedAt) > maxAge {
 		return 0, "", false
 	}
-	// An unowned cache, or a login only the keychain knows (too slow to ask per render), is served.
-	if c.Owner != "" {
-		if cur := claudeFileOwner(); cur != "" && cur != c.Owner {
-			return 0, "", false
-		}
+	// An unowned cache is served; an owned one needs the file login, else the sidecar a live run left (no keychain read).
+	if c.Owner != "" && cmp.Or(claudeFileOwner(), readClaudeOwnerSidecar()) != c.Owner {
+		return 0, "", false
 	}
 	var b struct {
 		SevenDay struct {
@@ -216,6 +214,24 @@ func claudeFileOwner() string {
 		return ""
 	}
 	return claudeOwner(creds)
+}
+
+// claudeOwnerSidecarPath holds the owner fingerprint (never the secret) of the last live-verified login.
+func claudeOwnerSidecarPath() string {
+	return filepath.Join(filepath.Dir(claudeUsageCachePath()), "claude-owner")
+}
+
+func readClaudeOwnerSidecar() string {
+	raw, err := os.ReadFile(claudeOwnerSidecarPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// writeClaudeOwnerSidecar records creds' owner after a live credential read; best-effort, a miss only hides the cache.
+func writeClaudeOwnerSidecar(creds claudeOAuthCreds) {
+	_ = paths.AtomicWrite(claudeOwnerSidecarPath(), []byte(claudeOwner(creds)+"\n"), 0o600)
 }
 
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
@@ -297,6 +313,7 @@ func claudeQuotas(ctx context.Context) []quota {
 	if !ok {
 		return []quota{{Provider: "anthropic", Note: "not logged in (run claude /login)"}}
 	}
+	writeClaudeOwnerSidecar(creds)
 	path := claudeUsageCachePath()
 	var rows []quota
 	// The lock spans read, fetch and write, so a concurrent run reads the fresh cache instead of refetching.
