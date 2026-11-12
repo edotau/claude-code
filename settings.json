@@ -51,14 +51,12 @@
       "Edit(~/.ssh/**)",
       "Edit(**/state/vault.db)",
       "Edit(**/.credentials.json)",
-      "Edit(~/.claude/settings.json)",
-      "Edit(~/.claude/.claude/settings.local.json)"
+      "Edit(~/.claude/settings.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
-      "Edit(~/.claude/settings.local.json)",
       "Edit(~/.claude/internal/agentconfig/agents.json)",
       "Read(~/.ssh/**)"
     ],
