@@ -241,9 +241,13 @@ func (t *toolsFlag) String() string {
 }
 
 func (t *toolsFlag) Set(s string) error {
-	t.set = true
-	if s != "" && s != "true" {
-		t.names = strings.Split(s, ",")
+	switch s {
+	case "false":
+		t.set, t.names = false, nil
+	case "", "true":
+		t.set = true
+	default:
+		t.set, t.names = true, strings.Split(s, ",")
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -51,12 +52,23 @@ func claimWatcher(claim string) bool {
 			_ = f.Close()
 			return true
 		}
-		if !watcherDead(claim) {
+		if !retakeDeadClaim(claim) {
 			return false
 		}
-		_ = os.Remove(claim)
 	}
 	return false
+}
+
+// retakeDeadClaim removes a dead watcher's claim under a lock, re-checking it so two Stops never delete each other's.
+func retakeDeadClaim(claim string) bool {
+	retaken := false
+	ran, err := paths.TryFileLock(claim+".lock", 0, func() error {
+		if watcherDead(claim) {
+			retaken = os.Remove(claim) == nil
+		}
+		return nil
+	})
+	return ran && err == nil && retaken
 }
 
 // watcherDead reports whether the claim names a pid that is gone; an empty claim is a watcher still starting.
@@ -86,7 +98,10 @@ func IdleUpdateWatch(o WatchOptions) int {
 		return 2
 	}
 	// The claim holds this pid so a later Stop retakes it after a kill; the defer frees it for a fresh watcher.
-	_ = os.WriteFile(watchClaimPath(o.Session), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	if err := os.WriteFile(watchClaimPath(o.Session), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		fmt.Fprintf(stderr, "memory watch: write claim: %v\n", err)
+		_ = os.Remove(watchClaimPath(o.Session)) // an empty claim would never be retaken; the stamp dedupes a rival
+	}
 	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }()
 	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
 	deadline := time.Now().Add(updateWatchLife)

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -325,7 +326,7 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 // Inside databricks:dbx a refused GitHub hop is an error naming why; it never moves the dispatch to a workspace.
 func TestArmCopilotGateRefusalIsError(t *testing.T) {
 	macFallbackScratch(t)
-	t.Setenv(router.EnvCoworker, "databricks:dbx")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
 	orig := CopilotUsedPct
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 99, true }
 	t.Cleanup(func() { CopilotUsedPct = orig })

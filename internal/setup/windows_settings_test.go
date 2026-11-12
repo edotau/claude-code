@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // decodeObj decodes a JSON object into key->raw, for presence/absence and value assertions.
@@ -176,10 +174,8 @@ func brokenCmdPATH(t *testing.T) {
 // TestInstallWindowsSettings_MissingProfileSkip proves installWindowsSettings prints a one-line skip
 // note and returns nil, never an error, when the profile can't be resolved.
 func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
-	if !proc.OnWSL() {
-		t.Skip("off WSL installWindowsSettings is a silent no-op (TestInstallWindowsSettings_NonWSLNoop covers it)")
-	}
 	hermetic(t)
+	setOnWSL(t, true)
 	brokenCmdPATH(t)
 	var out bytes.Buffer
 	if err := installWindowsSettings(&out, false); err != nil {
@@ -190,15 +186,19 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	}
 }
 
-// TestInstallWindowsSettings_NonWSLNoop proves installWindowsSettings is silent off WSL. This dev box
-// is itself WSL (no seam exists to fake proc.OnWSL() false), so the assertion only runs on a genuine
-// non-WSL host; elsewhere it documents why it skips rather than asserting something unexercised.
+// setOnWSL swaps the onWSL seam for the test.
+func setOnWSL(t *testing.T, v bool) {
+	t.Helper()
+	orig := onWSL
+	onWSL = func() bool { return v }
+	t.Cleanup(func() { onWSL = orig })
+}
+
+// TestInstallWindowsSettings_NonWSLNoop proves installWindowsSettings is silent off WSL.
 func TestInstallWindowsSettings_NonWSLNoop(t *testing.T) {
 	hermetic(t)
 	t.Setenv(windowsProfileEnv, "")
-	if proc.OnWSL() {
-		t.Skip("host is WSL; the off-WSL no-op branch has no test seam and only runs on a non-WSL host")
-	}
+	setOnWSL(t, false)
 	var out bytes.Buffer
 	if err := installWindowsSettings(&out, false); err != nil {
 		t.Fatal(err)

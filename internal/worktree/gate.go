@@ -101,7 +101,7 @@ func scopedGateCommand(pkgs []string) string {
 const fullGoGate = "go build ./... && go vet ./... && go test ./..."
 
 // filePackages maps a changed file to its package dir; a non-Go file also to packages embedding it or tests naming it.
-func filePackages(list []goPkg, abs, f string, src func(string) string) []string {
+func filePackages(list []goPkg, abs, f string, src func(string) (string, bool)) []string {
 	var out []string
 	if p := goPkgOf(abs, filepath.Dir(f)); p != "" {
 		out = append(out, p)
@@ -118,7 +118,7 @@ func filePackages(list []goPkg, abs, f string, src func(string) string) []string
 }
 
 // refersTo reports whether p (at repo-relative r) embeds f or has a test file mentioning f or its directory.
-func refersTo(p goPkg, r, f string, src func(string) string) bool {
+func refersTo(p goPkg, r, f string, src func(string) (string, bool)) bool {
 	for _, e := range slices.Concat(p.EmbedFiles, p.TestEmbedFiles, p.XTestEmbedFiles) {
 		if path.Join(r, filepath.ToSlash(e)) == f {
 			return true
@@ -126,23 +126,28 @@ func refersTo(p goPkg, r, f string, src func(string) string) bool {
 	}
 	d := path.Dir(f)
 	for _, t := range slices.Concat(p.TestGoFiles, p.XTestGoFiles) {
-		if b := src(filepath.Join(p.Dir, t)); strings.Contains(b, f) || d != "." && strings.Contains(b, d) {
+		b, ok := src(filepath.Join(p.Dir, t))
+		if !ok || strings.Contains(b, f) || d != "." && strings.Contains(b, d) { // unreadable: assume it refers
 			return true
 		}
 	}
 	return false
 }
 
-// cachedReader returns a file reader that reads each path once; an unreadable file reads as "".
-func cachedReader() func(string) string {
-	seen := map[string]string{}
-	return func(p string) string {
-		if b, ok := seen[p]; ok {
-			return b
+// cachedReader returns a file reader that reads each path once; ok is false for an unreadable file.
+func cachedReader() func(string) (string, bool) {
+	type res struct {
+		b  string
+		ok bool
+	}
+	seen := map[string]res{}
+	return func(p string) (string, bool) {
+		if r, hit := seen[p]; hit {
+			return r.b, r.ok
 		}
-		b, _ := os.ReadFile(p)
-		seen[p] = string(b)
-		return seen[p]
+		b, err := os.ReadFile(p)
+		seen[p] = res{string(b), err == nil}
+		return seen[p].b, err == nil
 	}
 }
 

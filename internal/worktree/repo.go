@@ -39,6 +39,7 @@ func Root(main string) string {
 func gitCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitEnv()
+	cmd.WaitDelay = gitWaitDelay // a cancelled call must not block on pipes a git child inherited
 	return cmd
 }
 
@@ -142,11 +143,14 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	return ok && common == paths.Canon(filepath.Join(repo.Main, ".git")), err
 }
 
-// revParseCanon runs `git rev-parse --path-format=absolute flag` in dir; ok is false when git itself fails there.
+// revParseCanon runs `git rev-parse --path-format=absolute flag` in dir; ok is false when git reports no repository there.
 func revParseCanon(ctx context.Context, dir, flag string) (path string, ok bool, err error) {
 	out, err := gitCmd(ctx, "-C", dir, "rev-parse", "--path-format=absolute", flag).Output()
 	if err != nil {
-		return "", false, ctx.Err()
+		if code, isExit := asExitErr(err); isExit && code == gitFatalExit && ctx.Err() == nil {
+			return "", false, nil // not a git repo there
+		}
+		return "", false, fmt.Errorf("git rev-parse %s in %s: %w", flag, dir, err)
 	}
 	return paths.Canon(strings.TrimSpace(string(out))), true, nil
 }

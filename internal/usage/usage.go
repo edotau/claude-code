@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -141,6 +142,9 @@ func foldResponses(path string, resps []transcript.Response, cutoff time.Time, c
 	return kept
 }
 
+// maxDays caps --days (100 years) so days*24h cannot overflow time.Duration.
+const maxDays = 36500
+
 // usageOpts are the validated `usage` flags.
 type usageOpts struct {
 	session      string
@@ -189,6 +193,12 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	if o.workflows && o.jsonOut {
 		return usageOpts{}, errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
 	}
+	if strings.ContainsAny(o.session, `*?[]\/`) || o.session == "." || o.session == ".." {
+		return usageOpts{}, fmt.Errorf("--session must be a bare session id, without glob characters or path separators (got %q)", o.session)
+	}
+	if o.days > maxDays {
+		return usageOpts{}, fmt.Errorf("--days must be at most %d (got %d)", maxDays, o.days)
+	}
 	if o.days <= 0 {
 		return usageOpts{}, fmt.Errorf("--days must be 1 or more (got %d); use --days 1 for the last day", o.days)
 	}
@@ -212,6 +222,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 			return 1
 		}
 		if err := helptext.WriteJSON(out, doc); err != nil {
+			fmt.Fprintln(errw, "usage: write output:", err)
 			return 1
 		}
 		return 0
@@ -329,9 +340,10 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 	var files []string
 	for _, dir := range sessionDirs {
 		matches, globErr := filepath.Glob(filepath.Join(dir, "subagents", "*.jsonl"))
-		if globErr == nil {
-			files = append(files, matches...)
+		if globErr != nil {
+			return nil, fmt.Errorf("usage: glob %s: %w", dir, globErr)
 		}
+		files = append(files, matches...)
 		for _, run := range transcript.WorkflowRunDirs(dir) {
 			files = append(files, transcript.WorkflowAgentFiles(run)...)
 		}

@@ -151,6 +151,9 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 			return nil
 		}
 		_, _, homeErr := extractBlock(homeDir, id)
+		if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
+			return homeErr // an unreadable home file is not "absent": appending could duplicate the block
+		}
 		inHome := homeErr == nil // an existing home copy is kept, never appended twice
 		snap, err := snapshotPaths(src, filepath.Join(homeDir, file))
 		if err != nil {
@@ -238,10 +241,16 @@ func extractBlock(dir, id string) (string, string, error) {
 func findBlock(dir, id string) (file, block, src string, err error) {
 	if file, block, err = extractBlock(dir, id); err == nil {
 		return file, block, filepath.Join(dir, file), nil
+	} else if !errors.Is(err, errNoBlock) {
+		return "", "", "", err
 	}
 	for name := range idFiles {
 		for _, p := range globIn(archiveDir(dir), strings.TrimSuffix(name, ".md")+"-*.md") {
-			if b, rerr := blockIn(p, name, id); rerr == nil && b != "" {
+			b, rerr := blockIn(p, name, id)
+			if rerr != nil {
+				return "", "", "", rerr
+			}
+			if b != "" {
 				return name, b, p, nil
 			}
 		}

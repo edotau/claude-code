@@ -31,7 +31,7 @@ var inUseSettle = time.Second
 // inUsePoll is the pause between settle re-checks of a busy worktree.
 const inUsePoll = 100 * time.Millisecond
 
-// parentOf returns pid's parent pid, used only to exclude the calling process's own ancestry below.
+// parentOf returns pid's parent pid; ancestry walks it for InUseBy's exclusion and PeerAgents.
 var parentOf func(pid int) (int, error)
 
 // platformScan holds the OS implementations StubProcessScanForTest replaced, so a real-process test can restore them.
@@ -57,7 +57,11 @@ func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
 	if err != nil {
 		real = dest // not resolvable yet; compare against the raw path
 	}
-	if cwdInside(real) {
+	inside, err := cwdInside(real)
+	if err != nil {
+		return "", err
+	}
+	if inside {
 		return "current directory is inside it; cd out first", nil
 	}
 	if in == nil {
@@ -70,13 +74,16 @@ func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
 }
 
 // cwdInside reports whether the calling process's own cwd resolves inside real.
-func cwdInside(real string) bool {
+func cwdInside(real string) (bool, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return false
+		return false, fmt.Errorf("resolve current directory: %w", err)
 	}
 	resolved, err := filepath.EvalSymlinks(cwd)
-	return err == nil && paths.Within(resolved, real)
+	if err != nil {
+		return false, fmt.Errorf("resolve current directory: %w", err)
+	}
+	return paths.Within(resolved, real), nil
 }
 
 // settleForeign re-checks a busy dir for inUseSettle before returning the refusal for the first foreign process.

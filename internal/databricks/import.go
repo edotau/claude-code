@@ -57,7 +57,10 @@ func importCfg(args []string) int {
 	}
 	path := *file
 	if path == "" {
-		path = defaultPath()
+		var err error
+		if path, err = defaultPath(); err != nil {
+			return fail("import: %v", err)
+		}
 	}
 	cands, err := importCandidates(path, *pick)
 	if err != nil {

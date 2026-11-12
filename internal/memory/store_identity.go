@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -233,8 +232,7 @@ func slugKey(base, origin string, taken func(key string) (Origin, bool)) (string
 	if strings.Trim(slug, "._-") == "" {
 		slug = "repo"
 	}
-	sum := sha256.Sum256([]byte(origin))
-	hash := hex.EncodeToString(sum[:])
+	hash := textutil.SHA256Hex([]byte(origin))
 	key := slug
 	for n := 8; ; n += 4 {
 		o, ok := taken(key)
@@ -539,6 +537,9 @@ func ResolveRepo(repo string) (string, error) {
 	}
 	if _, err := os.Stat(repo); err == nil {
 		return root(repo), nil
+	}
+	if _, err := RepoDirs(); err != nil {
+		return "", fmt.Errorf("--repo %q: reading the store catalog: %w", repo, err)
 	}
 	return "", fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s); pass a checkout path or a store name",
 		repo, strings.Join(RepoKeys(), ", "))

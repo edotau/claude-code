@@ -186,6 +186,21 @@ func checkHeaders(h map[string]string) error {
 		}
 		return fmt.Errorf("header %q looks like a credential; auth comes from the token helper, not a rendered header", k)
 	}
+	for k, v := range h {
+		if credValue(v) {
+			return fmt.Errorf("header %q value looks like a credential; auth comes from the token helper", k)
+		}
+	}
+	return nil
+}
+
+// checkProviderEnv refuses a provider env entry whose key or value is credential-shaped, as --set does.
+func checkProviderEnv(e map[string]string) error {
+	for k, v := range e {
+		if (credLeaf(k) && !strings.HasSuffix(k, "_TTL_MS")) || credValue(v) {
+			return fmt.Errorf("provider env %q looks like a credential; auth comes from the token helper", k)
+		}
+	}
 	return nil
 }
 
@@ -249,6 +264,9 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 	}
 	if o.Model != "" {
 		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
+	}
+	if err := checkProviderEnv(p.Env); err != nil {
+		return err
 	}
 	for k, v := range p.Env {
 		env[k] = v

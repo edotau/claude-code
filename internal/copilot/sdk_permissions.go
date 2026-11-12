@@ -21,8 +21,11 @@ func permissionHandler(o sdkOptions, approved *atomic.Bool) copilot.PermissionHa
 	h := baseHandler(o)
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 		d, err := h(req, inv)
-		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok && err == nil {
-			approved.Store(true)
+		switch d.(type) { // NoResult hands the call to managed org settings, which may run it
+		case *rpc.PermissionDecisionApproveOnce, *rpc.PermissionDecisionNoResult:
+			if err == nil {
+				approved.Store(true)
+			}
 		}
 		return d, err
 	}
@@ -53,6 +56,10 @@ func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.P
 
 // ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
 func ruleDecision(o sdkOptions, req copilot.PermissionRequest, calls []agent.Rule) (rpc.PermissionDecision, bool) {
+	if len(calls) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
+		feedback := "Plan mode allows only reads, URL fetches and web search: report it instead."
+		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
+	}
 	for _, call := range calls {
 		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
 			continue
@@ -148,10 +155,7 @@ func gitConfigEnv(pairs ...string) []string {
 }
 
 func shellCommand(req copilot.PermissionRequest) (string, bool) {
-	switch r := req.(type) {
-	case rpc.PermissionRequestShell:
-		return r.FullCommandText, !r.HasWriteFileRedirection
-	case *rpc.PermissionRequestShell:
+	if r, ok := requestValue(req).(rpc.PermissionRequestShell); ok {
 		return r.FullCommandText, !r.HasWriteFileRedirection
 	}
 	return "", false
@@ -159,13 +163,8 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 
 // isWebSearchMCP is a call to the harness web_search MCP server (`network websearch`).
 func isWebSearchMCP(req copilot.PermissionRequest) bool {
-	switch r := req.(type) {
-	case rpc.PermissionRequestMCP:
-		return r.ServerName == webSearchServer
-	case *rpc.PermissionRequestMCP:
-		return r.ServerName == webSearchServer
-	}
-	return false
+	r, ok := requestValue(req).(rpc.PermissionRequestMCP)
+	return ok && r.ServerName == webSearchServer
 }
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {

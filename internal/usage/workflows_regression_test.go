@@ -54,7 +54,7 @@ func TestScanWorkflowNamesSurvivesHugeLine(t *testing.T) {
 	huge := `{"type":"x","pad":"` + strings.Repeat("a", 11<<20) + `"}`
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	writeFile(t, path, huge+"\n"+use+"\n"+res+"\n")
-	if got := scanWorkflowNamesFromTranscript(path); got["wf_abc123"] != "wfname" {
+	if got, _ := scanWorkflowNames(path); got["wf_abc123"] != "wfname" {
 		t.Fatalf("names = %v; want wf_abc123 -> wfname", got)
 	}
 }

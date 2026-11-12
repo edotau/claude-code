@@ -542,7 +542,7 @@ func sqliteAgentUsage[R any](
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
 }
 
-// opencodeQueries builds the totals, per-model and per-day queries over assistant messages created at or after cutoffMs.
+// opencodeQueries builds the totals, per-model and per-day queries over assistant messages since cutoffMs.
 func opencodeQueries(cutoffMs int64) (totalsQ, modelsQ, dailyQ string) {
 	where := fmt.Sprintf(`json_extract(data,'$.role')='assistant' AND json_extract(data,'$.time.created') >= %d`, cutoffMs)
 

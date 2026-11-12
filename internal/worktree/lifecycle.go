@@ -95,7 +95,7 @@ func resumeLedger(repo *Repo, name, dest, session string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	info, err := reopenInfo(repo, dest, session)
+	info, err := reopenInfo(repo, dest, session, ledgerGitTimeout)
 	if err != nil {
 		return err
 	}

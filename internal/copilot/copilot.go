@@ -519,7 +519,7 @@ func credentialValues(env []string) []string {
 	return vals
 }
 
-// createExclusive writes body to a temp file, then hard-links it to <base>.md, or <base>-2.md, … — never overwriting.
+// createExclusive hard-links body's temp file to <base>.md, or <base>-2.md, … — never overwriting.
 func createExclusive(dir, base string, body []byte) (string, error) {
 	tmp, err := os.CreateTemp(dir, ".handoff-*")
 	if err != nil {

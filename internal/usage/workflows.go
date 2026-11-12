@@ -2,8 +2,10 @@ package usage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -136,6 +138,7 @@ func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time, turns *tra
 	}
 	run := &workflowRun{id: filepath.Base(runDir)}
 	run.name = workflowNameForRun(runDir, run.id)
+	warnWorkflowNames(runDir, errw)
 	run.total.phase = "TOTAL"
 	run.total.models = map[string]*modelStats{}
 	if info, err := os.Stat(runDir); err == nil {
@@ -327,12 +330,17 @@ func phaseBefore(a, b *workflowPhaseRow) bool {
 	return a.phase < b.phase
 }
 
+// sessionDirOf is the session directory that owns a run dir (<session>/workflows/<x>/<run>).
+func sessionDirOf(runDir string) string {
+	return filepath.Dir(filepath.Dir(filepath.Dir(runDir)))
+}
+
 // workflowNameForRun derives the workflow name from the sibling script <session>/workflows/scripts/
 // <name>-<runId>.js; the run id itself carries hyphens, so the exact suffix is stripped, never split.
 // That glob only matches inline/by-name runs, so a {scriptPath} run falls back to scanning the
 // session's own main transcript for the tool_use that launched it.
 func workflowNameForRun(runDir, runID string) string {
-	sessionDir := filepath.Dir(filepath.Dir(filepath.Dir(runDir)))
+	sessionDir := sessionDirOf(runDir)
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "workflows", "scripts", "*-"+runID+".js"))
 	if err == nil && len(matches) > 0 {
 		slices.Sort(matches)
@@ -369,34 +377,48 @@ type toolResultBlock struct {
 // dir: .../<runId>" path, the two shapes a Workflow launch result carries it in.
 var runIDPattern = regexp.MustCompile(`(?:Run ID: |Transcript dir: \S*/)(wf_\S+)`)
 
-// workflowNameCache caches scanWorkflowNamesFromTranscript's result per session transcript path, so
-// several runs under one session don't each rescan it (the file can be large).
-var workflowNameCache = map[string]map[string]string{}
+// workflowNameEntry is one session transcript's scan: names, the failure that cut it short, whether reported.
+type workflowNameEntry struct {
+	names    map[string]string
+	err      error
+	reported bool
+}
+
+// workflowNameCache caches the scan per session transcript path so runs of one session don't rescan it.
+var workflowNameCache = map[string]*workflowNameEntry{}
 
 // workflowNamesFromTranscript returns runID -> workflow name for every Workflow launch found in the
 // session's main transcript, scanning it at most once per process.
 func workflowNamesFromTranscript(sessionTranscript string) map[string]string {
-	if cached, ok := workflowNameCache[sessionTranscript]; ok {
-		return cached
+	e, ok := workflowNameCache[sessionTranscript]
+	if !ok {
+		names, err := scanWorkflowNames(sessionTranscript)
+		e = &workflowNameEntry{names: names, err: err}
+		workflowNameCache[sessionTranscript] = e
 	}
-	names := scanWorkflowNamesFromTranscript(sessionTranscript)
-	workflowNameCache[sessionTranscript] = names
-	return names
+	return e.names
 }
 
-// scanWorkflowNamesFromTranscript streams the session transcript once, pairing each tool_use with the
-// tool_result that names its run id (by tool_use_id), to build the full runID -> name map in one pass.
-// Only top-level "assistant"/"user" records are read; api-request-blob duplicates are skipped.
-func scanWorkflowNamesFromTranscript(path string) map[string]string {
+// warnWorkflowNames reports once, on errw, a failed name scan of the session that owns runDir.
+func warnWorkflowNames(runDir string, errw io.Writer) {
+	path := sessionDirOf(runDir) + ".jsonl"
+	if e := workflowNameCache[path]; e != nil && e.err != nil && !e.reported && !errors.Is(e.err, fs.ErrNotExist) {
+		e.reported = true
+		fmt.Fprintf(errw, "usage: warning: workflow names from %s incomplete: %v\n", path, e.err)
+	}
+}
+
+// scanWorkflowNames pairs each tool_use with its tool_result run id; names found before an error return.
+func scanWorkflowNames(path string) (map[string]string, error) {
 	names := map[string]string{}
 	f, err := os.Open(path)
 	if err != nil {
-		return names
+		return names, err
 	}
 	defer f.Close()
 
 	toolUses := map[string]toolUseBlock{}
-	_ = transcript.EachLine(f, func(line []byte) {
+	err = transcript.EachLine(f, func(line []byte) {
 		var rec struct {
 			Type    string `json:"type"`
 			Message struct {
@@ -413,7 +435,7 @@ func scanWorkflowNamesFromTranscript(path string) map[string]string {
 			matchWorkflowToolResults(rec.Message.Content, toolUses, names)
 		}
 	})
-	return names
+	return names, err
 }
 
 func indexWorkflowToolUses(content json.RawMessage, toolUses map[string]toolUseBlock) {

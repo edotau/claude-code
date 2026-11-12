@@ -44,8 +44,6 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	}
 	if _, err := os.Stat(homePath); (homeErrBefore == nil) != (err == nil) {
 		t.Errorf("--dry-run changed whether the home file exists: before-err=%v after-err=%v", homeErrBefore, err)
-	} else if homeErrBefore != nil && err == nil {
-		t.Error("--dry-run created the home bank file")
 	}
 
 	out, err = Promote(root, id, "home", false, time.Now())

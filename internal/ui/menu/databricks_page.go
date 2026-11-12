@@ -310,7 +310,10 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 		rows = append(rows, [2]string{a, "this agent only"})
 	}
 	idx, perr := dbxShell(d).Pick("apply "+env+" to", rows)
-	if perr != nil || idx < 0 {
+	if perr != nil {
+		return false, fmt.Errorf("picker: %w", perr)
+	}
+	if idx < 0 {
 		return true, nil
 	}
 	targets := dbxAgents

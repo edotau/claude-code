@@ -93,7 +93,7 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 	}
 	appended := false
 	err = withLedgerLockWithin(wait, path, func() error {
-		cur, next, err := editedLedger(repo, top, path, now, edit)
+		cur, next, err := editedLedger(repo, top, path, now, wait, edit)
 		if err != nil {
 			return err
 		}
@@ -116,7 +116,10 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel").Output()
 	commonDir, topLine, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if commonDir == "" {
-		return nil, "", "", false, nil
+		if code, isExit := asExitErr(err); err == nil || isExit && code == gitFatalExit && ctx.Err() == nil {
+			return nil, "", "", false, nil // not inside a git repository
+		}
+		return nil, "", "", false, err
 	}
 	repo, rerr := repoFromCommonDir(cwd, commonDir)
 	if rerr != nil {
@@ -143,7 +146,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 }
 
 // editedLedger returns the ledger text at path (reopened if closed) and with edit applied; the caller holds the lock.
-func editedLedger(repo *Repo, top, path string, now time.Time, edit func(string) string) (cur, next string, err error) {
+func editedLedger(repo *Repo, top, path string, now time.Time, gitWait time.Duration, edit func(string) string) (cur, next string, err error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return "", "", nil
@@ -153,7 +156,7 @@ func editedLedger(repo *Repo, top, path string, now time.Time, edit func(string)
 	}
 	cur = string(raw)
 	if ledgerField(cur, "Status") == "closed" {
-		info, err := reopenInfo(repo, top, "")
+		info, err := reopenInfo(repo, top, "", gitWait)
 		if err != nil {
 			return "", "", err
 		}
@@ -266,9 +269,9 @@ func reopenedText(text string, info ledgerInfo) string {
 	return text
 }
 
-// reopenInfo describes work resuming in a kept worktree: base is the merge-base with the main checkout's HEAD.
-func reopenInfo(repo *Repo, dest, session string) (ledgerInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ledgerGitTimeout)
+// reopenInfo describes work resuming in a kept worktree (git bounded by gitWait): base is the merge-base with main's HEAD.
+func reopenInfo(repo *Repo, dest, session string, gitWait time.Duration) (ledgerInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitWait)
 	defer cancel()
 	head, err := headOfContext(ctx, dest)
 	if err != nil {
