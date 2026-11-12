@@ -140,7 +140,8 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 			} else if fg := th[s.key]["fg"]; fg != "" { // a palette with cell colors (minimal) sets fg with its bg
 				rgb = ansi.Hex(fg)
 			}
-			b.WriteString(ansi.FgSeq(mode, rgb, s.bold) + string(r))
+			b.WriteString(ansi.FgSeq(mode, rgb, s.bold))
+			b.WriteString(string(r))
 			i++
 		}
 		b.WriteString(ansi.Reset)

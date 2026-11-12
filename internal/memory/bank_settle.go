@@ -22,7 +22,9 @@ func buildBankIndex(dir string) (string, error) {
 		}
 		fmt.Fprintf(&b, "\n## %s (%d %s)\n\n", name, len(entries), unit)
 		for _, e := range entries {
-			b.WriteString("- " + e + "\n")
+			b.WriteString("- ")
+			b.WriteString(e)
+			b.WriteString("\n")
 		}
 		return nil
 	}

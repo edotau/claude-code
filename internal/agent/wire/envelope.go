@@ -163,10 +163,13 @@ func ranOnCost(res Result) string {
 	var b strings.Builder
 	u := res.Usage
 	if n := u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens; n > 0 {
-		b.WriteString(" · " + textutil.CompactCount(int64(n)) + " tok")
+		b.WriteString(" · ")
+		b.WriteString(textutil.CompactCount(int64(n)))
+		b.WriteString(" tok")
 	}
 	if res.DurationMs > 0 {
-		b.WriteString(" · " + (time.Duration(res.DurationMs) * time.Millisecond).Round(time.Second).String())
+		b.WriteString(" · ")
+		b.WriteString((time.Duration(res.DurationMs) * time.Millisecond).Round(time.Second).String())
 	}
 	return b.String()
 }

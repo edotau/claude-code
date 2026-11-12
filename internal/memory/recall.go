@@ -474,7 +474,8 @@ func resetSeen(sessionID, root, surface string) {
 	var b strings.Builder
 	for _, h := range hits {
 		if norm := strings.Join(strings.Fields(h.Block), " "); norm != "" && strings.Contains(flat, norm) {
-			b.WriteString(blockKey(h.Block) + "\n")
+			b.WriteString(blockKey(h.Block))
+			b.WriteString("\n")
 		}
 	}
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)

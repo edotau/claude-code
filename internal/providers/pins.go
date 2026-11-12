@@ -248,7 +248,10 @@ func RenderPins() ([]byte, error) {
 	var b strings.Builder
 	b.WriteString("# Managed by `claude-code switch` / `claude-code models --pin`.\n")
 	for _, k := range keys {
-		b.WriteString(k + "=" + pins[k] + "\n")
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(pins[k])
+		b.WriteString("\n")
 	}
 	return []byte(b.String()), nil
 }

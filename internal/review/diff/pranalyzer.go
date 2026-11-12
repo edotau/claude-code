@@ -525,7 +525,8 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "Error: %v\n", jsErr)
 			return 1
 		}
-		buf.WriteString(js + "\n")
+		buf.WriteString(js)
+		buf.WriteString("\n")
 	} else {
 		printPRReport(&buf, report)
 	}

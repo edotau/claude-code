@@ -148,7 +148,8 @@ func Indented(rows [][]string, width int, clip func(string, int) string) string 
 	}
 	var b strings.Builder
 	for _, l := range Justify(rows, width, clip) {
-		b.WriteString(strings.TrimRight("  "+l, " ") + "\n")
+		b.WriteString(strings.TrimRight("  "+l, " "))
+		b.WriteString("\n")
 	}
 	return b.String()
 }

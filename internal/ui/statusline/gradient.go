@@ -53,7 +53,9 @@ func writeUserHost(out *strings.Builder, v values, cfg config, pal theme.Palette
 		return 0
 	}
 	if cfg.UserColor == "ansi" {
-		out.WriteString("\x1b[01;32m" + v.userHost + ansi.Reset)
+		out.WriteString("\x1b[01;32m")
+		out.WriteString(v.userHost)
+		out.WriteString(ansi.Reset)
 	} else {
 		out.WriteString(ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true))
 	}
