@@ -13,7 +13,7 @@ FROM ubuntu:24.04 AS base
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git make gcc libc6-dev jq unzip xz-utils less \
-      nodejs shellcheck gh \
+      nodejs npm shellcheck gh \
       python3 python3-pip python3-venv python3-pytest python3-requests python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
