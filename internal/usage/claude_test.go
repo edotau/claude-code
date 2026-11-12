@@ -724,3 +724,29 @@ func TestClaudeLockFailureDoesNotFetch(t *testing.T) {
 		t.Fatalf("expected an explicitly stale cache fallback on lock failure: %+v", rows)
 	}
 }
+
+// TestCachedSevenDayKeychainLoginUsesOwnerSidecar: keychain-only login; CachedSevenDay serves only its own cache.
+func TestCachedSevenDayKeychainLoginUsesOwnerSidecar(t *testing.T) {
+	setClaudeCacheDir(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no .credentials.json: the keychain holds the login
+	stubClaudeKeychain(t, func(context.Context, ...string) ([]byte, error) {
+		return claudeCredentialJSON("login-a", time.Now().Add(time.Hour).UnixMilli(), "max"), nil
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(readClaudeFixture(t)) }))
+	defer srv.Close()
+	stubClaudeOAuthURL(t, srv.URL)
+
+	if _, _, ok := CachedSevenDay(time.Hour); ok {
+		t.Fatal("served with no cache")
+	}
+	claudeQuotas(context.Background()) // live read as login A: writes the cache and the owner sidecar
+	if got, _, ok := CachedSevenDay(time.Hour); !ok || got != 51 {
+		t.Fatalf("login A's own cache = %v, %v; want 51, true", got, ok)
+	}
+	var b claudeOAuthCreds
+	b.ClaudeAiOauth.AccessToken = "login-b"
+	writeClaudeOwnerSidecar(b) // the keychain login switched to B; A's cache must not be served
+	if _, _, ok := CachedSevenDay(time.Hour); ok {
+		t.Fatal("another login's cache was served")
+	}
+}
