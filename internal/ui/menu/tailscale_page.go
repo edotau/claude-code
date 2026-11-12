@@ -40,7 +40,7 @@ func runTailscale(d *dialog) {
 	runTailscalePage(d)
 }
 
-// runTailscalePage loops status, login, admin key, auth key and exit node until Back.
+// runTailscalePage loops login, status, admin key, auth key and exit node until Back.
 func runTailscalePage(d *dialog) {
 	s := tsShell(d)
 	act := func(name, detail string, run func()) shellRow {
@@ -57,7 +57,7 @@ func runTailscalePage(d *dialog) {
 		if err == nil {
 			login = "add or switch account"
 		}
-		rows := []shellRow{act("status", state, func() { runRemote(d) }), act("login", login, func() { tsSignIn(d) })}
+		rows := []shellRow{act("login", login, func() { tsSignIn(d) }), act("status", state, func() { runRemote(d) })}
 		auth := "mint, show once"
 		if _, had, _ := vault.ReadSecret("TAILSCALE_AUTHKEY"); had {
 			auth += " · " + tsGreen("vault")

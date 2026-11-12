@@ -43,14 +43,7 @@ func tailscaleRow() homeRow {
 		state = "running"
 		host, _, _ = strings.Cut(st.DNSName, ".")
 	}
-	check := "no admin key"
-	if configure.HasAdminCredential() {
-		check = "admin key"
-	}
-	if host != "" {
-		check = host + " · " + check
-	}
-	return homeRow{Name: "tailscale", State: state, Check: check, Run: runTailscale}
+	return homeRow{Name: "tailscale", State: state, Check: host, Run: runTailscale}
 }
 
 // tsStatus caches tailscale.Status (result and error) for tsStatusTTL: every render and runRemote share one call.
