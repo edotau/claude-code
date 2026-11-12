@@ -176,8 +176,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	return model, extra
 }
 
-// retryWithoutEffort resends a chat body once without reasoning_effort when the upstream 400s that function tools
-// cannot combine with it; the second reply, its body and a log suffix naming the dropped parameter come back.
+// retryWithoutEffort resends a chat body once with reasoning_effort "none" when the upstream 400s on tools with it.
 func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, target, model string,
 	resp *http.Response, body []byte) (*http.Response, []byte, string) {
 	if resp.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte(`"reasoning_effort"`)) {
@@ -191,7 +190,7 @@ func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, tar
 	if json.Unmarshal(body, &top) != nil {
 		return resp, body, ""
 	}
-	delete(top, "reasoning_effort")
+	top["reasoning_effort"] = json.RawMessage(`"none"`) // deleting it leaves the model default, refused the same
 	stripped, err := json.Marshal(top)
 	if err != nil {
 		return resp, body, ""
@@ -201,9 +200,9 @@ func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, tar
 		return resp, body, ""
 	}
 	_ = resp.Body.Close()
-	fmt.Fprintf(r.log, "proxy: %s: model %s rejected function tools with reasoning_effort; retried without it\n",
+	fmt.Fprintf(r.log, "proxy: %s: model %s rejected function tools with reasoning_effort; retried with none\n",
 		p.Name, agentToken(model))
-	return retry, stripped, " dropped=reasoning_effort"
+	return retry, stripped, " reasoning_effort=none"
 }
 
 // copyClientHeaders returns a hook copying the client's non-hop, non-blocked headers onto the upstream request.
