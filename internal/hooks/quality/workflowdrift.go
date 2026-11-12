@@ -43,13 +43,9 @@ func workflowDocDrift(root string) []string {
 		have[strings.TrimSuffix(filepath.Base(s), ".js")] = true
 	}
 	names := documentedWorkflows(string(data))
-	documented := map[string]bool{}
-	for _, n := range names {
-		documented[n] = true
-	}
 	var out []string
 	for _, s := range scripts {
-		if !documented[strings.TrimSuffix(filepath.Base(s), ".js")] {
+		if !slices.Contains(names, strings.TrimSuffix(filepath.Base(s), ".js")) {
 			out = append(out, s+": not documented in "+savedWorkflowsDoc)
 		}
 	}
