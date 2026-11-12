@@ -732,6 +732,73 @@ func TestPassthroughMetersChatUsage(t *testing.T) {
 	}
 }
 
+func chatChunk(content, usage string) string {
+	return fmt.Sprintf("data: {\"id\":\"c\",\"model\":\"gpt-x\",\"choices\":[{\"index\":0,\"delta\":{\"content\":%q}}]%s}\n\n",
+		content, usage)
+}
+
+// Translated (/v1/messages -> chat/completions) replies land in the ledger: JSON, SSE, SSE past the tail cap, cut SSE.
+func TestTranslatedChatMetersUsage(t *testing.T) {
+	const usage = `,"usage":{"prompt_tokens":11,"completion_tokens":4}`
+	pad := strings.Repeat("x", 1<<10)
+	big := strings.Repeat(chatChunk(pad, ""), 3*tailCap/len(pad)) + chatChunk("end", usage) + "data: [DONE]\n\n"
+	for name, tc := range map[string]struct {
+		stream  bool
+		out     string
+		cut     bool
+		wantOut string
+	}{
+		"json":                {false, `{"id":"c","model":"gpt-x","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]` + usage + `}`, false, "hi"},
+		"sse":                 {true, chatChunk("hi", usage) + "data: [DONE]\n\n", false, "hi"},
+		"sse-over-tail-cap":   {true, big, false, "end"},
+		"sse-cut-after-usage": {true, chatChunk("hi", usage), true, "hi"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				if tc.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+				}
+				io.WriteString(w, tc.out)
+				if tc.cut {
+					w.(http.Flusher).Flush()
+					panic(http.ErrAbortHandler)
+				}
+			})
+			t.Setenv("OA_KEY", "oa")
+			srv := setup(t, `{"default":"oa","providers":{"openai":{"oa":{"protocol":"openai","base_url":"`+up.URL+
+				`/v1","auth":{"type":"key","env":"OA_KEY"},"models":{"opus":"gpt-x"}}}}}`)
+			req := fmt.Sprintf(`{"model":"gpt-x","max_tokens":10,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, tc.stream)
+			resp := post(t, srv.URL+"/p/oa/v1/messages", req, map[string]string{
+				"X-Claude-Code-Session-Id": "sess-1", gateway.AgentHeader: "copilot"})
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g := up.got(); resp.StatusCode != 200 || len(g) != 1 || !strings.HasSuffix(g[0].uri, "/v1/chat/completions") ||
+				!strings.Contains(string(b), tc.wantOut) {
+				t.Fatalf("status %d upstream %+v body %.200s", resp.StatusCode, g, b)
+			}
+			checkTranslatedLedger(t)
+		})
+	}
+}
+
+func checkTranslatedLedger(t *testing.T) {
+	t.Helper()
+	got := ledgerSettled(t, 1)
+	if len(got) != 1 {
+		t.Fatalf("ledger = %+v, want one translated response", got)
+	}
+	entry := got[0]
+	entry.Ts, entry.Schema = time.Time{}, 0
+	want := tokenledger.Entry{Profile: "oa", Provider: "openai", Model: "gpt-x", Session: "sess-1",
+		Agent: "copilot", Input: 11, Output: 4}
+	if entry != want {
+		t.Fatalf("ledger = %+v, want %+v", entry, want)
+	}
+}
+
 // A non-200 upstream answer records nothing.
 func TestPassthroughNon200NotMetered(t *testing.T) {
 	_, resp := sendChat(t, `{"model":"m"}`, func(w http.ResponseWriter, _ *http.Request, _ int) {

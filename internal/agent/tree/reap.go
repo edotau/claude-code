@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // lostError is the Error a reaped dispatch record carries.
@@ -304,10 +303,10 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 }
 
 // buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
-func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity) []Dispatch {
+func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity, ids []string) []Dispatch {
 	var dispatches []Dispatch
 	matched := map[string]bool{}
-	for _, id := range transcript.DispatchIDs(transcriptPath) {
+	for _, id := range ids {
 		rec, err := agent.LoadRecord(id)
 		if err != nil {
 			continue

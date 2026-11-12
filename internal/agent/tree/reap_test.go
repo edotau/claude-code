@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // A running claude dispatch hides the session it spawned, by its session id or by cwd + start + opening prompt;
@@ -153,7 +154,7 @@ func TestBuildDispatchesEnvelopeID(t *testing.T) {
 	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := buildDispatches(path, "", time.Now(), Activity{})
+	got := buildDispatches(path, "", time.Now(), Activity{}, transcript.DispatchIDs(path))
 	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
 		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
 	}
