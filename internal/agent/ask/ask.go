@@ -166,12 +166,16 @@ func (r *askRun) export() (int, bool) {
 
 // stdinTaken reports the task, a batch or a framed prompt already reading stdin.
 func (r *askRun) stdinTaken() bool {
-	f, task := r.f, r.fs.Args()
-	if r.resume && len(task) > 0 {
+	f := r.f
+	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.fs.Args(), r.resume) && f.retry == "" && f.job == "" && !f.live && !f.showLog)
+}
+
+// taskFromStdin reports no task positional, or a lone "-", past a --resume session id.
+func taskFromStdin(task []string, resume bool) bool {
+	if resume && len(task) > 0 {
 		task = task[1:] // the first positional is the session id
 	}
-	fromStdin := len(task) == 0 || (len(task) == 1 && task[0] == "-")
-	return f.stdinFramed || f.batchSrc == "-" || (fromStdin && f.retry == "" && f.job == "" && !f.live && !f.showLog)
+	return len(task) == 0 || (len(task) == 1 && task[0] == "-")
 }
 
 // prelude turns on --overlay-debug and validates the flags.
@@ -232,21 +236,31 @@ func (r *askRun) checkArm() (int, bool) {
 	}
 	// exported here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the env
 	if err := ApplyCoworker(value, f.provider, agentName, f.model, f.fallback); err != nil {
-		if _, ok := errors.AsType[*agent.PreflightError](err); ok {
-			return r.fail(err, 1)
-		}
-		return r.fail(err, 2)
+		return r.fail(err, applyCode(err))
 	}
 	if err := cmp.Or(checkNative(f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
-	if batchLines {
-		return 0, false
+	if !batchLines {
+		r.confined = confineLead(r.ag, f) || r.confined
 	}
-	profile, provider := router.ConfineLead(r.ag, f.provider, f.leadProvider, f.model)
-	r.confined = r.confined || profile != f.provider || provider != f.leadProvider
-	f.provider, f.leadProvider = profile, provider
 	return 0, false
+}
+
+// applyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
+func applyCode(err error) int {
+	if _, ok := errors.AsType[*agent.PreflightError](err); ok {
+		return 1
+	}
+	return 2
+}
+
+// confineLead narrows --provider and the lead to the overlay's confinement, reporting whether either changed.
+func confineLead(ag string, f *askFlags) bool {
+	profile, provider := router.ConfineLead(ag, f.provider, f.leadProvider, f.model)
+	changed := profile != f.provider || provider != f.leadProvider
+	f.provider, f.leadProvider = profile, provider
+	return changed
 }
 
 // recordConfinement is the overlay's confinement, else a replayed record's: "default" is none, a retired value errs.
@@ -280,33 +294,47 @@ func (r *askRun) dispatchMode() (int, bool) {
 		}
 	}
 	if f.batchSrc != "" {
-		retryAgents, err := r.retryAgents()
-		if err != nil {
-			return r.fail(err, 2)
-		}
-		if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
-			return code, true
-		}
-		o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
-			FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents, Identity: f.as}
-		ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
-		if err != nil {
-			return r.fail(err, 2)
-		}
-		if code, done := r.export(); done {
-			return code, true
-		}
-		return runAskBatch(r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(ov)), true
+		return r.runBatch()
 	}
-	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
-		if helptext.Explicit(r.fs, name) {
-			return r.fail(fmt.Errorf("--%s needs --batch", name), 2)
-		}
+	if err := batchOnlyFlags(r.fs); err != nil {
+		return r.fail(err, 2)
 	}
 	if f.showLog {
 		return printDispatchLog(f.format), true
 	}
 	return 0, false
+}
+
+// runBatch runs --batch to completion; every path ends the run.
+func (r *askRun) runBatch() (int, bool) {
+	f := r.f
+	retryAgents, err := r.retryAgents()
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
+		return code, true
+	}
+	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
+		FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents, Identity: f.as}
+	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	if code, done := r.export(); done {
+		return code, true
+	}
+	return runAskBatch(r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(ov)), true
+}
+
+// batchOnlyFlags refuses the first --batch-only flag typed without --batch.
+func batchOnlyFlags(fs *flag.FlagSet) error {
+	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
+		if helptext.Explicit(fs, name) {
+			return fmt.Errorf("--%s needs --batch", name)
+		}
+	}
+	return nil
 }
 
 // retryAgents resolves --retry-agent names like --agent does; a bad name is a flag error.
@@ -342,31 +370,15 @@ func (r *askRun) resolveRecord() (int, bool) {
 	}
 	r.prompt = strings.Join(positional, " ")
 	r.state = r.askState()
-	var rc int
-	var done bool
-	if r.jobRec, rc, done = loadAskJob(f.job, f.format, r.state, &r.prompt); done {
+	if rc, done := r.applyRecord(); done {
 		return rc, true
-	}
-	if r.jobRec == nil {
-		if rc, done := loadAskRetry(r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
-			return rc, true
-		}
-	}
-	if r.jobRec == nil { // the overlay beats a --retry record; a --job record already holds the fold
-		r.ov.Fold(r.fs)
 	}
 	f.tools = f.tools || f.readOnly // again: a --job/--retry record or a re-parsed flag may have overridden either
 	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := overlayLocal(r.ov, f.live, f.host); err != nil { // a --retry/--job record may carry a --host
+	if err := resolveAskHost(r.ov, f); err != nil {
 		return r.fail(err, 2)
-	}
-	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
-		return r.fail(fmt.Errorf("%s %w", remote.Flag, err), 2)
-	}
-	if remote.IsSelf(f.host) { // --host naming this machine runs here
-		f.host = ""
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
 		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
@@ -374,6 +386,39 @@ func (r *askRun) resolveRecord() (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// applyRecord applies a --job record, else a --retry record under the overlay's fold.
+func (r *askRun) applyRecord() (int, bool) {
+	f := r.f
+	var rc int
+	var done bool
+	if r.jobRec, rc, done = loadAskJob(f.job, f.format, r.state, &r.prompt); done {
+		return rc, true
+	}
+	if r.jobRec != nil {
+		return 0, false // a --job record already holds the fold
+	}
+	if rc, done := loadAskRetry(r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
+		return rc, true
+	}
+	r.ov.Fold(r.fs) // the overlay beats a --retry record
+	return 0, false
+}
+
+// resolveAskHost re-checks the overlay against --host and resolves it; a --retry/--job record may carry a --host.
+func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
+	if err := overlayLocal(ov, f.live, f.host); err != nil {
+		return err
+	}
+	var err error
+	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
+		return fmt.Errorf("%s %w", remote.Flag, err)
+	}
+	if remote.IsSelf(f.host) { // --host naming this machine runs here
+		f.host = ""
+	}
+	return nil
 }
 
 func (r *askRun) askState() *askState {
@@ -655,29 +700,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
 	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "profile" || f.Name == "provider" { // an explicit route on this command line replaces the logged lead
-			*s.lead = ""
-		}
-		if f.Name == "attach" {
-			*s.Attach = nil
-		}
-		if f.Name == "keep-env" {
-			*s.KeepEnv = nil
-		}
-		if f.Name == "allow" {
-			*s.PermAllow = nil
-		}
-		if f.Name == "ask" {
-			*s.PermAsk = nil
-		}
-		if f.Name == "deny" {
-			*s.PermDeny = nil
-		}
-		if f.Name == "env" {
-			*s.env = nil
-		}
-	})
+	clearTyped(fs, s)
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
@@ -687,6 +710,28 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	*prompt, *s.rubric = rec.Request.Prompt, ""
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	return 0, false
+}
+
+// clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.
+func clearTyped(fs *flag.FlagSet, s *askState) {
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "profile", "provider": // an explicit route on this command line replaces the logged lead
+			*s.lead = ""
+		case "attach":
+			*s.Attach = nil
+		case "keep-env":
+			*s.KeepEnv = nil
+		case "allow":
+			*s.PermAllow = nil
+		case "ask":
+			*s.PermAsk = nil
+		case "deny":
+			*s.PermDeny = nil
+		case "env":
+			*s.env = nil
+		}
+	})
 }
 
 // printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
