@@ -379,9 +379,6 @@ func TestPassthroughLogsDiagnostics(t *testing.T) {
 	}
 }
 
-// ParsePassthrough exposes parsePassthrough to the external tests.
-var ParsePassthrough = parsePassthrough
-
 func TestClampOutputTokensLowersOnlyOversizedCaps(t *testing.T) {
 	limit, ok := models.Limits("claude-sonnet-5-5")
 	if !ok || limit.Output <= 0 {
@@ -456,7 +453,7 @@ func checkRouterSuffix(t *testing.T, name, wire, suffix string) bool {
 	t.Helper()
 	base := gateway.SessionBase("http://127.0.0.1:1", "prov") + suffix
 	path := base[len("http://127.0.0.1:1"):] + "/v1/x"
-	prov, dialect, rest, ok := ParsePassthrough(path)
+	prov, dialect, rest, ok := parsePassthrough(path)
 	if suffix == "" {
 		if ok {
 			t.Errorf("%s/%s: empty suffix parsed as passthrough %q", name, wire, path)

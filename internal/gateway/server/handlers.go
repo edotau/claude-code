@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/translate"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -228,12 +230,40 @@ func (r *Router) authorized(req *http.Request) bool {
 		return true
 	}
 	tok, profile := presentedSecret(req), profileOfPath(req.URL.Path)
-	return r.sessions.accept(tok, profile) || r.clientAccepted(tok, profile)
+	return r.sessions.accept(tok, profile) || r.clientAccepted(req, tok, profile)
 }
 
-// clientAccepted reports a valid client token on a Databricks serving row's /p/<profile>/ route.
-func (r *Router) clientAccepted(tok, profile string) bool {
-	if !validProfile(profile) || !r.clients.valid(tok) {
+// admit scopes a token to its path's profile, drops the proxy auth headers, and honours the identity for launches only.
+func (r *Router) admit(req *http.Request) *http.Request {
+	launch := true
+	if !r.secretOK(req) { // a session or client token: pin its profile for the resolved target and fallbacks
+		launch = !strings.HasPrefix(presentedSecret(req), clientTokenPf) // an editor's client token picks no identity
+		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
+	}
+	stripClientAuth(req)
+	if launch {
+		req = withLaunchIdentity(req)
+	}
+	return req
+}
+
+// refuseUnauthorized answers a request no credential admits: 403 for a client token out of scope, else 401.
+func (r *Router) refuseUnauthorized(w http.ResponseWriter, req *http.Request) {
+	if !r.clients.valid(presentedSecret(req)) {
+		r.refuse(w, req, http.StatusUnauthorized,
+			"proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
+		return
+	}
+	if _, err := r.registry(); err != nil { // the scope check could not run: not the token's fault
+		r.refuse(w, req, http.StatusServiceUnavailable, "proxy: provider registry unavailable: "+err.Error())
+		return
+	}
+	r.refuse(w, req, http.StatusForbidden, "proxy: a client token reaches only /p/<Databricks serving profile>/ routes")
+}
+
+// clientAccepted reports a valid client token on a Databricks serving row's /p/<profile>/ route, never under /via/.
+func (r *Router) clientAccepted(req *http.Request, tok, profile string) bool {
+	if egress.PinnedHost(req.Context()) != "" || !validProfile(profile) || !r.clients.valid(tok) {
 		return false
 	}
 	reg, err := r.registry()
@@ -251,8 +281,8 @@ func loopbackHost(host string) bool {
 // unroutable explains why the router cannot serve p at all, or returns "".
 func unroutable(p *providers.Provider, clientAuth bool) string {
 	if p.Auth.Login != "" {
-		return fmt.Sprintf("provider %s is the %s sign-in; only claude-code run %s can use it", p.Name, p.Auth.Login,
-			p.Auth.Login)
+		return fmt.Sprintf("provider %s is the %s sign-in; only claude-code %s --profile %s can use it", p.Name,
+			p.Auth.Login, p.Auth.Login, p.Name)
 	}
 	if p.Auth.Method() == providers.AuthCLI && !clientAuth {
 		return fmt.Sprintf(

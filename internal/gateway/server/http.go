@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway/translate"
@@ -120,6 +121,9 @@ func (r *Router) relayChat(w *statusWriter, in *http.Request, resp *http.Respons
 	clientModel string, stream bool) (bool, error) {
 	if !stream {
 		return relayChatBuffered(w, in, resp.Body, t, clientModel)
+	}
+	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "json") { // stream ignored: SSE parsing would see EOF
+		return false, fmt.Errorf("upstream answered a stream request with %s, not text/event-stream", ct)
 	}
 	// Per-token providers tee the stream's tail so the ledger can scrape usage without changing translate's API.
 	var tail *tailBuffer

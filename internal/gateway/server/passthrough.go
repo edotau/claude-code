@@ -292,7 +292,7 @@ func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
 	return out, err == nil
 }
 
-// dropNonFunctionTools removes tools[] entries without a function object (custom, web_search), which chat endpoints 400.
+// dropNonFunctionTools removes tools[] entries with no function object (custom, web_search): chat endpoints 400.
 func dropNonFunctionTools(body []byte) []byte {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(body, &top) != nil {

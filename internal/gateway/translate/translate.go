@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -239,6 +240,9 @@ func upstreamMessage(body []byte) string {
 	}
 	var v any
 	if json.Unmarshal(body, &v) == nil {
+		if s, ok := v.(string); ok && s != "" { // a bare JSON string body, unquoted
+			return s
+		}
 		if s := structuredMessage(v); s != "" {
 			return s
 		}
@@ -271,15 +275,22 @@ func structuredMessage(v any) string {
 	return ""
 }
 
-// streamErrorStatus reads a numeric error.code from an in-band stream error, defaulting to 500.
+// streamErrorStatus reads a numeric or numeric-string error.code from an in-band stream error, defaulting to 500.
 func streamErrorStatus(raw json.RawMessage) int {
 	var e struct {
 		Code any `json:"code"`
 	}
+	code := 0
 	if json.Unmarshal(raw, &e) == nil {
-		if f, ok := e.Code.(float64); ok && f >= 400 && f < 600 {
-			return int(f)
+		switch c := e.Code.(type) {
+		case float64:
+			code = int(c)
+		case string:
+			code, _ = strconv.Atoi(c)
 		}
+	}
+	if code >= 400 && code < 600 {
+		return code
 	}
 	return http.StatusInternalServerError
 }

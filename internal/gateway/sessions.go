@@ -142,7 +142,8 @@ var (
 // Token ensures the daemon is running and mints a profile-scoped token bound to its PID in two health probes.
 func Token(ctx context.Context, profile string) (string, error) {
 	if _, err := tokenEnsure(ctx); err != nil {
-		return "", fmt.Errorf("proxy unavailable (%v); run gateway proxy --start", err) // keep the cause: vault, spawn, loopback
+		// keep the cause: vault, spawn, loopback
+		return "", fmt.Errorf("proxy unavailable (%v); run gateway proxy --start", err)
 	}
 	st, err := tokenState()
 	if errors.Is(err, ErrNotRunning) {

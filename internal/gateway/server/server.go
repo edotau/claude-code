@@ -2,7 +2,6 @@ package server
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -82,7 +81,8 @@ const quotaDeadFor = 30 * time.Minute
 
 func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
-		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
+		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
+		cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
@@ -98,11 +98,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	r.inflight.Add(1)
 	defer r.inflight.Add(-1)
-	if !r.secretOK(req) { // a session token: pin its profile for the resolved target and fallbacks
-		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
-	}
-	stripClientAuth(req)
-	req = withLaunchIdentity(req)
+	req = r.admit(req)
 	if prov, dialect, rest, ok := parsePassthrough(req.URL.Path); ok {
 		r.passthrough(w, req, prov, dialect, rest)
 		return
@@ -153,12 +149,7 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	if !r.authorized(req) {
-		if r.clients.valid(presentedSecret(req)) {
-			r.refuse(w, req, http.StatusForbidden, "proxy: a client token reaches only /p/<Databricks serving profile>/ routes")
-			return true
-		}
-		r.refuse(w, req, http.StatusUnauthorized,
-			"proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
+		r.refuseUnauthorized(w, req)
 		return true
 	}
 	return false
@@ -398,7 +389,8 @@ func (r *Router) oauthToken() string {
 func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string,
 	count, last bool) (bool, error) {
 	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
-	if route, ok := providers.AnthropicRoute(t.Provider, t.Model); ok && (!count || t.Provider.Preset != providers.PresetDatabricks) {
+	route, ok := providers.AnthropicRoute(t.Provider, t.Model)
+	if ok && (!count || t.Provider.Preset != providers.PresetDatabricks) {
 		return r.tryAnthropic(w, in, body, t, route, count, last)
 	}
 	if count {
