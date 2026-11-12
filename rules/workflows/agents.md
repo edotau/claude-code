@@ -53,7 +53,8 @@ tool input unchanged (context notes only). What `auto` resolves to: `rules/harne
 - **Split** a role into its own file only when its expertise, tool grant or authority differs (read-only `Explore`
   vs editing `claude`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
   that only picks a different agent is the leaf type of that agent (`codex`, `copilot`…), not a new file.
-- **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
+- **Model:** an alias, never `inherit`: `sonnet` for leaves and `claude`, `opus` for `Plan`; raise one call with the
+  Agent tool's `model` (`opus` for a hard task, `fable` only for two large designs at once); never a
   dated id — provider aliases resolve through `internal/models` and `internal/providers/defaults.json`. Docs accept
   aliases (incl. `fable`), full ids or `inherit`; pinning is for third-party providers. **Tools:** list them; a
   read-only role gets none that write.
