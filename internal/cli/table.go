@@ -170,8 +170,7 @@ func completionHelp() {
 	fs.Usage()
 }
 
-// cmdCompletion prints the bash completion script (default) or, with --install, writes it to the
-// bash-completion user dir (internal/ui/helptext.Install).
+// cmdCompletion prints the bash completion script, or with --install writes it to the user dir.
 func cmdCompletion(args []string) int {
 	install, code, done := parseCompletionArgs(args)
 	if done {
@@ -190,8 +189,7 @@ func cmdCompletion(args []string) int {
 	return 0
 }
 
-// specTree returns the one completion spec tree, keyed by each verb's canonical name (command.name —
-// see knownPath). Built once per process since tab completion is hot and commands() is fixed at startup.
+// specTree is the completion spec tree keyed by verb name (see knownPath), built once per process.
 func specTree() map[string]*helptext.Node {
 	specTreeInit.Do(func() { specTreeCache = buildSpecTree() })
 	return specTreeCache
@@ -221,6 +219,26 @@ func completionSpec() *helptext.Node {
 // isHelpVerb reports -h, --help or help.
 func isHelpVerb(arg string) bool { return arg == "-h" || arg == "--help" || arg == "help" }
 
+// unknownSub reports an unknown subcommand of area, prints its page to stderr and returns usage exit 2.
+func unknownSub(area, sub string, page helptext.Page) int {
+	helptext.Fail("%s: unknown subcommand %q", area, sub)
+	page.Fprint(os.Stderr)
+	return 2
+}
+
+// helpOrBare prints page for a bare verb (stderr) or an explicit -h (stdout); ok is false when args ask for neither.
+func helpOrBare(page helptext.Page, args []string) (code int, ok bool) {
+	switch {
+	case len(args) == 0:
+		page.Fprint(os.Stderr)
+	case isHelpVerb(args[0]):
+		page.Fprint(os.Stdout)
+	default:
+		return 0, false
+	}
+	return 0, true
+}
+
 // lookup finds a command by its name.
 func lookup(name string) *command {
 	for _, c := range commands() {
@@ -242,17 +260,8 @@ func Run(argv []string) int {
 	if isHelpVerb(name) {
 		return printUsage()
 	}
-	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") { // run a harness verb on a tailnet host over ssh
-		if rest, ok := remote.LocalArgs(remote.Flag, argv[1:]); ok { // the named host is this machine: run here
-			return Run(append(argv[:1:1], rest...))
-		}
-		return remote.Run(argv[1:])
-	}
-	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
-		if rest, ok := remote.LocalArgs(egressFlag, argv[1:]); ok { // this machine is the exit: no tunnel
-			return Run(append(argv[:1:1], rest...))
-		}
-		return runVia(argv)
+	if code, ok := runRouted(argv, name); ok {
+		return code
 	}
 	if c := lookup(name); c != nil {
 		return c.run(args)
@@ -269,6 +278,23 @@ func Run(argv []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
+}
+
+// runRouted handles --host (verb over ssh on a tailnet host) and --remote (egress via an ssh host).
+func runRouted(argv []string, name string) (code int, ok bool) {
+	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") {
+		if rest, local := remote.LocalArgs(remote.Flag, argv[1:]); local { // the named host is this machine: run here
+			return Run(append(argv[:1:1], rest...)), true
+		}
+		return remote.Run(argv[1:]), true
+	}
+	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
+		if rest, local := remote.LocalArgs(egressFlag, argv[1:]); local { // this machine is the exit: no tunnel
+			return Run(append(argv[:1:1], rest...)), true
+		}
+		return runVia(argv), true
+	}
+	return 0, false
 }
 
 // egressFlag runs a verb here with its Databricks workspace requests leaving through an ssh host.

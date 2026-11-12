@@ -39,9 +39,8 @@ Makefile + go.mod: build+vet all, test changed, importing and registry pkgs;
 
 // cmdWorktree dispatches the worktree verb tree.
 func cmdWorktree(args []string) int {
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		worktreePage.Fprint(os.Stderr)
-		return 0
+	if code, ok := helpOrBare(worktreePage, args); ok {
+		return code
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -71,9 +70,7 @@ func dispatchWorktree(repo *worktree.Repo, sub string, args []string) int {
 	if handler, ok := worktreeHandlers[sub]; ok {
 		return handler(repo, args)
 	}
-	helptext.Fail("worktree: unknown subcommand %q", sub)
-	worktreePage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("worktree", sub, worktreePage)
 }
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {

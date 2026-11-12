@@ -76,9 +76,7 @@ func cmdVault(args []string) int {
 	if run, ok := vaultVerbs[sub]; ok {
 		return run(args)
 	}
-	fmt.Fprintf(os.Stderr, "vault: unknown subcommand %q\n", sub)
-	vaultPage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("vault", sub, vaultPage)
 }
 
 // vaultUsageErr reports a stray argument to a vault subcommand; a -h there prints the page and exits 0.
@@ -243,21 +241,25 @@ func vaultList(args []string) int {
 		fmt.Fprintln(os.Stderr, "vault ls:", err)
 		return 2
 	}
-	f := *format
-	if f == "" {
-		f = helptext.JSON
-		if tui.StdoutIsTerminal() {
-			f = helptext.Text
-		}
-	}
+	f := listFormat(*format)
 	if err := helptext.CheckFormat(f); err != nil {
-		helptext.Fail("vault ls: %v", err)
-		return 2
+		return helptext.FailUsage("vault ls: %v", err)
 	}
 	if err := vaultdoc.List(os.Stdout, f, sel); err != nil {
 		return helptext.Fail("vault ls: %v", err)
 	}
 	return 0
+}
+
+// listFormat is format, or text on a terminal and json otherwise.
+func listFormat(format string) string {
+	if format != "" {
+		return format
+	}
+	if tui.StdoutIsTerminal() {
+		return helptext.Text
+	}
+	return helptext.JSON
 }
 
 // vaultSetSecret stores one NAME whose value comes from a hidden prompt or stdin.
@@ -317,11 +319,7 @@ func cmdVaultGet(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if *key {
-		if len(names) > 0 || *export {
-			fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
-			return 2
-		}
-		return vaultGetKey()
+		return vaultGetKeyOnly(names, *export)
 	}
 	if len(names) == 0 {
 		fs.Usage()
@@ -338,6 +336,15 @@ func cmdVaultGet(args []string) int {
 		return helptext.Fail("vault get: %v", err)
 	}
 	return 0
+}
+
+// vaultGetKeyOnly prints the master key; --key takes no NAME and no --export.
+func vaultGetKeyOnly(names []string, export bool) int {
+	if len(names) > 0 || export {
+		fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
+		return 2
+	}
+	return vaultGetKey()
 }
 
 // printVaultValues prints NAME=value lines, or shell-quoted export lines; the first write error is returned.
@@ -478,8 +485,7 @@ func confirmImport(pairs []vault.Pair, yes bool) bool {
 	return true
 }
 
-// cmdVaultExport appends stored secrets (all, or the NAMEs given) to --out (default ./.env): names the file
-// already defines are skipped, and the file is left 0600 whether created or appended to.
+// cmdVaultExport appends secrets to --out (default ./.env), skipping names it defines; the file ends 0600.
 func cmdVaultExport(args []string) int {
 	fs := helptext.NewFlagSet("vault export", helptext.Page{
 		Usage: "claude-code vault export [NAME...] [flags]",

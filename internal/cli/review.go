@@ -51,11 +51,11 @@ func cmdReview(args []string) int {
 		reviewPage.Fprint(os.Stdout)
 		return 0
 	}
-	if reviewTools[args[0]] == nil {
-		reviewPage.Fprint(os.Stderr)
-		return 2
+	run := reviewTools[args[0]]
+	if run == nil {
+		return unknownSub("review", args[0], reviewPage)
 	}
-	return reviewTools[args[0]](args[1:], os.Stdin, os.Stdout, os.Stderr)
+	return run(args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
 var workflowPage = helptext.Page{
@@ -104,8 +104,7 @@ func cmdWorkflow(args []string) int {
 	case "lint":
 		return workflowLint(args[1:])
 	}
-	workflowPage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("workflow", args[0], workflowPage)
 }
 
 // helpArgs is where a workflow sub-verb's -h may sit: skeleton takes it after its pattern, lint only first.

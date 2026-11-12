@@ -157,16 +157,13 @@ func agentsFlags(verb string) *flag.FlagSet {
 
 // cmdAgents is `claude-code agents`.
 func cmdAgents(args []string) int {
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		agentsPage.Fprint(os.Stderr)
-		return 0
+	if code, ok := helpOrBare(agentsPage, args); ok {
+		return code
 	}
 	if run := agentsVerbs[args[0]]; run != nil {
 		return run(args[1:])
 	}
-	helptext.Fail("agents: unknown subcommand %q", args[0])
-	agentsPage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("agents", args[0], agentsPage)
 }
 
 // cmdAgentsAsk runs ask after starting a silent, unwaited reap, so orphaned dispatch children never pile up unseen.

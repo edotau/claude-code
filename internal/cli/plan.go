@@ -24,9 +24,8 @@ var planPage = helptext.Page{
 
 // cmdPlan is the `plan` verb.
 func cmdPlan(args []string) int {
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		planPage.Fprint(os.Stderr)
-		return 0
+	if code, ok := helpOrBare(planPage, args); ok {
+		return code
 	}
 	switch args[0] {
 	case "status":
@@ -34,9 +33,7 @@ func cmdPlan(args []string) int {
 	case "tick":
 		return cmdPlanTick(args[1:])
 	default:
-		helptext.Fail("plan: unknown subcommand %q", args[0])
-		planPage.Fprint(os.Stderr)
-		return 2
+		return unknownSub("plan", args[0], planPage)
 	}
 }
 
