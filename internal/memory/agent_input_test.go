@@ -63,7 +63,7 @@ func TestAgentInputOpencodeExportCounts(t *testing.T) {
 	if !ok || !Updatable("ses_x1", path) {
 		t.Fatalf("export for ses_x1 not converted: path %q ok %v, updatable %v", path, ok, Updatable("ses_x1", path))
 	}
-	if n := CountEdits("ses_x1", path); n != 2 {
+	if n := countSessionEdits("ses_x1", path); n != 2 {
 		t.Fatalf("work = %d, want the export's 2 edits", n)
 	}
 }
@@ -77,7 +77,7 @@ func TestAgentInputCopilotEventsFile(t *testing.T) {
 	if !ok || path == events {
 		t.Fatal("copilot events were not converted")
 	}
-	if n := CountEdits("cop-1", path); n != 1 {
+	if n := countSessionEdits("cop-1", path); n != 1 {
 		t.Fatalf("work = %d, want the apply_patch's 1 edit", n)
 	}
 	b, _ := os.ReadFile(path)

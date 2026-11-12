@@ -87,9 +87,9 @@ func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked 
 	if trigger == TriggerPreCompact {
 		floor = 1
 	}
-	work = CountEdits(r.SessionID, r.Transcript)
+	work = countSessionEdits(r.SessionID, r.Transcript)
 	if work > covered && work >= floor {
-		if DispatchUpdate(r, trigger, work, now) {
+		if dispatchUpdate(r, trigger, work, now) {
 			return false, 0, false
 		}
 		if trigger == TriggerStop {
@@ -109,9 +109,9 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		if now.Sub(st.at) < updateRearmCooldown {
 			return false, 0, false // cheap gate before the whole-transcript count
 		}
-		work = CountEdits(r.SessionID, r.Transcript)
+		work = countSessionEdits(r.SessionID, r.Transcript)
 		if work >= st.edits+updateRearmEdits {
-			DispatchUpdate(r, TriggerStop, work, now)
+			dispatchUpdate(r, TriggerStop, work, now)
 		}
 		return false, 0, false
 	}
@@ -130,7 +130,7 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		return false, 0, true // fail open: the block count cannot persist
 	}
 	// The stamp holds the covered count, not the uncovered work, so the message counts live.
-	return true, CountEdits(r.SessionID, r.Transcript), false
+	return true, countSessionEdits(r.SessionID, r.Transcript), false
 }
 
 // Updatable reports whether a session can be updated: ids present, not an update child, the transcript a file.
@@ -184,8 +184,8 @@ func writeStamp(path string, at time.Time, state string, edits int) error {
 	return err
 }
 
-// DispatchUpdate spawns the worker and records it; a Stop's spawn also gets a watcher for the session's final state.
-func DispatchUpdate(r UpdateRequest, trigger string, work int, now time.Time) bool {
+// dispatchUpdate spawns the worker and records it; a Stop's spawn also gets a watcher for the session's final state.
+func dispatchUpdate(r UpdateRequest, trigger string, work int, now time.Time) bool {
 	if !spawn.update(r.Transcript, r.CWD, r.SessionID) {
 		return false
 	}
@@ -269,8 +269,8 @@ func writeCountState(path string, cs countState) {
 	}
 }
 
-// CountEdits is countEdits against the session's own count file.
-func CountEdits(sessionID, transcriptPath string) int {
+// countSessionEdits is countEdits against the session's own count file.
+func countSessionEdits(sessionID, transcriptPath string) int {
 	return countEdits(transcriptPath, countPath(sessionID))
 }
 

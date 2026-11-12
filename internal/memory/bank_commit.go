@@ -533,8 +533,8 @@ func (r Repo) Status(pathspecs ...string) ([]statusEntry, error) {
 	return entries, nil
 }
 
-// Head is the short sha of HEAD, "" when the repo has no commits yet.
-func (r Repo) Head() (string, error) {
+// head is the short sha of HEAD, "" when the repo has no commits yet.
+func (r Repo) head() (string, error) {
 	out, err := r.run("rev-parse", "--verify", "--quiet", "--short", "HEAD")
 	if exitCode(err) == 1 {
 		return "", nil // --verify --quiet exits 1 only for an unborn HEAD
@@ -567,7 +567,7 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 	if _, err := r.run(args...); err != nil {
 		return "", false, err
 	}
-	sha, err = r.Head()
+	sha, err = r.head()
 	return sha, true, err
 }
 

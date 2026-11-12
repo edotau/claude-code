@@ -106,7 +106,7 @@ func updateProblems(now time.Time) []string {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
-		if !r.NeedsAttention(now) || (r.Status == updateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+		if !r.needsAttention(now) || (r.Status == updateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
 			continue
 		}
 		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+

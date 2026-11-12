@@ -159,24 +159,17 @@ func repoDirWith(root string, main func(string) string) (string, error) {
 // FindEntry is the entry whose Origin or an explicit alias names origin, or nil.
 func FindEntry(entries []repoEntry, origin string) *repoEntry {
 	for i := range entries {
-		if entries[i].Origin.Accepts(origin) {
+		if entries[i].Origin.accepts(origin) {
 			return &entries[i]
 		}
 	}
 	return nil
 }
 
-// Accepts reports whether origin is o's canonical origin or one of its explicit aliases.
-func (o Origin) Accepts(origin string) bool {
-	if paths.SamePath(o.Origin, origin) {
-		return true
-	}
-	for _, a := range o.Aliases {
-		if paths.SamePath(a, origin) {
-			return true
-		}
-	}
-	return false
+// accepts reports whether origin is o's canonical origin or one of its explicit aliases.
+func (o Origin) accepts(origin string) bool {
+	return paths.SamePath(o.Origin, origin) ||
+		slices.ContainsFunc(o.Aliases, func(a string) bool { return paths.SamePath(a, origin) })
 }
 
 // takenKeys reports a key taken when reserved, the harness key, a known repo or any existing entry.
@@ -271,7 +264,7 @@ func ensureOriginDir(dir string, id Identity) error {
 	if id.HomeBank {
 		return nil
 	}
-	if cur, err := readOrigin(dir); err == nil && cur.Accepts(id.Origin) {
+	if cur, err := readOrigin(dir); err == nil && cur.accepts(id.Origin) {
 		return nil
 	}
 	err := WriteOrigin(dir, Origin{Version: OriginVersion, Key: filepath.Base(dir), Origin: id.Origin})
@@ -292,7 +285,7 @@ func addOriginAlias(dir, origin string) error {
 		if err != nil {
 			return err
 		}
-		if cur.Accepts(origin) {
+		if cur.accepts(origin) {
 			return nil
 		}
 		entries, err := RepoDirs()

@@ -416,8 +416,8 @@ func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
 	return s
 }
 
-// CosineHit reuses the minted block hash and ID without constructing an Entry.
-func (s *Semantic) CosineHit(h SearchHit) (float64, bool) {
+// cosineHit reuses the minted block hash and ID without constructing an Entry.
+func (s *Semantic) cosineHit(h SearchHit) (float64, bool) {
 	id, ok := s.blocks[hitHash(h)]
 	if !ok || h.ID != "" && h.ID != id {
 		return 0, false
@@ -437,8 +437,8 @@ func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
 	return dot, true
 }
 
-// Candidates scores the already loaded corpus segments without parsing bank files or constructing entries.
-func (s *Semantic) Candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
+// candidates scores the already loaded corpus segments without parsing bank files or constructing entries.
+func (s *Semantic) candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	var all []scoredHit
 	for i, seg := range segs {
 		if seg == nil || files[i].Bank == "archive" {

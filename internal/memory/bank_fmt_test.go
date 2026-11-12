@@ -477,7 +477,7 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 // returns "" when there is no commit yet).
 func (r Repo) headOrEmpty(t *testing.T) string {
 	t.Helper()
-	h, _ := r.Head()
+	h, _ := r.head()
 	return h
 }
 

@@ -212,7 +212,7 @@ func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 		t.Errorf("catalog rows wrong:\n%s", cat)
 	}
 	o, err := readOrigin(e.da)
-	if err != nil || !o.Accepts(e.b) {
+	if err != nil || !o.accepts(e.b) {
 		t.Fatalf("origin after alias = %+v err=%v, want alias %s", o, err, e.b)
 	}
 	if got, _ := RepoDir(e.b); got != e.da {
@@ -261,7 +261,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	h0 := aliasTreeHash(t, e.cfg)
-	g0, _ := StoreRepo().Head()
+	g0, _ := StoreRepo().head()
 	res, err := alias(t, e, true)
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestAliasDryRunWritesNothing(t *testing.T) {
 	if h1 := aliasTreeHash(t, e.cfg); h0 != h1 {
 		t.Errorf("dry-run changed the tree")
 	}
-	if g1, _ := StoreRepo().Head(); g0 != g1 {
+	if g1, _ := StoreRepo().head(); g0 != g1 {
 		t.Errorf("dry-run committed")
 	}
 }
@@ -327,7 +327,7 @@ func TestAliasWithoutSeparateStoreRecordsAliasOnly(t *testing.T) {
 		t.Errorf("Source = %q, want empty", res.Source)
 	}
 	o, err := readOrigin(e.da)
-	if err != nil || !o.Accepts(e.b) {
+	if err != nil || !o.accepts(e.b) {
 		t.Errorf("alias not recorded in .origin (origin-only path): %+v err=%v", o, err)
 	}
 	if _, err := alias(t, e, false); err == nil {
@@ -369,7 +369,7 @@ func assertAliasLinkSwapRolledBack(t *testing.T, e aliasEnv, first string) {
 	if _, ok := vaultGet(t, e.kb); !ok {
 		t.Errorf("source row %q deleted despite the failed fold", e.kb)
 	}
-	if got, err := readOrigin(e.da); err != nil || got.Accepts(e.b) {
+	if got, err := readOrigin(e.da); err != nil || got.accepts(e.b) {
 		t.Errorf("target origin kept the folded alias after rollback: %+v, %v", got, err)
 	}
 }

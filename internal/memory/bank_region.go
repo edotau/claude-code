@@ -10,7 +10,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // catalogHomeMax bounds the home entry lines the catalog carries; the rest are reachable by search.
@@ -172,7 +171,7 @@ func storeHook(e repoEntry) string {
 
 // stripFrontmatter drops a leading --- block; the closing fence must start its own line so "---" in a value is safe.
 func stripFrontmatter(s string) string {
-	_, content := markdown.StripFrontMatter([]byte(strings.ReplaceAll(s, "\r\n", "\n")))
+	_, content := textutil.StripFrontMatter([]byte(strings.ReplaceAll(s, "\r\n", "\n")))
 	return string(content)
 }
 

@@ -178,11 +178,11 @@ func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnF
 		if st, ok := readStamp(stampPath(session)); ok {
 			covered = st.edits
 		}
-		edits := CountEdits(session, tr)
+		edits := countSessionEdits(session, tr)
 		if edits < updateMinEdits || edits <= covered {
 			return
 		}
-		if !DispatchUpdate(UpdateRequest{SessionID: session, Transcript: tr, CWD: cwd}, "idle", edits, time.Now()) {
+		if !dispatchUpdate(UpdateRequest{SessionID: session, Transcript: tr, CWD: cwd}, "idle", edits, time.Now()) {
 			fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
 			spawnFailed = true
 			return

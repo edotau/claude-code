@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,26 +33,18 @@ type sweepCand struct {
 func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done") }
 
 // transcriptInteractive: `claude -p` workers, leaves and pings say "sdk-*"; any other entrypoint is a person.
-func transcriptInteractive(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	r := bufio.NewReader(f)
-	for range catchupScan {
-		line, err := r.ReadBytes('\n')
+func transcriptInteractive(path string) (interactive bool) {
+	scanTranscriptHead(path, catchupScan, func(line []byte) bool {
 		var rec struct {
 			Entrypoint string `json:"entrypoint"`
 		}
-		if json.Unmarshal(line, &rec) == nil && rec.Entrypoint != "" {
-			return !strings.HasPrefix(rec.Entrypoint, "sdk-")
+		if json.Unmarshal(line, &rec) != nil || rec.Entrypoint == "" {
+			return false
 		}
-		if err != nil {
-			break
-		}
-	}
-	return false
+		interactive = !strings.HasPrefix(rec.Entrypoint, "sdk-")
+		return true
+	})
+	return interactive
 }
 
 // sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.
@@ -81,7 +72,7 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) strin
 		covered = st.edits
 	}
 	c.edits = count(c.path, countPath(c.id))
-	if hasResult && res.NeedsAttention(now) && (!hasStamp || st.state != "catchup") {
+	if hasResult && res.needsAttention(now) && (!hasStamp || st.state != "catchup") {
 		return "update " + res.Status
 	}
 	if c.edits >= updateMinEdits && c.edits > covered {
@@ -120,7 +111,7 @@ func recentTranscripts(now time.Time) []sweepCand {
 	for _, p := range globIn(paths.ConfigDir(), "projects/*/*.jsonl") {
 		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
 		fi, err := os.Stat(p)
-		if err != nil || !LooksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
+		if err != nil || !looksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
 			continue
 		}
 		recent = append(recent, sweepCand{id: id, path: p, mtime: fi.ModTime()})

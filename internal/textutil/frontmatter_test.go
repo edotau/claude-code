@@ -89,7 +89,7 @@ func TestParseFrontmatterContinuationLineJoinsDescription(t *testing.T) {
 	}
 }
 
-// stripFrontMatter must match mdsmith's StripFrontMatter byte for byte (the dependency it replaces).
+// StripFrontMatter must match mdsmith's StripFrontMatter byte for byte (the dependency it replaces).
 func TestStripFrontMatterMatchesMdsmith(t *testing.T) {
 	cases := []string{
 		"", "plain body\n", "x\n---\na: b\n---\nbody\n", "---\na: b\nbody only, unterminated\n",
@@ -99,7 +99,7 @@ func TestStripFrontMatterMatchesMdsmith(t *testing.T) {
 	}
 	for _, c := range cases {
 		wp, wc := markdown.StripFrontMatter([]byte(c))
-		gp, gc := stripFrontMatter([]byte(c))
+		gp, gc := StripFrontMatter([]byte(c))
 		if (wp == nil) != (gp == nil) || !bytes.Equal(wp, gp) || !bytes.Equal(wc, gc) {
 			t.Errorf("%q: got (%q,%q), want (%q,%q)", c, gp, gc, wp, wc)
 		}

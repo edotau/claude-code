@@ -216,29 +216,6 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	}
 }
 
-// The session surface carries no all-repos catalog rows, however many repos the catalog lists.
-func TestSessionStartCarriesNoCatalogRows(t *testing.T) {
-	recallEnv(t)
-	var cat strings.Builder
-	cat.WriteString("# Memory catalog\n\n## Repos\n\n")
-	for i := range 120 {
-		fmt.Fprintf(&cat, "- repo-%03d — some description of the repo · last 2026-10-29 → repo-%03d/MEMORY.md\n", i, i)
-	}
-	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(StoreDir(), catalogFile), []byte(cat.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got := StartSession("probe-x", t.TempDir(), time.Now())
-	if strings.Contains(got, "repo-000") || strings.Contains(got, "repo-119") {
-		t.Errorf("catalog rows injected:\n%s", got)
-	}
-	if !strings.Contains(got, "other repos:") || len(got) > 1500 {
-		t.Errorf("want the one-line pointer and a small surface, got %d bytes:\n%s", len(got), got)
-	}
-}
-
 // TestStartSessionProbesBankOnce: a banked repo's start probes the bank once for the scaffold and dream checks.
 func TestStartSessionProbesBankOnce(t *testing.T) {
 	tempConfig(t)

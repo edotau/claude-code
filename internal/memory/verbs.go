@@ -64,7 +64,7 @@ func Show(id string) (path, block string, err error) {
 func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 	started := false
 	withStampLock(r.SessionID, func() {
-		started = DispatchUpdate(r, TriggerStop, CountEdits(r.SessionID, r.Transcript), now)
+		started = dispatchUpdate(r, TriggerStop, countSessionEdits(r.SessionID, r.Transcript), now)
 	})
 	return started
 }

@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jeduden/mdsmith/pkg/markdown"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 type segMode uint8
@@ -572,7 +572,7 @@ const (
 
 // topicFrontmatter splits a topic into name, description and body; the closing fence must start its own line.
 func topicFrontmatter(raw string) (name, desc, body string, ok bool) {
-	prefix, content := markdown.StripFrontMatter([]byte(raw))
+	prefix, content := textutil.StripFrontMatter([]byte(raw))
 	if prefix == nil {
 		return "", "", "", false // an absent or unclosed block is body text, not frontmatter
 	}
