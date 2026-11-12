@@ -37,18 +37,9 @@ func TestDropDispatchSessions(t *testing.T) {
 
 // A live session whose holder died is marked error and its socket removed; a live holder's socket stays.
 func TestReapDeadLiveHolder(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "rp") // short root: a macOS unix socket path caps at 104 bytes
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	reapSocketConfig(t)
 	mk := func(pid int) agent.Record {
-		rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
-		rec.Live, rec.PID = true, pid
-		if err := rec.Save(); err != nil {
-			t.Fatal(err)
-		}
+		rec := saveReapRecord(t, pid, time.Now())
 		ln, err := net.Listen("unix", agent.LiveSocket(rec.ID))
 		if err != nil {
 			t.Fatal(err)
@@ -74,12 +65,7 @@ func TestReapDeadLiveHolder(t *testing.T) {
 
 // Given a live-session socket with no dispatch record, Then Reap removes the orphan.
 func TestReapRemovesSocketWithoutRecord(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "rp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	reapSocketConfig(t)
 	const id = "20261108T010101.000-claude"
 	if err := os.MkdirAll(filepath.Dir(agent.LiveSocket(id)), 0o700); err != nil {
 		t.Fatal(err)

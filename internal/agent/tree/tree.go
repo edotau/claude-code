@@ -305,9 +305,9 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	}
 	slices.SortStableFunc(s.Subagents, func(a, b Subagent) int { return b.Updated.Compare(a.Updated) })
 
-	for _, run := range buildWorkflowRuns(sessionDir, now, s.Cwd) {
+	s.Workflows = buildWorkflowRuns(sessionDir, now, s.Cwd)
+	for _, run := range s.Workflows {
 		forEachRunAgent(run, func(sub Subagent) { s.Tokens.add(sub.Tokens) })
-		s.Workflows = append(s.Workflows, run)
 	}
 	return s
 }
@@ -367,8 +367,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, dispatchIDs),
 	}
 	if act.Tool != "" || act.Text != "" {
-		a := act
-		sub.Activity = &a
+		sub.Activity = &act
 	}
 	return sub
 }

@@ -17,6 +17,7 @@ type reapWriteFunc func([]byte) (int, error)
 
 func (f reapWriteFunc) Write(p []byte) (int, error) { return f(p) }
 
+// reapSocketConfig uses a short /tmp root: a macOS unix socket path caps at 104 bytes.
 func reapSocketConfig(t *testing.T) {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "rp")
