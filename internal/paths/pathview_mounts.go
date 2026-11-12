@@ -72,10 +72,7 @@ func classify(point, source, fstype string) (Mount, bool) {
 	default:
 		ok = false
 	}
-	if !ok {
-		return Mount{}, false
-	}
-	return m, true
+	return m, ok // callers discard m when !ok
 }
 
 // isSSHFS matches an sshfs mount, or a fuse mount whose source names a user@host.
