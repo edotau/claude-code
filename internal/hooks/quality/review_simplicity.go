@@ -23,11 +23,20 @@ const (
 
 // ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
 func ReviewSimplicity(in *core.Input) core.Result {
-	path, before, after, ok := editContents(in)
+	path := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || source.DetectLanguage(path) == "" {
+		return core.Result{}
+	}
+	after, ok := readSmallFile(path)
 	if !ok {
 		return core.Result{}
 	}
-	found := source.SimplicityFindings(path, before, after)
+	found := source.SimplicityFindingsWithBaseline(path, after, func() (string, bool) {
+		if in.ToolName == "Write" {
+			return gitHeadContent(path)
+		}
+		return editBefore(in, after)
+	})
 	if len(found) == 0 {
 		return core.Result{}
 	}
@@ -36,24 +45,6 @@ func ReviewSimplicity(in *core.Input) core.Result {
 		rel = p
 	}
 	return core.Result{Context: simplicityText(rel, found)}
-}
-
-// editContents is the edited file's path and its content before and after this Write or Edit.
-func editContents(in *core.Input) (path, before, after string, ok bool) {
-	path = core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
-	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || source.DetectLanguage(path) == "" {
-		return "", "", "", false
-	}
-	after, ok = readSmallFile(path)
-	if !ok {
-		return "", "", "", false
-	}
-	if in.ToolName == "Write" {
-		before, ok = gitHeadContent(path)
-		return path, before, after, ok
-	}
-	before, ok = editBefore(in, after)
-	return path, before, after, ok
 }
 
 // editBefore reverses an Edit on its post-edit content; false when the edit is a deletion or its occurrence is ambiguous.
