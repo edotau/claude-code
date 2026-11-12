@@ -782,10 +782,9 @@ func routeProfile(updated map[string]any, promptField, task, p string) (note str
 	return note
 }
 
-// coworkerLineRe matches a brief's `Coworker:` line; oldRouteLineRe the `Route:` line it replaced.
+// coworkerLineRe matches a brief's `Coworker:` line.
 var (
 	coworkerLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Coworker:[ \t]*(\S+)`) })
-	oldRouteLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*Route:[ \t]*databricks\b`) })
 	blankLineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n[ \t\r]*\n\s*`) })
 	profileNameRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
 )
@@ -847,10 +846,7 @@ func applyCoworker(run *dispatchRun, updated map[string]any, promptField, task s
 		return "", &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + msg}
 	}
 	st, _ := updated["subagent_type"].(string)
-	switch {
-	case oldRouteLineRe().MatchString(briefHeader(task)):
-		return block(`the brief line "Route:" was renamed "Coworker:"`)
-	case !coworkerApplies(st, task):
+	if !coworkerApplies(st, task) {
 		return "", nil
 	}
 	p, err := coworkerWorkspace(task)

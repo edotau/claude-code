@@ -131,17 +131,10 @@ var (
 // LoadOverlay reads value, else $COWORKER_OVERLAY: a file path, inline JSON, or - for stdin; "" is the zero overlay.
 func LoadOverlay(value string, stdin io.Reader) (Overlay, error) {
 	value = cmp.Or(value, os.Getenv(OverlayVar))
-	where, raw, err := "overlay", []byte(strings.TrimSpace(value)), error(nil)
-	switch {
-	case value == "":
+	if value == "" {
 		return Overlay{}, nil
-	case value == "-":
-		raw, err = readCapped(stdin)
-	case !bytes.HasPrefix(raw, []byte("{")):
-		if raw, err = readOverlayFile(value); err != errNoOverlay { // a mistyped document is never echoed as a path
-			where += " " + value
-		}
 	}
+	where, raw, err := readOverlaySource(value, stdin)
 	if err == nil && len(raw) > overlayMaxBytes { // every form: file, stdin, inline and env
 		err = fmt.Errorf("over %d bytes", overlayMaxBytes)
 	}
@@ -158,11 +151,37 @@ func LoadOverlay(value string, stdin io.Reader) (Overlay, error) {
 // readCapped reads r one byte past overlayMaxBytes: LoadOverlay's cap sees an oversized document, unread.
 func readCapped(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, overlayMaxBytes+1)) }
 
-var errNoOverlay = errors.New("not a file, inline JSON ({...}) or -")
+// readOverlaySource returns value's error label and bytes: stdin for -, inline JSON, else the file it names.
+func readOverlaySource(value string, stdin io.Reader) (string, []byte, error) {
+	where, raw := "overlay", []byte(strings.TrimSpace(value))
+	switch {
+	case value == "-":
+		raw, err := readCapped(stdin)
+		if err == nil && len(bytes.TrimSpace(raw)) == 0 {
+			err = errEmptyStdin
+		}
+		return where, raw, err
+	case bytes.HasPrefix(raw, []byte("{")):
+		return where, raw, nil
+	}
+	raw, err := readOverlayFile(value)
+	if err != errNoOverlay && err != errNoSuchFile { // a mistyped document or path is never echoed
+		where += " " + value
+	}
+	return where, raw, err
+}
+
+var (
+	errNoOverlay  = errors.New("not a file, inline JSON ({...}) or -")
+	errNoSuchFile = errors.New("no such file")
+	errEmptyStdin = errors.New("stdin is empty")
+)
 
 func readOverlayFile(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	switch {
+	case errors.Is(err, fs.ErrNotExist) && (strings.Contains(path, "/") || strings.HasSuffix(path, ".json")):
+		return nil, errNoSuchFile
 	case err != nil:
 		return nil, errNoOverlay
 	case !info.Mode().IsRegular():
@@ -643,19 +662,10 @@ func overlayDebugSalt(path string) (string, error) {
 		return "", err
 	}
 	salt := hex.EncodeToString(b)
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // the temp name only; path keeps the hard link
-	_, werr := tmp.WriteString(salt)
-	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
-		return "", err
-	}
-	// link is atomic and fails if path exists, so a reader never sees a half-written salt
-	if err := os.Link(tmp.Name(), path); err == nil {
+	switch err := linkSalt(path, salt); {
+	case err == nil:
 		return salt, nil
-	} else if !errors.Is(err, os.ErrExist) {
+	case !errors.Is(err, os.ErrExist):
 		return "", err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
@@ -666,6 +676,20 @@ func overlayDebugSalt(path string) (string, error) {
 		return "", errors.Join(err, errors.New("empty salt file "+path))
 	}
 	return strings.TrimSpace(string(got)), nil
+}
+
+// linkSalt writes salt to a temp file and links it to path: atomic, and ErrExist if path exists (never half-written).
+func linkSalt(path, salt string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }() // the temp name only; path keeps the hard link
+	_, werr := tmp.WriteString(salt)
+	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
+		return err
+	}
+	return os.Link(tmp.Name(), path)
 }
 
 // RecordOverlayDebug appends env's names and HMAC-SHA256 fingerprints (last duplicate wins, as exec does).

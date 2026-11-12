@@ -175,9 +175,16 @@ func SelectAgent(ref string, agents map[string]*Schema) (agent string, def *Sche
 		return v, def, err
 	}
 	if def, err = loadSchema(ref); err != nil {
-		return "", nil, fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
+		return "", nil, unknownPersonaError(ref, names, err)
 	}
 	return cmp.Or(def.Agent, "claude"), def, nil
+}
+
+func unknownPersonaError(ref string, names []string, err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition)", ref, strings.Join(names, "|"))
+	}
+	return fmt.Errorf("unknown agent %q (%s, or an agents/<name>.md definition): %w", ref, strings.Join(names, "|"), err)
 }
 
 // refusePersona rejects a persona whose tool limit an emulating agent could not enforce.
