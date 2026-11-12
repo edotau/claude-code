@@ -209,7 +209,7 @@ func gatewayRoute(args []string) int {
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
 	fallback := fs.String("fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
-	overlay := fs.String("overlay", "", "config: file, inline JSON, or - (stdin)")
+	overlay := fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)
@@ -249,7 +249,11 @@ func gatewayRoute(args []string) int {
 // gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
 func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
 	if cmp.Or(value, os.Getenv(agentconfig.OverlayVar)) == "-" && proc.IsTerminal(os.Stdin) {
-		return agentconfig.Overlay{}, errors.New("--overlay -: stdin is a terminal; pipe the JSON document in, or pass a file")
+		from := "--overlay -"
+		if value == "" {
+			from = agentconfig.OverlayVar + "=-"
+		}
+		return agentconfig.Overlay{}, errors.New(from + ": stdin is a terminal; pipe the JSON document in, or pass a file")
 	}
 	cfg, err := agentconfig.LoadOverlay(value, os.Stdin)
 	if err == nil {

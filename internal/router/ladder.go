@@ -26,6 +26,8 @@ func ParseCoworker(v string) (provider, profile string, err error) {
 		return "", "", nil
 	case slices.Contains(providers.ProviderKeys(), provider) && (!named || (profile != "" && !strings.Contains(profile, ":"))):
 		return provider, profile, nil
+	case named && profile == "" && slices.Contains(providers.ProviderKeys(), provider):
+		return "", "", fmt.Errorf("empty profile: want %s or %s:<profile>", provider, provider)
 	}
 	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|")) // never quotes v
 }
