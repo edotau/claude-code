@@ -85,7 +85,7 @@ func (t PromptTransport) String() string {
 type PackTransport uint8
 
 const (
-	PackInline PackTransport = iota // the packed text is the prompt
+	packInline PackTransport = iota // the packed text is the prompt
 	PackFile                        // the pack is a file in the workdir the agent reads with its tools
 )
 

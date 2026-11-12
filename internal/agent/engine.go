@@ -373,18 +373,14 @@ func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr e
 	return reg, sel, selErr, true
 }
 
-// ResolveTarget picks the target an agent launch uses: sel's target when it can serve the agent
-// (a login provider naming it, or a route on one of its dialects), else — only when the caller named
-// no provider itself (explicit is false) — the agent's own subscription login or first keyed
-// provider with a resolvable credential. note is a one-line explanation to print on fallback.
+// ResolveTarget is sel's target when it serves the agent, else (explicit false) its own login or a keyed fallback.
 func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
 	name, e := s.Name, s.Eng()
 	t, ok := sel.Aliases[models.Opus]
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}
-	// A CLI's own login (unrelated to the session provider) is preferred
-	// whenever it is present, ahead of a session provider that could serve it; an explicit --provider still wins.
+	// A CLI's own login is preferred ahead of a session provider that could serve it; an explicit --provider still wins.
 	if pt, pnote, ok, perr := e.PreRoute(reg, explicit); ok {
 		return pt, pnote, perr
 	}
@@ -392,20 +388,25 @@ func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, 
 		return e.Gate(reg, t)
 	}
 	if ft, fallbackNote, ok := e.FallbackTarget(reg); ok {
-		note = fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", name, t.Provider.Name, name, fallbackNote)
-		if own, ok := e.FallbackNote(ft, fallbackNote); ok {
-			note = own
-		}
-		if ft.Provider == nil {
-			return ft, note, ErrOwnLogin // the agent's own stored login: launch it plain, nothing to inject
-		}
-		return ft, note, nil
+		return s.fallbackTarget(t, ft, fallbackNote)
 	}
 	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
 	if err := e.NoRoute(reg, t); err != nil {
 		return providers.Target{}, "", err
 	}
 	return t, "", nil
+}
+
+// fallbackTarget is ResolveTarget on ft, the fallback for a session target t that cannot serve the agent.
+func (s Schema) fallbackTarget(t, ft providers.Target, fallbackNote string) (providers.Target, string, error) {
+	note := fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", s.Name, t.Provider.Name, s.Name, fallbackNote)
+	if own, ok := s.Eng().FallbackNote(ft, fallbackNote); ok {
+		note = own
+	}
+	if ft.Provider == nil {
+		return ft, note, ErrOwnLogin // the agent's own stored login: launch it plain, nothing to inject
+	}
+	return ft, note, nil
 }
 
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).

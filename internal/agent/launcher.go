@@ -211,7 +211,7 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	return agentconfig.ResolveOverlay(o)
 }
 
-// LaunchPlan resolves `claude-code run <agent>`: the opus target via Configure, else the agent's own login.
+// LaunchPlan resolves `claude-code <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Keep, plan.CLI = o.KeepEnv, true
@@ -233,7 +233,7 @@ func agentModelTarget(name string, t providers.Target, sel providers.Selection, 
 }
 
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
-	if err := RefuseDirect(o.Direct); err != nil {
+	if err := refuseDirect(o.Direct); err != nil {
 		return Plan{}, err
 	}
 	if o.Direct {
@@ -241,7 +241,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	}
 	spec, ok := LookupSchema(name)
 	if !ok || !spec.External() {
-		return Plan{}, fmt.Errorf("unknown agent %q (codex|gemini|opencode|copilot)", name)
+		return Plan{}, fmt.Errorf("unknown agent %q (%s)", name, strings.Join(DefaultAgents, "|"))
 	}
 	if authArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
@@ -271,8 +271,7 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 	// --profile or the agent profile pin is explicit: the session pin is the default, not a per-agent choice.
 	explicit := o.Provider != ""
 	target, note, err := cliTarget(spec, name, reg, sel, explicit, flagModel)
-	// An own-login note is only worth a line on an interactive launch (or --print-env): `opencode --version` stays quiet.
-	showOwnLoginNote := o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args))
+	showOwnLoginNote := ownLoginNoteShown(o, args)
 	if errors.Is(err, ErrOwnLogin) {
 		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
 	}
@@ -296,6 +295,11 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 		return configureFailed(ctx, spec, name, o, args, flagModel, err)
 	}
 	return finishPlan(spec, o, args, env, prefix)
+}
+
+// ownLoginNoteShown: an own-login note is only worth a line on an interactive launch or --print-env.
+func ownLoginNoteShown(o LaunchOptions, args []string) bool {
+	return o.PrintEnv || (IsTerminal(os.Stderr) && interactiveArgs(args)) // `opencode --version` stays quiet
 }
 
 // ownLoginPlan is the plain launch of an agent that signs in itself, printing note when show.

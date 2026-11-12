@@ -54,7 +54,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	if err != nil {
 		return nil, err
 	}
-	if err := RefuseDirect(o.Direct); err != nil {
+	if err := refuseDirect(o.Direct); err != nil {
 		return nil, clientUsageError{err}
 	}
 	r, err := Lookup(o.Agent)
@@ -63,10 +63,9 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	}
 	p := &Prepared{}
 	if o.Host != "" {
-		if err := textutil.ValidHost(o.Host); err != nil {
+		if r, err = hostEngine(o); err != nil {
 			return nil, err
 		}
-		r = newRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback)
 		p.remote = r
 	}
 	if p.Chain, err = c.route(ctx, r, o); err != nil {
@@ -75,24 +74,49 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	if err := refusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
 		return nil, clientUsageError{err}
 	}
-	if o.Rubric != "" {
-		if o.Prompt, err = rubricPrompt(o.Rubric, o.Prompt); err != nil {
-			return nil, err
-		}
+	if o, err = withRubric(o); err != nil {
+		return nil, err
 	}
+	if err := c.finishPrepare(ctx, p, o, claim); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// finishPrepare sets p's options and dispatch record, then packs o's workspace context into the prompt.
+func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, claim *Record) error {
 	if o.Pack != nil && p.remote != nil {
-		return nil, clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
+		return clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
 	}
 	p.Opts = o
 	p.Record = c.record(ctx, o, claim)
 	p.Record.Preflight = p.Chain.Preflight
-	if o.Pack != nil {
-		if err := c.packPrompt(ctx, p); err != nil { // the record is already claimed on disk: close it
-			p.Record.finishSave(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time), c.Notify)
-			return nil, err
-		}
+	if o.Pack == nil {
+		return nil
 	}
-	return p, nil
+	if err := c.packPrompt(ctx, p); err != nil { // the record is already claimed on disk: close it
+		p.Record.finishSave(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time), c.Notify)
+		return err
+	}
+	return nil
+}
+
+// hostEngine is the remote engine for o.Host.
+func hostEngine(o RunOptions) (Engine, error) {
+	if err := textutil.ValidHost(o.Host); err != nil {
+		return nil, err
+	}
+	return newRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback), nil
+}
+
+// withRubric is o with its prompt wrapped in o.Rubric, when one is set.
+func withRubric(o RunOptions) (RunOptions, error) {
+	if o.Rubric == "" {
+		return o, nil
+	}
+	var err error
+	o.Prompt, err = rubricPrompt(o.Rubric, o.Prompt)
+	return o, err
 }
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
@@ -589,12 +613,8 @@ func explicitChain(r Engine, req RunOptions) Chain {
 		reg := loadRegistryWarn()
 		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
 	}
-	if acct == "" || acct == copilotLoginAccount() { // copilot's own gate falls back to Databricks instead
-		return c
-	}
-	now := time.Now()
-	if e := loadState()[acct]; e.Status(now) == router.StateExhausted {
-		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + router.ExhaustedReason(acct, e, now)}}
+	if e := accountRefused(c.Dispatches[0]); e != nil && e.Kind == retry.KindQuota {
+		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + e.Err.Error()}}
 	}
 	return c
 }
@@ -664,16 +684,22 @@ func withCoolKey(ctx context.Context, key string) context.Context {
 
 // fallToNextAlias: a hard-quota 429 means this key can never use that model, so try the next alias, not a wait.
 func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(string)) {
-	if e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
-		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model)) {
-		cur := cmp.Or(req.Model, models.Opus)
-		if next := models.NextAlias(cur); next != "" {
-			if notify != nil {
-				notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
-			}
-			req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
-		}
+	if !aliasDenied(r, *req, e) {
+		return
 	}
+	cur := cmp.Or(req.Model, models.Opus)
+	if next := models.NextAlias(cur); next != "" {
+		if notify != nil {
+			notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
+		}
+		req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
+	}
+}
+
+// aliasDenied reports e as a rate or quota refusal of req's alias model (none: opus) on an agent that takes --model.
+func aliasDenied(r Engine, req RunOptions, e *retry.Error) bool {
+	return e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
+		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model))
 }
 
 // checkStructured fills res's structured answer; a schema failure also sets res.Status.
@@ -881,15 +907,15 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 			c.Notify(n)
 		}
 	}
-	p.Chain = fitChain(p.Chain, len(packed.Prompt), o)
+	p.Chain = fitChain(p.Chain, len(packed.Prompt), o, viaFile)
 	return nil
 }
 
-// fitChain keeps the lead and every later dispatch whose budget holds n bytes; the rest become skip reasons.
-func fitChain(c Chain, n int, o RunOptions) Chain {
+// fitChain keeps the lead and every later dispatch whose budget holds n bytes (no transport cap when viaFile).
+func fitChain(c Chain, n int, o RunOptions, viaFile bool) Chain {
 	out := Chain{Want: c.Want, Dispatches: c.Dispatches[:1:1], Skipped: slices.Clone(c.Skipped)}
 	for _, d := range c.Dispatches[1:] {
-		if b, _ := packBudget(d, o, false); b < n {
+		if b, _ := packBudget(d, o, viaFile); b < n {
 			out.Skipped = append(out.Skipped, fmt.Sprintf("%s: packed prompt (%d KB) is over its %d KB budget", d.Agent.Name(), n/1024, b/1024))
 			continue
 		}

@@ -73,12 +73,17 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 		}
 		return t, false, note, true, err
 	}
+	return s.sessionTarget(reg, t)
+}
+
+// sessionTarget is targetBase with no provider asked: the session lead's target when it can serve s, else t.
+func (s Schema) sessionTarget(reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
 	sel, err := providers.Select(reg, providers.SessionLead(reg, false))
 	if err != nil {
 		return t, false, "", true, err
 	}
 	ft, note, err := s.ResolveTarget(reg, sel, false)
-	own = errors.Is(err, ErrOwnLogin)
+	own := errors.Is(err, ErrOwnLogin)
 	if own {
 		err = nil
 	}
@@ -116,6 +121,14 @@ type CLIPrep struct {
 	Emulated []string
 }
 
+// checkPromptCap refuses a prompt over the agent's transport cap.
+func (s Schema) checkPromptCap(prompt string) error {
+	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(prompt) > n {
+		return PromptTooLarge(len(prompt), n)
+	}
+	return nil
+}
+
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error) {
 	name := v.Name()
@@ -137,8 +150,8 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		return p, retry.Fatal(name, err)
 	}
 	ct := v.Before(req, t)
-	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(p.Prompt) > n {
-		return p, retry.Fatal(name, PromptTooLarge(len(p.Prompt), n))
+	if err := s.checkPromptCap(p.Prompt); err != nil {
+		return p, retry.Fatal(name, err)
 	}
 	h := cliHeadless(s, p.Prompt, req)
 	if own {

@@ -14,8 +14,8 @@ func TestCheckModel1MAliasPassesLikeBareAlias(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Host: "https://dev.example.com"}
 	now := time.Now()
 	for _, alias := range []string{"opus", "sonnet", "haiku"} {
-		bareWire, bareFailed, bareNote := CheckModel("codex", p, alias, now)
-		wire, failed, note := CheckModel("codex", p, alias+"[1m]", now)
+		bareWire, bareFailed, bareNote := checkModel("codex", p, alias, now)
+		wire, failed, note := checkModel("codex", p, alias+"[1m]", now)
 		if failed != nil || bareFailed != nil || note != bareNote || wire != alias+"[1m]" || bareWire != alias {
 			t.Errorf("%s[1m]: wire %q failed %v note %q; bare %s: wire %q failed %v note %q",
 				alias, wire, failed, note, alias, bareWire, bareFailed, bareNote)
