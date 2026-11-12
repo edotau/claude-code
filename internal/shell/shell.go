@@ -50,7 +50,7 @@ func SegmentsSep(cmd string) (out, seps []string) {
 
 // separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3` and `&>file` redirections are not one.
 func separatorStarts(cmd string, i int) bool {
-	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && !(cmd[i] == '&' && redirectAmp(cmd, i))
+	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && (cmd[i] != '&' || !redirectAmp(cmd, i))
 }
 
 // redirectAmp reports a `&` that follows `>`/`<` or precedes `>`, a redirection rather than a separator.

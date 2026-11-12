@@ -99,7 +99,7 @@ func rtkRewritten(bin, cmd string) string {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "rewrite", cmd).Output()
 	var ee *exec.ExitError
-	if err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 3) {
+	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 3) {
 		return ""
 	}
 	got := strings.TrimSpace(string(out))
