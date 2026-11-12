@@ -11,10 +11,11 @@ import (
 
 // codexEvent mirrors the JSON events from codex exec.
 type codexEvent struct {
-	Type     string `json:"type"`
-	ThreadID string `json:"thread_id"`
-	Message  string `json:"message"`
-	Item     struct {
+	Type      string `json:"type"`
+	ThreadID  string `json:"thread_id"`
+	Message   string `json:"message"`
+	WillRetry bool   `json:"will_retry"`
+	Item      struct {
 		ID               string `json:"id"`
 		Type             string `json:"type"` // agent_message | command_execution | error | reasoning | ...
 		Text             string `json:"text"`
@@ -38,6 +39,7 @@ type codexStreamState struct {
 	res          wire.Result
 	ans          wire.Answer
 	failure      string
+	retryError   string
 	log          wire.StreamLog
 	sink         wire.Sink
 	onMeaningful func()
@@ -54,6 +56,7 @@ func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), log
 	if err != nil {
 		return res, err
 	}
+	state.failure = cmp.Or(state.failure, state.retryError)
 	if state.failure != "" {
 		return res, errors.New(state.failure)
 	}
@@ -76,16 +79,27 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 			s.log.Emit("tool", ev.Item.Command)
 		}
 	case "turn.completed":
+		s.retryError = ""
 		u := ev.Usage
 		s.res.Usage.InputTokens += max(0, u.InputTokens-u.CachedInputTokens)
 		s.res.Usage.CacheReadTokens += u.CachedInputTokens
 		s.res.Usage.OutputTokens += u.OutputTokens
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 	case "error", "turn.failed":
-		s.failure = cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
-		return wire.EmitError(s.log, s.sink, s.failure)
+		message := cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
+		if fatalStreamError(ev) {
+			s.failure = message
+			return wire.EmitError(s.log, s.sink, message)
+		}
+		s.retryError = message
+		s.log.Emit("warning", message)
+		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
 	return nil
+}
+
+func fatalStreamError(ev codexEvent) bool {
+	return ev.Type != "error" || !ev.WillRetry
 }
 
 func (s *codexStreamState) completedItem(ev codexEvent) error {
