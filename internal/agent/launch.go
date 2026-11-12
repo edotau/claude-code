@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -145,7 +144,7 @@ func (s Schema) configureWire(ctx context.Context, e Driver, t providers.Target,
 	var err error
 	routed := false
 	if p.Auth.Method() != providers.AuthNone && !IsDirect(ctx) {
-		// Keyed provider: the agent gets the router base + router secret; the real credential stays in the router.
+		// Keyed provider: the agent gets the router base + a session token; the real credential stays in the router.
 		if p, base, cred, err = routerRoute(ctx, s, p, dialect); err != nil {
 			return nil, nil, err
 		}
@@ -168,8 +167,7 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
 	EnsureRouter = ensureRouter
-	RouterSecret = gateway.ClientSecret
-	MintSession  = gateway.MintSessionToken // mints a router session token for profile and pid
+	MintSession  = gateway.MintScopedToken // mints a router session token for a profile set and pid
 )
 
 // ensureRouter is gateway.Ensure; under --remote it brings the tunnel up here and returns the /via/<host> base.
@@ -201,13 +199,13 @@ func WithDirect(ctx context.Context) context.Context {
 
 func IsDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
-// routerRoute ensures the router daemon and returns a copy of p routed through it with the router secret as key.
+// routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
 	rb, err := EnsureRouter(ctx)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
 	}
-	secret, err := routerKey(ctx, rb, p.Name)
+	key, err := routerKey(ctx, rb, p.Name)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: %w", s.Name, err)
 	}
@@ -217,26 +215,36 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	if id := providers.IdentityFrom(ctx); id != "" {
 		rp.Headers[gateway.IdentityHeader] = id
 	}
-	return &rp, base, secret, nil
+	return &rp, base, key, nil
 }
 
-// routerKey is the key a routed child holds: the router secret, or inside databricks:<p> a session token for profile.
+// routerKey is the session token a routed child holds, scoped by TokenScope; never the router secret.
 func routerKey(ctx context.Context, routerBase, profile string) (string, error) {
-	if router.ArmProfile() == "" {
-		secret, err := RouterSecret()
-		if err != nil {
-			return "", fmt.Errorf("router secret: %w", err)
-		}
-		return secret, nil
-	}
-	tok, err := SessionToken(ctx, routerBase, profile)
+	scope, err := TokenScope(profile)
 	if err != nil {
-		return "", fmt.Errorf("session token for profile %s: %w", profile, err)
+		return "", err
+	}
+	tok, err := SessionToken(ctx, routerBase, scope...)
+	if err != nil {
+		return "", fmt.Errorf("session token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
 	return tok, nil
 }
 
-// sessionToken is one router+profile token slot; its own lock keeps a slow mint from stalling other profiles.
+// TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
+func TokenScope(profile string, extra ...string) ([]string, error) {
+	if router.ArmProfile() != "" { // confinement never widens
+		return []string{profile}, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, fmt.Errorf("token scope: %w", err)
+	}
+	out := slices.Concat([]string{profile}, extra, reg.Fallback) // Load already refused unknown fallback names
+	return slices.Compact(slices.Sorted(slices.Values(out))), nil
+}
+
+// sessionToken is one router+profile-set token slot; its own lock keeps a slow mint from stalling other sets.
 type sessionToken struct {
 	mu     sync.Mutex
 	tok    string
@@ -246,19 +254,20 @@ type sessionToken struct {
 // sessionTokenMaxAge re-mints well inside the router's 12h idle lifetime: a long-lived process never holds a dead one.
 const sessionTokenMaxAge = time.Hour
 
-// sessionTokens holds one session token per router base and profile, bound to this pid (it dies with the process).
+// sessionTokens holds one session token per router base and profile set, bound to this pid (it dies with the process).
 var (
 	sessionMu     sync.Mutex
 	sessionTokens = map[string]*sessionToken{}
 )
 
-// SessionToken mints profile's token once per router (batch hops share it), so retries never fill the token cap.
-func SessionToken(ctx context.Context, routerBase, profile string) (string, error) {
+// SessionToken mints the token for profiles (a TokenScope set) once per router, so batch hops never fill the cap.
+func SessionToken(ctx context.Context, routerBase string, profiles ...string) (string, error) {
+	key := routerBase + "|" + strings.Join(profiles, ",")
 	sessionMu.Lock()
-	e := sessionTokens[routerBase+"|"+profile]
+	e := sessionTokens[key]
 	if e == nil {
 		e = &sessionToken{}
-		sessionTokens[routerBase+"|"+profile] = e
+		sessionTokens[key] = e
 	}
 	sessionMu.Unlock()
 	e.mu.Lock()
@@ -266,7 +275,7 @@ func SessionToken(ctx context.Context, routerBase, profile string) (string, erro
 	if e.tok != "" && time.Since(e.minted) < sessionTokenMaxAge {
 		return e.tok, nil
 	}
-	tok, err := MintSession(ctx, profile, os.Getpid())
+	tok, err := MintSession(ctx, profiles, os.Getpid())
 	if err != nil {
 		return "", err
 	}
@@ -296,11 +305,10 @@ func StubRouter(base string) (restore func()) {
 	return func() { EnsureRouter = oe }
 }
 
-// StubProxyForTest stubs the router, its secret and session mints for a test binary (call from TestMain).
-func StubProxyForTest(base, secret string) {
+// StubProxyForTest stubs the router at base and session mints, which answer token, for a test binary (from TestMain).
+func StubProxyForTest(base, token string) {
 	EnsureRouter = func(context.Context) (string, error) { return base, nil }
-	RouterSecret = func() (string, error) { return secret, nil }
-	MintSession = func(context.Context, string, int) (string, error) { return "", errors.New("session mint is stubbed") }
+	MintSession = func(context.Context, []string, int) (string, error) { return token, nil }
 	retry.SharedPoll = 25 * time.Millisecond
 }
 

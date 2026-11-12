@@ -284,7 +284,7 @@ func TestAgyLiveErroredTurnKeepsUsageBaseline(t *testing.T) {
 func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 	t.Cleanup(agent.StubRouter("http://127.0.0.1:19876"))
 	origMint := agent.MintSession
-	agent.MintSession = func(context.Context, string, int) (string, error) { return "test-session", nil }
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return "test-session", nil }
 	t.Cleanup(func() { agent.MintSession = origMint })
 	p := &providers.Provider{Name: t.Name(), Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}}
 	env, argv, err := geminiGateway(context.Background(), p, "gemini-3.8-flash-high", nil)

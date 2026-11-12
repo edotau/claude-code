@@ -25,16 +25,16 @@ func TestRunAgentsReadOnlyNeverConfiguresRouter(t *testing.T) {
 	reg := menuTestEnv(t)
 	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	t.Setenv("OPENAI_API_KEY", "synthetic-openai-key")
-	origEnsure, origSecret := agent.EnsureRouter, agent.RouterSecret
-	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret = origEnsure, origSecret })
+	origEnsure, origMint := agent.EnsureRouter, agent.MintSession
+	t.Cleanup(func() { agent.EnsureRouter, agent.MintSession = origEnsure, origMint })
 	calls := 0
 	agent.EnsureRouter = func(context.Context) (string, error) {
 		calls++
 		return "", errors.New("read-only attempted router startup")
 	}
-	agent.RouterSecret = func() (string, error) {
+	agent.MintSession = func(context.Context, []string, int) (string, error) {
 		calls++
-		return "", errors.New("read-only attempted secret access")
+		return "", errors.New("read-only attempted a session mint")
 	}
 	for _, o := range []Options{{Check: true, Agent: "codex"}, {DryRun: true, Agent: "codex"}} {
 		d, out := newDialog("")

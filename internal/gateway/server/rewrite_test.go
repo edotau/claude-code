@@ -218,7 +218,7 @@ func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
 	t.Setenv("UP2_KEY", "k2")
 	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
 	req := testRequest(t, http.MethodPost, srv.URL+gateway.SessionPath,
-		strings.NewReader(`{"profile":"up1","pid":`+strconv.Itoa(os.Getpid())+`}`))
+		strings.NewReader(`{"profiles":["up1"],"pid":`+strconv.Itoa(os.Getpid())+`}`))
 	req.Header.Set("X-Api-Key", secret)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

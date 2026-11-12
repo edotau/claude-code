@@ -14,9 +14,9 @@ import (
 )
 
 type SessionRequest struct {
-	Profile string `json:"profile,omitempty"`
-	PID     int    `json:"pid,omitempty"`
-	Token   string `json:"token,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+	PID      int      `json:"pid,omitempty"`
+	Token    string   `json:"token,omitempty"`
 }
 
 type SessionResponse struct {
@@ -26,8 +26,13 @@ type SessionResponse struct {
 
 // MintSessionToken asks the daemon (starting it if needed) for a token scoped to profile and bound to pid.
 func MintSessionToken(ctx context.Context, profile string, pid int) (string, error) {
+	return MintScopedToken(ctx, []string{profile}, pid)
+}
+
+// MintScopedToken asks the daemon (starting it if needed) for a token covering profiles and bound to pid.
+func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, error) {
 	var out SessionResponse
-	if err := postSession(ctx, true, SessionPath, SessionRequest{Profile: profile, PID: pid}, &out); err != nil {
+	if err := postSession(ctx, true, SessionPath, SessionRequest{Profiles: profiles, PID: pid}, &out); err != nil {
 		return "", err
 	}
 	return out.Token, nil
@@ -157,7 +162,7 @@ func Token(ctx context.Context, profile string) (string, error) {
 
 func mintWithState(ctx context.Context, st State, profile string) (string, error) {
 	var out SessionResponse
-	if err := postWithState(ctx, st, SessionPath, SessionRequest{Profile: profile, PID: st.PID}, &out); err != nil {
+	if err := postWithState(ctx, st, SessionPath, SessionRequest{Profiles: []string{profile}, PID: st.PID}, &out); err != nil {
 		return "", err
 	}
 	return out.Token, nil
