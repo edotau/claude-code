@@ -46,12 +46,11 @@ type Receipt struct {
 // errDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
 var errDivergent = errors.New("memory transaction: live bytes diverged from the journaled preimage")
 
-// journal is the durable pre-write record of a batch; state is "pending" → "applied" → removed when complete.
+// journal is the durable pre-write record of a batch; it is removed when the batch completes.
 type journal struct {
 	Schema  int             `json:"schema"`
 	ID      string          `json:"id"`
 	Subject string          `json:"subject"`
-	State   string          `json:"state"`
 	Changes []journalChange `json:"changes"`
 }
 
@@ -143,7 +142,7 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return nil, err
 	}
-	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, State: "pending", Schema: journalSchema}
+	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, Schema: journalSchema}
 	for _, c := range changes {
 		pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel)) // nil when absent
 		if err != nil && !os.IsNotExist(err) {
@@ -175,15 +174,11 @@ func (j *journal) save() error {
 	return paths.AtomicWrite(j.path(), data, 0o600)
 }
 
-// run drives one journal: check, native capture, apply, commit, retire; a failed commit stays "applied".
+// run drives one journal: check, native capture, apply, commit, retire; a failed commit leaves the journal for replay.
 func (j *journal) run(repo Repo) (Receipt, error) {
 	rec := Receipt{ID: j.ID}
 	present, err := j.applyBatch(repo, &rec)
 	if err != nil {
-		return rec, err
-	}
-	j.State = "applied"
-	if err := j.save(); err != nil {
 		return rec, err
 	}
 	if stage := commitStage(rec, present); len(stage) > 0 {

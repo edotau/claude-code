@@ -195,7 +195,7 @@ func assertJournalSurvives(t *testing.T) {
 	if err := json.Unmarshal(data, &j); err != nil {
 		t.Fatal(err)
 	}
-	if j.State != "applied" || len(j.Changes) != 1 || string(j.Changes[0].Data) != "x\n" {
+	if len(j.Changes) != 1 || string(j.Changes[0].Data) != "x\n" {
 		t.Fatalf("journal = %+v", j)
 	}
 	if readStore(t, "r/x.md") != "x\n" {
@@ -299,7 +299,7 @@ func recoverJournals() error {
 func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
 	store, decoy := storeFixture(t)
 	outside := filepath.Join(filepath.Dir(store), "escape.md")
-	bad := journal{ID: "20000101-000000.000-00000000", Subject: "replay", State: "pending",
+	bad := journal{ID: "20000101-000000.000-00000000", Subject: "replay",
 		Changes: []journalChange{{Rel: "../escape.md", Data: []byte("x\n")}}}
 	if err := bad.save(); err != nil {
 		t.Fatal(err)
