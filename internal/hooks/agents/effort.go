@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
@@ -97,6 +98,9 @@ func agentEffortResult(in *core.Input) core.Result {
 	auto := in.Nested("permission_mode") == "auto" || direct
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
+	if deny := preflightBlock(e.run, task); deny != nil {
+		return *deny
+	}
 	recallNote := e.recall(in, promptField, task, auto)
 	if !direct {
 		e.note, e.systemMessage = pinModel(e.run, in, updated, task)
@@ -121,8 +125,14 @@ func opensWithAsk(task string) bool { return directAskRe().MatchString(strings.T
 // askLine is a brief's opening ask command: its --agent, --model, last word (the prompt), and --overlay document.
 type askLine struct {
 	agent, model, prompt string
+	profile, fallback    string // --profile and --fallback as typed
+	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
 	cfg                  agentconfig.Overlay
 }
+
+// offRoute are ask flags taking the run to another host, lead, record or batch: the hook predicts no preflight.
+var offRoute = []string{"agents", "native", "provider", "host", "host-bin", "retry", "retry-agent", "resume", "live",
+	"log", "job", "jobs", "batch", "follow"}
 
 // opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
 func (r *dispatchRun) opening(task string) askLine {
@@ -145,7 +155,8 @@ func parseAskLine(task string) askLine {
 	}
 	agent := strings.TrimPrefix(words[verb], "agents") // `<agent> ask` is `agents ask --agent <agent>`
 	words = words[min(verb+2, len(words)):]
-	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model")}
+	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model"),
+		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 2 && !hasFlag(words, offRoute)}
 	if n := len(words); n > 0 && !isFlag(words[n-1]) {
 		l.prompt = words[n-1]
 	}
@@ -157,6 +168,80 @@ func parseAskLine(task string) askLine {
 		l.cfg = cfg
 	}
 	return l
+}
+
+// preflightBlock denies a Run: line `agents ask` refuses on local cached state alone; every doubt lets it through.
+func preflightBlock(run *dispatchRun, task string) *core.Result {
+	l := run.opening(task)
+	agent := cmp.Or(l.agent, agentid.Claude)
+	if !l.local || l.cfg.Host != "" || l.cfg.Remote != "" || !agentid.Known(agent) {
+		return nil
+	}
+	if provider, _, err := router.Coworker(); provider != "" || err != nil {
+		return nil // nested in a confinement: ask's own leave rules decide
+	}
+	reg, err := run.registry()
+	if err != nil {
+		return nil
+	}
+	if err := l.refusal(reg, agent); err != nil {
+		return &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + err.Error()}
+	}
+	return nil
+}
+
+// refusal is ask's error for l's Databricks row and model, judged on reg and the row's fresh listing; nil passes.
+func (l askLine) refusal(reg *providers.Registry, agent string) error {
+	none := sync.OnceValue(func() bool {
+		f := cmp.Or(l.fallback, l.cfg.Fallback)
+		return f == router.FallbackNone || f == "" && router.DefaultFallback() == router.FallbackNone
+	})
+	p, model, err := l.target(reg, none)
+	if err != nil || p == nil || p.Preset != providers.PresetDatabricks || model == "" {
+		return err
+	}
+	if f := agentpkg.FreshModelFinding(agent, p, model, time.Now()); f != nil && none() {
+		return &agentpkg.PreflightError{Finding: *f}
+	}
+	return nil
+}
+
+// target is the row and bare model l's ask preflights; err is ask's refusal of the row, a nil row no prediction.
+func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.Provider, string, error) {
+	model, typed := l.typedModel(reg)
+	if l.cfg.Provider == router.RouteDatabricks {
+		return l.overlayTarget(reg, typed, model)
+	}
+	name := cmp.Or(l.profile, typed)
+	if l.cfg.Provider != "" || name == "" || name == agentpkg.LeadSession || (typed != "" && name != typed) {
+		return nil, "", nil
+	}
+	p, err := reg.Get(name)
+	if err != nil && !none() {
+		return nil, "", nil // a --profile lead with a fallback: ask routes on, it does not refuse
+	}
+	return p, model, err
+}
+
+// typedModel is the line's model with a leading `<row>:` cut off, and that row ("" when it names no row of reg).
+func (l askLine) typedModel(reg *providers.Registry) (model, typed string) {
+	model = cmp.Or(l.model, l.cfg.Model)
+	if prof, bare, ok := strings.Cut(model, ":"); ok && reg.Providers[prof] != nil {
+		return bare, prof
+	}
+	return model, ""
+}
+
+// overlayTarget is target under overlay databricks:<p>; auto, bare, or a flag naming another row is not predicted.
+func (l askLine) overlayTarget(reg *providers.Registry, typed, model string) (*providers.Provider, string, error) {
+	p := l.cfg.Profile
+	if p == "" || p == router.AutoArm || cmp.Or(l.profile, p) != p || cmp.Or(typed, p) != p {
+		return nil, "", nil
+	}
+	if err := reg.ServingRow(p); err != nil {
+		return nil, "", err
+	}
+	return reg.Providers[p], model, nil
 }
 
 // workAgent is the external agent the line's --agent asks for ("" = Claude); with no --agent, the leaf type's.
@@ -183,6 +268,20 @@ func flagValue(words []string, name string) string {
 		}
 	}
 	return v
+}
+
+// hasFlag reports any of names set before the first positional word or "--", as flagValue walks them.
+func hasFlag(words, names []string) bool {
+	for i := 0; i < len(words) && isFlag(words[i]); i++ {
+		n, _, hasVal := strings.Cut(strings.TrimPrefix(words[i][1:], "-"), "=")
+		if slices.Contains(names, n) {
+			return true
+		}
+		if !hasVal && takesValue(words, i+1) {
+			i++
+		}
+	}
+	return false
 }
 
 // isFlag is a word Go's flag package reads as a flag: "-x" or "--x", never "--" or a positional word.

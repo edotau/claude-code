@@ -216,6 +216,15 @@ func CheckModelNoted(agentName string, p *providers.Provider, model string, now 
 	return wire, failed
 }
 
+// FreshModelFinding is checkModel's refusal judged on p's fresh cached listing, with no refresh; nil without one.
+func FreshModelFinding(agentName string, p *providers.Provider, model string, now time.Time) *Finding {
+	if _, _, fresh := router.ServedListed(p, "", now); !fresh {
+		return nil
+	}
+	_, failed, _ := checkModel(agentName, p, model, now)
+	return failed
+}
+
 // armFinding is the first failed local check of the overlay databricks:<p> workspace, recorded in rc.pf; nil passes.
 func (rc routeCtx) armFinding() *Finding {
 	p := rc.reg.Row(router.ArmProfile())

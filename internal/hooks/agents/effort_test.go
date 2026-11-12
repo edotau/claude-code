@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -493,6 +494,41 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 	r := effortResult(payload)
 	if d, _ := r.UpdatedInput["description"].(string); d != "haiku: fix x" || reads != 1 || loads > 1 {
 		t.Fatalf("description %q, agent-file reads %d, registry loads %d; want \"haiku: fix x\", 1, <=1", d, reads, loads)
+	}
+}
+
+// A Run: line's model a fresh cached listing does not serve is denied with ask's preflight text; stale passes.
+func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(router.EnvFallback, "")
+	stubLabelModels(t, "")
+	cases := []struct {
+		model    string
+		age      time.Duration
+		wantDeny string
+	}{
+		{"claude-sonnet-5-5", 0, ""},
+		{"claude-nonexistent-9", 0, "dispatch-effort: preflight: served: dev lists no endpoint claude-nonexistent-9 " +
+			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK)"},
+		{"claude-nonexistent-9", 48 * time.Hour, ""}, // a stale listing proves nothing: ask's own preflight decides
+	}
+	for _, tc := range cases {
+		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []router.ServedModel{
+			{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
+			t.Fatal(err)
+		}
+		brief := "Run: claude-code agents ask --agent claude --profile dev --fallback none --model " + tc.model + " 'do x'"
+		r := effortResult(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose",`+
+			`"prompt":%q,"description":%q}}`, brief, tc.model+": do x"))
+		got := ""
+		if r.Decision == core.Block {
+			got = r.Reason
+		}
+		if got != tc.wantDeny {
+			t.Errorf("%s (listing age %v): deny %q, want %q", tc.model, tc.age, got, tc.wantDeny)
+		}
 	}
 }
 
