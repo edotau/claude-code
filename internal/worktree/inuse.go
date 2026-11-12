@@ -2,10 +2,8 @@ package worktree
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Proc identifies a live process with a cwd inside a worktree that Clean is about to remove.
@@ -253,17 +252,12 @@ func pidsWithin(all []procCwd, dirs []string) map[int]bool {
 
 // isDaemon reports a background agent server rather than a working session (agy's `--hub` from the IDE extension).
 func isDaemon(pid int) bool {
-	out, err := procArgs(pid)
-	return err == nil && slices.ContainsFunc(strings.Fields(out), func(a string) bool { return strings.HasPrefix(a, "--hub") })
+	argv, err := argvOf(pid)
+	return err == nil && slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "--hub") })
 }
 
-// procArgs reads a pid's command line (linux's init swaps in /proc to avoid forking); a seam so tests never shell out.
-var procArgs = func(pid int) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
-	return string(out), err
-}
+// argvOf reads a pid's argv; a seam so tests never shell out.
+var argvOf = proc.Argv
 
 // commName reads a pid's process name; each platform's init() assigns it where available.
 var commName func(pid int) string
