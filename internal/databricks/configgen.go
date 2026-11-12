@@ -1,6 +1,7 @@
 package databricks
 
 import (
+	"cmp"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -349,11 +350,7 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	}
 	head, _, _ := strings.Cut(raw, authHeader)
 	head = replaceLine(head, "base_url", base)
-	model := "gpt-6.1-sol"
-	if o.Model != "" {
-		model = o.Model
-	}
-	head = replaceLine(head, "model", p.WireModel(bareModel(model)))
+	head = replaceLine(head, "model", p.WireModel(bareModel(cmp.Or(o.Model, "gpt-6.1-sol"))))
 	if p.Options.Wire == providers.WireAIGateway {
 		head = replaceLine(head, "name", "Databricks AI Gateway")
 	}

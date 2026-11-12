@@ -41,7 +41,7 @@ func (h headless) set() bool { return h.port != 0 || h.noBrowser || h.paste }
 
 // options is the oauth.LoginOptions for h: no flag set gives the interactive default.
 func (h headless) options() oauth.LoginOptions {
-	o := oauth.LoginOptions{Open: openLoginURL, Out: os.Stderr, NoBrowser: h.noBrowser}
+	o := oauth.LoginOptions{Open: proc.OpenURL, Out: os.Stderr, NoBrowser: h.noBrowser}
 	if h.noBrowser {
 		o.Open = nil
 	}
@@ -356,9 +356,6 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 	return nil
 }
 
-// openLoginURL hands the authorize URL to the desktop opener (the Windows browser on WSL); the URL is printed too.
-func openLoginURL(url string) error { return proc.OpenURL(url) }
-
 // loginHost is the workspace a login would talk to, for display.
 func loginHost(p *providers.Provider) string {
 	if p.Host != "" {
@@ -479,9 +476,7 @@ func usageProfile(verb, arg string) int {
 	return 2
 }
 
-var (
-	SetRow = providers.SetProviderFields
-)
+var SetRow = providers.SetProviderFields
 
 // SaveIdentity writes env's identity mode and client id to its row, then seals secret as _M2M (restored on failure).
 func SaveIdentity(reg *providers.Registry, env, mode, spID, secret string) error {

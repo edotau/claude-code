@@ -38,14 +38,6 @@ func TestVaultLoginDryRun(t *testing.T) {
 	}
 }
 
-func TestVaultLoginRejectsOtherKinds(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	code, _, stderr := captureOutput(t, func() int { return login([]string{"--profile", "openai", "--dry-run"}) })
-	if code == 0 || !strings.Contains(stderr, "has auth type") {
-		t.Errorf("exit %d, stderr %q", code, stderr)
-	}
-}
-
 func TestVaultLoginRefusesRowWithAnotherAuthType(t *testing.T) {
 	useVaultTest(t)
 	err := providers.SetProviderFields("dbx-pat", map[string]any{

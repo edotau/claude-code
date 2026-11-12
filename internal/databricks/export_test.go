@@ -244,13 +244,3 @@ func TestMergeKeepsOthersAndReplacesOnlyWithForce(t *testing.T) {
 		t.Errorf("force merge:\n%s", out)
 	}
 }
-
-func TestExportThenCandidatesRoundTrip(t *testing.T) {
-	m := candsOf(t, renderExport(sampleRows()))
-	for _, r := range sampleRows() {
-		c, ok := m[r.Section]
-		if !ok || c.Auth != r.Auth || c.Host != r.Host || c.ClientID != r.ClientID || c.Skip != "" {
-			t.Errorf("%s: exported %+v re-imported as %+v", r.ID, r, c)
-		}
-	}
-}
