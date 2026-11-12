@@ -16,12 +16,12 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// scopeKey carries the profile a session or client token is confined to; absent for the router secret.
+// scopeKey carries the profiles a session or client token is confined to; absent for the router secret.
 type scopeKey struct{}
 
-// sessionScope is the profile a session- or client-token request is confined to.
-func sessionScope(in *http.Request) (string, bool) {
-	scope, ok := in.Context().Value(scopeKey{}).(string)
+// sessionScope is the profile set a session- or client-token request is confined to.
+func sessionScope(in *http.Request) ([]string, bool) {
+	scope, ok := in.Context().Value(scopeKey{}).([]string)
 	return scope, ok
 }
 
@@ -34,21 +34,21 @@ func resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Regis
 		return providers.Target{}, false
 	}
 	target := providers.ParseTarget(reg, model, sess)
-	// a resolved target outside a token's profile is a 403
-	if scope, scoped := sessionScope(in); scoped && target.Provider.Name != scope {
-		writeError(w, http.StatusForbidden, "proxy: this token is limited to profile "+scope)
+	// a resolved target outside a token's profiles is a 403
+	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
+		writeError(w, http.StatusForbidden, "proxy: this token is limited to profiles "+strings.Join(scope, ", "))
 		return target, false
 	}
 	return target, true
 }
 
-// confineLadder drops fallback providers outside a token's profile; they hold other credentials.
+// confineLadder drops fallback providers outside a token's profiles; they hold other credentials.
 func confineLadder(in *http.Request, ladder []providers.Target) []providers.Target {
 	scope, scoped := sessionScope(in)
 	if !scoped {
 		return ladder
 	}
-	return slices.DeleteFunc(ladder, func(t providers.Target) bool { return t.Provider.Name != scope })
+	return slices.DeleteFunc(ladder, func(t providers.Target) bool { return !slices.Contains(scope, t.Provider.Name) })
 }
 
 // anthropicHost is the only host the sealed subscription token is sent to; a var so tests can point it at httptest.

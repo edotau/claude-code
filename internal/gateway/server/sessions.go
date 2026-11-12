@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,22 +33,22 @@ const (
 	sessionTokenPf = "cct_"
 )
 
-// session is one minted token: scoped to a profile, bound to a process identity.
+// session is one minted token: scoped to a sorted profile set, bound to a process identity.
 type session struct {
-	profile string
-	pid     int
-	start   string
-	expires time.Time
-	saved   time.Time // the expiry last written to disk
-	checked time.Time
+	profiles []string
+	pid      int
+	start    string
+	expires  time.Time
+	saved    time.Time // the expiry last written to disk
+	checked  time.Time
 }
 
 type persistedSession struct {
-	Hash    string    `json:"hash"`
-	Profile string    `json:"profile"`
-	PID     int       `json:"pid"`
-	Start   string    `json:"start"`
-	Expires time.Time `json:"expires"`
+	Hash     string    `json:"hash"`
+	Profiles []string  `json:"profiles"`
+	PID      int       `json:"pid"`
+	Start    string    `json:"start"`
+	Expires  time.Time `json:"expires"`
 }
 
 type sessionState struct {
@@ -64,6 +65,7 @@ type sessionStore struct {
 	file      string
 	now       func() time.Time
 	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
+	unsaved   bool                          // the last write failed: memory (e.g. a revocation) is ahead of disk
 }
 
 func newSessionStore(now func() time.Time) *sessionStore {
@@ -80,11 +82,11 @@ func newSessionStore(now func() time.Time) *sessionStore {
 			continue
 		}
 		s.m[saved.Hash] = &session{
-			profile: saved.Profile,
-			pid:     saved.PID,
-			start:   saved.Start,
-			expires: saved.Expires,
-			saved:   saved.Expires,
+			profiles: saved.Profiles,
+			pid:      saved.PID,
+			start:    saved.Start,
+			expires:  saved.Expires,
+			saved:    saved.Expires,
 		}
 	}
 	if pruned {
@@ -98,13 +100,18 @@ func validProfile(profile string) bool {
 	return profile != "" && !strings.ContainsAny(profile, "/?#")
 }
 
+// validProfiles reports whether profiles is a non-empty set of valid profile names.
+func validProfiles(profiles []string) bool {
+	return len(profiles) > 0 && !slices.ContainsFunc(profiles, func(p string) bool { return !validProfile(p) })
+}
+
 // validSavedSession reports whether a persisted record is well-formed and unexpired at now.
 func validSavedSession(saved persistedSession, now time.Time) bool {
 	hash, err := hex.DecodeString(saved.Hash)
 	if err != nil || len(hash) != sha256.Size || saved.Hash != strings.ToLower(saved.Hash) {
 		return false
 	}
-	return validProfile(saved.Profile) && saved.PID > 0 && saved.Start != "" && now.Before(saved.Expires)
+	return validProfiles(saved.Profiles) && saved.PID > 0 && saved.Start != "" && now.Before(saved.Expires)
 }
 
 // saveLocked writes the current hashes atomically; the caller holds mu or is constructing the store.
@@ -112,25 +119,27 @@ func (s *sessionStore) saveLocked() error {
 	state := sessionState{Schema: routerSessionsFormat.Version, Sessions: make([]persistedSession, 0, len(s.m))}
 	for hash, ses := range s.m {
 		state.Sessions = append(state.Sessions, persistedSession{
-			Hash: hash, Profile: ses.profile, PID: ses.pid, Start: ses.start, Expires: ses.expires,
+			Hash: hash, Profiles: ses.profiles, PID: ses.pid, Start: ses.start, Expires: ses.expires,
 		})
 	}
 	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].Hash < state.Sessions[j].Hash })
 	raw, err := json.Marshal(state)
-	if err != nil {
-		return err
+	if err == nil {
+		err = paths.AtomicWrite(s.file, raw, 0o600)
 	}
-	return paths.AtomicWrite(s.file, raw, 0o600)
+	s.unsaved = err != nil
+	return err
 }
 
 // errPersist marks a mint that failed on the server's own disk write, not on the request.
 var errPersist = errors.New("persist session")
 
-// mint binds a new token to pid's current identity; a missing process is an error.
-func (s *sessionStore) mint(profile string, pid int) (string, error) {
-	if !validProfile(profile) || pid <= 0 {
-		return "", errors.New("profile and pid are required")
+// mint binds a new token for the profile set to pid's current identity; a missing process is an error.
+func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
+	if !validProfiles(profiles) || pid <= 0 {
+		return "", errors.New("profiles and pid are required")
 	}
+	profiles = slices.Compact(slices.Sorted(slices.Values(profiles)))
 	start, err := s.procStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("pid %d: %w", pid, err)
@@ -148,12 +157,12 @@ func (s *sessionStore) mint(profile string, pid int) (string, error) {
 	}
 	hash := textutil.SHA256Hex([]byte(tok))
 	s.m[hash] = &session{
-		profile: profile,
-		pid:     pid,
-		start:   start,
-		expires: now.Add(sessionTTL),
-		saved:   now.Add(sessionTTL),
-		checked: now,
+		profiles: profiles,
+		pid:      pid,
+		start:    start,
+		expires:  now.Add(sessionTTL),
+		saved:    now.Add(sessionTTL),
+		checked:  now,
 	}
 	if err := s.saveLocked(); err != nil {
 		delete(s.m, hash)
@@ -182,6 +191,7 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 	return nil
 }
 
+// revoke drops tok in memory even when the write fails (fail closed); count retries the write until it lands.
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,7 +199,7 @@ func (s *sessionStore) revoke(tok string) error {
 	return s.saveLocked()
 }
 
-// accept reports whether tok may reach profile; success slides the TTL, a dead or reused process drops the token.
+// accept reports whether tok's set holds profile; success slides the TTL, a dead or reused process drops the token.
 func (s *sessionStore) accept(tok, profile string) bool {
 	if !strings.HasPrefix(tok, sessionTokenPf) || profile == "" {
 		return false
@@ -202,7 +212,7 @@ func (s *sessionStore) accept(tok, profile string) bool {
 		return false
 	}
 	recheck := now.Sub(ses.checked) >= sessionVerify
-	if !s.liveLocked(hash, ses, now, recheck) || ses.profile != profile {
+	if !s.liveLocked(hash, ses, now, recheck) || !slices.Contains(ses.profiles, profile) {
 		return false
 	}
 	if recheck { // only a passed liveness check refreshes the trust window
@@ -239,6 +249,19 @@ func (s *sessionStore) probeUnlocked(hash string, ses *session) bool {
 	return true
 }
 
+// profiles is tok's profile set, nil for an unknown token; it neither slides nor probes (accept already did).
+func (s *sessionStore) profiles(tok string) []string {
+	if !strings.HasPrefix(tok, sessionTokenPf) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ses := s.findLocked(textutil.SHA256Hex([]byte(tok))); ses != nil {
+		return ses.profiles
+	}
+	return nil
+}
+
 // findLocked returns the session for hash by constant-time compare, no map lookup keyed on the presented bytes.
 func (s *sessionStore) findLocked(hash string) *session {
 	var ses *session
@@ -267,7 +290,7 @@ func (s *sessionStore) count() int {
 	dead := s.unbound(probe) // procStart may exec ps (darwin): never under mu
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.dropLocked(dead) || pruned {
+	if s.dropLocked(dead) || pruned || s.unsaved {
 		_ = s.saveLocked()
 	}
 	return len(s.m)
@@ -341,7 +364,7 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	tok, err := r.sessions.mint(in.Profile, in.PID)
+	tok, err := r.sessions.mint(in.Profiles, in.PID)
 	if errors.Is(err, errPersist) {
 		fmt.Fprintf(r.log, "proxy: session mint: %v\n", err)
 		writeError(w, http.StatusInternalServerError, "proxy: session could not be persisted")
@@ -356,9 +379,31 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 }
 
 var routerSessionsFormat = schemas.Register(schemas.Format{
-	Name: "router-sessions", Owner: "internal/gateway", Kind: schemas.Record, Version: 1,
+	Name: "router-sessions", Owner: "internal/gateway", Kind: schemas.Record, Version: 2,
 	Glob:    sessionsFile,
 	New:     func() any { return new(sessionState) },
 	Keep:    "process-bound session token hashes; retained across proxy restarts and pruned when expired or revoked",
-	Migrate: schemas.SameShape,
+	Migrate: migrateSessions,
 })
+
+// migrateSessions steps v0 -> v1 (stamp) and v1 -> v2 (each record's one "profile" becomes its "profiles" set).
+func migrateSessions(from int, raw []byte) ([]byte, error) {
+	if from != 1 {
+		return schemas.SameShape(from, raw)
+	}
+	var v1 struct {
+		Sessions []struct {
+			persistedSession
+			Profile string `json:"profile"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(raw, &v1); err != nil {
+		return nil, err
+	}
+	next := sessionState{Schema: 2, Sessions: make([]persistedSession, 0, len(v1.Sessions))}
+	for _, s := range v1.Sessions {
+		s.Profiles = []string{s.Profile}
+		next.Sessions = append(next.Sessions, s.persistedSession)
+	}
+	return json.Marshal(next)
+}

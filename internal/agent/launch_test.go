@@ -50,8 +50,8 @@ func TestLaunchSpecCorruptStoreKeepsBuiltins(t *testing.T) {
 
 func stubRouter(t *testing.T, ensure func(context.Context) (string, error)) {
 	t.Helper()
-	oe, os_ := EnsureRouter, RouterSecret
-	t.Cleanup(func() { EnsureRouter, RouterSecret = oe, os_ })
+	oe := EnsureRouter
+	t.Cleanup(func() { EnsureRouter = oe })
 	if ensure != nil {
 		EnsureRouter = ensure
 	}
@@ -65,32 +65,56 @@ func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	}
 }
 
-// Inside databricks:dev a routed child holds a session token minted once for dev and this pid, never the router secret.
-func TestArmRouterRouteMintsSessionToken(t *testing.T) {
+// A routed child holds one minted token per scope, never the router secret: armed {dev}, unarmed {dev, fallback qa}.
+func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
 	armRegistry(t, "")
+	row := `{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DEV_TOKEN"}}`
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"fallback":["qa"],"providers":{"databricks":{"dev":`+row+`,"qa":`+row+`}}}`)
 	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
 	om := MintSession
-	t.Cleanup(func() { MintSession = om })
+	t.Cleanup(func() { MintSession = om; ResetSessionTokens() })
 	var mints []string
-	MintSession = func(_ context.Context, profile string, pid int) (string, error) {
-		mints = append(mints, fmt.Sprintf("%s/%d", profile, pid))
-		return "cct_ARM", nil
+	MintSession = func(_ context.Context, profiles []string, pid int) (string, error) {
+		mints = append(mints, fmt.Sprintf("%s/%d", strings.Join(profiles, ","), pid))
+		return "cct_" + strings.Join(profiles, "+"), nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_ARM" {
+		if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_dev" {
 			t.Fatalf("armed routerRoute key = %q, %v; want the minted session token", key, err)
 		}
 	}
-	if want := fmt.Sprintf("dev/%d", os.Getpid()); !slices.Equal(mints, []string{want}) {
-		t.Errorf("mints = %v, want one for %s", mints, want)
-	}
 	t.Setenv(agentconfig.OverlayVar, "")
-	if _, _, key, _ := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); key != "rtr-secret-xyz" {
-		t.Errorf("unarmed routerRoute key = %q, want the router secret", key)
+	if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_dev+qa" {
+		t.Errorf("unarmed routerRoute key = %q, %v; want the token for dev and its fallback qa", key, err)
+	}
+	pid := os.Getpid()
+	if want := []string{fmt.Sprintf("dev/%d", pid), fmt.Sprintf("dev,qa/%d", pid)}; !slices.Equal(mints, want) {
+		t.Errorf("mints = %v, want %v", mints, want)
+	}
+}
+
+// A failed mint fails the route: the child is never handed the router secret instead.
+func TestRouterRouteMintFailureAborts(t *testing.T) {
+	armRegistry(t, "")
+	t.Setenv(agentconfig.OverlayVar, "")
+	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
+	om := MintSession
+	t.Cleanup(func() { MintSession = om; ResetSessionTokens() })
+	MintSession = func(context.Context, []string, int) (string, error) {
+		return "", errors.New("too many live session tokens")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], "")
+	if err == nil || key != "" || !strings.Contains(err.Error(), "too many live session tokens") {
+		t.Fatalf("routerRoute = %q, %v; want the mint error and no key", key, err)
 	}
 }
 
@@ -98,7 +122,7 @@ func TestArmRouterRouteMintsSessionToken(t *testing.T) {
 func TestSessionTokenRemintsWhenStale(t *testing.T) {
 	origMint := MintSession
 	mints := 0
-	MintSession = func(context.Context, string, int) (string, error) {
+	MintSession = func(context.Context, []string, int) (string, error) {
 		mints++
 		return "tok" + strconv.Itoa(mints), nil
 	}
@@ -130,7 +154,8 @@ func TestSessionTokenSlowMintBlocksOnlyItsProfile(t *testing.T) {
 	origMint := MintSession
 	t.Cleanup(func() { MintSession = origMint })
 	entered, release := make(chan struct{}), make(chan struct{})
-	MintSession = func(_ context.Context, profile string, _ int) (string, error) {
+	MintSession = func(_ context.Context, profiles []string, _ int) (string, error) {
+		profile := profiles[0]
 		if profile == "slow" {
 			close(entered)
 			<-release
