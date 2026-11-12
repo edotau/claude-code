@@ -81,18 +81,13 @@ coverage.*
 
 # Skills: only the harness's own are tracked; every other dir is the user's (symlinks into ~/.agents or local copies).
 /skills/*
-!/skills/architecture-design
-/skills/architecture-design/references/local/
-!/skills/browser-automation
-!/skills/database-schema
 !/skills/evaluate-code
+!/skills/golang
 !/skills/problem-solving
-!/skills/python-patterns
 !/skills/reflection
-!/skills/reverse-engineer
 !/skills/simplify
 !/skills/subagent-workflows
-!/skills/testing-guidelines
+!/skills/tailscale
 !/skills/using-git-worktrees
 !/skills/web-explorer
 
