@@ -261,3 +261,29 @@ func TestWarmServedNewerWins(t *testing.T) {
 		}
 	}
 }
+
+// TestSpellServedPrefixesOnlyAReadyListedBareName: a bare unlisted id takes databricks- only where listed READY.
+func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
+	const bare, wired = "gpt-6-1-terra", "databricks-gpt-6-1-terra"
+	for _, c := range []struct {
+		name, ready, in, want string // ready "" writes no listing
+	}{
+		{"ready", "READY", bare, wired},
+		{"no listing", "", bare, bare},
+		{"not ready", "NOT_READY", bare, bare},
+		{"already prefixed", "READY", wired, wired},
+		{"unlisted bare name", "READY", "gpt-9-zzz", "gpt-9-zzz"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			vaulttest.Use(t)
+			if c.ready != "" {
+				if err := SaveServed(listing("dev", map[string]string{wired: c.ready})); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := SpellServed(dbxProv("dev"), c.in, time.Now()); got != c.want {
+				t.Errorf("SpellServed(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

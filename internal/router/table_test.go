@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -262,5 +263,59 @@ func TestTableColumnsAndEffortsMatchAgentid(t *testing.T) {
 				t.Errorf("row %s, column %s: %v", row, agent, err)
 			}
 		}
+	}
+}
+
+// bucketWant is the first id of alias's bucket agent can run, as wired on Databricks, other than skip; "" if none.
+func bucketWant(p *providers.Provider, agent, alias, skip string) string {
+	runs := map[string]func(string) bool{
+		"claude": func(w string) bool { return models.FamilyKind(w) == models.FamilyClaude },
+		"gemini": func(w string) bool { return models.FamilyKind(w) == models.FamilyGemini },
+		"codex":  func(w string) bool { return providers.ServesResponses(p, w) },
+	}[agent]
+	for _, id := range databricksTiers()[alias] {
+		if w := models.DatabricksPrefix + id; w != skip && (runs == nil || runs(w)) {
+			return w
+		}
+	}
+	return ""
+}
+
+// TestDatabricksModelPicksFirstRunnableBucketMember: each agent gets its bucket's first runnable, READY, unmarked id.
+func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
+	vaulttest.Use(t)
+	p, ready := dbxProv("dev"), map[string]string{}
+	for _, ids := range databricksTiers() {
+		for _, id := range ids {
+			ready[models.DatabricksPrefix+id] = "READY"
+		}
+	}
+	first := models.DatabricksPrefix + databricksTiers()["opus"][0]
+	notReady := maps.Clone(ready)
+	notReady[first] = "NOT_READY"
+	for _, c := range []struct {
+		name    string
+		listing map[string]string
+		mark    bool
+		skip    string
+	}{{"all ready", ready, false, ""}, {"first not ready", notReady, false, first}, {"first unserved", ready, true, first}} {
+		if err := SaveServed(listing("dev", c.listing)); err != nil {
+			t.Fatal(err)
+		}
+		if c.mark {
+			if err := MarkUnserved(p, first); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, agent := range TableAgents {
+			for _, alias := range Aliases {
+				if got, w := DatabricksModel(agent, alias, p), bucketWant(p, agent, alias, c.skip); got != w {
+					t.Errorf("%s: DatabricksModel(%s, %s) = %q, want %q", c.name, agent, alias, got, w)
+				}
+			}
+		}
+	}
+	if got := DatabricksModel("copilot", "opus", &providers.Provider{Name: "gh", Provider: "github"}); got != "" {
+		t.Errorf("non-Databricks provider = %q, want \"\"", got)
 	}
 }
