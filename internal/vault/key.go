@@ -243,17 +243,8 @@ func runKeyCommand(raw, vaultID string) (*Key, error) {
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("vault: key_command: %w", ctx.Err())
 	}
-	if err != nil {
-		if exit, ok := errors.AsType[*exec.ExitError](err); ok {
-			stderr := strings.TrimSpace(string(exit.Stderr))
-			if len(stderr) > 200 {
-				stderr = stderr[:200]
-			}
-			if stderr != "" {
-				return nil, fmt.Errorf("vault: key_command: %w: %s", err, stderr)
-			}
-		}
-		return nil, fmt.Errorf("vault: key_command: %w", err)
+	if err != nil { // never quote the command's stderr: a key tool may print key material there
+		return nil, fmt.Errorf("vault: key_command: %w (output not shown; run it yourself to see why)", err)
 	}
 	return parseKey(string(out), vaultID)
 }
