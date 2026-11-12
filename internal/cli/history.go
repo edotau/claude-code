@@ -40,9 +40,7 @@ func cmdHistory(args []string) int {
 	case "diff":
 		return historyDiff(args)
 	}
-	fmt.Fprintf(os.Stderr, "history: unknown subcommand %q\n", sub)
-	historyPage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("history", sub, historyPage)
 }
 
 // historySnapshot records the config plane now; unchanged files report so rather than committing.

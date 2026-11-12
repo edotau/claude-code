@@ -74,22 +74,14 @@ func cmdModels(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(args) > 0 {
-		fmt.Fprintf(os.Stderr, "claude-code: models: unexpected argument %q\n", args[0])
-		return 2
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("models", err)
+	if code := checkModelsArgs(args, *dryRun, *unpin, pins, *format); code != 0 {
+		return code
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	var preview func(func(map[string]vault.AgentRecord)) int
-	if *dryRun {
-		preview = func(mutate func(map[string]vault.AgentRecord)) int { return printRecordDiff(mutate, nil) }
-	}
-	if code, handled := configure.ApplyModelPins(reg, *provider, *unpin, pins, preview); handled {
+	if code, handled := configure.ApplyModelPins(reg, *provider, *unpin, pins, modelsPreview(*dryRun)); handled {
 		return code
 	}
 	sel, err := providers.Select(reg, *provider)
@@ -97,6 +89,28 @@ func cmdModels(args []string) int {
 		return helptext.Fail("%v", err)
 	}
 	return renderModelSelection(reg, sel, *format, *live)
+}
+
+// modelsPreview is the agent-record diff printer for --dry-run, nil for a real write.
+func modelsPreview(dryRun bool) func(func(map[string]vault.AgentRecord)) int {
+	if !dryRun {
+		return nil
+	}
+	return func(mutate func(map[string]vault.AgentRecord)) int { return printRecordDiff(mutate, nil) }
+}
+
+// checkModelsArgs refuses a stray argument, a --dry-run with nothing to preview, or a bad --format (exit 2).
+func checkModelsArgs(rest []string, dryRun, unpin bool, pins []string, format string) int {
+	if len(rest) > 0 {
+		return helptext.FailUsage("models: unexpected argument %q", rest[0])
+	}
+	if dryRun && !unpin && len(pins) == 0 {
+		return helptext.FailUsage("models: --dry-run previews --pin or --unpin; add one or drop --dry-run")
+	}
+	if err := helptext.CheckFormat(format); err != nil {
+		return helptext.BadFormat("models", err)
+	}
+	return 0
 }
 
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {
@@ -276,9 +290,11 @@ func modelsDiscover(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(rest) > 0 || (*apply && *dry) {
-		fmt.Fprintln(os.Stderr, "claude-code: models discover: unexpected argument or conflicting --apply/--dry-run")
-		return 2
+	if len(rest) > 0 {
+		return helptext.FailUsage("models discover: unexpected argument %q", rest[0])
+	}
+	if *apply && *dry {
+		return helptext.FailUsage("models discover: --apply and --dry-run conflict; drop one")
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("models discover", err)
@@ -287,21 +303,28 @@ func modelsDiscover(args []string) int {
 	if err != nil {
 		return helptext.Fail("models discover: cannot load provider registry: %v", err)
 	}
-	names := reg.Names()
-	slices.Sort(names)
-	if *profile != "" {
-		if _, err := reg.Get(*profile); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code: models discover: unknown profile")
-			return 2
-		}
-		names = []string{*profile}
+	names, code := discoverNames(reg, *profile)
+	if code != 0 {
+		return code
 	}
 	results, ok := copilot.DiscoverPickerProfiles(reg, names, *apply)
-	code := 0
 	if !ok {
 		code = 1
 	}
 	return printDiscoverResults(results, *apply, *format, code)
+}
+
+// discoverNames is the sorted registry profile names, or just profile; an unknown one exits 2.
+func discoverNames(reg *providers.Registry, profile string) ([]string, int) {
+	if profile == "" {
+		names := reg.Names()
+		slices.Sort(names)
+		return names, 0
+	}
+	if _, err := reg.Get(profile); err != nil {
+		return nil, helptext.FailUsage("models discover: unknown profile %q", profile)
+	}
+	return []string{profile}, 0
 }
 
 func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format string, code int) int {

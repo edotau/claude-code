@@ -147,12 +147,7 @@ func (o *catalogOpts) run(ids, args []string) int {
 	s, _ := agent.LookupSchema(o.name)
 	dialects := s.CLI.Dialects
 	if len(dialects) == 0 {
-		if o.verb == "" {
-			return ask.Catalog(o.name, o.format, cmdModels)
-		}
-		fmt.Printf("%s catalog %s: %s has no Databricks route (it runs on its own login); nothing to %s\n",
-			o.name, o.verb, o.name, o.verb)
-		return 0
+		return o.runOwnLogin()
 	}
 	p, err := catalog.Profile(o.name, o.profile)
 	if err != nil {
@@ -172,6 +167,16 @@ func (o *catalogOpts) run(ids, args []string) int {
 		return runOpencodeMenu(append([]string{"list"}, args...))
 	}
 	return o.done(listCatalog(o.name, p, o.format))
+}
+
+// runOwnLogin is the catalog of an agent with no Databricks route: its own listing, or a no-op verb.
+func (o *catalogOpts) runOwnLogin() int {
+	if o.verb == "" {
+		return ask.Catalog(o.name, o.format, cmdModels)
+	}
+	fmt.Printf("%s catalog %s: %s has no Databricks route (it runs on its own login); nothing to %s\n",
+		o.name, o.verb, o.name, o.verb)
+	return 0
 }
 
 func (o *catalogOpts) done(err error) int {
@@ -337,16 +342,9 @@ func checkOpencodeMenu(w, errw io.Writer, ids []string, all bool, provider strin
 	return catalog.WriteCheck(w, results, format)
 }
 
-func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.SyncOptions) error {
-	res, err := discover("opencode", profile, syncMode(refresh))
-	if err != nil {
-		return err
-	}
-	pl, err := catalog.MenuSync(res.Provider, *res.Snapshot, opts)
-	if err != nil {
-		return err
-	}
-	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, opts.Verify) {
+// printSyncPlan writes the sync summary, the planned changes and the verify hint.
+func printSyncPlan(w io.Writer, pl catalog.SyncPlan, profile string, verify bool) {
+	for _, line := range catalog.SyncSummaryLines(pl.Snapshot, verify) {
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintf(w, "opencode catalog sync: %d listed, %d eligible, %d additions, %d failed additions skipped, %d retained, %d total\n",
@@ -357,6 +355,18 @@ func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.Sy
 	fmt.Fprintln(w, "Shared menu: OpenCode uses all entries; Codex needs Responses + bundled metadata.")
 	fmt.Fprintln(w, "Discovery is not inference proof; use --verify or the existing check command:")
 	fmt.Fprintf(w, "  claude-code opencode catalog check --all --profile %s\n", profile)
+}
+
+func syncOpencodeMenu(w io.Writer, profile string, refresh bool, opts catalog.SyncOptions) error {
+	res, err := discover("opencode", profile, syncMode(refresh))
+	if err != nil {
+		return err
+	}
+	pl, err := catalog.MenuSync(res.Provider, *res.Snapshot, opts)
+	if err != nil {
+		return err
+	}
+	printSyncPlan(w, pl, profile, opts.Verify)
 	if !opts.Apply {
 		fmt.Fprintln(w, "opencode catalog: dry run; no discovery/menu writes; pass --apply to write")
 		return nil

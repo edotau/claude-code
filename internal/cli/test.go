@@ -3,8 +3,6 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/edotau/claude-code/internal/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -14,13 +12,10 @@ func cmdTest(args []string) int {
 	if len(args) > 0 && args[0] == "ramdisk" {
 		return ramdisk.Run(args[1:])
 	}
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		testPage.Fprint(os.Stderr)
-		return 0
+	if code, ok := helpOrBare(testPage, args); ok {
+		return code
 	}
-	helptext.Fail("test: unknown subcommand %q", args[0])
-	testPage.Fprint(os.Stderr)
-	return 2
+	return unknownSub("test", args[0], testPage)
 }
 
 var testPage = helptext.Page{

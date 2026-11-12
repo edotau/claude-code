@@ -199,16 +199,25 @@ func configureRestore(agents, out string, renderAgents, noAgents bool) int {
 	if err := unknownAgent(agents); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if noAgents && (renderAgents || agents != "") {
-		return helptext.Fail("configure: --no-agents excludes --agents and --agent")
-	}
-	if out != "" && (renderAgents || agents != "") {
-		return helptext.Fail("configure: --out resets a settings file; --agents and --agent never write one")
+	if msg := restoreConflict(agents, out, renderAgents, noAgents); msg != "" {
+		return helptext.Fail("%s", msg)
 	}
 	if err := configure.Restore(os.Stdout, agents, out, renderAgents, noAgents); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	return 0
+}
+
+// restoreConflict names the --restore flag combination that cannot run, or "".
+func restoreConflict(agents, out string, renderAgents, noAgents bool) string {
+	agentsGiven := renderAgents || agents != ""
+	switch {
+	case noAgents && agentsGiven:
+		return "configure: --no-agents excludes --agents and --agent"
+	case out != "" && agentsGiven:
+		return "configure: --out resets a settings file; --agents and --agent never write one"
+	}
+	return ""
 }
 
 // configureRevert runs --revert; extras is true when a flag that only --restore takes was given.

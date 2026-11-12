@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,12 +24,13 @@ var page = helptext.Page{
 	},
 }
 
-// scmUsage prints the page to stderr: exit 2 when nothing was asked for, 0 for -h.
+// scmUsage prints the page: stderr and exit 2 when nothing was asked for, stdout and 0 for -h.
 func scmUsage(bare bool) int {
-	page.Fprint(os.Stderr)
 	if bare {
+		page.Fprint(os.Stderr)
 		return 2
 	}
+	page.Fprint(os.Stdout)
 	return 0
 }
 
@@ -43,12 +45,18 @@ func cmdScm(args []string) int {
 		if len(rest) == 0 || helptext.WantsHelp(rest[:1]) {
 			return scmUsage(len(rest) == 0)
 		}
+		if !scmPRVerbs[rest[0]] {
+			return helptext.FailUsage("scm pr: unknown command %q (list, view, diff, create)", rest[0])
+		}
 		return dispatch(rest[0], rest[1:])
 	case "checks", "comment":
 		return dispatch(verb, rest)
 	}
 	return helptext.FailUsage("scm: unknown command %q (see claude-code scm -h)", verb)
 }
+
+// scmPRVerbs are the verbs `scm pr` takes; checks and comment sit beside it.
+var scmPRVerbs = map[string]bool{"list": true, "view": true, "diff": true, "create": true}
 
 type opts struct {
 	format, state, author, title, bodyFile, base, sha, replyTo *string
@@ -130,26 +138,38 @@ func dispatch(name string, args []string) int {
 func checkArgs(name string, pos []string, o *opts) string {
 	switch name {
 	case "list":
-		if *o.state != "open" && *o.state != "merged" && *o.state != "all" {
+		if !slices.Contains([]string{"open", "merged", "all"}, *o.state) {
 			return "--state wants open, merged or all"
 		}
 	case "view", "diff", "comment":
-		if len(pos) != 1 {
-			return "want exactly one PR id"
-		}
-		if name == "comment" && *o.bodyFile == "" {
-			return "--body-file is required"
-		}
+		return checkPRArgs(name, pos, *o.bodyFile)
 	case "create":
 		if *o.title == "" {
 			return "--title is required"
 		}
 	case "checks":
-		if len(pos) > 1 || (len(pos) == 0) == (*o.sha == "") {
-			return "want one PR id or --sha"
-		}
+		return checkChecksArgs(pos, *o.sha)
 	default:
 		return "unknown command"
+	}
+	return ""
+}
+
+// checkChecksArgs wants exactly one of a PR id or --sha.
+func checkChecksArgs(pos []string, sha string) string {
+	if len(pos) > 1 || (len(pos) == 0) == (sha == "") {
+		return "want one PR id or --sha"
+	}
+	return ""
+}
+
+// checkPRArgs wants exactly one PR id, and --body-file for comment.
+func checkPRArgs(name string, pos []string, bodyFile string) string {
+	if len(pos) != 1 {
+		return "want exactly one PR id"
+	}
+	if name == "comment" && bodyFile == "" {
+		return "--body-file is required"
 	}
 	return ""
 }
@@ -182,24 +202,36 @@ func runVerb(ctx context.Context, h scm.Host, name string, pos []string, o *opts
 		}
 		return err
 	case "create":
-		body, err := readBody(*o.bodyFile)
-		if err != nil {
-			return err
-		}
-		p, err := h.Create(ctx, scm.CreateOpts{Title: *o.title, Body: body, Base: *o.base, Draft: *o.draft})
-		return emit(json, p, err, func() { fmt.Println(p.URL) })
+		return runCreate(ctx, h, json, o)
 	case "checks":
-		id := ""
-		if len(pos) == 1 {
-			id = pos[0]
-		}
-		cs, err := h.Checks(ctx, id, *o.sha)
-		return emit(json, cs, err, func() {
-			for _, c := range cs {
-				fmt.Printf("%s\t%s\t%s\n", c.State, c.Name, c.URL)
-			}
-		})
+		return runChecks(ctx, h, json, pos, *o.sha)
 	}
+	return runComment(ctx, h, pos[0], o)
+}
+
+func runCreate(ctx context.Context, h scm.Host, json bool, o *opts) error {
+	body, err := readBody(*o.bodyFile)
+	if err != nil {
+		return err
+	}
+	p, err := h.Create(ctx, scm.CreateOpts{Title: *o.title, Body: body, Base: *o.base, Draft: *o.draft})
+	return emit(json, p, err, func() { fmt.Println(p.URL) })
+}
+
+func runChecks(ctx context.Context, h scm.Host, json bool, pos []string, sha string) error {
+	id := ""
+	if len(pos) == 1 {
+		id = pos[0]
+	}
+	cs, err := h.Checks(ctx, id, sha)
+	return emit(json, cs, err, func() {
+		for _, c := range cs {
+			fmt.Printf("%s\t%s\t%s\n", c.State, c.Name, c.URL)
+		}
+	})
+}
+
+func runComment(ctx context.Context, h scm.Host, id string, o *opts) error {
 	body, err := readBody(*o.bodyFile)
 	if err != nil {
 		return err
@@ -207,7 +239,7 @@ func runVerb(ctx context.Context, h scm.Host, name string, pos []string, o *opts
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("--body-file %s is empty", *o.bodyFile)
 	}
-	return h.Comment(ctx, pos[0], body, *o.replyTo)
+	return h.Comment(ctx, id, body, *o.replyTo)
 }
 
 // emit prints v as JSON or runs the text printer; a host error passes through.
