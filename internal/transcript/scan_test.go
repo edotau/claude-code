@@ -45,7 +45,7 @@ func TestDispatchIDs(t *testing.T) {
 func dispatchIDs(content string) []string {
 	var ids []string
 	seen := map[string]bool{}
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		ids = AppendDispatchIDs(ids, seen, []byte(line))
 	}
 	return ids

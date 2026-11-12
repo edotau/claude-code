@@ -117,8 +117,8 @@ func redact(remote string) string {
 		return u.String()
 	}
 	// unparsable (a "/" in the password): cut through the last "@" so no tail of the secret survives
-	if at := strings.LastIndex(rest, "@"); at >= 0 {
-		return scheme + "://***@" + rest[at+1:]
+	if _, host, ok := strings.CutLast(rest, "@"); ok {
+		return scheme + "://***@" + host
 	}
 	return remote
 }
