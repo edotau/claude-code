@@ -46,16 +46,7 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 		fmt.Fprintln(out, note)
 	}
 	if target.Provider != nil && target.Provider.Auth.Method() == providers.AuthCLI {
-		keys, err := codexPermissionKeys(existing, out)
-		if err != nil {
-			return "", err
-		}
-		if keys == "" {
-			fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", target.Provider.Name)
-			return "", errNoBlock
-		}
-		fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", target.Provider.Name)
-		return codexBannerSection(strings.TrimRight(keys, "\n")), nil
+		return codexLoginSection(target.Provider.Name, existing, out)
 	}
 	_, argv, err := codexSchema().Configure(ctx, target)
 	if err != nil {
@@ -76,7 +67,20 @@ func codexProviderSection(reg *providers.Registry, sel providers.Selection, exis
 	return codexBannerSection(block), nil
 }
 
-// codexCredentialStoreRE matches one line assigning cli_auth_credentials_store, bare, single- or double-quoted, indented or not.
+func codexLoginSection(name, existing string, out io.Writer) (string, error) {
+	keys, err := codexPermissionKeys(existing, out)
+	if err != nil {
+		return "", err
+	}
+	if keys == "" {
+		fmt.Fprintf(out, "codex: skipped: %s runs on codex's own login; no config.toml block\n", name)
+		return "", errNoBlock
+	}
+	fmt.Fprintf(out, "codex: %s runs on codex's own login; writing approval/sandbox keys only\n", name)
+	return codexBannerSection(strings.TrimRight(keys, "\n")), nil
+}
+
+// codexCredentialStoreRE matches bare or quoted cli_auth_credentials_store assignments.
 var codexCredentialStoreRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\s*(?:"cli_auth_credentials_store"|'cli_auth_credentials_store'|cli_auth_credentials_store)\s*=`)
 })
@@ -97,8 +101,7 @@ func codexUserSetsCredStore(existing string) bool {
 	return false
 }
 
-// codexCredStoreKey keeps ~/.codex/auth.json out of plaintext by pointing codex at the OS keyring;
-// it never overwrites a value the user already set outside the managed banner.
+// codexCredStoreKey defaults to the OS keyring without overwriting an explicit user setting.
 func codexCredStoreKey(existing string, out io.Writer) string {
 	if codexUserSetsCredStore(existing) {
 		fmt.Fprintln(out, "codex: cli_auth_credentials_store already set by the user; leaving it")
@@ -107,8 +110,7 @@ func codexCredStoreKey(existing string, out io.Writer) string {
 	return `cli_auth_credentials_store = "keyring"` + "\n"
 }
 
-// codexPermissionKeys renders approval_policy/sandbox_mode/cli_auth_credentials_store as top-level TOML keys;
-// approval/sandbox skip when unset. A failed settings load is an error, so the render never drops them.
+// codexPermissionKeys renders explicit permissions and the credential store, failing on unreadable settings.
 func codexPermissionKeys(existing string, out io.Writer) (string, error) {
 	rec, err := agentconfig.Settings(agentid.Codex)
 	if err != nil {
@@ -125,8 +127,7 @@ func codexPermissionKeys(existing string, out io.Writer) (string, error) {
 	return b.String(), nil
 }
 
-// codexBlockFromArgv rebuilds a `[model_providers.claude-code]` TOML block from the `-c key=value`
-// pairs the Configure(codex) result returns, renaming the provider id to the fixed "claude-code".
+// codexBlockFromArgv rebuilds Configure overrides as TOML with the fixed provider id "claude-code".
 func codexBlockFromArgv(argv []string) (string, error) {
 	var model, tableVal, catalog string
 	for i := 0; i+1 < len(argv); i++ {
