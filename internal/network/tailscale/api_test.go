@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -288,6 +289,34 @@ func TestEnableRoutesDoesNotMutateCaller(t *testing.T) {
 	}
 	if got := backing[:2][1]; got != "" {
 		t.Errorf("caller's backing array overwritten with %q", got)
+	}
+}
+
+// TestApproveExitNodeKeepsConcurrentRoute: a route enabled by someone else after our first read must survive the write.
+func TestApproveExitNodeKeepsConcurrentRoute(t *testing.T) {
+	enabled, reads := []string{"10.0.0.0/8"}, 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			reads++
+			_ = json.NewEncoder(w).Encode(deviceRoutes{Enabled: slices.Clone(enabled)})
+			if reads == 1 { // a concurrent admin enables a route right after our first read
+				enabled = append(enabled, "192.168.1.0/24")
+			}
+			return
+		}
+		var body struct{ Routes []string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		enabled = body.Routes
+		_ = json.NewEncoder(w).Encode(deviceRoutes{Enabled: enabled})
+	}))
+	defer ts.Close()
+	if err := staticClient(ts, "tok").ApproveExitNode(context.Background(), "d"); err != nil {
+		t.Fatalf("ApproveExitNode err = %v", err)
+	}
+	for _, want := range []string{"10.0.0.0/8", "192.168.1.0/24", "0.0.0.0/0", "::/0"} {
+		if !slices.Contains(enabled, want) {
+			t.Errorf("enabled = %v, missing %s", enabled, want)
+		}
 	}
 }
 

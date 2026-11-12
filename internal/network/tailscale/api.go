@@ -296,14 +296,41 @@ func (c *Client) EnableRoutes(
 	return out.Enabled, nil
 }
 
-// ApproveExitNode approves device id's default-route advertisement, keeping any enabled subnet routes.
+// ApproveExitNode approves the default routes, keeping enabled ones; no CAS, so it re-reads and retries (3x).
 func (c *Client) ApproveExitNode(ctx context.Context, deviceID string) error {
-	cur, err := c.Routes(ctx, deviceID)
-	if err != nil {
-		return err
+	var dropped []string
+	for range 3 {
+		cur, err := c.Routes(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		fresh, err := c.Routes(ctx, deviceID)
+		if err != nil {
+			return err
+		}
+		if dropped = missingRoutes(fresh.Enabled, cur.Enabled); len(dropped) > 0 {
+			continue
+		}
+		got, err := c.EnableRoutes(ctx, deviceID, cur, defaultRoutes)
+		if err != nil {
+			return err
+		}
+		if dropped = missingRoutes(append(slices.Clone(cur.Enabled), defaultRoutes...), got); len(dropped) == 0 {
+			return nil
+		}
 	}
-	_, err = c.EnableRoutes(ctx, deviceID, cur, defaultRoutes)
-	return err
+	return fmt.Errorf("approve exit node %s: routes %v kept changing or were dropped; re-run", deviceID, dropped)
+}
+
+// missingRoutes returns the routes in want that are absent from have.
+func missingRoutes(want, have []string) []string {
+	var out []string
+	for _, r := range want {
+		if !slices.Contains(have, r) && !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // forceRefreshKey makes oauthToken re-mint despite a fresh cache (once after a 401: clocks may disagree).
