@@ -220,6 +220,7 @@ var writers = map[string]string{
 	"internal/router/served.go:SaveServed":                     "served-models",
 	"internal/catalog/check.go:SaveCheckCache":                 "opencode-models-check",
 	"internal/providers/tokenexpiry.go:recordTokenExpiry":      "token-expiry",
+	"internal/gateway/sessions.go:ResolveProxyToken":           unversioned("runtime: scoped proxy token cache per claude pid, pruned when the pid dies"),
 	"internal/gateway/daemon.go:WriteState":                    "router-runtime",
 	"internal/gateway/server/sessions.go:saveLocked":           "router-sessions",
 	"internal/review/diff/pranalyzer.go:writeOutput":           unversioned("foreign: -o output"),

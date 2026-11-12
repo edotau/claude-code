@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -695,22 +697,34 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 }
 
-// resolve --proxy prints an armed launch's session token when the env carries one, else the router secret.
-func TestResolveProxyPrintsArmSessionToken(t *testing.T) {
+// resolve --proxy prints an armed launch's token, else a scoped one minted for the parent pid; it never prints the secret.
+func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	cliScratch(t)
 	secret, err := gateway.ClientSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
+	orig := resolveProxyToken
+	t.Cleanup(func() { resolveProxyToken = orig })
+	var gotPID int
+	resolveProxyToken = func(_ context.Context, scope []string, pid int) (string, error) {
+		gotPID = pid
+		return "cct_SCOPED", nil
+	}
 	t.Setenv(claude.ProxyKeyEnv, "")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
-	if code != 0 || strings.TrimSpace(out) != secret {
-		t.Errorf("unarmed: exit %d, printed the router secret = %v", code, strings.TrimSpace(out) == secret)
+	if got := strings.TrimSpace(out); code != 0 || got != "cct_SCOPED" || got == secret || gotPID != os.Getppid() {
+		t.Errorf("unarmed: exit %d, minted token printed = %v, ppid bound = %v", code, got == "cct_SCOPED", gotPID == os.Getppid())
+	}
+	resolveProxyToken = func(context.Context, []string, int) (string, error) { return "", errors.New("daemon down") }
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	if code == 0 || strings.Contains(out, secret) || strings.TrimSpace(out) != "" {
+		t.Errorf("mint failure: exit %d, stdout %q; want non-zero and empty", code, out)
 	}
 	const tok = "cct_ARM_TEST"
 	t.Setenv(claude.ProxyKeyEnv, tok)
 	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
 	if got := strings.TrimSpace(out); code != 0 || got != tok {
-		t.Errorf("armed: exit %d, printed the token = %v, the router secret = %v (len %d)", code, got == tok, got == secret, len(got))
+		t.Errorf("armed: exit %d, printed the token = %v", code, got == tok)
 	}
 }

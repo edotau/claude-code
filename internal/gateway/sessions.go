@@ -8,9 +8,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 type SessionRequest struct {
@@ -161,4 +166,58 @@ func mintWithState(ctx context.Context, st State, profile string) (string, error
 		return "", err
 	}
 	return out.Token, nil
+}
+
+// proxyTokenMaxAge re-mints inside the router's 12h idle lifetime, as agent.SessionToken does.
+const proxyTokenMaxAge = time.Hour
+
+// mintScoped is the mint seam of ResolveProxyToken.
+var mintScoped = MintScopedToken
+
+type proxyTokenRecord struct {
+	Token    string    `json:"token"`
+	Scope    []string  `json:"scope"`
+	MintedAt time.Time `json:"minted_at"`
+}
+
+func proxyTokenDir() string { return filepath.Join(paths.StateDir(), "proxy-tokens") }
+
+// ResolveProxyToken returns pid's scoped session token: cached (0600) while fresh and same-scope, else minted; never the secret.
+func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
+	dir := proxyTokenDir()
+	pruneProxyTokens(dir)
+	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
+	if b, err := os.ReadFile(file); err == nil {
+		var rec proxyTokenRecord
+		if json.Unmarshal(b, &rec) == nil && rec.Token != "" && slices.Equal(rec.Scope, scope) &&
+			time.Since(rec.MintedAt) < proxyTokenMaxAge {
+			return rec.Token, nil
+		}
+	}
+	tok, err := mintScoped(ctx, scope, pid)
+	if err != nil {
+		return "", fmt.Errorf("mint scoped token for profiles %s: %w", strings.Join(scope, ","), err)
+	}
+	b, err := json.Marshal(proxyTokenRecord{Token: tok, Scope: scope, MintedAt: time.Now()})
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := paths.AtomicWrite(file, b, 0o600); err != nil {
+		return "", fmt.Errorf("cache scoped token: %w", err)
+	}
+	return tok, nil
+}
+
+// pruneProxyTokens removes cache files whose pid is gone; best effort, a stray file is harmless.
+func pruneProxyTokens(dir string) {
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		pid, err := strconv.Atoi(strings.TrimSuffix(e.Name(), ".json"))
+		if err != nil || !alive(pid) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
