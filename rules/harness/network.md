@@ -11,7 +11,7 @@ paths:
 | Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
 | Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Run any harness verb on a tailnet host | `claude-code --remote <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port so the sign-in happens in your local browser, or `--remote-browser` opens the host's (`rules/harness/providers.md` → Headless login) |
-| Run an ask on the other machine, on the least busy Databricks workspace | `claude-code agents ask --agent <a> --remote auto --route databricks:auto --tools "<task>"` (what `/coworker` sends: `rules/workflows/agents.md` → Slash commands) |
+| Run an ask here on the least busy Databricks workspace, requests through the other machine | `claude-code --host auto agents ask --agent <a> --route databricks:auto --tools "<task>"` (what `/coworker` sends: `rules/workflows/agents.md` → Slash commands); `--remote auto` instead runs the whole ask on that machine |
 | Send Databricks requests out through a host | `claude-code --host <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `network restart` stops the tunnels |
 
 `--host` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST` for the verb and its children.

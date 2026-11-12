@@ -274,6 +274,9 @@ func runVia(argv []string) int {
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
+	if host, err = remote.ResolveAuto(host); err != nil { // `--host auto`: the other machine, as `--remote auto`
+		return helptext.Fail("%s: %v", egressFlag, err)
+	}
 	if err := egress.Valid(host); err != nil {
 		return helptext.FailUsage("%s: %v", egressFlag, err)
 	}

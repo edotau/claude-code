@@ -24,7 +24,7 @@ paths:
 | Command | Does |
 | --- | --- |
 | `/codex` · `/copilot` · `/gemini` · `/opencode` `[--remote <host>] [--profile <p>] [--model <m>] <task>` | Sends the task to that agent type on this machine, on its own pin: ONE Agent tool call (`subagent_type` = the name, description `<label>: <task>`, label from `claude-code agents label <type>`) whose brief opens with `Run: claude-code agents ask --agent <type> [flags] --tools`. No `/claude`: the name could collide |
-| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [same flags] <task>` | The same dispatch with one difference: the work runs on the other machine and on the Databricks arm, so the leaf's call is `agents ask --agent <type> --remote auto --route databricks:auto --tools`. `--remote <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
+| `/coworker --agent <codex\|copilot\|gemini\|opencode\|claude> [same flags] <task>` | The same dispatch with one difference: the agent still runs here, but on the Databricks arm with its Databricks requests sent through the other machine, so the leaf's call is `claude-code --host auto agents ask --agent <type> --route databricks:auto --tools`. `--host <host>` and `--profile <p>` replace the `auto` values. Not a new agent or type |
 
 All five are owner-only (`disable-model-invocation: true`); the model dispatches with the Agent tool itself. A brief
 that opens with `Run: claude-code agents ask …` and has no `Profile:`/`Route:` line passes `dispatch-effort` with its
