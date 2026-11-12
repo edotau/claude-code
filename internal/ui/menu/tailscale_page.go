@@ -17,6 +17,7 @@ var (
 	tsLogin    = tailscale.Login
 	tsMint     = tailscale.MintKey
 	tsExitNode = tailscale.ExitNode
+	tsValidate = tailscale.ValidateCreds
 )
 
 // tsNetTimeout bounds one admin-API or `tailscale set` action.
@@ -50,7 +51,7 @@ func runTailscalePage(d *dialog) {
 		}
 		admin := map[bool]string{true: "present", false: "absent"}[configure.HasAdminCredential()]
 		return append(rows,
-			act("admin key", "seal the OAuth client id and secret · "+admin, func() { tsAdminKey(d) }),
+			act("admin key", "seal the OAuth client id and secret · "+admin, func() { tsAdminKey(d, s) }),
 			act("auth key", "mint TAILSCALE_AUTHKEY (90d), show once, seal in vault", func() { tsAuthKey(d, s) }),
 			act("exit node", tsExitState(st, err)+" · on, off or approve", func() { tsExitNodeMenu(d, s) }))
 	})
@@ -88,7 +89,7 @@ func tsSignIn(d *dialog) {
 }
 
 // tsAdminKey reads the OAuth client id and secret, refuses a half pair, and seals both in the vault at once.
-func tsAdminKey(d *dialog) {
+func tsAdminKey(d *dialog, s *shell) {
 	var creds []tailscale.Cred
 	for _, name := range tailscale.SetNames(false) {
 		v, err := secretLine(d, "Paste "+name+" (input hidden): ")
@@ -102,6 +103,17 @@ func tsAdminKey(d *dialog) {
 		d.printf("admin key: %v; nothing changed\n", err)
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), tsNetTimeout)
+	defer cancel()
+	if err := tsValidate(ctx, creds[0].Value, creds[1].Value); err != nil {
+		d.printf("admin key: Tailscale rejected it (%v); nothing changed\n", err)
+		return
+	}
+	for _, c := range creds {
+		if !tsReplaceOK(d, s, c.Name, c.Value) {
+			return
+		}
+	}
 	if err := tailscale.StoreCreds(creds); err != nil {
 		d.printf("admin key: %v; nothing changed\n", err)
 		return
@@ -113,6 +125,9 @@ func tsAdminKey(d *dialog) {
 func tsAuthKey(d *dialog, s *shell) {
 	if !configure.HasAdminCredential() {
 		d.println("auth key: needs an admin credential; set one with the admin key row")
+		return
+	}
+	if !tsReplaceOK(d, s, "TAILSCALE_AUTHKEY", "") {
 		return
 	}
 	o := tailscale.KeyOptions{Expiry: "90d", Reusable: tsYes(s, "reusable?"), Ephemeral: tsYes(s, "ephemeral?"),
@@ -133,6 +148,23 @@ func tsAuthKey(d *dialog, s *shell) {
 }
 
 // tsYes asks a [y/N] question on s: only an answer starting with y is yes.
+// tsReplaceOK asks before overwriting a different stored value of name; "no" (the default) changes nothing.
+func tsReplaceOK(d *dialog, s *shell, name, next string) bool {
+	old, had, err := vault.ReadSecret(name)
+	if err != nil {
+		d.printf("%s: %v; nothing changed\n", name, err)
+		return false
+	}
+	if !had || (next != "" && old == next) {
+		return true
+	}
+	if tsYes(s, "replace the stored "+name+"?") {
+		return true
+	}
+	d.printf("%s kept; nothing changed\n", name)
+	return false
+}
+
 func tsYes(s *shell, question string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.Line(question+" [y/N] "))), "y")
 }

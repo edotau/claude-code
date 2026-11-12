@@ -30,8 +30,9 @@ func tsPage(t *testing.T, input string, admin bool) (*dialog, *bytes.Buffer) {
 		t.Setenv("TAILSCALE_API_KEY", "tskey-api-test")
 	}
 	resetTailscaleStatus(t)
-	sh, l, m, e := tsShell, tsLogin, tsMint, tsExitNode
-	t.Cleanup(func() { tsShell, tsLogin, tsMint, tsExitNode = sh, l, m, e })
+	sh, l, m, e, v := tsShell, tsLogin, tsMint, tsExitNode, tsValidate
+	t.Cleanup(func() { tsShell, tsLogin, tsMint, tsExitNode, tsValidate = sh, l, m, e, v })
+	tsValidate = func(context.Context, string, string) error { t.Error("validate ran"); return nil }
 	var out bytes.Buffer
 	tsShell = func(*dialog) *shell { return &shell{Out: &out, In: bufio.NewReader(strings.NewReader(input))} }
 	tsLogin = func(context.Context, io.Reader, io.Writer, io.Writer) error { t.Error("login ran"); return nil }
