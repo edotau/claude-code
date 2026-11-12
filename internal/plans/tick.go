@@ -307,15 +307,21 @@ func ReadRecordedDest(draftBase string) (string, bool) {
 	return dest, err == nil && dest != ""
 }
 
-// readDestRecord is the destination a record names, "" when it is emptied (retired) or not one absolute .md path.
+// errMalformedDest marks a record that is neither emptied nor one absolute .md path.
+var errMalformedDest = errors.New("malformed .dest record")
+
+// readDestRecord is the destination a record names, "" when it is emptied (retired); errMalformedDest otherwise bad.
 func readDestRecord(draftBase string) (string, error) {
 	data, err := os.ReadFile(DestRecordPath(draftBase))
 	if err != nil {
 		return "", err
 	}
 	dest := strings.TrimSpace(string(data))
-	if !filepath.IsAbs(dest) || !strings.HasSuffix(dest, ".md") || strings.ContainsAny(dest, "\r\n") {
+	if dest == "" {
 		return "", nil
+	}
+	if !filepath.IsAbs(dest) || !strings.HasSuffix(dest, ".md") || strings.ContainsAny(dest, "\r\n") {
+		return "", errMalformedDest
 	}
 	return dest, nil
 }
@@ -334,9 +340,9 @@ func MirrorDests() []string {
 		}
 		dest, err := readDestRecord(base)
 		if err != nil {
-			return allDatedPlans() // an unreadable record hides its mirror, so exclude every plan (fail closed)
+			return allDatedPlans() // an unreadable or malformed record hides its mirror, so exclude every plan (fail closed)
 		}
-		if dest != "" { // an emptied or malformed record names no mirror
+		if dest != "" { // an emptied record is retired
 			out = append(out, dest)
 		}
 	}

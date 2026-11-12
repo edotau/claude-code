@@ -98,7 +98,7 @@ func TestTickRangePropagatesOutputErrors(t *testing.T) {
 	}
 }
 
-// A retired (emptied) or truncated record names no mirror; only a record that cannot be read excludes every plan.
+// An emptied record names no mirror; a truncated or otherwise unreadable one excludes every plan (fail closed).
 func TestMirrorDestsTreatsTruncatedRecordAsAbsent(t *testing.T) {
 	hermetic(t)
 	live := filepath.Join(Home(t.TempDir()), "2026-11-09-live.md")
@@ -116,8 +116,8 @@ func TestMirrorDestsTreatsTruncatedRecordAsAbsent(t *testing.T) {
 		if got, ok := ReadRecordedDest("other"); ok {
 			t.Errorf("%s record %q read back as destination %q", name, body, got)
 		}
-		if got := MirrorDests(); !slices.Equal(got, []string{live}) {
-			t.Errorf("%s record: MirrorDests = %v, want only %v", name, got, live)
+		if got := MirrorDests(); slices.Contains(got, approved) != (name != "emptied") || !slices.Contains(got, live) {
+			t.Errorf("%s record: MirrorDests = %v (only the emptied one leaves approved out)", name, got)
 		}
 	}
 	if err := os.Remove(other); err != nil || os.MkdirAll(DestRecordPath("other"), 0o700) != nil {
