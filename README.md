@@ -180,7 +180,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Variable | Effect |
 | --- | --- |
 | `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
-| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), layered over every agent child; `set` secrets only as `@secret:<NAME>`; endpoint, proxy and TLS names (`*_BASE_URL`, `*_API_BASE`, `*_ENDPOINT`, `HTTP(S)_PROXY`, TLS overrides) refused |
+| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop; nested dispatches inherit just the confinement via `HARNESS_COWORKER`); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
 | `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
 | `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |

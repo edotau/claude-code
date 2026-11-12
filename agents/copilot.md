@@ -18,7 +18,7 @@ safety-scan and permission-gate hooks and the dispatch Deny rules still apply.
 
 TEST repairs existing tests broken by an intentional contract change; new coverage waits for the manager's live
 check. LAST-MILE merges verified branches and commits only when authorized. Both modes run on the Copilot CLI.
-Sonnet/medium with 16 turns allows failure classification and scoped verification without taking over implementation.
+Sonnet/medium with 60 turns allows failure classification and scoped verification without taking over implementation.
 
 ## Invocation
 

@@ -14,7 +14,7 @@ tools: [Read, Grep, Glob, Bash]
 ## Role
 
 Run one read-only research or review task on Gemini through agy and verify its citations. The manager splits
-independent questions across leaves; this wrapper never fans out. Haiku/low with 12 turns fits command relay and
+independent questions across leaves; this wrapper never fans out. Haiku/low with 60 turns fits command relay and
 citation checks; the external model performs the research.
 
 ## Invocation
