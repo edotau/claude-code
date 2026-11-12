@@ -101,7 +101,16 @@ func prDiff(ctx context.Context, cwd string) (string, error) {
 
 // uncommittedDiff is `git diff HEAD` plus the untracked files' block.
 func uncommittedDiff(ctx context.Context, cwd string) (string, error) {
-	out, err := proc.RunGit(ctx, cwd, "diff", "HEAD")
+	args := []string{"diff", "HEAD"}
+	if _, herr := proc.RunGit(ctx, cwd, "rev-parse", "--verify", "--quiet", "HEAD"); herr != nil {
+		// No commits yet: diff the working tree against the empty tree, so edits made after `git add` count too.
+		empty, eerr := proc.RunGit(ctx, cwd, "hash-object", "-t", "tree", os.DevNull)
+		if eerr != nil {
+			return "", eerr
+		}
+		args = []string{"diff", strings.TrimSpace(empty)}
+	}
+	out, err := proc.RunGit(ctx, cwd, args...)
 	if err != nil {
 		return "", err
 	}
@@ -126,6 +135,9 @@ func untrackedBlock(ctx context.Context, cwd string) (string, error) {
 	for rel := range strings.SplitSeq(listing, "\x00") { // -z: names are raw, never C-quoted
 		if rel == "" {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
 		if total >= untrackedTotalCap {
 			skipped++

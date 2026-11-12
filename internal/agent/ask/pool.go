@@ -356,6 +356,9 @@ func checkBatchRun(fs *flag.FlagSet, o batchOpts) error {
 	if o.Jobs < 1 {
 		return fmt.Errorf("--jobs %d: need at least 1", o.Jobs)
 	}
+	if o.FollowInput && o.FollowIdle <= 0 {
+		return fmt.Errorf("--follow-idle %s: need a positive duration", o.FollowIdle)
+	}
 	return nil
 }
 
@@ -367,6 +370,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 		if fw, in, err = newFollower(src, o.FollowIdle); err != nil {
 			return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
 		}
+		defer fw.f.Close() // run closes it too; this covers the paths that never reach run
 	} else if src != "-" {
 		f, err := os.Open(src)
 		if err != nil {

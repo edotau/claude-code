@@ -104,7 +104,7 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 			vals[k] = v
 			continue
 		}
-		if name != k && (InternalSecretName(name) || route(name)) { // a named ref must not alias past the scrub
+		if InternalSecretName(name) || route(name) { // a ref must not alias past the scrub, its own name included
 			missing = append(missing, k)
 			continue
 		}

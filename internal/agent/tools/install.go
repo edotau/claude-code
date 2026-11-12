@@ -36,6 +36,9 @@ var (
 // installCmdTimeout bounds each installer subprocess so a hung prompt or network never blocks the command forever.
 const installCmdTimeout = 10 * time.Minute
 
+// installWaitDelay is how long Wait lingers after the kill for a grandchild holding the output pipe.
+const installWaitDelay = 5 * time.Second
+
 var httpClient = &http.Client{Timeout: 3 * time.Minute}
 
 // goosOverride/goarchOverride pick the codex asset; vars so tests can select another platform.
@@ -99,6 +102,7 @@ func runLogged(ctx context.Context, w io.Writer, env []string, name string, args
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent, Set: env}.Environ(agent.ProbeContext(ctx, "")) // no credential or login
 	cmd.Stdout, cmd.Stderr = w, w
+	cmd.WaitDelay = installWaitDelay
 	return cmd.Run()
 }
 

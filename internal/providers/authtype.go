@@ -547,7 +547,7 @@ func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth
 	}
 	// A carried in-memory token is re-sealed on every mint until the vault takes it.
 	if _, carried := unsealedRefresh.Load(p.Name); carried || (tok.Refresh != "" && tok.Refresh != secret) {
-		if err := sealRotated(p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}); err != nil {
+		if err := sealRotated(ctx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: re-seal rotated refresh token (%s) failed; kept in memory: %v\n", p.Name, name, err)
 		}
 	}
@@ -561,7 +561,7 @@ var unsealedRefresh sync.Map
 var sealRetryDelay = time.Second
 
 // sealRotated retries the re-seal: a lost rotated refresh token forces a browser login once the old one is spent.
-func sealRotated(p *Provider, tok oauth.Token) error {
+func sealRotated(ctx context.Context, p *Provider, tok oauth.Token) error {
 	var err error
 	for i := range 3 {
 		if err = writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err == nil {
@@ -569,7 +569,13 @@ func sealRotated(p *Provider, tok oauth.Token) error {
 			return nil
 		}
 		if i < 2 {
-			time.Sleep(time.Duration(i+1) * sealRetryDelay)
+			select {
+			case <-ctx.Done():
+				err = errors.Join(err, ctx.Err())
+				unsealedRefresh.Store(p.Name, tok.Refresh)
+				return err
+			case <-time.After(time.Duration(i+1) * sealRetryDelay):
+			}
 		}
 	}
 	unsealedRefresh.Store(p.Name, tok.Refresh)

@@ -296,7 +296,7 @@ func globPattern(cwd, pattern string, matches map[string]bool, tracked map[strin
 	for _, h := range hits {
 		rel := relSlash(cwd, h)
 		switch {
-		case isSymlink(h):
+		case isSymlink(h), escapesCwd(cwd, rel, h):
 			skipped = append(skipped, SkippedFile{rel, "symlink"})
 		case !isRegularFile(h):
 		case inRepo && !tracked[rel]:
@@ -306,6 +306,20 @@ func globPattern(cwd, pattern string, matches map[string]bool, tracked map[strin
 		}
 	}
 	return skipped
+}
+
+// escapesCwd reports whether h, resolved through symlinked directories, lands outside cwd; h sits under cwd by rel.
+func escapesCwd(cwd, rel, h string) bool {
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return false // an explicit outside path was asked for by name
+	}
+	realCwd, err1 := filepath.EvalSymlinks(cwd)
+	realHit, err2 := filepath.EvalSymlinks(h)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	back, err := filepath.Rel(realCwd, realHit)
+	return err != nil || back == ".." || strings.HasPrefix(back, "../")
 }
 
 // gitTrackedFiles maps each root's cached and untracked-kept paths to cwd-relative keys; repoRoots marks roots in git.
@@ -519,7 +533,7 @@ func SecretLike(rel string) bool {
 	if strings.Contains(base, ".tfstate.") {
 		return true
 	}
-	return slices.ContainsFunc(parts, func(seg string) bool { return secretDirs[seg] })
+	return slices.ContainsFunc(parts, func(seg string) bool { return secretDirs[strings.ToLower(seg)] })
 }
 
 // isSSHKeyName reports an OpenSSH private key default name (id_rsa, id_ed25519, ...), not its .pub.

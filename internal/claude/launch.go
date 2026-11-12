@@ -331,7 +331,7 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 	return out
 }
 
-// armedHop: a headless launch on the armed workspace uses /p/<p>; interactive stays direct (keeps Remote Control).
+// armedHop: a headless launch on the armed profile uses /p/<p> even when NeedsRouter would leave it direct.
 func armedHop(p *providers.Provider, args []string) bool {
 	arm := router.ArmProfile()
 	return arm != "" && p.Name == arm && agent.IsHeadless(args)

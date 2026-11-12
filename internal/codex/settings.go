@@ -296,7 +296,7 @@ func ApplyCodexSettings(home string) error {
 	if _, err := readCodexSettings(next); err != nil {
 		return err
 	}
-	return withCodexLock(path, func() error { // write and baseline under one lock so they cannot interleave
+	return WithConfigLock(path, func() error { // write and baseline under one lock so they cannot interleave
 		if err := writeCodexConfigLocked(path, old, []byte(next), existed); err != nil {
 			return err
 		}
@@ -318,8 +318,8 @@ func codexWriteTarget(path string) (string, error) {
 	return path, nil
 }
 
-// withCodexLock locks the canonical config file so every symlink to it shares one lock.
-func withCodexLock(path string, fn func() error) error {
+// WithConfigLock locks the canonical config file so every symlink to it shares one lock.
+func WithConfigLock(path string, fn func() error) error {
 	canon, err := codexWriteTarget(path)
 	if errors.Is(err, os.ErrNotExist) {
 		canon, err = path, nil // dangling link: lock the link path itself
@@ -336,10 +336,10 @@ func withCodexLock(path string, fn func() error) error {
 }
 
 func writeCodexConfig(path string, old, next []byte, existed bool) error {
-	return withCodexLock(path, func() error { return writeCodexConfigLocked(path, old, next, existed) })
+	return WithConfigLock(path, func() error { return writeCodexConfigLocked(path, old, next, existed) })
 }
 
-// writeCodexConfigLocked is writeCodexConfig for a caller already inside withCodexLock.
+// writeCodexConfigLocked is writeCodexConfig for a caller already inside WithConfigLock.
 func writeCodexConfigLocked(path string, old, next []byte, existed bool) error {
 	target, err := codexWriteTarget(path)
 	if err != nil {
@@ -381,7 +381,7 @@ func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {
 	if dryRun {
 		return restoreCodexConfigLocked(path, true, out)
 	}
-	return withCodexLock(path, func() error { return restoreCodexConfigLocked(path, false, out) })
+	return WithConfigLock(path, func() error { return restoreCodexConfigLocked(path, false, out) })
 }
 
 func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {

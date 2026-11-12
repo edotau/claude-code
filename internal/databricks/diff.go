@@ -87,12 +87,13 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string
 	oo, nn := map[string]any{}, map[string]any{}
 	maps.Copy(oo, om)
 	maps.Copy(nn, nm)
+	masked := func(k string) bool { return secret || credLeaf(k) || strings.EqualFold(k, "headers") }
 	for k := range oo {
 		ov, nv := oo[k], any(nil)
 		if v, ok := nn[k]; ok {
 			nv = v
 		}
-		ov, nv = maskPair(ov, nv, secret || strings.EqualFold(k, "headers"), k)
+		ov, nv = maskPair(ov, nv, masked(k), k)
 		oo[k] = ov
 		if _, ok := nn[k]; ok {
 			nn[k] = nv
@@ -102,7 +103,7 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string
 		if _, ok := oo[k]; ok {
 			continue
 		}
-		_, nv := maskPair(nil, nn[k], secret || strings.EqualFold(k, "headers"), k)
+		_, nv := maskPair(nil, nn[k], masked(k), k)
 		nn[k] = nv
 	}
 	if !ook {

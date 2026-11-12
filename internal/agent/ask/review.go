@@ -98,7 +98,8 @@ func runSplitReview(name string, args []string, parts []part, o ReviewOptions, p
 		askArgs, cleanup, err := reviewArgs(name, p.Diff, o.Adversarial, false,
 			strings.TrimSpace(o.Focus+"\n"+p.Header(i+1, len(parts))), o.Rubric, o.Model)
 		if err != nil {
-			return finishSplitReview(parent, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err))
+			werr := printMerged(o.Adversarial, parts, answers)
+			return finishSplitReview(parent, errors.Join(fmt.Errorf("part %d/%d: %w", i+1, len(parts), err), werr))
 		}
 		ans, rc := captureAnswer(func() int { return Cmd(askArgs) })
 		cleanup()
@@ -138,7 +139,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return helptext.Fail("%s review: job record not saved: %v", name, err)
 	}
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
-		return a == "--background" || a == "-background" || a == "--background=true"
+		return isBackgroundFlag(a)
 	})...)
 	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return helptext.Fail("%s review: %v", name, failSpawn(&rec, err))
@@ -150,6 +151,12 @@ func spawnSplitReview(name string, args []string, n int) int {
 		return helptext.Fail("%s review: job %s started; write job id: %v", name, rec.ID, err)
 	}
 	return 0
+}
+
+// isBackgroundFlag matches --background and -background, bare or with =value.
+func isBackgroundFlag(a string) bool {
+	name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+	return strings.HasPrefix(a, "-") && name == "background"
 }
 
 // finishSplitReview closes the parent job record (when any) with err's text and returns the exit code.
@@ -176,10 +183,11 @@ func captureAnswer(f func() int) (string, int) {
 	defer r.Close()
 	orig := os.Stdout
 	os.Stdout = w
-	done := make(chan string)
+	done := make(chan string, 1) // buffered: after a panic in f nobody receives, and the reader must still exit
 	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
+	restore := func() { os.Stdout = orig; _ = w.Close() }
+	defer restore() // a panic in f must not leave stdout on the pipe
 	rc := f()
-	os.Stdout = orig
-	_ = w.Close()
+	restore()
 	return <-done, rc
 }

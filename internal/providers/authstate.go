@@ -138,10 +138,10 @@ func profileSecretSource(p *Provider, st *ProviderStatus) string {
 
 // fallbackSource names the auth.file or command source when the vault has none, else "none".
 func fallbackSource(p *Provider) string {
-	switch {
-	case fileCredential(p) != "":
+	if v, _ := fileCredential(p); v != "" {
 		return "auth.file"
-	case p.Auth.Command != "":
+	}
+	if p.Auth.Command != "" {
 		return "command"
 	}
 	return "none"

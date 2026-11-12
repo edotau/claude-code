@@ -298,8 +298,8 @@ func domainMatches(domain, target string) bool {
 	if u, err := url.Parse(target); err == nil && u.Hostname() != "" {
 		host = u.Hostname()
 	}
-	host = strings.ToLower(host)
-	domain = strings.ToLower(domain)
+	host = strings.TrimSuffix(strings.ToLower(host), ".") // an FQDN's trailing dot names the same host
+	domain = strings.TrimSuffix(strings.ToLower(domain), ".")
 	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
