@@ -236,10 +236,7 @@ func runGithubAuthFlag(d *dialog) bool {
 	return applyGitHubAccount(d, name)
 }
 
-// runGithub is the `configure github` / `configure` "github" section: opencode's GitHub Copilot
-// fallback ladder (not the copilot agent's own model, pinned on its own page via COPILOT_MODEL) —
-// gh/copilot/opencode login state, the opencode and copilot routes, and — on a terminal — a menu to
-// fix any of it or pick the github-copilot provider's opus/sonnet/haiku aliases.
+// runGithub is the github section: opencode's Copilot fallback ladder (login state, routes; on a terminal a fix menu).
 func runGithub(d *dialog) bool {
 	if d.o.AuthSet {
 		return runGithubAuthFlag(d)
@@ -285,11 +282,7 @@ func opencodeSignedIn() (bool, string) {
 	return opencode.OpencodeCopilotLoginPresent(), "GitHub Copilot login stored"
 }
 
-// pickCopilotModels lists the live copilot catalog (plus the synthetic "auto" router alias), asks for an
-// id per opus/sonnet/haiku alias — the github-copilot provider's table opencode's fallback ladder reads,
-// not the copilot agent's own model (COPILOT_MODEL, picked on the copilot agent page) — and, only if a
-// alias resolved to "auto", a concrete opencode_fallback (opencode's own catalog has no "auto"), then
-// writes the github-copilot overlay.
+// pickCopilotModels picks a catalog id per alias ("auto" also needs an opencode_fallback) and writes the overlay.
 func pickCopilotModels(d *dialog) {
 	list, err := copilotCatalog(d)
 	if err != nil {

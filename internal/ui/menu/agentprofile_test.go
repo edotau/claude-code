@@ -115,9 +115,7 @@ func seedIdx(agent string) int {
 
 func TestSeedDismissWritesNothing(t *testing.T) {
 	d, _ := seedDialog(t, "\n")
-	if runSeed(d) {
-		t.Fatal("dismissed dialog reported a write")
-	}
+	runSeed(d)
 	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			t.Errorf("%s wrote profile %q on dismiss", a, r.Profile)
@@ -126,7 +124,7 @@ func TestSeedDismissWritesNothing(t *testing.T) {
 }
 
 func TestSeedPickWritesProfilesOnly(t *testing.T) {
-	d, out := seedDialog(t, "")
+	d, _ := seedDialog(t, "")
 	// pick order in the picker: the off row (1), then servable profiles
 	copilotProfiles := configure.SeedProfiles(d.reg, "copilot")
 	if len(copilotProfiles) == 0 {
@@ -139,9 +137,7 @@ func TestSeedPickWritesProfilesOnly(t *testing.T) {
 		strconv.Itoa(len(seedAgents()) + 1),
 	}, "\n") + "\n"
 	d.br = bufio.NewReader(strings.NewReader(script))
-	if !runSeed(d) {
-		t.Fatalf("save reported no write:\n%s", out)
-	}
+	runSeed(d)
 	recs := vault.AgentRecords(agentpkg.RosterNames())
 	if recs["copilot"].Profile != want || recs["codex"].Profile != "" {
 		t.Errorf("records = copilot %q codex %q, want %q and off", recs["copilot"].Profile, recs["codex"].Profile, want)

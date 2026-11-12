@@ -381,10 +381,9 @@ func codexLogin(d *dialog, ensureKey func() bool) bool {
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
 func codexUseKey(d *dialog) bool {
-	key, ok := "", false
-	if staged, isStaged := d.pending["OPENAI_API_KEY"]; isStaged { // pasted on this page, not yet in the vault
-		key, ok = staged.val, true
-	} else {
+	staged, ok := d.pending["OPENAI_API_KEY"] // pasted on this page, not yet in the vault
+	key := staged.val
+	if !ok {
 		key, _, ok = vault.Get("OPENAI_API_KEY")
 	}
 	if !ok || key == "" {
@@ -471,9 +470,7 @@ func copilotFallback(chain []copilot.RouteStep) string {
 	return strings.Join(rest, " → ")
 }
 
-// copilotEffortChoices: menu label → the --reasoning-effort value copilot's CLI and SDK accept. Fixed
-// fallback for when the SDK catalog is unavailable; a reachable catalog drives the row from the model's
-// own SupportedReasoningEfforts instead (copilotEffortRow).
+// copilotEffortChoices: menu label → --reasoning-effort value; the fallback when the SDK catalog is unavailable.
 var copilotEffortChoices = [][2]string{
 	{"Low", string(agentid.EffortLow)}, {"Medium", string(agentid.EffortMedium)}, {"High", string(agentid.EffortHigh)},
 	{"Extra High", string(agentid.EffortXHigh)}, {"Max", string(agentid.EffortMax)},
@@ -485,9 +482,7 @@ var copilotContextChoices = [][2]string{{"200K", "default"}, {"1M", "long_contex
 // copilotContextBaseline is copilot's default context window (200K); a model above it has a long-context tier.
 const copilotContextBaseline = 200_000
 
-// copilotEffortRow pins COPILOT_REASONING_EFFORT; nil when the model doesn't support reasoning effort at
-// all. Lists only modelID's own SupportedReasoningEfforts when the SDK catalog resolves it, else falls
-// back to the fixed list (today's behavior) since there is nothing to check eligibility against.
+// copilotEffortRow pins COPILOT_REASONING_EFFORT: modelID's own efforts from the SDK catalog, else the fixed list.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := vault.GetAgentRecord("copilot").Effort
 	choices, unset := copilotEffortChoices, "unset"
@@ -515,9 +510,7 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	return &r
 }
 
-// copilotContextEligible: the SDK catalog's MaxContextWindowTokens when it resolves (a model above
-// copilot's 200K default has a long-context tier to toggle), else the claude-* prefix heuristic — the
-// copilot CLI/SDK expose no other machine-readable "takes --context" flag.
+// copilotContextEligible: catalog context above 200K when it resolves, else the claude-* prefix (no other flag says).
 func copilotContextEligible(d *dialog, modelID string) bool {
 	if m, ok := copilotCatalogModel(d, modelID); ok {
 		return m.ContextTokens > copilotContextBaseline

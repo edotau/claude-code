@@ -153,8 +153,8 @@ func seedDefaults(d *dialog) map[string]string {
 }
 
 // runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
-func runSeed(d *dialog) bool {
-	choice, agents, saved := seedDefaults(d), seedAgents(), false
+func runSeed(d *dialog) {
+	choice, agents := seedDefaults(d), seedAgents()
 	d.shell().Run("Seed agent profiles", func() []shellRow {
 		rows := make([]shellRow, 0, len(agents)+1)
 		for _, a := range agents {
@@ -166,11 +166,10 @@ func runSeed(d *dialog) bool {
 			}})
 		}
 		return append(rows, shellRow{Name: "Save", Detail: "write these choices", Run: func() bool {
-			saved = saveSeed(d, choice)
+			saveSeed(d, choice)
 			return true
 		}})
 	})
-	return saved
 }
 
 // saveSeed stores choice's profiles in one update, leaving every other record field as it was.
