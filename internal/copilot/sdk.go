@@ -3,7 +3,6 @@
 package copilot
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -440,11 +439,15 @@ func tokenCount(p *int64) int {
 	return int(*p)
 }
 
-// snapshot returns the text (else the task_complete summary), last model and summed usage seen so far.
+// snapshot returns the text plus any task_complete summary it lacks, the last model and the summed usage.
 func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return cmp.Or(strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)), c.model, c.usage
+	text, summary := strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)
+	if summary != "" && !strings.Contains(text, summary) { // the answer may sit only in task_complete, after a preamble
+		text = strings.TrimSpace(text + "\n\n" + summary)
+	}
+	return text, c.model, c.usage
 }
 
 // sendPrompt sends the prompt (fleet mode when asked) and waits for the turn to finish.
