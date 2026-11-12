@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -86,7 +87,7 @@ func armRegistry(t *testing.T, devExtra string) {
 		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN", devExtra)+`,`+row("qa", "QA_TOKEN", "")+`}}}`)
 	t.Setenv("DEV_TOKEN", "dapi-dev")
 	t.Setenv("QA_TOKEN", "dapi-qa")
-	t.Setenv(router.EnvCoworker, "databricks:dev")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 }
 
 // Inside databricks:dev a hop runs only on dev or the agent's own login, isolated; anything else is fatal up front.
@@ -107,7 +108,7 @@ func TestArmGuard(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			armRegistry(t, c.devExtra)
 			if c.unarmed {
-				t.Setenv(router.EnvCoworker, "")
+				t.Setenv(agentconfig.OverlayVar, "")
 			}
 			armGuardCase(t, c.prof, c.fatal, c.creds)
 		})

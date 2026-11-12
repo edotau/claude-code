@@ -124,8 +124,8 @@ var (
 
 // DispatchOverlay is a dispatch's overlay value: flag, else $COWORKER_OVERLAY, else the vault env's (top-level only).
 func DispatchOverlay(flag string) string {
-	if v := cmp.Or(flag, os.Getenv(OverlayVar)); v != "" || os.Getenv(router.EnvCoworker) != "" {
-		return v // a nested dispatch keeps only its inherited confinement
+	if v := cmp.Or(flag, os.Getenv(OverlayVar)); v != "" {
+		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
 	}
 	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
 }

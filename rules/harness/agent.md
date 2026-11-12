@@ -52,8 +52,8 @@ paths:
   an unknown key or bad value exits 2. Typed flags win, except a typed `--profile`/`--provider`/`--model <p>:<alias>`
   outside the overlay's provider/profile is refused (exit 2). Precedence: typed flag > `--overlay`, else
   `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent pin > table
-  default. Nested dispatches inherit only the confinement (`provider:profile`, the internal `HARNESS_CONFINE`; the vault
-  does not store it, a standing default is the vault env `COWORKER_OVERLAY`); the document itself is one hop, and
+  default. Nested dispatches inherit only the confinement (`COWORKER_OVERLAY` cut to `provider`/`profile`; a standing
+  default is the vault env `COWORKER_OVERLAY`); the rest of the document is one hop, and
   `--job`/`--background`/`--batch` relaunches carry it. `--host` carries the confinement (`provider`/`profile`) to the
   far machine and refuses a non-empty `set`/`unset`/`keep`; `--live` refuses the env layer too. `--retry` replays the
   recorded workspace unless the overlay names a provider. Interactive launches read it for `set`/`unset`/`keep` and

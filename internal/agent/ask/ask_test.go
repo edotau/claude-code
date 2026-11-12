@@ -1249,7 +1249,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
 	}
 	for _, tc := range cases {
-		t.Setenv(router.EnvCoworker, tc.inherited) // ApplyCoworker exports into this process: restore after each case
+		confine(t, tc.inherited) // ApplyCoworker exports into this process: restore after each case
 		t.Setenv(providers.EnvSessionProfile, "")
 		args := append([]string{"--agent", "codex", "--fallback", "none"}, append(tc.args, "go")...)
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
@@ -1307,8 +1307,7 @@ func armChildEnvFixture(t *testing.T) string {
 	}
 	t.Setenv("GH_TOKEN", "SENTINEL-gh")
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	t.Setenv(router.EnvCoworker, "")     // ApplyCoworker exports into this process: restore after the run
-	t.Setenv(agentconfig.OverlayVar, "") // so does a passed run's inline --overlay (carryOverlay)
+	t.Setenv(agentconfig.OverlayVar, "") // ApplyCoworker and carryOverlay export into this process: restore after the run
 	armCopilotLogin(t)
 	orig := agent.MintSession
 	agent.MintSession = func(_ context.Context, p string, _ int) (string, error) { return "cct_ARM_" + p, nil }
@@ -1369,6 +1368,9 @@ func envValue(dump []string, name string) (string, bool) {
 	return "", false
 }
 
+// armDevDoc is the one-hop $COWORKER_OVERLAY a databricks:dev hop's child inherits: the confinement alone.
+const armDevDoc = `{"provider":"databricks","profile":"dev"}`
+
 // assertArmDevHop: the child is on dev's route, its key the dev session token, inside the coworker, leaking nothing.
 func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	t.Helper()
@@ -1383,8 +1385,8 @@ func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	if v, _ := envValue(dump, h.key); h.key != "" && v != "cct_ARM_dev" {
 		t.Errorf("%s dev hop: %s is not the dev session token", name, h.key)
 	}
-	if v, _ := envValue(dump, router.EnvCoworker); v != "databricks:dev" {
-		t.Errorf("%s dev hop: %s is not databricks:dev", name, router.EnvCoworker)
+	if v, _ := envValue(dump, agentconfig.OverlayVar); v != armDevDoc {
+		t.Errorf("%s dev hop: %s is not %s", name, agentconfig.OverlayVar, armDevDoc)
 	}
 	assertArmNoLeak(t, name, dump)
 }
@@ -1400,8 +1402,8 @@ func assertArmCopilotRegistryHop(t *testing.T, dump []string) {
 			t.Errorf("copilot dev hop: registry child inherited the BYOK block %s", strings.SplitN(kv, "=", 2)[0])
 		}
 	}
-	if v, _ := envValue(dump, router.EnvCoworker); v != "databricks:dev" {
-		t.Errorf("copilot dev hop: %s is not databricks:dev", router.EnvCoworker)
+	if v, _ := envValue(dump, agentconfig.OverlayVar); v != armDevDoc {
+		t.Errorf("copilot dev hop: %s is not %s", agentconfig.OverlayVar, armDevDoc)
 	}
 	assertArmNoLeak(t, "copilot", dump)
 }
@@ -1506,7 +1508,6 @@ func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
 		if err := os.Remove(router.StatePath()); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv(router.EnvCoworker, "")
 		t.Setenv(providers.EnvSessionProfile, "qa")
 		t.Setenv(agentconfig.OverlayVar, "")
 	}
@@ -1531,7 +1532,7 @@ func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks:dev"},
 		{"codex", `{"provider":"openai"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
 	} {
-		t.Setenv(router.EnvCoworker, "")
+		t.Setenv(agentconfig.OverlayVar, "")
 		t.Setenv(providers.EnvSessionProfile, "qa")
 		code, _, stderr := runCLI(t, "ask", "--agent", c.agent, "--native", "--overlay", c.overlay, "go")
 		if code != 2 || !strings.Contains(stderr, c.want) {

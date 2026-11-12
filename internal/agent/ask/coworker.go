@@ -23,18 +23,16 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// ApplyCoworker exports confinement (Overlay.Confinement) as router.EnvCoworker, databricks:<p> also as CLAUDE_PROFILE.
+// ApplyCoworker exports confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
 func ApplyCoworker(value, profile, agentName, model, fallback string) error {
-	inherited := strings.TrimSpace(os.Getenv(router.EnvCoworker))
-	ip, iprof, err := router.ParseCoworker(inherited)
+	ip, iprof, err := router.Coworker()
 	if err != nil {
-		return fmt.Errorf("%s: %w", router.EnvCoworker, err)
+		return err
 	}
-	value, src := coworkerSource(value, inherited, ip, iprof)
 	provider, p, err := router.ParseCoworker(value)
 	switch {
 	case err != nil:
-		return fmt.Errorf("%s%w", src, err)
+		return err
 	case provider == "":
 		return applyInherited(ip, iprof, agentName)
 	}
@@ -44,10 +42,7 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 	if provider != router.RouteDatabricks {
 		return applyProvider(provider, cmp.Or(p, iprof), agentName)
 	}
-	if err := applyArm(p, profile, agentName, model, fallback); err != nil {
-		return armErr(src, err)
-	}
-	return nil
+	return applyArm(p, profile, agentName, model, fallback)
 }
 
 // applyInherited re-checks an inherited non-Databricks confinement for agentName; a workspace was applied where set.
@@ -58,27 +53,9 @@ func applyInherited(ip, iprof, agentName string) error {
 	return applyProvider(ip, iprof, agentName)
 }
 
-var errNoWorkspace = errors.New("overlay provider databricks needs a profile: a workspace or auto")
-
-// armErr prefixes applyArm's error with its source; an env or vault value has no overlay to blame.
-func armErr(src string, err error) error {
-	if src != "" && errors.Is(err, errNoWorkspace) {
-		return fmt.Errorf("%sdatabricks needs a workspace: databricks:<profile> or databricks:auto", src)
-	}
-	return fmt.Errorf("%s%w", src, err)
-}
-
-// coworkerSource is the value ApplyCoworker applies and its error prefix: overlay > bare inherited databricks > vault.
-func coworkerSource(value, inherited, ip, iprof string) (string, string) {
-	switch {
-	case value != "":
-		return value, ""
-	case inherited == "":
-		return providers.CustomEnv()[router.EnvCoworker], "vault env " + router.EnvCoworker + ": "
-	case ip == router.RouteDatabricks && iprof == "": // bare: arms a workspace as the vault value does
-		return inherited, router.EnvCoworker + ": "
-	}
-	return "", ""
+// exportConfinement sets $COWORKER_OVERLAY to provider[:p] alone: the router and nested dispatches read it there.
+func exportConfinement(provider, p string) error {
+	return os.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, p))
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -103,7 +80,7 @@ func applyProvider(provider, p, agentName string) error {
 	if err := canUse(reg, agentName, provider); err != nil {
 		return err
 	}
-	return os.Setenv(router.EnvCoworker, router.JoinCoworker(provider, p))
+	return exportConfinement(provider, p)
 }
 
 // canUse refuses a table agent with no account on provider; another agent name (a batch's "") passes.
@@ -164,7 +141,7 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 	if err := checkArmRow(p, explicit, fallback); err != nil {
 		return err
 	}
-	if err := os.Setenv(router.EnvCoworker, router.JoinCoworker(router.RouteDatabricks, p)); err != nil {
+	if err := exportConfinement(router.RouteDatabricks, p); err != nil {
 		return err
 	}
 	return os.Setenv(providers.EnvSessionProfile, p)
@@ -174,10 +151,10 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 func armWorkspace(p, profile, agentName, model string) (string, bool, error) {
 	if p == "" {
 		if p = bareArm(profile); p == "" {
-			return "", false, errNoWorkspace
+			return "", false, errors.New("overlay provider databricks needs a profile: a workspace or auto")
 		}
 	}
-	if p != autoArm {
+	if p != router.AutoArm {
 		return p, true, nil
 	}
 	p, err := autoWorkspace(agentName, model)
@@ -210,9 +187,6 @@ func workspaceRefusal(name string) error {
 	}
 	return nil
 }
-
-// autoArm is the databricks:auto workspace: the one passing the preflight with the fewest live dispatches (pickArm).
-const autoArm = "auto"
 
 // autoWorkspace resolves databricks:auto: the inherited confinement's workspace inside one, else pickArm's.
 func autoWorkspace(agentName, model string) (string, error) {
@@ -399,7 +373,7 @@ func checkNative(native bool) error {
 	}
 	switch p, prof, err := router.Coworker(); {
 	case err != nil:
-		return fmt.Errorf("%s: %w", router.EnvCoworker, err)
+		return err
 	case p != "":
 		return fmt.Errorf("--native: outside overlay %s", router.JoinCoworker(p, prof))
 	}
@@ -472,7 +446,7 @@ func overlayEgress(h string) error {
 	return os.Setenv(egress.EnvHost, h)
 }
 
-// carryOverlay re-exports the loaded document for --job relaunches as JSON, its remote already resolved (never auto).
+// carryOverlay re-exports the loaded document for --job relaunches as JSON, its remote and confinement resolved.
 func carryOverlay(ov agentconfig.Overlay) error {
 	if !ov.Routed() && ov.Empty() {
 		return nil
@@ -480,6 +454,8 @@ func carryOverlay(ov agentconfig.Overlay) error {
 	if ov.Remote != "" {
 		ov.Remote = egress.Host()
 	}
+	// resolved (never auto): the relaunch inherits it as its confinement
+	ov.Provider, ov.Profile, _ = router.Coworker()
 	doc, err := json.Marshal(ov) // set holds names and @secret refs: validation refused credential values
 	if err != nil {
 		return err

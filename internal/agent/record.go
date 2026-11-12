@@ -97,8 +97,9 @@ const dispatchPruneMargin = 20
 func NewRecord(name string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
+	provider, profile, _ := router.Coworker()
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Widened: widened, Route: os.Getenv(router.EnvCoworker)}
+		Widened: widened, Route: router.JoinCoworker(provider, profile)}
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.

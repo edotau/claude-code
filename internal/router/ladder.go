@@ -2,6 +2,8 @@ package router
 
 import (
 	"cmp"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -11,13 +13,16 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// EnvCoworker confines every dispatch in the session to <provider>[:<profile>] (vault env or overlay provider).
-const EnvCoworker = "HARNESS_COWORKER"
+// overlayEnv is agentconfig.OverlayVar (no import: agentconfig imports router); the router reads provider and profile.
+const overlayEnv = "COWORKER_OVERLAY"
 
 // RouteDatabricks is the provider whose confinement arms one workspace (ArmProfile); any other only filters accounts.
 const RouteDatabricks = "databricks"
 
-// ParseCoworker splits a HARNESS_COWORKER value into its provider key and optional profile; "" is no confinement.
+// AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
+const AutoArm = "auto"
+
+// ParseCoworker splits a provider[:profile] value into its provider key and optional profile; "" is no confinement.
 func ParseCoworker(v string) (provider, profile string, err error) {
 	v = strings.TrimSpace(v)
 	provider, profile, named := strings.Cut(v, ":")
@@ -40,10 +45,25 @@ func JoinCoworker(provider, profile string) string {
 	return provider + ":" + profile
 }
 
-// Coworker is this process's HARNESS_COWORKER confinement, parsed (ParseCoworker).
-func Coworker() (provider, profile string, err error) { return ParseCoworker(os.Getenv(EnvCoworker)) }
+// Coworker is the provider and profile an inline $COWORKER_OVERLAY names; a path, - or bare databricks[:auto]: none.
+func Coworker() (provider, profile string, err error) {
+	v := strings.TrimSpace(os.Getenv(overlayEnv))
+	var doc struct{ Provider, Profile string }
+	switch {
+	case !strings.HasPrefix(v, "{"):
+		return "", "", nil
+	case json.Unmarshal([]byte(v), &doc) != nil:
+		return "", "", errors.New(overlayEnv + ": not valid JSON")
+	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
+		return "", "", nil // the ask applying this document resolves the workspace
+	}
+	if provider, profile, err = ParseCoworker(JoinCoworker(doc.Provider, doc.Profile)); err != nil {
+		return "", "", fmt.Errorf("%s: %w", overlayEnv, err)
+	}
+	return provider, profile, nil
+}
 
-// Confined is the non-Databricks confinement HARNESS_COWORKER names: its provider and optional profile; "" outside one.
+// Confined is the non-Databricks confinement Coworker names: its provider and optional profile; "" outside one.
 func Confined() (provider, profile string) {
 	if provider, profile, err := Coworker(); err == nil && provider != RouteDatabricks {
 		return provider, profile
@@ -82,7 +102,7 @@ func ConfineLead(agentName, profile, provider, model string) (string, string) {
 	return "", ""
 }
 
-// ArmProfile is the workspace HARNESS_COWORKER=databricks:<p> confines the pick to; "" when the route is anything else.
+// ArmProfile is the workspace a databricks:<p> confinement confines the pick to; "" when the route is anything else.
 func ArmProfile() string {
 	if mode, profile, err := Coworker(); err == nil && mode == RouteDatabricks {
 		return profile
@@ -98,7 +118,7 @@ func ownLoginAccount(account string) bool {
 	return (strings.HasPrefix(account, "github·") && account != copilotUnpinned) || slices.Contains(providers.OwnLoginAccountKeys, account)
 }
 
-// ladderName is databricks only when HARNESS_COWORKER arms a workspace; any other confinement filters the default ladder.
+// ladderName is databricks only when the confinement arms a workspace; any other one filters the default ladder.
 func ladderName() string {
 	if ArmProfile() != "" {
 		return providers.LadderDatabricks

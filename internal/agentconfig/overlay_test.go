@@ -157,20 +157,19 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 	vaulttest.Use(t)
 	stored := `{"provider":"databricks","profile":"auto"}`
 	vaulttest.Put(t, vault.Env, OverlayVar, stored)
-	for _, tc := range []struct{ name, flag, env, confined, want string }{
-		{"stored alone", "", "", "", stored},
-		{"process env wins", "", `{"provider":"openai"}`, "", `{"provider":"openai"}`},
-		{"flag wins", `{"provider":"github"}`, `{"provider":"openai"}`, "", `{"provider":"github"}`},
-		{"nested ignores stored", "", "", "databricks:qa", ""},
+	qa := `{"provider":"databricks","profile":"qa"}`
+	for _, tc := range []struct{ name, flag, env, want string }{
+		{"stored alone", "", "", stored},
+		{"process env wins", "", `{"provider":"openai"}`, `{"provider":"openai"}`},
+		{"flag wins", `{"provider":"github"}`, `{"provider":"openai"}`, `{"provider":"github"}`},
+		{"nested keeps its inherited confinement, never the stored one", "", qa, qa},
 	} {
 		t.Setenv(OverlayVar, tc.env)
-		t.Setenv("HARNESS_COWORKER", tc.confined)
 		if got := DispatchOverlay(tc.flag); got != tc.want {
 			t.Errorf("%s: DispatchOverlay = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 	t.Setenv(OverlayVar, "")
-	t.Setenv("HARNESS_COWORKER", "")
 	o, err := LoadOverlay(DispatchOverlay(""), strings.NewReader(""))
 	if err != nil || o.Confinement() != "databricks:auto" {
 		t.Errorf("stored overlay loaded as %q (err %v), want confinement databricks:auto", o.Confinement(), err)

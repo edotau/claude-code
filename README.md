@@ -180,7 +180,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | Variable | Effect |
 | --- | --- |
 | `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
-| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop; nested dispatches inherit just the confinement via the internal `HARNESS_CONFINE`); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
+| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop: a nested dispatch inherits it cut to `provider`/`profile`, its confinement); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
 | `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
 | `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
 | `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
@@ -190,7 +190,6 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--host-bin` |
 | `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
-| `HARNESS_CONFINE` | internal, never set by hand: `<provider>[:<profile>]` set per launch from an overlay's provider/profile and inherited by nested dispatches; the vault does not store it (a standing default is the vault env `COWORKER_OVERLAY`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
