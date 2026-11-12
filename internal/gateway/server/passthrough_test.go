@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,73 +18,18 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex" // register the rows whose suffixes are checked
 	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/models"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// rawUp is an upstream that records raw requests (the shared newUpstream insists on a JSON body).
-type rawUp struct {
-	*httptest.Server
-	mu   sync.Mutex
-	reqs []recorded
-}
-
-type recorded struct {
-	method, uri, body string
-	hdr               http.Header
-}
-
-func newRawUp(t *testing.T, h func(w http.ResponseWriter, r *http.Request, n int)) *rawUp {
-	u := &rawUp{}
-	u.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		u.mu.Lock()
-		u.reqs = append(u.reqs, recorded{r.Method, r.RequestURI, string(b), r.Header.Clone()})
-		n := len(u.reqs)
-		u.mu.Unlock()
-		h(w, r, n)
-	}))
-	t.Cleanup(u.Close)
-	return u
-}
-
-func (u *rawUp) got() []recorded {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	return append([]recorded(nil), u.reqs...)
-}
-
-func okRaw(w http.ResponseWriter, _ *http.Request, _ int) {
-	w.Header().Set("Content-Type", "application/json")
-	io.WriteString(w, `{"ok":true}`)
-}
-
 // ptOverlay: "pt" serves openai, responses and gemini; "oa" serves openai only.
 func ptOverlay(up string) string {
 	return `{"default":"pt","providers":{"openai":{"pt":{"protocol":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},` +
 		`"routes":{"responses":"` + up + `/resp","gemini":"` + up + `/gem"},"models":{"opus":"m"}},` +
 		`"oa":{"protocol":"openai","base_url":"` + up + `/v1","auth":{"type":"key","env":"PT_KEY"},"models":{"opus":"m"}}}}}`
-}
-
-func ptDo(t *testing.T, method, url, body string, hdr map[string]string) *http.Response {
-	t.Helper()
-	req := testRequest(t, method, url, strings.NewReader(body))
-	req.Header.Set("X-Api-Key", secret)
-	for k, v := range hdr {
-		if v == "" {
-			req.Header.Del(k)
-		} else {
-			req.Header.Set(k, v)
-		}
-	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { resp.Body.Close() })
-	return resp
 }
 
 func TestPassthroughForwardsVerbatim(t *testing.T) {
@@ -388,19 +332,6 @@ type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
-// lockedBuf is a log sink the handler goroutine writes after the reply is already on the wire.
-type lockedBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (l *lockedBuf) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
-
 // A passthrough 429 logs sanitized diagnostics and relays the upstream body unchanged.
 func TestPassthroughLogsDiagnostics(t *testing.T) {
 	const upBody = `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"slow down"}`
@@ -536,4 +467,269 @@ func checkRouterSuffix(t *testing.T, name, wire, suffix string) bool {
 		t.Errorf("%s/%s: %q -> (%q, %q, %q, %v), want dialect %q", name, wire, path, prov, dialect, rest, ok, wire)
 	}
 	return true
+}
+
+// A condemned refresh on the passthrough path (GET and POST) answers 401 and records the mark.
+func TestPassthroughCondemnedRefreshAnswers401AndMarks(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		t.Run(method, func(t *testing.T) {
+			g := useGate(t)
+			up := newRawUp(t, okRaw)
+			srv := setupRouter(t,
+				fmt.Sprintf(`{"default":"up1","providers":{"databricks":{"up1":{"protocol":"openai","base_url":%q,`+
+					`"auth":{"type":"oauth"},"models":{"opus":"m"}}}}}`, up.URL+"/v1"),
+				nil)
+			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
+			b := body(t, resp)
+			if resp.StatusCode != http.StatusUnauthorized ||
+				!strings.Contains(b, "authentication failed; run `claude-code databricks login --profile up1`") {
+				t.Fatalf("status %d body %s, want 401 authentication failed with login hint", resp.StatusCode, b)
+			}
+			if len(up.got()) != 0 {
+				t.Fatal("upstream reached without a credential")
+			}
+			if _, ok := g.marked("up1"); !ok {
+				t.Fatal("passthrough path did not record the mark")
+			}
+		})
+	}
+}
+
+// Regression: every passthrough dialect refuses a dot-segment tail before building the upstream URL.
+func TestPassthroughRejectsDotSegments(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newRawUp(t, okRaw)
+	t.Setenv("PT_KEY", "prov-cred")
+	srv := setup(t, ptOverlay(up.URL))
+	for _, rest := range []string{"openai/%2e%2e/admin", "gemini/v1beta/%2e%2e/x", "responses/a%252e%252e/b"} {
+		if resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/"+rest, `{}`, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status %d", rest, resp.StatusCode)
+		}
+	}
+	if g := up.got(); len(g) != 0 {
+		t.Fatalf("upstream reached: %v", g[0].uri)
+	}
+}
+
+const geminiChat = `{"model":"databricks-gemini-3-8-flash","stream":true,"stream_options":{"include_usage":true},"messages":[` +
+	`{"role":"user","content":"hi"},` +
+	`{"role":"assistant","tool_calls":[` +
+	`{"id":"a","type":"function","function":{"name":"f","arguments":"{}"}},` +
+	`{"id":"b","type":"function","thoughtSignature":"real-sig","function":{"name":"f","arguments":"{}"}},` +
+	`{"id":"c","type":"function","extra_content":{"google":{"thought_signature":"x"}},"function":{"name":"f","arguments":"{}"}}]},` +
+	`{"role":"tool","tool_call_id":"a","content":"ok"}]}`
+
+func sendChat(t *testing.T, body string, h func(http.ResponseWriter, *http.Request, int)) (*rawUp, *http.Response) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newRawUp(t, h)
+	t.Setenv("PT_KEY", "prov-cred")
+	srv := setup(t, ptOverlay(up.URL))
+	return up, ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", body, nil)
+}
+
+// Passthrough to a Gemini model drops stream_options and signs unsigned assistant tool_calls only.
+func TestPassthroughGeminiChatSanitized(t *testing.T) {
+	up, resp := sendChat(t, geminiChat, okRaw)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	g := up.got()
+	if len(g) != 1 {
+		t.Fatalf("upstream hits %d", len(g))
+	}
+	var sent struct {
+		StreamOptions *json.RawMessage `json:"stream_options"`
+		Messages      []struct {
+			ToolCalls []map[string]json.RawMessage `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(g[0].body), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.StreamOptions != nil || strings.Contains(g[0].body, "stream_options") {
+		t.Errorf("stream_options reached upstream: %s", g[0].body)
+	}
+	calls := sent.Messages[1].ToolCalls
+	if string(calls[0]["thoughtSignature"]) != `"skip_thought_signature_validator"` {
+		t.Errorf("unsigned call = %v, want skip signature", calls[0])
+	}
+	if string(calls[1]["thoughtSignature"]) != `"real-sig"` {
+		t.Errorf("signed call changed: %v", calls[1])
+	}
+	if _, has := calls[2]["thoughtSignature"]; has || calls[2]["extra_content"] == nil {
+		t.Errorf("extra_content call touched: %v", calls[2])
+	}
+}
+
+// A non-Gemini chat body is forwarded byte-identical.
+func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
+	body := strings.Replace(geminiChat, "databricks-gemini-3-8-flash", "databricks-llama", 1)
+	up, resp := sendChat(t, body, okRaw)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if g := up.got(); len(g) != 1 || g[0].body != body {
+		t.Fatalf("upstream body %+v, want unchanged", g)
+	}
+}
+
+// A null tool_calls entry passes through instead of panicking the handler.
+func TestFixGeminiChatNullToolCall(t *testing.T) {
+	in := `{"model":"databricks-gemini-3-8-flash","messages":[{"role":"assistant","tool_calls":[null,{"id":"a","type":"function"}]}]}`
+	out := string(fixGeminiChat([]byte(in)))
+	if !strings.Contains(out, "null") || !strings.Contains(out, translate.SkipThoughtSignature) {
+		t.Fatalf("null entry or signature lost: %s", out)
+	}
+}
+
+// An Anthropic-style tool_choice object becomes the chat string Databricks Gemini accepts; other forms stay.
+func TestFixGeminiChatToolChoice(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"type":"auto"}`: `"auto"`, `{"type":"any"}`: `"required"`, `"auto"`: `"auto"`, `"validated"`: `"auto"`,
+		`{"type":"function","function":{"name":"p"}}`: `{"type":"function","function":{"name":"p"}}`,
+	} {
+		out := string(fixGeminiChat([]byte(`{"model":"databricks-gemini-3-8-flash","tool_choice":` + in + `}`)))
+		if !strings.Contains(out, `"tool_choice":`+want) {
+			t.Errorf("tool_choice %s -> %s, want %s", in, out, want)
+		}
+	}
+}
+
+// A Gemini chat reply whose content is an array of parts reaches the client as one string; other models' replies stay.
+func TestPassthroughGeminiChatReplyFlattened(t *testing.T) {
+	parts := func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w,
+			`{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"O","thoughtSignature":"s"},{"type":"text","text":"K"}]}}]}`)
+	}
+	_, resp := sendChat(t, geminiChat, parts)
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), `"content":"OK"`) {
+		t.Errorf("gemini reply = %s, want content OK string", b)
+	}
+	_, resp = sendChat(t, strings.Replace(geminiChat, "databricks-gemini-3-8-flash", "databricks-llama", 1), parts)
+	b, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), `"thoughtSignature"`) {
+		t.Errorf("non-gemini reply rewritten: %s", b)
+	}
+}
+
+// Tool schemas sent to Gemini lose the keys Google rejects; a clean schema and other models' schemas are untouched.
+func TestPassthroughGeminiChatToolSchemaCleaned(t *testing.T) {
+	body := `{"model":"databricks-gemini-3-8-flash","tools":[{"type":"function","function":{"name":"ls","parameters":` +
+		`{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"n":{"type":"integer","exclusiveMinimum":0},` +
+		`"k":{"const":"a"}},"additionalProperties":false}}}]}`
+	up, _ := sendChat(t, body, okRaw)
+	got := up.got()[0].body
+	for _, bad := range []string{"$schema", "exclusiveMinimum", "const"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%s reached gemini: %s", bad, got)
+		}
+	}
+	if !strings.Contains(got, `"enum":["a"]`) || !strings.Contains(got, `"additionalProperties":false`) {
+		t.Errorf("valid keys lost: %s", got)
+	}
+	other := strings.Replace(body, "databricks-gemini-3-8-flash", "databricks-llama", 1)
+	if up, _ := sendChat(t, other, okRaw); up.got()[0].body != other {
+		t.Errorf("non-gemini tools rewritten: %s", up.got()[0].body)
+	}
+}
+
+// Passthrough chat usage (plain JSON and the SSE closing chunk) lands in the ledger.
+func TestPassthroughMetersChatUsage(t *testing.T) {
+	for name, tc := range map[string]struct{ ct, out string }{
+		"json": {"application/json", `{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`},
+		"sse": {"text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":11,\"total_tokens\":15}}\n\ndata: [DONE]\n\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, resp := sendChat(t, `{"model":"m"}`, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.Header().Set("Content-Type", tc.ct)
+				io.WriteString(w, tc.out)
+			})
+			b, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != 200 || string(b) != tc.out {
+				t.Fatalf("status %d body %q, want relayed unchanged", resp.StatusCode, b)
+			}
+			got := ledgerSettled(t, 1)
+			if len(got) != 1 || got[0].Profile != "pt" || got[0].Model != "m" || got[0].Input != 11 ||
+				got[0].Output != 4 {
+				t.Fatalf("ledger = %+v, want pt/m 11 in 4 out", got)
+			}
+		})
+	}
+}
+
+// A non-200 upstream answer records nothing.
+func TestPassthroughNon200NotMetered(t *testing.T) {
+	_, resp := sendChat(t, `{"model":"m"}`, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"usage":{"prompt_tokens":9,"completion_tokens":9}}`)
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", resp.StatusCode)
+	}
+	if got := ledgerSettled(t, 0); len(got) != 0 {
+		t.Fatalf("ledger = %+v, want empty", got)
+	}
+}
+
+func TestHeadTailBufferBoundsMemoryKeepsBothEnds(t *testing.T) {
+	const start = `{"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":1}}}`
+	const end = `{"type":"message_delta","usage":{"output_tokens":9}}`
+	var b headTailBuffer
+	b.Write([]byte(start))
+	for range 40 {
+		b.Write(bytes.Repeat([]byte("x"), 64<<10))
+	}
+	b.Write([]byte(end))
+	if got := len(b.Bytes()); got > 2*tailCap {
+		t.Errorf("retained %d bytes, want <= %d", got, 2*tailCap)
+	}
+	if u := scrapeAnthropicUsage(b.Bytes()); u.input != 7 || u.output != 9 {
+		t.Errorf("usage = %+v, want input 7 output 9 (max, cumulative) from head and tail", u)
+	}
+}
+
+// agy's call reaches /serving-endpoints/gemini with the wire model, alt=sse only, fresh token, thoughts-off fixed.
+func TestDatabricksGeminiRoute(t *testing.T) {
+	up, base := dbxGeminiSetup(t)
+	body := `{"contents":[],"generationConfig":{"thinkingConfig":{"includeThoughts":true,"thinkingBudget":0}}}`
+	resp := ptDo(t, http.MethodPost, base+"v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse&key=x", body,
+		nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	g := up.got()
+	if len(g) != 1 {
+		t.Fatalf("upstream hits %d", len(g))
+	}
+	if want := "/serving-endpoints/gemini/v1beta/models/databricks-gemini-3-8-flash:streamGenerateContent?alt=sse"; g[0].uri != want {
+		t.Errorf("uri = %s, want %s", g[0].uri, want)
+	}
+	if strings.Contains(g[0].body, "includeThoughts") || !strings.Contains(g[0].body, `"thinkingBudget":0`) {
+		t.Errorf("body = %s", g[0].body)
+	}
+	if a := g[0].hdr.Get("Authorization"); a != "Bearer dbx-token" {
+		t.Errorf("authorization = %q", a)
+	}
+}
+
+// Regression: an encoded or literal climb, or any call but (stream)GenerateContent, never reaches the workspace.
+func TestDatabricksGeminiRouteRejectsTraversal(t *testing.T) {
+	up, base := dbxGeminiSetup(t)
+	for _, rest := range []string{
+		"v1beta/models/%2e%2e/%2e%2e/api/2.0/secrets:generateContent", "v1beta/../../api/2.0/clusters/list",
+		"v1beta/models/m%252e:generateContent", "v1beta//models/m:generateContent", "v1beta/models/m:countTokens",
+		"v1beta/models/m%5c:generateContent",
+	} {
+		resp := ptDo(t, http.MethodPost, base+rest, `{}`, nil)
+		if resp.StatusCode < 400 {
+			t.Errorf("%s: status %d", rest, resp.StatusCode)
+		}
+	}
+	if g := up.got(); len(g) != 0 {
+		t.Fatalf("upstream reached: %v", g[0].uri)
+	}
 }

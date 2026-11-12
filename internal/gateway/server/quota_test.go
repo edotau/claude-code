@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -86,58 +87,62 @@ func TestTransientRateLimitDoesNotDemote(t *testing.T) {
 	}
 }
 
-// Window exhaustion cools the provider without marking a model dead.
-func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
-	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
-	target := providers.Target{Provider: p, Model: "m1-opus"}
-	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
-	r := newRouter("s")
-	t.Cleanup(r.bg.Wait)
-	resp := &http.Response{
-		StatusCode: 429,
-		Header:     http.Header{"Retry-After": []string{"60"}},
-		Body: io.NopCloser(
-			strings.NewReader(`{"error":{"message":"usage limit reached, try again in 60 seconds"}}`),
-		),
-	}
-	moveOn, hard := r.failover(resp, target, false)
-	if hard {
-		t.Error("a window-exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
-	}
-	if !moveOn {
-		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
-	}
-	if r.isDead(target) {
-		t.Error("failover must not mark the model dead on a window-exhaustion 429")
-	}
-	if _, cooling := r.cool[p.Name]; !cooling {
-		t.Error("failover must cool the provider on a window-exhaustion 429")
+func TestDeadKeyCanonicalizesOneMarker(t *testing.T) {
+	p := &providers.Provider{Name: "p"}
+	a := deadKey(providers.Target{Provider: p, Model: "claude-opus-4-7[1m]"})
+	b := deadKey(providers.Target{Provider: p, Model: "claude-opus-4-7"})
+	if a != b {
+		t.Errorf("deadKey marked %q != unmarked %q", a, b)
 	}
 }
 
-// Account exhaustion overrides model-denial markers and cools the provider without demotion.
-func TestHardAccountExhaustion402CoolsButDoesNotMarkDead(t *testing.T) {
-	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
-	target := providers.Target{Provider: p, Model: "m1-opus"}
-	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
+// storeCredentialPresent rejects a probe whose generation was invalidated before it stored its result.
+func TestStoreCredentialPresentDropsStaleGeneration(t *testing.T) {
+	r := newRouter("s")
+	const name = "genprov"
+	startGen := r.credGen[name]
+	r.invalidateCredential(name) // races ahead of the in-flight probe below, bumping the generation
+	r.storeCredentialPresent(name, startGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; cached {
+		t.Fatal("a probe that started before an invalidation must not resurrect the cache after it")
+	}
+
+	// A probe that starts (captures its generation) after the invalidation must still store normally.
+	freshGen := r.credGen[name]
+	r.storeCredentialPresent(name, freshGen, r.now().Add(credTTL))
+	if _, cached := r.cred[name]; !cached {
+		t.Fatal("a probe matching the current generation must still populate the cache")
+	}
+}
+
+// Demotion terminates when model slots form a cycle and every candidate is dead.
+func TestDemotionCycleTerminates(t *testing.T) {
+	p := &providers.Provider{Name: "g", Models: map[string]string{"opus": "A", "sonnet": "B", "haiku": "A"}}
+	vaulttest.Use(t) // markDead persists quota.json: keep it out of the shared home and later tests' dirs
 	r := newRouter("s")
 	t.Cleanup(r.bg.Wait)
-	resp := &http.Response{
-		StatusCode: 429,
-		Header:     http.Header{"Retry-After": []string{"60"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"402 payment required: insufficient_quota"}}`)),
+	r.markDead(providers.Target{Provider: p, Model: "A"})
+	r.markDead(providers.Target{Provider: p, Model: "B"})
+	done := make(chan struct{})
+	var ok bool
+	go func() { _, ok = r.demotion(providers.Target{Provider: p, Model: "B"}); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("demotion never returned: the cyclic slot table spins forever")
 	}
-	moveOn, hard := r.failover(resp, target, false)
-	if hard {
-		t.Error("a 402+insufficient_quota body must not be classified hard (ModelDenied vetoed by hardAccountRE)")
+	if ok {
+		t.Error("every slot is dead: demotion must report no usable target, not loop back to a dead one")
 	}
-	if !moveOn {
-		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
-	}
-	if r.isDead(target) {
-		t.Error("failover must not mark the model dead on account exhaustion")
-	}
-	if _, cooling := r.cool[p.Name]; !cooling {
-		t.Error("failover must cool the provider on account exhaustion")
+
+	// With only A dead, demotion must reach the live B slot despite the earlier cycle.
+	r.bg.Wait()
+	vaulttest.Use(t) // a fresh quota.json: r's persisted B mark must not reach r2
+	r2 := newRouter("s")
+	t.Cleanup(r2.bg.Wait)
+	r2.markDead(providers.Target{Provider: p, Model: "A"})
+	d, ok := r2.demotion(providers.Target{Provider: p, Model: "A"})
+	if !ok || d.Model != "B" {
+		t.Errorf("demotion(A) = %+v, %v; want B, true", d, ok)
 	}
 }

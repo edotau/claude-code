@@ -1,8 +1,9 @@
 package server
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -66,38 +67,6 @@ func TestPeekBodyLeavesWholeBodyReadable(t *testing.T) {
 	rest, _ := io.ReadAll(resp.Body)
 	if string(rest) != "0123456789" {
 		t.Errorf("body after peek = %q, want the whole body", rest)
-	}
-}
-
-func TestHeadTailBufferBoundsMemoryKeepsBothEnds(t *testing.T) {
-	const start = `{"type":"message_start","message":{"usage":{"input_tokens":7,"output_tokens":1}}}`
-	const end = `{"type":"message_delta","usage":{"output_tokens":9}}`
-	var b headTailBuffer
-	b.Write([]byte(start))
-	for range 40 {
-		b.Write(bytes.Repeat([]byte("x"), 64<<10))
-	}
-	b.Write([]byte(end))
-	if got := len(b.Bytes()); got > 2*tailCap {
-		t.Errorf("retained %d bytes, want <= %d", got, 2*tailCap)
-	}
-	if u := scrapeAnthropicUsage(b.Bytes()); u.input != 7 || u.output != 9 {
-		t.Errorf("usage = %+v, want input 7 output 9 (max, cumulative) from head and tail", u)
-	}
-}
-
-func TestScrapeLastUsageSubtractsCachedForBothDialects(t *testing.T) {
-	chat := scrapeChatUsage(
-		[]byte(`{"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":40}}}`),
-	)
-	if chat.input != 60 || chat.output != 5 || chat.cacheRead != 40 {
-		t.Errorf("chat = %+v, want 60/5/40", chat)
-	}
-	resp := scrapeUsage(
-		[]byte(`{"usage":{"input_tokens":100,"output_tokens":5,"input_tokens_details":{"cached_tokens":200}}}`),
-	)
-	if resp.input != 100 || resp.cacheRead != 0 {
-		t.Errorf("responses = %+v, cached > input must not be subtracted", resp)
 	}
 }
 
@@ -221,5 +190,422 @@ func TestRegistryLoadRunsWithoutHoldingRouterMutex(t *testing.T) {
 	}
 	if got := calls.Load(); got != 1 {
 		t.Errorf("registry load calls = %d, want 1", got)
+	}
+}
+
+// u2mRow is a sealed-auth row with no sealed refresh token: minting yields providers.ErrNeedsLogin.
+func u2mRow(base string) string {
+	return fmt.Sprintf(
+		`{"protocol":"anthropic","base_url":%q,"auth":{"type":"oauth"},"models":{"opus":"m1-opus","haiku":"m1-haiku"}}`,
+		base)
+}
+
+func TestCondemnedRefreshMovesOnToNextTarget(t *testing.T) {
+	g := useGate(t)
+	up1 := newUpstream(t, ok)
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP2_KEY", "k2")
+	srv := setupRouter(t,
+		`{"default":"up1","fallback":["up2"],"providers":{"databricks":{"up1":`+u2mRow(up1.URL)+`},"anthropic":{"up2":`+
+			anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`)+`}}}`,
+		nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil)
+	if resp.StatusCode != 200 || up1.hits.Load() != 0 || up2.hits.Load() != 1 {
+		t.Fatalf("status %d hits up1=%d up2=%d, want 200 served by up2 only", resp.StatusCode, up1.hits.Load(),
+			up2.hits.Load())
+	}
+	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "needs_login") ||
+		!strings.Contains(reason, "databricks login --profile up1") {
+		t.Fatalf("up1 mark = %q, %v; want a needs_login mark with the login hint", reason, ok)
+	}
+	if _, ok := g.marked("up2"); ok {
+		t.Fatal("the healthy fallback was marked")
+	}
+	// attempts() now skips the marked provider: the next request goes straight to up2.
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil); resp.StatusCode != 200 ||
+		up2.hits.Load() != 2 {
+		t.Fatalf("second status %d up2 hits %d", resp.StatusCode, up2.hits.Load())
+	}
+}
+
+func TestTransientRefreshFailureMovesOnWithoutMarking(t *testing.T) {
+	g := useGate(t)
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP2_KEY", "k2")
+	srv := setupRouter(t,
+		`{"default":"up1","fallback":["up2"],"providers":{"anthropic":{"up1":{"protocol":"anthropic","base_url":"`+up2.URL+
+			`","auth":{"type":"key","command":"exit 1"},"models":{"opus":"m1"}},"up2":`+
+			anthropicProvider(up2.URL, "UP2_KEY", `{"opus":"m2-opus"}`)+`}}}`,
+		nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	if resp.StatusCode != 200 || up2.hits.Load() != 1 {
+		t.Fatalf("status %d up2 hits %d, want a plain failover", resp.StatusCode, up2.hits.Load())
+	}
+	if g.count() != 0 {
+		t.Fatalf("a transient failure condemned an account: %d", g.count())
+	}
+}
+
+func invalidTokenUp(t *testing.T) *upstream {
+	return newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(400)
+		io.WriteString(w, `{"message":"Invalid Token"}`)
+	})
+}
+
+func TestInvalidToken400OnDatabricksRowIsAnAuthRejection(t *testing.T) {
+	g := useGate(t)
+	up := invalidTokenUp(t)
+	vaulttest.UseKeyring(t)
+	row := sealedPAT(t, up.URL)
+	srv := setupRouter2(t, `{"default":"patrow","providers":{"databricks":{"patrow":`+row+`}}}`)
+
+	resp := post(t, srv.URL+"/p/patrow/v1/messages", `{"model":"m1"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 401 || !strings.Contains(b, "authentication_error") {
+		t.Fatalf("status %d body %s, want 401 authentication_error", resp.StatusCode, b)
+	}
+	if up.hits.Load() != 2 {
+		t.Fatalf("upstream hits %d, want the request plus one replay after the re-mint", up.hits.Load())
+	}
+	if _, ok := g.marked("patrow"); !ok {
+		t.Fatal("a persistent Invalid Token must mark the provider")
+	}
+}
+
+func TestInvalidToken400OnOtherProviderIsRelayedAsIs(t *testing.T) {
+	g := useGate(t)
+	up := invalidTokenUp(t)
+	t.Setenv("UP1_KEY", "k1")
+	srv := setupRouter(t,
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`,
+		nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	if resp.StatusCode != 400 || !strings.Contains(body(t, resp), "Invalid Token") {
+		t.Fatalf("status %d, want the upstream 400 relayed", resp.StatusCode)
+	}
+	if up.hits.Load() != 1 || g.count() != 0 {
+		t.Fatalf("hits %d marks %d: a non-Databricks 400 must not remint or condemn", up.hits.Load(), g.count())
+	}
+}
+
+// A bare 403 that survives the re-mint is a policy/WAF block: relayed to the caller as-is, never a mark.
+func TestBareForbiddenAfterRemintIsRelayedNotCondemned(t *testing.T) {
+	g := useGate(t)
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"message":"model not permitted"}`)
+	})
+	t.Setenv("UP1_KEY", "k1")
+	srv := setupRouter(t,
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`,
+		nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 403 || !strings.Contains(b, "model not permitted") {
+		t.Fatalf("status %d body %s, want the upstream 403 relayed", resp.StatusCode, b)
+	}
+	if _, ok := g.marked("up1"); ok {
+		t.Fatal("a bare 403 after the re-mint must not mark the provider")
+	}
+}
+
+func TestFailoverOn429BeforeBytes(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(429)
+		io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+	})
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	if m := (*up2.body.Load())["model"]; m != "m2-haiku" {
+		t.Errorf("failover model = %v, want same slot on up2", m)
+	}
+	// up1 is cooling down: the next request starts at up2.
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("second status %d", resp.StatusCode)
+	}
+	if up1.hits.Load() != 1 || up2.hits.Load() != 2 {
+		t.Fatalf("hits up1=%d up2=%d, want 1 and 2", up1.hits.Load(), up2.hits.Load())
+	}
+}
+
+func TestLastAttemptRelaysUpstreamError(t *testing.T) {
+	fail := func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(529)
+		io.WriteString(w, `{"type":"error","error":{"type":"overloaded_error","message":"busy"}}`)
+	}
+	up1, up2 := newUpstream(t, fail), newUpstream(t, fail)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, failoverOverlay(up1.URL, up2.URL))
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 529 || !strings.Contains(string(b), "busy") || up1.hits.Load() != 1 || up2.hits.Load() != 1 {
+		t.Fatalf("got %d %s hits %d/%d", resp.StatusCode, b, up1.hits.Load(), up2.hits.Load())
+	}
+}
+
+// Window exhaustion cools the provider without marking a model dead.
+func TestWindowExhaustionCoolsButDoesNotMarkDead(t *testing.T) {
+	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
+	target := providers.Target{Provider: p, Model: "m1-opus"}
+	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
+	r := newRouter("s")
+	t.Cleanup(r.bg.Wait)
+	resp := &http.Response{
+		StatusCode: 429,
+		Header:     http.Header{"Retry-After": []string{"60"}},
+		Body: io.NopCloser(
+			strings.NewReader(`{"error":{"message":"usage limit reached, try again in 60 seconds"}}`),
+		),
+	}
+	moveOn, hard := r.failover(resp, target, false)
+	if hard {
+		t.Error("a window-exhaustion 429 must not be classified hard (ModelDenied), only IsQuota")
+	}
+	if !moveOn {
+		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
+	}
+	if r.isDead(target) {
+		t.Error("failover must not mark the model dead on a window-exhaustion 429")
+	}
+	if _, cooling := r.cool[p.Name]; !cooling {
+		t.Error("failover must cool the provider on a window-exhaustion 429")
+	}
+}
+
+// Account exhaustion overrides model-denial markers and cools the provider without demotion.
+func TestHardAccountExhaustion402CoolsButDoesNotMarkDead(t *testing.T) {
+	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1-opus", "sonnet": "m1-sonnet"}}
+	target := providers.Target{Provider: p, Model: "m1-opus"}
+	vaulttest.Use(t) // the 60 s hold persists quota.json: keep it out of the shared home and later tests' dirs
+	r := newRouter("s")
+	t.Cleanup(r.bg.Wait)
+	resp := &http.Response{
+		StatusCode: 429,
+		Header:     http.Header{"Retry-After": []string{"60"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"402 payment required: insufficient_quota"}}`)),
+	}
+	moveOn, hard := r.failover(resp, target, false)
+	if hard {
+		t.Error("a 402+insufficient_quota body must not be classified hard (ModelDenied vetoed by hardAccountRE)")
+	}
+	if !moveOn {
+		t.Error("a non-last retryable 429 must still move on to the next ladder entry")
+	}
+	if r.isDead(target) {
+		t.Error("failover must not mark the model dead on account exhaustion")
+	}
+	if _, cooling := r.cool[p.Name]; !cooling {
+		t.Error("failover must cool the provider on account exhaustion")
+	}
+}
+
+// A 400 "prompt is too long" is not retried and is rewritten to invalid_request_error quoting only the limit text.
+func TestFailoverPromptTooLong(t *testing.T) {
+	p := &providers.Provider{Name: "up1", Models: map[string]string{"opus": "m1"}}
+	body := `{"message":"prompt is too long: 1177204 tokens > 1000000 maximum","secret":"leak-me"}`
+	resp := &http.Response{StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+	moveOn, _ := newRouter("s").failover(resp, providers.Target{Provider: p, Model: "m1"}, false)
+	if moveOn {
+		t.Fatal("prompt-too-long must not fail over")
+	}
+	got, _ := io.ReadAll(resp.Body)
+	var e struct {
+		Error struct{ Type, Message string }
+	}
+	_ = json.Unmarshal(got, &e)
+	if e.Error.Type != "invalid_request_error" ||
+		e.Error.Message != "prompt is too long: 1177204 tokens > 1000000 maximum" ||
+		strings.Contains(string(got), "leak-me") {
+		t.Errorf("body = %s", got)
+	}
+}
+
+// TestFailoverPromptTooLongNotOtherStatus pins that only a 400 is classified, and 400s without the text pass through.
+func TestFailoverPromptTooLongNotOtherStatus(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"500 with text":    {500, `{"message":"prompt is too long"}`},
+		"400 other reason": {400, `{"message":"bad field"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{
+				StatusCode: tc.status,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(tc.body)),
+			}
+			if tooLong(resp) {
+				t.Fatal("must not classify")
+			}
+			got, _ := io.ReadAll(resp.Body)
+			if string(got) != tc.body {
+				t.Errorf("body altered: %s", got)
+			}
+		})
+	}
+}
+
+// A dev session token is refused on /p/qa with 401 before any upstream call (authorized fails, so resolveTarget's
+// 403 is never reached); on dev it reaches /serving-endpoints on the Messages, chat and Responses wires.
+func TestSessionTokenConfinedToItsProfile(t *testing.T) {
+	useGate(t)
+	up := newRawUp(t, okRaw)
+	t.Setenv("DEV_TOKEN", "dev-workspace-token")
+	t.Setenv("QA_TOKEN", "qa-workspace-token")
+	row := func(env string) string {
+		serving := up.URL + "/serving-endpoints"
+		return `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + serving +
+			`/anthropic","routes":{"openai":"` + serving + `","responses":"` + serving + `"},` +
+			`"auth":{"type":"key","env":"` + env + `"},"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	var routed *Router
+	srv := setupRouter(t, `{"default":"dev","providers":{"databricks":{"dev":`+row("DEV_TOKEN")+`,"qa":`+
+		row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
+	token, err := routed.sessions.mint("dev", os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const msg = `{"model":"databricks-claude-opus-5-5","max_tokens":5}`
+	for _, path := range []string{"/p/qa/v1/messages", "/p/qa/openai/chat/completions", "/p/qa/responses/responses"} {
+		hdr := map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + token}
+		resp := ptDo(t, http.MethodPost, srv.URL+path, msg, hdr)
+		if got := body(t, resp); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("dev token on %s = %d %s, want 401", path, resp.StatusCode, got)
+		}
+	}
+	if n := len(up.got()); n != 0 {
+		t.Fatalf("dev token on qa reached the upstream %d times, want 0", n)
+	}
+	cases := []struct{ path, hdr, val, want string }{
+		{"/p/dev/v1/messages", "X-Api-Key", token, "/serving-endpoints/anthropic/v1/messages"},
+		{"/p/dev/openai/chat/completions", "Authorization", "Bearer " + token, "/serving-endpoints/chat/completions"},
+		{"/p/dev/responses/responses", "Authorization", "Bearer " + token, "/serving-endpoints/responses"},
+	}
+	for i, c := range cases {
+		hdr := map[string]string{"X-Api-Key": "", c.hdr: c.val}
+		if resp := ptDo(t, http.MethodPost, srv.URL+c.path, msg, hdr); resp.StatusCode != http.StatusOK {
+			t.Fatalf("dev token on %s = %d %s, want 200", c.path, resp.StatusCode, body(t, resp))
+		}
+		got := up.got()
+		if len(got) != i+1 || got[i].uri != c.want {
+			t.Fatalf("%s reached upstream %d times, last %+v; want %s", c.path, len(got), got[len(got)-1].uri, c.want)
+		}
+		if a := got[i].hdr.Get("Authorization"); a != "Bearer dev-workspace-token" {
+			t.Errorf("%s: upstream Authorization is not dev's workspace credential", c.path)
+		}
+	}
+}
+
+func TestUnroutableLogin(t *testing.T) {
+	p := &providers.Provider{
+		Name:     "personal",
+		Provider: "github",
+		Protocol: providers.ProtocolOpenAI,
+		BaseURL:  "https://x",
+		Auth:     providers.Auth{Type: providers.AuthCLI, Login: "copilot"},
+	}
+	if why := unroutable(p, true); !strings.Contains(why, "copilot sign-in") {
+		t.Errorf("a vendor login must never receive a forwarded client credential: %q", why)
+	}
+}
+
+func TestPassthroughRefused(t *testing.T) {
+	up := newUpstream(t, ok)
+	srv := setup(t,
+		`{"default":"sub","providers":{"anthropic":{"sub":{"protocol":"anthropic","base_url":"`+up.URL+`","auth":{"type":"cli"},"models":{"opus":"m"}}}}}`)
+	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 400 || !strings.Contains(string(b), "passthrough") || up.hits.Load() != 0 {
+		t.Fatalf("got %d %s hits=%d", resp.StatusCode, b, up.hits.Load())
+	}
+}
+
+func TestPassthroughWithoutAnyCredentialIsRefused(t *testing.T) {
+	tsrv, up := tlsUpstream(t)
+	pointAnthropicHostAt(t, tsrv.URL)
+	srv := setupRouter(t, subOverlay(tsrv.URL), func(r *Router) { r.client = tsrv.Client() })
+	resp := post(t, srv.URL+"/p/sub/v1/messages", `{"model":"m"}`, nil)
+	if resp.StatusCode != 400 || len(up.got()) != 0 {
+		t.Fatalf("status %d hits %d, want 400 and no upstream call without a client login or vault token",
+			resp.StatusCode, len(up.got()))
+	}
+}
+
+// A rejected static key names the vault remedy and the mark, never a Databricks login.
+func TestRejectedKeyHintsVaultSetNotDatabricksLogin(t *testing.T) {
+	g := useGate(t)
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(http.StatusUnauthorized) })
+	t.Setenv("UP1_KEY", "k1")
+	srv := setupRouter(t,
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`,
+		nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 401 || !strings.Contains(b, "run `claude-code vault set UP1_KEY`") ||
+		strings.Contains(b, "databricks") {
+		t.Fatalf("status %d body %s, want 401 with the vault set hint", resp.StatusCode, b)
+	}
+	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "vault set UP1_KEY") {
+		t.Fatalf("mark = %q, %v; want the vault set hint", reason, ok)
+	}
+}
+
+func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
+	g := useGate(t)
+	up1 := newUpstream(t, ok)
+	srv := setupRouter(t, `{"default":"up1","providers":{"databricks":{"up1":`+u2mRow(up1.URL)+`}}}`, nil)
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 401 || !strings.Contains(b, `"authentication_error"`) ||
+		!strings.Contains(b, "run `claude-code databricks login --profile up1`") {
+		t.Fatalf("status %d body %s, want 401 authentication_error with the login hint", resp.StatusCode, b)
+	}
+	if up1.hits.Load() != 0 {
+		t.Fatalf("upstream reached %d times without a credential", up1.hits.Load())
+	}
+	if _, ok := g.marked("up1"); !ok {
+		t.Fatal("exhausting the ladder must still record the mark")
+	}
+}
+
+func TestScopedAuthDeadProviderReturnsForbidden(t *testing.T) {
+	gate := useGate(t)
+	up1 := newUpstream(t, ok)
+	up2 := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	var routed *Router
+	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), func(r *Router) { routed = r })
+	token, err := routed.sessions.mint("up1", os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate.premark("up1") // attempts drops up1; session confinement then removes up2.
+
+	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, map[string]string{"X-Api-Key": token})
+	got := body(t, resp)
+	if resp.StatusCode != http.StatusForbidden ||
+		!strings.Contains(got, "no provider in this session's scope is usable") {
+		t.Fatalf("auth-dead scoped request = %d %s, want 403 without a panic", resp.StatusCode, got)
+	}
+	if up1.hits.Load() != 0 || up2.hits.Load() != 0 {
+		t.Fatalf("scoped request escaped to upstreams: up1=%d up2=%d", up1.hits.Load(), up2.hits.Load())
 	}
 }
