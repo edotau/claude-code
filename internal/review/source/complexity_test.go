@@ -81,18 +81,14 @@ func TestRunComplexityPythonShapeOnly(t *testing.T) {
 	}
 }
 
-func TestRunComplexityNoMatchingFiles(t *testing.T) {
+func TestRunComplexityMissingTargetRefused(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := RunComplexity([]string{"nosuchfile.py", "--json"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (advisory, always exits 0)", code)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2 for a target that does not exist", code)
 	}
-	var got map[string]string
-	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("invalid JSON: %v\noutput: %s", err, stdout.String())
-	}
-	if got["status"] != "error" {
-		t.Errorf("status = %q, want error", got["status"])
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "nosuchfile.py") {
+		t.Errorf("stdout = %q, stderr = %q; want empty stdout and an error naming the target", stdout.String(), stderr.String())
 	}
 }
 
@@ -125,21 +121,16 @@ func TestRunComplexityHelpAfterPositional(t *testing.T) {
 	}
 }
 
-// "--" before -h scans both tokens as targets instead of printing help.
+// "--" before -h makes -h a target (so a missing file), not the usage page.
 func TestRunComplexityHelpAfterDoubleDashIsPositional(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "complexity"))
-	want := readComplexityGoldenAbs(t, "gate-loop.js.want")
 	var stdout, stderr bytes.Buffer
 	code := RunComplexity([]string{"--", "gate-loop.js", "-h"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr=%s", code, stderr.String())
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2 (-h is a missing target); stderr=%s", code, stderr.String())
 	}
-	if stdout.String() != want {
-		t.Errorf("scanned output mismatch (treated -h as a second, nonexistent target):\ngot:  %q\nwant: %q",
-			stdout.String(), want)
-	}
-	if strings.Contains(stdout.String(), "usage:") || strings.Contains(stderr.String(), "usage:") {
-		t.Errorf("printed the usage page instead of scanning: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	if !strings.Contains(stderr.String(), "-h") || strings.Contains(stdout.String()+stderr.String(), "usage:") {
+		t.Errorf("-h must be refused as a target, not print usage: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

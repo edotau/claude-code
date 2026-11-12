@@ -165,6 +165,11 @@ func isCommentLine(line, ext string) bool {
 	return false
 }
 
+// redactLine masks secret-shaped values in a changed line before it is echoed into a report.
+func redactLine(line string) string {
+	return secretAssignRe().ReplaceAllString(textutil.RedactSecrets(line), "${1}REDACTED${2}")
+}
+
 // classifyLine returns a noise category for a changed line, or "" if it looks intentional.
 func classifyLine(line, file string) string {
 	if whitespaceOnlyRe().MatchString(line) {
@@ -200,7 +205,7 @@ func detectQuoteSwaps(changes []string) []diffFinding {
 		if aBody != dBody && strings.ReplaceAll(aBody, `"`, "'") == strings.ReplaceAll(dBody, `"`, "'") {
 			findings = append(findings, diffFinding{
 				Category: "quote-style-swap",
-				Line:     fmt.Sprintf("%s -> %s", textutil.TruncateRunes(d, 60), textutil.TruncateRunes(a, 60)),
+				Line:     fmt.Sprintf("%s -> %s", textutil.TruncateRunes(redactLine(d), 60), textutil.TruncateRunes(redactLine(a), 60)),
 			})
 		}
 	}
@@ -212,7 +217,7 @@ func analyzeDiffFile(fd *diffFileEntry) []diffFinding {
 	var unclassified []string
 	for _, line := range fd.changes {
 		if cat := classifyLine(line, fd.file); cat != "" {
-			findings = append(findings, diffFinding{Category: cat, Line: textutil.TruncateRunes(line, 120)})
+			findings = append(findings, diffFinding{Category: cat, Line: textutil.TruncateRunes(redactLine(line), 120)})
 		} else {
 			unclassified = append(unclassified, line)
 		}

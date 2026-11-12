@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/review/source"
@@ -286,6 +287,13 @@ func qualitySummaryOf(q map[string]any) *QualitySummary {
 	return nil
 }
 
+// reportOpts are RunReport's parsed flags and the repo argument.
+type reportOpts struct {
+	repoArgs                        []string
+	base, head, prPath, qualityPath string
+	format, output                  string
+}
+
 // RunReport ports review_report_generator.py's CLI.
 func RunReport(args []string, stdout, stderr io.Writer) int {
 	fs := helptext.NewFlagSet("report", helptext.Page{
@@ -296,8 +304,8 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	base := fs.String("base", "main", "Base branch for comparison")
 	fs.StringVar(base, "b", "main", "shorthand for --base")
 	head := fs.String("head", "HEAD", "Head branch/commit for comparison")
-	prAnalysisPath := fs.String("pr-analysis", "", "load the PR analysis from this JSON file instead of running it")
-	qualityAnalysisPath := fs.String("quality-analysis", "", "load the quality analysis from this JSON file")
+	prPath := fs.String("pr-analysis", "", "load the PR analysis from this JSON file instead of running it")
+	qualityPath := fs.String("quality-analysis", "", "load the quality analysis from this JSON file")
 	format := fs.String("format", "text", "text|markdown|json")
 	fs.StringVar(format, "f", "text", "shorthand for --format")
 	output := fs.String("output", "", "Write output to file")
@@ -307,37 +315,47 @@ func RunReport(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
+	if *jsonOut {
+		*format = "json"
+	}
+	o := reportOpts{positional, *base, *head, *prPath, *qualityPath, *format, *output}
+	return runReport(o, stdout, stderr)
+}
 
-	if err := checkRefs(*base, *head); err != nil {
+// runReport validates the options, builds the report and writes it in the chosen format.
+func runReport(o reportOpts, stdout, stderr io.Writer) int {
+	if !slices.Contains(reportFormats, o.format) {
+		fmt.Fprintf(stderr, "claude-code: unknown --format %q; use one of %s\n", o.format, strings.Join(reportFormats, ", "))
+		return 2
+	}
+	if err := checkRefs(o.base, o.head); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	repoPath, ok := resolveExistingPath(positional, stderr)
+	repoPath, ok := resolveExistingPath(o.repoArgs, stderr)
 	if !ok {
 		return 1
 	}
-
-	prOverride := loadAnalysisOverride(*prAnalysisPath, "PR analysis", stderr)
-	qualityOverride := loadAnalysisOverride(*qualityAnalysisPath, "quality analysis", stderr)
-
-	report, err := generateReport(repoPath, *base, *head, prOverride, qualityOverride)
+	prOverride, qualityOverride, code := loadOverrides(o.prPath, o.qualityPath, stderr)
+	if code != 0 {
+		return code
+	}
+	if prOverride == nil || qualityOverride == nil {
+		if _, ok := resolveGitRepo([]string{repoPath}, stderr); !ok {
+			return 1
+		}
+	}
+	report, err := generateReport(repoPath, o.base, o.head, prOverride, qualityOverride)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-
-	outputFormat := *format
-	if *jsonOut {
-		outputFormat = "json"
-	}
-
-	out, err := renderReport(report, outputFormat)
+	out, err := renderReport(report, o.format)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-
-	return writeOutput(out, true, *output, "Report", stdout, stderr)
+	return writeOutput(out, true, o.output, "Report", stdout, stderr)
 }
 
 // resolveExistingPath returns the absolute path of the first positional (default "."), which must exist.
@@ -353,18 +371,27 @@ func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
 	return repoPath, true
 }
 
-// loadAnalysisOverride loads an optional analysis JSON file, warning on stderr when it cannot be read.
-func loadAnalysisOverride(path, label string, stderr io.Writer) map[string]any {
-	if path == "" {
-		return nil
+// loadOverrides loads the optional --pr-analysis/--quality-analysis files; an unreadable one refuses with exit 2.
+func loadOverrides(prPath, qualityPath string, stderr io.Writer) (pr, quality map[string]any, code int) {
+	for _, o := range []struct {
+		path, label, flag string
+		dst               *map[string]any
+	}{{prPath, "PR analysis", "--pr-analysis", &pr}, {qualityPath, "quality analysis", "--quality-analysis", &quality}} {
+		if o.path == "" {
+			continue
+		}
+		m, err := loadJSONFile(o.path)
+		if err != nil {
+			fmt.Fprintf(stderr, "claude-code: cannot load %s from %s: %v; fix the file or drop %s to run it fresh\n", o.label, o.path, err, o.flag)
+			return nil, nil, 2
+		}
+		*o.dst = m
 	}
-	m, ok := loadJSONFile(path)
-	if !ok {
-		fmt.Fprintf(stderr, "Warning: Could not load %s from %s\n", label, path)
-		return nil
-	}
-	return m
+	return pr, quality, 0
 }
+
+// reportFormats are the values --format accepts.
+var reportFormats = []string{"text", "markdown", "json"}
 
 func renderReport(report Report, format string) (string, error) {
 	switch format {

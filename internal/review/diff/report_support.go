@@ -3,6 +3,7 @@ package diff
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -118,16 +119,19 @@ type Report struct {
 	QualitySummary *QualitySummary `json:"quality_summary,omitempty"`
 }
 
-func loadJSONFile(path string) (map[string]any, bool) {
+func loadJSONFile(path string) (map[string]any, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	var m map[string]any
 	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, false
+		return nil, err
 	}
-	return m, true
+	if m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	return m, nil
 }
 
 func toGenericMap(v any) map[string]any {
@@ -230,13 +234,9 @@ func runQualityChecker(repo, base, head string) (map[string]any, error) {
 		}
 		qr, err := source.QualityContent(filepath.Join(repo, name), content, lang)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("quality analysis of %s at %s: %w", name, head, err)
 		}
-		m := toGenericMap(qr)
-		if _, isErr := m["error"]; isErr {
-			continue
-		}
-		results = append(results, m)
+		results = append(results, toGenericMap(qr))
 	}
 
 	avg := 100.0

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -78,18 +78,12 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 func gitLines(dir string, args ...string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.quotepath=false"}, args...)...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, err := proc.RunGitInherit(ctx, dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(ee.Stderr)))
-		}
 		return nil, err
 	}
 	var lines []string
-	for l := range strings.SplitSeq(string(out), "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			lines = append(lines, l)
 		}
@@ -141,6 +135,9 @@ func changedNames(top, base string) ([]string, error) {
 	if strings.HasPrefix(base, "-") {
 		return nil, fmt.Errorf("invalid base %q: must not start with '-'", base)
 	}
+	if _, err := gitLines(top, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+		return nil, fmt.Errorf("base %q does not exist (no upstream or previous commit?); pass --base <ref>", base)
+	}
 	names, err := gitLines(top, "diff", "--name-only", base)
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", base, err)
@@ -153,7 +150,7 @@ func changedNames(top, base string) ([]string, error) {
 }
 
 // simplifyTargets expands paths (files or dirs) to supported-language files, deduplicated and sorted.
-func simplifyTargets(paths []string) []string {
+func simplifyTargets(paths []string, warn io.Writer) []string {
 	var exts []string
 	for _, list := range Extensions {
 		for _, e := range list {
@@ -163,7 +160,7 @@ func simplifyTargets(paths []string) []string {
 	seen := map[string]bool{}
 	var files []string
 	for _, p := range paths {
-		for _, f := range collectComplexityFiles(p, exts) {
+		for _, f := range collectComplexityFiles(p, exts, warn) {
 			if key := resolvePath(f); !seen[key] && DetectLanguage(f) != "" {
 				seen[key] = true
 				files = append(files, f)
@@ -190,6 +187,24 @@ func analyzeSimplifyFile(path string, th ComplexityThresholds) (simplifyFile, er
 	}
 	return simplifyFile{File: path, Complexity: NonNil(findings),
 		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: NonNil(q.Smells)}}, nil
+}
+
+// analyzeSimplifyTargets runs both checks on each file; a file that cannot be analyzed lands in Failed.
+func analyzeSimplifyTargets(files []string, th ComplexityThresholds, stderr io.Writer) simplifyReport {
+	report := simplifyReport{Files: []simplifyFile{}}
+	for _, f := range files {
+		sf, err := analyzeSimplifyFile(f, th)
+		if err != nil {
+			fmt.Fprintf(stderr, "review simplify: analysis failed: %s: %v\n", f, err)
+			report.Failed = append(report.Failed, f)
+			continue
+		}
+		report.Files = append(report.Files, sf)
+		report.Summary.Complexity += len(sf.Complexity)
+		report.Summary.Quality += len(sf.Quality.Smells)
+	}
+	report.Summary.Files = len(report.Files)
+	return report
 }
 
 func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
@@ -224,6 +239,10 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	paths := parsed.targets
+	if err := checkTargets(paths, DetectLanguage); err != nil {
+		fmt.Fprintf(stderr, "review simplify: %v\n", err)
+		return 2
+	}
 	if len(paths) == 0 {
 		changed, err := changedSimplifyFiles(simplifyBase(parsed.base))
 		if err != nil {
@@ -232,20 +251,7 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		}
 		paths = changed
 	}
-	th := complexityThresholds[parsed.threshold]
-	report := simplifyReport{Files: []simplifyFile{}}
-	for _, f := range simplifyTargets(paths) {
-		sf, err := analyzeSimplifyFile(f, th)
-		if err != nil {
-			fmt.Fprintf(stderr, "review simplify: analysis failed: %s: %v\n", f, err)
-			report.Failed = append(report.Failed, f)
-			continue
-		}
-		report.Files = append(report.Files, sf)
-		report.Summary.Complexity += len(sf.Complexity)
-		report.Summary.Quality += len(sf.Quality.Smells)
-	}
-	report.Summary.Files = len(report.Files)
+	report := analyzeSimplifyTargets(simplifyTargets(paths, stderr), complexityThresholds[parsed.threshold], stderr)
 	if parsed.jsonOut {
 		if err := writeJSON(stdout, report); err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
@@ -308,21 +314,33 @@ func SimplicityFindingsWithBaseline(path, after string, baseline func() (string,
 
 type keyedFinding struct{ key, text string }
 
+// complexityKeyed keys content's complexity findings; a syntax error yields none, keeping the edit hook quiet.
+func complexityKeyed(path, content string) []keyedFinding {
+	cl := DetectComplexityLang(path)
+	if cl == "" {
+		return nil
+	}
+	r, err := complexityContent(path, content, cl, complexityThresholds["medium"])
+	if err != nil {
+		return nil
+	}
+	var out []keyedFinding
+	for _, f := range r.Findings {
+		loc := ""
+		if f.Line > 0 {
+			loc = fmt.Sprintf("line %d: ", f.Line)
+		}
+		out = append(out, keyedFinding{"c|" + f.Rule + "|" + f.Message, loc + f.Message})
+	}
+	return out
+}
+
 // simplicityKeyed lists every finding of content with a line-free key and a located one-line text.
 func simplicityKeyed(path, content, lang string) []keyedFinding {
 	if content == "" {
 		return nil
 	}
-	var out []keyedFinding
-	if cl := detectComplexityLang(path); cl != "" {
-		for _, f := range complexityContent(path, content, cl, complexityThresholds["medium"]).Findings {
-			loc := ""
-			if f.Line > 0 {
-				loc = fmt.Sprintf("line %d: ", f.Line)
-			}
-			out = append(out, keyedFinding{"c|" + f.Rule + "|" + f.Message, loc + f.Message})
-		}
-	}
+	out := complexityKeyed(path, content)
 	if q, err := QualityContent(path, content, lang); err == nil {
 		for _, s := range q.Smells {
 			text := s.Type + ": " + s.Message

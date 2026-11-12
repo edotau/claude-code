@@ -2,6 +2,7 @@ package source
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,7 +35,7 @@ func TestFindFunctionsJSTSCapturesParameters(t *testing.T) {
 	for _, language := range []string{"javascript", "typescript"} {
 		t.Run(language, func(t *testing.T) {
 			src := "function declared(a, b) {}\nconst arrow = (x, y, z) => {};\nlet empty = async () => {};"
-			got := findFunctions(src, language)
+			got, _ := findFunctions(src, language)
 			if len(got) != 3 {
 				t.Fatalf("functions = %+v, want three", got)
 			}
@@ -53,7 +54,7 @@ func TestFindFunctionsJSTSCapturesParameters(t *testing.T) {
 func TestFindFunctionsFinalBodyBeyondTwoThousand(t *testing.T) {
 	padding := strings.Repeat("    value = 1\n", 200)
 	src := "def first():\n    pass\ndef last(flag):\n" + padding + "    if flag:\n        return 1\n"
-	got := findFunctions(src, "python")
+	got, _ := findFunctions(src, "python")
 	want := []FunctionInfo{
 		{Name: "first", Lines: 3, Complexity: 1},
 		{Name: "last", Parameters: 1, Lines: 204, Complexity: 2},
@@ -65,7 +66,10 @@ func TestFindFunctionsFinalBodyBeyondTwoThousand(t *testing.T) {
 
 func TestFindFunctionsGoGenericSignature(t *testing.T) {
 	src := "package fixture\nfunc Identity[T any](value T, fallback T) T { return value }\n"
-	got := findFunctions(src, "go")
+	got, err := findFunctions(src, "go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []FunctionInfo{{Name: "Identity", Parameters: 2, Lines: 1, Complexity: 1}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("functions = %+v, want %+v", got, want)
@@ -106,11 +110,11 @@ func TestWalkExtensionsTracksTraversalFailures(t *testing.T) {
 	dir := t.TempDir()
 	hosttest.WriteRel(t, dir, "not-directory", "contents")
 	root := filepath.Join(dir, "not-directory", "child")
-	reports, failed := walkExtensions(root, []string{".py"})
+	reports, failed := walkExtensions(root, []string{".py"}, io.Discard)
 	if len(reports) != 0 || !slices.Equal(failed, []string{root}) {
 		t.Fatalf("reports = %+v, failed = %v; want no reports and traversal failure %q", reports, failed, root)
 	}
-	if _, err := analyzeDirectory(root, "python"); err == nil || !strings.Contains(err.Error(), "analysis failed") {
+	if _, err := analyzeDirectory(root, "python", io.Discard); err == nil || !strings.Contains(err.Error(), "analysis failed") {
 		t.Fatalf("analysis error = %v, want tracked traversal failure rather than no supported files", err)
 	}
 }

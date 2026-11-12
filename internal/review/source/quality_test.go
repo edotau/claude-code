@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -31,7 +32,7 @@ func readGolden(t *testing.T, name string) string {
 func TestQualityGoGodClassUsesReceiver(t *testing.T) {
 	var interleaved, proximity strings.Builder
 	interleaved.WriteString("package fixture\ntype Big struct{}\ntype Small struct{}\n")
-	proximity.WriteString("type Small struct{}\n\nfunc (s Small) One() {}\n\ntype Big struct{}\n\n")
+	proximity.WriteString("package fixture\ntype Small struct{}\n\nfunc (s Small) One() {}\n\ntype Big struct{}\n\n")
 	for i := range 21 {
 		fmt.Fprintf(&interleaved, "func Free%d() {}\nfunc (b *Big) Method%d() {}\n", i, i)
 		fmt.Fprintf(&proximity, "func (b *Big) M%d() {}\n", i)
@@ -261,7 +262,7 @@ func TestWalkSourceFilesSkipPartsBelowRootOnly(t *testing.T) {
 		}
 	}
 	var got []string
-	walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	walkSourceFiles(root, io.Discard, func(p string) { got = append(got, filepath.Base(p)) })
 	if strings.Join(got, ",") != "a.py,b.py" {
 		t.Fatalf("got %v, want [a.py b.py]: target under build/ must be walked, dist/ below it skipped", got)
 	}
@@ -273,15 +274,9 @@ func TestWalkSourceFilesWarnsOnUnreadableDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	unreadableDir(t, root)
-	r, w, _ := os.Pipe()
-	orig := os.Stderr
-	os.Stderr = w
-	var got []string
-	failed := walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
-	os.Stderr = orig
-	_ = w.Close()
 	var buf bytes.Buffer
-	_, _ = buf.ReadFrom(r)
+	var got []string
+	failed := walkSourceFiles(root, &buf, func(p string) { got = append(got, filepath.Base(p)) })
 	if len(got) != 1 || got[0] != "ok.py" || len(failed) != 1 || !strings.HasPrefix(failed[0], root) {
 		t.Fatalf("got %v, failed %v; want [ok.py] and one unreadable path under %s", got, failed, root)
 	}
@@ -290,10 +285,10 @@ func TestWalkSourceFilesWarnsOnUnreadableDir(t *testing.T) {
 	}
 }
 
-// A skipped dir is pruned, not walked and discarded; a file named like one (build) prunes nothing after it.
+// A skipped dir is pruned, not walked and discarded; a file named like one (.git in a worktree) prunes nothing after it.
 func TestWalkSourceFilesPrunesSkippedDirs(t *testing.T) {
 	root := t.TempDir()
-	for _, rel := range []string{"a.py", "build", "node_modules/pkg/c.py", "sub/b.py", "zz.py"} {
+	for _, rel := range []string{"a.py", ".git", "node_modules/pkg/c.py", "sub/b.py", "zz.py"} {
 		p := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -308,7 +303,7 @@ func TestWalkSourceFilesPrunesSkippedDirs(t *testing.T) {
 	}
 	t.Cleanup(func() { walkDir = orig })
 	var got []string
-	failed := walkSourceFiles(root, func(p string) { got = append(got, filepath.Base(p)) })
+	failed := walkSourceFiles(root, io.Discard, func(p string) { got = append(got, filepath.Base(p)) })
 	if !slices.Equal(got, []string{"a.py", "b.py", "zz.py"}) || len(failed) != 0 {
 		t.Fatalf("got %v, failed %v; want [a.py b.py zz.py] and no unreadable path", got, failed)
 	}
