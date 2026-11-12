@@ -45,7 +45,7 @@ func TestSecretValuesNeverAppearInCandidatesOrPlan(t *testing.T) {
 	}
 	for _, r := range rows {
 		fmt.Fprintf(&sb, "%+v\n", r)
-		if b, err := rowJSON(r); err == nil {
+		if b, err := rowJSON(r, nil); err == nil {
 			sb.Write(b)
 		}
 	}
