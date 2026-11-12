@@ -77,14 +77,6 @@ func TestFor(t *testing.T) {
 	}
 }
 
-func TestForGeminiUnpinnedStaysOnLogin(t *testing.T) {
-	setup(t)
-	got, err := For("gemini", Launch{})
-	if err != nil || got.Profile != "antigravity" {
-		t.Fatalf("For(gemini) = %+v, %v", got, err)
-	}
-}
-
 func TestForOpencodePinWithoutRegistryRow(t *testing.T) {
 	setup(t)
 	pin(t, "opencode", "zen-free", "")

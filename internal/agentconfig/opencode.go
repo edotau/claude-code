@@ -21,14 +21,10 @@ var _ = schemas.Register(schemas.Format{
 	Version: 1, Keep: "re-rendered from the template on every launch; opencode reads it, so no schema field",
 })
 
-// opencodeOverlayDir is state/harness/opencode: the one place the harness writes for opencode, never
-// opencode's own ~/.config/opencode (configure/theme apply write there only for the themes file).
+// opencodeOverlayDir is state/harness/opencode: the only place the harness writes for opencode.
 func opencodeOverlayDir() string { return filepath.Join(paths.StateDir(), "opencode") }
 
-// OpencodeOverlayRendered computes the overlay's two files without writing them: cfgBody is the tracked
-// template with model/small_model overwritten from the routing table's opencode sonnet/haiku cells (the
-// template's own values are only a fallback for a table load error); tuiBody keeps a theme `theme apply`
-// already wrote at tuiPath, else the template's.
+// OpencodeOverlayRendered computes the overlay's two files unwritten: table models in, the applied theme kept.
 func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
 	dir := opencodeOverlayDir()
 	cfgBody, err = opencodeOverlayFS.ReadFile("template/opencode.json")
@@ -51,8 +47,7 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 // OverlayModels yields the overlay's model/small_model; internal/opencode replaces it with the login-aware pick.
 var OverlayModels = router.OpencodeTableModels
 
-// applyOpencodeTableModels overwrites model/small_model from the routing table's opencode sonnet/haiku
-// cells; a table load error leaves the template's own hard-coded values (its one fallback use) untouched.
+// applyOpencodeTableModels overwrites model/small_model from the routing table; a load error keeps the template's.
 func applyOpencodeTableModels(cfgBody []byte) []byte {
 	mainModel, smallModel, ok := OverlayModels()
 	if !ok {
@@ -76,8 +71,7 @@ func encodeOverlayJSON(doc any) ([]byte, bool) {
 	return append(out, '\n'), err == nil
 }
 
-// WriteOpencodeOverlay writes the tracked opencode.json/tui.json templates to state/harness/opencode
-// and returns their paths; a theme already applied into the existing tui.json (theme apply) survives.
+// WriteOpencodeOverlay writes the opencode.json/tui.json overlay and returns their paths; an applied theme survives.
 func WriteOpencodeOverlay() (cfg, tui string, err error) {
 	if err := os.MkdirAll(opencodeOverlayDir(), 0o700); err != nil {
 		return "", "", err
@@ -101,9 +95,7 @@ func WriteOpencodeOverlay() (cfg, tui string, err error) {
 	return cfg, tui, nil
 }
 
-// preserveAppliedTheme keeps a theme `theme apply` already wrote into the on-disk tui.json: it reads
-// the existing file's "theme" key and overrides the template's before writing, so a repeated overlay
-// write (every opencode launch) never clobbers a theme the owner picked after the template rendered.
+// preserveAppliedTheme overrides the template's "theme" with the on-disk tui.json's, so a relaunch keeps the pick.
 func preserveAppliedTheme(path string, template []byte) ([]byte, error) {
 	cur, existed, err := ReadExisting(path)
 	if err != nil {

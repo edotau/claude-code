@@ -98,8 +98,7 @@ func runSync(opts Options) int {
 		res.add(syncProjectionAssets(out, pname, in, docs, hasDocs, dryRun, prune))
 	}
 	header(out, "skills")
-	agentsSkills := agentsSkillsDir(in.home)
-	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkills, prune, dryRun))
+	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkillsDir(in.home), prune, dryRun))
 	return finishSync(out, opts, dryRun, res)
 }
 
@@ -189,18 +188,16 @@ func mkdirUnlessDry(res *syncResult, dryRun bool, dirs ...string) bool {
 
 // finishSync prints the run summary and maps the totals onto Sync's exit code.
 func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
-	pruned := res.pruned
-
 	summary := fmt.Sprintf("\nDone: %d synced, %d skipped", res.synced, res.skipped)
 	if dryRun {
 		summary = fmt.Sprintf("\nDone: %d to sync, %d up to date, %d skipped", res.pending, res.current, res.skipped)
 	}
-	if pruned > 0 {
+	if res.pruned > 0 {
 		verb := "pruned"
 		if dryRun {
 			verb = "to prune"
 		}
-		summary += fmt.Sprintf(", %d %s", pruned, verb)
+		summary += fmt.Sprintf(", %d %s", res.pruned, verb)
 	}
 	fmt.Fprintln(out, summary)
 	if res.errored > 0 {
@@ -211,8 +208,8 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 		fmt.Fprintf(os.Stderr, "blocked: %d foreign entries on managed names; remove them, then run agents sync\n", res.skipped)
 		return 1
 	}
-	if opts.Check && (res.pending > 0 || pruned > 0) {
-		fmt.Fprintf(os.Stderr, "stale: %d to write, %d to prune; run `claude-code agents sync`\n", res.pending, pruned)
+	if opts.Check && (res.pending > 0 || res.pruned > 0) {
+		fmt.Fprintf(os.Stderr, "stale: %d to write, %d to prune; run `claude-code agents sync`\n", res.pending, res.pruned)
 		return 1
 	}
 	return 0

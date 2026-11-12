@@ -19,8 +19,7 @@ func agentBody(agent Source) string {
 	return strings.TrimRight(strings.TrimLeft(agent.body, "\n"), "\n") + "\n"
 }
 
-// renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, and tools translated to
-// Gemini's built-in names (an unknown name fails validation, so unmapped tools are dropped); body = system prompt.
+// renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, translated tools only.
 func renderGeminiAgent(agent Source) string {
 	tools := geminiTools(toolList(agent.frontmatter["tools"]))
 	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
@@ -95,8 +94,7 @@ func readOnlyTools(agent Source) bool {
 	return len(tools) > 0
 }
 
-// renderCopilotAgent: ~/.copilot/agents/<name>.md — tools in Copilot's names (untranslatable ones listed in a
-// comment line under the banner), model only when concrete.
+// renderCopilotAgent: ~/.copilot/agents/<name>.md — Copilot tool names (dropped ones in a comment), model if concrete.
 func renderCopilotAgent(agent Source) string {
 	tools, dropped := copilotTools(toolList(agent.frontmatter["tools"]))
 	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
@@ -113,8 +111,7 @@ func renderCopilotAgent(agent Source) string {
 	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+note+agentBody(agent))
 }
 
-// renderOpenCodeAgent: ~/.config/opencode/agents/<name>.md — description + mode: subagent; read-only agents deny
-// edit and bash; model only when concrete.
+// renderOpenCodeAgent: ~/.config/opencode/agents/<name>.md — mode: subagent, read-only agents deny edit and bash.
 func renderOpenCodeAgent(agent Source) string {
 	fields := []orderedField{{"description", skillDescription(agent)}, {"mode", "subagent"}}
 	if m := concreteModel(agent); m != "" {
