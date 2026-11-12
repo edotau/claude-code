@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test repair → gate loop, every editing stage numstat-measured',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates} plus refuted, rounds. Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: maxAgents (hard cap on agents per run, default 200), fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: about 8 agent slots per run, so one run at a time. RETURNS {exit, route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates} plus refuted, rounds. Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -43,6 +43,12 @@ const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
 // Rounds re-audit exactly the non-test source the previous round's fix touched, until dry/stalled/capped (D2: in-script loop, not self-recursion).
 const ROUNDS = Number.isInteger(a.rounds) && a.rounds > 0 ? a.rounds : 2
+if (a.maxAgents !== undefined && !(Number.isInteger(a.maxAgents) && a.maxAgents > 0)) return ERR('args.maxAgents must be a positive integer')
+const MAX_AGENTS = a.maxAgents || 200
+// Every agent() but the shared stage block goes through ag: past MAX_AGENTS it resolves null and the run exits 'error'.
+let AGENTS = 0, LIMIT_HIT = false
+const ag = (p, o) => { if (++AGENTS > MAX_AGENTS) { LIMIT_HIT = true; return Promise.resolve(null) } return (0, agent)(p, o) }
+const LIMIT_MSG = `code-analyzer: agent limit ${MAX_AGENTS} reached (args.maxAgents); later stages did not run`
 // Prior findings as {file, line, symbol}; a string 'file:line' is accepted. Matched by proximity (same), not wording.
 let PRIOR = (Array.isArray(a.prior) ? a.prior : []).map(p => typeof p === 'string' ? { file: p.replace(/:\d+$/, ''), line: +(p.match(/:(\d+)$/) || [0, 0])[1], symbol: '' } : p)
 // Clean break: the per-stage args moved into steps.
@@ -51,7 +57,7 @@ for (const k of Object.keys(REPLACED)) {
   if (a[k] !== undefined) return ERR(`${k} was replaced by steps.${REPLACED[k]} (plans/2026-11-03-workflow-steps.md)`)
 }
 const ARGS = ['cwd', 'paths', 'packages', 'findings', 'range', 'fix', 'partition', 'hotspots', 'cap', 'tests', 'maxIterations', 'rounds', 'prior', 'minFix', 'steps', 'profile', 'provider',
-  'dimensions', 'focus', 'chunkChars', 'refuteBatch', 'gate', 'kind', 'lineBudget']
+  'dimensions', 'focus', 'chunkChars', 'refuteBatch', 'gate', 'kind', 'lineBudget', 'maxAgents']
 if (stArgs(a, ARGS)) return ERR(stArgs(a, ARGS))
 if (a.kind !== undefined && !['feature', 'refactor', 'fix', 'audit', 'consolidate'].includes(a.kind)) return ERR('args.kind must be feature|refactor|fix|audit|consolidate')
 if (a.lineBudget !== undefined && !['shrink', 'neutral', 'free'].includes(a.lineBudget)) return ERR('args.lineBudget must be shrink|neutral|free')
@@ -447,7 +453,7 @@ for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9
 let PF_STATE = '' // claude account state, read by the coworkers preflight when it runs
 const EXT = [...new Map(Object.values(S).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
-  const pf = await agent(
+  const pf = await ag(
     'For each line, run it and report its candidate count and the first candidate as agent/account/model. Edit nothing. Also run `claude-code gateway --format json --agent claude --fallback none --model sonnet </dev/null` and report claudeState = candidates[0].state when candidates is non-empty, else the skipped[] entry for claude and its gate value, else "unknown".\n' +
       EXT.map((s) => `claude-code gateway --agent ${s.agent} --fallback agents${s.profile ? ' --profile ' + s.profile : ''}${s.provider ? ' --provider ' + s.provider : ''} --format json </dev/null`).join('\n'),
     { label: 'coworkers-preflight', phase: 'Preflight', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['routes'], properties: { claudeState: { type: 'string' }, routes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['agent', 'candidates', 'first'], properties: { agent: { type: 'string' }, candidates: { type: 'integer' }, first: { type: 'string' }, error: { type: 'string' } } } } } } },
@@ -466,7 +472,7 @@ const FIX_MODEL = RAW.fix && !S.fix.ext && RAW.fix.model
 const FIX_EFFORT = RAW.fix && RAW.fix.effort
 
 // ── Pressure: Claude account state read once; low/exhausted steps every Claude stage down one model ──
-const routeStateP = PF_STATE ? Promise.resolve({ state: PF_STATE }) : agent(
+const routeStateP = PF_STATE ? Promise.resolve({ state: PF_STATE }) : ag(
   `Run exactly: ${CD}claude-code gateway --format json --agent claude --fallback none --model sonnet. ` +
     `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
@@ -507,7 +513,7 @@ const SPLIT_SCHEMA = { type: 'object', additionalProperties: false, required: ['
   type: 'object', additionalProperties: false, required: ['dir', 'files'], properties: { dir: { type: 'string' }, files: { type: 'integer' } } } } } }
 let splitP = null
 if (FILES_MODE && !PRE && !(Array.isArray(a.packages) && a.packages.length)) {
-  splitP = agent(
+  splitP = ag(
     `Run exactly: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | ` +
       `jq -c '[.files[].path | sub("/[^/]*$"; "")] | group_by(.) | map({dir: .[0], files: length})' — and return its array verbatim as dirs. Never run anything else.`,
     { label: 'scope-split', phase: 'Scope', schema: SPLIT_SCHEMA, model: 'haiku', effort: 'low' }
@@ -656,7 +662,7 @@ const REFUTE_BATCH = a.refuteBatch || 6
 // External audit/refute legs share one route: ≤4 in flight each (44 at once drew 429 storms); CAP is fix-wave width, not a rate.
 // Setup runs concurrently: route state, the scope split and round 1's unsplit scope (kept unless the split regroups).
 const runScopes = (round, model) => parallel(GROUPS.map((g, gi) => () =>
-  agent(S.scope.task(
+  ag(S.scope.task(
     `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
     { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: model, effort: S.scope.effort } // file listing: schema-checked, haiku is enough
   ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
@@ -686,7 +692,8 @@ const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
 // Fix/gate stage context: bare commands (no `cd … &&`; copilot rejects compound commands), external agents use --workdir.
-const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: routeModel, kind: JOB, lineBudget: LINE_BUDGET }
+const FCTX = { cwd: CWD, cd: CWD ? `cwd: ${CWD} (external agents: ask --workdir ${CWD}). Prefix every shell command with \`cd ${CWD} &&\` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots).\n` : '', rules: SHARED_TREE, S, model: m => { if (++AGENTS > MAX_AGENTS) LIMIT_HIT = true; return routeModel(m) }, // counts stage-block agents
+   kind: JOB, lineBudget: LINE_BUDGET }
 const GATE_RULES = 'Never run git stash|checkout|reset|restore|clean|commit; never run install/deploy/release targets or edit tool config. Edit only inside scope; re-run only the gate.'
 const auditGate = S.audit.ext ? limiter(EXT_CAP) : fn => fn()
 const refuteGate = S.refute.ext ? limiter(EXT_CAP) : fn => fn()
@@ -715,11 +722,25 @@ for (let round = 1; round <= ROUNDS; round++) {
     else if (!scopes[gi]) chunks.push({ group: g, gi, files: [], chars: 0 }) // scope failed: the auditor falls back to git/find itself
     log(`scope ${gi}: ${files.length} files, ~${files.reduce((n, f) => n + (f.bytes || 0), 0)} bytes`)
   })
+  const short = !PRE && SPLIT ? GROUPS.map((g, gi) => ({ g, gi, n: dirs.filter(d => g.includes(d.dir)).reduce((t, d) => t + d.files, 0) })).find(x => scopes[x.gi] && !scopes[x.gi].files.length && x.n > 0) : null
+  if (short) {
+    rounds.push({ error: `code-analyzer: scope:${round}:${short.gi} returned 0 files for ${short.g.join(', ')} (split counted ${short.n}) — listing likely truncated; rerun with narrower paths`, exit: 'error', round })
+    break
+  }
   if (!PRE && FILES_MODE && !chunks.length) {
     rounds.push({ error: 'code-analyzer: no source files under ' + PATHS.join(', '), exit: 'error', round })
     break
   }
-  log(`${chunks.length} chunk(s) of ≤${CHUNK_CHARS} chars → ${DIMENSIONS.filter(d => !d.hitsOnly).length * chunks.length} first-pass auditors`)
+  if (!PRE && !FILES_MODE && !chunks.length) {
+    rounds.push({ error: `code-analyzer: ${RANGE} changes no source files under ${PATHS.join(', ') || '.'}`, exit: 'error', round })
+    break
+  }
+  const planned = DIMENSIONS.filter(d => !d.hitsOnly).length * chunks.length
+  if (AGENTS + planned > MAX_AGENTS) {
+    rounds.push({ error: `code-analyzer: ${planned} first-pass auditors planned (${AGENTS} agents already run) exceed the agent limit ${MAX_AGENTS}; narrow paths, raise chunkChars, or raise maxAgents`, exit: 'error', round })
+    break
+  }
+  log(`${chunks.length} chunk(s) of ≤${CHUNK_CHARS} chars → ${planned} first-pass auditors`)
 
   // ── Find → Refute as ONE pipeline: a chunk's findings are refuted while other chunks still audit ──
   // hitsOnly lenses (contracts) run in a second pass over just the files the first pass confirmed a finding in:
@@ -746,7 +767,7 @@ for (let round = 1; round <= ROUNDS; round++) {
       (u.chunk.files.length
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`)
-    return auditGate(() => agent(S.audit.task(prompt),
+    return auditGate(() => ag(S.audit.task(prompt),
       { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel((RAW.audit && RAW.audit.model) || u.dim.model || S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
     )).then(r => S.audit.done(`find:${round}:${u.key}`, r))
   }
@@ -778,7 +799,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         // A "no such verb" finding once survived and its fixer rewrote a correct doc; the verb was an alias spelling.
         `A claim that a verb, flag, symbol or file does NOT exist is refuted unless a tree-wide grep (alias, registration and config tables included) AND the repo's own test or CLI output both come back empty.`
       const label = `refute:${round}:${pkg.split('/').pop()}:${bi}`
-      return refuteGate(() => agent(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).then(v => {
+      return refuteGate(() => ag(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).then(v => {
         v = S.refute.done(label, v)
         const verdicts = v && Array.isArray(v.verdicts) ? v.verdicts : []
         return fs.map((f, i) => {
@@ -799,6 +820,7 @@ for (let round = 1; round <= ROUNDS; round++) {
     log(`hits-only pass: ${hitChunks.length} chunk(s) over ${flagged.size} flagged file(s)`)
     if (hitChunks.length) confirmed.push(...collect(await pipeline(mkUnits(hitDims, hitChunks, 'h'), findStage, refuteStage)))
   }
+  if (LIMIT_HIT) { rounds.push({ error: LIMIT_MSG, exit: 'error', round, confirmed, refuted, unverified }); break }
   confirmed.sort((x, y) => ORDER[x.severity] - ORDER[y.severity])
   const toFix = confirmed.filter(f => ORDER[f.severity] <= MIN_FIX)
   const deferred = confirmed.filter(f => ORDER[f.severity] > MIN_FIX)
@@ -825,7 +847,7 @@ for (let round = 1; round <= ROUNDS; round++) {
   const byPkg = new Map()
   for (const f of toFix) byPkg.set(f.package, [...(byPkg.get(f.package) || []), f])
   phase('Scan')
-  const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => agent(S.depscan.task(
+  const scans = await parallel([...byPkg.entries()].map(([pkg, fs]) => () => ag(S.depscan.task(
     `Read-only dependency scan of ${pkg}${IN}. A fixer will repair these findings:\n${fs.map(f => `- ${relPath(f.file)}:${f.line} ${f.title}`).join('\n')}\n` +
       `Return files = every file the fix will likely edit (tests included), exported = whether it changes an exported symbol or signature, ` +
       `importers = repo packages importing ${pkg} (run once: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${pkg} --importers --format json </dev/null and take packages[].importers), ` +
@@ -930,9 +952,9 @@ const report = [`# code-analyzer: ${allConfirmed.length} confirmed finding(s) ov
   ...(unverifiedAll.length ? [`Unverified (refuter failed): ${unverifiedAll.map(u => relPath(u.file) + ':' + u.line).join(', ')}.`] : []),
   ...(planOut ? ['', planOut] : [])].join('\n') + (ST_LINES.length || ST_PROPOSED.length ? '\n' + stTail(lines, ST_OVER, ST_PROPOSED) : '')
 // a fix still over the line budget after its one shrink pass turns a finished run into review (failures keep their exit)
-const EXIT = STARVED && lastRound.exit !== 'error' ? 'blocked' : ST_OVER.length && ['capped', 'nothing-changed', 'dry'].includes(lastRound.exit) ? 'review' : lastRound.exit
+const EXIT = LIMIT_HIT ? 'error' : STARVED && lastRound.exit !== 'error' ? 'blocked' : ST_OVER.length && ['capped', 'nothing-changed', 'dry'].includes(lastRound.exit) ? 'review' : lastRound.exit
 return {
-  ...lastRound, exit: EXIT, round: lastRound.round, rounds,
+  ...lastRound, exit: EXIT, ...(LIMIT_HIT ? { error: LIMIT_MSG } : {}), round: lastRound.round, rounds,
   route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged, confirmed: allConfirmed, // every round's, not only the last re-audit's
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
   unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut, coworkers: COWORKERS,
