@@ -572,6 +572,36 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 	if g := up.got(); len(g) != 1 || g[0].body != body {
 		t.Fatalf("upstream body %+v, want unchanged", g)
 	}
+
+	// a 400 naming function tools with reasoning_effort is retried once without it; other 400s are not
+	const msg = `{"error":{"message":"Function tools with reasoning_effort are not supported for gpt-6.1-terra in /v1/chat/completions."}}`
+	reqBody := `{"model":"databricks-gpt-6-1-terra","reasoning_effort":"high","tools":[{"type":"function","function":{"name":"f"}}]}`
+	for _, tc := range []struct {
+		name, errBody string
+		status, hits  int
+	}{
+		{"capability error", msg, 200, 2},
+		{"other 400", `{"error":{"message":"bad"}}`, 400, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rup, rresp := sendChat(t, reqBody, func(w http.ResponseWriter, r *http.Request, n int) {
+				b, _ := io.ReadAll(r.Body)
+				if n == 1 || bytes.Contains(b, []byte("reasoning_effort")) {
+					w.WriteHeader(400)
+					io.WriteString(w, tc.errBody)
+					return
+				}
+				okRaw(w, r, n)
+			})
+			g := rup.got()
+			if rresp.StatusCode != tc.status || len(g) != tc.hits {
+				t.Fatalf("status %d hits %d, want %d/%d", rresp.StatusCode, len(g), tc.status, tc.hits)
+			}
+			if tc.hits == 2 && (strings.Contains(g[1].body, "reasoning_effort") || !strings.Contains(g[1].body, `"tools"`)) {
+				t.Errorf("retry body %s, want tools kept and reasoning_effort dropped", g[1].body)
+			}
+		})
+	}
 }
 
 // A null tool_calls entry passes through instead of panicking the handler.

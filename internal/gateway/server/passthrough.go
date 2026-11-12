@@ -152,7 +152,12 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		writeSendError(sw, p, err)
 		return model, ""
 	}
-	extra := passthroughDiag(resp, len(body))
+	defer func() { _ = resp.Body.Close() }() // whichever reply is current: the retry swaps resp
+	retried := ""
+	if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") {
+		resp, body, retried = r.retryWithoutEffort(in, p, target, model, resp, body)
+	}
+	extra := passthroughDiag(resp, len(body)) + retried
 	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
 		r.coolDown(p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
 	}
@@ -169,6 +174,36 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
 	}
 	return model, extra
+}
+
+// retryWithoutEffort resends a chat body once without reasoning_effort when the upstream 400s that function tools
+// cannot combine with it; the second reply, its body and a log suffix naming the dropped parameter come back.
+func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, target, model string,
+	resp *http.Response, body []byte) (*http.Response, []byte, string) {
+	if resp.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte(`"reasoning_effort"`)) {
+		return resp, body, ""
+	}
+	msg := strings.ToLower(string(peekBody(resp, 64<<10)))
+	if !strings.Contains(msg, "function tools with reasoning_effort") {
+		return resp, body, ""
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return resp, body, ""
+	}
+	delete(top, "reasoning_effort")
+	stripped, err := json.Marshal(top)
+	if err != nil {
+		return resp, body, ""
+	}
+	retry, err := r.sendMethod(in, in.Method, p, target, stripped, copyClientHeaders(in))
+	if err != nil {
+		return resp, body, ""
+	}
+	_ = resp.Body.Close()
+	fmt.Fprintf(r.log, "proxy: %s: model %s rejected function tools with reasoning_effort; retried without it\n",
+		p.Name, agentToken(model))
+	return retry, stripped, " dropped=reasoning_effort"
 }
 
 // copyClientHeaders returns a hook copying the client's non-hop, non-blocked headers onto the upstream request.
