@@ -155,6 +155,7 @@
   "terminal.external.osxExec": "Ghostty.app",
   "settingsSync.ignoredSettings": ["terminal.integrated.commandsToSkipShell", "chat.mcp.access", "terminal.external.osxExec"],
   "terminal.integrated.tabs.title": "${shellType}",
+  "chat.agentFilesLocations": {".github/agents": true, ".claude/agents": true, "~/.copilot/agents": false},
   "chat.instructionsFilesLocations": {".github/instructions": true, ".claude/rules": true, "~/.copilot/instructions": true, "~/.claude/rules": true},
   "chat.mcp.discovery.enabled": {"claude-desktop": true},
   "claudeCode.allowDangerouslySkipPermissions": true,
