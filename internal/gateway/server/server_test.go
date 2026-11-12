@@ -149,6 +149,22 @@ func TestAuthAndHostRejection(t *testing.T) {
 	}
 }
 
+// Claude Code's keyless HEAD /api/hello startup probe gets a local 200 and never reaches the upstream.
+func TestHelloProbeAnsweredLocally(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	srv := setup(t,
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	resp, err := http.DefaultClient.Do(testRequest(t, http.MethodHead, srv.URL+"/p/up1/api/hello", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || up.hits.Load() != 0 {
+		t.Fatalf("keyless hello probe: status %d, upstream hits %d; want 200 and 0", resp.StatusCode, up.hits.Load())
+	}
+}
+
 func TestAnthropicPassthrough(t *testing.T) {
 	up := newUpstream(t, ok)
 	t.Setenv("UP1_KEY", "provider-key")
