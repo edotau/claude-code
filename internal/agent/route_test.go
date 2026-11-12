@@ -613,8 +613,9 @@ func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 		t.Errorf("capability retry = %q, want dbx:m-b", got)
 	}
 	schemaErr := errors.New(`Bad Request: Invalid JSON payload received. Unknown name "$schema" at 'tools[0].function_declarations[0].parameters'`)
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-b"}, schemaErr); got != "" {
-		t.Errorf("tool-schema retry with the pool exhausted = %q, want none", got)
+	tier := "dbx:" + router.DatabricksModel("opencode", router.Aliases[1], p) // an exhausted pool falls back to the tier
+	if got := retryModel(disp, RunOptions{Model: "dbx:m-b"}, schemaErr); got != tier {
+		t.Errorf("tool-schema retry with the pool exhausted = %q, want the tier model %q", got, tier)
 	}
 	assertDiscoverySkippedModels(t, p.Name)
 	if got := retryModel(Dispatch{}, RunOptions{Model: "x"}, capErr); got != "" {

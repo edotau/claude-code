@@ -1500,7 +1500,7 @@ func checkArmChildEnv(t *testing.T, name, goos string) {
 	t.Helper()
 	dump := armChildEnvFixture(t)
 	t.Cleanup(copilot.StubGOOS(goos))
-	t.Cleanup(copilot.StubRegistry("cct_ARM_dev", "databricks-claude-sonnet-5-5")) // no live discovery
+	t.Cleanup(copilot.StubRegistry("cct_ARM_dev", "databricks-claude-sonnet-5-5", "databricks-gpt-6-1-sol")) // no live discovery
 	code, _, stderr := runCLI(t, "ask", "--agent", name, "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "all", "go")
 	bins, envs := armDumps(t, dump)
 	if code == 0 || len(bins) == 0 || bins[0] != armDevHop[name].bin {

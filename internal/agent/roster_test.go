@@ -497,7 +497,7 @@ func TestSessionProfileAgentsCopilot(t *testing.T) {
 	if len(r.Candidates) == 0 {
 		t.Fatalf("copilot absent: %+v", r)
 	}
-	s.assertProfile(t, r.Candidates[0], "copilot", s.p.WireModel(s.p.Models["sonnet"]))
+	s.assertProfile(t, r.Candidates[0], "copilot", router.DatabricksModel("copilot", "sonnet", s.p))
 	if len(s.models(r, "copilot", s.github)) != 0 || !s.skipped(r, "copilot", router.GateExhausted) {
 		t.Errorf("copilot github profile = %+v", r)
 	}
@@ -580,7 +580,7 @@ func TestSessionProfileAgentsCopilotProfile(t *testing.T) {
 	if len(r.Candidates) != 1 {
 		t.Fatalf("copilot profile = %+v", r)
 	}
-	s.assertProfile(t, r.Candidates[0], "copilot", s.p.WireModel(s.p.Models["sonnet"]))
+	s.assertProfile(t, r.Candidates[0], "copilot", router.DatabricksModel("copilot", "sonnet", s.p))
 }
 
 func TestSessionProfileAgentsCopilotModel(t *testing.T) {

@@ -35,6 +35,11 @@
       "gemini": {"model": "gemini-3.8-flash-low", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
     }
   },
+  "databricks": {
+    "opus": ["claude-opus-5-5", "gpt-6-astra", "gpt-6-1-sol", "grok-4-7", "kimi-k3", "claude-opus-5", "claude-opus-4-8"],
+    "sonnet": ["claude-sonnet-5-5", "gpt-6-1-terra", "glm-5-3", "gemini-3-8-flash", "claude-sonnet-5", "claude-sonnet-4-6"],
+    "haiku": ["claude-haiku-5-5", "gpt-6-luna", "gpt-5-5", "gemini-3-1-flash-lite", "glm-5-3-flash", "claude-haiku-4-5"]
+  },
   "opencode_sub": {
     "zen-free": {
       "claude-sonnet-5-5": {"model": "opencode/deepseek-v4.1-flash-free", "account_key": "opencode·zen-free", "price": {"in": 0, "cached_in": 0, "out": 0}},

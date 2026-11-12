@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -26,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 type geminiEngine struct{ agent.BaseEngine }
@@ -255,13 +257,14 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
 	base, arg := agyGatewayArg(model)
+	list, lite := agyGatewayModels(p, base, time.Now())
 	env := []string{
 		"AGY_LLM_GATEWAY_URL=" + gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
 		"AGY_LLM_GATEWAY_API_KEY=" + tok,
 		"AGY_LLM_GATEWAY_WIRE_PROTOCOL=genai",
-		"AGY_LLM_GATEWAY_MODELS=" + base,
-		// every tier on the one served model: agy's side calls (titles) use the flash-lite tier
-		"AGY_LLM_GATEWAY_TIER_FLASH=" + base, "AGY_LLM_GATEWAY_TIER_PRO=" + base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE=" + base,
+		"AGY_LLM_GATEWAY_MODELS=" + list,
+		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
+		"AGY_LLM_GATEWAY_TIER_FLASH=" + base, "AGY_LLM_GATEWAY_TIER_PRO=" + base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE=" + lite,
 		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router
 		"AGY_LLM_GATEWAY_HEADERS=", "AGY_LLM_GATEWAY_CA_CERT=", "AGY_LLM_GATEWAY_PROXY_URL=",
 	}
@@ -273,6 +276,36 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		argv = append(argv, "--effort", effort)
 	}
 	return env, argv, nil
+}
+
+// agyFlashLite is the model agy's flash-lite tier runs when the profile serves it.
+const agyFlashLite = "gemini-3.1-flash-lite"
+
+// agyServedGemini lists the READY Gemini models (dotted) in p's fresh cached listing; nil when cold. A var for tests.
+var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
+	s, ok := router.LoadServed(p.Name)
+	if !ok || !s.Fresh(now) {
+		return nil
+	}
+	var out []string
+	for _, m := range s.Models {
+		base, _, ok := agyGatewayBase(m.ID)
+		if ok && (m.Ready == "" || m.Ready == "READY") && !slices.Contains(out, base) {
+			out = append(out, base)
+		}
+	}
+	return out
+}
+
+// agyGatewayModels is agy's advertised list (base first, then every other served Gemini model) and flash-lite tier.
+func agyGatewayModels(p *providers.Provider, base string, now time.Time) (list, lite string) {
+	served := agyServedGemini(p, now)
+	others := slices.DeleteFunc(slices.Clone(served), func(m string) bool { return m == base })
+	lite = base
+	if slices.Contains(served, agyFlashLite) {
+		lite = agyFlashLite
+	}
+	return strings.Join(append([]string{base}, others...), ","), lite
 }
 
 // agyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.

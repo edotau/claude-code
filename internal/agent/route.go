@@ -530,8 +530,12 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 	if !concrete || p == nil || cand.Agent != rc.want {
 		return false
 	}
-	onWire := rc.exact != "" || speaksResponses(cand.Agent) // codex takes a Claude id only where Responses serves it
-	return wireAgent(cand.Agent) || (onWire && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
+	return wireAgent(cand.Agent) || (rc.onWire(cand.Agent) && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
+}
+
+// onWire reports agent running the caller's id on a Databricks row: any exact id; a Claude id on codex or the hub.
+func (rc routeCtx) onWire(agent string) bool {
+	return rc.exact != "" || speaksResponses(agent) || isHubAgent(agent)
 }
 
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
@@ -915,7 +919,7 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 
 func previewHint(tb *router.RouteTable, model, task string) (string, error) {
 	id, _, ok := models.Resolve(model)
-	if exact := ok && models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.DiscoveryModel && !exact && tb.AliasOf(model) == "" {
+	if exact := !ok || models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.DiscoveryModel && !exact && tb.AliasOf(model) == "" {
 		return "", fmt.Errorf("--model %q names no alias or version the table routes", model)
 	}
 	hint := tb.AliasOf(model)

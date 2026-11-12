@@ -71,6 +71,19 @@ func ServedListed(p *providers.Provider, model string, now time.Time) (listed, r
 	return listed, ready, true
 }
 
+// SpellServed is SpellPin, but a bare unlisted id is databricks-<id> where p's fresh listing has that READY.
+func SpellServed(p *providers.Provider, id string, now time.Time) string {
+	wire := providers.SpellPin(p, id)
+	if p == nil || p.SpellingRule() != "databricks-serving" || wire != id || strings.ContainsAny(id, "/:") ||
+		strings.HasPrefix(id, models.DatabricksPrefix) {
+		return wire // a catalog id SpellPin already prefixed, or one already qualified
+	}
+	if _, ready, fresh := ServedListed(p, models.DatabricksPrefix+id, now); fresh && ready {
+		return models.DatabricksPrefix + id
+	}
+	return wire
+}
+
 // ServedFirst is the first READY menu entry respelled for p, Responses-only for codex; "" with fresh=true is none.
 func ServedFirst(p *providers.Provider, responsesOnly bool, now time.Time) (model string, fresh bool) {
 	isReady, fresh := servedView(p, now)

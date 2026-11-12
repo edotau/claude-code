@@ -323,8 +323,8 @@ func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registr
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
-	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Models[tier] != "" {
-		t.Model = t.Provider.Models[tier] // the fallback serves the requested tier, not its default opus
+	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && tierModel(t.Provider, tier) != "" {
+		t.Model = tierModel(t.Provider, tier) // the fallback serves the requested tier, not its default opus
 	}
 	return t, note, err
 }

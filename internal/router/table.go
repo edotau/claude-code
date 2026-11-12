@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -36,6 +38,54 @@ func OpencodeTableModels() (string, string, bool) {
 		return "", "", false
 	}
 	return sonnet.Model, haiku.Model, true
+}
+
+// databricksTiers is table.json's "databricks" table: each alias's ordered bucket of canonical ids, shared by agents.
+var databricksTiers = sync.OnceValue(func() map[string][]string {
+	var f struct {
+		Databricks map[string][]string `json:"databricks"`
+	}
+	_ = json.Unmarshal(tableJSON, &f) // a malformed table.json fails LoadFrom, which every pick runs first
+	return f.Databricks
+})
+
+// DatabricksModel is the first member of alias's bucket agent runs and nothing marks unusable, for p; "" if none.
+func DatabricksModel(agent, alias string, p *providers.Provider) string {
+	if p == nil || p.Preset != providers.PresetDatabricks {
+		return ""
+	}
+	now, st := time.Now(), LoadState()
+	for _, id := range databricksTiers()[alias] {
+		wire := SpellServed(p, id, now)
+		if _, _, known := models.Resolve(id); !known && wire == id {
+			continue // an unlisted id with no READY endpoint to spell it by
+		}
+		if bucketRunnable(agent, p, wire) && !tierUnusable(st, p, wire, now) {
+			return wire
+		}
+	}
+	return ""
+}
+
+// bucketRunnable reports whether agent can run wire: claude and gemini their own family, codex a Responses model.
+func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
+	switch agent {
+	case "claude":
+		return models.FamilyKind(wire) == models.FamilyClaude
+	case "gemini":
+		return models.FamilyKind(wire) == models.FamilyGemini
+	case "codex":
+		return providers.ServesResponses(p, wire) // the Responses wire codex speaks (providers.WireFor)
+	}
+	return true
+}
+
+// tierUnusable reports wire missing or not READY in p's fresh listing, or quota-dead on p's account.
+func tierUnusable(st State, p *providers.Provider, wire string, now time.Time) bool {
+	if _, ready, fresh := ServedListed(p, wire, now); fresh && !ready {
+		return true // ready is false for an unlisted endpoint too
+	}
+	return st.accountModelDead(ProviderAccount(p.Name), wire, now)
 }
 
 // Price is USD per 1M tokens.
