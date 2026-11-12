@@ -107,7 +107,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	session, count, ok := parsePath(req.URL.Path)
 	if !ok || req.Method != http.MethodPost {
-		writeError(w, http.StatusNotFound,
+		r.refuse(w, req, http.StatusNotFound,
 			"proxy: unsupported route "+req.Method+" "+req.URL.Path+" (want POST /p/<provider>/v1/messages)")
 		return
 	}
@@ -130,10 +130,16 @@ func withLaunchIdentity(req *http.Request) *http.Request {
 	return req
 }
 
+// refuse writes and logs an error for a request turned away before routing, which otherwise leaves no log line.
+func (r *Router) refuse(w http.ResponseWriter, req *http.Request, status int, msg string) {
+	fmt.Fprintf(r.log, "%s refused %d %s %s: %s\n", r.now().Format(time.RFC3339), status, req.Method, req.URL.Path, msg)
+	writeError(w, status, msg)
+}
+
 // serveGate answers the host check, health, session and auth-failure requests; true when it wrote the response.
 func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 	if !loopbackHost(req.Host) {
-		writeError(w, http.StatusForbidden, "proxy: Host must be 127.0.0.1, localhost or [::1]")
+		r.refuse(w, req, http.StatusForbidden, "proxy: Host must be 127.0.0.1, localhost or [::1]")
 		return true
 	}
 	if req.URL.Path == "/healthz" {
@@ -145,7 +151,7 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	if !r.authorized(req) {
-		writeError(w, http.StatusUnauthorized,
+		r.refuse(w, req, http.StatusUnauthorized,
 			"proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
 		return true
 	}
@@ -155,7 +161,7 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 // sessionRoute serves the mint/revoke paths to the real client secret only.
 func (r *Router) sessionRoute(w http.ResponseWriter, req *http.Request) {
 	if !r.secretOK(req) { // a session token never mints or revokes
-		writeError(w, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
 		return
 	}
 	r.serveSession(w, req)
