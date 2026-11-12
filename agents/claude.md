@@ -87,7 +87,7 @@ Tools, guards, background, model, input and output flags:
   their brief names a saved one (headless). Run as `@agent-claude`, `subagent_type: claude` or `claude --agent claude`,
   you are a leaf: run every phase inline.
 
-A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
+A live session (`ask --agent claude --live`, `agents send <id>`) and `--remote`:
 `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 
 ## Hands off to

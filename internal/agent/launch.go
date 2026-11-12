@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -167,10 +168,30 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
-	EnsureRouter = gateway.Ensure
+	EnsureRouter = ensureRouter
 	RouterSecret = gateway.ClientSecret
 	MintSession  = gateway.MintSessionToken // mints a router session token for profile and pid
 )
+
+// ensureRouter is gateway.Ensure; under --host it brings the tunnel up here and returns the /via/<host> base.
+func ensureRouter(ctx context.Context) (string, error) {
+	base, err := gateway.Ensure(ctx)
+	if err != nil || egress.Host() == "" {
+		return base, err
+	}
+	if _, err := egress.Ensure(ctx, egress.Host()); err != nil {
+		return "", err
+	}
+	return gateway.ViaBase(base), nil
+}
+
+// RefuseDirect rejects --direct under --host: a direct agent calls the provider itself, around the tunnel.
+func RefuseDirect(direct bool) error {
+	if direct && egress.Host() != "" {
+		return fmt.Errorf("--direct cannot be combined with --host %s: a direct agent would bypass the egress host", egress.Host())
+	}
+	return nil
+}
 
 type directKey struct{}
 

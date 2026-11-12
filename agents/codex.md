@@ -114,7 +114,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 - Resume the underlying CLI session directly with `codex resume <id>`.
 - `ask --agent codex` honors `--system-prompt`/`--append-system-prompt` natively and `--env NAME=VALUE`; it reports no
-  `cost_usd`. Stream, `--host` and `agents status|result|tail|cancel`: `cost-routing.md` → Ask flags and lifecycle.
+  `cost_usd`. Stream, `--remote` and `agents status|result|tail|cancel`: `cost-routing.md` → Ask flags and lifecycle.
 
 ## Hands off to
 

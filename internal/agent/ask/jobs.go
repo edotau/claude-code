@@ -198,7 +198,7 @@ func printLiveEnvelope(env wire.Envelope, format string) error {
 }
 
 // liveExclusive are the ask flags a live session cannot honor: it has no single task, route or envelope of its own.
-var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env", "attach", "no-tools", "output-schema",
+var liveExclusive = []string{"background", "remote", "batch", "retry", "job", "env", "attach", "no-tools", "output-schema",
 	"rubric", "log", "stdin-framed", "fallback", "native"}
 
 // askLiveCheck rejects --live with a persona, another agent, a task, or a flag a held-open session cannot honor.

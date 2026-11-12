@@ -33,7 +33,7 @@ opencode has ignored `--workdir` and written the live tree, so check `git diff -
 
 A flag an agent can't honor is named in the envelope's `dropped`, never silent. `ask --format stream-json` emits NDJSON
 events (`result` holds the envelope; each dispatch also writes `state/harness/dispatch/<id>.events.jsonl`); `--env
-NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs over ssh; `--agent claude|gemini
+NAME=VALUE` reaches every agent (credential-looking names refused); `--remote <h>` runs over ssh; `--agent claude|gemini
 --live` holds one session open and `agents send <id> "<task>"` feeds it (one turn in flight, ≤4 sessions).
 
 ## Fallback

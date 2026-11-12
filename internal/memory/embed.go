@@ -627,7 +627,7 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 		return "", "", false
 	}
 	secret, err := gateway.ClientSecret()
-	return gateway.Base(st.Port), secret, err == nil
+	return gateway.ViaBase(gateway.Base(st.Port)), secret, err == nil
 }
 
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.

@@ -14,7 +14,7 @@ import (
 // RestartRow is one daemon's outcome in `network restart`.
 type RestartRow struct {
 	Daemon string `json:"daemon"`
-	Status string `json:"status"` // restarted | would restart | skipped | failed
+	Status string `json:"status"` // restarted | would restart | stopped | would stop | skipped | failed
 	OldPID int    `json:"old_pid,omitempty"`
 	NewPID int    `json:"new_pid,omitempty"`
 	Note   string `json:"note,omitempty"`

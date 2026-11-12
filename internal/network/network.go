@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/websearch"
@@ -59,7 +60,9 @@ var restartPage = helptext.Page{
 		"skipped. The memory idle watcher is per-session and exits by itself, so\n" +
 		"it is not restarted.\n" +
 		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
-		"open sessions alone do not block a restart.",
+		"open sessions alone do not block a restart.\n" +
+		"Each --host ssh tunnel is stopped too, unless the proxy was left busy;\n" +
+		"the next --host command starts it again.",
 }
 
 // restartFlags declares `network restart`'s flags on fs.
@@ -82,17 +85,40 @@ func cmdRestart(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	row := gateway.RestartReport(ctx, *dry, *force)
+	rows := []gateway.RestartRow{row}
+	if busy := row.Status == "skipped" && row.OldPID != 0; !busy {
+		rows = append(rows, stopTunnels(*dry)...)
+	}
 	if *format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": []gateway.RestartRow{row}}); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, map[string]any{"daemons": rows}); err != nil {
 			return helptext.Fail("network restart: %v", err)
 		}
-	} else {
-		printRestartRow(row)
 	}
-	if row.Status == "failed" {
-		return 1
+	code := 0
+	for _, r := range rows {
+		if *format != helptext.JSON {
+			printRestartRow(r)
+		}
+		if r.Status == "failed" {
+			code = 1
+		}
 	}
-	return 0
+	return code
+}
+
+// stopTunnels ends every recorded --host ssh tunnel (dry: reports them), one row per egress host.
+func stopTunnels(dry bool) []gateway.RestartRow {
+	var rows []gateway.RestartRow
+	for _, t := range egress.Tunnels() {
+		row := gateway.RestartRow{Daemon: "egress", Status: "stopped", OldPID: t.PID, Note: t.Host}
+		if dry {
+			row.Status = "would stop"
+		} else if err := egress.Stop(t.Host); err != nil {
+			row.Status, row.Note = "failed", err.Error()
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 func printRestartRow(r gateway.RestartRow) {
@@ -101,6 +127,8 @@ func printRestartRow(r gateway.RestartRow) {
 		fmt.Printf("%-8s restarted  pid %d → %d\n", r.Daemon, r.OldPID, r.NewPID)
 	case "would restart":
 		fmt.Printf("%-8s would restart  pid %d\n", r.Daemon, r.OldPID)
+	case "stopped", "would stop":
+		fmt.Printf("%-8s %s  %s pid %d\n", r.Daemon, r.Status, r.Note, r.OldPID)
 	case "skipped":
 		fmt.Printf("%-8s %s (skipped)\n", r.Daemon, r.Note)
 	default:

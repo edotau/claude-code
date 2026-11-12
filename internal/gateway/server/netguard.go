@@ -9,12 +9,17 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // guardedClient rejects hostnames resolving locally; configured literal IPs and localhost remain allowed.
 func guardedClient() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.DialContext = guardedDial
+	t.Proxy = egress.Proxy // a /via/<host> request's workspace calls leave through that host's tunnel
 	t.ResponseHeaderTimeout = responseHeaderTimeout
 	t.MaxIdleConnsPerHost = upstreamIdleConns
 	return &http.Client{Transport: t}
@@ -86,4 +91,30 @@ func rejectLocal(_, address string, _ syscall.RawConn) error {
 			address, ip)
 	}
 	return nil
+}
+
+// stripVia takes a leading /via/<host> off the path and pins that egress host on the request; false after a 400.
+func stripVia(w http.ResponseWriter, req *http.Request) (*http.Request, bool) {
+	tail, ok := strings.CutPrefix(req.URL.Path, gateway.ViaPrefix)
+	if !ok {
+		return req, true
+	}
+	host, rest, _ := strings.Cut(tail, "/")
+	if err := textutil.ValidHost(host); err != nil {
+		writeError(w, http.StatusBadRequest, "proxy: "+gateway.ViaPrefix+"<host>: "+err.Error())
+		return nil, false
+	}
+	out := req.WithContext(egress.WithHost(req.Context(), host))
+	u := *req.URL
+	u.Path, u.RawPath = "/"+rest, ""
+	out.URL = &u
+	return out, true
+}
+
+// viaDiag is the log line's " via=<host>" for a request that named an egress host.
+func viaDiag(req *http.Request) string {
+	if h := egress.PinnedHost(req.Context()); h != "" {
+		return " via=" + h
+	}
+	return ""
 }

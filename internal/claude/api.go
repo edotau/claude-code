@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -103,6 +104,7 @@ func logAPIRun(ctx context.Context, res wire.Result, err error) {
 var chatClient = &http.Client{Transport: func() http.RoundTripper {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ResponseHeaderTimeout = 2 * time.Minute
+	t.Proxy = egress.Proxy // cloned at init, before cli.Run installs it on the default transport
 	return t
 }()}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/network"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -131,7 +132,7 @@ func completionEngine() helptext.Engine {
 
 // cmdComplete is the hidden completion verb behind the shell shim.
 func cmdComplete(args []string) int {
-	for _, c := range remote.Complete(args, completionEngine().Candidates) {
+	for _, c := range remote.Complete(args, egressFlag, completionEngine().Candidates) {
 		fmt.Println(c)
 	}
 	return 0
@@ -233,6 +234,7 @@ func lookup(name string) *command {
 // Run dispatches argv and returns the exit code.
 func Run(argv []string) int {
 	paths.ExportConfigDir()
+	egress.Install()
 	if len(argv) < 2 {
 		return printUsage()
 	}
@@ -240,8 +242,11 @@ func Run(argv []string) int {
 	if isHelpVerb(name) {
 		return printUsage()
 	}
-	if name == "--host" || strings.HasPrefix(name, "--host=") { // run a harness verb on a tailnet host over ssh
+	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") { // run a harness verb on a tailnet host over ssh
 		return remote.Run(argv[1:])
+	}
+	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
+		return runVia(argv)
 	}
 	if c := lookup(name); c != nil {
 		return c.run(args)
@@ -258,6 +263,24 @@ func Run(argv []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
+}
+
+// egressFlag runs a verb here with its Databricks workspace requests leaving through an ssh host.
+const egressFlag = "--host"
+
+// runVia is `claude-code --host <host> <verb …>`: it pins the egress host for this process and its children.
+func runVia(argv []string) int {
+	host, rest, err := remote.SplitHost(egressFlag, argv[1:])
+	if err != nil {
+		return helptext.FailUsage("%v", err)
+	}
+	if err := egress.Valid(host); err != nil {
+		return helptext.FailUsage("%s: %v", egressFlag, err)
+	}
+	if err := os.Setenv(egress.EnvHost, host); err != nil {
+		return helptext.Fail("%s: %v", egressFlag, err)
+	}
+	return Run(append(argv[:1:1], rest...))
 }
 
 // printUsage writes the menu to stdout; it returns 1 when the write fails.

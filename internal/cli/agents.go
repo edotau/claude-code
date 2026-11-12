@@ -47,7 +47,7 @@ func askSpecFlags() []helptext.Flag {
 		flag("attach"), flag("keep-env"), flag("overlay"), boolFlag("autonomous"), boolFlag("fleet"), boolFlag("enable-memory"),
 		boolFlag("background"), flag("job"), flag("batch"), flag("jobs"), boolFlag("fail-fast"),
 		boolFlag("no-persist"), boolFlag("safe-mode"), flag("debug-file"), valuedFlag("as", func() []string { return []string{"user", "sp"} }),
-		flag("append-system-prompt"), flag("system-prompt"), flag("output-schema"), flag("env"), flag("provider"), flag("host"), flag("remote-bin"),
+		flag("append-system-prompt"), flag("system-prompt"), flag("output-schema"), flag("env"), flag("provider"), flag("remote"), flag("remote-bin"),
 		boolFlag("live"), boolFlag("direct"), valuedFlag("route", func() []string { return router.RouteModes }), flag("retry-agent"),
 		boolFlag("diff"), flag("dirs"), flag("files"), boolFlag("index"), flag("max-files"), flag("max-file-bytes"),
 		boolFlag("follow"), flag("follow-idle"), flag("overlay-debug"), boolFlag("stdin-framed"),
@@ -64,7 +64,7 @@ func agentsSpec() *helptext.Node {
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
-		"list":  {Flags: []helptext.Flag{flag("host"), flag("remote-bin"), formatFlag()}},
+		"list":  {Flags: []helptext.Flag{flag("remote"), flag("remote-bin"), formatFlag()}},
 		"ask":   {Flags: askSpecFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
@@ -181,11 +181,11 @@ var agentsVerbs = map[string]func([]string) int{
 	"cancel": func(a []string) int { return cmdAgentsJob("cancel", a) },
 }
 
-// cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
+// cmdAgentsList is `agents list`: the local roster, or with --remote the remote's own `agents` output.
 func cmdAgentsList(args []string) int {
 	fs := agentsFlags("list")
-	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents list --format)")
-	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
+	host := fs.String("remote", "", "list the agents on this ssh host instead (runs its agents list --format)")
+	remoteBin := fs.String("remote-bin", "", "remote claude-code path for --remote (default $"+remote.BinEnv+", then claude-code)")
 	format := fs.String("format", "text", "text, or json: caps, events, permissions")
 	if code, done := helptext.Parse(fs, args); done {
 		return code

@@ -22,8 +22,9 @@ const nameWidth = 16
 // menuHeader is the menu's fixed opening; it opens on `usage:` — no banner.
 var menuHeader = []string{
 	"usage: claude-code [<command>] [subcommand] [flags]",
-	"       claude-code <command> -h    per-command help",
-	"       claude-code --host <h> ...  run a command on a tailnet host",
+	"       claude-code <command> -h      per-command help",
+	"       claude-code --remote <h> ...  run a command on a tailnet host",
+	"       claude-code --host <h> ...    Databricks requests leave via <h>",
 }
 
 // menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).

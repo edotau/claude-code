@@ -43,14 +43,14 @@ func TestHostArgvPlainVerb(t *testing.T) {
 }
 
 func TestSplitHostErrors(t *testing.T) {
-	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "wks"},
-		{"--host="}} {
-		if _, _, err := splitHost(args); err == nil {
+	for _, args := range [][]string{nil, {"--remote"}, {"--remote", "-oProxyCommand=x", "version"}, {"--remote", "wks"},
+		{"--remote="}} {
+		if _, _, err := SplitHost(Flag, args); err == nil {
 			t.Errorf("splitHost(%q) accepted", args)
 		}
 	}
-	for _, args := range [][]string{{"--host=wks", "doctor", "--prompts"}, {"--host", "wks", "doctor", "--prompts"}} {
-		host, rest, err := splitHost(args)
+	for _, args := range [][]string{{"--remote=wks", "doctor", "--prompts"}, {"--remote", "wks", "doctor", "--prompts"}} {
+		host, rest, err := SplitHost(Flag, args)
 		if err != nil || host != "wks" || !slices.Equal(rest, []string{"doctor", "--prompts"}) {
 			t.Errorf("%q: %q %q %v", args, host, rest, err)
 		}
@@ -117,7 +117,7 @@ func TestLoginForward(t *testing.T) {
 		{"databricks login", "databricks login --port 8031 --no-browser", 8031},
 		{"databricks login --force --port=8020", "databricks login --force --port=8020 --no-browser", 8020},
 		{"databricks login --no-browser --port 9000 --paste", "databricks login --no-browser --port 9000 --paste", 9000},
-		{"databricks login --host-browser --force", "databricks login --force", 0},
+		{"databricks login --remote-browser --force", "databricks login --force", 0},
 		{"databricks login --as sp", "databricks login --as sp", 0},
 		{"databricks login --dry-run", "databricks login --dry-run", 0},
 		{"databricks login --port nope", "databricks login --port nope", 0},

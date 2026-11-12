@@ -38,14 +38,14 @@ paths:
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
-  retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
+  retired per-line key is an error. `--remote` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
 - `ask --overlay <file>` / `COWORKER_OVERLAY`: per-launch `{set,unset,keep}` over the child's env (`files` reserved,
   refused); `set` values may be `@secret:<NAME>` (harness-internal secrets refused); a `set` name the launch already
   sets for its route is refused (`--env` still overrides); endpoint, proxy and TLS names (`*_BASE_URL`, `*_API_BASE`,
   `*_ENDPOINT`, `*_GATEWAY_URL`, `*_PROXY_URL`, `*_CA_CERT`, `DATABRICKS_HOST`, `HTTP(S)_PROXY`, `ALL_PROXY`, TLS
   overrides) are refused in `set` and `keep`: use `--profile`; `keep` refuses credential names (`HARNESS_KEEP_ENV` stays
   the escape hatch). One hop: nested dispatches do not inherit it, `--job`/`--background`/`--batch` relaunches carry it,
-  `--live` and `--host` refuse it. `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS
+  `--live` and `--remote` refuse it. `--env` / `--keep-env` are its one-line shorthand (the same endpoint/proxy/TLS
   refusals; credential names in `--keep-env`, ask and interactive).
 - `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`

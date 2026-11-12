@@ -21,7 +21,7 @@ disable-model-invocation: true
   tools=on|read-only --tools | --read-only; omitted or tools=off: no tools (answer only)
   route=<r>          --route default|first-party: leave the Databricks arm (profile= then means --profile <p>)
   background=on      --background: detach, print a job id (status | tail <id> | result <id>)
-  host=<h>           --host <h>: run on that ssh host; the route rides along, credentials never leave it
+  host=<h>           --remote <h>: run on that ssh host; the route rides along, credentials never leave it
                      (its own vault resolves <p>; the same Databricks profile name must exist here too)
 
 /coworker codex review internal/gateway
@@ -29,7 +29,7 @@ disable-model-invocation: true
 /coworker:copilot profile=prod model=databricks-claude-sonnet-5-5 fix the flaky watchdog test
   → claude-code agents ask --agent copilot --route databricks:prod --model databricks-claude-sonnet-5-5 "fix the …"
 /coworker:gemini host=wsl profile=dev tools=read-only scan internal/memory for dead exports
-  → claude-code agents ask --agent gemini --route databricks:dev --read-only --host wsl "scan internal/memory …"
+  → claude-code agents ask --agent gemini --route databricks:dev --read-only --remote wsl "scan internal/memory …"
 ```
 
 The route runs the agent on that Databricks workspace first, then first-party logins as the ordered fallback; every

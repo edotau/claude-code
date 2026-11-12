@@ -1,14 +1,20 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // rejectLocal must stop every non-public resolved address and pass a public one.
@@ -129,5 +135,44 @@ func TestGuardedClientHeaderStallTimesOut(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "timeout awaiting response headers") {
 		t.Errorf("err=%v, want header timeout", err)
+	}
+}
+
+// A /via/<host>/… request is authenticated, routed as the bare path, and its upstream request carries the host.
+func TestViaPrefixPinsEgressHost(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	var pinned atomic.Value
+	var log bytes.Buffer
+	r := newRouter(secret)
+	r.log = &log
+	r.client = &http.Client{Transport: &http.Transport{Proxy: func(req *http.Request) (*url.URL, error) {
+		pinned.Store(egress.PinnedHost(req.Context()))
+		return nil, nil
+	}}}
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() })
+
+	if resp := post(t, srv.URL+"/via/box/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("via request: status %d", resp.StatusCode)
+	}
+	if got := up.last.Load().URL.Path; got != "/v1/messages" || pinned.Load() != "box" {
+		t.Errorf("upstream path %q, pinned host %v; want /v1/messages and box", got, pinned.Load())
+	}
+	if resp := post(t, srv.URL+"/via/box/p/up1/v1/messages", `{"model":"m1"}`, map[string]string{"X-Api-Key": ""}); resp.StatusCode != 401 {
+		t.Errorf("via request without the secret: status %d, want 401", resp.StatusCode)
+	}
+	if resp := post(t, srv.URL+"/via/-oProxyCommand=x/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 400 {
+		t.Errorf("bad via host: status %d, want 400", resp.StatusCode)
+	}
+	if up.hits.Load() != 1 {
+		t.Errorf("upstream hits = %d, want 1", up.hits.Load())
+	}
+	srv.Close() // handlers are done: the log is safe to read
+	if !strings.Contains(log.String(), " via=box") {
+		t.Errorf("log line lacks via=box: %q", log.String())
 	}
 }
