@@ -112,9 +112,7 @@ func ListStored(only []string) ([]Stored, error) {
 	return out, nil
 }
 
-// AppendDotenv appends pairs to path as NAME=value lines, creating it (with a header) when absent and skipping names
-// it already defines; the file ends 0600 either way. added counts lines written, skipped names the kept ones.
-// path is refused when it is a symlink — this must never write through one to an arbitrary target.
+// AppendDotenv appends NAME=value lines to path (0600, header when new), skipping names it has; symlinks are refused.
 func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err error) {
 	abs, aerr := filepath.Abs(path)
 	if aerr != nil {
@@ -202,9 +200,7 @@ func writeDotenv(path, text string) error {
 	return f.Close()
 }
 
-// quoteDotenvValue wraps v in quotes when it holds a space, `#`, `$` or a quote character; ParseDotenv
-// strips exactly one matching outer quote pair with no escaping, so wrapping (whichever quote char, picking
-// one absent from v when possible) always round-trips the original value unchanged.
+// quoteDotenvValue quotes v holding a space, `#`, `$` or quote; ParseDotenv strips one plain pair, so it round-trips.
 func quoteDotenvValue(v string) string {
 	if v == "" || !strings.ContainsAny(v, " \t\"'$#") {
 		return v

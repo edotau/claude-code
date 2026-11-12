@@ -53,10 +53,8 @@ var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
 // ErrKeyringUnavailable means the tool ran and failed for a reason other than "not stored".
 var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 
-// errKeyringNoTool means no keyring tool is on PATH, or this OS has none wired up (Windows). Wraps
-// ErrKeyringUnavailable so errors.Is(err, ErrKeyringUnavailable) still matches; callers that must
-// treat "no tool ever existed" differently from "an installed tool just failed" (R4) check this
-// more specific sentinel first.
+// errKeyringNoTool means no keyring tool is on PATH or this OS has none; it wraps ErrKeyringUnavailable, so callers
+// telling "no tool ever existed" from "an installed tool failed" (R4) check it first.
 var errKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
 
 // keyringGOOS picks the keyring plane's OS branch; tests swap it to run every branch on any host.
@@ -141,8 +139,7 @@ func lookupFailure(err error) error {
 	return ErrKeyringUnavailable
 }
 
-// osKeyringSet stores value under name, overwriting any existing entry. The value always goes on stdin, never
-// argv: an argv secret is visible to every same-uid process (`ps`) for the life of the call.
+// osKeyringSet stores value under name; it goes on stdin, never argv, where any same-uid process sees it (`ps`).
 func osKeyringSet(name, value string) error {
 	if err := checkKeyringSet(name, value); err != nil {
 		return err

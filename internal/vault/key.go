@@ -184,9 +184,7 @@ func keyAfterError(id, source, kid, command string, err error) (*Key, string, er
 func parsePointer(v, id, kid string) (*Key, error) {
 	k, err := parseKey(v, id)
 	if err != nil && kid != "" {
-		// Malformed pointer with a kid recorded: the pointer is only a convenience cache
-		// of the immutable per-kid account, so fall to matchKey's lookup below instead.
-		return nil, nil
+		return nil, nil // the pointer is only a cache of the immutable per-kid account: fall to matchKey's lookup
 	}
 	return k, err
 }
@@ -302,9 +300,7 @@ func wrapKeyringUnavailable(err error) error {
 }
 
 func EnsureKey() (*Key, error) {
-	// Materialize the vault file (and its real vault_id) before any key resolution: the HKDF
-	// subkey is salted by vault_id, so deriving one against a not-yet-created vault's empty id
-	// would mismatch the id the first write actually persists.
+	// Create the vault_id first: the HKDF subkey is salted by it, so an empty id would mismatch the first write's.
 	if _, err := ensureVaultID(); err != nil {
 		return nil, err
 	}
@@ -321,10 +317,7 @@ func EnsureKey() (*Key, error) {
 		result, e = ensureKeyLocked()
 		return e
 	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	return result, err
 }
 
 // ensureKeyLocked re-resolves under the "<vault>.key" lock and generates a genesis key only on a proven absence.
@@ -353,8 +346,7 @@ func ensureKeyLocked() (*Key, error) {
 		return nil, wrapKeyringUnavailable(lookupErr)
 	}
 	if found {
-		// A key is already in the keyring; meta/kid being empty here would be a corrupt
-		// state, not an invitation to generate a second one.
+		// A key already in the keyring with an empty meta/kid is corrupt state, not a cue to generate a second.
 		return nil, ErrLocked
 	}
 	return genesisKey(id)
@@ -366,8 +358,7 @@ func genesisKey(id string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Persist the genesis key under its immutable per-kid account before the convenience
-	// pointer, so matchKey can always find it even if a copied root's pointer diverges later.
+	// Per-kid account before the pointer, so matchKey finds the key even if a copied root's pointer diverges.
 	if err := keyringSet(account(id)+"."+newK.Kid, value); err != nil {
 		return nil, err
 	}
@@ -465,8 +456,7 @@ func rotateKeyLocked(force bool) (oldKid, newKid string, err error) {
 	}
 	acct := account(id)
 
-	// Retain the outgoing key under its immutable kid account; idempotent if an earlier
-	// rotation (or this one, resumed after a crash) already wrote it.
+	// Retain the outgoing key under its kid account; idempotent when an earlier or crash-resumed rotation wrote it.
 	if e := keyringSet(acct+"."+old.Kid, old.raw); e != nil {
 		return oldKid, "", e
 	}
@@ -485,8 +475,7 @@ func rotateKeyLocked(force bool) (oldKid, newKid string, err error) {
 	if e := Update(func(t *Tx) error { return resealSecrets(t, old, next) }); e != nil {
 		return oldKid, newKid, e
 	}
-	// Convenience pointer only, updated after the atomic reseal commits; resolveKey/matchKey
-	// never depend on this being current (R1, R2).
+	// Pointer only, moved after the reseal commits; resolveKey/matchKey never depend on it being current (R1, R2).
 	e = keyringSet(acct, value)
 	audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "") // the reseal committed: log it even when the pointer write failed
 	return oldKid, newKid, e
@@ -514,11 +503,9 @@ func rotatePreflight(force bool) (old *Key, id string, err error) {
 	return old, id, nil
 }
 
-// RotateKey re-seals every secret under a new master key, retaining every key under its own kid account (R1, R2, R4).
-//
-// The new key is stored before the re-seal tx and the pointer moves after it commits, so a crash strands nothing.
-// force bypasses the guard against rotating while HARNESS_VAULT_KEY or meta/key_command is set: update that source
-// with the new key immediately after.
+// RotateKey re-seals every secret under a new master key, keeping each key under its own kid account (R1, R2, R4).
+// The new key is stored before the re-seal tx and the pointer moves after it, so a crash strands nothing; force
+// bypasses the env/key_command rotation guard, so update that source with the new key immediately after.
 func RotateKey(force bool) (oldKid, newKid string, err error) {
 	err = paths.WithFileLock(Path()+".key", func() error {
 		var e error
