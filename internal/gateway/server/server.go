@@ -145,6 +145,10 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		r.health(w)
 		return true
 	}
+	if helloProbe(req) { // Claude Code's keyless startup reachability check: answered here, never forwarded
+		w.WriteHeader(http.StatusOK)
+		return true
+	}
 	if req.URL.Path == gateway.SessionPath || req.URL.Path == gateway.SessionRevokePath {
 		r.sessionRoute(w, req)
 		return true
@@ -154,6 +158,12 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// helloProbe reports a HEAD or GET of /p/<profile>/api/hello.
+func helloProbe(req *http.Request) bool {
+	_, rest, ok := parseRoute(req.URL.Path)
+	return ok && rest == "api/hello" && (req.Method == http.MethodHead || req.Method == http.MethodGet)
 }
 
 // sessionRoute serves the mint/revoke paths to the real client secret only.
