@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,14 +38,11 @@ func Effort(in *core.Input) core.Result {
 	}
 	account, lim := router.SessionAccount(), router.CurrentLimits()
 	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
-	if claim.ID == "" {
-		claim.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
 	if ok, snap := inflight.Fits(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
 	res := agentEffortResult(in)
-	if res.Decision == core.Block {
+	if res.Decision == core.Block || claim.ID == "" { // no tool_use_id: no release could match the claim, so make none
 		return res
 	}
 	if in.ToolName == "Workflow" {
@@ -63,7 +59,7 @@ func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) cor
 		"wait for one to finish or run this task sequentially.", snap.Per[account], lim.For(account), account, lim.Total)}
 }
 
-// workflowLeaves counts agent() call sites in the script the Workflow will run: the pin step's rewrite, else the original.
+// workflowLeaves counts agent() call sites in the script the Workflow runs: the pin step's rewrite, else the original.
 func workflowLeaves(in *core.Input, res core.Result) int {
 	script, _ := res.UpdatedInput["script"].(string)
 	if script == "" {
@@ -79,8 +75,7 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 	return len(agentCallRe().FindAllStringIndex(script, -1))
 }
 
-// The release side of the dispatch cap: PostToolUseFailure, PostToolUse(Workflow) and SubagentStop retire the
-// markers `dispatch-effort` claimed in internal/inflight; back-pressure, not a mutex.
+// Release side of the cap: PostToolUseFailure, PostToolUse(Workflow), SubagentStop retire the dispatch-effort markers.
 
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {
@@ -242,7 +237,7 @@ func leafStopVerdict(agentID string, rec agent.Record) (core.Result, bool) {
 		"with a 600000ms Bash timeout, repeating until it finishes, then report its result; do not stop before it reaches a terminal status.", rec.ID, rec.ID)}, true
 }
 
-// ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it do not match.
+// ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
 var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
 })
@@ -256,21 +251,45 @@ const ranOnMaxBlocks = 3
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
 
-// leafScan is what the gates read from a leaf transcript: the ran-on and hand-back results and prior gate blocks.
+// askCmdRe matches a command segment running claude-code agents ask|result|tail or <agent> ask; a quoted mention never.
+var askCmdRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+|(?:timeout\s+\S+|nohup|env|time|command)\s+)*` +
+		`(?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|tail)|(?:codex|copilot|gemini|opencode)\s+ask)\b`)
+})
+
+// didNotRunRe matches the lines an ask prints when no agent ran: its `did not run` line or a pre-run refusal.
+var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^(?:ask: did not run |claude-code: ask: )`)
+})
+
+// leafScan is what the gates read from a leaf transcript: ask calls and their results, the hand-back, prior blocks.
 type leafScan struct {
 	seenBrief         bool
+	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, result or tail
 	ranOn, handedBack bool
+	askFailed         bool // an ask call's result says no agent ran
 	gates             int
 }
 
 // leafToolResult is one tool_result item of a user message.
 type leafToolResult struct {
-	Type    string          `json:"type"`
-	IsError bool            `json:"is_error"`
-	Content json.RawMessage `json:"content"`
+	Type      string          `json:"type"`
+	ToolUseID string          `json:"tool_use_id"`
+	IsError   bool            `json:"is_error"`
+	Content   json.RawMessage `json:"content"`
 }
 
-// addLine reads one transcript line: its first user message, tool results and hook blocks; assistant text never counts.
+// leafToolUse is one tool_use item of an assistant message; only a Bash command is read.
+type leafToolUse struct {
+	Type  string `json:"type"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input struct {
+		Command string `json:"command"`
+	} `json:"input"`
+}
+
+// addLine reads one transcript line: the brief, tool calls and results, hook blocks; assistant text never counts.
 func (s *leafScan) addLine(b []byte) {
 	var m struct {
 		Type    string `json:"type"`
@@ -278,16 +297,41 @@ func (s *leafScan) addLine(b []byte) {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
-	if json.Unmarshal(b, &m) != nil || m.Type != "user" {
+	if json.Unmarshal(b, &m) != nil {
 		return
 	}
-	if !s.seenBrief { // the first user message is the brief
+	switch {
+	case m.Type == "assistant":
+		s.addCalls(m.Message.Content)
+	case m.Type != "user":
+	case !s.seenBrief: // the first user message is the brief
 		s.seenBrief = true
+	default:
+		s.addResults(m.Message.Content)
+	}
+}
+
+// addCalls records the ids of the Bash calls in an assistant message that run an ask, result or tail.
+func (s *leafScan) addCalls(content json.RawMessage) {
+	var items []leafToolUse
+	if json.Unmarshal(content, &items) != nil {
 		return
 	}
+	for _, it := range items {
+		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCmdRe().MatchString(it.Input.Command) {
+			if s.askCalls == nil {
+				s.askCalls = map[string]bool{}
+			}
+			s.askCalls[it.ID] = true
+		}
+	}
+}
+
+// addResults reads a user message's tool results, or a plain-text turn's Stop/SubagentStop hook feedback.
+func (s *leafScan) addResults(content json.RawMessage) {
 	var items []leafToolResult
-	if json.Unmarshal(m.Message.Content, &items) != nil { // a plain-text user turn: Stop/SubagentStop hook feedback
-		if text := transcript.ContentText(m.Message.Content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
+	if json.Unmarshal(content, &items) != nil {
+		if text := transcript.ContentText(content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
 			s.gates++
 		}
 		return
@@ -299,10 +343,14 @@ func (s *leafScan) addLine(b []byte) {
 	}
 }
 
-// scanResult reads one tool result: a ran-on line, a delivered hand-back, or a denied hand-back (a PreToolUse hook error).
+// scanResult reads one tool result: an ask call's ran-on or did-not-run line, a delivered or denied hand-back.
 func (s *leafScan) scanResult(it leafToolResult) {
 	text := transcript.ContentText(it.Content)
-	s.ranOn = s.ranOn || ranOnPattern().MatchString(text)
+	if s.askCalls[it.ToolUseID] {
+		ran := ranOnPattern().MatchString(text)
+		s.ranOn = s.ranOn || ran
+		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
+	}
 	if it.IsError {
 		if strings.Contains(text, " hook error: ") && strings.Contains(text, ranOnGateMark) {
 			s.gates++
@@ -342,23 +390,28 @@ func labelAgent(name string) bool { return name == agentid.Claude || externalTyp
 
 // ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
 func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
-	t := leafAgentType(in)
-	if !externalTypes[t] { // only leaves that call an external agent: codex|copilot|gemini|opencode
+	// only leaves that call an external agent (codex|copilot|gemini|opencode) and show no ran-on receipt
+	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
 	}
-	s := lr.scan
-	if lr.scanErr != nil || s.ranOn {
-		return core.Result{}, false
+	if lr.scan.askFailed { // the ask ran and refused or found no agent: the failure is the report, not a reason to re-ask
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: its ask did not run an agent", agentID)}, false
 	}
-	if in.StopHookActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf
+	return ranOnBlock(lr.scan, agentID, in.StopHookActive)
+}
+
+// ranOnBlock blocks a leaf with no receipt until ranOnMaxBlocks prior blocks, then passes with a visible BLOCKED note.
+func ranOnBlock(s leafScan, agentID string, stopActive bool) (core.Result, bool) {
+	if stopActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf
 		s.gates = ranOnMaxBlocks
 	}
 	if s.handedBack || s.gates >= ranOnMaxBlocks {
-		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: finished with no ran-on line", agentID)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: hand-back BLOCKED: no `ask: ran on` receipt, "+
+			"the external agent was never called", agentID)}, false
 	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s (or a `ran_on` field), so the external agent was never called "+
-		"(block %d of %d). Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason; read-only work "+
-		"still runs on the external agent (`--read-only`); never do it in-context.", ranOnGateMark, s.gates+1, ranOnMaxBlocks)}, true
+		"(block %d of %d). Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason. "+
+		"Run the brief's `Run:` line exactly as written, flags unchanged.", ranOnGateMark, s.gates+1, ranOnMaxBlocks)}, true
 }
 
 // Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.

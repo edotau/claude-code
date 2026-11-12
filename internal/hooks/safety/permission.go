@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -22,14 +23,13 @@ var gateTools = map[string]string{
 
 // PermissionGate blocks a tool call the dispatch's Deny rules (or plan mode) refuse; with no policy in env it passes.
 func PermissionGate(in *core.Input) core.Result {
-	raw := strings.TrimSpace(os.Getenv(agent.DispatchPermissionsEnv))
-	if raw == "" {
-		return core.Result{}
-	}
-	var p agent.Permissions
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+	p, set, err := dispatchPolicy()
+	if err != nil {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"permission-gate: BLOCKED — %s is unreadable (%v); every tool call is refused", agent.DispatchPermissionsEnv, err)}
+	}
+	if !set {
+		return core.Result{}
 	}
 	if in.ToolName == "" && len(p.Deny) > 0 { // unparseable or truncated stdin: the call cannot be judged
 		return noToolResult(p)
@@ -38,23 +38,46 @@ func PermissionGate(in *core.Input) core.Result {
 	if !ok {
 		return core.Result{}
 	}
+	return judgeCall(p, tool, gateArgs(in, tool))
+}
+
+// judgeCall refuses the first of args the policy denies as tool, or whose unknown target a scoped deny may cover.
+func judgeCall(p agent.Permissions, tool string, args []string) core.Result {
 	judge := p
 	if tool != "Bash" && tool != "Edit" {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
-	for _, arg := range gateArgs(in, tool) {
+	for _, arg := range args {
 		if r, blind := blindDeny(p, tool, arg); blind {
 			return blindResult(p, tool, r)
 		}
-		d := judge.Decide(tool, arg)
-		if tool == "Edit" {
-			d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
-		}
-		if d == agent.Deny {
+		if decideCall(judge, tool, arg) == agent.Deny {
 			return denyResult(p, agent.Rule{Tool: tool, Arg: arg})
 		}
 	}
 	return core.Result{}
+}
+
+// decideCall judges arg as tool plus the rule tool that also covers it: Edit is Write too, Grep and Glob are Read too.
+func decideCall(judge agent.Permissions, tool, arg string) agent.Decision {
+	d := judge.Decide(tool, arg)
+	switch tool {
+	case "Edit":
+		d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
+	case "Grep", "Glob":
+		d = min(d, judge.Decide("Read", arg))
+	}
+	return d
+}
+
+// dispatchPolicy is the dispatch's Permissions from env; set is false when none is exported.
+func dispatchPolicy() (p agent.Permissions, set bool, err error) {
+	raw := strings.TrimSpace(os.Getenv(agent.DispatchPermissionsEnv))
+	if raw == "" {
+		return p, false, nil
+	}
+	err = json.Unmarshal([]byte(raw), &p)
+	return p, true, err
 }
 
 // noToolResult refuses a call whose hook input named no tool, under a policy that has Deny rules.
@@ -66,7 +89,7 @@ func noToolResult(p agent.Permissions) core.Result {
 
 // blindDeny refuses a Read/Edit whose target is unknown (no path key, no patch header) when a scoped Deny covers it.
 func blindDeny(p agent.Permissions, tool, arg string) (agent.Rule, bool) {
-	if arg != "" || tool == "Bash" || tool == "WebFetch" || tool == "Grep" || tool == "Glob" { // Grep/Glob default to cwd
+	if arg != "" || pathlessTools[tool] {
 		return agent.Rule{}, false
 	}
 	for _, r := range p.Deny {
@@ -76,6 +99,9 @@ func blindDeny(p agent.Permissions, tool, arg string) (agent.Rule, bool) {
 	}
 	return agent.Rule{}, false
 }
+
+// pathlessTools never name an unknown target without a path: a command, a URL, or (Grep/Glob) the cwd.
+var pathlessTools = map[string]bool{"Bash": true, "WebFetch": true, "Grep": true, "Glob": true}
 
 // blindResult refuses a pathless call, naming the tool and the scoped deny that made its unknown target unsafe.
 func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result {
@@ -98,8 +124,7 @@ func modeNote(p agent.Permissions) string {
 	return "\n  mode: " + p.Mode
 }
 
-// gateArgs are the arguments a rule matches for tool: the command, the URL, or the cwd-relative paths — one per file an
-// apply_patch touches (opencode's patchText, codex's command/input/patch), each judged on its own.
+// gateArgs are what a rule matches for tool: the command, the URL, or the paths, one per file an apply_patch touches.
 func gateArgs(in *core.Input, tool string) []string {
 	switch tool {
 	case "Bash":
@@ -146,17 +171,28 @@ func gatePath(in *core.Input) string {
 	return ""
 }
 
-// pathForms are the cwd-relative and absolute spellings of p, so a rule written either way matches; "" stays "".
+// pathForms are p's cwd-relative and absolute spellings, as typed and symlink-resolved; "" stays "".
 func pathForms(cwd, p string) []string {
 	if p == "" {
 		return []string{""}
 	}
 	abs := core.AnchorPath(p, cwd)
-	rel := relToCWD(cwd, p)
-	if rel == abs {
-		return []string{rel}
+	forms := []string{relToCWD(cwd, p), abs}
+	if filepath.IsAbs(abs) {
+		canonCWD := cwd
+		if cwd != "" {
+			canonCWD = core.CanonPath(cwd)
+		}
+		canon := core.CanonPath(abs)
+		forms = append(forms, relToCWD(canonCWD, canon), canon)
 	}
-	return []string{rel, abs}
+	var out []string
+	for _, f := range forms {
+		if !slices.Contains(out, f) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // relToCWD is p relative to cwd when inside it, else p unchanged (copilot's relToWorkDir).
