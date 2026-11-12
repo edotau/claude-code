@@ -336,7 +336,7 @@ func ctxErr(ctx context.Context, verb string) error {
 // RunLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
 // already was the confirmation, so it runs directly rather than asking [y/N] a second time.
 func RunLogin(argv []string) error {
-	return withInterrupt(func(ctx context.Context) error { return runLoginContext(ctx, argv) })
+	return withInterrupt(func(ctx context.Context) error { return runAttached(ctx, "login", argv, os.Stdout) })
 }
 
 // cliArgv resolves a known agent CLI in argv[0] to its installed binary path; other commands pass through.
@@ -352,10 +352,6 @@ func cliArgv(argv []string) ([]string, error) {
 	resolved := slices.Clone(argv)
 	resolved[0] = bin
 	return resolved, nil
-}
-
-func runLoginContext(ctx context.Context, argv []string) error {
-	return runAttached(ctx, "login", argv, os.Stdout)
 }
 
 // ProbeValue live-checks a candidate value for p without storing it first, via the env-var seam

@@ -28,7 +28,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 // TestMain runs on the hermetic host; the roster rows discovery needs are linked in by this package's imports.
 func TestMain(m *testing.M) {
 	code := hosttest.Main(m)
@@ -97,8 +96,6 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 		t.Errorf("input changed to %v, want %v", argv, original)
 	}
 }
-
-// A failed env write after the secret is sealed must say the secret was already saved.
 
 const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
 
@@ -260,7 +257,7 @@ func runLoginMintCase(t *testing.T, action, mode string) {
 	var token string
 	run := func(ctx context.Context) error {
 		if !mint {
-			return runLoginContext(ctx, argv)
+			return runAttached(ctx, "login", argv, os.Stdout)
 		}
 		var err error
 		token, err = runMintContext(ctx, argv)

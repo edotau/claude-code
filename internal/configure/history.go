@@ -220,7 +220,10 @@ func (s *HistoryStore) git(args ...string) (string, error) {
 		"-c", "commit.gpgsign=false",
 		"-c", "core.hooksPath=/dev/null", // a stray global hooksPath must not run against this repo
 	}, args...)
-	return runGit(full)
+	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return proc.RunGit(ctx, "", full...) // full already carries its own -C, so dir stays ""
 }
 
 // ensureRepo creates the store and inits its repo, 0700: these files describe configured providers and workspaces.
@@ -347,20 +350,8 @@ func SnapshotConfig(note string) (SnapshotResult, error) {
 	return s.Snapshot(configFiles(), note)
 }
 
-// One exec seam for the store, via internal/proc. The environment handling there must never
-// drift: getting it wrong is silently destructive (a retargeted repo gets `add -A` + `commit` run
-// against it).
-
 // gitTimeout bounds one shadow-history git call; a var so tests need not wait it out.
 var gitTimeout = 30 * time.Second
-
-// runGit runs git via the shared proc seam; full already carries its own -C, so dir stays "" (no second one).
-func runGit(full []string) (string, error) {
-	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	return proc.RunGit(ctx, "", full...)
-}
 
 // HistoryEntry is one `history log` line: Store.Log formats "%h %Y-%m-%d %H:%M config: <subject>".
 type HistoryEntry struct {
