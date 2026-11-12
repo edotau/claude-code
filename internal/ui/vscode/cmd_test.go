@@ -41,7 +41,11 @@ func isolationFlags(t *testing.T) []string {
 
 func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "vscode", "claude-code-agents"), 0o755); err != nil {
+	src := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "vscode", "claude-code-agents")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "package.json"), []byte(`{"publisher":"edotau","name":"claude-code-agents","version":"0.1.0"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
