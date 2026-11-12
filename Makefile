@@ -111,7 +111,7 @@ help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 
 .PHONY: examples
-examples: help-svg  ## Regenerate the README menu image
+examples: help-svg  ## help-svg, then a reminder to review git diff docs/
 	@echo -e "$(C_OK)menu image regenerated; review git diff docs/"
 
 .PHONY: bootstrap
@@ -171,8 +171,8 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	fi
 
 ##@ Quality
-# Umbrella gate: lint (gofmt, vet, golangci, md, js, yaml) + doctor --git (unpushed commits) + vet + test + build (ci.yml's four steps, same order) +
-# test + build + govulncheck (the one networked step; skipped when vuln.go.dev is unreachable) + the agents sync --dry-run smoke test.
+# Umbrella gate: lint, doctor --git over unpushed commits, sharded tests, no-keyring tests, go build, govulncheck
+# (skipped offline), doctor --prompts, agents sync --dry-run, cli-menu.svg freshness.
 .PHONY: audit
 audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 	@$(MAKE) --no-print-directory lint
@@ -241,7 +241,7 @@ fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 	@echo -e "$(C_OK)fmt applied"
 
 .PHONY: lint
-lint:  ## Check go, md, js, yaml; reports, never edits (fix: make fmt)
+lint:  ## Check go, shell, yaml, help, md, js; reports, never edits (fix: make fmt)
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
 	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"

@@ -35,21 +35,8 @@ with no stated assumption is a flag, not a fix.
 
 ## Phase 3 - Apply
 
-Merge duplicate findings across angles, then apply the safe ones. Gate every edit with these rules (restated from
-quality.md → Simplify; if they differ, quality.md wins):
-
-1. **Name the assumption before each cut** ("unreachable because ___"). Cannot finish the sentence: flag it.
-2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard
-   whose impossible state you cannot prove. A nil-guard that looks redundant usually protects a path you have not
-   traced; trace callers first.
-3. **No covering test: flag, do not cut.** Scoped tests and a live check of the changed surface must pass before AND
-   after.
-4. **Reuse first**: grep the call sequence and sibling files, and use `git log -S`. Compare a near-duplicate with its
-   original for behavior the copy lost (isolation, error handling), then consolidate at the original and say so.
-5. **Altitude**: fix the root cause, not another special case. Bugs found are reported (to `/code-review`), never
-   fixed here; a simplification must preserve behavior, bugs included.
-6. **Thresholds**: functions under 50 lines, nesting at most 4, complexity at most 10 (`review-simplicity`).
-7. **Report numbers** (Phase 4).
+Merge duplicate findings across angles, then apply the safe ones. Gate every edit with
+`/Users/edotau/.claude/rules/standards/quality.md` → Simplify, items 1–7 (report numbers per Phase 4).
 
 Edit in place and minimally: every changed line must trace to a finding. No drive-by formatting or renames.
 After edits, re-run lint, the scoped tests and the live check; if anything regressed, revert your edit by hand (never
@@ -57,7 +44,7 @@ After edits, re-run lint, the scoped tests and the live check; if anything regre
 
 ## Phase 4 - Report
 
-Per touched function: Δ lines and Δ complexity (before → after). Then three lists:
+Per touched function: Δ lines and Δ complexity (before → after). Then four lists:
 
 - **Applied**: `file:line`, what changed, the assumption.
 - **Flagged**: not applied, and why (no covering test, unprovable assumption, needs owner decision).

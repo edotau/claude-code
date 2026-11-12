@@ -14,8 +14,6 @@ Gates and scope for `claude-code memory update` and `memory dream`. Precedence, 
 | `memory dream` | Consolidation (on Claude, the logged-in user): baseline → audit → recent sessions → prune native memory → refresh bank → cross-pollinate → report | yes | Periodic hygiene, context pressure |
 | `memory dream --dry-run` | Audit only | **no** | Before a real dream |
 
-Promotion scope and targets: `memory-bank.md` and `skills/reflection/SKILL.md` → Promotion ladder.
-
 ## Writer limits
 
 - `memory dream` never edits `rules/**`; its only `CLAUDE.md` edit is a block `promote --to claude-md` printed in its

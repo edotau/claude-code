@@ -1,5 +1,5 @@
 ---
-description: "Send a task to an agent here under one overlay; Databricks requests leave via the other machine by default"
+description: "Send a task to an agent here under one overlay; Databricks requests go via the other machine by default"
 argument-hint: "--agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label *), Agent

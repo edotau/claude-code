@@ -118,4 +118,4 @@ external-agent type must join: same file → Prose instructs, hooks guarantee.
   hard rule 5.
 - Revert a leaf's out-of-scope hunk; a leaf never "fixes" files outside its list.
 - Pin `model` and `effort` on every stage with one verbatim `stepOf` (`222ae2b9`).
-- Fix CRITICAL/HIGH/MEDIUM in the round, LOW to the tech-debt report.
+- Fix every finding, LOW included, in the round; only owner-judgment items go to a report.

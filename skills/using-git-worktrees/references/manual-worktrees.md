@@ -19,9 +19,11 @@ before anything mutates unless `--resolve-agent <agent>` hands it to an agent in
 
 ```bash
 WT=$(claude-code worktree create "$SLUG" ${BRANCH:+--branch "$BRANCH"})   # resumes an existing slug safely
-[ -d .venv ] && ln -sf "$(pwd)/.venv" "$WT/.venv"                          # Python repos: no 500 MB copy
-cp .env "$WT/.env" 2>/dev/null; cp .claude/settings.local.json "$WT/.claude/settings.local.json" 2>/dev/null
+cp .claude/settings.local.json "$WT/.claude/settings.local.json" 2>/dev/null
 ```
+
+`create` seeds `.venv` (symlink) and `.env` (copy) itself when the source exists, the destination is absent and
+the new branch ignores the path; an existing worktree is not reseeded, and a seeding failure only warns.
 
 A refusal (bad name, traversal, a foreign directory on `$SLUG`) prints the reason; never retry with a force
 flag. Print path, branch, base SHA; launch with `cd $WT && claude`. Inside `~/.claude` the worktree is a

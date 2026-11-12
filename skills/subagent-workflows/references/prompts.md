@@ -12,7 +12,7 @@ leaf: never dispatch subagents or commit; external wrappers follow the shared re
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
 After a defect fix write ISSUE: searched P, found N. Report both as plain sentences.
 Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
-Ran on: <quoted `ask: ran on …` line | `self — why`>.
+Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only)>.
 ```
 
 Templates list only their own lines. Reviewers inspect the artifact, never the report about it, and edit nothing; Code
@@ -81,7 +81,7 @@ Plan review. Return its verdict first.
 
 ```text
 Task: <plan task id>
-Objective: <checklist line, verbatim>. Edit only: <owned files>. Scratch: $TMPDIR/<leaf>; delete it when done.
+Objective: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/<job>/; delete it when done.
 Done when: <scoped test> exits 0 and <live check> shows <expected>. Return also: files changed, commands with exit
 code and env (cwd, CLAUDE_CONFIG_DIR), anything outside your files.
 ```

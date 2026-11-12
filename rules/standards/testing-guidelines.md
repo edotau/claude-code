@@ -24,7 +24,7 @@ corner cases you found or split it by behavior — never raise the limit.
 
 ## A test must guard
 
-- **Call the code under test** (`got := renderVaultTextStyled(doc, …)`), never an inline copy of its logic — that
+- **Call the code under test** (`got := vaultdoc.Text(doc, …)`), never an inline copy of its logic — that
   passes with the fix reverted.
 - **Build the defect's worst case**; derive expected values from the fixture and drive parsers with real bytes.
   Equivalence tests assert the fast path actually ran (a call count, a cache key) against a deterministic oracle.

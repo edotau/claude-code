@@ -18,7 +18,7 @@ skill; `standards/` still holds.
   `internal/tokenledger`); one area's helper nests under it (`internal/agent/tools`); a provider's code stays under
   that provider (`internal/databricks/oauth`). External SDKs are boxed one package each.
 - No DI container, no cobra, no viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
-- Internal renames follow `quality.md` rule 3: no `type Old = New` alias inside the module.
+- Internal renames follow `rules/standards/quality.md` rule 3: no `type Old = New` alias inside the module.
 
 ## CLI and TUI text
 
@@ -61,7 +61,7 @@ RIGHT  Mint key      create an API key in your Cloud project and print its
 
 ### Portability
 
-Seams, mocks and never spawning the test binary: `testing-guidelines.md` → A test must guard.
+Seams, mocks and never spawning the test binary: `rules/standards/testing-guidelines.md` → A test must guard.
 
 - No `//go:build` test files and no `integration` tag: skip at runtime (`if runtime.GOOS == "windows" { t.Skip(...) }`)
   and use calls that compile everywhere (`exec.Command("mkfifo", ...)`,
@@ -72,10 +72,10 @@ Seams, mocks and never spawning the test binary: `testing-guidelines.md` → A t
 
 ## Style and lint
 
-- Comment cap (`quality.md` → Comments) applies to godoc too; a `Deprecated:` paragraph is exempt. A package
-  narrative goes to `README.md`/`docs/`, never `doc.go` prose.
+- Comment cap (`rules/standards/quality.md` → Comments) applies to godoc too; a `Deprecated:` paragraph is exempt.
+  A package narrative goes to `README.md`/`docs/`, never `doc.go` prose.
 - `.golangci.yml` uses `linters.default: none` plus an explicit `enable` list; `modernize` is enabled. Thresholds come
-  from `quality.md`, not upstream defaults; the repo's `gocognit` setting is its own call.
+  from `rules/standards/quality.md`, not upstream defaults; the repo's `gocognit` setting is its own call.
 - `make lint` does not run gopls checks such as `writestring` (golang skill → `references/style.md` → Strings); the
   editor is the
   only signal for those.

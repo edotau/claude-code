@@ -13,15 +13,16 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 
 ## Gate Sequence
 
-Run in order. A failure blocks subsequent gates until fixed. Per task only Gates 1-2 run; Gate 3-6 (the full
-chain) run once per change set at wrap-up, with the user's approval, never in a subagent.
+Run in order. A failure blocks subsequent gates until fixed. Follow `rules/standards/quality.md` → Verification Order:
+Gates 1-2 per task, Gate 5 (simplify) after them and before review or commit on every code change; only the full
+suite (Gates 3, 4, 6) runs once per change set at wrap-up, with the user's approval, never in a subagent.
 
 ```text
 Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
 Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
 Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE per change set, with user approval
 Gate 4: AUTH/SEC      — auth verification (auth changes only); no hardcoded secrets — part of the final pass
-Gate 5: SIMPLIFY      — Skill(simplify) over the merged diff; re-run Gate 2 if it changed code — part of the final pass
+Gate 5: SIMPLIFY      — Skill(simplify) over the diff; re-run Gate 2 if it changed code — every code change, no approval
 Gate 6: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
 ```
 
@@ -32,13 +33,13 @@ This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `
 Scripted form: `Workflow green-keeper-loop` (only when the user asks for one; it caps 3 iterations per call;
 `../../subagent-workflows/references/saved-workflows.md`).
 
-Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing
-failures minimally. Once an iteration is clean, run Gates 3-6 (the full build + full test suite +
-security scan + diff review) exactly ONCE as the final pass. Only a failing final pass sends the
-loop back to Gate 1; after 5 iterations total, stop and escalate to the user with the remaining
-failures. This matches `rules/standards/quality.md`'s Verification Order — the expensive run happens once, never per
-iteration, and never in a subagent: Gates 3-6 belong to the main thread with the user's approval (a Workflow the user
-asked for is that opt-in); a subagent stops after Gate 2.
+Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing failures minimally. Once
+an iteration is clean, run Gate 5 (simplify), then Gates 3, 4 and 6 (the full build + full test suite + security scan +
+diff review) exactly ONCE as the final pass. Only a failing final pass sends the loop back to Gate 1; after 5 iterations
+total, stop and escalate to the user with the remaining failures. This matches `rules/standards/quality.md`'s
+Verification Order — the expensive run happens once, never per iteration, and never in a subagent: Gates 3, 4 and 6
+belong to the main thread with the user's approval (a Workflow the user asked for is that opt-in); a subagent stops
+after Gate 2.
 
 Per-gate fix strategy:
 

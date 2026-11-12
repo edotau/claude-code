@@ -54,11 +54,10 @@ inside (`cd` out or `ExitWorktree`).
 Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive value
 here is `merge` and `clean-all`.
 
-`create` makes the worktree under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native
-Claude Code) via `git worktree add`; the `.venv` symlink and `.env` copy are manual follow-up
-lines, not something `create` does itself. The full procedure, those follow-up lines, the
-fast-forward-only merge rule and conflict handling:
-[references/manual-worktrees.md](references/manual-worktrees.md) Part 1.
+`create` makes the worktree under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude Code) via
+`git worktree add`, then seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent
+and the new branch ignores the path (a seeding failure only warns). The full procedure, the fast-forward-only merge rule
+and conflict handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1.
 In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
 but `make install` and `claude-code` verbs run from it still target the live `~/.claude`.
 
