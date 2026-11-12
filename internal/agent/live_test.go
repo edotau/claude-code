@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -277,5 +279,21 @@ func TestLiveStartFailureDoesNotPublishSocket(t *testing.T) {
 	got, err := os.ReadFile(sock)
 	if err != nil || string(got) != marker {
 		t.Fatalf("failed start touched socket path: content=%q err=%v", got, err)
+	}
+}
+
+// A live turn's ran-on line names the Databricks workspace it ran on; the agent's own login still reads "own login".
+func TestLiveRanOnNamesWorkspace(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", pinDbxRow)
+	for _, tc := range []struct{ profile, want string }{
+		{"dev", "ran on gemini · databricks·dev · "},
+		{SchemaFor("gemini").OwnProfile(), "ran on gemini · own login · "},
+	} {
+		s := &liveSession{name: "gemini", profile: tc.profile, account: liveAccount("gemini", tc.profile)}
+		res := wire.Result{Agent: "gemini", Provider: tc.profile, Hops: s.hops(""), Status: wire.StatusOK, DurationMs: 1000}
+		if got := wire.RanOn(res); !strings.HasPrefix(got, tc.want) {
+			t.Errorf("profile %q: RanOn = %q, want prefix %q", tc.profile, got, tc.want)
+		}
 	}
 }
