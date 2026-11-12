@@ -7,17 +7,6 @@ paths:
 
 > This file extends [standards/security.md](../../standards/security.md) with Python specific content.
 
-## Secret Management
-
-```python
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-api_key = os.environ["OPENAI_API_KEY"]  # Raises KeyError if missing
-```
-
 ## Prohibited vs Correct
 
 ```python

@@ -55,9 +55,8 @@ tool input unchanged (context notes only). What `auto` resolves to: `rules/harne
   that only picks a different agent is the leaf type of that agent (`codex`, `copilot`…), not a new file.
 - **Model:** `inherit` for in-context roles that judge (`claude`, `Plan`), an alias (`sonnet`) for leaves; never a
   dated id — provider aliases resolve through `internal/models` and `internal/providers/defaults.json`. Docs accept
-  aliases (incl. `fable`), full ids or
-  `inherit`; pinning is for third-party providers. **Tools:** list them; a read-only role gets none
-  that write.
+  aliases (incl. `fable`), full ids or `inherit`; pinning is for third-party providers. **Tools:** list them; a
+  read-only role gets none that write.
 - **Frontmatter worth knowing:** `effort`, `maxTurns`, `isolation: worktree`, `background`, `memory`. Unknown fields
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A new type that requests external agents must join the hook tables that gate

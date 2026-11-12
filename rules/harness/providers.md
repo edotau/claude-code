@@ -50,8 +50,7 @@ static menu: routing never touches the network.
   `<agent> profile`, `configure` exit (record changed or switch flipped on) and a detached `preflight --refresh` at
   session start, at most once per 15 minutes.
 - **Fallback ignores the model alias:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land
-  on
-  an opus endpoint. Menu order is the control. An explicit model in the record swaps too; the swap appears in
+  on an opus endpoint. Menu order is the control. An explicit model in the record swaps too; the swap appears in
   `gateway` skips.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
   on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models

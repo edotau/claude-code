@@ -3,7 +3,6 @@ paths:
   - "internal/settings/**"
   - "internal/agentconfig/*.go"
   - "**/settings.json"
-  - "internal/settings/template.json"
 ---
 # Settings Management
 
@@ -35,7 +34,8 @@ exists.
 
 ## Worktree render
 
-cwd does not isolate writes (CLAUDE.md hard rule 4). `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out
+cwd does not isolate writes (`rules/standards/worktree-git.md` → Worktrees).
+`CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out
 "$PWD/settings.json"` resets that checkout only. A non-default config dir skips agent renders; `--agents` opts them
 back in but still targets the live `~/.codex`, `~/.copilot`, `~/.config/opencode` and `~/.gemini` homes, so leave it
 out of worktree-only verification. `make install` without the override still installs into the live harness.
