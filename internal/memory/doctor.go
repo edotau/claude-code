@@ -70,10 +70,7 @@ func doctorNotice(root string) string {
 	if notice == "" {
 		return ""
 	}
-	if rs := []rune(notice); len(rs) > 200 {
-		notice = string(rs[:200])
-	}
-	return " memory review: " + notice + "."
+	return " memory review: " + textutil.TruncateRunes(notice, 200) + "."
 }
 
 // writeDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
@@ -305,8 +302,7 @@ type receipt struct {
 // readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
 func readReceipts() []receipt {
 	var out []receipt
-	matches, _ := filepath.Glob(filepath.Join(StateDir(), "update-result-*"))
-	for _, p := range matches {
+	for _, p := range globIn(StateDir(), "update-result-*") {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})

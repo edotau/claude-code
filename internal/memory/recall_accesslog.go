@@ -340,8 +340,8 @@ const (
 
 // accessNominations suggests pointers for hot entries and archives for cold entries with enough log history.
 func accessNominations(now time.Time) []string {
-	files, err := filepath.Glob(filepath.Join(AccessStateDir(), "*.log"))
-	if err != nil || len(files) == 0 {
+	files := globIn(AccessStateDir(), "*.log")
+	if len(files) == 0 {
 		return nil
 	}
 	var noms []string

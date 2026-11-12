@@ -238,10 +238,7 @@ func (g *lineGrouper) special(i int, line string) bool {
 // content groups a bullet, ordered or paragraph line, joining it to the open logical line when it continues one.
 func (g *lineGrouper) content(line string) {
 	lead := len(line) - len(strings.TrimLeft(line, " "))
-	m := bankFmtBullet.FindStringSubmatch(line)
-	if m == nil {
-		m = bankFmtOrdered.FindStringSubmatch(line)
-	}
+	m := listItem(line)
 	switch {
 	case m != nil:
 		g.contCol = len(m[1]) + len(m[2])
@@ -260,6 +257,14 @@ func logicalLineCount(text string) int {
 	return len(groupLogicalLines(text))
 }
 
+// listItem is line's (indent, marker, text) submatches when it is a bullet or ordered list item, else nil.
+func listItem(line string) []string {
+	if m := bankFmtBullet.FindStringSubmatch(line); m != nil {
+		return m
+	}
+	return bankFmtOrdered.FindStringSubmatch(line)
+}
+
 // wrapBankLine wraps one list-item or paragraph line at word boundaries, never inside an inline code
 // span, a link, or an HTML comment; a line already within the cap passes through unchanged.
 func wrapBankLine(line string) []string {
@@ -268,16 +273,10 @@ func wrapBankLine(line string) []string {
 	}
 	var indent, marker, rest string
 	contentCol := 0
-	switch {
-	case bankFmtBullet.MatchString(line):
-		m := bankFmtBullet.FindStringSubmatch(line)
+	if m := listItem(line); m != nil {
 		indent, marker, rest = m[1], m[2], m[3]
 		contentCol = len(indent) + len(marker)
-	case bankFmtOrdered.MatchString(line):
-		m := bankFmtOrdered.FindStringSubmatch(line)
-		indent, marker, rest = m[1], m[2], m[3]
-		contentCol = len(indent) + len(marker)
-	default: // a plain paragraph, or an already-wrapped continuation line: keep its own leading indent
+	} else { // a plain paragraph, or an already-wrapped continuation line: keep its own leading indent
 		lead := len(line) - len(strings.TrimLeft(line, " "))
 		indent, rest = line[:lead], line[lead:]
 		contentCol = lead
