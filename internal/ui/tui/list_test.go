@@ -266,10 +266,6 @@ func TestListFooter(t *testing.T) {
 	if got, want := listFooter(spec), "↑/↓ select · enter confirm · esc back · ctrl+d log out"; got != want {
 		t.Errorf("footer = %q\nwant %q", got, want)
 	}
-	spec.Footer = "custom"
-	if listFooter(spec) != "custom" {
-		t.Errorf("custom footer must be used verbatim")
-	}
 }
 
 func TestListRenderSnapshot(t *testing.T) {

@@ -33,7 +33,6 @@ type ListSpec struct {
 	Rows   []ListRow
 	Search bool   // type-to-filter: printable keys build a query, Backspace edits it
 	Binds  []Bind // extra key bindings
-	Footer string // replaces the default hint line verbatim (binds are not appended to it)
 }
 
 // ListResult is the row chosen (index into ListSpec.Rows; -1 = back) and the bind that chose it ("" = Enter).
@@ -190,11 +189,8 @@ func listSearchKey(s listState, k Key) listState {
 	return s
 }
 
-// listFooter is the hint line: spec.Footer verbatim, or the default hints plus every bind that has Help.
+// listFooter is the hint line: the default hints plus every bind that has Help.
 func listFooter(spec ListSpec) string {
-	if spec.Footer != "" {
-		return spec.Footer
-	}
 	parts := []string{"↑/↓ select", "enter confirm"}
 	if spec.Search {
 		parts = append(parts, "type to search")

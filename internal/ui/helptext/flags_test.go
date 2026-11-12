@@ -3,6 +3,7 @@ package helptext
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -184,6 +185,49 @@ func TestRemovedFlagHint(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("RemovedFlagHint(%q) = %v, want containing %q", tt.args, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestExitCode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"help", flag.ErrHelp, 0},
+		{"wrapped help", fmt.Errorf("parse: %w", flag.ErrHelp), 0},
+		{"bad flag", errors.New("flag provided but not defined"), 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExitCode(tc.err); got != tc.want {
+				t.Errorf("ExitCode(%v) = %d, want %d", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// WantsHelp sees only tokens before a literal "--"; anything after is positional, never help.
+func TestWantsHelp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"empty", nil, false},
+		{"bare -h", []string{"-h"}, true},
+		{"bare -help", []string{"-help"}, true},
+		{"bare --help", []string{"--help"}, true},
+		{"after a positional", []string{"x.go", "-h"}, true},
+		{"no help flag", []string{"x.go", "--json"}, false},
+		{"-h after --", []string{"--", "-h"}, false},
+		{"-h after -- with more tokens", []string{"file.py", "--", "-h", "b"}, false},
+		{"-- itself with nothing before it and nothing after", []string{"--"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WantsHelp(tc.args); got != tc.want {
+				t.Errorf("WantsHelp(%v) = %v, want %v", tc.args, got, tc.want)
 			}
 		})
 	}

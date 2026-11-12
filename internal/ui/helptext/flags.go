@@ -183,7 +183,7 @@ var removedFlags = map[string]string{
 	"--provider": "was renamed to --profile",
 	"--env":      "was renamed to --profile",
 	"--tier":     "was replaced by --model <alias>",
-	"--1m":       "was removed; 1M context is the base behavior on serving and first-party endpoints",
+	"--1m":       "was removed; 1M context is the base behavior on serving and anthropic endpoints",
 }
 
 // RemovedFlagHint returns the error for a removed flag in args, or nil; the scan stops at "--" or at the first

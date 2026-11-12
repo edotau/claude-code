@@ -195,11 +195,7 @@ func readLine(br *bufio.Reader) string {
 // yes reads a [Y/n] answer: blank or y/Y is yes; end of input declines, so a dry pipe never starts a login or paste.
 func yes(br *bufio.Reader) bool {
 	raw, err := br.ReadString('\n')
-	if err != nil && raw == "" {
-		return false
-	}
-	line := strings.ToLower(strings.TrimSpace(raw))
-	return line == "" || strings.HasPrefix(line, "y")
+	return (err == nil || raw != "") && (strings.TrimSpace(raw) == "" || tui.ParseYesNo(raw, false))
 }
 
 // confirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
