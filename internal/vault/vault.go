@@ -214,28 +214,28 @@ func prepareTx(t *Tx) (from int, off []string, restamped bool, err error) {
 	if n >= schemaVersion {
 		return 0, nil, false, nil
 	}
-	if n < agentRecordSchema {
-		if off, err = migrateAgentPins(t); err != nil {
-			return 0, nil, false, err
-		}
-	}
-	if err := migrateSlotsToAliases(t); err != nil {
-		return 0, nil, false, err
-	}
-	if err := migrateByokToDiscovery(t); err != nil {
-		return 0, nil, false, err
-	}
-	if err := migrateMaxToUltra(t); err != nil {
-		return 0, nil, false, err
-	}
-	if err := t.SetSchema(schemaVersion); err != nil {
+	if off, err = runMigrations(t, n); err != nil {
 		return 0, nil, false, err
 	}
 	return n, off, true, nil
 }
 
-// newVaultID is 16 random bytes hex-encoded, the per-vault identity under which its master key
-// is stored in the keyring (vault-key/<id>); it lets a second config root bootstrap its own key.
+// runMigrations runs every migration for a vault stamped n and re-stamps it; it returns the agents left off.
+func runMigrations(t *Tx, n int) (off []string, err error) {
+	if n < agentRecordSchema {
+		if off, err = migrateAgentPins(t); err != nil {
+			return nil, err
+		}
+	}
+	for _, step := range []func(*Tx) error{migrateSlotsToAliases, migrateByokToDiscovery, migrateMaxToUltra} {
+		if err := step(t); err != nil {
+			return nil, err
+		}
+	}
+	return off, t.SetSchema(schemaVersion)
+}
+
+// newVaultID is 16 random hex bytes, the identity its master key is stored under in the keyring (vault-key/<id>).
 func newVaultID() string {
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {
@@ -244,8 +244,7 @@ func newVaultID() string {
 	return hex.EncodeToString(id)
 }
 
-// vaultID reads the current tx's identity; callers only reach it after Update's backfill or
-// create()'s write, so it is never empty on a writable Tx.
+// vaultID reads the tx's identity, never empty on a writable Tx (Update backfills it, create writes it).
 func vaultID(t *Tx) string {
 	id, _ := t.Get(Meta, "vault_id")
 	return id
@@ -347,8 +346,7 @@ func (t *Tx) RecordIn(bucket, name string) (Record, bool, error) {
 	return r, true, nil
 }
 
-// Records decodes every stored record; it stops and reports the first decode error rather than
-// silently omitting a corrupt entry from the map (R5).
+// Records decodes every stored record, reporting the first decode error rather than dropping the entry (R5).
 func (t *Tx) Records() (map[string]Record, error) {
 	m := map[string]Record{}
 	for _, n := range t.Names(Secrets) {

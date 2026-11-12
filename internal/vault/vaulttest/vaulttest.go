@@ -82,8 +82,7 @@ func setRecordField(r vault.AgentRecord, field, val string) (vault.AgentRecord, 
 	return r, true
 }
 
-// FakeKeyring is an in-memory stand-in for the OS keyring; Down makes every call look like a
-// keyring that could not positively establish absence, Slow makes it look like one that timed out.
+// FakeKeyring is an in-memory OS keyring; Down makes every call unavailable, Slow makes it time out.
 type FakeKeyring struct {
 	mu     sync.Mutex
 	values map[string]string
@@ -117,8 +116,7 @@ func (f *FakeKeyring) set(name, value string) error {
 	return nil
 }
 
-// Keyring swaps the vault package's keyring seams for an in-memory FakeKeyring, restoring the
-// originals on cleanup.
+// Keyring swaps the vault package's keyring seams for a FakeKeyring until cleanup.
 func Keyring(t testing.TB) *FakeKeyring {
 	t.Helper()
 	f := &FakeKeyring{values: make(map[string]string)}
@@ -126,8 +124,7 @@ func Keyring(t testing.TB) *FakeKeyring {
 	return f
 }
 
-// UseKeyring is Use without a HARNESS_VAULT_KEY override, so the master key resolves through the
-// (fake) keyring instead of the env var.
+// UseKeyring is Use without HARNESS_VAULT_KEY, so the master key resolves through the fake keyring.
 func UseKeyring(t testing.TB) (string, *FakeKeyring) {
 	t.Helper()
 	dir := t.TempDir()

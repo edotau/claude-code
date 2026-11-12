@@ -25,7 +25,7 @@ func mergeAgentRecords(overlay json.RawMessage, recs map[string]vault.AgentRecor
 		return overlay, nil
 	}
 	top := map[string]json.RawMessage{}
-	if len(overlay) != 0 {
+	if overlay = presentJSON(overlay); len(overlay) != 0 { // a JSON null would decode top to a nil map
 		if err := json.Unmarshal(overlay, &top); err != nil {
 			return nil, fmt.Errorf("vault overlay/agents: %w", err)
 		}

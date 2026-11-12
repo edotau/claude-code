@@ -15,8 +15,7 @@ func Names() []string {
 	return names
 }
 
-// NamesErr is Names with the vault read error surfaced, for callers (doctor --secrets) that must not
-// mistake an unreadable vault for an empty one.
+// NamesErr is Names with the vault read error surfaced, so an unreadable vault never reads as empty.
 func NamesErr() ([]string, error) {
 	var names []string
 	err := View(func(tx *Tx) error {
@@ -68,17 +67,15 @@ func deleteSecret(name string) (bool, error) {
 	return existed, nil
 }
 
-// Redact renders a stored value for display: a 5-char prefix (enough to recognise a paste) plus its length.
+// Redact renders a stored value for display: up to a 5-char prefix, never over a third, plus its length.
 func Redact(v string) string {
 	if len(v) < redactMin {
 		return fmt.Sprintf("%d chars", len(v))
 	}
-	return fmt.Sprintf("%s*** (%d chars)", v[:redactShow], len(v))
+	return fmt.Sprintf("%s*** (%d chars)", v[:min(redactShow, len(v)/3)], len(v))
 }
 
-// Preview shows a just-pasted value so a wrong or doubled paste is visible: the key's own prefix (up to its last
-// -/_ in the first 16 chars, never over a third of it), one * per hidden char up to a cap, and the length.
-// A value that is two identical halves is flagged. Fits an 80-column line after a 10-column label.
+// Preview shows a pasted value's prefix (never over a third), capped stars and length, and flags a doubled paste.
 func Preview(v string) string {
 	width := previewStars
 	shown := min(4, len(v)/3)
@@ -97,8 +94,7 @@ func Preview(v string) string {
 	return out
 }
 
-// keyPrefix is a key's vendor prefix: leading short lowercase-alnum segments, each ending in - or _ ("sk-ant-oat01-",
-// "tvly-dev-"); it stops at the first segment that looks random (any uppercase, or longer than 6), never exposing it.
+// keyPrefix is a key's vendor prefix ("sk-ant-oat01-"), stopping at the first random-looking segment.
 func keyPrefix(v string) string {
 	end := 0
 	for end < len(v) && end < 16 {
@@ -120,8 +116,7 @@ const (
 	redactShow = 5
 )
 
-// Lookup reads the vault before the process env; a vault read error (locked, wrong key) falls back to
-// env rather than discarding an exported value, and only errors when env is empty too.
+// Lookup reads the vault before the process env; a vault read error falls back to env, erroring only when unset.
 func Lookup(name string) (value, source string, err error) {
 	v, found, err := ReadSecret(name)
 	ev, envOK := envSet(name)
@@ -205,8 +200,7 @@ func EffectiveSecret(name string) (value, source string, err error) {
 	return "", "", nil
 }
 
-// HasSecretErr reports env or vault presence without resolving a master key, surfacing the vault read error for
-// callers (configure provider --list) that must not mistake an unreadable vault for "no credential".
+// HasSecretErr reports env or vault presence without a master key, surfacing the vault read error.
 func HasSecretErr(name string) (source string, err error) {
 	if _, ok := envSet(name); ok {
 		return "env", nil
@@ -309,8 +303,7 @@ func RecordProbe(name, status string, at, sinceSet time.Time) error {
 	})
 }
 
-// CachedProbe reports m's cached verify result if it is still within ttl: ok is true only for
-// verified/rejected; age is always now−VerifiedAt whenever VerifiedAt is set, cached or not.
+// CachedProbe reports m's verified/rejected result while within ttl; age is now−VerifiedAt whenever that is set.
 func CachedProbe(m SecretMeta, ttl time.Duration, now time.Time) (status string, age time.Duration, ok bool) {
 	if m.VerifiedAt.IsZero() {
 		return "", 0, false
