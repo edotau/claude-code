@@ -30,7 +30,8 @@ paths:
   `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
   An agent's own login: `--overlay '{"provider":"openai"}'` (codex), likewise `anthropic`, `github`, `google`.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
-  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code vault edit`); remove it to turn it off.
+  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code vault edit`); remove it to turn
+  it off.
 
 ## Model selection
 
