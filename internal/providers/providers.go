@@ -285,7 +285,7 @@ func (r *Registry) Get(name string) (*Provider, error) {
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("unknown provider %q (known: %s)", name, strings.Join(r.Names(), ", "))
+	return nil, fmt.Errorf("unknown profile %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
 // Row is the registry row named name, or nil when the registry, the name or the row is absent.
