@@ -112,6 +112,21 @@ var directAskRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^Run: claude-code (--host \S+ )?agents ask `)
 })
 
+// runModelRe captures --model on a brief's opening ask command.
+var runModelRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s--model[ =](\S+)`) })
+
+// runLineModel is the --model a directAsk brief's first line names, or "".
+func runLineModel(task string) string {
+	if !directAsk(task) {
+		return ""
+	}
+	line, _, _ := strings.Cut(task, "\n")
+	if m := runModelRe().FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 // directAsk is a brief that opens with its own ask command (the /<agent> and /coworker commands): never rewritten.
 func directAsk(task string) bool {
 	return directAskRe().MatchString(task) && briefProfile(task) == "" && briefRoute(task) == ""
@@ -423,6 +438,9 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 
 // labelModel is the one precedence: Route: pick, Profile: model, workAgent's no-run pick, else the leaf's Claude model.
 func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
+	if m := runLineModel(task); m != "" {
+		return m // the brief's own ask command names the model: the label says what runs
+	}
 	agent, profile, route := workAgent(st, task), profileApplies(st, task), routeApplies(st, task)
 	if agent == "" && !profile && !route {
 		return ownModel(run, updated, st)
