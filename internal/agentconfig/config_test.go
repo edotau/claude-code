@@ -67,6 +67,16 @@ func TestOverlayNullVendorRemovesIt(t *testing.T) {
 	}
 }
 
+// TestOverlayCommentAcceptedUnknownKeyRefused: a top-level _comment loads; any other unknown key still errors.
+func TestOverlayCommentAcceptedUnknownKeyRefused(t *testing.T) {
+	if _, err := ParseConfig([]byte(`{"_comment":"note","agents":{}}`)); err != nil {
+		t.Errorf("_comment overlay: %v, want nil", err)
+	}
+	if _, err := ParseConfig([]byte(`{"bogus":1}`)); err == nil {
+		t.Error("unknown top-level key: nil error, want refusal")
+	}
+}
+
 // TestOverlayGuardRulesReplaceWholesale: GuardRules in the overlay replace the defaults wholesale, like Providers.Fallback.
 func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	writeOverlay(t, `{"guardRules":{"deny":["also-only-this"]}}`)
