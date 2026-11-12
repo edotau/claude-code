@@ -96,7 +96,7 @@ var protectedDebris = []string{
 	"docs/memory/bank/archive/sessionHistory-2025-01.md",
 	"docs/memory/bank/archive/native/some-project/topic.md",
 	"state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
-	"state/harness/router.json", "state/harness/router.secret",
+	"state/harness/proxy.json",
 }
 
 // seedFiles writes each rel under dir and ages the file (and, when ageDir, its containing dir) to old.
@@ -187,7 +187,7 @@ func TestCleanAppliesByDefault(t *testing.T) {
 		"docs/memory/bank/archive/sessionHistory-2025-01.md",
 		"docs/memory/bank/archive/native/some-project/topic.md",
 		"state/vault.db", "state/vault.db.key", "settings.json", "providers.json", ".credentials.json",
-		"state/harness/router.json", "state/harness/router.secret",
+		"state/harness/proxy.json",
 	} {
 		if !exists(t, filepath.Join(dir, keep)) {
 			t.Errorf("clean deleted live config or memory bank content: %s", keep)

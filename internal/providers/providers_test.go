@@ -126,33 +126,6 @@ func TestOverlayReplacesOpencodeLadderAndPlugins(t *testing.T) {
 	}
 }
 
-// TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates: an overlay ladder may still name a
-// registry provider ("chatgpt") instead of its opencode sub id ("openai") — Parse must map it through
-// NormalizeOpencodeLadder before Validate ever sees it, and a duplicate that only appears after normalizing
-// (two "chatgpt" entries, or a "chatgpt"/"openai" collision) must collapse to one, first occurrence wins.
-func TestOverlayLadderNormalizesLegacyProviderNamesAndDropsDuplicates(t *testing.T) {
-	vaulttest.UseKeyring(t)
-	t.Setenv(EnvSessionProfile, "")
-	base := []byte(`{"providers": {
-		"openai": {"chatgpt": {"protocol": "openai", "base_url": "https://a", "auth": {"type": "none"}, "opencodeID": "openai"}},
-		"github": {"personal": {"protocol": "openai", "base_url": "https://b", "auth": {"type": "none"}, "opencodeID": "github-copilot"}}
-	}, "routing": {"opencode": {"ladder": ["opencode-go"]}}}`)
-	overlay := []byte(`{"routing": {"opencode": {"ladder": ["chatgpt", "personal", "chatgpt"]}}}`)
-	reg, err := Parse(base, overlay)
-	if err != nil {
-		t.Fatalf("Parse() = %v, want the legacy provider-name ladder to normalize and validate", err)
-	}
-	if !reflect.DeepEqual(reg.Routing.Opencode.LadderOrder(), []string{"openai", "github-copilot"}) {
-		t.Errorf("OpencodeLadder = %v, want [\"openai\", \"github-copilot\"] (normalized, deduplicated)", reg.Routing.Opencode.LadderOrder())
-	}
-
-	// an id that names nothing real must still fail validation after normalization.
-	badOverlay := []byte(`{"routing": {"opencode": {"ladder": ["ghost"]}}}`)
-	if _, err := Parse(base, badOverlay); err == nil {
-		t.Error("an unknown opencodeLadder id must still error after normalization")
-	}
-}
-
 // Ladder entries are opencode sub ids, not registry provider names: known sub ids pass with no providers, others fail.
 func TestValidateOpencodeLadderNames(t *testing.T) {
 	for _, c := range []struct {

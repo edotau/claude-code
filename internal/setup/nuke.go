@@ -428,10 +428,9 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 }
 
 // keepMemoryPaths lists every regular file under memory/ (incl. .git, so per-bank knowledge/ rides along),
-// plans/, an unmigrated legacy docs/memory/bank/, a legacy pre-44aab60 docs/knowledge/, and real
-// projects/*/memory dirs, dir-relative. A symlinked native dir is the store's own duplicate: skipped, never followed.
+// plans/ and real projects/*/memory dirs, dir-relative.
+// A symlinked native dir is the store's own duplicate: skipped, never followed.
 // A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
-// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-26 build.
 func keepMemoryPaths(dir string) ([]string, error) {
 	roots, err := memoryRoots(dir)
 	if err != nil {
@@ -451,7 +450,7 @@ func keepMemoryPaths(dir string) ([]string, error) {
 // memoryRoots returns the existing real (non-symlink) directories under dir that keepMemoryPaths archives.
 // An unreadable projects/ dir is an error: a root dropped from the plan would be deleted unarchived.
 func memoryRoots(dir string) ([]string, error) {
-	candidates := []string{"memory", filepath.Join("docs", "memory", "bank"), "plans", filepath.Join("docs", "knowledge")} // docs/knowledge is the pre-44aab60 knowledge location
+	candidates := []string{"memory", "plans"}
 	projects, err := projectMemoryRels(dir)
 	if err != nil {
 		return nil, err

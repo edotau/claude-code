@@ -100,9 +100,6 @@ func runSync(opts Options) int {
 	header(out, "skills")
 	agentsSkills := agentsSkillsDir(in.home)
 	res.add(syncSkillLinks(out, in.skills, in.skillsDir, agentsSkills, prune, dryRun))
-	if prune {
-		res.add(pruneLegacyGeminiSkills(out, legacyGeminiSkillsDir(in.home), dryRun))
-	}
 	return finishSync(out, opts, dryRun, res)
 }
 

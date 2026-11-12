@@ -32,8 +32,8 @@ func TestServeRefusesDefaultPortUnderTest(t *testing.T) {
 	}
 }
 
-// A router.json written at a newer schema by a live daemon must still read as running and must not be overwritten.
-func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
+// A proxy.json written at a newer schema by a live daemon must still read as running and must not be overwritten.
+func TestNewerSchemaProxyJSONStaysRunning(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -50,8 +50,8 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 
 	doc := fmt.Sprintf(`{"schema":2,"pid":%d,"port":%d,"started":"2026-01-01T00:00:00Z","extra":"newer"}`, os.Getpid(),
 		port)
-	writeNewerRouterJSON(t, doc)
-	defer os.Remove(filepath.Join(paths.StateDir(), "router.json"))
+	writeNewerProxyJSON(t, doc)
+	defer os.Remove(filepath.Join(paths.StateDir(), "proxy.json"))
 
 	st, err := gateway.ReadState()
 	if err != nil || st.PID != os.Getpid() || st.Port != port {
@@ -63,17 +63,17 @@ func TestNewerSchemaRouterJSONStaysRunning(t *testing.T) {
 	}
 
 	serveAndStop(t)
-	got, err := os.ReadFile(filepath.Join(paths.StateDir(), "router.json"))
+	got, err := os.ReadFile(filepath.Join(paths.StateDir(), "proxy.json"))
 	if err != nil || string(got) != doc {
-		t.Fatalf("router.json = %q, %v; want the newer build's file untouched", got, err)
+		t.Fatalf("proxy.json = %q, %v; want the newer build's file untouched", got, err)
 	}
 }
 
-// writeNewerRouterJSON writes doc as the state dir's router.json, creating the directory.
-func writeNewerRouterJSON(t *testing.T, doc string) {
+// writeNewerProxyJSON writes doc as the state dir's proxy.json, creating the directory.
+func writeNewerProxyJSON(t *testing.T, doc string) {
 	t.Helper()
-	file := filepath.Join(paths.StateDir(), "router.json")
-	if err := os.MkdirAll(file[:len(file)-len("/router.json")], 0o700); err != nil {
+	file := filepath.Join(paths.StateDir(), "proxy.json")
+	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(file, []byte(doc), 0o600); err != nil {
@@ -131,7 +131,7 @@ func TestServeRefusesHeldPort(t *testing.T) {
 	}
 }
 
-// An explicit busy --port is never moved: Serve errors, binds nothing and writes no router.json.
+// An explicit busy --port is never moved: Serve errors, binds nothing and writes no proxy.json.
 func TestServeExplicitBusyPortErrors(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
@@ -142,8 +142,8 @@ func TestServeExplicitBusyPortErrors(t *testing.T) {
 			t.Errorf("%s: Serve on busy explicit port returned nil, want an error", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); !os.IsNotExist(err) {
-		t.Errorf("router.json written after refused Serve: %v", err)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "proxy.json")); !os.IsNotExist(err) {
+		t.Errorf("proxy.json written after refused Serve: %v", err)
 	}
 }
 
@@ -183,7 +183,7 @@ func plainListener(t *testing.T) (port int, isClosed func() bool) {
 }
 
 func waitServing(t *testing.T, servePort int) {
-	// Any HTTP response proves srv.Serve is running, which happens after Serve's router.json decision.
+	// Any HTTP response proves srv.Serve is running, which happens after Serve's proxy.json decision.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", servePort))
@@ -206,8 +206,8 @@ func TestServeCanceledContextDoesNotPublishState(t *testing.T) {
 	if err := Serve(ctx, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Serve with a canceled context = %v, want context.Canceled", err)
 	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); !os.IsNotExist(err) {
-		t.Fatalf("router.json must not be published for a canceled context: %v", err)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "proxy.json")); !os.IsNotExist(err) {
+		t.Fatalf("proxy.json must not be published for a canceled context: %v", err)
 	}
 }
 
@@ -226,8 +226,8 @@ func TestServeStateAndEnsure(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); !os.IsNotExist(err) {
-		t.Fatalf("router.json not removed: %v", err)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "proxy.json")); !os.IsNotExist(err) {
+		t.Fatalf("proxy.json not removed: %v", err)
 	}
 }
 
@@ -248,14 +248,13 @@ func waitRouterHealthy(t *testing.T) gateway.State {
 	return st
 }
 
-// checkVaultSealedSecret asserts the client secret is stable, 64 chars and kept in the vault, not a file.
+// checkVaultSealedSecret asserts the client secret is stable and 64 chars.
 func checkVaultSealedSecret(t *testing.T) {
 	t.Helper()
 	s1, _ := gateway.ClientSecret()
 	s2, _ := gateway.ClientSecret()
-	_, err := os.Stat(filepath.Join(paths.StateDir(), "router.secret"))
-	if !os.IsNotExist(err) || s1 == "" || s1 != s2 || len(s1) != 64 {
-		t.Fatalf("secret %q/%q (vault-sealed, no file) stat err %v", s1, s2, err)
+	if s1 == "" || s1 != s2 || len(s1) != 64 {
+		t.Fatalf("secret %q/%q, want one stable 64-char value", s1, s2)
 	}
 }
 
@@ -309,12 +308,12 @@ func TestServeClosesStreamsPastTheDrain(t *testing.T) {
 	}
 }
 
-// Regression: a side proxy (--serve --port N) must neither overwrite nor delete a live daemon's router.json.
+// Regression: a side proxy (--serve --port N) must neither overwrite nor delete a live daemon's proxy.json.
 func TestServeSideProxyKeepsDaemonState(t *testing.T) {
 	vaulttest.Use(t)
 	daemon := gateway.State{PID: os.Getppid(), Port: 1, Started: time.Now().UTC()} // a live pid on another port
 	data, _ := json.Marshal(daemon)
-	if err := paths.AtomicWrite(filepath.Join(paths.StateDir(), "router.json"), data, 0o600); err != nil {
+	if err := paths.AtomicWrite(filepath.Join(paths.StateDir(), "proxy.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -330,13 +329,13 @@ func TestServeSideProxyKeepsDaemonState(t *testing.T) {
 		t.Fatalf("Serve exited before listening: %v", err)
 	}
 	if cur, err := gateway.ReadState(); err != nil || cur.PID != daemon.PID || cur.Port != daemon.Port {
-		t.Fatalf("while serving, router.json = %+v, %v; want the daemon's %+v", cur, err, daemon)
+		t.Fatalf("while serving, proxy.json = %+v, %v; want the daemon's %+v", cur, err, daemon)
 	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	if cur, err := gateway.ReadState(); err != nil || cur.PID != daemon.PID {
-		t.Fatalf("after the side proxy exits, router.json = %+v, %v; want the daemon's kept", cur, err)
+		t.Fatalf("after the side proxy exits, proxy.json = %+v, %v; want the daemon's kept", cur, err)
 	}
 }

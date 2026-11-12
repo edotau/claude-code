@@ -53,10 +53,8 @@ type State struct {
 
 func stateFile() string { return filepath.Join(paths.StateDir(), "proxy.json") }
 
-// legacyStateFile is the pre-rename state file a daemon from an older build still writes; read until 2026-11-14.
-func legacyStateFile() string { return filepath.Join(paths.StateDir(), "router.json") }
-
-func secretFile() string { return filepath.Join(paths.StateDir(), "router.secret") }
+// secretLockFile guards minting the router secret; the secret itself lives only in the vault.
+func secretLockFile() string { return filepath.Join(paths.StateDir(), "proxy.secret") }
 
 // logFile receives a spawned daemon's stdio.
 func logFile() string { return filepath.Join(paths.StateDir(), "proxy.log") }
@@ -81,13 +79,10 @@ func ViaBase(base string) string {
 // ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
 const ClientHeader = "X-Claude-Code-Proxy"
 
-// ReadState reads proxy.json, else the legacy router.json.
+// ReadState reads proxy.json.
 func ReadState() (State, error) {
 	var st State
 	b, err := os.ReadFile(stateFile())
-	if errors.Is(err, os.ErrNotExist) {
-		b, err = os.ReadFile(legacyStateFile())
-	}
 	if err != nil {
 		return st, err
 	}
@@ -228,7 +223,7 @@ func spawn() error {
 	return cmd.Process.Release()
 }
 
-// ownedElsewhere reports a live router on another port already holding router.json.
+// ownedElsewhere reports a live router on another port already holding proxy.json.
 func ownedElsewhere(st State) bool {
 	cur, err := ReadState()
 	if err == nil && cur.Schema > stateSchema { // never overwrite a live newer build's record, even on the same port
@@ -243,7 +238,6 @@ func Stop(ctx context.Context) (State, error) {
 	if !ok {
 		if st.PID != 0 && !alive(st.PID) {
 			_ = os.Remove(stateFile())
-			_ = os.Remove(legacyStateFile())
 		}
 		return st, ErrNotRunning
 	}
@@ -431,7 +425,6 @@ func WriteState(st State) (func(), error) {
 		if err := paths.AtomicWrite(stateFile(), data, 0o600); err != nil {
 			return err
 		}
-		_ = os.Remove(legacyStateFile()) // this daemon now owns proxy.json
 		wrote = true
 		return nil
 	})

@@ -2,7 +2,6 @@ package providers
 
 import (
 	"bytes"
-	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -242,7 +241,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	if err != nil {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
-	legacyErr := cmp.Or(checkLegacyRoutingKeys(overlay), mergeOverlay(reg, overlay))
+	mergeErr := mergeOverlay(reg, overlay)
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
@@ -250,9 +249,8 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	// Load-only: derived preset fields are never written back to the overlay.
 	expandPresets(reg)
 	decorateModels(reg)
-	reg.Routing.Opencode.Ladder = normalizeOpencodeLadder(reg) // legacy provider-name ladder entries, before Validate
-	if legacyErr != nil {
-		return reg, legacyErr
+	if mergeErr != nil {
+		return reg, mergeErr
 	}
 	return reg, reg.validate()
 }
@@ -272,33 +270,6 @@ func mergeOverlay(reg *Registry, overlay []byte) error {
 	}
 	if err != nil {
 		return fmt.Errorf("vault overlay/providers: %w", err)
-	}
-	return nil
-}
-
-// legacyRoutingKeys maps a retired top-level overlay key to the routing path it moved under; Parse rejects
-// an overlay that still carries one (a guard, not an alias — the live vault was migrated once).
-var legacyRoutingKeys = map[string]string{
-	"route":          "routing.cells",
-	"routeWeights":   "routing.weights",
-	"opencodeLadder": "routing.opencode.ladder",
-}
-
-// checkLegacyRoutingKeys rejects an overlay document that still carries a retired top-level routing key;
-// an empty overlay (no document at all) has none.
-// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-25 build.
-func checkLegacyRoutingKeys(overlay []byte) error {
-	if len(overlay) == 0 {
-		return nil
-	}
-	top, err := decodeOverlayTop(string(overlay))
-	if err != nil {
-		return err
-	}
-	for _, key := range []string{"route", "routeWeights", "opencodeLadder"} {
-		if _, ok := top[key]; ok {
-			return fmt.Errorf("vault overlay/providers: %q moved to %s", key, legacyRoutingKeys[key])
-		}
 	}
 	return nil
 }

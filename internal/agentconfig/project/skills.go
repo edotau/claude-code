@@ -66,14 +66,5 @@ func pruneSkillLinks(out io.Writer, agentsSkills, skillsDir string, projected ma
 		}
 		return "orphaned link -> " + paths.ShortHome(dest), true
 	}
-	return pruneEntries(out, agentsSkills, match, os.Remove, dryRun)
-}
-
-// pruneLegacyGeminiSkills removes banner-marked skill dirs under ~/.gemini/skills; remove after 2026-11-13.
-func pruneLegacyGeminiSkills(out io.Writer, root string, dryRun bool) syncResult {
-	match := func(e os.DirEntry) (string, bool) {
-		return "legacy projection; skills now link via ~/.agents/skills", isGeneratedSkillDir(filepath.Join(root, e.Name()))
-	}
-	remove := func(path string) error { return removeGeneratedSkillDir(path, root) }
-	return pruneEntries(out, root, match, remove, dryRun)
+	return pruneEntries(out, agentsSkills, match, dryRun)
 }

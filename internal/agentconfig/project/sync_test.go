@@ -272,18 +272,14 @@ func TestSyncRefusesPruneOnEmptyDiscovery(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(claude, "agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(home, ".gemini", "skills", "real-skill")
-	projectWriteFile(t, filepath.Join(legacy, "SKILL.md"), realSkillBannerPrefix+"real-skill/SKILL.md; do not edit by hand. -->\n\nbody\n")
 	agentFile := filepath.Join(home, ".copilot", "agents", "ghost.md")
 	projectWriteFile(t, agentFile, agentSkillBannerPrefix+"ghost.md; do not edit by hand. -->\n\nbody\n")
 
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	for _, p := range []string{legacy, agentFile} {
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("prune wiped %s on empty discovery: %v", p, err)
-		}
+	if _, err := os.Stat(agentFile); err != nil {
+		t.Errorf("prune wiped %s on empty discovery: %v", agentFile, err)
 	}
 }
 
@@ -300,8 +296,6 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	}
 	hand := filepath.Join(home, ".codex", "agents", "mine.toml")
 	projectWriteFile(t, hand, "name = \"mine\"\n")
-	legacy := filepath.Join(home, ".gemini", "skills", "old-skill")
-	projectWriteFile(t, filepath.Join(legacy, "SKILL.md"), realSkillBannerPrefix+"old-skill/SKILL.md; do not edit by hand. -->\n\nbody\n")
 
 	var out bytes.Buffer
 	if code := Sync(Options{Out: &out}); code != 0 {
@@ -310,9 +304,6 @@ func TestSyncPrunesOrphansButKeepsHandAuthoredFiles(t *testing.T) {
 	assertOrphanPrunedKeeperKept(t, home, claude, "doomed", "keeper")
 	if _, err := os.Stat(hand); err != nil {
 		t.Errorf("hand-authored codex agent pruned: %v", err)
-	}
-	if _, err := os.Lstat(legacy); !os.IsNotExist(err) {
-		t.Errorf("legacy ~/.gemini/skills projection survived: %v", err)
 	}
 	if code := Sync(Options{Check: true, Out: io.Discard}); code != 0 {
 		t.Errorf("--check after prune = %d, want 0", code)

@@ -34,12 +34,6 @@ func TestGeneratedBannerMustBeFirstBodyLine(t *testing.T) {
 	if !isGeneratedFile(toml) {
 		t.Error("codex hash banner on line one must be recognised as generated")
 	}
-
-	legacy := filepath.Join(dir, "skill")
-	projectWriteFile(t, filepath.Join(legacy, "SKILL.md"), "---\nname: s\n---\n\n"+realSkillBannerPrefix+"s/SKILL.md; do not edit by hand. -->\n")
-	if !isGeneratedSkillDir(legacy) {
-		t.Error("legacy skill projection dir must still be recognised for the ~/.gemini/skills prune")
-	}
 }
 
 // Every renderer must stamp the banner as the first body line, or its own output could never be pruned.
