@@ -131,6 +131,9 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 			body = fixGeminiChat(body)
 			geminiChat = true
 		}
+		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") {
+			body = dropNonFunctionTools(body)
+		}
 		if dialect != providers.ProtocolGemini {
 			body = clampOutputTokens(body, model)
 		}
@@ -246,6 +249,39 @@ func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
 	}
 	out, err := json.Marshal(tools)
 	return out, err == nil
+}
+
+// dropNonFunctionTools removes tools[] entries without a function object (custom, web_search), which chat endpoints 400.
+func dropNonFunctionTools(body []byte) []byte {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return body
+	}
+	var tools []map[string]json.RawMessage
+	if json.Unmarshal(top["tools"], &tools) != nil {
+		return body
+	}
+	kept := make([]map[string]json.RawMessage, 0, len(tools))
+	for _, t := range tools {
+		if fn := bytes.TrimSpace(t["function"]); len(fn) > 0 && fn[0] == '{' {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == len(tools) {
+		return body
+	}
+	if len(kept) == 0 {
+		delete(top, "tools")
+		delete(top, "tool_choice")
+		delete(top, "parallel_tool_calls")
+	} else {
+		top["tools"], _ = json.Marshal(kept)
+	}
+	out, err := json.Marshal(top)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // fixGeminiChat normalizes streaming options, tool choice, schemas, and thought signatures.
