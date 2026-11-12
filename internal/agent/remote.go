@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -108,6 +107,17 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	for _, kv := range req.Env {
 		opt("--env", kv)
 	}
+	return strings.Join(append(w, remoteScriptTail(req)...), " "), nil
+}
+
+// remoteScriptTail is remoteScript's permission and switch flags, each value single-quoted.
+func remoteScriptTail(req RunOptions) []string {
+	var w []string
+	opt := func(flag, v string) {
+		if v != "" {
+			w = append(w, flag, textutil.ShellQuote(v))
+		}
+	}
 	opt("--mode", req.Permissions.Mode)
 	for _, set := range []struct {
 		flag  string
@@ -126,7 +136,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 			w = append(w, b.flag)
 		}
 	}
-	return strings.Join(w, " "), nil
+	return w
 }
 
 func validateRemoteScript(bin, agentName string, req RunOptions) error {
@@ -146,7 +156,7 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 
 // remoteOverlay is the inline overlay naming this process's confinement (HARNESS_COWORKER) for the far argv; "": none.
 func remoteOverlay() string {
-	provider, profile, _ := router.ParseCoworker(os.Getenv(router.EnvCoworker)) // a bad value confines nothing here either
+	provider, profile, _ := router.Coworker() // a bad value confines nothing here either
 	return agentconfig.InlineOverlay(provider, profile)
 }
 

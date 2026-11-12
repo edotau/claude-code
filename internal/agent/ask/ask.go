@@ -445,14 +445,7 @@ func (r *askRun) execute() int {
 	if r.jobRec != nil && r.jobRec.Live {
 		return agent.RunHolder(r.jobRec, newClient().Launcher)
 	}
-	var framed *bufio.Reader // set only for the remote end of `ask --host`
-	var prompt string
-	var err error
-	if f.stdinFramed {
-		framed, prompt, err = readFramedPrompt(os.Stdin)
-	} else {
-		prompt, err = resolveAskPrompt(r.prompt)
-	}
+	framed, prompt, err := r.readPrompt()
 	if err != nil {
 		return failAsk(f.format, f.name, err)
 	}
@@ -470,6 +463,15 @@ func (r *askRun) execute() int {
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
 	return askPrepareAndRun(ctx, r.fs, r.request(prompt), r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native)
+}
+
+// readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
+func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
+	if r.f.stdinFramed {
+		return readFramedPrompt(os.Stdin)
+	}
+	prompt, err := resolveAskPrompt(r.prompt)
+	return nil, prompt, err
 }
 
 // request is batchBase plus the single-task fields.

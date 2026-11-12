@@ -40,13 +40,15 @@ func JoinCoworker(provider, profile string) string {
 	return provider + ":" + profile
 }
 
+// Coworker is this process's HARNESS_COWORKER confinement, parsed (ParseCoworker).
+func Coworker() (provider, profile string, err error) { return ParseCoworker(os.Getenv(EnvCoworker)) }
+
 // Confined is the non-Databricks confinement HARNESS_COWORKER names: its provider and optional profile; "" outside one.
 func Confined() (provider, profile string) {
-	provider, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
-	if err != nil || provider == RouteDatabricks {
-		return "", ""
+	if provider, profile, err := Coworker(); err == nil && provider != RouteDatabricks {
+		return provider, profile
 	}
-	return provider, profile
+	return "", ""
 }
 
 // OwnProfiles lists agent's own-login rows under provider, in name order (claude: the anthropic CLI-login rows).
@@ -82,11 +84,10 @@ func ConfineLead(agentName, profile, provider, model string) (string, string) {
 
 // ArmProfile is the workspace HARNESS_COWORKER=databricks:<p> confines the pick to; "" when the route is anything else.
 func ArmProfile() string {
-	mode, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
-	if err != nil || mode != RouteDatabricks {
-		return ""
+	if mode, profile, err := Coworker(); err == nil && mode == RouteDatabricks {
+		return profile
 	}
-	return profile
+	return ""
 }
 
 // gateLadder drops a candidate the confinement rules out, or whose rung model its account can't serve.

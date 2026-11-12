@@ -205,13 +205,8 @@ var gatewayPage = helptext.Page{
 func gatewayRoute(args []string) int {
 	const name = "gateway"
 	fs := helptext.NewFlagSet(name, gatewayPage)
-	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
-	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
-	task := fs.String("task", "", "task text the classifier reads when --model is absent")
-	fallback := fs.String("fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	q := gatewayRouteFlags(fs)
 	overlay := fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)
-	profile := fs.String("profile", "", "lead profile, or session")
-	provider := fs.String("provider", "", "lead on this provider's signed-in profile")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -220,21 +215,36 @@ func gatewayRoute(args []string) int {
 		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		*fallback = router.DefaultFallback()
+		q.Fallback = router.DefaultFallback()
 	}
 	ov, err := gatewayOverlay(fs, *overlay)
 	if err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	if code := checkCoworkerFlags(name, ov.Confinement(), *profile, *format, *fallback, *want, *model); code != 0 {
+	if code := checkCoworkerFlags(name, ov.Confinement(), q.Profile, *format, q.Fallback, q.Agent, q.Model); code != 0 {
 		return code
 	}
-	if err := ask.CheckArm(*want, *profile, *provider, *model, false); err != nil {
+
+	return resolveGatewayRoute(*q, *format)
+}
+
+func gatewayRouteFlags(fs *flag.FlagSet) *agent.RouteReq {
+	q := &agent.RouteReq{Preview: true, Refresh: ask.RouteRefresh}
+	fs.StringVar(&q.Model, "model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
+	fs.StringVar(&q.Agent, "agent", "", "the agent asked for; it leads when it passes the gates")
+	fs.StringVar(&q.Task, "task", "", "task text the classifier reads when --model is absent")
+	fs.StringVar(&q.Fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	fs.StringVar(&q.Profile, "profile", "", "lead profile, or session")
+	fs.StringVar(&q.Provider, "provider", "", "lead on this provider's signed-in profile")
+	return q
+}
+
+func resolveGatewayRoute(q agent.RouteReq, format string) int {
+	const name = "gateway"
+	if err := ask.CheckArm(q.Agent, q.Profile, q.Provider, q.Model, false); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	*profile, *provider = router.ConfineLead(*want, *profile, *provider, *model)
-	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
-		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
+	q.Profile, q.Provider = router.ConfineLead(q.Agent, q.Profile, q.Provider, q.Model)
 	_, res, err := agent.Resolve(context.Background(), q)
 	if _, ok := errors.AsType[*agent.LeadError](err); ok {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
@@ -243,7 +253,7 @@ func gatewayRoute(args []string) int {
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
-	return renderGatewayRoute(name, res, *format)
+	return renderGatewayRoute(name, res, format)
 }
 
 // gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
@@ -263,8 +273,8 @@ func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error)
 }
 
 // checkCoworkerFlags applies the overlay's confinement and validates the flags; nonzero is the exit (preflight: 1).
-func checkCoworkerFlags(name, coworker, profile, format, fallback, want, model string) int {
-	if err := ask.ApplyCoworker(coworker, profile, want, model, fallback); err != nil {
+func checkCoworkerFlags(name, confinement, profile, format, fallback, want, model string) int {
+	if err := ask.ApplyCoworker(confinement, profile, want, model, fallback); err != nil {
 		if _, ok := errors.AsType[*agent.PreflightError](err); ok {
 			return helptext.Fail(name+": %v", err)
 		}

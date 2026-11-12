@@ -121,21 +121,34 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
 func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 	if f.dirs == "" && f.files == "" && !f.diff {
-		for _, n := range []string{"index", "max-files", "max-file-bytes"} {
-			if helptext.Explicit(fs, n) {
-				return nil, fmt.Errorf("--%s needs --dirs, --files or --diff", n)
-			}
-		}
-		return nil, nil
+		return nil, packTuningUnset(fs)
 	}
-	if f.maxFiles < 0 || f.maxFileBytes < 0 {
-		return nil, errors.New("--max-files and --max-file-bytes cannot be negative")
-	}
-	if f.batchSrc != "" || f.live || f.host != "" {
-		return nil, errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --host")
+	if err := packCombos(f); err != nil {
+		return nil, err
 	}
 	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
 		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
+}
+
+// packCombos refuses negative pack limits and a pack with --batch, --live or --host.
+func packCombos(f *askFlags) error {
+	switch {
+	case f.maxFiles < 0 || f.maxFileBytes < 0:
+		return errors.New("--max-files and --max-file-bytes cannot be negative")
+	case f.batchSrc != "" || f.live || f.host != "":
+		return errors.New("--dirs/--files/--diff cannot be combined with --batch, --live or --host")
+	}
+	return nil
+}
+
+// packTuningUnset refuses a pack tuning flag typed without --dirs, --files or --diff.
+func packTuningUnset(fs *flag.FlagSet) error {
+	for _, n := range []string{"index", "max-files", "max-file-bytes"} {
+		if helptext.Explicit(fs, n) {
+			return fmt.Errorf("--%s needs --dirs, --files or --diff", n)
+		}
+	}
+	return nil
 }
 
 // askCheckCombos rejects the flag combinations that need the resolved agent.

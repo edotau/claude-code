@@ -137,6 +137,11 @@ func confineLine(agentName string, req agent.RunOptions) (agent.RunOptions, erro
 	if req.Lead != "" || (profile == req.Provider && provider == "") {
 		return req, nil
 	}
+	return lineLead(agentName, req, profile, provider)
+}
+
+// lineLead sets a batch line's lead from the confinement's profile or provider (agent.LeadFor).
+func lineLead(agentName string, req agent.RunOptions, profile, provider string) (agent.RunOptions, error) {
 	q := agent.RouteReq{Agent: agentName, Model: req.Model, Profile: profile, Provider: provider, Fallback: req.Fallback}
 	lead, pin, err := agent.LeadFor(q)
 	switch {
@@ -392,14 +397,13 @@ func checkNative(native bool) error {
 	if !native {
 		return nil
 	}
-	p, prof, err := router.ParseCoworker(os.Getenv(router.EnvCoworker))
-	switch {
+	switch p, prof, err := router.Coworker(); {
 	case err != nil:
 		return fmt.Errorf("%s: %w", router.EnvCoworker, err)
-	case p == "":
-		return nil
+	case p != "":
+		return fmt.Errorf("--native: outside overlay %s", router.JoinCoworker(p, prof))
 	}
-	return fmt.Errorf("--native: outside overlay %s", router.JoinCoworker(p, prof))
+	return nil
 }
 
 // armFlags refuses --direct, a --profile other than the workspace and a --provider other than databricks.

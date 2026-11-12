@@ -85,7 +85,7 @@ func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request,
 			return
 		}
 	}
-	return r.passthroughRequest(sw, in, p, route, rest, query, model, dialect, dbxGemini)
+	return r.passthroughRequest(sw, in, p, route, &url.URL{Path: rest, RawQuery: query}, model, dialect, dbxGemini)
 }
 
 func (r *Router) passthroughRoute(w http.ResponseWriter,
@@ -113,39 +113,37 @@ func (r *Router) passthroughRoute(w http.ResponseWriter,
 }
 
 func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider,
-	route, rest, query, model, dialect string, dbxGemini bool) (string, string) {
-	var extra string
+	route string, path *url.URL, model, dialect string, dbxGemini bool) (string, string) {
 	var body []byte
 	geminiChat := false
 	if in.Method == http.MethodPost {
 		var ok bool
 		if body, ok = readBody(sw, in); !ok {
-			return model, extra
+			return model, ""
 		}
 		model = cmp.Or(passthroughModel(body), model)
 		if dbxGemini {
 			body = dropOffThoughts(body)
 		}
-		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") &&
-			translate.IsGeminiModel(model) {
-			body = fixGeminiChat(body)
-			geminiChat = true
-		}
-		if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") {
+		if isChatCompletion(dialect, path.Path) {
+			if translate.IsGeminiModel(model) {
+				body = fixGeminiChat(body)
+				geminiChat = true
+			}
 			body = dropNonFunctionTools(body)
 		}
 		if dialect != providers.ProtocolGemini {
 			body = clampOutputTokens(body, model)
 		}
 	}
-	return r.passthroughResponse(sw, in, p, route, rest, query, model, dialect, body, geminiChat)
+	return r.passthroughResponse(sw, in, p, route, path, model, dialect, body, geminiChat)
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
-	route, rest, query, model, dialect string, body []byte, geminiChat bool) (string, string) {
-	target := route + "/" + rest
-	if query != "" {
-		target += "?" + query
+	route string, path *url.URL, model, dialect string, body []byte, geminiChat bool) (string, string) {
+	target := route + "/" + path.Path
+	if path.RawQuery != "" {
+		target += "?" + path.RawQuery
 	}
 	resp, err := r.sendMethod(in, in.Method, p, target, body, copyClientHeaders(in))
 	if err != nil {
@@ -154,19 +152,16 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	}
 	defer func() { _ = resp.Body.Close() }() // whichever reply is current: the retry swaps resp
 	retried := ""
-	if dialect == providers.ProtocolOpenAI && strings.HasSuffix(rest, "chat/completions") {
+	if isChatCompletion(dialect, path.Path) {
 		resp, body, retried = r.retryWithoutEffort(in, p, target, model, resp, body)
 	}
 	extra := passthroughDiag(resp, len(body)) + retried
 	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
 		r.coolDown(p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
 	}
-	if geminiChat && resp.StatusCode == http.StatusOK &&
-		!strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
-		if err := flattenGeminiResponse(resp); err != nil {
-			writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
-			return model, extra
-		}
+	if err := flattenPassthroughResponse(resp, geminiChat); err != nil {
+		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
+		return model, extra
 	}
 	tail := teeUsageTail(resp, in, p, dialect)
 	relay(sw, resp)
@@ -174,6 +169,18 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
 	}
 	return model, extra
+}
+
+func isChatCompletion(dialect, path string) bool {
+	return dialect == providers.ProtocolOpenAI && strings.HasSuffix(path, "chat/completions")
+}
+
+func flattenPassthroughResponse(resp *http.Response, geminiChat bool) error {
+	if geminiChat && resp.StatusCode == http.StatusOK &&
+		!strings.Contains(resp.Header.Get("Content-Type"), "event-stream") {
+		return flattenGeminiResponse(resp)
+	}
+	return nil
 }
 
 // retryWithoutEffort resends a chat body once with reasoning_effort "none" when the upstream 400s on tools with it.
