@@ -363,7 +363,8 @@ StreamLocalBindUnlink yes
 ```
 
 `make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
-runs per session. Diagnose from the SSH session with `claude-code clip` (saves the image, prints its path). Failures:
+runs per session. The Mac serves files only from `~/Desktop`, `~/Downloads`, `~/Documents`, `~/Pictures`, `~/Movies`,
+`~/Music` and the temp roots (anything else: `not shareable: outside <roots>`). Diagnose from the SSH session with `claude-code clip` (saves the image, prints its path). Failures:
 `no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
 socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
 clipboard — copy one there first (or its bridge is down)`.
