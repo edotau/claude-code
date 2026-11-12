@@ -14,7 +14,7 @@ const DispatchIDEnv = "HARNESS_DISPATCH_ID"
 type Info struct {
 	PID, PPID, PGID int
 	Start           time.Time
-	Exe             string // base name of argv[0]
+	Exe             string // base name of argv[0]'s first word: ps joins argv, so a path with a space is cut
 	Mark            string // the marker env var's value; "" when unset or the env is unreadable (not our process)
 }
 
