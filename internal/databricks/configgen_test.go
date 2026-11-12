@@ -308,3 +308,18 @@ func TestCodexUnsetAndModel(t *testing.T) {
 		t.Errorf("unset/model:\n%s", r.Text)
 	}
 }
+
+// Provider env and headers are refused when a key or value is credential-shaped, as --set is.
+func TestClaudeRefusesCredentialProviderEnvAndHeaderValues(t *testing.T) {
+	for _, set := range []func(*providers.Provider){
+		func(p *providers.Provider) { p.Env = map[string]string{"ANTHROPIC_API_KEY": "sk-abc"} },
+		func(p *providers.Provider) { p.Env = map[string]string{"NOTE": "Bearer eyJabc"} },
+		func(p *providers.Provider) { p.Headers = map[string]string{"X-Custom": "Bearer eyJabc"} },
+	} {
+		o := base(t, targetClaude, "serving")
+		set(o.P)
+		if _, err := renderConfig(o); err == nil {
+			t.Errorf("credential-shaped provider entry rendered: env=%v headers=%v", o.P.Env, o.P.Headers)
+		}
+	}
+}

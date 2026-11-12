@@ -180,6 +180,7 @@ func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
 		want   core.Decision
 	}{
 		{`{"deny":[{"Tool":"Read","Arg":"/repo/secret.txt"}]}`, core.Block},
+		{`{"mode":"plan"}`, core.Block},
 		{"", core.Allow},
 	} {
 		t.Setenv(agent.DispatchPermissionsEnv, tc.policy)
