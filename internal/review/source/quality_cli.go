@@ -21,8 +21,7 @@ type qualityArgs struct {
 	output   string
 }
 
-// parseQualityArgs is a real FlagSet, so -h anywhere in args prints the usage page; -l/-o mirror the
-// former argparse short aliases. Explicit -h prints to stdout and exits 0; a bad flag stays on stderr, exit 2.
+// parseQualityArgs: -h anywhere prints usage to stdout (exit 0); a bad flag goes to stderr (exit 2).
 func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int, bool) {
 	fs := helptext.NewFlagSet("review quality", helptext.Page{
 		Usage: "claude-code review quality <path> [flags]",

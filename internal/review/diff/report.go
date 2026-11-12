@@ -16,7 +16,7 @@ import (
 
 func calculateReviewScore(prAnalysis, qualityAnalysis map[string]any) int {
 	counts := map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0}
-	risks := mMap(prAnalysis, "risks")
+	risks := asMap(prAnalysis["risks"])
 	for _, sev := range severityOrder {
 		if risks != nil {
 			counts[sev] += len(mSlice(risks, sev))
@@ -33,7 +33,7 @@ func calculateReviewScore(prAnalysis, qualityAnalysis map[string]any) int {
 	for sev, count := range counts {
 		score -= min(count*deductionWeights[sev], deductionCaps[sev])
 	}
-	if summary := mMap(prAnalysis, "summary"); summary != nil {
+	if summary := asMap(prAnalysis["summary"]); summary != nil {
 		score -= complexityDeduction(mInt(summary, "complexity_score"))
 	}
 	return min(max(score, 0), 100)
@@ -63,7 +63,7 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 
 func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding {
 	findings := []Finding{}
-	if risks := mMap(prAnalysis, "risks"); risks != nil {
+	if risks := asMap(prAnalysis["risks"]); risks != nil {
 		for _, sev := range severityOrder {
 			for _, item := range mSlice(risks, sev) {
 				im := asMap(item)
@@ -212,7 +212,7 @@ func fillPRSummary(report *Report, prMap map[string]any, prReport *PRReport) err
 		report.ReviewOrder = prReport.ReviewOrder
 		return nil
 	}
-	summary := mMap(prMap, "summary")
+	summary := asMap(prMap["summary"])
 	if summary == nil {
 		return nil
 	}
@@ -235,8 +235,7 @@ func fillPRSummary(report *Report, prMap map[string]any, prReport *PRReport) err
 	return nil
 }
 
-// generateReport ports generate_report; prAnalysisOverride/qualityAnalysisOverride are non-nil
-// when loaded from --pr-analysis/--quality-analysis JSON files.
+// generateReport ports generate_report; the overrides are non-nil when loaded from --pr-analysis/--quality-analysis.
 func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) (Report, error) {
 	prReport, prMap, err := loadPRAnalysis(repoPath, base, head, prAnalysisOverride)
 	if err != nil {

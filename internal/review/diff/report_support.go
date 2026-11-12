@@ -151,7 +151,7 @@ func validatePRAnalysis(m map[string]any) error {
 			return fmt.Errorf("not PR analysis output: %q must be an object", key)
 		}
 	}
-	risks := mMap(m, "risks")
+	risks := asMap(m["risks"])
 	for _, sev := range severityOrder {
 		if v, ok := risks[sev]; ok {
 			if _, isList := v.([]any); !isList {
@@ -221,13 +221,6 @@ func mInt(m map[string]any, key string) int {
 func mSlice(m map[string]any, key string) []any {
 	if s, ok := m[key].([]any); ok {
 		return s
-	}
-	return nil
-}
-
-func mMap(m map[string]any, key string) map[string]any {
-	if v, ok := m[key].(map[string]any); ok {
-		return v
 	}
 	return nil
 }
@@ -312,8 +305,7 @@ func runQualityChecker(repo, base, head string) (map[string]any, error) {
 	}, nil
 }
 
-// extractQualityIssues flattens quality_analysis["files"] (or itself, single-file shape) smells
-// and solid_violations into a uniform {severity,type,message,file,line} list.
+// extractQualityIssues flattens smells and solid_violations into {severity,type,message,file,line} items.
 func extractQualityIssues(qualityAnalysis map[string]any) []map[string]string {
 	var issues []map[string]string
 	for _, fr := range qualityFileResults(qualityAnalysis) {

@@ -301,9 +301,7 @@ type complexityArgs struct {
 	jsonOut   bool
 }
 
-// parseComplexityArgs is a real FlagSet, so -h anywhere in args prints the usage page; targets (nargs="+")
-// may still be interspersed with flags. Explicit -h prints to stdout and exits 0; a bad flag stays on
-// stderr, exit 2.
+// parseComplexityArgs: -h anywhere prints usage to stdout (exit 0); a bad flag goes to stderr (exit 2).
 func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArgs, int, bool) {
 	fs := helptext.NewFlagSet("review complexity", helptext.Page{
 		Usage: "claude-code review complexity <targets...> [flags]",

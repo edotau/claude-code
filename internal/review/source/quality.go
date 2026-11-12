@@ -641,8 +641,7 @@ func capSlice[T any](s []T, n int) []T {
 	return NonNil(s[:min(len(s), n)])
 }
 
-// writeJSON matches Python's json.dumps(v, indent=2): ensure_ascii (\uXXXX for non-ASCII, surrogate
-// pairs above U+FFFF) and no HTML-escaping of <, >, & (Go's default does the opposite on both counts).
+// writeJSON writes v as PyMarshalIndent does (ensure_ascii, no HTML-escaping).
 func writeJSON(w io.Writer, v any) error {
 	b, err := PyMarshalIndent(v)
 	if err != nil {

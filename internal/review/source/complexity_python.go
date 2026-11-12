@@ -253,9 +253,7 @@ const (
 	pyTripleDouble
 )
 
-// maskPythonSource blanks string/comment interiors (one-pass byte scan) so keyword counting downstream
-// never sees a keyword that lives inside a string literal or a # comment. Structure (indent, newlines,
-// parens/brackets) is preserved so line numbers and continuation tracking stay accurate.
+// maskPythonSource blanks string/comment interiors, keeping indent, newlines and brackets so line tracking holds.
 func maskPythonSource(src string) string {
 	b := []byte(src)
 	out := make([]byte, len(b))
