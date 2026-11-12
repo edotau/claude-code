@@ -304,6 +304,9 @@ func (s *HistoryStore) Log(n int) ([]string, error) {
 
 // Diff returns one commit's patch: rev when given, else the newest config commit.
 func (s *HistoryStore) Diff(rev string) (string, error) {
+	if strings.HasPrefix(rev, "-") {
+		return "", fmt.Errorf("revision %q looks like a git option; pass a commit id from `history log`", rev)
+	}
 	if rev == "" {
 		born, err := s.hasCommits()
 		if err != nil {

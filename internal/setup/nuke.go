@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,8 +25,8 @@ import (
 // errConfirmMismatch is returned when --apply's typed confirmation doesn't match Dir exactly.
 var errConfirmMismatch = errors.New("confirmation did not match the target directory")
 
-// errNotConfigDir refuses a nuke of the filesystem root, home or a parent of home: only a config dir goes.
-var errNotConfigDir = errors.New("refusing: not a Claude config dir (filesystem root, home or a parent of home)")
+// errNotConfigDir refuses a nuke of the filesystem root, home or a parent of home.
+var errNotConfigDir = errors.New("refusing: the target is the filesystem root, home or a parent of home")
 
 // nukeFloor rejects dir when it is "/", the user's home, or an ancestor of home, whatever the caller typed.
 func nukeFloor(dir string) error {
@@ -64,7 +65,8 @@ type nukePlan struct {
 	VaultID      string
 	Kid          string
 	VaultWarning string   // set when the vault couldn't be read; it is still archived opaquely, never named
-	UserContent  []string // untracked-user-content paths nuke archives before removing dir (+ the keep-memory set when kept)
+	UserContent  []string // untracked and uncommitted-tracked paths nuke archives before removing dir (+ the keep-memory set when kept)
+	Unpushed     bool     // commits on no remote exist: nuke archives them as a git bundle
 }
 
 // planNuke inspects dir and reports what a nuke would remove, archive, and never touch (secret values).
@@ -96,19 +98,29 @@ func planNuke(dir string, keepMemory bool) (nukePlan, error) {
 	}); err != nil {
 		plan.VaultWarning = err.Error()
 	}
+	return plan, planUserContent(dir, hasGit, keepMemory, &plan)
+}
+
+// planUserContent fills plan.UserContent and plan.Unpushed: everything nuke archives before it removes dir.
+func planUserContent(dir string, hasGit, keepMemory bool, plan *nukePlan) error {
 	userContent, err := userContentPaths(dir, hasGit)
 	if err != nil {
-		return plan, fmt.Errorf("scan user content: %w", err)
+		return fmt.Errorf("scan user content: %w", err)
 	}
 	plan.UserContent = userContent
+	if hasGit {
+		if err := planGitWork(dir, plan); err != nil {
+			return fmt.Errorf("scan unsaved git work: %w", err)
+		}
+	}
 	if keepMemory {
 		kept, err := keepMemoryPaths(dir)
 		if err != nil {
-			return plan, fmt.Errorf("scan memory paths: %w", err)
+			return fmt.Errorf("scan memory paths: %w", err)
 		}
 		plan.UserContent = append(plan.UserContent, kept...)
 	}
-	return plan, nil
+	return nil
 }
 
 // nukeOpts configures nuke.
@@ -193,8 +205,11 @@ func printPlan(w io.Writer, plan nukePlan) {
 	if plan.HasSecrets {
 		fmt.Fprintf(w, "secrets present (names only, never values): %s\n", strings.Join(plan.SecretNames, ", "))
 	}
+	if plan.Unpushed {
+		fmt.Fprintln(w, "commits on no remote to archive as "+unpushedBundle)
+	}
 	if len(plan.UserContent) > 0 {
-		fmt.Fprintf(w, "untracked user content to archive (%d files):\n", len(plan.UserContent))
+		fmt.Fprintf(w, "user content to archive (%d files):\n", len(plan.UserContent))
 		for _, p := range plan.UserContent {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
@@ -314,34 +329,80 @@ func tarPlan(tw *tar.Writer, plan nukePlan, keepMemory bool) error {
 	if err != nil {
 		return err
 	}
-	if err := tarWriteBytes(tw, "manifest.json", data); err != nil {
+	if err := tarWriteBytes(tw, "manifest.json", data, 0o600); err != nil {
 		return err
 	}
-	for _, rel := range plan.UserContent {
-		if rel == "state/vault.db" {
-			var buf bytes.Buffer
-			// A corrupt vault.db fails the consistent bbolt snapshot: archive it as a raw byte
-			// copy instead (not point-in-time-safe, but still backed up rather than lost).
-			if err := vault.SnapshotTo(filepath.Join(plan.Dir, rel), &buf); err != nil {
-				if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := tarWriteBytes(tw, rel, buf.Bytes()); err != nil {
-				return err
-			}
-			continue
+	if plan.Unpushed {
+		if err := tarUnpushed(tw, plan.Dir); err != nil {
+			return err
 		}
-		if err := tarWriteFile(tw, plan.Dir, rel); err != nil {
+	}
+	for _, rel := range plan.UserContent {
+		if err := tarWriteEntry(tw, plan.Dir, rel); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(data)), ModTime: time.Now()}); err != nil {
+// tarWriteEntry archives one plan path; the vault goes as a consistent bbolt snapshot, a corrupt one as a raw copy.
+func tarWriteEntry(tw *tar.Writer, dir, rel string) error {
+	if rel != "state/vault.db" {
+		return tarWriteFile(tw, dir, rel)
+	}
+	var buf bytes.Buffer
+	if err := vault.SnapshotTo(filepath.Join(dir, rel), &buf); err != nil {
+		return tarWriteFile(tw, dir, rel) // not point-in-time-safe, but still backed up rather than lost
+	}
+	return tarWriteBytes(tw, rel, buf.Bytes(), 0o600)
+}
+
+// unpushedBundle is the archive entry holding every commit that no remote has.
+const unpushedBundle = "unpushed.bundle"
+
+// planGitWork adds the uncommitted tracked edits and the no-remote commits nuke would otherwise delete with .git.
+func planGitWork(dir string, plan *nukePlan) error {
+	edited, err := editedTracked(dir)
+	if err != nil {
+		return err
+	}
+	plan.UserContent = append(plan.UserContent, edited...)
+	out, err := exec.Command("git", "-C", dir, "rev-list", "-n1", "--branches", "--not", "--remotes").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	if err != nil {
+		return fmt.Errorf("list unpushed commits: %w", err)
+	}
+	plan.Unpushed = len(bytes.TrimSpace(out)) > 0
+	return nil
+}
+
+// editedTracked lists tracked files whose working copy differs from HEAD (staged or not) and still exist.
+func editedTracked(dir string) ([]string, error) {
+	var out []string
+	for _, args := range [][]string{{"ls-files", "-z", "-m"}, {"diff", "--cached", "--name-only", "-z", "--diff-filter=d"}} {
+		raw, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output() //nolint:noctx // one-shot local git call; no caller ctx
+		if err != nil {
+			return nil, fmt.Errorf("list edited tracked files: %w", err)
+		}
+		for _, rel := range splitNUL(raw) {
+			if _, err := os.Lstat(filepath.Join(dir, rel)); err == nil && !slices.Contains(out, rel) {
+				out = append(out, rel)
+			}
+		}
+	}
+	return out, nil
+}
+
+// tarUnpushed writes the commits no remote has as a git bundle.
+func tarUnpushed(tw *tar.Writer, dir string) error {
+	data, err := exec.Command("git", "-C", dir, "bundle", "create", "-", "--branches", "--not", "--remotes").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	if err != nil {
+		return fmt.Errorf("bundle unpushed commits: %w", err)
+	}
+	return tarWriteBytes(tw, unpushedBundle, data, 0o600)
+}
+
+func tarWriteBytes(tw *tar.Writer, name string, data []byte, mode os.FileMode) error {
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: int64(mode), Size: int64(len(data)), ModTime: time.Now()}); err != nil {
 		return err
 	}
 	_, err := tw.Write(data)
@@ -350,14 +411,18 @@ func tarWriteBytes(tw *tar.Writer, name string, data []byte) error {
 
 func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	// Untracked symlinks (dir or dangling links) are skipped like regularFilesUnder does: the target lives elsewhere.
-	if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+	fi, err := os.Lstat(filepath.Join(dir, rel))
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
 		return nil
 	}
 	data, err := os.ReadFile(filepath.Join(dir, rel))
 	if err != nil {
 		return err
 	}
-	return tarWriteBytes(tw, rel, data)
+	return tarWriteBytes(tw, rel, data, fi.Mode().Perm())
 }
 
 // keepMemoryPaths lists every regular file under memory/ (incl. .git, so per-bank knowledge/ rides along),

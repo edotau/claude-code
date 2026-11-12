@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -26,9 +27,14 @@ var setupPage = helptext.Page{
 	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
 }
 
+// wantsHelp is an empty argument list or a leading -h, --help or help.
+func wantsHelp(args []string) bool {
+	return len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help"
+}
+
 // run is the `install --setup` verb.
 func run(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if wantsHelp(args) {
 		setupPage.Fprint(os.Stderr)
 		return 0
 	}
@@ -102,7 +108,7 @@ func setupExit(err error, verb string) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, errAlreadyCheckout), errors.Is(err, errNotAClone), errors.Is(err, errConfirmMismatch), errors.Is(err, errNotConfigDir), errors.Is(err, errWorkspaceUsage):
+	case errors.Is(err, errAlreadyCheckout), errors.Is(err, errNotAClone), errors.Is(err, errIntoInsideFrom), errors.Is(err, errBadLabel), errors.Is(err, errConfirmMismatch), errors.Is(err, errNotConfigDir), errors.Is(err, errWorkspaceUsage):
 		fmt.Fprintf(os.Stderr, "claude-code: %s: %v\n", verb, err)
 		return 2
 	default:
@@ -133,7 +139,7 @@ var setupWorkspaceOps = map[string]helptext.Page{
 
 // cmdSetupWorkspace is the `setup workspace` dispatch: a project .claude/ scaffold, link and status.
 func cmdSetupWorkspace(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+	if wantsHelp(args) {
 		setupWorkspacePage.Fprint(os.Stderr)
 		return 0
 	}
@@ -150,9 +156,14 @@ func cmdSetupWorkspace(args []string) int {
 		}
 		return setupWorkspaceReadOrLink(args[0], pos)
 	}
+	return setupWorkspaceInitArgs(fs, args[1:])
+}
+
+// setupWorkspaceInitArgs parses init's flags and positional root, then runs it.
+func setupWorkspaceInitArgs(fs *flag.FlagSet, args []string) int {
 	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
 	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
-	pos, err := helptext.ParseArgs(fs, args[1:])
+	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
@@ -271,11 +282,8 @@ func RunInstall(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *setupMode != "" {
-		return helptext.Fail("install: --setup must come first: claude-code install --setup <mode> [flags]")
-	}
-	if *missing && !tf.set {
-		return helptext.Fail("install: --missing needs --tools")
+	if msg := installFlagError(*setupMode, *missing, tf.set); msg != "" {
+		return helptext.Fail("%s", msg)
 	}
 	if tf.set {
 		return installTools(tf.names, *dry, *missing)
@@ -284,4 +292,15 @@ func RunInstall(args []string) int {
 		return helptext.Fail("install: %v", err)
 	}
 	return 0
+}
+
+// installFlagError names a misused flag combination, or "" when the flags are consistent.
+func installFlagError(setupMode string, missing, toolsSet bool) string {
+	switch {
+	case setupMode != "":
+		return "install: --setup must come first: claude-code install --setup <mode> [flags]"
+	case missing && !toolsSet:
+		return "install: --missing needs --tools"
+	}
+	return ""
 }
