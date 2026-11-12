@@ -5,8 +5,6 @@ package usage
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,8 +57,7 @@ func claudeServiceNames() []string {
 	if dir == "" {
 		return []string{base}
 	}
-	sum := sha256.Sum256([]byte(dir))
-	return []string{base + "-" + hex.EncodeToString(sum[:])[:8], base}
+	return []string{base + "-" + textutil.SHA256Hex([]byte(dir))[:8], base}
 }
 
 // claudeKeychainToken tries every service/account pairing this OS supports; "" when nothing answers.
@@ -168,8 +165,7 @@ type claudeUsageCache struct {
 
 // claudeOwner fingerprints the access token so a cache is only ever served to the credentials that wrote it.
 func claudeOwner(creds claudeOAuthCreds) string {
-	sum := sha256.Sum256([]byte(creds.ClaudeAiOauth.AccessToken))
-	return hex.EncodeToString(sum[:])
+	return textutil.SHA256Hex([]byte(creds.ClaudeAiOauth.AccessToken))
 }
 
 // ownedCache returns c only when it was written under creds; another login's cache (or an unowned one) is a miss.
