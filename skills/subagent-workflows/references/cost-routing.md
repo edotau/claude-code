@@ -8,7 +8,8 @@ cheaper or wider; integration and final checks stay Claude's.
 Agent roles and the relay contract: `../SKILL.md` → Leaf types. Use the root machine's pins; pass an explicit route
 or model only when the task calls for one. Do not pin `dev`, `qa`, `prod` or a personal login based on historical
 measurements. Aliases come from `internal/providers/defaults.json` and the vault overlay, resolved by
-`internal/models`; `internal/router/table.json` holds price/account rows.
+`internal/models`; `internal/router/table.json` holds price/account rows and the Databricks tier buckets (the
+models an alias picks on a workspace; `rules/harness/providers.md` → Model selection).
 
 ### Shell roles
 
@@ -37,11 +38,12 @@ feeds it (one turn in flight, ≤4 sessions).
 
 - **Order**: the requested target (agent, `--profile` or overlay `profile` workspace, `--model`), then the agent's own
   pin (its vault profile and model; skipped when it has none or the pin is what was requested), then Claude on the
-  current session. Nothing else: no sibling workspace, no other login of the agent, no other agent.
+  current session. Nothing else: no sibling workspace, no login but the pin's, no other agent.
   `claude-code gateway --agent <a>` shows the resolved order and skip gates. The overlay `provider` chooses an
   execution arm; `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
 - **Pin hop left out**: inside an overlay `provider: databricks, profile: <p>` when the pin is another workspace
-  (the arm refuses it; the skip reads `outside databricks:<p>`), and with `--native`.
+  (the arm refuses it; the skip reads `outside databricks:<p>`), and with `--native`. An own-login pin (copilot's
+  GitHub profile) stays, so unless `--fallback none` the confined dispatch can end on that login, then `claude`.
 - **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
   while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). A gated
   step is skipped; the order does not change.

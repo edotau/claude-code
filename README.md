@@ -203,14 +203,15 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` |
 | profile | an account on a provider; carries billing | unique across all providers, `[a-z0-9-]`, opaque to code |
 | auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
-| model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned) or a full wire id |
+| model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
 | wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
 | default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats repo last-used beats agent record beats default; no profile = off, claude always on |
 
-Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias), leg
-(→ dispatch), family (→ provider), pin, preference and saved override (→ agent record). `gateway` names the verb
-namespace only; the Databricks wire is `ai-gateway`.
+Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
+bucket" is the exception: an alias's ordered Databricks list in `table.json`), leg (→ dispatch), family (→ provider),
+pin, preference and saved override (→ agent record). `gateway` names the verb namespace only; the Databricks wire is
+`ai-gateway`.
 
 | Surface | Form | Example |
 | --- | --- | --- |

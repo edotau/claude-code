@@ -48,8 +48,10 @@ path. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 `claude-code agents label <type> --brief FILE` prints the label; `--model` previews a dispatch model,
 `--session-model` supplies the parent model when the transcript cannot. `claude` defaults to `sonnet` and `Plan` to
 `opus`; pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). External
-wrappers' frontmatter controls the relay, not the vendor model. The root machine's
-pins and per-call flags select external execution; never overwrite another machine's pins.
+wrappers' frontmatter controls the relay, not the vendor model. The `dispatch-effort` hook sets model and effort only
+for an agent whose file has no `model:` line and a call that names none (`Explore`, `general-purpose`, an untyped
+call); every roster file, `claude` (sonnet) and `Plan` (opus) included, carries one, so those get neither.
+The root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
 
 ### External relay contract
 
