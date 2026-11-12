@@ -275,12 +275,18 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 	return &retry.Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
 }
 
+// maxRemoteLine caps one remote NDJSON line; a longer line is dropped with a log entry.
+const maxRemoteLine = 4 << 20
+
 // relay reads the remote's NDJSON: events go to sink under the local id, the result is returned, the rest is logged.
 func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink wire.Sink, stop, touch func()) (env *wire.Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
-		line, rerr := rd.ReadBytes('\n')
+		line, tooLong, rerr := ReadLineCapped(rd, maxRemoteLine)
 		touch()
+		if tooLong {
+			wire.LogEvent(ctx, "ssh", fmt.Sprintf("remote line over %d bytes dropped", maxRemoteLine))
+		}
 		env, streamed, sinkErr = r.relayLine(ctx, bytes.TrimSpace(line), sink, stop, env, streamed, sinkErr)
 		if rerr != nil {
 			return env, streamed, sinkErr
