@@ -378,6 +378,9 @@ func TestLoginU2MPrintsURLAndSSHHintEvenWhenOpenSucceeds(t *testing.T) {
 }
 
 func TestPostTokenRetriesOn503ThenSucceeds(t *testing.T) {
+	origBackoff := RetryBackoff
+	RetryBackoff = time.Millisecond
+	t.Cleanup(func() { RetryBackoff = origBackoff })
 	var n atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if n.Add(1) == 1 {
@@ -489,6 +492,9 @@ func TestAuthorizationCodeNotReplayedAfterSend(t *testing.T) {
 
 // Contrast: client-credentials is idempotent, so the same drop IS retried.
 func TestClientCredentialsRetriedAfterDrop(t *testing.T) {
+	origBackoff := RetryBackoff
+	RetryBackoff = time.Millisecond
+	t.Cleanup(func() { RetryBackoff = origBackoff })
 	var posts atomic.Int32
 	srv := dropAfterRead(t, &posts)
 	if _, err := MintM2M(context.Background(), srv.URL, "id", "s"); err == nil {

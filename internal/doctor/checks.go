@@ -29,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // check is one doctor line: Hard failures make the run fail; soft ones only report.
@@ -168,6 +169,7 @@ var probeCredential = providers.ProbeCredential
 func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
 	rows := make([]check, len(names))
 	sem := make(chan struct{}, credentialProbeWorkers)
+	agents := sync.OnceValue(providers.AgentRecords) // one vault read per run, not per profile
 	var wg sync.WaitGroup
 	for i, n := range names {
 		wg.Add(1)
@@ -175,14 +177,15 @@ func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, 
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			rows[i] = providerCredentialCheck(reg, sel, selectErr, n)
+			rows[i] = providerCredentialCheck(reg, sel, selectErr, n, agents)
 		}()
 	}
 	wg.Wait()
 	return rows
 }
 
-func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string) check {
+func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string,
+	agents func() map[string]vault.AgentRecord) check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p
 	label := p.Auth.Method()
@@ -199,7 +202,7 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	if !present {
 		present, label = alternativeCredentialLabel(name, label)
 	}
-	if !present && !session && !profileInUse(reg, name) {
+	if !present && !session && !profileInUse(reg, name, agents) {
 		present, label = true, label+" · unused"
 	}
 	return check{Name: "credential " + name, OK: present, Hard: session, Detail: label}
@@ -243,11 +246,11 @@ func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
 }
 
 // profileInUse reports whether the registry default/fallback chain or any agent's profile pin names the profile.
-func profileInUse(reg *providers.Registry, name string) bool {
+func profileInUse(reg *providers.Registry, name string, agents func() map[string]vault.AgentRecord) bool {
 	if name == reg.Default || slices.Contains(reg.Fallback, name) {
 		return true
 	}
-	for _, rec := range providers.AgentRecords() {
+	for _, rec := range agents() {
 		if rec.Profile == name {
 			return true
 		}

@@ -30,6 +30,17 @@ func Detect(env Env) Report {
 	return Report{Browsers: browsers, Default: def.Name, GeneratedAt: env.now()}
 }
 
+// DetectDefault reports only the system default browser, skipping the probe of every other one.
+func DetectDefault(env Env) Report {
+	env.gui = sync.OnceValue(func() string { return guiState(env) })
+	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
+	def, _ := Default(env) // ErrDefaultUnsupported still carries the resolved (non-Chromium) name
+	if def.Name == "" {
+		return Report{GeneratedAt: env.now()}
+	}
+	return Report{Browsers: []browser{def}, Default: def.Name, GeneratedAt: env.now()}
+}
+
 // detectOne builds one browser's full result: identity, install state, then its control paths.
 func detectOne(env Env, s spec) browser {
 	b := browser{Name: s.name, DisplayName: s.displayName, Family: s.family}

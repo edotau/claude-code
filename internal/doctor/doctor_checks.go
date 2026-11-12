@@ -22,7 +22,7 @@ import (
 )
 
 // detectBrowsers reads the host's browsers; a var so tests never wait on the real powershell.exe under WSL.
-var detectBrowsers = func() browser.Report { return browser.Detect(browser.NewEnv()) }
+var detectBrowsers = func() browser.Report { return browser.DetectDefault(browser.NewEnv()) }
 
 // strayClaudeJSON flags ~/.claude/.claude.json, which claude reads instead of ~/.claude.json under CLAUDE_CONFIG_DIR.
 func strayClaudeJSON() (ok bool, detail string) {

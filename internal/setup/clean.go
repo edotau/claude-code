@@ -479,14 +479,13 @@ func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) 
 		}
 		cutoff = time.Now().Add(-24 * time.Hour)
 	}
-	mt, found := newestMTime(m)
+	mt, sz, found := newestMTime(m)
 	if !found || !mt.Before(cutoff) {
 		return 0, false, nil
 	}
 	if protected(m) || (keep != nil && keep(m)) {
 		return 0, false, nil // live bookkeeping, memory stores/migration state, live sessions: never debris
 	}
-	sz := paths.DirSize(m)
 	if apply {
 		if err := os.RemoveAll(m); err != nil {
 			return 0, false, err
@@ -566,17 +565,18 @@ func selectTargets(all []target, want string) ([]target, error) {
 }
 
 // newestMTime is the most recent mtime at or under p — "untouched for N days" must mean the whole
-// subtree, since a directory's own mtime misses in-place edits to files already inside it. ok is false
-// when any entry under p cannot be scanned, so the caller keeps it.
-func newestMTime(p string) (time.Time, bool) {
+// subtree, since a directory's own mtime misses in-place edits to files already inside it — plus the summed file
+// sizes, as paths.DirSize counts them. ok is false when any entry under p cannot be scanned, so the caller keeps it.
+func newestMTime(p string) (time.Time, int64, bool) {
 	st, err := os.Stat(p)
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
 	if !st.IsDir() {
-		return st.ModTime(), true
+		return st.ModTime(), st.Size(), true
 	}
 	newest := st.ModTime()
+	var size int64
 	err = filepath.WalkDir(p, func(_ string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -588,12 +588,15 @@ func newestMTime(p string) (time.Time, bool) {
 		if info.ModTime().After(newest) {
 			newest = info.ModTime()
 		}
+		if !d.IsDir() {
+			size += info.Size()
+		}
 		return nil
 	})
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, 0, false
 	}
-	return newest, true
+	return newest, size, true
 }
 
 // stalePluginVersions lists plugin cache version dirs that installed_plugins.json no longer points at. An unreadable
