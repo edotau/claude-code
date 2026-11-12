@@ -2,6 +2,7 @@ package browser
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,15 +31,18 @@ func Detect(env Env) Report {
 	return Report{Browsers: browsers, Default: def.Name, GeneratedAt: env.now()}
 }
 
-// DetectDefault reports only the system default browser, skipping the probe of every other one.
-func DetectDefault(env Env) Report {
+// DetectDefault reports only the system default browser; the error is a failed detection, not an unsupported default.
+func DetectDefault(env Env) (Report, error) {
 	env.gui = sync.OnceValue(func() string { return guiState(env) })
 	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
-	def, _ := Default(env) // ErrDefaultUnsupported still carries the resolved (non-Chromium) name
+	def, err := Default(env) // errDefaultUnsupported still carries the resolved (non-Chromium) name
 	if def.Name == "" {
-		return Report{GeneratedAt: env.now()}
+		if err != nil && !errors.Is(err, errDefaultUnsupported) && (env.goos() == "darwin" || env.goos() == "linux") {
+			return Report{GeneratedAt: env.now()}, err // other OSes have no detector: not a failure
+		}
+		return Report{GeneratedAt: env.now()}, nil
 	}
-	return Report{Browsers: []browser{def}, Default: def.Name, GeneratedAt: env.now()}
+	return Report{Browsers: []browser{def}, Default: def.Name, GeneratedAt: env.now()}, nil
 }
 
 // detectOne builds one browser's full result: identity, install state, then its control paths.
