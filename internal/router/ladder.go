@@ -59,6 +59,27 @@ func CanUse(reg *providers.Registry, agent, provider string) bool {
 	return provider == RouteDatabricks || len(OwnProfiles(reg, agent, provider)) > 0
 }
 
+// ConfineLead fills an untyped lead from a non-Databricks confinement: its pinned profile, else its provider.
+func ConfineLead(agentName, profile, provider, model string) (string, string) {
+	cp, cprof := Confined()
+	switch {
+	case cp == "" || profile != "" || strings.Contains(model, ":"):
+		return profile, provider
+	case cprof != "": // a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
+		return cprof, ""
+	case provider != "":
+		return profile, provider
+	case agentName != "claude":
+		return "", cp
+	}
+	if reg, err := providers.Load(); err == nil { // claude reads a profile, never a provider lead: its own login row
+		if own := OwnProfiles(reg, agentName, cp); len(own) > 0 {
+			return own[0], ""
+		}
+	}
+	return "", ""
+}
+
 // ArmProfile is the workspace HARNESS_COWORKER=databricks:<p> confines the pick to; "" when the route is anything else.
 func ArmProfile() string {
 	mode, profile, err := ParseCoworker(os.Getenv(EnvCoworker))
@@ -236,7 +257,7 @@ func (lp ladderPick) placeUnit(u []Candidate) (int, []Candidate) {
 	}
 	matched := false
 	for i, g := range lp.l.rungs {
-		if (g.Agent != "" && g.Agent != u[0].Agent) || (g.Provider != "" && g.Provider != accountProvider(u[0].Account)) {
+		if !rungMatches(g, u[0]) {
 			continue
 		}
 		if len(g.Models) == 0 {
@@ -322,6 +343,16 @@ func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
 
 // placeClaude puts claude into the first rung after the leading one whose best total it beats, else after the ladder.
 func (l pickLadder) placeClaude(us []rungGroup) {
+	best, seen := l.rungBest(us)
+	for i := range us {
+		if us[i].rung == -1 {
+			us[i].rung = l.claudeRung(us[i].cs[0].Total, best, seen)
+		}
+	}
+}
+
+// rungBest is each rung's best unit total, and whether any unit sits on that rung.
+func (l pickLadder) rungBest(us []rungGroup) ([]float64, []bool) {
 	best := make([]float64, len(l.rungs))
 	seen := make([]bool, len(l.rungs))
 	for _, u := range us {
@@ -332,19 +363,23 @@ func (l pickLadder) placeClaude(us []rungGroup) {
 			seen[u.rung] = true
 		}
 	}
-	for i := range us {
-		if us[i].rung != -1 {
-			continue
-		}
-		us[i].rung = len(l.rungs)
-		lead := slices.Index(seen, true)
-		for r := range l.rungs {
-			if r > lead && seen[r] && us[i].cs[0].Total > best[r] {
-				us[i].rung = r
-				break
-			}
+	return best, seen
+}
+
+// claudeRung is the first occupied rung after the leading one whose best total claude's beats; len(rungs) for none.
+func (l pickLadder) claudeRung(total float64, best []float64, seen []bool) int {
+	lead := slices.Index(seen, true)
+	for r := range l.rungs {
+		if r > lead && seen[r] && total > best[r] {
+			return r
 		}
 	}
+	return len(l.rungs)
+}
+
+// rungMatches reports rung g admits c's agent and provider; an empty rung field admits any.
+func rungMatches(g providers.Rung, c Candidate) bool {
+	return (g.Agent == "" || g.Agent == c.Agent) && (g.Provider == "" || g.Provider == accountProvider(c.Account))
 }
 
 // sortUnits orders units by rung, then low accounts after the rest, then total score (today's rule within a rung).

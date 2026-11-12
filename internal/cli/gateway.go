@@ -232,7 +232,7 @@ func gatewayRoute(args []string) int {
 	if err := ask.CheckArm(*want, *profile, *provider, *model, false); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	*profile, *provider = ask.ConfineLead(*want, *profile, *provider, *model)
+	*profile, *provider = router.ConfineLead(*want, *profile, *provider, *model)
 	q := agent.RouteReq{Agent: *want, Model: *model, Task: *task, Profile: *profile, Provider: *provider,
 		Fallback: *fallback, Preview: true, Refresh: ask.RouteRefresh}
 	_, res, err := agent.Resolve(context.Background(), q)
