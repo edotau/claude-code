@@ -96,6 +96,18 @@ func TestRunWithFallbackSkippedRequestedRoute(t *testing.T) {
 	}
 }
 
+// The wanted agent answering on the router's own routed row, with no skip and no failed hop, is not a fallback.
+func TestRunWithFallbackRouterChoiceIsNoFallback(t *testing.T) {
+	setConfigDir(t)
+	opencode := &fakeRunner{name: "opencode", errs: []error{nil}}
+	c := Chain{Want: "opencode",
+		Dispatches: []Dispatch{{Agent: opencode, Account: "databricks·qa", keepCaller: true, otherRoute: true, routerChose: true}}}
+	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Agent != "opencode" || res.Fallback != "" {
+		t.Fatalf("res=%+v err=%v, want no Fallback", res, err)
+	}
+}
+
 // An unasked agent's availability skip never reaches fallback_reason; the asked agent's skip and every failed hop do.
 func TestRunWithFallbackReasonDropsUnaskedSkips(t *testing.T) {
 	fallbackConfigDir(t)

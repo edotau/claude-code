@@ -28,6 +28,7 @@ type Dispatch struct {
 	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
 	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
 	swap                         bool                       // the wanted agent's pin standing in for the requested target
+	routerChose                  bool                       // no lead and no pin: the router's own row for the wanted agent, not a deviation
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 }
 
@@ -263,8 +264,12 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 	disp = s.rc.discoveryCandidate(disp, cand, alias)
 	disp.servedRepick = s.rc.servedRepickFor(cand)
 	disp.otherRoute, disp.rung, disp.swap = s.rc.otherRoute(cand), s.i+1, s.pin
+	disp.routerChose = routerChose(s.rc)
 	return disp, "", true, nil
 }
+
+// routerChose reports that the caller asked for no route (no lead) and the wanted agent has no pin.
+func routerChose(rc routeCtx) bool { return rc.lead == "" && rc.pins[rc.want].Profile == "" }
 
 // otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or overlay workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
