@@ -328,7 +328,7 @@ func plainSessionGlob(claudeDir, id string) ([]string, error) {
 	return filepath.Glob(filepath.Join(claudeDir, "projects", "*", id+".jsonl"))
 }
 
-// buildSubagent reads an agent transcript's sidecar meta, tail and mtime; tokens come from SummarizeFile.
+// buildSubagent reads sidecar meta, tail and mtime; tokens and historical dispatch IDs share one full scan.
 func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	meta := readSubagentMeta(transcriptPath)
 	id := subagentIDFromPath(transcriptPath)
@@ -339,9 +339,19 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 	}
 
 	var tok Tokens
-	if summary, err := transcript.SummarizeFile(transcriptPath); err == nil {
-		t := summary.Totals()
-		tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
+	var dispatchIDs []string
+	if f, err := os.Open(transcriptPath); err == nil {
+		var responses transcript.ResponseAccumulator
+		seen := map[string]bool{}
+		readErr := transcript.EachLine(f, func(line []byte) {
+			responses.Add(line)
+			dispatchIDs = transcript.AppendDispatchIDs(dispatchIDs, seen, line)
+		})
+		f.Close()
+		if readErr == nil {
+			t := transcript.SummarizeResponses(responses.Responses).Totals()
+			tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
+		}
 	}
 
 	act := lastActivity(transcriptPath, cwd)
@@ -354,7 +364,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 		Tokens:      tok,
 		LastTool:    act.Tool,
 		Updated:     updated,
-		Dispatches:  buildDispatches(transcriptPath, cwd, now, act),
+		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, dispatchIDs),
 	}
 	if act.Tool != "" || act.Text != "" {
 		a := act

@@ -38,12 +38,12 @@ func TestRevokeSessionTokenPropagatesStateReadFailure(t *testing.T) {
 	}
 }
 
-func stubToken(t *testing.T, mint func(context.Context, string, int) (string, error)) {
+func stubToken(t *testing.T, mint func(context.Context, State, string) (string, error)) {
 	t.Helper()
 	oe, os_, om := tokenEnsure, tokenState, tokenMint
 	t.Cleanup(func() { tokenEnsure, tokenState, tokenMint = oe, os_, om })
 	tokenEnsure = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	tokenState = func(context.Context) (State, bool) { return State{PID: 4242}, true }
+	tokenState = func() (State, error) { return State{PID: 4242}, nil }
 	tokenMint = mint
 }
 
@@ -52,8 +52,8 @@ func TestTokenMintsDaemonBoundSessionToken(t *testing.T) {
 	vaulttest.Secret(t, "CLAUDE_CODE_ROUTER_SECRET", "long-lived-router-secret")
 	var gotProfile string
 	var gotPID int
-	stubToken(t, func(_ context.Context, p string, pid int) (string, error) {
-		gotProfile, gotPID = p, pid
+	stubToken(t, func(_ context.Context, st State, p string) (string, error) {
+		gotProfile, gotPID = p, st.PID
 		return "cct_abc", nil
 	})
 	token, err := Token(context.Background(), "dev")
@@ -65,7 +65,7 @@ func TestTokenMintsDaemonBoundSessionToken(t *testing.T) {
 func TestTokenMintFailure(t *testing.T) {
 	vaulttest.Use(t)
 	boom := errors.New("boom")
-	stubToken(t, func(context.Context, string, int) (string, error) { return "", boom })
+	stubToken(t, func(context.Context, State, string) (string, error) { return "", boom })
 	token, err := Token(context.Background(), "dev")
 	if token != "" || !errors.Is(err, boom) {
 		t.Fatalf("token %q err %v", token, err)
@@ -73,7 +73,7 @@ func TestTokenMintFailure(t *testing.T) {
 }
 
 func TestTokenUnavailableAndNotRunning(t *testing.T) {
-	stubToken(t, func(context.Context, string, int) (string, error) {
+	stubToken(t, func(context.Context, State, string) (string, error) {
 		t.Fatal("must not mint without a running proxy")
 		return "", nil
 	})
@@ -83,7 +83,7 @@ func TestTokenUnavailableAndNotRunning(t *testing.T) {
 		t.Fatalf("token %q err %v", token, err)
 	}
 	tokenEnsure = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	tokenState = func(context.Context) (State, bool) { return State{}, false }
+	tokenState = func() (State, error) { return State{}, ErrNotRunning }
 	if token, err := Token(context.Background(), "dev"); token != "" || err == nil ||
 		err.Error() != "proxy not running" {
 		t.Fatalf("token %q err %v", token, err)

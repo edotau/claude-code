@@ -78,6 +78,31 @@ type Response struct {
 	At    time.Time
 }
 
+// ResponseAccumulator deduplicates transcript response lines by message id, retaining first-seen order.
+type ResponseAccumulator struct {
+	Responses []Response
+	byID      map[string]int
+}
+
+func (a *ResponseAccumulator) Add(line []byte) {
+	var rec usageLine
+	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
+		return
+	}
+	u := rec.Message.Usage
+	r := Response{Model: rec.Message.Model, Usage: ModelUsage{u.InputTokens, u.OutputTokens, u.CacheReadInput, u.CacheCreationInput}}
+	r.At, _ = time.Parse(time.RFC3339, rec.Timestamp)
+	if i, seen := a.byID[rec.Message.ID]; seen && rec.Message.ID != "" {
+		a.Responses[i] = r
+		return
+	}
+	if a.byID == nil {
+		a.byID = map[string]int{}
+	}
+	a.byID[rec.Message.ID] = len(a.Responses)
+	a.Responses = append(a.Responses, r)
+}
+
 // ReadResponses lists each API response once: Claude Code writes one line per content block, each repeating
 // the response's usage under one message.id, so the last line per id wins (output grows while streaming).
 func ReadResponses(path string) ([]Response, error) {
@@ -86,27 +111,11 @@ func ReadResponses(path string) ([]Response, error) {
 		return nil, err
 	}
 	defer f.Close()
-	byID := map[string]int{}
-	var resps []Response
-	scanErr := EachLine(f, func(line []byte) {
-		var rec usageLine
-		if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
-			return
-		}
-		u := rec.Message.Usage
-		r := Response{Model: rec.Message.Model, Usage: ModelUsage{u.InputTokens, u.OutputTokens, u.CacheReadInput, u.CacheCreationInput}}
-		r.At, _ = time.Parse(time.RFC3339, rec.Timestamp)
-		if i, seen := byID[rec.Message.ID]; seen && rec.Message.ID != "" {
-			resps[i] = r
-			return
-		}
-		byID[rec.Message.ID] = len(resps)
-		resps = append(resps, r)
-	})
-	if scanErr != nil {
-		return nil, fmt.Errorf("read %s: %w", path, scanErr)
+	var acc ResponseAccumulator
+	if err := EachLine(f, acc.Add); err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-	return resps, nil
+	return acc.Responses, nil
 }
 
 // SummarizeFile totals every response in one transcript file (see ReadResponses).
