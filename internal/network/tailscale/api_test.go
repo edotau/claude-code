@@ -78,9 +78,11 @@ func TestDevicesParsesList(t *testing.T) {
 		if r.URL.Path != "/tailnet/-/devices" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"devices": []device{{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"100.1.2.3"}}},
-		})
+		d := device{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"100.1.2.3"}}
+		if r.URL.Query().Get("fields") == "all" { // like the real API: routes only in the full listing
+			d.EnabledRoutes = defaultRoutes
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"devices": []device{d}})
 	}))
 	defer ts.Close()
 	devices, err := staticClient(ts, "tok").Devices(context.Background())
@@ -89,6 +91,9 @@ func TestDevicesParsesList(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].ID != "d1" {
 		t.Errorf("Devices = %+v", devices)
+	}
+	if !hasDefaultRoutes(devices[0].EnabledRoutes) {
+		t.Errorf("EnabledRoutes = %v: an approved exit node must read approved", devices[0].EnabledRoutes)
 	}
 }
 
@@ -321,8 +326,9 @@ func TestOAuthTokenMintsAndCachesUntilNearExpiry(t *testing.T) {
 	if err != nil || tok != "minted-1" {
 		t.Fatalf("fn() = (%q, %v), want (minted-1, nil)", tok, err)
 	}
-	if gotForm.Get("client_id") != "client-id" || gotForm.Get("client_secret") != "client-secret" {
-		t.Errorf("form = %v, want client_id/client_secret set", gotForm)
+	if gotForm.Get("client_id") != "client-id" || gotForm.Get("client_secret") != "client-secret" ||
+		gotForm.Get("grant_type") != "client_credentials" {
+		t.Errorf("form = %v, want client_id/client_secret and grant_type=client_credentials", gotForm)
 	}
 	// Second call within the cache window must not hit the server again.
 	if tok2, err := fn(context.Background()); err != nil || tok2 != "minted-1" || mints != 1 {

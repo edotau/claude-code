@@ -329,7 +329,7 @@ func mintToken(
 	ctx context.Context, baseURL, clientID, clientSecret string, httpClient *http.Client,
 ) (tokenResponse, error) {
 	var out tokenResponse
-	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}}
+	form := url.Values{"client_id": {clientID}, "client_secret": {clientSecret}, "grant_type": {"client_credentials"}}
 	status, b, _, err := httpx.Do(ctx, httpx.Call{
 		Client: httpClient, Method: http.MethodPost, URL: baseURL + "/oauth/token", Limit: 64 << 10,
 		Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, Body: []byte(form.Encode()),
