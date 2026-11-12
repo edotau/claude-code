@@ -347,7 +347,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 			responses.Add(line)
 			dispatchIDs = transcript.AppendDispatchIDs(dispatchIDs, seen, line)
 		})
-		f.Close()
+		_ = f.Close() // read-only handle: a close error loses nothing
 		if readErr == nil {
 			t := transcript.SummarizeResponses(responses.Responses).Totals()
 			tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
