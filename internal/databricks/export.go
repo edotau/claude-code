@@ -42,10 +42,11 @@ func export(args []string) int {
 	if code != 0 {
 		return code
 	}
-	if code := writeExport(rows, *out, *merge, *force); code != 0 {
+	written, code := writeExport(rows, *out, *merge, *force)
+	if code != 0 {
 		return code
 	}
-	for _, r := range rows {
+	for _, r := range written {
 		fmt.Fprintln(os.Stderr, "use: "+rowHint(r))
 	}
 	return 0
@@ -73,64 +74,66 @@ func exportRowsFor(pick bool, rename renameFlag) ([]exportRow, int) {
 	return rows, 0
 }
 
-func writeExport(rows []exportRow, out string, merge, force bool) int {
+// writeExport writes rows and returns those actually written (a merge keeps existing sections).
+func writeExport(rows []exportRow, out string, merge, force bool) ([]exportRow, int) {
 	if !merge {
 		text := renderExport(rows)
 		if out == "" {
 			if _, err := io.WriteString(os.Stdout, text); err != nil {
-				return fail("export: %v", err)
+				return nil, fail("export: %v", err)
 			}
-			return 0
+			return rows, 0
 		}
 		if err := writeFile0600(out, text, force); err != nil {
-			return fail("export: %v", err)
+			return nil, fail("export: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "wrote %d sections to %s\n", len(rows), out)
-		return 0
+		return rows, 0
 	}
 	if out == "" {
 		var err error
 		if out, err = defaultPath(); err != nil {
-			return fail("export: %v", err)
+			return nil, fail("export: %v", err)
 		}
 	}
 	out, err := resolveLink(out)
 	if err != nil {
-		return fail("export: %v", err)
+		return nil, fail("export: %v", err)
 	}
 	var msg string
+	var written []exportRow
 	if err := paths.WithFileLock(out, func() error {
 		var err error
-		msg, err = mergeInto(out, rows, force)
+		msg, written, err = mergeInto(out, rows, force)
 		return err
 	}); err != nil {
-		return fail("export: %v", err)
+		return nil, fail("export: %v", err)
 	}
 	fmt.Fprint(os.Stderr, msg)
-	return 0
+	return written, 0
 }
 
-// mergeInto merges rows into the config at out (the caller holds its lock) and returns the stderr summary.
-func mergeInto(out string, rows []exportRow, force bool) (string, error) {
+// mergeInto merges rows into the config at out (the caller holds its lock); it returns the stderr summary and the rows written.
+func mergeInto(out string, rows []exportRow, force bool) (string, []exportRow, error) {
 	old, err := os.ReadFile(out)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return "", nil, err
 	}
 	if _, _, err := parseSections(string(old)); err != nil {
-		return "", fmt.Errorf("%s: %w", out, err)
+		return "", nil, fmt.Errorf("%s: %w", out, err)
 	}
-	text, notes := mergeExport(string(old), rows, force)
+	text, notes, written := mergeExport(string(old), rows, force)
 	msg := strings.Join(notes, "\n")
 	if len(notes) > 0 {
 		msg += "\n"
 	}
 	if text == string(old) {
-		return msg + out + " unchanged\n", nil
+		return msg + out + " unchanged\n", written, nil
 	}
 	if err := paths.AtomicWrite(out, []byte(text), 0o600); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return msg + "merged into " + out + "\n", nil
+	return msg + "merged into " + out + "\n", written, nil
 }
 
 func pickExport(rows []exportRow) ([]exportRow, error) {
@@ -389,7 +392,7 @@ func splitBlocks(text string) []block {
 }
 
 // mergeExport writes rows into existing text; a same-name section needs force and a databricks-cli one never is.
-func mergeExport(existing string, rows []exportRow, force bool) (string, []string) {
+func mergeExport(existing string, rows []exportRow, force bool) (string, []string, []exportRow) {
 	have := map[string]*section{}
 	secs, _, _ := parseSections(existing) // mergeInto has already refused a file that does not parse
 	for _, s := range secs {
@@ -413,7 +416,7 @@ func mergeExport(existing string, rows []exportRow, force bool) (string, []strin
 		}
 		out += strings.Join(m.appended, "\n")
 	}
-	return out, m.notes
+	return out, m.notes, m.written
 }
 
 // merger accumulates mergeExport's edits: the rewritten blocks, the sections to append and the per-row notes.
@@ -422,6 +425,7 @@ type merger struct {
 	blocks   []block
 	notes    []string
 	appended []string
+	written  []exportRow
 	force    bool
 }
 
@@ -436,6 +440,7 @@ func (m *merger) apply(r exportRow) {
 		m.notes = append(m.notes, "keep ["+r.Section+"]: reserved, never written")
 	case !exists:
 		m.appended = append(m.appended, sectionText(r))
+		m.written = append(m.written, r)
 		m.notes = append(m.notes, "add ["+r.Section+"]")
 	case sig.keys["auth_type"] == cliAuthU2M:
 		m.notes = append(m.notes, "keep ["+r.Section+"]: an existing databricks-cli login section is never overwritten")
@@ -443,6 +448,7 @@ func (m *merger) apply(r exportRow) {
 		m.notes = append(m.notes, "keep ["+r.Section+"]: exists (--force replaces it)")
 	default:
 		m.blocks = replaceBlocks(m.blocks, r.Section, sectionText(r))
+		m.written = append(m.written, r)
 		m.notes = append(m.notes, "replace ["+r.Section+"]")
 	}
 }

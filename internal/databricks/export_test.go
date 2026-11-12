@@ -214,12 +214,12 @@ func TestRenameDropsReservedSections(t *testing.T) {
 func TestMergeNeverWritesDefault(t *testing.T) {
 	const existing = "[DEFAULT]\nhost = https://d.example.cloud.databricks.com\ntoken = keep-me\n"
 	for _, force := range []bool{false, true} {
-		out, _ := mergeExport(existing, []exportRow{{ID: "d", Section: "DEFAULT", Host: "https://x.example.cloud.databricks.com", Auth: providers.AuthPAT}}, force)
+		out, _, _ := mergeExport(existing, []exportRow{{ID: "d", Section: "DEFAULT", Host: "https://x.example.cloud.databricks.com", Auth: providers.AuthPAT}}, force)
 		if out != existing {
 			t.Errorf("force=%v: [DEFAULT] touched:\n%s", force, out)
 		}
 	}
-	out, _ := mergeExport("", []exportRow{{ID: "d", Section: "default", Host: "https://x.example.cloud.databricks.com", Auth: providers.AuthPAT}}, true)
+	out, _, _ := mergeExport("", []exportRow{{ID: "d", Section: "default", Host: "https://x.example.cloud.databricks.com", Auth: providers.AuthPAT}}, true)
 	if strings.Contains(strings.ToLower(out), "[default]") {
 		t.Errorf("[default] created in an empty file:\n%s", out)
 	}
@@ -227,7 +227,7 @@ func TestMergeNeverWritesDefault(t *testing.T) {
 
 func TestMergeNeverOverwritesU2MSection(t *testing.T) {
 	const existing = "[dev]\nhost = https://mine.example.cloud.databricks.com\nauth_type = databricks-cli\n"
-	out, notes := mergeExport(existing, sampleRows()[:1], true)
+	out, notes, _ := mergeExport(existing, sampleRows()[:1], true)
 	if out != existing || !strings.Contains(strings.Join(notes, "\n"), "never overwritten") {
 		t.Errorf("databricks-cli section overwritten (force):\n%s\n%v", out, notes)
 	}
@@ -236,10 +236,10 @@ func TestMergeNeverOverwritesU2MSection(t *testing.T) {
 func TestMergeKeepsOthersAndReplacesOnlyWithForce(t *testing.T) {
 	const existing = "[svc]\nhost = https://old.example.cloud.databricks.com\nclient_id = old\n\n[other]\nhost = https://o.example.cloud.databricks.com\n"
 	svc := sampleRows()[1:2]
-	if out, _ := mergeExport(existing, svc, false); out != existing {
+	if out, _, _ := mergeExport(existing, svc, false); out != existing {
 		t.Errorf("replaced without force:\n%s", out)
 	}
-	out, _ := mergeExport(existing, svc, true)
+	out, _, _ := mergeExport(existing, svc, true)
 	if !strings.Contains(out, "client_id = cid-svc") || strings.Contains(out, "client_id = old") || !strings.Contains(out, "[other]") {
 		t.Errorf("force merge:\n%s", out)
 	}
