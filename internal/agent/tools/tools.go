@@ -32,6 +32,8 @@ type tool struct {
 	Hint    string // shown in status/doctor when Install and Update are both nil
 	// UserLocal installs into ~/.local/bin, never the harness bin/.
 	UserLocal bool
+	// OwnTarget: the installer ignores dir and names its own target, so runOne prints no "into" line.
+	OwnTarget bool
 }
 
 // tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
@@ -41,8 +43,8 @@ var tools = []tool{
 	{Name: agentid.Codex, Binary: agentid.Codex, Install: installCodex},
 	{Name: agentid.OpenCode, Binary: agentid.OpenCode, Install: installOpencode},
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
-	{Name: "agy", Binary: "agy", Install: installAgy, Update: updateAgy},
-	{Name: "tailscale", Binary: "tailscale", Install: installTailscale},
+	{Name: "agy", Binary: "agy", Install: installAgy, Update: updateAgy, OwnTarget: true},
+	{Name: "tailscale", Binary: "tailscale", Install: installTailscale, OwnTarget: true},
 	{Name: "browser", Install: installBrowser, Hint: "claude-code network browser --setup; CDP + chrome-devtools-mcp on WSL"},
 	{Name: "clipboard", Install: installClipboard, Hint: "WSL only: wl-paste proxy for image paste"},
 }
@@ -120,7 +122,7 @@ func resolve(names []string) ([]tool, error) {
 // runOne updates a present tool that has its own Update, else (re)runs the idempotent Install; else report-only.
 func runOne(ctx context.Context, w io.Writer, t tool, oldPath, dir string, dryRun bool) error {
 	update := oldPath != "" && t.Update != nil
-	if (update || t.Install != nil) && t.Binary != "" { // binary-less tools (browser, clipboard) ignore dir
+	if (update || t.Install != nil) && t.Binary != "" && !t.OwnTarget { // binary-less tools (browser, clipboard) ignore dir
 		fmt.Fprintf(w, "  %-8s %s\n", "into", dir)
 	}
 	switch {

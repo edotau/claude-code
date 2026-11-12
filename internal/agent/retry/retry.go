@@ -45,8 +45,9 @@ type Error struct {
 	Attempts   int
 	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
 	Err        error
-	Earlier    []*Error // the attempts before this one, oldest first; Do sets it on the error it returns
-	Terminal   bool     // a state check refused the attempt: retrying cannot help
+	Earlier    []*Error      // the attempts before this one, oldest first; Do sets it on the error it returns
+	Terminal   bool          // a state check refused the attempt: retrying cannot help
+	Waited     time.Duration // wall time Do spent on attempts and waits before giving up
 }
 
 // Fatal is a terminal, never-retried failure of agent wrapping err.
@@ -67,10 +68,27 @@ func (e *Error) Error() string {
 	} else if e.Err != nil {
 		msg += ": " + strings.TrimPrefix(e.Err.Error(), e.Agent+": ") // an engine error may lead with its own agent name
 	}
-	if e.Attempts > 1 {
+	if e.Kind == KindRateLimit && e.Attempts > 0 && e.Waited > 0 {
+		msg += fmt.Sprintf(" (gave up after %d %s over %s; requeue this dispatch later, do not re-ask now)", e.Attempts, plural(e.Attempts, "try", "tries"), roundWaited(e.Waited))
+	} else if e.Attempts > 1 {
 		msg += fmt.Sprintf(" (after %d attempts)", e.Attempts)
 	}
 	return msg
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// roundWaited rounds to whole seconds, or to milliseconds under one second.
+func roundWaited(d time.Duration) time.Duration {
+	if d < time.Second {
+		return d.Round(time.Millisecond)
+	}
+	return d.Round(time.Second)
 }
 
 func (e *Error) Unwrap() error { return e.Err }
@@ -289,8 +307,10 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
 	var earlier []*Error
+	start := time.Now()
 	fail := func() *Error { // every attempt before the last rides on the error returned
 		last.Earlier = earlier
+		last.Waited = time.Since(start)
 		return last
 	}
 	for attempt := 1; attempt <= p.MaxAttempts; attempt++ {

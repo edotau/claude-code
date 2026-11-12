@@ -226,7 +226,7 @@ func TestChangedFilesCancellationMessageEndsInCause(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := changedFiles(ctx, root)
-	want := "git -C " + root + " diff --name-only -z --relative HEAD: context canceled"
+	want := "git -C " + root + " diff --name-only --diff-filter=d -z --relative HEAD: context canceled"
 	if err == nil || err.Error() != want {
 		t.Fatalf("changedFiles error = %v, want %q", err, want)
 	}

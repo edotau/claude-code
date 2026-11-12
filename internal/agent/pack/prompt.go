@@ -87,7 +87,7 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 		return nil, fmt.Errorf("--diff: %w", err)
 	}
 	if len(changed) == 0 {
-		return nil, errors.New("--diff: nothing changed vs HEAD")
+		return nil, errors.New("--diff: nothing changed vs HEAD to inline (deleted files are skipped); pass --dirs or --files")
 	}
 	for _, p := range changed {
 		files = append(files, globEscape(p)) // literal paths: a `page[1].go` must match only itself
@@ -102,7 +102,7 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
 		// --relative matches ls-files's cwd-relative output, so a subdirectory run doesn't mix bases.
-		{"diff", "--name-only", "-z", "--relative", "HEAD"},
+		{"diff", "--name-only", "--diff-filter=d", "-z", "--relative", "HEAD"},
 		{"ls-files", "--others", "--exclude-standard", "-z"},
 	} {
 		out, err := proc.RunGitRaw(ctx, root, args...)
@@ -133,7 +133,7 @@ func fit(task func(Context) string, ctx Context, limit int) (string, Context, []
 		prompt := prompt(task(ctx), ctx)
 		excess := len(prompt) - limit
 		if excess > 0 && len(ctx.Included) == 0 {
-			return prompt, ctx, dropped, fmt.Errorf("pack: task and file inventory alone are %d bytes, over the %d byte cap", len(prompt), limit)
+			return prompt, ctx, dropped, fmt.Errorf("pack: task and file inventory alone are %d bytes, over the %d byte cap; shorten the task or pack fewer paths", len(prompt), limit)
 		}
 		if excess <= 0 {
 			return prompt, ctx, dropped, nil
@@ -162,33 +162,7 @@ func promptBlock(f IncludedFile) string {
 
 // prompt renders the context inventory + inline files + task into the prompt template.
 func prompt(task string, ctx Context) string {
-	var inv strings.Builder
-	if len(ctx.Included) > 0 {
-		inv.WriteString("Included files:\n")
-		for _, f := range ctx.Included {
-			inv.WriteString(inventoryLine(f))
-		}
-	} else {
-		inv.WriteString("Included files: none\n")
-	}
-	if len(ctx.Skipped) > 0 {
-		inv.WriteString("Skipped files:\n")
-		for _, s := range ctx.Skipped {
-			fmt.Fprintf(&inv, "- %s (%s)\n", s.Path, s.Reason)
-		}
-	}
-
-	var blocks strings.Builder
-	if len(ctx.Included) == 0 {
-		blocks.WriteString("No inline file payloads were collected.")
-	} else {
-		for i, f := range ctx.Included {
-			if i > 0 {
-				blocks.WriteString("\n\n")
-			}
-			blocks.WriteString(promptBlock(f))
-		}
-	}
+	inv, blocks := inventoryText(ctx), fileBlocks(ctx)
 
 	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
 	return fmt.Sprintf(`<task>
@@ -207,7 +181,39 @@ func prompt(task string, ctx Context) string {
 
 <context_files>
 %s
-</context_files>`, task, inv.String(), blocks.String())
+</context_files>`, task, inv, blocks)
+}
+
+// inventoryText lists the included and skipped files, one line each.
+func inventoryText(ctx Context) string {
+	var inv strings.Builder
+	if len(ctx.Included) > 0 {
+		inv.WriteString("Included files:\n")
+		for _, f := range ctx.Included {
+			inv.WriteString(inventoryLine(f))
+		}
+	} else {
+		inv.WriteString("Included files: none\n")
+	}
+	if len(ctx.Skipped) > 0 {
+		inv.WriteString("Skipped files:\n")
+		for _, s := range ctx.Skipped {
+			fmt.Fprintf(&inv, "- %s (%s)\n", s.Path, s.Reason)
+		}
+	}
+	return inv.String()
+}
+
+// fileBlocks joins the included files' payload blocks.
+func fileBlocks(ctx Context) string {
+	if len(ctx.Included) == 0 {
+		return "No inline file payloads were collected."
+	}
+	blocks := make([]string, len(ctx.Included))
+	for i, f := range ctx.Included {
+		blocks[i] = promptBlock(f)
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
 // Structured path index: a nested JSON tree names every matched path at a fraction of inlining's tokens.

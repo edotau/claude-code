@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -50,7 +51,17 @@ var mediaTypes = map[string]string{
 }
 
 // secretExtensions: files with these extensions are never inlined, regardless of git tracking.
-var secretExtensions = map[string]bool{".pem": true, ".key": true, ".p12": true, ".pfx": true}
+var secretExtensions = map[string]bool{
+	".pem": true, ".key": true, ".p12": true, ".pfx": true, ".keystore": true, ".jks": true, ".tfstate": true, ".tfvars": true,
+}
+
+// secretNames: exact lower-case basenames that hold credentials; secretDirs: directories whose files do.
+var secretNames = map[string]bool{
+	".npmrc": true, ".netrc": true, "_netrc": true, ".git-credentials": true, ".pypirc": true, ".htpasswd": true,
+	"kubeconfig": true, "service-account.json": true, "token.txt": true, "secret.yaml": true, "secret.yml": true,
+	"secrets.yaml": true, "secrets.yml": true, "secret.json": true, "secrets.json": true,
+}
+var secretDirs = map[string]bool{".kube": true, ".docker": true, "state": true}
 
 // IncludedFile is one inlined file's content + metadata for the prompt.
 type IncludedFile struct {
@@ -85,8 +96,7 @@ func isSymlink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// Collect walks dirs and globs patterns, inlining up to maxFiles text files (0 = none, <0 = default),
-// each cut at maxFileBytes (<=0 = default), all together under budget bytes; matches are deduped and sorted so output is deterministic.
+// Collect inlines up to maxFiles files (0 none, <0 default) of dirs and patterns, each cut at maxFileBytes, in budget.
 func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes, budget int) (Context, error) {
 	if err := ctx.Err(); err != nil {
 		return Context{}, err
@@ -98,25 +108,9 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 		maxFileBytes = DefaultMaxFileBytes
 	}
 
-	tracked, repoRoots, err := gitTrackedFiles(ctx, cwd, gitRoots(cwd, dirs, patterns))
+	matches, skipped, err := matchPaths(ctx, cwd, dirs, patterns)
 	if err != nil {
 		return Context{}, err
-	}
-	// Each root decides its own gitignore filtering: a git root filters, a non-git root does not.
-	matches := map[string]bool{}
-	var skipped []SkippedFile
-	for _, dir := range dirs {
-		dirMatches, dirSkipped, err := walkDir(ctx, cwd, dir, tracked, repoRoots[absIn(cwd, dir)])
-		if err != nil {
-			return Context{}, err
-		}
-		for p := range dirMatches {
-			matches[p] = true
-		}
-		skipped = append(skipped, dirSkipped...)
-	}
-	for _, pattern := range patterns {
-		skipped = append(skipped, globPattern(cwd, pattern, matches, tracked, repoRoots[globBase(cwd, pattern)])...)
 	}
 
 	c := collector{cwd: realPath(cwd), maxFiles: maxFiles, maxFileBytes: maxFileBytes, budget: budget}
@@ -130,6 +124,31 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 		}
 	}
 	return c.out, nil
+}
+
+// matchPaths walks dirs and globs patterns into the deduped match set, plus what the walk and globs skipped.
+func matchPaths(ctx context.Context, cwd string, dirs, patterns []string) (map[string]bool, []SkippedFile, error) {
+	tracked, repoRoots, err := gitTrackedFiles(ctx, cwd, gitRoots(cwd, dirs, patterns))
+	if err != nil {
+		return nil, nil, err
+	}
+	// Each root decides its own gitignore filtering: a git root filters, a non-git root does not.
+	matches := map[string]bool{}
+	var skipped []SkippedFile
+	for _, dir := range dirs {
+		dirMatches, dirSkipped, err := walkDir(ctx, cwd, dir, tracked, repoRoots[absIn(cwd, dir)])
+		if err != nil {
+			return nil, nil, err
+		}
+		for p := range dirMatches {
+			matches[p] = true
+		}
+		skipped = append(skipped, dirSkipped...)
+	}
+	for _, pattern := range patterns {
+		skipped = append(skipped, globPattern(cwd, pattern, matches, tracked, repoRoots[globBase(cwd, pattern)])...)
+	}
+	return matches, skipped, nil
 }
 
 // sortedMatches orders matched paths by path, then stably by groupRank.
@@ -169,6 +188,8 @@ func (c *collector) preSkipReason(rel, abs string) string {
 		return "ignored-path"
 	case SecretLike(rel) || c.resolvesToSecret(abs):
 		return "secret-like"
+	case c.maxFiles == 0:
+		return "index-only"
 	case len(c.out.Included) >= c.maxFiles:
 		return "max-files-exceeded"
 	case c.totalBytes >= c.budget:
@@ -239,13 +260,9 @@ func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRe
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() {
-			skipped = append(skipped, SkippedFile{relSlash(cwd, p), "non-regular-file"})
-			return nil
-		}
 		rel := relSlash(cwd, p)
-		if inRepo && !tracked[rel] {
-			skipped = append(skipped, SkippedFile{rel, "gitignored"})
+		if reason := walkSkipReason(d, rel, tracked, inRepo); reason != "" {
+			skipped = append(skipped, SkippedFile{rel, reason})
 			return nil
 		}
 		matches[p] = true
@@ -255,6 +272,17 @@ func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRe
 		return nil, nil, walkErr
 	}
 	return matches, skipped, nil
+}
+
+// walkSkipReason is why a walked file is not inlined ("" keeps it): not regular, or gitignored inside a work tree.
+func walkSkipReason(d fs.DirEntry, rel string, tracked map[string]bool, inRepo bool) string {
+	switch {
+	case !d.Type().IsRegular():
+		return "non-regular-file"
+	case inRepo && !tracked[rel]:
+		return "gitignored"
+	}
+	return ""
 }
 
 // globPattern expands pattern into matches (mutated in place), returning glob-error and filtered-hit skips;
@@ -302,17 +330,8 @@ func gitTrackedFiles(ctx context.Context, cwd string, roots []string) (map[strin
 
 // gitListRoot adds root's cached + untracked-not-ignored paths to tracked; inside=false outside a work tree.
 func gitListRoot(ctx context.Context, cwd, root string, tracked map[string]bool) (inside bool, err error) {
-	if info, serr := os.Stat(root); serr != nil || !info.IsDir() {
-		return false, nil // a missing root surfaces as a walk or glob error, not a git one
-	}
-	if _, rerr := proc.RunGitRaw(ctx, root, "rev-parse", "--is-inside-work-tree"); rerr != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return false, ctxErr
-		}
-		if notARepo(root, rerr) {
-			return false, nil
-		}
-		return false, fmt.Errorf("git rev-parse in %s: %w", root, rerr)
+	if inside, err = insideWorkTree(ctx, root); !inside || err != nil {
+		return false, err
 	}
 	out, err := proc.RunGitRaw(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
@@ -327,6 +346,23 @@ func gitListRoot(ctx context.Context, cwd, root string, tracked map[string]bool)
 		}
 	}
 	return true, nil
+}
+
+// insideWorkTree reports whether root is a git work tree; a missing root or a confirmed non-repo is false, no error.
+func insideWorkTree(ctx context.Context, root string) (bool, error) {
+	if info, serr := os.Stat(root); serr != nil || !info.IsDir() {
+		return false, nil // a missing root surfaces as a walk or glob error, not a git one
+	}
+	_, rerr := proc.RunGitRaw(ctx, root, "rev-parse", "--is-inside-work-tree")
+	switch {
+	case rerr == nil:
+		return true, nil
+	case ctx.Err() != nil:
+		return false, ctx.Err()
+	case notARepo(root, rerr):
+		return false, nil
+	}
+	return false, fmt.Errorf("git rev-parse in %s: %w", root, rerr)
 }
 
 // gitRoots lists the dirs whose git listing decides inlining: each requested dir and each pattern's literal base.
@@ -429,12 +465,25 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	truncated := info.Size() > int64(maxFileBytes)
 	content := data
 	if truncated && len(content) > maxFileBytes {
-		content = content[:maxFileBytes]
+		content = trimPartialRune(content[:maxFileBytes])
 	}
 	return IncludedFile{
 		Path: rel, MediaType: mediaType(abs), Bytes: int(info.Size()),
 		Truncated: truncated, Content: string(content),
 	}, "", nil
+}
+
+// trimPartialRune drops a multi-byte rune cut off at the end of b.
+func trimPartialRune(b []byte) []byte {
+	for i := 1; i < utf8.UTFMax && i <= len(b); i++ {
+		if utf8.RuneStart(b[len(b)-i]) {
+			if utf8.FullRune(b[len(b)-i:]) {
+				return b
+			}
+			return b[:len(b)-i]
+		}
+	}
+	return b
 }
 
 // relSlash returns target relative to cwd with forward slashes (falls back to the abs path on error).
@@ -468,10 +517,13 @@ func SecretLike(rel string) bool {
 			return true
 		}
 	}
-	if base == "secrets.env" || secretExtensions[filepath.Ext(base)] || isSSHKeyName(base) {
+	if base == "secrets.env" || secretNames[base] || secretExtensions[filepath.Ext(base)] || isSSHKeyName(base) {
 		return true
 	}
-	return slices.Contains(parts, "state")
+	if strings.Contains(base, ".tfstate.") {
+		return true
+	}
+	return slices.ContainsFunc(parts, func(seg string) bool { return secretDirs[seg] })
 }
 
 // isSSHKeyName reports an OpenSSH private key default name (id_rsa, id_ed25519, ...), not its .pub.
