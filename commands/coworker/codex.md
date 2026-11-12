@@ -2,7 +2,6 @@
 description: "Run codex: a task on the Databricks arm (Databricks first, first-party login as the fallback), or one of its verbs"
 argument-hint: "[key=value …] <task> | [profile=<p>] [model=<m>] <verb|adversarial> [args…]"
 allowed-tools: Bash(claude-code agents ask --agent codex *), Bash(claude-code codex *), Bash(claude-code memory path), Bash(date +%F), Bash(mkdir -p *), Bash(tee *)
-disable-model-invocation: true
 ---
 
 # /coworker:codex

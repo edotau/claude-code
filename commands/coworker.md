@@ -2,7 +2,6 @@
 description: "Run an agent on the Databricks arm: Databricks first, first-party login as the fallback"
 argument-hint: "<claude|codex|copilot|gemini|opencode> [profile=<p>] [model=<m>] [fallback=<f>] [effort=<e>] [tools=on|off|read-only] [route=<r>] [background=on] [host=<h>] <task>"
 allowed-tools: Bash(claude-code agents ask --agent *)
-disable-model-invocation: true
 ---
 
 # /coworker
