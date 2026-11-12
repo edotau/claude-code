@@ -204,18 +204,15 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string) 
 	if chunk.Usage != nil {
 		*usage = wire.Usage{InputTokens: chunk.Usage.PromptTokens, OutputTokens: chunk.Usage.CompletionTokens}
 	}
-	return false, writeChatChoices(w, chunk)
-}
-
-func writeChatChoices(w io.Writer, chunk chatChunk) error {
 	for _, c := range chunk.Choices {
-		if c.Delta.Content != "" {
-			if _, err := io.WriteString(w, c.Delta.Content); err != nil {
-				return err
-			}
+		if c.Delta.Content == "" {
+			continue
+		}
+		if _, err := io.WriteString(w, c.Delta.Content); err != nil {
+			return false, err
 		}
 	}
-	return nil
+	return false, nil
 }
 
 func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
