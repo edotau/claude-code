@@ -98,9 +98,18 @@ func TestAgentLaunchArgs_Interactive(t *testing.T) {
 }
 
 func TestBuildCommand_RejectsBadName(t *testing.T) {
-	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " "} {
+	for _, bad := range []string{"a b", "../x", strings.Repeat("x", 65), " ", "a.b", "cc-a.b"} {
 		if _, _, err := buildCommand(Opts{Agent: "claude", Name: bad, Task: "hi"}); err == nil {
 			t.Errorf("BuildCommand with --name %q: want error, got nil", bad)
+		}
+	}
+}
+
+func TestSessionName_AddsPrefix(t *testing.T) {
+	for in, want := range map[string]string{"work": "cc-work", "cc-work": "cc-work", "cc-": "cc-"} {
+		got, err := sessionName(Opts{Agent: "claude", Name: in})
+		if err != nil || got != want {
+			t.Errorf("sessionName(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
 }
