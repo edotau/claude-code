@@ -49,8 +49,7 @@ type frozenTarget struct {
 	once *sync.Once // the gate note prints once per dispatch, not on every retry
 }
 
-// freezeCopilot resolves copilot's real target once, so the permit, cooldown key, guard and agent all use the same
-// account. When the gate moved the dispatch to another provider, the dispatch bills that provider's account instead.
+// freezeCopilot resolves copilot's real target once so permit, cooldown, guard and agent share one account.
 func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.Context, Dispatch) {
 	if disp.Agent.Name() != "copilot" {
 		return ctx, disp

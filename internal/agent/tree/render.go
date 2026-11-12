@@ -31,8 +31,7 @@ func terminalWidth() int {
 	return defaultWidth
 }
 
-// columnWidths sizes the type/status columns to the longest value actually in the rendered set, so
-// a table stays aligned instead of a fixed guess (e.g. "general-purpose") breaking it.
+// columnWidths sizes the type/status columns to the longest rendered value, not a fixed guess like "general-purpose".
 type columnWidths struct {
 	subType    int
 	subStatus  int
@@ -66,10 +65,7 @@ func computeColumnWidths(tree *Tree) columnWidths {
 	return c
 }
 
-// renderText groups tree.Sessions by repo (cwd), newest session first within each repo, and prints
-// each session's subagents indented by spawnDepth, with Workflow runs shown as phases -> agents.
-// Every row is fit to terminalWidth() by truncating its description (its tool segment is dropped
-// first) rather than wrapping. It returns the first write error, if any.
+// renderText groups sessions by repo (newest first), indents subagents by spawnDepth, fits rows to the terminal width.
 func renderText(w io.Writer, tree *Tree, now time.Time) error {
 	ew := &textutil.ErrWriter{W: w}
 	renderTree(ew, tree, now)
@@ -114,9 +110,7 @@ type repoGroup struct {
 	sessions []Session
 }
 
-// groupByRepo buckets sessions by cwd ("(unknown)" when the transcript never recorded one),
-// preserving the overall newest-first order within each bucket and ordering buckets by their
-// newest session.
+// groupByRepo buckets sessions by cwd ("(unknown)" if unrecorded), newest first within a bucket and by newest session.
 func groupByRepo(sessions []Session) []repoGroup {
 	order := []string{}
 	byCwd := map[string][]Session{}
@@ -196,8 +190,7 @@ func statusGlyph(status string) string {
 	}
 }
 
-// idleSince renders how long since a subagent last did anything: its newest activity timestamp when
-// known, else its transcript's own mtime; "-" when neither is available.
+// idleSince renders how long since a subagent last did anything (newest activity, else mtime); "-" if unknown.
 func idleSince(sub Subagent, now time.Time) string {
 	t := sub.Updated
 	if sub.Activity != nil && !sub.Activity.At.IsZero() {
@@ -209,9 +202,7 @@ func idleSince(sub Subagent, now time.Time) string {
 	return now.Sub(t).Round(time.Second).String()
 }
 
-// renderSubagent prints one subagent line (status glyph, idle time), indented two columns per spawn
-// depth beyond the session, then one indented row per agent dispatch it launched. On overflow fitRow drops
-// the trailing tool field before it shrinks the description.
+// renderSubagent prints one subagent line indented per spawn depth, then a row per dispatch; fitRow drops tool first.
 func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
 	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
 	tool := sub.LastTool
@@ -228,8 +219,7 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 	}
 }
 
-// formatDispatch renders one agent dispatch: "↳ codex gpt-6-astra running 2m14s", or with a fallback,
-// "↳ codex→claude ok 1m40s ⚠ fallback".
+// formatDispatch renders one dispatch: "↳ codex gpt-6-astra running 2m14s", or "↳ codex→claude ok 1m40s ⚠ fallback".
 func formatDispatch(l Dispatch) string {
 	name := l.Agent
 	if l.Fallback != "" {
@@ -267,9 +257,7 @@ func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnW
 	}
 }
 
-// fitRow composes "prefix  tail  tool=X" (tail and the tool segment both optional) and fits it to
-// width: the tool segment is dropped first if the row overflows, then tail is
-// truncated with an ellipsis.
+// fitRow composes "prefix  tail  tool=X" and fits it to width: the tool segment is dropped first, then tail truncated.
 func fitRow(prefix, tail, tool string, width int) string {
 	toolPart := ""
 	if tool != "" {
@@ -329,8 +317,7 @@ func age(t, now time.Time) string {
 	}
 }
 
-// treeShortID is the session/agent id's first 8 characters, long enough to disambiguate in practice
-// without blowing the 80-column budget.
+// treeShortID is the id's first 8 characters, enough to disambiguate without blowing the 80-column budget.
 func treeShortID(id string) string {
 	r := []rune(id)
 	if len(r) <= 8 {

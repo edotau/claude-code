@@ -24,8 +24,7 @@ var SharedPoll = 250 * time.Millisecond
 // dispatchSeq makes each permit's shared marker id unique within the process.
 var dispatchSeq atomic.Uint64
 
-// Limiter is the one concurrency gate for dispatches: at most jobs run at once, and at most cap per billed account.
-// A waiting task holds nothing, so a full account never blocks another.
+// Limiter is the one concurrency gate: at most jobs run at once and at most cap per account; waiters hold nothing.
 type Limiter struct {
 	mu        sync.Mutex
 	cond      *sync.Cond
@@ -89,8 +88,7 @@ func Settle(ctx context.Context) {
 	}
 }
 
-// acquire waits for a global Slot, an account permit and one shared slot; a full shared account releases the local
-// permit before the next try, so it never holds a worker another account could use. The release func is idempotent.
+// acquire waits for a Slot, an account permit and a shared slot; a full shared account frees the local permit first.
 func (l *Limiter) acquire(ctx context.Context, account string) (func(), error) {
 	if l.limits.Total <= 0 {
 		return l.acquireLocal(ctx, account)

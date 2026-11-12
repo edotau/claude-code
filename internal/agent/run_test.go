@@ -171,8 +171,7 @@ func TestRunDemotesSlotOnHardQuota(t *testing.T) {
 	}
 }
 
-// A 402 (account exhausted: no credits/plan window left) is KindQuota and IsQuota-true but ModelDenied-false:
-// a lower alias on the same account is just as exhausted, so Run must not demote and must return the error.
+// A 402 (account exhausted) is KindQuota and IsQuota but not ModelDenied: a lower alias is as exhausted, so no demote.
 func assertQuotaNoDemote(t *testing.T, acctErr error) {
 	t.Helper()
 	f := &fakeRunner{caps: Caps{Model: Native}, errs: []error{acctErr}}
@@ -195,15 +194,11 @@ func TestRunQuotaAccountExhaustedDoesNotDemote(t *testing.T) {
 	setConfigDir(t)
 	assertQuotaNoDemote(t, errors.New("HTTP 402 payment required: you have exceeded your monthly quota"))
 
-	// A body carrying BOTH the 402/payment-required account marker AND a model-denied marker
-	// ("insufficient_quota") is still account-exhausted: hardAccountRE vetoes ModelDenied, so Run must not
-	// demote off a dead account on the strength of the model-denied marker alone.
+	// A body with BOTH the 402 account marker and a model-denied marker is exhausted: hardAccountRE vetoes ModelDenied.
 	assertQuotaNoDemote(t, errors.New("402 payment required: insufficient_quota"))
 }
 
-// TestRunTimeoutEndsKindFatalRegardlessOfTools: Run() no longer special-cases a tools-on timeout (that
-// branch was removed as redundant); Do's own AttemptTimeout-is-terminal path is the only one left, and it
-// must classify a hung call to KindFatal wrapping context.DeadlineExceeded the same whether Tools was on.
+// Do's AttemptTimeout-is-terminal path is the only timeout branch left: a hung call is KindFatal (DeadlineExceeded).
 func TestRunTimeoutEndsKindFatalRegardlessOfTools(t *testing.T) {
 	setConfigDir(t)
 	for _, tools := range []bool{true, false} {
@@ -458,7 +453,7 @@ func TestRunTransientCredentialFailureIsRetried(t *testing.T) {
 	}
 }
 
-// A vault overlay's default policy reaches the engine under the request: Deny holds, the request's allow and mode widen.
+// A vault overlay's default policy reaches the engine under the request: Deny holds, request allow and mode widen.
 func TestRunLayersAgentDefaultsUnderTheRequest(t *testing.T) {
 	hermetic(t, "")
 	vaulttest.Put(t, vault.Overlay, "agents",
@@ -553,8 +548,7 @@ func TestClientRecordSkipsRouting(t *testing.T) {
 	}
 }
 
-// setupWorkdirFixture isolates config state and makes opencode "configured" without a real login, so the
-// sub-pick's gates turn on the work-repo rule alone, not on missing credentials.
+// setupWorkdirFixture isolates config state and makes opencode configured without a login, so only the repo rule gates.
 func setupWorkdirFixture(t *testing.T) {
 	t.Helper()
 	setConfigDir(t)

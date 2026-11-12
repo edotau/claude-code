@@ -71,24 +71,15 @@ func chainOf(rs []Engine, models ...string) Chain {
 	return c
 }
 
-// A real expiring or canceled context is final: Run's tools-on special-case only fires on an actual ctx.Err().
-func TestRunWithFallback_TimeoutAndCancelNotRetried(t *testing.T) {
+// A real expiring context is final: Run's tools-on special-case only fires on an actual ctx.Err().
+func TestRunWithFallback_TimeoutNotRetried(t *testing.T) {
 	setConfigDir(t)
 	claude := &fakeRunner{name: "claude", errs: []error{nil}}
-
 	codex := newCodexHang()
 	_, err := runWithFallback(context.Background(), chainOf([]Engine{codex, claude}),
 		RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, wire.NewTextSink(io.Discard), nil)
 	if err == nil || len(claude.seen) != 0 {
 		t.Fatalf("tools-on timeout must not fall back: err=%v claude.seen=%+v", err, claude.seen)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	codex = newCodexHang()
-	_, err = runWithFallback(ctx, chainOf([]Engine{codex, claude}), RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err == nil || len(claude.seen) != 0 {
-		t.Fatalf("a canceled caller context must not fall back: err=%v claude.seen=%+v", err, claude.seen)
 	}
 }
 

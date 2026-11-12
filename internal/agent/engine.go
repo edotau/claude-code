@@ -304,7 +304,7 @@ func WriteJSONLine(w io.Writer, v any) error {
 	return err
 }
 
-// The helpers below are the vendor packages' (claude, codex, gemini, opencode, copilot) reach into the dispatch internals.
+// The helpers below are the vendor packages' reach into the dispatch internals.
 
 // IsResultError reports a failed turn whose result event was consumed, so the stream sits at a turn boundary.
 func IsResultError(err error) bool {
@@ -312,8 +312,7 @@ func IsResultError(err error) bool {
 	return ok
 }
 
-// Dispatch names a RouteInfo's resolved credential path. Why: Anthropic's terms forbid subscription OAuth
-// in third-party tools, so no route ever offers the Claude subscription (passthrough, no login) as a dispatch.
+// Dispatch names a RouteInfo's credential path; no route offers the Claude subscription (Anthropic terms forbid it).
 const (
 	RouteCopilotLogin  = "copilot-login"
 	RouteOwnLogin      = "own-login"
@@ -322,19 +321,16 @@ const (
 	RouteNone          = "none"
 )
 
-// RouteInfo is the agent dispatch `claude-code configure github`, `generate` and `doctor` report: which
-// credential path an agent CLI runs on today, and why. OK is false only for RouteNone.
+// RouteInfo is the dispatch `configure github`, `generate` and `doctor` report: credential path and why.
 type RouteInfo struct {
 	Agent, Route, Provider, Model, Reason string
 	OK                                    bool
 }
 
-// DescribeRoute reports the fallback dispatch the agent (opencode|copilot) resolves to today, in priority
-// order. Every other agent reports RouteNone with a plain explanation — they have no fallback chain.
+// DescribeRoute reports the fallback dispatch opencode|copilot resolves to; any other agent reports RouteNone.
 func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.Eng().DescribeRoute(reg) }
 
-// RouteTarget converts a resolved RouteInfo (OK and naming a registered provider) into a Target;
-// ok is false for RouteNone or a provider DescribeRoute named that the registry no longer has.
+// RouteTarget converts a resolved RouteInfo into a Target; ok is false for RouteNone or a provider the registry lost.
 func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
 	if !ri.OK || ri.Provider == "" {
 		return providers.Target{}, false
@@ -408,8 +404,7 @@ func (s Schema) fallbackTarget(t, ft providers.Target, fallbackNote string) (pro
 // ErrOwnLogin means the agent should run on the credentials its own CLI stores (no harness route injected).
 var ErrOwnLogin = errors.New("agent runs on its own login")
 
-// HubEngine is one hub ladder step: an Engine that names the provider account answering it, so every dispatch of a
-// chain reads the same Result.Agent and only Result.Provider shows which account did.
+// HubEngine is one hub ladder step: an Engine naming the provider account answering it, so Result.Provider shows which.
 type HubEngine interface {
 	Engine
 	HubProvider() *providers.Provider
@@ -432,8 +427,7 @@ type Hub struct {
 
 var hub *Hub
 
-// isHubAgent reports whether name is one ask routes through opencode unless --native is set. codex and
-// copilot run their own CLI first (user decision): the hub cannot pass copilot's `auto` or its pinned account.
+// isHubAgent reports whether ask routes name through opencode unless --native; codex and copilot run their own CLI.
 func isHubAgent(name string) bool {
 	s, ok := lookupRow(name)
 	return ok && s.CLI.Hub

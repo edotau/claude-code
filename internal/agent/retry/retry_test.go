@@ -178,8 +178,7 @@ func TestDo(t *testing.T) {
 
 // A failed Recover reaches the caller's error; it is not reduced to a bare "auth rejected".
 
-// MaxAttempts: 0 must behave exactly like 1 — one call, no retry notice, no backoff sleep. BaseDelay
-// is a full second so a stray sleep would blow the 100ms deadline below.
+// MaxAttempts: 0 acts like 1: one call, no retry notice, no backoff sleep (BaseDelay 1s: a sleep blows the deadline).
 func TestDoMaxAttemptsZeroActsAsOne(t *testing.T) {
 	p := Policy{MaxAttempts: 0, BaseDelay: time.Second, MaxDelay: time.Second}
 	var notified []string
@@ -217,8 +216,7 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 		<-ctx.Done()
 		return Classify("x", ctx.Err(), false)
 	})
-	// An attempt that hits its OWN AttemptTimeout is terminal, not retried: retrying would just
-	// burn another full timeout on the same stuck call.
+	// An attempt hitting its OWN AttemptTimeout is terminal, not retried.
 	if calls != 1 || e.Kind != KindFatal || !strings.Contains(e.Error(), "timed out after") || !errors.Is(e, context.DeadlineExceeded) {
 		t.Fatalf("attempt-own timeout must not retry: calls=%d err=%v", calls, e)
 	}
@@ -234,9 +232,7 @@ func TestDoAttemptTimeoutAndCancel(t *testing.T) {
 	}
 }
 
-// TestDoAttemptTimeoutFastTransientStillRetried: AttemptTimeout bounds a stuck call, but an attempt
-// that fails FAST (a 429, well inside the budget) is still an ordinary retryable transient failure —
-// only hitting the attempt's own deadline is terminal.
+// AttemptTimeout bounds a stuck call, but a FAST failure (a 429 inside the budget) is still retried.
 func TestDoAttemptTimeoutFastTransientStillRetried(t *testing.T) {
 	p := fastPolicy(t)
 	p.AttemptTimeout = time.Minute

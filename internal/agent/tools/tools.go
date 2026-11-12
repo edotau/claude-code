@@ -66,8 +66,7 @@ func lookup(name string) (tool, bool) {
 	return tool{}, false
 }
 
-// Install installs/updates names (empty = all), retiring replaced npm-global copies and @google/gemini-cli;
-// missingOnly installs only binaries absent from PATH and never updates a present one.
+// Install installs/updates names (empty = all), retiring npm-global copies and gemini-cli; missingOnly skips updates.
 func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOnly bool) error {
 	sel, err := resolve(names)
 	if err != nil {

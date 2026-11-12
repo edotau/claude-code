@@ -96,13 +96,12 @@ func (m EnvMode) scrub(env, keep []string) (kept, dropped []string) {
 	return env, nil
 }
 
-// DispatchPermissionsEnv carries a dispatch's Permissions as JSON to every agent child, for the in-agent permission-gate.
+// DispatchPermissionsEnv carries a dispatch's Permissions as JSON to every agent child, for the permission-gate.
 const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
 
 type permissionsKey struct{}
 
-// inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested dispatch, so an inner policy
-// can never drop them; with no inner policy the outer one applies whole.
+// inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested one; else the outer applies whole.
 func inheritPermissions(p Permissions) (Permissions, error) {
 	raw := os.Getenv(DispatchPermissionsEnv)
 	if raw == "" {
@@ -165,8 +164,7 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 	return func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return drop[n] }
 }
 
-// scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; an own-login hop (no
-// profile) keeps no profile's credentials. Launch-owned values come after this; only foreign logins leave them.
+// scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; launch values follow.
 func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 	inherited = dropForeignLogins(ctx, inherited, keepEnv)
 	if p := ownProviderFrom(ctx); p != nil {
@@ -235,7 +233,7 @@ func envNames(env []string) []string {
 	return out
 }
 
-// ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; agent also scrubs the vault key.
+// ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; claude keeps the vault key.
 func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *retry.TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	proc.OwnGroup(cmd)

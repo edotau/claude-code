@@ -64,7 +64,7 @@ func buildTask(l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool
 	return t, nil
 }
 
-// runBatch builds a task per line (a bad line fails alone, logged to os.Stderr) and runs them on the pool; true only if all ok.
+// runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; true if all ok.
 func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool,
 	newClient func() *agent.Client, out io.Writer) (id string, ok bool) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
@@ -323,7 +323,7 @@ func (b *batchRun) recoverTask(t batchTask, rec *agent.Record, start time.Time, 
 // batchExclusive are the ask flags that make no sense on a batch of independent tasks.
 var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
 
-// runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool and streams one envelope per line.
+// runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool, one envelope per line.
 func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
 	if err := checkBatchFlags(fs, resume, o); err != nil {
 		return failAskCode("text", o.Agent, err, 2)

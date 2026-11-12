@@ -109,8 +109,7 @@ func truncate(s string, n int) string {
 	return textutil.CapRunes(oneLine(s), n, "…")
 }
 
-// oneLine collapses embedded newlines/tabs and repeated spaces so a multi-line prompt renders as
-// one title line.
+// oneLine collapses newlines/tabs and repeated spaces so a multi-line prompt renders as one title line.
 func oneLine(s string) string {
 	out := make([]rune, 0, len(s))
 	prevSpace := false
@@ -185,8 +184,7 @@ func lastActivity(path, cwd string) Activity {
 	return act
 }
 
-// toolArg extracts the one input field most useful to show, in priority order: file_path, path,
-// command (truncated to 60 runes, for Bash), pattern (Grep/Glob).
+// toolArg extracts the most useful input field: file_path, path, command (60 runes, Bash), pattern (Grep/Glob).
 func toolArg(input json.RawMessage) string {
 	var in struct {
 		FilePath string `json:"file_path"`

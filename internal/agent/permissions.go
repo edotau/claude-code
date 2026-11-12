@@ -139,8 +139,7 @@ func DefaultPermissions(name string) (Permissions, error) {
 	return Permissions{}, fmt.Errorf("%s default permissions: %w", name, err)
 }
 
-// resolvePermissions layers defaults → role → request: rules add up, the last mode set wins, and widened names what a
-// later layer grants beyond the earlier ones (D3: auto-granted unless a Deny matches, recorded). Deny never loosens.
+// resolvePermissions layers defaults, role, request: rules add, last mode wins, widened names what a layer grants (D3).
 func resolvePermissions(layers ...Permissions) (out Permissions, widened []string) {
 	for i, l := range layers {
 		if i > 0 { // the first layer is the baseline the others widen
@@ -178,7 +177,7 @@ func union(a, b []Rule) []Rule {
 	return out
 }
 
-// Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, every other mode asks (auto: the agent's judge).
+// Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, other modes ask (auto: the agent's judge).
 func (p Permissions) Decide(tool, arg string) Decision {
 	if tool == "Bash" {
 		return p.decideBash(arg, 0)
@@ -186,7 +185,7 @@ func (p Permissions) Decide(tool, arg string) Decision {
 	return p.decideOne(tool, arg)
 }
 
-// decideBash is the strictest verdict over every segment, substitution and `bash -c` body; redirects and substitutions never Allow.
+// decideBash is the strictest verdict over every segment, substitution and `bash -c` body; redirects never Allow.
 func (p Permissions) decideBash(cmd string, depth int) Decision {
 	if depth > 8 {
 		return Deny

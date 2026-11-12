@@ -18,8 +18,7 @@ var (
 	tailPoll = 250 * time.Millisecond
 )
 
-// Tail copies ref's log (default: name's newest job in cwd's repo) to w. With follow it keeps copying until the
-// record stops being alive, printing a heartbeat line per tailBeat of silence. It returns the record as last seen.
+// Tail copies ref's log (default: name's newest job in cwd's repo) to w; follow heartbeats until the record stops.
 func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (Record, error) {
 	rec, err := resolveJob(ctx, name, cwd, ref, nil)
 	if err != nil {
@@ -63,8 +62,7 @@ func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record
 	return rec, nil // the last pass reloaded before it copied, so nothing landed after it
 }
 
-// TailEvents copies rec's <id>.events.jsonl to w; with follow it waits until the record leaves running (a
-// multi-turn session emits a result per turn), printing a heartbeat event per tailBeat of silence.
+// TailEvents copies rec's <id>.events.jsonl to w; follow waits until the record leaves running, heartbeating.
 func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Record, error) {
 	rec, f, err := openTail(ctx, rec, follow, Record.EventsPath)
 	if err != nil {

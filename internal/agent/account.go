@@ -11,8 +11,7 @@ import (
 // ResolveAccount is the swappable account resolver (tests replace it).
 var ResolveAccount = resolveAccount
 
-// resolveAccount is the account an agent's dispatch actually bills: "" keeps the table's key (the agent's own login
-// or subscription); an agent resolving to another profile (an API key, a BYOK route) bills that <provider>·<profile>.
+// resolveAccount is the account a dispatch bills: "" keeps the table key; another profile bills <provider>·<profile>.
 func resolveAccount(agentName string, c router.Cell) (string, string) {
 	var t providers.Target
 	switch agentName {

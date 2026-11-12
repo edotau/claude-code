@@ -32,8 +32,7 @@ func compactJSON(s string) string {
 	return b.String()
 }
 
-// Structured parses the answer as JSON and checks it against schema. The validator is minimal and stdlib-only:
-// type, required, properties, items (or tuple), additionalItems, enum, recursively; other keywords are unchecked.
+// Structured parses the answer as JSON and checks it against schema (stdlib-only: type, required, properties, items).
 func Structured(answer, schema string) (raw json.RawMessage, unchecked []string, err error) {
 	span := jsonSpan(answer)
 	v, err := decodeExact(span)

@@ -19,12 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// codex and gemini ride stdin (codexHeadless's `-` operand, agy's stream-json), so an oversized prompt
-// never hits MAX_ARG_STRLEN and must not be refused before launch; opencode still puts the prompt in
-// argv (opencodeRun), so it alone keeps the refusal. Provider: "ultra" (the built-in
-// default) makes vendorTargetNote return immediately (req.Provider != "" short-circuits the vendor's own
-// fallback resolution), so every case fails or refuses before any real CLI exec — no bin/codex, bin/agy
-// or bin/opencode needed, and no network call.
+// codex/gemini ride stdin so an oversized prompt is not refused; opencode keeps argv and refuses; "ultra" runs no CLI.
 func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	setConfigDir(t)
 	t.Setenv("HOME", t.TempDir())

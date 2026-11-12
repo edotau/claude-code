@@ -40,7 +40,7 @@ type LegResult struct {
 	Envelope wire.Envelope `json:"envelope"`
 }
 
-// Run dispatches legs concurrently, host-isolated under a limit of min(jobs, 12), tagging progress lines with the label.
+// Run dispatches legs concurrently, host-isolated under min(jobs, 12), tagging progress lines with the label.
 func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
 	ctx = agent.WithBatchRun(ctx, retry.NewBatchLimiter(min(jobs, MaxParts)))
 	rep := Report{Schema: reportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
@@ -117,8 +117,7 @@ func status(legs []LegResult) string {
 	return "partial"
 }
 
-// Text prints each leg as `### <label> (<agent>/<model>) [<status>]` and its answer or error, then the failed labels.
-// It returns the first write error; bufio keeps the error sticky, so Flush reports any failed write.
+// Text prints each leg as `### <label> (<agent>/<model>) [<status>]` with its answer or error, then failed labels.
 func (rep Report) Text(w io.Writer) error {
 	bw := bufio.NewWriter(w)
 	var bad []string

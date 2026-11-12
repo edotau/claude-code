@@ -564,8 +564,7 @@ func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 	}
 }
 
-// A manifest-less run is read from its journal and reports finished once every started agent has a result
-// and the run dir has gone quiet past subagentActiveWindow.
+// A manifest-less run is read from its journal and finished once every started agent has a result and the dir is quiet.
 func TestManifestLessWorkflowRunFinishesFromJournal(t *testing.T) {
 	t.Parallel()
 	claudeDir, now := copyTestdataTree(t)

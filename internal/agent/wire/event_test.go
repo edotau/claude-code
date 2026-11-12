@@ -183,7 +183,7 @@ func TestAnswerKeepsChunkWhenEmitFails(t *testing.T) {
 	}
 }
 
-// Given three chunks, Then Sep marks every chunk after the first only when turns is set, String joins them and Last is the final one.
+// Given three chunks, Sep marks each after the first only when turns is set, String joins them, Last is the final.
 func TestAnswerTurnsJoinAndLast(t *testing.T) {
 	rec := &recSink{}
 	turns, deltas := Answer{Join: "\n"}, Answer{}

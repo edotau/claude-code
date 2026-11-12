@@ -16,8 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// A running claude dispatch hides the session it spawned, by its session id or by cwd + start + opening prompt;
-// an unrelated session in the same dir stays.
+// A running claude dispatch hides the session it spawned (by session id or cwd+start+prompt); an unrelated one stays.
 func TestDropDispatchSessions(t *testing.T) {
 	start := time.Date(2026, 10, 18, 3, 9, 0, 0, time.UTC)
 	byPrompt := Dispatch{Agent: "claude", cwd: "/repo", started: start, prompt: "Summarize the retry logic"}
@@ -99,7 +98,7 @@ func TestReapRemovesSocketWithoutRecord(t *testing.T) {
 	}
 }
 
-// Given a stale snapshot of a dead record whose owner restarted it on disk, Then the reaper leaves the live record alone.
+// Given a stale snapshot of a dead record its owner restarted on disk, the reaper leaves the live record alone.
 func TestReapRecordsSkipsRecordRevivedAfterSnapshot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
@@ -120,8 +119,7 @@ func TestReapRecordsSkipsRecordRevivedAfterSnapshot(t *testing.T) {
 	}
 }
 
-// withDispatchFixture points internal/agent's dispatch log at testdata/dispatch for the duration of
-// the test, via CLAUDE_CONFIG_DIR (internal/paths.StateDir honors it).
+// withDispatchFixture points the dispatch log at testdata/dispatch via CLAUDE_CONFIG_DIR (paths.StateDir honors it).
 func withDispatchFixture(t *testing.T) {
 	t.Helper()
 	cfgDir := t.TempDir()
@@ -183,8 +181,7 @@ func orphanFixture(t *testing.T, now time.Time, procs ...proc.Info) *[]string {
 	return &sent
 }
 
-// Given dispatch children in every state, When Reap sweeps, Then only a marked, group-leading, orphaned child past its
-// deadline is stopped (SIGTERM, then SIGKILL); a live dispatcher's child, a hand-started process and a young one stay.
+// Only a marked, group-leading, orphaned child past its deadline is stopped (SIGTERM, SIGKILL); the rest stay.
 func TestReapStopsOnlyOrphanedDispatchChildren(t *testing.T) {
 	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	old := now.Add(-26 * time.Hour)

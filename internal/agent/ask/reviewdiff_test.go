@@ -267,8 +267,7 @@ func TestReviewPromptFocusAppended(t *testing.T) {
 	}
 }
 
-// reviewArgs's temp file must survive for a detached background run, and be cleaned up immediately
-// for a foreground run whose lifetime ends with this call.
+// reviewArgs's temp file survives a detached run and is cleaned immediately for a foreground one.
 func TestReviewArgsCleanupLifecycle(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, background := range []bool{false, true} {

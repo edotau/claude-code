@@ -249,7 +249,7 @@ func switchHint(reasons []string) string {
 	return ""
 }
 
-// dispatchLabel names a dispatch in fallback reasons: a hub dispatch by its account, since every hub dispatch shares the agent name.
+// dispatchLabel names a dispatch in fallback reasons: a hub dispatch by its account (all share the agent name).
 func dispatchLabel(r Engine) string {
 	if l, ok := r.(HubEngine); ok {
 		return l.HubProvider().Name
@@ -362,8 +362,7 @@ func dataBlock(tag, doc string) string {
 	return "<<<" + tag + "\n" + strings.ReplaceAll(doc, tag+">>>", tag+" >>>") + "\n" + tag + ">>>"
 }
 
-// explicitBackend is true when --provider, or a "provider:model" --model, names a provider outright;
-// when the registry cannot load, any "x:y" model counts as pinned (fail closed).
+// explicitBackend is true when --provider or a "provider:model" --model names a provider; no registry fails closed.
 func explicitBackend(req RunOptions) bool {
 	if req.Provider != "" {
 		return true
@@ -470,7 +469,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	return panicked
 }
 
-// tripFailFast cancels the batch when err ends the task (no fallback follows), before the dispatch's permit is released.
+// tripFailFast cancels the batch when err ends the task (no fallback follows), before the permit is released.
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {
 	trip := retry.FailFastStop(ctx)
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
@@ -569,8 +568,7 @@ func noteStall(disp Dispatch, err error) {
 	warnHold(disp.Account, markExhausted(disp.Account, now.Add(15*time.Minute), now, reason))
 }
 
-// condemnAuth tags a KindAuth whose Recover failed with a condemning verdict, or any error that itself condemns
-// (an initial u2m invalid_grant / missing refresh token can classify as fatal with no Recover run).
+// condemnAuth tags a KindAuth whose Recover failed, or any error that itself condemns (an initial invalid_grant).
 func condemnAuth(e *retry.Error, recoverErr error) {
 	switch {
 	case e.Kind == retry.KindAuth && providers.Verdict(recoverErr).Condemns():
@@ -630,7 +628,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	return armClaudeProfile(leadProfile(out, disp), disp)
 }
 
-// leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, never on the pin.
+// leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, not the pin.
 func leadProfile(out RunOptions, disp Dispatch) RunOptions {
 	cp, _ := router.Confined()
 	provider, profile, ok := strings.Cut(disp.Account, "·")

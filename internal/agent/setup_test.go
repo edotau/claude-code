@@ -13,9 +13,7 @@ func TestSetupUnknownVendor(t *testing.T) {
 	}
 }
 
-// TestSetupKnownVendorChecks: Setup always returns binary/login/route/projection, in that order, for
-// a registered vendor; OK tracks binary+login only (route/projection are informational, per contract.md).
-// Route's own detail text is a wave-3 concern (RouteDetail) and is deliberately not asserted here.
+// Setup returns binary/login/route/projection in order for a registered vendor; OK tracks binary+login only.
 func TestSetupKnownVendorChecks(t *testing.T) {
 	for _, name := range []string{"codex", "gemini", "copilot", "opencode"} {
 		rep := SchemaFor(name).Setup()

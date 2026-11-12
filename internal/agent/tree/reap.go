@@ -80,8 +80,7 @@ func matchesDispatchTitle(s Session, l Dispatch) bool {
 		strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
 }
 
-// Reap errors out lost running dispatches, removes dead inflight markers and stops orphaned dispatch children;
-// dryRun only prints. Returns 1 on failure.
+// Reap errors out lost running dispatches, removes dead inflight markers, stops orphaned children; dryRun only prints.
 func Reap(dryRun bool, out, errw io.Writer) int {
 	verb := "reaped"
 	if dryRun {
@@ -134,7 +133,7 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 	return records, code
 }
 
-// reapSockets removes sockets whose holder is dead or has no dispatch record; returns the count and 1 on a failed remove.
+// reapSockets removes sockets whose holder is dead or has no dispatch record; returns the count, 1 on a failed remove.
 func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	socks, _ := filepath.Glob(filepath.Join(paths.DispatchDir(), "*"+wire.LiveSockSuffix))
 	n, code := 0, 0
@@ -196,8 +195,7 @@ func reapOrphans(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	return n, code
 }
 
-// orphanedChildren picks the dispatch children (marked with the dispatch id, leading their own process group) whose
-// dispatcher is gone and that outlived the dispatch's deadline; a hand-started process carries no mark.
+// orphanedChildren picks marked, group-leading dispatch children whose dispatcher is gone and past the deadline.
 func orphanedChildren(procs []proc.Info, now time.Time) []proc.Info {
 	byPID := make(map[int]proc.Info, len(procs))
 	for _, p := range procs {

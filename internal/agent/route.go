@@ -224,7 +224,7 @@ func (rc routeCtx) pinIndex(cands []router.Candidate, alias string) int {
 	return first(func(c router.Candidate) bool { return c.Profile == "" })
 }
 
-// onPin reports c on the wanted agent's pinned profile; an opencode sub-pin's candidate has no Profile, only its account.
+// onPin reports c on the wanted agent's pinned profile; an opencode sub-pin's candidate has an account, no Profile.
 func (rc routeCtx) onPin(c router.Candidate) bool {
 	pin := rc.pins[rc.want].Profile
 	if pin == "" || c.Profile != "" || !isHubAgent(rc.want) || rc.tb == nil {
@@ -573,8 +573,7 @@ func (rc routeCtx) exactCell(cand router.Candidate, cell router.Cell) (router.Ce
 	return cell, ""
 }
 
-// profileCell validates a profile-backed candidate against the exact model: codex needs a Responses route for it,
-// any other agent a cell that already serves it; the accepted cell runs the model as the profile spells it.
+// profileCell validates a profile candidate against the exact model (codex needs a Responses route), run as spelled.
 func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
 	who := cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + ")"
 	var p *providers.Provider
@@ -609,7 +608,7 @@ func (rc routeCtx) claudeTierCell(cell *router.Cell) {
 	}
 }
 
-// buildDispatch turns cand's cell into a dispatch; skip is non-empty when the dispatch cannot run, err when its agent is unknown.
+// buildDispatch turns cand's cell into a dispatch; skip is non-empty when it cannot run, err when its agent is unknown.
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
 	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
 	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
@@ -680,7 +679,7 @@ func lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dis
 	return disp, nil
 }
 
-// nonClaudeDispatchID is the canonical non-Claude model the dispatch runs: the exact --model, else the wanted agent's model pin.
+// nonClaudeDispatchID is the non-Claude model the dispatch runs: the exact --model, else the wanted agent's model pin.
 func nonClaudeDispatchID(exact string, explicitModel bool, pinModel string) string {
 	if exact != "" || explicitModel || pinModel == "" {
 		return exact

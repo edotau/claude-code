@@ -14,8 +14,7 @@ import (
 // logLineCap bounds one buffered log line; a longer run is redacted and written as its own chunk.
 const logLineCap = 256 << 10
 
-// LogSink tees a dispatch's child output, redacted line by line, into its log file (0600, append).
-// Safe for the stdout and stderr streams of every fallback dispatch to share; a write failure never reaches the run.
+// LogSink tees a dispatch's child output, redacted per line, into its 0600 log; every fallback dispatch shares it.
 type LogSink struct {
 	path    string
 	mu      sync.Mutex
@@ -40,8 +39,7 @@ func WithLog(ctx context.Context, sink *LogSink) context.Context {
 	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink})
 }
 
-// WithLogEvents is WithLog for a job run, whose caller writes the final answer itself: event lines and child
-// stderr reach the log, raw child stdout never does.
+// WithLogEvents is WithLog for a job run, whose caller writes the answer: events and stderr reach the log, not stdout.
 func WithLogEvents(ctx context.Context, sink *LogSink) context.Context {
 	return context.WithValue(ctx, logSinkKey{}, logCarrier{sink: sink, noTee: true})
 }

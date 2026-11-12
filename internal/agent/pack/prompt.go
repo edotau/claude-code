@@ -29,12 +29,6 @@ type Packed struct {
 	Notes  []string
 }
 
-// bytesPerToken is dense code's worst case (~2.4 bytes/token) as a ratio, so a byte budget never overruns the window.
-const bytesPerTokenNum, bytesPerTokenDen = 12, 5
-
-// BudgetBytes is the byte budget for a prompt of promptTokens.
-func BudgetBytes(promptTokens int) int { return promptTokens * bytesPerTokenNum / bytesPerTokenDen }
-
 // maxFiles is the inlined-file cap: 0 for an index-only run, else s.MaxFiles or the default.
 func maxFiles(s Spec) int {
 	switch {
@@ -75,8 +69,7 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 	return p, nil
 }
 
-// changedOrListed returns s.Files, plus files changed vs HEAD when s.Diff is set; a git failure or an empty
-// diff is a usage error, not a silent full-tree fallback.
+// changedOrListed returns s.Files plus files changed vs HEAD when s.Diff is set; a git failure is a usage error.
 func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) {
 	files := append([]string{}, s.Files...)
 	if !s.Diff {
@@ -95,9 +88,7 @@ func changedOrListed(ctx context.Context, s Spec, cwd string) ([]string, error) 
 	return files, nil
 }
 
-// changedFiles lists tracked files changed against HEAD (staged + unstaged + untracked), which is
-// what a review run is actually about — reviewing the whole tree buries the diff. An error from either
-// git command (not found, no HEAD, not a repo, …) is returned with its stderr instead of being masked.
+// changedFiles lists tracked files changed against HEAD (staged, unstaged, untracked); a git error returns its stderr.
 func changedFiles(ctx context.Context, root string) ([]string, error) {
 	var all []string
 	for _, args := range [][]string{
@@ -125,8 +116,7 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 	return uniq, nil
 }
 
-// fit renders the prompt, moving whole trailing files to Skipped ("prompt-cap") until it fits limit.
-// task is rebuilt per trim so an index reflects what stays inlined; it errors if zero files still exceed limit.
+// fit renders the prompt, moving trailing files to Skipped ("prompt-cap") until it fits limit; errors if none left.
 func fit(task func(Context) string, ctx Context, limit int) (string, Context, []string, error) {
 	var dropped []string
 	for {

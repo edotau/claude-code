@@ -148,4 +148,4 @@ func TestCaptureAnswerClosesPipe(t *testing.T) {
 	}
 }
 
-// Given a dispatch dir that rejects writes, Then a detached split review fails instead of spawning a child with no record.
+// Given a dispatch dir that rejects writes, a detached split review fails rather than spawn a child with no record.

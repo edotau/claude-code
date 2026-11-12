@@ -34,10 +34,10 @@ type idleTimer interface {
 // newIdleTimer is the watchdog seam; tests swap in a timer they drive by hand.
 var newIdleTimer = func(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
 
-// remoteEngine runs the named agent through `claude-code agents ask` on another host over ssh; the remote applies the caps.
+// remoteEngine runs the agent through `claude-code agents ask` on another host over ssh; the remote applies the caps.
 type remoteEngine struct{ agent, host, bin, fallback string }
 
-// newRemoteEngine wraps agentName for host; bin is the remote claude-code path (see remote.Bin), fallback the remote's policy.
+// newRemoteEngine wraps agentName for host; bin is the remote claude-code path, fallback the remote's policy.
 func newRemoteEngine(agentName, host, bin, fallback string) Engine {
 	return remoteEngine{agentName, host, bin, fallback}
 }
@@ -273,8 +273,7 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 	return &retry.Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
 }
 
-// relay reads the remote's NDJSON: events go to sink under the local dispatch id, the result event is returned,
-// anything else (ssh banners, warnings) goes to the dispatch log. A dead sink stops the child via stop.
+// relay reads the remote's NDJSON: events go to sink under the local id, the result is returned, the rest is logged.
 func (r remoteEngine) relay(ctx context.Context, out io.Reader, sink wire.Sink, stop, touch func()) (env *wire.Envelope, streamed bool, sinkErr error) {
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
@@ -322,7 +321,7 @@ func (t touchWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ListRemote runs `<bin> agents list --format <format>` on host and copies its stdout to out; a failure carries ssh's stderr.
+// ListRemote runs `<bin> agents list --format <format>` on host and copies stdout to out; failure carries ssh's stderr.
 func ListRemote(host, bin, format string, out io.Writer) error {
 	script, err := listScript(bin, format)
 	if err != nil {

@@ -19,8 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Collection defaults. The binding limit for a sweep is the total byte budget (Collect's budget), not the file
-// count: DefaultMaxFiles is a safety cap that an explicit --max-files overrides.
+// Collection defaults: the limit is the total byte budget; DefaultMaxFiles is a safety cap --max-files overrides.
 const (
 	DefaultMaxFiles     = 5000
 	DefaultMaxFileBytes = 128 * 1024 // 128 KiB per file
@@ -220,8 +219,7 @@ func (c *collector) add(abs, rel string) error {
 	return nil
 }
 
-// groupRank orders inlining candidates: non-test source (0) before tests (1) before
-// testdata/fixtures (2), so a byte-budget cutoff keeps real source code over fixtures.
+// groupRank orders inlining candidates: source (0), tests (1), testdata (2), so a budget cutoff keeps real source.
 func groupRank(rel string) int {
 	for seg := range strings.SplitSeq(rel, "/") {
 		if seg == "testdata" || seg == "fixtures" {
@@ -236,8 +234,7 @@ func groupRank(rel string) int {
 	return 0
 }
 
-// walkDir recursively collects files under dir, pruning ignored directories and — inside a git work
-// tree — anything not cached or untracked-but-not-ignored (gitignored paths are never inlined).
+// walkDir collects files under dir, pruning ignored dirs and, inside a git work tree, anything gitignored.
 func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile, error) {
 	matches := map[string]bool{}
 	var skipped []SkippedFile
@@ -285,8 +282,7 @@ func walkSkipReason(d fs.DirEntry, rel string, tracked map[string]bool, inRepo b
 	return ""
 }
 
-// globPattern expands pattern into matches (mutated in place), returning glob-error and filtered-hit skips;
-// symlinks and, inside a git work tree, gitignored hits are never inlined.
+// globPattern expands pattern into matches (mutated), returning glob-error and filtered skips; gitignored hits drop.
 func globPattern(cwd, pattern string, matches map[string]bool, tracked map[string]bool, inRepo bool) []SkippedFile {
 	glob := pattern
 	if !filepath.IsAbs(glob) {
@@ -312,7 +308,7 @@ func globPattern(cwd, pattern string, matches map[string]bool, tracked map[strin
 	return skipped
 }
 
-// gitTrackedFiles maps each root's cached and untracked-kept paths to cwd-relative keys; repoRoots marks the roots inside git.
+// gitTrackedFiles maps each root's cached and untracked-kept paths to cwd-relative keys; repoRoots marks roots in git.
 func gitTrackedFiles(ctx context.Context, cwd string, roots []string) (map[string]bool, map[string]bool, error) {
 	tracked := map[string]bool{}
 	repoRoots := map[string]bool{}

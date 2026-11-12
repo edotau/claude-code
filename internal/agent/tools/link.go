@@ -17,14 +17,12 @@ func Link(w io.Writer, names []string, dryRun bool) {
 	}
 }
 
-// LinkResult is one agent's bin/ link outcome: Status is the %-8s verb Link prints
-// ("ok", "link", "keep", "skip", "remove", "missing", "error"); Bin is the BinDir/<bin> name.
+// LinkResult is one agent's bin/ link outcome: Status is the %-8s verb ("ok", "link", "keep", ...), Bin the name.
 type LinkResult struct {
 	Bin, Status, Detail string
 }
 
-// LinkResults computes Link's per-agent outcomes (applying the side effects on a real run),
-// for callers that render a compact summary instead of one line per agent.
+// LinkResults computes Link's per-agent outcomes (side effects on a real run), for callers rendering a compact summary.
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult
 	for _, t := range tools {
@@ -38,8 +36,7 @@ func LinkResults(names []string, dryRun bool) []LinkResult {
 	return out
 }
 
-// linkOne applies the bin/ rule to one agent: keep a regular file, else link the PATH entry, else
-// drop the link; returns the %-8s status verb and its detail text.
+// linkOne applies the bin/ rule to one agent: keep a regular file, else link the PATH entry, else drop the link.
 func linkOne(t tool, bin string, dryRun bool) (status, detail string) {
 	dst := filepath.Join(paths.BinDir(), bin)
 	c := linkCandidate(t)
@@ -98,8 +95,7 @@ func linkNew(dst, c string, dryRun bool) (status, detail string) {
 
 // dropLink handles a link with no PATH/local-bin candidate.
 func dropLink(t tool, dst, missing string, dryRun bool) (status, detail string) {
-	// A symlink to a real, executable, non-shim target is the user's own working link — keep it;
-	// only a dangling or shim-pointing link is removed.
+	// A symlink to a real, executable, non-shim target is the user's own link, kept; a dangling or shim link is removed.
 	if _, err := paths.AgentBin(t.Name); err == nil {
 		return "keep", dst + " → " + readlink(dst) + " (existing link)"
 	}
@@ -127,7 +123,7 @@ func removeUnlessFile(dst string) (kept bool, err error) {
 	return kept, err
 }
 
-// linkCandidate is the agent's PATH entry made absolute (unresolved, so self-updaters are followed), else ~/.local/bin, else "".
+// linkCandidate is the agent's PATH entry made absolute (unresolved, so updaters follow), else ~/.local/bin, else "".
 func linkCandidate(t tool) string {
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
 		abs, aerr := filepath.Abs(c) // a relative PATH entry would make the symlink target resolve from bin/
