@@ -27,7 +27,39 @@ func WrittenPaths(cmd, cwd string) []string {
 	if !MayWrite(cmd) {
 		return nil
 	}
-	return appendWritten(nil, DropDataHeredocs(cmd), cwd, 0)
+	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, writeTargets)
+}
+
+// RemovedPaths is the best-effort set of files a shell command deletes or moves away (rm, unlink, truncate, mv).
+func RemovedPaths(cmd, cwd string) []string {
+	if !strings.Contains(cmd, "rm") && !strings.Contains(cmd, "unlink") && !strings.Contains(cmd, "truncate") &&
+		!strings.Contains(cmd, "mv") {
+		return nil
+	}
+	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, func(_, rest []string) []string { return removalTargets(rest) })
+}
+
+// writeTargets are a segment's redirect targets plus the files its command word writes.
+func writeTargets(toks, rest []string) []string {
+	return append(redirectTargets(toks), commandTargets(rest)...)
+}
+
+// removalTargets are the operands rm, unlink and truncate remove, and the sources mv moves away.
+func removalTargets(toks []string) []string {
+	if len(toks) < 2 {
+		return nil
+	}
+	switch filepath.Base(toks[0]) {
+	case "rm", "unlink", "truncate":
+		return operands(toks[1:])
+	case "mv":
+		ops := operands(toks[1:])
+		if len(ops) < 2 {
+			return nil
+		}
+		return ops[:len(ops)-1]
+	}
+	return nil
 }
 
 // MayWrite reports whether cmd contains anything that could write a file; a cheap gate before WrittenPaths.
@@ -40,12 +72,12 @@ func MayWrite(cmd string) bool {
 	return false
 }
 
-// appendWritten adds the targets of each segment of cmd to out, unique, descending into `bash -c` bodies.
-func appendWritten(out []string, cmd, cwd string, depth int) []string {
+// appendTargets adds pick's targets for each segment of cmd to out, unique, descending into `bash -c` bodies.
+func appendTargets(out []string, cmd, cwd string, depth int, pick func(toks, rest []string) []string) []string {
 	for _, seg := range shell.Segments(cmd) {
 		toks := shell.Tokens(seg)
 		if nested, ok := shell.NestedCommand(toks); ok && depth < nestedDepth {
-			out = appendWritten(out, nested, cwd, depth+1)
+			out = appendTargets(out, nested, cwd, depth+1, pick)
 			continue
 		}
 		if dir, ok := shell.CdTarget(toks, cwd); ok {
@@ -53,7 +85,7 @@ func appendWritten(out []string, cmd, cwd string, depth int) []string {
 			continue
 		}
 		rest, _ := shell.Unwrap(toks, cwd)
-		for _, t := range append(redirectTargets(toks), commandTargets(rest)...) {
+		for _, t := range pick(toks, rest) {
 			if p := resolveTarget(t, cwd); p != "" && !slices.Contains(out, p) {
 				out = append(out, p)
 			}

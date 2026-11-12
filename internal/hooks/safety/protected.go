@@ -3,6 +3,7 @@ package safety
 import (
 	"encoding/json"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // extraProtected are Edit-protected files the settings template does not list.
@@ -36,12 +38,54 @@ var protectedGlobs = sync.OnceValue(func() []string {
 
 // protectedWrite is the first path a Bash command writes that Edit's deny rules protect ("" when none).
 func protectedWrite(cmd, cwd string) string {
-	if !core.MayWrite(cmd) {
-		return ""
-	}
-	for _, p := range core.WrittenPaths(cmd, cwd) {
+	for _, p := range append(core.WrittenPaths(cmd, cwd), core.RemovedPaths(cmd, cwd)...) {
 		if slices.ContainsFunc([]string{p, core.CanonPath(p)}, matchesProtected) {
 			return p
+		}
+	}
+	return ""
+}
+
+// interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
+var interpreterWrites = map[string]*regexp.Regexp{
+	"python": regexp.MustCompile(`open\s*\([^\n]*?(,\s*|mode\s*=\s*)['"][rbt]*[wax+][rwxabt+]*['"]|` +
+		`\b(write_text|write_bytes|unlink|copy\w*|move|replace|rename|remove|rmtree)\s*\(`),
+	"js": regexp.MustCompile(`\b(writeFile|appendFile|createWriteStream|rename|unlink|rm|copyFile|truncate|writeTextFile|remove)` +
+		`(Sync)?\s*\(|Bun\.write\b`),
+	"script": regexp.MustCompile(`open\b[^\n]*(['"]\+?>>?|['"]\+?[wa]\+?['"])|` +
+		`\b(File|IO)\.(binwrite|write|delete|unlink|rename)\b|\b(unlink|rename)\s*[(\s]|FileUtils\.`),
+}
+
+// interpreterLang maps an interpreter's basename to its interpreterWrites key ("" when not an interpreter).
+func interpreterLang(base string) string {
+	switch {
+	case strings.HasPrefix(base, "python"):
+		return "python"
+	case base == "node" || base == "deno" || base == "bun":
+		return "js"
+	case base == "perl" || base == "ruby":
+		return "script"
+	}
+	return ""
+}
+
+// interpreterWrite is the protected file an interpreter command's text mentions beside a write indicator, else "".
+func interpreterWrite(cmd string) string {
+	cmd = core.DropDataHeredocs(cmd)
+	for _, seg := range shell.Segments(cmd) {
+		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(rest) == 0 {
+			continue
+		}
+		re := interpreterWrites[interpreterLang(filepath.Base(rest[0]))]
+		if re == nil || !re.MatchString(cmd) {
+			continue
+		}
+		for _, g := range protectedGlobs() {
+			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
+			if needle != "" && strings.Contains(cmd, needle) {
+				return needle
+			}
 		}
 	}
 	return ""
