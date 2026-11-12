@@ -161,7 +161,7 @@ func readTailscaleCreds(names []string, read func(name string) (string, error), 
 	return vaultStoreTailscale(dryRun, pairs)
 }
 
-// vaultStoreTailscale validates every value, then stores them all or none (StoreCreds rolls back); dry-run only reports.
+// vaultStoreTailscale validates every value, then stores all or none (StoreCreds rolls back); dry-run reports.
 func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	if err := tailscale.CheckCreds(creds); err != nil {
 		fmt.Fprintf(os.Stderr, "vault set: %v; nothing written\n", err)
@@ -340,7 +340,7 @@ func cmdVaultGet(args []string) int {
 	return 0
 }
 
-// printVaultValues prints NAME=value lines, or shell-quoted export lines with export; the first write error is returned.
+// printVaultValues prints NAME=value lines, or shell-quoted export lines; the first write error is returned.
 func printVaultValues(names, values []string, export bool) error {
 	for i, name := range names {
 		var err error
@@ -448,7 +448,7 @@ func importPairs(name string, r io.Reader) ([]vault.Pair, int) {
 	return pairs, 0
 }
 
-// openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; a nil reader carries the exit code.
+// openImport opens FILE, or piped stdin for "-" after the terminal and --yes checks; nil carries the exit code.
 func openImport(name string, yes bool) (io.ReadCloser, int) {
 	if name != "-" {
 		f, err := os.Open(name)
@@ -466,7 +466,7 @@ func openImport(name string, yes bool) (io.ReadCloser, int) {
 	return io.NopCloser(os.Stdin), 0
 }
 
-// confirmImport previews each pair (masked) and, on a terminal without --yes, asks before storing; false means nothing written.
+// confirmImport previews each pair (masked) and, on a terminal without --yes, asks first; false = nothing written.
 func confirmImport(pairs []vault.Pair, yes bool) bool {
 	for _, p := range pairs {
 		fmt.Fprintf(os.Stderr, "  %-28s %s\n", p.Name, vault.Preview(p.Value))

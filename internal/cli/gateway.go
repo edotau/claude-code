@@ -27,11 +27,10 @@ import (
 // cmdGateway dispatches the gateway verb tree.
 func cmdGateway(args []string) int {
 	if len(args) > 0 {
-		if args[0] == "help" {
+		switch args[0] {
+		case "help":
 			gatewayPage.Fprint(os.Stdout)
 			return 0
-		}
-		switch args[0] {
 		case "proxy":
 			return cmdGatewayProxy(args[1:])
 		case "token":
@@ -434,10 +433,7 @@ func gatewaySpec() *helptext.Node {
 				{Name: "start", IsBool: true},
 				{Name: "stop", IsBool: true},
 				{Name: "restart", IsBool: true},
-				{
-					Name:   "status",
-					IsBool: true,
-				},
+				{Name: "status", IsBool: true},
 				{Name: "serve", IsBool: true},
 				{Name: "port"},
 				helptext.CompletionFormatFlag(),

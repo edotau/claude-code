@@ -146,7 +146,7 @@ func menuSVG() []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="claude-code help menu">`+"\n", w, h, w, h)
 	fmt.Fprintf(&b, `<rect width="%d" height="%d" rx="10" fill="%s"/>`+"\n", w, h, svgBG)
-	b.WriteString(`<circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>` + "\n")
+	fmt.Fprintln(&b, `<circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/>`)
 	fmt.Fprintf(&b, `<text x="%.1f" y="22" fill="%s" font-family="%s" font-size="12" text-anchor="middle">$ claude-code</text>`+"\n", float64(w)/2, dimHex, svgFont)
 	fmt.Fprintf(&b, `<g font-family="%s" font-size="14" xml:space="preserve">`+"\n", svgFont)
 	text := func(col, line int, fill, s string, bold bool) {
