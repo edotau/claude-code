@@ -209,15 +209,15 @@ func switchUsage() {
 var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
 	About: "Resolves and prints the session profile's credential: the apiKeyHelper\n" +
-		"Claude Code calls. --proxy prints the loopback proxy's client secret instead,\n" +
-		"or the launch's session token (HARNESS_PROXY_API_KEY) inside overlay databricks:<p>.",
+		"Claude Code calls. --proxy prints a scoped proxy session token, never the client secret:\n" +
+		"the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
 }
 
-// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else the loopback proxy's client secret.
+// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else a scoped token minted for the parent process.
 func cmdResolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
-	viaRouter := fs.Bool("proxy", false, "print the loopback proxy client secret")
+	viaRouter := fs.Bool("proxy", false, "print a scoped proxy session token")
 	as := fs.String("as", "", "Databricks identity the launch carries: auto|user|sp|headless")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -227,11 +227,11 @@ func cmdResolve(args []string) int {
 			fmt.Println(tok)
 			return 0
 		}
-		s, err := gateway.ClientSecret()
+		tok, err := scopedProxyToken(*profile)
 		if err != nil {
-			return helptext.Fail("%v", err)
+			return helptext.Fail("resolve --proxy: %v", err) // never falls back to the router secret
 		}
-		fmt.Println(s)
+		fmt.Println(tok)
 		return 0
 	}
 	reg, err := providers.Load()
@@ -248,6 +248,30 @@ func cmdResolve(args []string) int {
 	}
 	fmt.Fprintln(os.Stdout, tok)
 	return 0
+}
+
+// resolveProxyToken is the mint+cache seam of resolve --proxy.
+var resolveProxyToken = gateway.ResolveProxyToken
+
+// scopedProxyToken mints (or reuses) the session token the launcher would arm for the calling claude process.
+func scopedProxyToken(profile string) (string, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return "", err
+	}
+	sel, err := providers.Select(reg, profile)
+	if err != nil {
+		return "", err
+	}
+	var aliases []string
+	for _, t := range sel.Aliases {
+		aliases = append(aliases, t.Provider.Name)
+	}
+	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
+	if err != nil {
+		return "", err
+	}
+	return resolveProxyToken(context.Background(), scope, os.Getppid())
 }
 
 // keptOff lists "agent: off (kept)" for each off agent that could serve profile and a switch leaves off.

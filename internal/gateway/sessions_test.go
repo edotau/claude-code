@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,5 +90,40 @@ func TestTokenUnavailableAndNotRunning(t *testing.T) {
 	if token, err := Token(context.Background(), "dev"); token != "" || err == nil ||
 		err.Error() != "proxy not running" {
 		t.Fatalf("token %q err %v", token, err)
+	}
+}
+
+func TestResolveProxyTokenCachesPerPidAndPrunesDead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	om, oa := mintScoped, alive
+	t.Cleanup(func() { mintScoped, alive = om, oa })
+	alive = func(pid int) bool { return pid == 4242 }
+	mints := 0
+	mintScoped = func(_ context.Context, scope []string, pid int) (string, error) {
+		mints++
+		return fmt.Sprintf("cct_%d_%d", pid, mints), nil
+	}
+	dead := filepath.Join(proxyTokenDir(), "999.json")
+	writeProxyFixture(t, dead, "{}")
+	ctx, scope := context.Background(), []string{"dev", "prod"}
+	first, err := ResolveProxyToken(ctx, scope, 4242)
+	if err != nil || first != "cct_4242_1" {
+		t.Fatalf("first = %q, %v", first, err)
+	}
+	if again, _ := ResolveProxyToken(ctx, scope, 4242); again != first || mints != 1 {
+		t.Errorf("fresh cache not reused: %q, %d mints", again, mints)
+	}
+	if wider, _ := ResolveProxyToken(ctx, []string{"dev"}, 4242); wider == first || mints != 2 {
+		t.Errorf("scope change reused the cache: %q, %d mints", wider, mints)
+	}
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Errorf("dead pid cache not pruned: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(proxyTokenDir(), "4242.json")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("cache file mode: %v %v", fi, err)
+	}
+	mintScoped = func(context.Context, []string, int) (string, error) { return "", errors.New("boom") }
+	if tok, err := ResolveProxyToken(ctx, []string{"other"}, 4242); err == nil || tok != "" {
+		t.Errorf("mint failure = %q, %v; want error and no token", tok, err)
 	}
 }
