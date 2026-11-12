@@ -41,6 +41,7 @@ type Router struct {
 	now    func() time.Time
 
 	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
+	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
 	bg       sync.WaitGroup // background state writes (cooling, quota-dead); tests wait on it before cleanup
 
@@ -84,6 +85,7 @@ func newRouter(secret string) *Router {
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{}, cred: map[string]time.Time{}, credGen: map[string]int{},
 		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
+	r.clients = &clientTokens{load: loadClientHashes}
 	r.tags = parseRequestTags(os.Getenv(requestTagsEnv), r.log)
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
 	return r
@@ -151,6 +153,10 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	if !r.authorized(req) {
+		if r.clients.valid(presentedSecret(req)) {
+			r.refuse(w, req, http.StatusForbidden, "proxy: a client token reaches only /p/<Databricks serving profile>/ routes")
+			return true
+		}
 		r.refuse(w, req, http.StatusUnauthorized,
 			"proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
 		return true

@@ -222,12 +222,22 @@ func (r *Router) secretOK(req *http.Request) bool {
 	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(r.secret)) == 1
 }
 
-// authorized accepts the router secret anywhere, or a session token on its own profile's /p/ routes.
+// authorized accepts the router secret anywhere, a session token on its profile's /p/ routes, or a client token.
 func (r *Router) authorized(req *http.Request) bool {
 	if r.secretOK(req) {
 		return true
 	}
-	return r.sessions.accept(presentedSecret(req), profileOfPath(req.URL.Path))
+	tok, profile := presentedSecret(req), profileOfPath(req.URL.Path)
+	return r.sessions.accept(tok, profile) || r.clientAccepted(tok, profile)
+}
+
+// clientAccepted reports a valid client token on a Databricks serving row's /p/<profile>/ route.
+func (r *Router) clientAccepted(tok, profile string) bool {
+	if !validProfile(profile) || !r.clients.valid(tok) {
+		return false
+	}
+	reg, err := r.registry()
+	return err == nil && reg.ServingRow(profile) == nil
 }
 
 func loopbackHost(host string) bool {

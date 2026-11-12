@@ -291,10 +291,10 @@ func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(env, "AGY_LLM_GATEWAY_MODELS=gemini-3.8-flash") {
+	if !slices.Contains(env, "AGY_LLM_GATEWAY_MODELS=databricks-gemini-3-8-flash") {
 		t.Fatalf("gateway must advertise the base model: %v", env)
 	}
-	want := []string{"--model", "gemini-3.8-flash", "--effort", "high"}
+	want := []string{"--model", "databricks-gemini-3-8-flash", "--effort", "high"}
 	if !slices.Equal(argv, want) {
 		t.Fatalf("interactive gateway argv = %v, want %v to match the advertised model", argv, want)
 	}
