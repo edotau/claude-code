@@ -6,11 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"sync"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Kind classifies a format by how it is stored.
@@ -150,11 +147,3 @@ func DecodeOK(f Format, raw []byte, dst any) bool {
 	_, err := Decode(f, raw, dst)
 	return err == nil
 }
-
-var _ = Register(Format{
-	Name: "migrations", Owner: "schemas", Kind: Log, Glob: LedgerPath, Version: 1,
-	Keep: "tiny audit trail of schema upgrades",
-})
-
-// LedgerPath is the migration ledger file.
-func LedgerPath() string { return filepath.Join(paths.StateDir(), "migrations.jsonl") }

@@ -240,11 +240,17 @@ func findConflicts(defs []def, home string) []conflict {
 		for _, r := range rows {
 			cmd := strings.ReplaceAll(r.D.display(), "${HOME}", home)
 			cmd = expandArgsHome(cmd)
-			resolved[cmd] = true
+			resolved[cmd+"\x00"+r.D.Type+"\x00"+envHeaderKey(r.D)] = true
 		}
 		out = append(out, conflict{Server: name, Rows: redact(rows), Real: len(resolved) > 1})
 	}
 	return out
+}
+
+// envHeaderKey is a stable string of d's env and headers, so scopes differing only there still conflict.
+func envHeaderKey(d serverDef) string {
+	b, _ := json.Marshal([2]map[string]string{d.Env, d.Headers}) // maps marshal with sorted keys
+	return string(b)
 }
 
 // expandArgsHome expands a leading ~ or ~/ in each whitespace-separated argument of cmd.
@@ -264,8 +270,8 @@ type secretFinding struct {
 	Key    string `json:"key,omitempty"`
 }
 
-// queryParamSecret matches a *token=/*key= URL query parameter; group 1 keeps the name so redact() swaps the value.
-var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
+// queryParamSecret matches a secret-named URL query parameter; group 1 keeps the name so redact() swaps the value.
+var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key|passw(?:or)?d|secret|sig|auth)=)[^&\s]+`)
 
 // urlUserinfo matches the password of scheme://user:password@host; group 1 keeps everything before it.
 var urlUserinfo = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s]+@`)

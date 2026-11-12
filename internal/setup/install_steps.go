@@ -531,6 +531,9 @@ func seedTmuxConf(w io.Writer, dryRun bool) string {
 	if err == nil {
 		_, err = f.Write(tmuxConf)
 		err = errors.Join(err, f.Close())
+		if err != nil {
+			err = errors.Join(err, os.Remove(paths[0])) // a truncated conf must not pass for an existing one
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(w, "tmux     skip  %v\n", err)
