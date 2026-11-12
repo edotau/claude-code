@@ -73,10 +73,26 @@ func TestOpencodePermissionBashDeny(t *testing.T) {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
-	_, err = opencodeApplyPermissions(nil, req)
+	_, err = opencodeApplyPermissions(nil, req) // gate hooks are bound: the refusal names them and the way out
+	requireFatal(t, err, "safety-scan", "without --safe-mode")
+	orig := bindHooks
+	t.Cleanup(func() { bindHooks = orig })
+	bindHooks = func() []hooks.Bound { return nil }
+	_, err = opencodeApplyPermissions(nil, req) // no gate bound: the Bash deny alone is refused
+	requireFatal(t, err, "Bash(rm *)")
+}
+
+// requireFatal fails unless err is a fatal agent error containing every want.
+func requireFatal(t *testing.T, err error, wants ...string) {
+	t.Helper()
 	var ae *retry.Error
-	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "Bash(rm *)") {
-		t.Errorf("--safe-mode err = %v, want a fatal agent.Error naming the rule", err)
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal {
+		t.Fatalf("err = %v, want a fatal agent.Error", err)
+	}
+	for _, w := range wants {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("err = %v, want it to contain %q", err, w)
+		}
 	}
 }
 

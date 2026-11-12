@@ -449,7 +449,7 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 	host := newHookHost(req)
 	env = withHostedMarker(env, host)
 	if plugged {
-		host.dropPlugin() // the plugin blocks for real; the host's detect-only copies would double-run them
+		host.dropPlugin() // the plugin blocks for real; the host's copies would double-run them
 	}
 	argv, err = host.before(argv, prompt)
 	if err != nil {

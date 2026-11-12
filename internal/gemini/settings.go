@@ -77,7 +77,7 @@ func agyPermissions(obj map[string]any) (perms map[string]any, deny []any, ok bo
 	return perms, deny, true
 }
 
-// agyGuardRules converts exact-match Bash(...) denies to agy command(...) rules, noting the rest.
+// agyGuardRules converts Bash(...) denies to agy command(...) rules (a glob keeps its literal prefix), noting the rest.
 func agyGuardRules(deny []string, out io.Writer) []string {
 	var rules []string
 	for _, r := range deny {
@@ -86,6 +86,14 @@ func agyGuardRules(deny []string, out io.Writer) []string {
 		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
 			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
 			continue
+		}
+		if i := strings.IndexAny(cmd, "*?["); i >= 0 { // agy matches command rules by token prefix, never by glob
+			if strings.Trim(cmd[i:], "*?") != "" || strings.TrimSpace(cmd[:i]) == "" { // only a trailing glob keeps its prefix
+				fmt.Fprintf(out, "gemini-settings: note: %q is not a trailing glob; an agy prefix rule would widen it, skipped\n", r)
+				continue
+			}
+			cmd = strings.TrimSpace(cmd[:i])
+			fmt.Fprintf(out, "gemini-settings: note: %q written as the agy prefix rule command(%s)\n", r, cmd)
 		}
 		rules = append(rules, "command("+cmd+")")
 	}
