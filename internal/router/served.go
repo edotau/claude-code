@@ -61,6 +61,16 @@ func ServedReady(p *providers.Provider, model string, now time.Time) (ready, fre
 	return isReady(model), true
 }
 
+// ServedListed reads p's cached listing whatever the servedAware switch says; fresh is false when absent or past TTL.
+func ServedListed(p *providers.Provider, model string, now time.Time) (listed, ready, fresh bool) {
+	s, ok := LoadServed(p.Name)
+	if !ok || !s.Fresh(now) || len(s.Models) == 0 {
+		return false, false, false
+	}
+	listed, ready = s.Has(p, model)
+	return listed, ready, true
+}
+
 // ServedFirst is the first READY menu entry respelled for p, Responses-only for codex; "" with fresh=true is none.
 func ServedFirst(p *providers.Provider, responsesOnly bool, now time.Time) (model string, fresh bool) {
 	isReady, fresh := servedView(p, now)
