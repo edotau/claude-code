@@ -27,7 +27,7 @@ import (
 // Seams for tests: model discovery, the running router and the router's session tokens.
 var (
 	discoverModels = discoverCopilotEndpoints
-	mintSession    = gateway.MintSessionToken
+	mintSession    = gateway.MintScopedToken
 	revokeSession  = gateway.RevokeSessionToken
 	runningRouter  = gateway.Running
 )
@@ -42,7 +42,7 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
 		return eps, nil
 	}
-	mintSession = func(context.Context, string, int) (string, error) { return tok, nil }
+	mintSession = func(context.Context, []string, int) (string, error) { return tok, nil }
 	revokeSession = func(context.Context, string) error { return nil }
 	return func() { discoverModels, mintSession, revokeSession = oldDiscover, oldMint, oldRevoke }
 }
@@ -81,7 +81,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	for _, w := range home.Warnings {
 		wire.EventLogFor(ctx).Emit("note", w)
 	}
-	tok, err := mintSession(ctx, t.Provider.Name, os.Getpid())
+	tok, err := mintSession(ctx, []string{t.Provider.Name}, os.Getpid())
 	if err != nil {
 		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
@@ -494,7 +494,7 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).
 func prepareRegistry(ctx context.Context, r copilotRegistry, profile string, pid int,
 ) (agent.LaunchFile, string, error) {
-	token, err := mintSession(ctx, profile, pid)
+	token, err := mintSession(ctx, []string{profile}, pid)
 	if err != nil {
 		return agent.LaunchFile{}, "", fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
 	}

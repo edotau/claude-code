@@ -129,7 +129,7 @@ func stubSettingsRegistry(t *testing.T) {
 		return []CopilotEndpoint{{ID: "claude-sonnet-5-5"}}, nil
 	}
 	agent.EnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	mintSession = func(context.Context, string, int) (string, error) { return "fixture-session", nil }
+	mintSession = func(context.Context, []string, int) (string, error) { return "fixture-session", nil }
 }
 
 // A keyed Databricks row runs on the registry except inside a databricks:<p> route on macOS, which takes routed BYOK.

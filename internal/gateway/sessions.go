@@ -24,11 +24,6 @@ type SessionResponse struct {
 	ExpiresIn int    `json:"expires_in"`
 }
 
-// MintSessionToken asks the daemon (starting it if needed) for a token scoped to profile and bound to pid.
-func MintSessionToken(ctx context.Context, profile string, pid int) (string, error) {
-	return MintScopedToken(ctx, []string{profile}, pid)
-}
-
 // MintScopedToken asks the daemon (starting it if needed) for a token covering profiles and bound to pid.
 func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, error) {
 	var out SessionResponse
