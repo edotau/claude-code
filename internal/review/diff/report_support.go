@@ -287,7 +287,7 @@ func extractQualityIssues(qualityAnalysis map[string]any) []map[string]string {
 	return issues
 }
 
-// qualityFileResults returns the per-file maps of quality_analysis["files"], or the analysis itself (single-file shape).
+// qualityFileResults returns the per-file maps of quality_analysis["files"], or the analysis itself (single file).
 func qualityFileResults(qualityAnalysis map[string]any) []map[string]any {
 	fileResults := mSlice(qualityAnalysis, "files")
 	if fileResults == nil {
@@ -407,11 +407,7 @@ func renderMarkdownFindings(b *strings.Builder, title string, findings []Finding
 	}
 	fmt.Fprintf(b, "## %s\n\n", title)
 	for _, f := range findings {
-		file := f.File
-		if file == "" {
-			file = "unknown"
-		}
-		fmt.Fprintf(b, "- **%s** in `%s`\n", f.Category, file)
+		fmt.Fprintf(b, "- **%s** in `%s`\n", f.Category, orDefault(f.File, "unknown"))
 		fmt.Fprintf(b, "  - %s\n", f.Message)
 	}
 	fmt.Fprintln(b)
@@ -475,11 +471,7 @@ func formatTextReport(r Report) string {
 	if len(critical) > 0 {
 		fmt.Fprintln(&b, "--- CRITICAL ISSUES ---")
 		for _, f := range critical {
-			file := f.File
-			if file == "" {
-				file = "unknown"
-			}
-			fmt.Fprintf(&b, "  [%s] %s\n", file, f.Message)
+			fmt.Fprintf(&b, "  [%s] %s\n", orDefault(f.File, "unknown"), f.Message)
 		}
 		fmt.Fprintln(&b)
 	}

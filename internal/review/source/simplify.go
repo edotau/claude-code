@@ -217,7 +217,7 @@ func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
 		r.Summary.Complexity+r.Summary.Quality, r.Summary.Complexity, r.Summary.Quality)
 }
 
-// RunSimplify is the advisory first pass of the simplify skill; findings never change the exit code, a failed analysis does.
+// RunSimplify is the simplify skill's advisory first pass; only a failed analysis changes the exit code.
 func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	parsed, code, done := parseSimplifyArgs(args, stdout, stderr)
 	if done {

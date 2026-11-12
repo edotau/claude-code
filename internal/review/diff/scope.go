@@ -247,11 +247,11 @@ func goImporters(root string) (map[string][]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := goListPackages(root)
+	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, err
 	}
-	realRoot, err := filepath.EvalSymlinks(root)
+	out, err := goListPackages(root, realRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -319,16 +319,12 @@ func modulePath(root string) (string, error) {
 	return "", fmt.Errorf("no module line in %s", gomod)
 }
 
-// goListPackages runs `go list ./...` in root: one "dir<TAB>imports..." line per package.
-func goListPackages(root string) (string, error) {
+// goListPackages runs `go list ./...` in root (realRoot is its symlink-free path): one "dir<TAB>imports..." line each.
+func goListPackages(root, realRoot string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "list", "-f", "{{.Dir}}\t{{join .Imports \" \"}}", "./...")
 	cmd.Dir = root
-	realRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", err
-	}
 	// exec sets PWD=root, and go list trusts it: pin it to the real path so {{.Dir}} matches realRoot.
 	cmd.Env = append(os.Environ(), "PWD="+realRoot)
 	var stderr bytes.Buffer

@@ -16,7 +16,7 @@ import (
 	"sync"
 )
 
-// thresholds mirrors quality_core.THRESHOLDS.
+// qualityThresholds mirrors quality_core.THRESHOLDS.
 var qualityThresholds = map[string]int{
 	"long_function_lines": 50,
 	"too_many_parameters": 5,
@@ -119,7 +119,7 @@ func calcCyclomaticComplexity(content string) int {
 	return 1 + len(cyclomaticKeywords().FindAllString(content, -1))
 }
 
-// functionNameParams reads a match's name and parameter text from (name, params) group pairs, first non-empty pair wins.
+// functionNameParams reads a match's name and parameter text from (name, params) group pairs, first non-empty wins.
 func functionNameParams(groups []string) (string, string) {
 	for i := 0; i+1 < len(groups); i += 2 {
 		if groups[i] != "" {

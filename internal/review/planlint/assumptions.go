@@ -86,28 +86,24 @@ var (
 	})
 )
 
-// vagueActionMatch replicates `\b(keyword)\b(?!\s+\w+\s+(?:to|so|by))` — RE2 has no lookahead, so this
-// walks each keyword occurrence and rejects it if a specific target ("... to/so/by") follows immediately.
-func vagueActionMatch(s string) (string, bool) {
-	for _, m := range vagueActionKeywordRe().FindAllStringIndex(s, -1) {
-		rest := s[m[1]:]
-		if !vagueActionExceptionRe().MatchString(rest) {
+// matchUnlessFollowed emulates a negative lookahead (RE2 has none): the first keyword hit not followed by except.
+func matchUnlessFollowed(keyword, except *regexp.Regexp, s string) (string, bool) {
+	for _, m := range keyword.FindAllStringIndex(s, -1) {
+		if !except.MatchString(s[m[1]:]) {
 			return s[m[0]:m[1]], true
 		}
 	}
 	return "", false
 }
 
-// unscopedSubjectMatch replicates `\b(the user|users)\b(?!.*\b(who|...)\b)` without RE2 lookahead:
-// reject an occurrence if any scoping word appears anywhere later on the line.
+// vagueActionMatch replicates `\b(keyword)\b(?!\s+\w+\s+(?:to|so|by))`: a specific target ("... to/so/by") may follow.
+func vagueActionMatch(s string) (string, bool) {
+	return matchUnlessFollowed(vagueActionKeywordRe(), vagueActionExceptionRe(), s)
+}
+
+// unscopedSubjectMatch replicates `\b(the user|users)\b(?!.*\b(who|...)\b)`: a scoping word may follow anywhere.
 func unscopedSubjectMatch(s string) (string, bool) {
-	for _, m := range unscopedSubjectKeywordRe().FindAllStringIndex(s, -1) {
-		rest := s[m[1]:]
-		if !unscopedSubjectExceptRe().MatchString(rest) {
-			return s[m[0]:m[1]], true
-		}
-	}
-	return "", false
+	return matchUnlessFollowed(unscopedSubjectKeywordRe(), unscopedSubjectExceptRe(), s)
 }
 
 var signals = sync.OnceValue(func() []signalDef {
