@@ -175,7 +175,7 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdkOptions, error) {
 	var model string
 	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
-		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
+		model = models.WireOrOriginal("dotted", models.Strip1M(t.Model)) // no BYOK block: the catalog id itself, [1m] dropped
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
@@ -278,11 +278,6 @@ func applyCopilotToken(opts *sdkOptions, env []string) {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
 	}
-}
-
-// copilotModelID is id as Copilot's catalog spells it (dotted versions); [1m] is dropped, an unknown id is kept.
-func copilotModelID(id string) string {
-	return models.WireOrOriginal("dotted", models.Strip1M(id))
 }
 
 // absPaths makes each path absolute (the SDK sends them to a runtime with its own working directory).
