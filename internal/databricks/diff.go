@@ -72,12 +72,12 @@ func maskArrays(o, n any, secret bool, key string) (any, any) {
 	if ook {
 		ov, _ = maskSlices(oa, nil, secret, key)
 	} else {
-		ov, _ = maskPair(o, nil, secret, key)
+		ov, _ = maskLeaf(o, nil, secret, key)
 	}
 	if nok {
 		_, nv = maskSlices(nil, na, secret, key)
 	} else {
-		_, nv = maskPair(nil, n, secret, key)
+		_, nv = maskLeaf(nil, n, secret, key)
 	}
 	return ov, nv
 }
