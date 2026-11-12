@@ -41,11 +41,11 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		if len(rules) == 0 && !existed {
 			return false // nothing to deny: don't create agy's settings.json just to write an empty list
 		}
-		perms, _ := obj["permissions"].(map[string]any)
-		if perms == nil {
-			perms = map[string]any{}
+		perms, existing, ok := agyPermissions(obj)
+		if !ok {
+			fmt.Fprintf(out, "gemini-settings: skipped: %s has a non-object permissions or non-array permissions.deny\n", path)
+			return false
 		}
-		existing, _ := perms["deny"].([]any)
 		merged := []any{}
 		for _, d := range mergeAgyDeny(existing, rules) {
 			merged = append(merged, d)
@@ -59,6 +59,22 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		obj["permissions"] = perms
 		return true
 	})
+}
+
+// agyPermissions returns obj's permissions map and deny list; ok is false when either holds another JSON type.
+func agyPermissions(obj map[string]any) (perms map[string]any, deny []any, ok bool) {
+	perms = map[string]any{}
+	if v, has := obj["permissions"]; has {
+		if perms, ok = v.(map[string]any); !ok {
+			return nil, nil, false
+		}
+	}
+	if v, has := perms["deny"]; has {
+		if deny, ok = v.([]any); !ok {
+			return nil, nil, false
+		}
+	}
+	return perms, deny, true
 }
 
 // agyGuardRules converts exact-match Bash(...) denies to agy command(...) rules, noting the rest.
