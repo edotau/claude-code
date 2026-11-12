@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,18 +13,14 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-func calculateReviewScore(prAnalysis, qualityAnalysis map[string]any) int {
+func calculateReviewScore(pr *prInput, quality *qualityInput) int {
 	counts := map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0}
-	risks := asMap(prAnalysis["risks"])
 	for _, sev := range severityOrder {
-		if risks != nil {
-			counts[sev] += len(mSlice(risks, sev))
-		}
+		counts[sev] += len(pr.Risks[sev])
 	}
-	for _, issue := range extractQualityIssues(qualityAnalysis) {
-		sev := issue["severity"]
-		if _, ok := counts[sev]; ok {
-			counts[sev]++
+	for _, issue := range extractQualityIssues(quality) {
+		if _, ok := counts[issue.Severity]; ok {
+			counts[issue.Severity]++
 		}
 	}
 
@@ -33,9 +28,7 @@ func calculateReviewScore(prAnalysis, qualityAnalysis map[string]any) int {
 	for sev, count := range counts {
 		score -= min(count*deductionWeights[sev], deductionCaps[sev])
 	}
-	if summary := asMap(prAnalysis["summary"]); summary != nil {
-		score -= complexityDeduction(mInt(summary, "complexity_score"))
-	}
+	score -= complexityDeduction(pr.Complexity)
 	return min(max(score, 0), 100)
 }
 
@@ -61,27 +54,20 @@ func determineVerdict(score, criticalCount, highCount int) (string, string) {
 	return "block", "Significant issues prevent approval"
 }
 
-func generateFindingsList(prAnalysis, qualityAnalysis map[string]any) []Finding {
+func generateFindingsList(pr *prInput, quality *qualityInput) []Finding {
 	findings := []Finding{}
-	if risks := asMap(prAnalysis["risks"]); risks != nil {
-		for _, sev := range severityOrder {
-			for _, item := range mSlice(risks, sev) {
-				im := asMap(item)
-				count := mInt(im, "count")
-				if _, has := im["count"]; !has {
-					count = 1
-				}
-				findings = append(findings, Finding{
-					Source: "pr_analysis", Severity: sev, Category: orDefault(mStr(im, "name"), "unknown"),
-					Message: mStr(im, "message"), File: mStr(im, "file"), Count: new(count),
-				})
-			}
+	for _, sev := range severityOrder {
+		for _, k := range pr.Risks[sev] {
+			findings = append(findings, Finding{
+				Source: "pr_analysis", Severity: sev, Category: orDefault(k.Name, "unknown"),
+				Message: k.Message, File: k.File, Count: new(k.Count),
+			})
 		}
 	}
-	for _, issue := range extractQualityIssues(qualityAnalysis) {
+	for _, issue := range extractQualityIssues(quality) {
 		findings = append(findings, Finding{
-			Source: "quality_analysis", Severity: issue["severity"], Category: orDefault(issue["type"], "unknown"),
-			Message: issue["message"], File: issue["file"], Line: new(issue["line"]),
+			Source: "quality_analysis", Severity: issue.Severity, Category: orDefault(issue.Type, "unknown"),
+			Message: issue.Message, File: issue.File, Line: new(issue.Line),
 		})
 	}
 	sort.SliceStable(findings, func(i, j int) bool {
@@ -173,16 +159,16 @@ func sevRank(sev string) int {
 	return 0
 }
 
-// loadPRAnalysis returns the PR analysis map; prReport is non-nil only when the analysis ran here (no override).
-func loadPRAnalysis(repoPath, base, head string, override map[string]any) (*PRReport, map[string]any, error) {
+// loadPRAnalysis returns the override when given, else runs the PR analysis.
+func loadPRAnalysis(repoPath, base, head string, override *prInput) (*prInput, error) {
 	if override != nil {
-		return nil, override, nil
+		return override, nil
 	}
 	r, err := analyzePR(repoPath, base, head)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return &r, toGenericMap(r), nil
+	return prInputOf(r), nil
 }
 
 func countSeverities(findings []Finding) ReportIssueCounts {
@@ -202,57 +188,37 @@ func countSeverities(findings []Finding) ReportIssueCounts {
 	return counts
 }
 
-// fillPRSummary sets the report's PR summary and review order from the fresh analysis or the loaded JSON map.
-func fillPRSummary(report *Report, prMap map[string]any, prReport *PRReport) error {
-	if mStr(prMap, "status") != "analyzed" {
+// fillPRSummary sets the report's PR summary and review order from an analyzed PR analysis.
+func fillPRSummary(report *Report, pr *prInput) error {
+	if pr.Status != "analyzed" {
 		return nil
 	}
-	if prReport != nil {
-		report.PRSummary = prReport.Summary
-		report.ReviewOrder = prReport.ReviewOrder
-		return nil
+	if pr.summaryErr != nil {
+		return pr.summaryErr
 	}
-	summary := asMap(prMap["summary"])
-	if summary == nil {
-		return nil
-	}
-	b, err := json.Marshal(summary)
-	if err != nil {
-		return fmt.Errorf("marshal PR analysis summary: %w", err)
-	}
-	var ps PRSummary
-	if err := json.Unmarshal(b, &ps); err != nil {
-		return fmt.Errorf("decode PR analysis summary: %w", err)
-	}
-	report.PRSummary = &ps
-	ro := []string{}
-	for _, v := range mSlice(prMap, "review_order") {
-		if s, ok := v.(string); ok {
-			ro = append(ro, s)
-		}
-	}
-	report.ReviewOrder = ro
+	report.PRSummary = pr.Summary
+	report.ReviewOrder = pr.ReviewOrder
 	return nil
 }
 
 // generateReport ports generate_report; the overrides are non-nil when loaded from --pr-analysis/--quality-analysis.
-func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnalysisOverride map[string]any) (Report, error) {
-	prReport, prMap, err := loadPRAnalysis(repoPath, base, head, prAnalysisOverride)
+func generateReport(repoPath, base, head string, prOverride *prInput, qualityOverride *qualityInput) (Report, error) {
+	pr, err := loadPRAnalysis(repoPath, base, head, prOverride)
 	if err != nil {
 		return Report{}, err
 	}
 
-	qualityMap := qualityAnalysisOverride
-	if qualityMap == nil {
+	quality := qualityOverride
+	if quality == nil {
 		var qErr error
-		if qualityMap, qErr = runQualityChecker(repoPath, base, head); qErr != nil {
+		if quality, qErr = runQualityChecker(repoPath, base, head); qErr != nil {
 			return Report{}, qErr
 		}
 	}
 
-	findings := generateFindingsList(prMap, qualityMap)
+	findings := generateFindingsList(pr, quality)
 	counts := countSeverities(findings)
-	score := calculateReviewScore(prMap, qualityMap)
+	score := calculateReviewScore(pr, quality)
 	verdict, rationale := determineVerdict(score, counts.Critical, counts.High)
 	actionItems := generateActionItems(findings)
 
@@ -261,29 +227,12 @@ func generateReport(repoPath, base, head string, prAnalysisOverride, qualityAnal
 		Summary:  ReportSummary{Score: score, Verdict: verdict, Rationale: rationale, IssueCounts: counts},
 		Findings: findings, ActionItems: actionItems,
 	}
-	if err := fillPRSummary(&report, prMap, prReport); err != nil {
+	if err := fillPRSummary(&report, pr); err != nil {
 		return Report{}, err
 	}
 
-	report.QualitySummary = qualitySummaryOf(qualityMap)
+	report.QualitySummary = quality.Summary
 	return report, nil
-}
-
-// qualitySummaryOf summarizes a directory analysis ("files") or a single-file one ("file", which counts as one file).
-func qualitySummaryOf(q map[string]any) *QualitySummary {
-	if _, ok := q["files"]; ok {
-		return &QualitySummary{
-			FilesAnalyzed: mInt(q, "files_analyzed"), AverageScore: source.PyFloat(mFloat(q, "average_score")),
-			TotalCodeSmells: mInt(q, "total_code_smells"), TotalSolidViolations: mInt(q, "total_solid_violations"),
-		}
-	}
-	if _, ok := q["file"]; ok {
-		return &QualitySummary{
-			FilesAnalyzed: 1, AverageScore: source.PyFloat(mFloat(q, "quality_score")),
-			TotalCodeSmells: len(mSlice(q, "smells")), TotalSolidViolations: len(mSlice(q, "solid_violations")),
-		}
-	}
-	return nil
 }
 
 // reportOpts are RunReport's parsed flags and the repo argument.
@@ -371,24 +320,21 @@ func resolveExistingPath(positional []string, stderr io.Writer) (string, bool) {
 }
 
 // loadOverrides loads the optional --pr-analysis/--quality-analysis files; an unreadable one refuses with exit 2.
-func loadOverrides(prPath, qualityPath string, stderr io.Writer) (pr, quality map[string]any, code int) {
-	for _, o := range []struct {
-		path, label, flag string
-		validate          func(map[string]any) error
-		dst               *map[string]any
-	}{
-		{prPath, "PR analysis", "--pr-analysis", validatePRAnalysis, &pr},
-		{qualityPath, "quality analysis", "--quality-analysis", validateQualityAnalysis, &quality},
-	} {
-		if o.path == "" {
-			continue
+func loadOverrides(prPath, qualityPath string, stderr io.Writer) (pr *prInput, quality *qualityInput, code int) {
+	refuse := func(label, path, flag string, err error) int {
+		fmt.Fprintf(stderr, "claude-code: cannot load %s from %s: %v; fix the file or drop %s to run it fresh\n", label, path, err, flag)
+		return 2
+	}
+	var err error
+	if prPath != "" {
+		if pr, err = loadPRAnalysisFile(prPath); err != nil {
+			return nil, nil, refuse("PR analysis", prPath, "--pr-analysis", err)
 		}
-		m, err := loadJSONFile(o.path, o.validate)
-		if err != nil {
-			fmt.Fprintf(stderr, "claude-code: cannot load %s from %s: %v; fix the file or drop %s to run it fresh\n", o.label, o.path, err, o.flag)
-			return nil, nil, 2
+	}
+	if qualityPath != "" {
+		if quality, err = loadQualityAnalysisFile(qualityPath); err != nil {
+			return nil, nil, refuse("quality analysis", qualityPath, "--quality-analysis", err)
 		}
-		*o.dst = m
 	}
 	return pr, quality, 0
 }
