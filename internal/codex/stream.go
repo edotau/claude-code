@@ -13,12 +13,16 @@ import (
 type codexEvent struct {
 	Type     string `json:"type"`
 	ThreadID string `json:"thread_id"`
+	Message  string `json:"message"`
 	Item     struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"` // agent_message | command_execution | error | reasoning | ...
-		Text    string `json:"text"`
-		Command string `json:"command"`
-		Status  string `json:"status"`
+		ID               string `json:"id"`
+		Type             string `json:"type"` // agent_message | command_execution | error | reasoning | ...
+		Text             string `json:"text"`
+		Command          string `json:"command"`
+		Status           string `json:"status"`
+		AggregatedOutput string `json:"aggregated_output"`
+		ExitCode         *int   `json:"exit_code"`
+		Message          string `json:"message"`
 	} `json:"item"`
 	Usage struct {
 		InputTokens       int `json:"input_tokens"`
@@ -77,8 +81,8 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.res.Usage.CacheReadTokens += u.CachedInputTokens
 		s.res.Usage.OutputTokens += u.OutputTokens
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
-	case "turn.failed":
-		s.failure = cmp.Or(ev.Error.Message, "codex turn failed")
+	case "error", "turn.failed":
+		s.failure = cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
 		return wire.EmitError(s.log, s.sink, s.failure)
 	}
 	return nil
@@ -99,7 +103,15 @@ func (s *codexStreamState) completedItem(ev codexEvent) error {
 		}
 		s.log.Emit("assistant", it.Text)
 	case "command_execution":
-		return s.sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell", ID: it.ID}, Status: it.Status})
+		status := it.Status
+		if it.ExitCode != nil {
+			status = fmt.Sprintf("%s (exit %d)", status, *it.ExitCode)
+		}
+		return s.sink.Emit(wire.Event{Type: wire.EventToolResult,
+			Tool: &wire.ToolRef{Name: "shell", ID: it.ID}, Text: it.AggregatedOutput, Status: status})
+	case "error":
+		s.failure = cmp.Or(it.Message, it.Text, "codex item error")
+		return wire.EmitError(s.log, s.sink, s.failure)
 	}
 	return nil
 }

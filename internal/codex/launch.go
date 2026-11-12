@@ -99,8 +99,7 @@ func codexOverrideValue(line, table, path string, n int) (string, error) {
 	return table + strings.TrimSpace(k) + "=" + v, nil
 }
 
-// codexRouteDetail reports codex's own CODEX_MODEL/CODEX_REASONING_EFFORT pins — names/booleans only,
-// never a credential; unset means codex's own default (config.toml, then its ChatGPT-login catalog).
+// codexRouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
 func codexRouteDetail() string {
 	model, source := providers.CodexModel()
 	effort, _ := providers.CodexEffort()
