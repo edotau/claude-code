@@ -177,37 +177,46 @@ type claimView struct {
 }
 
 // ClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
-// Any git command also drains this session's notices and the divergence line into its context.
+// A Bash sed -i, redirect or tee gets the same note per file; any git command also drains this session's notices.
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.SessionID == "" || in.ToolName == "Bash" && !gitAnyCmd().MatchString(cmd) {
+	bash := in.ToolName == "Bash"
+	git := gitAnyCmd().MatchString(cmd)
+	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
 		return core.Result{}
 	}
+	edits := editPaths(in)
 	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
-	if in.ToolName != "Bash" {
-		return claimResult(ctx, in)
+	if !bash {
+		return claimResult(ctx, in, edits)
+	}
+	res := core.Result{}
+	if gitStageCmd().MatchString(cmd) || len(edits) > 0 {
+		res = claimResult(ctx, in, edits)
+	}
+	if !git {
+		return res
 	}
 	notes, warn := noticeContext(ctx, in, newRun(ctx, in))
-	res := core.Result{}
-	if gitStageCmd().MatchString(cmd) {
-		res = claimResult(ctx, in)
-	}
 	res.Context = core.JoinContext(notes, res.Context)
 	res.Stderr = strings.TrimSpace(warn + "\n" + res.Stderr)
 	return res
 }
 
-// claimResult runs the edit or stage check against the live claims.
-func claimResult(ctx context.Context, in *core.Input) core.Result {
+// claimResult runs the edit check on each edited path and, for Bash, the stage check, against the live claims.
+func claimResult(ctx context.Context, in *core.Input, edits []string) core.Result {
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
 	if len(claims) > 0 {
 		v := claimView{ctx: ctx, in: in, claims: claims}
-		if in.ToolName == "Bash" {
+		if in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand()) {
 			res = v.stageCheck()
-		} else {
-			res = v.editCheck()
+		}
+		for _, p := range edits {
+			r := v.editCheck(p)
+			res.Context = core.JoinContext(res.Context, r.Context)
+			res.Stderr = strings.TrimSpace(res.Stderr + "\n" + r.Stderr)
 		}
 	}
 	if err != nil {
@@ -221,18 +230,23 @@ func claimWarn(err error) core.Result {
 	return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
 }
 
-// editPath is the Write/Edit target, absolute and canonical; "" when the payload has none.
-func editPath(in *core.Input) string {
-	p := in.Nested("tool_input", "file_path")
-	if p == "" {
-		return ""
+// editPaths are the files the call edits, absolute and canonical: a Write/Edit target, or what a Bash command writes.
+func editPaths(in *core.Input) []string {
+	if in.ToolName == "Bash" {
+		out := core.WrittenPaths(in.ToolCommand(), in.CWD)
+		for i, p := range out {
+			out[i] = core.CanonPath(p)
+		}
+		return out
 	}
-	return core.CanonPath(core.AnchorPath(p, in.CWD))
+	if p := in.Nested("tool_input", "file_path"); p != "" {
+		return []string{core.CanonPath(core.AnchorPath(p, in.CWD))}
+	}
+	return nil
 }
 
 // editCheck returns the once-per-(session, path, who) advisory for an edit of a dirty claimed file.
-func (v claimView) editCheck() core.Result {
-	p := editPath(v.in)
+func (v claimView) editCheck(p string) core.Result {
 	if len(v.claims[p]) == 0 {
 		return core.Result{}
 	}

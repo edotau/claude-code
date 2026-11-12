@@ -456,3 +456,23 @@ func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
 		}
 	}
 }
+
+// TestClaimBashWritesAreClaimedAndChecked: a Bash sed -i is recorded by Claim and noted once by ClaimCheck.
+func TestClaimBashWritesAreClaimedAndChecked(t *testing.T) {
+	repo := claimFixture(t)
+	useClaimOwner(t, liveOwner)
+	hosttest.WriteRel(t, repo, "a.txt", "edited by A\n")
+	Claim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "sed -i s/a/b/ a.txt && echo x > /dev/null"}}))
+	got := readClaims(t, claimsFile(liveOwner, "A"))
+	if len(got) != 1 || got[0].Path != filepath.Join(repo, "a.txt") {
+		t.Fatalf("claims = %+v; want only a.txt", got)
+	}
+	bash := map[string]any{"command": "sed -i s/b/c/ a.txt"}
+	if r := claimCheckOn(t, repo, "B", "Bash", bash); !strings.Contains(r.Context, "a.txt has uncommitted edits by") {
+		t.Fatalf("sed -i of A's dirty file: context %q; want the advisory", r.Context)
+	}
+	if r := claimCheckOn(t, repo, "B", "Bash", bash); r.Context != "" {
+		t.Fatalf("repeat must be silent, got %q", r.Context)
+	}
+}

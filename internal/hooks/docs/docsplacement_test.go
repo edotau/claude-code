@@ -422,3 +422,24 @@ func TestMain(m *testing.M) {
 	cleanup()
 	os.Exit(code)
 }
+
+func TestDocsPlacementBlocksShellWrites(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := placementRepo(t)
+	for _, c := range []struct {
+		cmd  string
+		code int
+	}{
+		{"cat > NOTES.md <<'EOF'\nhi\nEOF", core.ExitBlock},
+		{"echo hi > NOTES.md", core.ExitBlock},
+		{"sed -i s/a/b/ TODO.md", core.ExitBlock},
+		{"echo hi > README.md", core.ExitProceed},
+		{"cat NOTES.md > /tmp/out.txt", core.ExitProceed},
+	} {
+		b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": c.cmd}})
+		var stderr bytes.Buffer
+		if got := Placement(core.ParseInput(bytes.NewReader(b)), &stderr); got != c.code {
+			t.Errorf("%q: code %d, want %d (%s)", c.cmd, got, c.code, &stderr)
+		}
+	}
+}
