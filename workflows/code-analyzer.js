@@ -466,17 +466,13 @@ const FIX_MODEL = RAW.fix && !S.fix.ext && RAW.fix.model
 const FIX_EFFORT = RAW.fix && RAW.fix.effort
 
 // ── Pressure: Claude account state read once; low/exhausted steps every Claude stage down one model ──
-const routeState = PF_STATE ? { state: PF_STATE } : await agent(
+const routeStateP = PF_STATE ? Promise.resolve({ state: PF_STATE }) : agent(
   `Run exactly: ${CD}claude-code gateway --format json --agent claude --fallback none --model sonnet. ` +
     `It prints one JSON object; state = candidates[0].state when candidates is non-empty, else the skipped[] entry whose agent ` +
     `is "claude" and its gate value, else "unknown". Never run anything else.`,
   { label: 'route-state', phase: 'Scope', schema: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { type: 'string' } } }, model: 'haiku', effort: 'low' }
 ).catch(() => null)
 const MODEL_DOWN = { opus: 'sonnet', sonnet: 'haiku', haiku: 'haiku' }
-const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
-const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
-if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
-else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
 
 const DEFAULT_DIMENSIONS = [
   { key: 'seams', prompt: 'dangling seams: callers of deleted or renamed symbols in comments, help text, docs, registration/config tables; flags parsed but never read; fields declared but never set' },
@@ -509,24 +505,13 @@ const SCOPE_MAX = 200 // files per scope leaf, ~10 KB of compact JSON
 let SPLIT = false // GROUPS hold exact package dirs; the scope command filters the PATHS listing to them
 const SPLIT_SCHEMA = { type: 'object', additionalProperties: false, required: ['dirs'], properties: { dirs: { type: 'array', items: {
   type: 'object', additionalProperties: false, required: ['dir', 'files'], properties: { dir: { type: 'string' }, files: { type: 'integer' } } } } } }
+let splitP = null
 if (FILES_MODE && !PRE && !(Array.isArray(a.packages) && a.packages.length)) {
-  const split = await agent(
+  splitP = agent(
     `Run exactly: ${CD}claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | ` +
       `jq -c '[.files[].path | sub("/[^/]*$"; "")] | group_by(.) | map({dir: .[0], files: length})' — and return its array verbatim as dirs. Never run anything else.`,
     { label: 'scope-split', phase: 'Scope', schema: SPLIT_SCHEMA, model: 'haiku', effort: 'low' }
   ).catch(() => null)
-  const dirs = split && split.dirs || []
-  if (dirs.reduce((n, d) => n + d.files, 0) > SCOPE_MAX) {
-    GROUPS = []
-    let cur = [], n = 0
-    for (const d of dirs) {
-      if (cur.length && n + d.files > SCOPE_MAX) { GROUPS.push(cur); cur = []; n = 0 }
-      cur.push(d.dir); n += d.files
-    }
-    if (cur.length) GROUPS.push(cur)
-    SPLIT = true
-    log(`scope split: ${dirs.length} dir(s) → ${GROUPS.length} scope group(s) of ≤${SCOPE_MAX} files`)
-  }
 }
 const scopeCmd = g => SPLIT
   ? `claude-code review scope --repo ${CWD || '.'} --paths ${PATHS.join(',')} --format json </dev/null | jq -c --argjson d '${JSON.stringify(g)}' '{files: [.files[] | select(.path | sub("/[^/]*$"; "") | IN($d[]))]}'`
@@ -669,6 +654,34 @@ const SCAN_SCHEMA = {
 }
 const REFUTE_BATCH = a.refuteBatch || 6
 // External audit/refute legs share one route: ≤4 in flight each (44 at once drew 429 storms); CAP is fix-wave width, not a rate.
+// Setup runs concurrently: route state, the scope split and round 1's unsplit scope (kept unless the split regroups).
+const runScopes = (round, model) => parallel(GROUPS.map((g, gi) => () =>
+  agent(S.scope.task(
+    `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
+    { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: model, effort: S.scope.effort } // file listing: schema-checked, haiku is enough
+  ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
+))
+const SCOPE_FIXED = (MODEL_DOWN[S.scope.model] || S.scope.model) === S.scope.model // pressure cannot change its model
+let earlyScopes = !PRE && SCOPE_FIXED ? runScopes(1, S.scope.model) : null
+const split = splitP && await splitP
+const dirs = split && split.dirs || []
+if (dirs.reduce((n, d) => n + d.files, 0) > SCOPE_MAX) {
+  GROUPS = []
+  let cur = [], n = 0
+  for (const d of dirs) {
+    if (cur.length && n + d.files > SCOPE_MAX) { GROUPS.push(cur); cur = []; n = 0 }
+    cur.push(d.dir); n += d.files
+  }
+  if (cur.length) GROUPS.push(cur)
+  SPLIT = true
+  earlyScopes = null // the unsplit listing is discarded; the loop scopes the split groups
+  log(`scope split: ${dirs.length} dir(s) → ${GROUPS.length} scope group(s) of ≤${SCOPE_MAX} files`)
+}
+const routeState = await routeStateP
+const PRESSURE = !!(routeState && (routeState.state === 'low' || routeState.state === 'exhausted'))
+const routeModel = m => (PRESSURE && MODEL_DOWN[m]) ? MODEL_DOWN[m] : m
+if (PRESSURE) log(`pressure: claude account ${routeState.state} — stepping Claude stages down one model`)
+else if (!routeState) log('pressure: route read failed — no downshift (fail open)')
 const EXT_CAP = Math.min(CAP, 4)
 const limiter = n => { let busy = 0; const q = []; const next = () => { if (busy < n && q.length) { busy++; q.shift()() } }
   return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej).finally(() => { busy--; next() })); next() }) }
@@ -686,12 +699,7 @@ const PKG_COUNT = PKGS.length
 for (let round = 1; round <= ROUNDS; round++) {
   // ── Scope: capture each group's diff/file sizes ONCE per round (round 1: auditors spent 31–113 turns rediscovering it) ──
   phase('Scope')
-  const scopes = PRE ? [] : await parallel(GROUPS.map((g, gi) => () =>
-    agent(S.scope.task(
-      `${CD}run ONE command: ${scopeCmd(g)} — and return its files array verbatim ({path, bytes}). Do not read the files; the auditors cat their own chunk. At most 2 tool calls.`),
-      { label: `scope:${round}:${gi}`, phase: 'Scope', schema: S.scope.schema(SCOPE_SCHEMA), ...S.scope.type, model: routeModel(S.scope.model), effort: S.scope.effort } // file listing: schema-checked, haiku is enough
-    ).then(r => S.scope.done(`scope:${round}:${gi}`, r))
-  ))
+  const scopes = PRE ? [] : (round === 1 && earlyScopes) ? await earlyScopes : await runScopes(round, routeModel(S.scope.model))
   // Pack files into ≤ CHUNK_CHARS chunks so no auditor sees a truncated view and agent count follows diff size.
   const CHUNK_CHARS = a.chunkChars || 50000
   const chunks = []
