@@ -159,7 +159,7 @@ func Styled(head []string, colMax []int, rows [][]string, width int, codes []str
 	lines := strings.Split(strings.TrimRight(Render(head, colMax, rows, width), "\n"), "\n")
 	for i, l := range lines {
 		code := ansi.Dim
-		if i > 0 {
+		if i > 0 && i <= len(codes) {
 			code = codes[i-1]
 		}
 		lines[i] = ansi.Style(color && code != "", code, l)

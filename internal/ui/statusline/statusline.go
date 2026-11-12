@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -112,7 +113,7 @@ func (v values) text(key string) string {
 	return ""
 }
 
-// Styles are the --style values; unset means config.json's style, and an unknown name renders as gradient.
+// Styles are the --style values; unset means config.json's style, and an unknown --style is refused.
 var Styles = []string{"gradient", "powerline", "capsule", "minimal", "dashboard", "twoline"}
 
 // Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w; fs carries the caller's Usage.
@@ -120,6 +121,10 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	style := fs.String("style", "", strings.Join(Styles, "|"))
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *style != "" && !slices.Contains(Styles, *style) {
+		fmt.Fprintf(os.Stderr, "claude-code: theme statusline: unknown --style %q; use one of %s\n", *style, strings.Join(Styles, ", "))
+		return 2
 	}
 	if f, ok := r.(*os.File); ok && proc.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
 		fmt.Fprintln(os.Stderr, "claude-code: theme statusline reads Claude Code's status JSON on stdin; "+

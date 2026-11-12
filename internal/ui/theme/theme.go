@@ -146,7 +146,9 @@ func readJSON(path string) (map[string]any, error) {
 }
 
 // writeMerged writes newContent under dest's lock, with backup and a concurrent-change check.
-func writeMerged(dest string, oldContent, newContent []byte, dryRun bool, mode os.FileMode) (changed bool, backup string, err error) {
+func writeMerged(
+	dest string, oldContent, newContent []byte, dryRun bool, mode os.FileMode,
+) (changed bool, backup string, err error) {
 	if bytes.Equal(oldContent, newContent) {
 		return false, "", nil
 	}
