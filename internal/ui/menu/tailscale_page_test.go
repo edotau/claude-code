@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
@@ -30,8 +31,10 @@ func tsPage(t *testing.T, input string, admin bool) (*dialog, *bytes.Buffer) {
 		t.Setenv("TAILSCALE_API_KEY", "tskey-api-test")
 	}
 	resetTailscaleStatus(t)
-	sh, l, m, e, v := tsShell, tsLogin, tsMint, tsExitNode, tsValidate
-	t.Cleanup(func() { tsShell, tsLogin, tsMint, tsExitNode, tsValidate = sh, l, m, e, v })
+	sh, l, m, e, v, c := tsShell, tsLogin, tsMint, tsExitNode, tsValidate, tsCheck
+	t.Cleanup(func() { tsShell, tsLogin, tsMint, tsExitNode, tsValidate, tsCheck = sh, l, m, e, v, c })
+	tsCheck = func(context.Context) error { return nil }
+	tsAdminVerdict.at = time.Time{}
 	tsValidate = func(context.Context, string, string) error { t.Error("validate ran"); return nil }
 	var out bytes.Buffer
 	tsShell = func(*dialog) *shell { return &shell{Out: &out, In: bufio.NewReader(strings.NewReader(input))} }
@@ -57,20 +60,20 @@ func tsConnected(dns string, advertised, approved bool) {
 
 // Every row the page and its exit-node picker draw is one line that fits an 80-column panel, in both states.
 func TestTailscalePageRowsFitEightyColumns(t *testing.T) {
-	_, out := tsPage(t, "", false) // not connected: the sign-in row shows
+	_, out := tsPage(t, "", false) // not connected: login offers the browser sign-in
 	runTailscalePage(&dialog{out: out})
 	rows := numberedRows(out.String())
-	if len(rows) != 5 || rows[1][0] != "sign in" {
-		t.Fatalf("not-connected rows = %q, want 5 with sign in", rows)
+	if len(rows) != 5 || rows[1][0] != "login" {
+		t.Fatalf("not-connected rows = %q, want 5 with login second", rows)
 	}
 	assertFitsEighty(t, "tailscale page (not connected)", append(rows, panelBack))
 
-	_, out = tsPage(t, "4\n", true) // connected, long host, admin key: open the exit-node picker
+	_, out = tsPage(t, "5\n", true) // connected, long host, admin key: open the exit-node picker
 	tsConnected("a-long-hostname-01.tail1234.ts.net.", true, true)
 	runTailscalePage(&dialog{out: out})
 	rows = numberedRows(out.String())
-	if len(rows) != 4+3+4 || slices.ContainsFunc(rows, func(r [2]string) bool { return r[0] == "sign in" }) {
-		t.Fatalf("connected rows = %q, want page, on/off/approve, page again; no sign in", rows)
+	if len(rows) != 5+3+5 || rows[1][0] != "login" {
+		t.Fatalf("connected rows = %q, want page, on/off/approve, page again; login stays", rows)
 	}
 	assertFitsEighty(t, "tailscale page (connected)", append(rows, panelBack))
 }
@@ -110,14 +113,14 @@ func TestTailscalePageSignInRunsLogin(t *testing.T) {
 	}
 	got := out.String()
 	_, after, ok := strings.Cut(got, "tailscale: signed in as box.tail1234.ts.net\n")
-	if !ok || strings.Contains(after, "sign in") {
-		t.Errorf("want the signed-in line and no sign-in row after it:\n%s", got)
+	if !ok || !strings.Contains(after, "add or switch account") {
+		t.Errorf("want the signed-in line, then login offering an account switch:\n%s", got)
 	}
 }
 
 // Auth key mints with the answered options (90d default) and seals the key once shown as TAILSCALE_AUTHKEY.
 func TestTailscalePageAuthKeyMintsAndSeals(t *testing.T) {
-	d, out := tsPage(t, "3\ny\n\ntag:ci\n", true)
+	d, out := tsPage(t, "4\ny\n\ntag:ci\n", true)
 	tsConnected("box.tail1234.ts.net.", false, false)
 	var got []tailscale.KeyOptions
 	tsMint = func(_ context.Context, o tailscale.KeyOptions) (tailscale.AuthKey, error) {
@@ -139,7 +142,7 @@ func TestTailscalePageAuthKeyMintsAndSeals(t *testing.T) {
 
 // Exit node on, off and approve each call the exit-node seam with that mode, in pick order.
 func TestTailscalePageExitNodeActions(t *testing.T) {
-	d, out := tsPage(t, "4\n1\n4\n2\n4\n3\n", true)
+	d, out := tsPage(t, "5\n1\n5\n2\n5\n3\n", true)
 	tsConnected("box.tail1234.ts.net.", false, false)
 	var modes []string
 	tsExitNode = func(_ context.Context, mode string) (string, error) {
