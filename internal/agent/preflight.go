@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -98,7 +99,7 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Fin
 
 // CheckModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.
 func CheckModel(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
-	if model == "" || model == router.DiscoveryModel || slices.Contains(router.Aliases, model) {
+	if model == "" || model == router.DiscoveryModel || slices.Contains(router.Aliases, models.Strip1M(model)) {
 		return model, nil, ""
 	}
 	fail := func(check, detail string) (string, *Finding, string) {
