@@ -56,6 +56,8 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			attempts, time.Since(start).Round(time.Millisecond), viaDiag(in), extra)
 	}()
 	model, extra = r.forwardPassthrough(sw, in, provider, dialect, rest)
+	extra += brokenDiag(sw)
+	sw.abortIfBroken() // the deferred log line still runs
 }
 
 func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request,
