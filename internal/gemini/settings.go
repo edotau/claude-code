@@ -241,33 +241,36 @@ func agyGateCovers(cwd string, tools ...string) bool {
 		files = append(files, filepath.Join(cwd, ".agents", "hooks.json"))
 	}
 	for _, p := range files {
-		if !slices.ContainsFunc(tools, func(tool string) bool { return !agyFileRunsGate(p, command, tool) }) {
+		groups := agyPreToolGroups(p)
+		if !slices.ContainsFunc(tools, func(tool string) bool { return !agyGroupsRunGate(groups, command, tool) }) {
 			return true
 		}
 	}
 	return false
 }
 
-// agyFileRunsGate reports whether the hooks.json at path has a blocking PreToolUse group on tool running the gate.
-func agyFileRunsGate(path, command, tool string) bool {
+// agyPreToolGroups is every PreToolUse group in the hooks.json at path; nil when it cannot be read or decoded.
+func agyPreToolGroups(path string) []settings.MatcherGroup {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return nil
 	}
 	var sets map[string]struct {
 		PreToolUse []settings.MatcherGroup `json:"PreToolUse"`
 	}
 	if json.Unmarshal(b, &sets) != nil {
-		return false
+		return nil
 	}
+	var groups []settings.MatcherGroup
 	for _, set := range sets {
-		for _, group := range set.PreToolUse {
-			if group.RunsGate("gemini", command, tool) {
-				return true
-			}
-		}
+		groups = append(groups, set.PreToolUse...)
 	}
-	return false
+	return groups
+}
+
+// agyGroupsRunGate reports whether a blocking group on tool runs the gate.
+func agyGroupsRunGate(groups []settings.MatcherGroup, command, tool string) bool {
+	return slices.ContainsFunc(groups, func(g settings.MatcherGroup) bool { return g.RunsGate("gemini", command, tool) })
 }
 
 // agyHookName is the one named hook in agy's hooks.json the harness owns; every render replaces it.

@@ -60,14 +60,16 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 
 	var runs []*workflowRun
 	scanned := 0
+	turns := transcript.OpenSummaryCache(transcript.SummaryCachePath())
 	for _, dir := range runDirs {
-		run, files := loadWorkflowRun(dir, errw, cutoff)
+		run, files := loadWorkflowRun(dir, errw, cutoff, turns)
 		if run == nil {
 			continue
 		}
 		runs = append(runs, run)
 		scanned += files
 	}
+	_ = turns.Save() // a cache write failure never fails the verb
 	if len(runs) == 0 {
 		fmt.Fprintln(errw, "usage: no matching workflow runs found")
 		return 0
@@ -127,7 +129,7 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 
 // loadWorkflowRun folds the in-window responses of every agent transcript in one run dir into phase rows,
 // returning the run and the number of transcripts that contributed (nil when none did).
-func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time) (*workflowRun, int) {
+func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time, turns *transcript.SummaryCache) (*workflowRun, int) {
 	files := transcript.WorkflowAgentFiles(runDir)
 	if len(files) == 0 {
 		return nil, 0
@@ -143,7 +145,7 @@ func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time) (*workflow
 	byPhase := map[string]*workflowPhaseRow{}
 	scanned := 0
 	for _, f := range files {
-		resps, err := transcript.ReadResponses(f)
+		resps, err := turns.Responses(f)
 		if err != nil {
 			fmt.Fprintf(errw, "usage: warning: skipping %s: %v\n", f, err)
 			continue

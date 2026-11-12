@@ -111,17 +111,21 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 
 // locateLedger resolves the managed linked worktree holding cwd and its existing ledger; found is false for none.
 func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err error) {
-	repo, err = ResolveRepo(cwd)
-	if err != nil {
-		return nil, "", "", false, nil
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), ledgerLocateTimeout)
 	defer cancel()
-	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel").Output()
+	commonDir, topLine, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if commonDir == "" {
+		return nil, "", "", false, nil
+	}
+	repo, rerr := repoFromCommonDir(cwd, commonDir)
+	if rerr != nil {
+		return nil, "", "", false, nil
+	}
 	if err != nil {
 		return nil, "", "", false, err
 	}
-	top = paths.Canon(strings.TrimSpace(string(out)))
+	top = paths.Canon(strings.TrimSpace(topLine))
 	if !paths.SamePath(filepath.Dir(top), repo.Root) {
 		return nil, "", "", false, nil
 	}
