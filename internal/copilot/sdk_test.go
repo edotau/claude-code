@@ -402,7 +402,10 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 	}
 	req := agent.RunOptions{Prompt: "say hi", SystemPrompt: "be ZEBRA", AppendSystemPrompt: "end with ZEBRA"}
 	req.Tools = true
-	o := newSDKOptions("copilot", nil, req, agent.Settings{})
+	o, err := newSDKOptions("copilot", nil, req, agent.Settings{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if o.System != "be ZEBRA\n\nend with ZEBRA" {
 		t.Errorf("System = %q, want both texts", o.System)
 	}

@@ -70,6 +70,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
 			res.Usage = out.Usage // tokens the exhausted run spent still count
+			res.Model = cmp.Or(out.Model, res.Model)
 			return copilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
 		}
 		return copilotPartial(res, out, err, sink)
@@ -128,7 +129,9 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err != nil {
 		return opts, nil, done, err
 	}
-	opts = newSDKOptions(bin, env, req, st)
+	if opts, err = newSDKOptions(bin, env, req, st); err != nil {
+		return opts, nil, done, copilotFatal(err)
+	}
 	if route != nil {
 		route.apply(&opts)
 	}
@@ -161,14 +164,17 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 }
 
 // newSDKOptions builds the SDK options for one run from the CLI path, route env, request and resolved settings.
-func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) sdkOptions {
+func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdkOptions, error) {
 	var model string
 	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
 		model = copilotModelID(t.Model) // no BYOK block, so the session takes the catalog id itself ([1m] is ours)
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
-		workDir, _ = os.Getwd() // relToWorkDir needs a non-empty root
+		var err error // relToWorkDir needs a non-empty root
+		if workDir, err = os.Getwd(); err != nil {
+			return sdkOptions{}, fmt.Errorf("resolve working directory: %w", err)
+		}
 	}
 	o := sdkOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
@@ -184,7 +190,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		o.AgentDirs = existingDirs(filepath.Join(home, "agents"))
 		o.InlineInstructions = sameInstructions(home, workDir)
 	}
-	return o
+	return o, nil
 }
 
 // otherInstructionFiles are the instruction sources the runtime discovers besides CLAUDE.md (workDir-relative).
@@ -242,6 +248,7 @@ func markToolRan(out sdkResult, sink wire.Sink, err error) error {
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
 func copilotPartial(res wire.Result, out sdkResult, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
+	res.Model = cmp.Or(out.Model, res.Model)
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)

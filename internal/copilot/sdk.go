@@ -72,6 +72,9 @@ type sdkResult struct {
 	Model     string
 	ToolRan   bool // a tool request was approved, so the run may have side effects
 	Usage     wire.Usage
+	// FinishReason is the last model call's; ContentFiltered is set if any call was blocked or truncated by a filter.
+	FinishReason    string
+	ContentFiltered bool
 }
 
 // buildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
@@ -384,10 +387,11 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 	sendErr := sendPrompt(ctx, session, o, prompt, images)
 	text, model, usage := col.snapshot()
 	res := sdkResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
+	res.FinishReason, res.ContentFiltered = col.finish()
 	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
-	return res, nil
+	return res, truncationError(res)
 }
 
 // assistantCollector accumulates assistant text, model and usage; events arrive on the SDK goroutine, hence the mutex.
@@ -397,6 +401,8 @@ type assistantCollector struct {
 	summary string // the task_complete summary: some models answer only there, with empty message content
 	model   string
 	usage   wire.Usage
+	finishR string
+	filter  bool
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
@@ -430,6 +436,28 @@ func (c *assistantCollector) addUsage(d *copilot.AssistantUsageData) {
 	c.usage.CacheReadTokens += read
 	c.usage.CacheCreationTokens += write
 	c.usage.OutputTokens += out
+	if d.FinishReason != nil {
+		c.finishR = *d.FinishReason
+	}
+	c.filter = c.filter || (d.ContentFilterTriggered != nil && *d.ContentFilterTriggered)
+}
+
+// finish returns the last call's finish reason and whether any call tripped the content filter.
+func (c *assistantCollector) finish() (reason string, filtered bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.finishR, c.filter
+}
+
+// truncationError is non-nil when the answer was cut off by the token limit or a content filter.
+func truncationError(r sdkResult) error {
+	switch {
+	case r.ContentFiltered || r.FinishReason == "content_filter":
+		return errors.New("copilot answer blocked or truncated by the content filter")
+	case r.FinishReason == "length":
+		return errors.New("copilot answer cut off at the output token limit (finish_reason=length)")
+	}
+	return nil
 }
 
 func tokenCount(p *int64) int {
