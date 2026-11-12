@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -203,9 +204,9 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	dir, _ := Init(root)
-	ok := func(context.Context, string, string) (string, error) {
-		if !IsUpdateChild() {
-			return "fake", errors.New("update child env not set")
+	ok := func(ctx context.Context, _, _ string) (string, error) {
+		if !slices.Contains(ChildEnv(ctx), UpdateChildEnv+"=1") {
+			return "fake", errors.New("update child env not passed")
 		}
 		time.Sleep(10 * time.Millisecond)
 		f, err := os.OpenFile(filepath.Join(dir, "sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
@@ -537,20 +538,25 @@ func TestMergeFileListsRenameKeepsNewPath(t *testing.T) {
 	}
 }
 
-// Dream's child-env markers stay set after the run: the post-run settle and stamp still run as a child.
-func TestDreamKeepsChildEnvAfterRun(t *testing.T) {
+// Dream hands its child markers to the runner through ctx and never mutates the parent process env.
+func TestDreamPassesChildEnvWithoutMutatingParent(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	ok := func(context.Context, string, string) (string, error) { return "stub", nil }
-	if err := dream(dreamOptions{CWD: root, Run: ok}); err != nil {
+	var got []string
+	run := func(ctx context.Context, _, _ string) (string, error) { got = ChildEnv(ctx); return "stub", nil }
+	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {
 		t.Fatal(err)
 	}
-	if !IsUpdateChild() || !isDreamChild() {
-		t.Errorf("child markers cleared after Dream: update=%v dream=%v", IsUpdateChild(), isDreamChild())
+	want := []string{UpdateChildEnv + "=1", dreamChildEnv + "=1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("child env = %q, want %q", got, want)
+	}
+	if IsUpdateChild() || isDreamChild() {
+		t.Errorf("parent env mutated: update=%v dream=%v", IsUpdateChild(), isDreamChild())
 	}
 }
 

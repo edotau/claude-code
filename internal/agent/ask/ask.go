@@ -760,7 +760,9 @@ func MemoryRunner() memory.AgentFunc {
 		c := newClient()
 		c.Refresh = nil
 		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		res, err := c.Run(ctx, memoryRunOptions(prompt, workdir), wire.NewTextSink(os.Stdout))
+		opts := memoryRunOptions(prompt, workdir)
+		opts.Env = memory.ChildEnv(ctx)
+		res, err := c.Run(ctx, opts, wire.NewTextSink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback
