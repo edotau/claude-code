@@ -615,16 +615,17 @@ func profileCache(ctx context.Context, profile string) (c vectorRecord, paused b
 	return c, false, err
 }
 
-// semanticCache picks the first profile with a cache, pausing on its backoff marker before any vector is loaded.
+// semanticCache picks the first unpaused profile with a cache; a backoff marker skips a profile before any vector loads.
 func semanticCache(ctx context.Context) (string, vectorRecord, error) {
-	var readErr error
+	var readErr, pauseErr error
 	for name := range embedProfiles { // lazy: the claude record's profile loads only if the session one misses
 		if !safeProfile.MatchString(name) {
 			continue
 		}
 		c, paused, err := profileCache(ctx, name)
-		if paused {
-			return "", vectorRecord{}, err
+		if paused { // this profile's endpoint is backing off; the next one may still serve
+			pauseErr = err
+			continue
 		}
 		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
 			readErr = err
@@ -633,6 +634,9 @@ func semanticCache(ctx context.Context) (string, vectorRecord, error) {
 		if c.Model != "" && len(c.Rows) > 0 {
 			return name, c, nil
 		}
+	}
+	if pauseErr != nil {
+		return "", vectorRecord{}, pauseErr
 	}
 	if ctx.Err() != nil {
 		return "", vectorRecord{}, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
