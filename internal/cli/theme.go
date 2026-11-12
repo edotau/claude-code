@@ -28,7 +28,7 @@ var themePage = helptext.Page{
 	Commands: [][2]string{
 		{"apply", "merge theme/<tool>.json into each tool's config"},
 		{"statusline", "render the status line (settings.json runs it)"},
-		{"vscode", "merge VS Code Machine settings and keybindings; link the extension"},
+		{"vscode", "merge VS Code settings and keybindings; link the extension"},
 	},
 	Hint: "claude-code theme <command> -h lists that command's flags.",
 }
