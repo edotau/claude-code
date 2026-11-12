@@ -248,7 +248,8 @@ func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w i
 	}
 	var err error
 	if len(tied) > 0 {
-		_, err = fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated\n", len(tied), baseNames(tied))
+		_, err = fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated; "+
+			"pick one with `claude-code plan tick --plan <file>`\n", len(tied), baseNames(tied))
 	} else {
 		_, err = fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
 	}

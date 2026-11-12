@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -109,10 +108,20 @@ func bitbucketRepo(host string, parts []string, isHTTP bool, remote string) (Rep
 
 // redact drops userinfo from a URL remote so credentials never reach an error message.
 func redact(remote string) string {
-	return userinfo.ReplaceAllString(remote, "${1}***@")
+	scheme, rest, ok := strings.Cut(remote, "://")
+	if !ok {
+		return remote
+	}
+	if u, err := url.Parse(remote); err == nil {
+		u.User = nil
+		return u.String()
+	}
+	// unparsable (a "/" in the password): cut through the last "@" so no tail of the secret survives
+	if at := strings.LastIndex(rest, "@"); at >= 0 {
+		return scheme + "://***@" + rest[at+1:]
+	}
+	return remote
 }
-
-var userinfo = regexp.MustCompile(`(://)[^/@\s]*@`)
 
 // splitRemote returns host and path of an https, ssh:// or scp-like remote.
 func splitRemote(r string) (host, path string, ok bool) {

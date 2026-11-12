@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -505,7 +504,7 @@ func Status(dirs ...string) ([]Summary, error) {
 			out = append(out, summarize(plan))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	slices.SortFunc(out, func(a, b Summary) int { return strings.Compare(a.Path, b.Path) })
 	return out, nil
 }
 
