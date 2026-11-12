@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -764,36 +761,6 @@ func TestM2MTokenCachedUnderProfileName(t *testing.T) {
 			}
 			if !vaultHas(t, secretName+"_ACCESS") {
 				t.Fatalf("no token cache at %s_ACCESS", secretName)
-			}
-		})
-	}
-}
-
-// A mint sweeps the old hash-named DATABRICKS_M2M_<HASH>_ACCESS slot, auditing a delete only when the slot existed.
-func TestM2MMintSweepsLegacyHashSlot(t *testing.T) {
-	for _, present := range []bool{true, false} {
-		t.Run(fmt.Sprint("present=", present), func(t *testing.T) {
-			p, secretName := clientRow(t, false)
-			legacySwept.Store(false) // a fresh process; an earlier test's mint may have set it
-			sum := sha256.Sum256([]byte("h.example.com\x00client\x00secret"))
-			legacy := "DATABRICKS_M2M_" + strings.ToUpper(hex.EncodeToString(sum[:8])) + "_ACCESS"
-			if present {
-				if err := vault.Store(legacy, "stale"); err != nil {
-					t.Fatal(err)
-				}
-			}
-			stubMintM2M(t, jwtExpIn(time.Hour, ""))
-			since := time.Now().Add(-time.Second)
-			if _, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true); err != nil {
-				t.Fatal(err)
-			}
-			events, err := audit.Read(since)
-			if err != nil {
-				t.Fatal(err)
-			}
-			deleted := slices.ContainsFunc(events, func(e audit.Event) bool { return e.Action == audit.SecretDelete })
-			if vaultHas(t, legacy) || deleted != present {
-				t.Fatalf("legacy slot left=%v, delete audited=%v; want swept, audited only when present", vaultHas(t, legacy), deleted)
 			}
 		})
 	}

@@ -18,7 +18,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
@@ -498,8 +497,6 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)
-		} else {
-			dropLegacyAccess()
 		}
 	}
 	return tok, nil
@@ -509,43 +506,6 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 func clientBind(host, clientID, secret string) string {
 	sum := sha256.Sum256([]byte(host + "\x00" + clientID + "\x00" + secret))
 	return hex.EncodeToString(sum[:8])
-}
-
-// Legacy pre-per-row cache slots, swept once per vault (Meta marker) and checked once per process.
-const legacySweptKey = "m2m_legacy_access_swept"
-
-var (
-	legacySlotRE = regexp.MustCompile(`^DATABRICKS_M2M_[0-9A-F]{16}_ACCESS$`)
-	legacySwept  atomic.Bool
-)
-
-// dropLegacyAccess deletes every hash-named DATABRICKS_M2M_<HASH>_ACCESS slot once, then marks the vault swept.
-func dropLegacyAccess() {
-	if legacySwept.Load() {
-		return
-	}
-	var swept bool
-	var names []string
-	if err := vault.View(func(tx *vault.Tx) error {
-		_, swept = tx.Get(vault.Meta, legacySweptKey)
-		names = tx.Names(vault.Secrets)
-		return nil
-	}); err != nil || swept {
-		legacySwept.Store(swept)
-		return
-	}
-	for _, n := range names {
-		if !legacySlotRE.MatchString(n) {
-			continue
-		}
-		if err := vault.Delete(n); err != nil { // unmarked: the next mint retries the sweep
-			fmt.Fprintf(os.Stderr, "drop legacy access token slot %s failed: %v\n", n, err)
-			return
-		}
-	}
-	if vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Meta, legacySweptKey, "1") }) == nil {
-		legacySwept.Store(true)
-	}
 }
 
 // sealedClientAccess returns the sealed token under name when bind matches and it stays valid past expiryMargin.
