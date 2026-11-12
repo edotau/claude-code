@@ -1,14 +1,12 @@
 package vault
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hkdf"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -25,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/schemas"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -177,10 +174,8 @@ func TestWrongInfoCannotOpen(t *testing.T) {
 	}
 }
 
-// TestSchemaWithSecretsRefused: an older-schema vault holding secrets is refused with the honest
-// "this build cannot read its secrets" message, not "vault migrate" advice this build cannot act
-// on; the same older schema with zero secrets is accepted (and upgraded in place by Update).
-func TestSchemaWithSecretsRefused(t *testing.T) {
+// An older-schema vault is refused on View and Update with the versions and the fix named, and is never re-stamped.
+func TestOlderSchemaRefused(t *testing.T) {
 	useZeroRootVault(t)
 	if err := Update(func(tx *Tx) error {
 		if err := tx.Put(Meta, "schema", "1"); err != nil {
@@ -190,38 +185,16 @@ func TestSchemaWithSecretsRefused(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	err := View(func(tx *Tx) error { return nil })
-	if err == nil {
-		t.Fatal("an older-schema vault holding secrets was accepted")
-	}
-	if !strings.Contains(err.Error(), "vault schema 1") || !strings.Contains(err.Error(), "cannot read its secrets") {
-		t.Fatalf("error = %q, want it to name the schema and say it cannot read the secrets", err.Error())
-	}
-	if strings.Contains(err.Error(), "vault migrate") {
-		t.Errorf("error = %q, must not advise a migrate this build cannot run", err.Error())
-	}
-}
-
-func TestSchemaWithoutSecretsAcceptedAndUpgraded(t *testing.T) {
-	useZeroRootVault(t)
-	if err := Update(func(tx *Tx) error { return tx.Put(Meta, "schema", "1") }); err != nil {
-		t.Fatal(err)
-	}
-	if err := View(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatalf("an older schema with zero secrets was refused: %v", err)
-	}
-	// A subsequent Update upgrades the stamped schema in place.
-	if err := Update(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	if err := View(func(tx *Tx) error {
-		s, _ := tx.Get(Meta, "schema")
-		if s != strconv.Itoa(schemaVersion) {
-			t.Fatalf("schema after Update = %q, want %d", s, schemaVersion)
+	for name, open := range map[string]func(func(*Tx) error) error{"View": View, "Update": Update} {
+		err := open(func(tx *Tx) error { return nil })
+		if err == nil || !strings.Contains(err.Error(), "schema 1 is older") ||
+			!strings.Contains(err.Error(), "(schema "+strconv.Itoa(schemaVersion)+")") ||
+			!strings.Contains(err.Error(), "git history") {
+			t.Errorf("%s on a schema-1 vault = %v, want the stored and supported schema and the fix", name, err)
 		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
+	}
+	if n, err := probeSchema(); err != nil || n != 1 {
+		t.Fatalf("stored schema after a refused Update = %d (%v), want 1 untouched", n, err)
 	}
 }
 
@@ -747,98 +720,6 @@ func TestNoNestedVaultOpensCatchesIntroducedNesting(t *testing.T) {
 	}
 	if violations := findNestedOpens(t, dir); len(violations) == 0 {
 		t.Fatal("injected nested View() inside an Update callback was not detected — the guard has no teeth")
-	}
-}
-
-func ledgerLines(t *testing.T) []map[string]any {
-	t.Helper()
-	b, err := os.ReadFile(schemas.LedgerPath())
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []map[string]any
-	for l := range bytes.SplitSeq(bytes.TrimSpace(b), []byte("\n")) {
-		var m map[string]any
-		if err := json.Unmarshal(l, &m); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
-// noopUpdate runs an empty Update, which still applies any pending re-stamp.
-func noopUpdate(t *testing.T) {
-	t.Helper()
-	if err := Update(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// checkStoredSchema reports meta/schema with format unless it equals want.
-func checkStoredSchema(t *testing.T, want, format string) {
-	t.Helper()
-	if err := View(func(tx *Tx) error {
-		if s, _ := tx.Get(Meta, "schema"); s != want {
-			t.Errorf(format, s)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine pins: schema 2 -> 3 on first Update with one ledger line; a fresh vault logs none.
-func TestVaultSchema2RestampedOnFirstUpdateWithOneLedgerLine(t *testing.T) {
-	useZeroRootVault(t)
-	noopUpdate(t)
-	if l := ledgerLines(t); len(l) != 0 {
-		t.Fatalf("fresh vault wrote ledger lines: %v", l)
-	}
-
-	if err := Update(func(tx *Tx) error { return tx.SetSchema(2) }); err != nil {
-		t.Fatal(err)
-	}
-	noopUpdate(t)
-	checkStoredSchema(t, strconv.Itoa(schemaVersion), "schema after Update = %q, want current")
-	l := ledgerLines(t)
-	if len(l) != 1 || l[0]["format"] != "vault" || l[0]["from"] != float64(2) || l[0]["to"] != float64(schemaVersion) {
-		t.Fatalf("ledger = %v, want one {format:vault from:2 to:current}", l)
-	}
-
-	noopUpdate(t)
-	if n := len(ledgerLines(t)); n != 1 {
-		t.Errorf("a second Update added ledger lines: %d total", n)
-	}
-}
-
-// TestUpdateErrorLeavesNoLedgerLine pins: a failed Update rolls back the 2->3 stamp and logs nothing; a later success logs one line.
-func TestUpdateErrorLeavesNoLedgerLine(t *testing.T) {
-	useZeroRootVault(t)
-	if err := Update(func(tx *Tx) error { return tx.SetSchema(2) }); err != nil {
-		t.Fatal(err)
-	}
-	// SetSchema(2) is itself an Update at the current version; clear anything it logged.
-	base := len(ledgerLines(t))
-
-	boom := errors.New("boom")
-	if err := Update(func(tx *Tx) error { return boom }); !errors.Is(err, boom) {
-		t.Fatalf("Update err = %v, want boom", err)
-	}
-	checkStoredSchema(t, strconv.Itoa(2), "schema after failed Update = %q, want 2")
-	if n := len(ledgerLines(t)); n != base {
-		t.Fatalf("failed Update logged %d ledger line(s), want 0", n-base)
-	}
-
-	if err := Update(func(tx *Tx) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
-	l := ledgerLines(t)
-	if len(l) != base+1 || l[base]["from"] != float64(2) || l[base]["to"] != float64(schemaVersion) {
-		t.Fatalf("ledger = %v, want exactly one new 2->current line", l)
 	}
 }
 
