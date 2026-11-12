@@ -357,7 +357,7 @@ func TestAllowedServePathRejectsSymlinkedSecrets(t *testing.T) {
 	}
 }
 
-// Only home and the temp roots are served: /etc is refused, a temp-root file is served, an escaping symlink is refused.
+// Only the allow-listed roots (home user folders, temp roots) are served: /etc is refused, a temp-root file is served, an escaping symlink is refused.
 func TestAllowedServePathRoots(t *testing.T) {
 	home := t.TempDir()
 	tmpFile := filepath.Join(t.TempDir(), "shot.png")
