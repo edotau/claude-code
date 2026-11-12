@@ -26,7 +26,7 @@ func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 }
 
 func TestFormatsCheckFailsOnUnreadableStore(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestVaultDoctorChecks(t *testing.T) {
 
 func testVaultDoctorMissing(t *testing.T) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	checks := vaultDoctorChecks()
 	c := findCheck(checks, "vault")
 	if c == nil || c.Detail != "not created yet" || !c.OK {
@@ -81,7 +81,7 @@ func testVaultDoctorMissing(t *testing.T) {
 
 func testVaultDoctorSecrets(t *testing.T) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	vaulttest.Keyring(t)
 	vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
@@ -104,7 +104,7 @@ func testVaultDoctorSecrets(t *testing.T) {
 
 func testVaultDoctorCorrupt(t *testing.T) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	vaulttest.Put(t, vault.Meta, "retired", `["old", 42]`)
 	checks := vaultDoctorChecks()
 	for _, name := range []string{"vault", "vault retired keys"} {
@@ -117,7 +117,7 @@ func testVaultDoctorCorrupt(t *testing.T) {
 
 func testVaultDoctorSingleRow(t *testing.T) {
 	t.Helper()
-	hermetic(t, "")
+	hermetic(t)
 	t.Setenv("HARNESS_VAULT_KEY", "")
 	vaulttest.Keyring(t)
 	vaulttest.Secret(t, "FOO_API_KEY", "sk-test-0123456789")
@@ -132,8 +132,8 @@ func testVaultDoctorSingleRow(t *testing.T) {
 	}
 }
 
-// seed writes a file under state/harness and returns its path.
-func seedHarness(t *testing.T, name, body string) string {
+// seedHarness writes a file under state/harness.
+func seedHarness(t *testing.T, name, body string) {
 	t.Helper()
 	p := filepath.Join(paths.StateDir(), name)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -142,11 +142,10 @@ func seedHarness(t *testing.T, name, body string) string {
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return p
 }
 
 func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
-	hermetic(t, "")
+	hermetic(t)
 	seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
 	seedHarness(t, "agentversion.json", `{"claude":"1.0.0"}`) // unversioned cache: a miss, never stale
 

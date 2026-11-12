@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -286,13 +287,10 @@ func planTemplate(root string) []string {
 }
 
 func hasHeading(ls []string, want string) bool {
-	for _, l := range ls {
+	return slices.ContainsFunc(ls, func(l string) bool {
 		t := strings.TrimSpace(l)
-		if t == want || strings.HasPrefix(t, want+" ") {
-			return true
-		}
-	}
-	return false
+		return t == want || strings.HasPrefix(t, want+" ")
+	})
 }
 
 // workflows reports saved-workflow doc and helper-block drift, each as file:1 with its origin.
