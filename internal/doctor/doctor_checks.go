@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,7 +24,7 @@ import (
 // detectBrowsers reads the host's browsers; a var so tests never wait on the real powershell.exe under WSL.
 var detectBrowsers = func() browser.Report { return browser.Detect(browser.NewEnv()) }
 
-// strayClaudeJSON flags ~/.claude/.claude.json: claude reads it instead of ~/.claude.json under CLAUDE_CONFIG_DIR=~/.claude.
+// strayClaudeJSON flags ~/.claude/.claude.json, which claude reads instead of ~/.claude.json under CLAUDE_CONFIG_DIR.
 func strayClaudeJSON() (ok bool, detail string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -62,13 +63,8 @@ func inflightDoctorDetail() string {
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.
 func quotaDoctorRows(now time.Time) []check {
 	st := router.LoadState()
-	keys := make([]string, 0, len(st))
-	for k := range st {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
 	var rows []check
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(st)) {
 		e := st[k]
 		s := e.Status(now)
 		if s != router.StateExhausted && s != router.StateLow {

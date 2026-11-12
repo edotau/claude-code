@@ -2,8 +2,6 @@ package gateway
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,7 +111,7 @@ func Running(ctx context.Context) (State, bool) {
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return st, false
 	}
-	// A different pid means the recorded one was recycled; /healthz is unauthenticated, so only the OS names the process.
+	// A different pid means the recorded one was recycled; /healthz is unauthenticated, so the OS names the process.
 	if got, _ := strconv.Atoi(resp.Header.Get(PIDHeader)); got != 0 && got != st.PID {
 		return st, false
 	}
@@ -203,7 +201,7 @@ func daemonCommand(exe string) *exec.Cmd {
 }
 
 func spawn() error {
-	exe, err := paths.SelfBinary() // resolved: argv[0] `claude` would dispatch to the launcher, not `gateway proxy --serve`
+	exe, err := paths.SelfBinary() // resolved: argv[0] `claude` would run the launcher, not `gateway proxy --serve`
 	if err != nil {
 		return err
 	}
@@ -315,8 +313,7 @@ const (
 
 // ConfigID names this process's config dir without exposing the path.
 func ConfigID() string {
-	sum := sha256.Sum256([]byte(paths.ConfigDir()))
-	return hex.EncodeToString(sum[:8])
+	return textutil.SHA256Hex([]byte(paths.ConfigDir()))[:16]
 }
 
 // HolderState is what a claude-code proxy's /healthz headers report.

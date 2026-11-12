@@ -1,4 +1,4 @@
-// Package tokenledger is the per-token ledger the proxy appends to and usage and the status line read; stdlib-light for the proxy.
+// Package tokenledger is the per-token ledger the proxy appends to and usage and the status line read.
 package tokenledger
 
 import (

@@ -25,7 +25,7 @@ func guardedClient() *http.Client {
 	return &http.Client{Transport: t}
 }
 
-// upstreamIdleConns keeps this many idle connections per workspace host: Go's default of 2 re-handshakes TLS under parallel jobs.
+// upstreamIdleConns is the idle connections kept per workspace host: Go's default of 2 re-handshakes TLS in parallel.
 const upstreamIdleConns = 32
 
 // responseHeaderTimeout bounds the wait for upstream response headers so a wedged upstream fails over.

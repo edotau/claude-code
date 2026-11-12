@@ -43,7 +43,7 @@ func (r *Router) authFailure(p *providers.Provider, err error) error {
 	}
 }
 
-// readBody reads the request body up to maxBody; on a read error or an oversize body it writes the error and returns false.
+// readBody reads the request body up to maxBody; a read error or an oversize body is written out and returns false.
 func readBody(w http.ResponseWriter, in *http.Request) ([]byte, bool) {
 	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
 	if err != nil {

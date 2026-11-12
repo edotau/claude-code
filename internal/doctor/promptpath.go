@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -101,7 +102,9 @@ func exists(root, rel string) bool {
 
 // gitIgnored reports a path .gitignore covers (e.g. skills/synced/); keep the trailing / so dir-only patterns match.
 func gitIgnored(root, rel string) bool {
-	return exec.CommandContext(context.Background(), "git", "-C", root, "check-ignore", "-q", "--no-index", rel).Run() == nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "git", "-C", root, "check-ignore", "-q", "--no-index", rel).Run() == nil
 }
 
 func rules(root string) []string {
