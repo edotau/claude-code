@@ -107,8 +107,8 @@ func TestRestartStoppedRouterIsSkipped(t *testing.T) {
 			row.NewPID != 0 {
 			t.Errorf("%v: row = %+v", args, row)
 		}
-		if _, err := os.Stat(filepath.Join(paths.StateDir(), "router.json")); err == nil {
-			t.Errorf("%v: a skipped restart created router.json", args)
+		if _, err := os.Stat(filepath.Join(paths.StateDir(), "proxy.json")); err == nil {
+			t.Errorf("%v: a skipped restart created proxy.json", args)
 		}
 	}
 }
@@ -122,7 +122,7 @@ func TestRestartDryRunRunningRouterChangesNothing(t *testing.T) {
 	defer srv.Close()
 	u, _ := url.Parse(srv.URL)
 	port, _ := strconv.Atoi(u.Port())
-	state := filepath.Join(paths.StateDir(), "router.json")
+	state := filepath.Join(paths.StateDir(), "proxy.json")
 	doc := fmt.Sprintf(`{"pid":%d,"port":%d}`, os.Getpid(), port)
 	if err := os.WriteFile(state, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestRestartDryRunRunningRouterChangesNothing(t *testing.T) {
 		t.Errorf("row = %+v", row)
 	}
 	if b, _ := os.ReadFile(state); string(b) != doc {
-		t.Errorf("dry-run rewrote router.json: %q", b)
+		t.Errorf("dry-run rewrote proxy.json: %q", b)
 	}
 }
 

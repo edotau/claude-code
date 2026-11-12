@@ -385,7 +385,7 @@ func restoreCodexConfig(path string, dryRun bool, out io.Writer) error {
 }
 
 func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
-	backup, source, found, err := codexRestoreSource(path, dryRun)
+	backup, found, err := LatestCodexBackup(path)
 	if err != nil {
 		return err
 	}
@@ -393,6 +393,7 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 		fmt.Fprintf(out, "codex: no vault backup to restore for %s\n", path)
 		return nil
 	}
+	source := "encrypted vault backup"
 	if dryRun {
 		fmt.Fprintf(out, "codex: would restore %s from %s\n", path, source)
 		return nil
@@ -409,27 +410,6 @@ func restoreCodexConfigLocked(path string, dryRun bool, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "codex: restored %s from %s\n", path, source)
 	return nil
-}
-
-// codexRestoreSource is the latest vault backup, else the legacy plaintext one (read unless dryRun); found=false when neither.
-func codexRestoreSource(path string, dryRun bool) (backup codexConfigBackup, source string, found bool, err error) {
-	backup, found, err = LatestCodexBackup(path)
-	if err != nil || found {
-		return backup, "encrypted vault backup", found, err
-	}
-	src, _, ok := agentconfig.LegacyBackupSource(path)
-	if !ok {
-		return backup, "", false, nil
-	}
-	source = "legacy plaintext backup " + src
-	if !dryRun {
-		data, err := os.ReadFile(src)
-		if err != nil {
-			return backup, source, true, err
-		}
-		backup = codexConfigBackup{Data: data, Existed: true}
-	}
-	return backup, source, true, nil
 }
 
 // codexBackupOverlay is the preferences recorded in a backup's managed settings section.

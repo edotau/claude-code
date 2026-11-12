@@ -41,9 +41,6 @@ const (
 // ladderNames are the ladders routing.ladders may set.
 var ladderNames = []string{LadderDefault, LadderDatabricks}
 
-// retiredLadder is a ladder name stored routing may still carry: it loads and is never read.
-const retiredLadder = "firstParty"
-
 // Rung is one ladder step: an agent, a provider or both; Models orders its vendor models (opencode: sub ids).
 type Rung struct {
 	Agent    string   `json:"agent,omitempty"`
@@ -196,9 +193,6 @@ func validateOpencodeRouting(o OpencodeRouting) []string {
 func validateLadders(r *Registry) []string {
 	var errs []string
 	for _, name := range slices.Sorted(maps.Keys(r.Routing.Ladders)) {
-		if name == retiredLadder {
-			continue
-		}
 		if !slices.Contains(ladderNames, name) {
 			errs = append(errs, fmt.Sprintf("routing.ladders names unknown ladder %q (%s)", name, strings.Join(ladderNames, ", ")))
 			continue
@@ -278,32 +272,6 @@ func validRouteRow(key string) bool {
 	}
 	canonical, _, ok := models.Resolve(key)
 	return ok && slices.Contains(RouteAliases, models.FamilyOf(canonical))
-}
-
-// normalizeOpencodeLadder maps each routing.opencode.ladder entry that names a registry provider (e.g. a
-// legacy "chatgpt") to that provider's own OpencodeID (e.g. "openai"), so the ladder always carries sub
-// ids; an entry that is already a sub id, or names nothing in r.Providers, passes through unchanged
-// (Validate catches a truly unknown id). Duplicates after mapping are dropped, first occurrence wins.
-// Called from Parse before Validate, so a legacy provider-name entry normalizes before it is checked.
-// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-25 build.
-func normalizeOpencodeLadder(r *Registry) *[]string {
-	ladder := r.Routing.Opencode.LadderOrder()
-	if ladder == nil {
-		return nil
-	}
-	seen := make(map[string]bool, len(ladder))
-	out := make([]string, 0, len(ladder))
-	for _, id := range ladder {
-		if p, ok := r.Providers[id]; ok && p.OpencodeID != "" {
-			id = p.OpencodeID
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		out = append(out, id)
-	}
-	return &out
 }
 
 // UpdateRouting reads the providers overlay's routing object, applies fn to it, validates the merged

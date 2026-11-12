@@ -56,9 +56,6 @@ func Dir(root, name string) string {
 // agentsSkillsDir is the cross-agent skills dir every CLI reads natively: $HOME/.agents/skills.
 func agentsSkillsDir(home string) string { return filepath.Join(home, ".agents", "skills") }
 
-// legacyGeminiSkillsDir is where earlier syncs projected skills; only banner-marked dirs there are ever pruned.
-func legacyGeminiSkillsDir(home string) string { return filepath.Join(home, ".gemini", "skills") }
-
 // geminiSkillsDir is agy's own skills dir: unlike other agents it does not read ~/.agents/skills, so
 // the gemini agent pass links skills here too, in addition to the cross-agent agentsSkillsDir.
 func geminiSkillsDir(home string) string {

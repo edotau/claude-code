@@ -46,26 +46,6 @@ func checkMergedOpencode(t *testing.T, oc OpencodeRouting) {
 	}
 }
 
-// TestLegacyRoutingKeysRejected checks each retired top-level key (route, routeWeights, opencodeLadder)
-// fails Parse with a "moved to routing.X" error, rather than silently applying or being ignored.
-func TestLegacyRoutingKeysRejected(t *testing.T) {
-	cases := map[string]string{
-		`{"route": {"opencode": {"sonnet": {"model": "m"}}}}`: "routing.cells",
-		`{"routeWeights": {"price": 0.5, "headroom": 0.5}}`:   "routing.weights",
-		`{"opencodeLadder": ["openai"]}`:                      "routing.opencode.ladder",
-	}
-	for overlay, wantPath := range cases {
-		_, err := Parse(defaultsJSON, []byte(overlay))
-		if err == nil {
-			t.Errorf("overlay %s: want a legacy-key error, got nil", overlay)
-			continue
-		}
-		if !strings.Contains(err.Error(), wantPath) {
-			t.Errorf("overlay %s: error = %v, want it to name %q", overlay, err, wantPath)
-		}
-	}
-}
-
 // TestValidateRejectsOpencodeFreeTiersOpus checks an overlay naming "opus" in freeTiers fails Validate.
 func TestValidateRejectsOpencodeFreeTiersOpus(t *testing.T) {
 	overlay := []byte(`{"routing": {"opencode": {"freeTiers": ["sonnet", "opus"]}}}`)

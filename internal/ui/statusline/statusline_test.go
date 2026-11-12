@@ -280,7 +280,7 @@ func TestRouterSegment(t *testing.T) {
 	if err := os.MkdirAll(state, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, "router.json"), []byte(`{"pid":1,"port":`+u.Port()+`}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(state, "proxy.json"), []byte(`{"pid":1,"port":`+u.Port()+`}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	want := "proxy:" + u.Port()

@@ -31,7 +31,7 @@ func fixtureNukeDir(t *testing.T) string {
 	vaulttest.Secret(t, "Z_API_KEY", "other-test-value")
 	vaulttest.Secret(t, "API_KEY", "sk-super-secret")
 	mustWrite(t, filepath.Join(dir, "skills", "mine", "SKILL.md"), "mine\n")
-	mustWrite(t, filepath.Join(dir, "docs", "memory", "bank", "repo", "progress.md"), "bank\n")
+	mustWrite(t, filepath.Join(dir, "memory", "repo", "progress.md"), "bank\n")
 	return dir
 }
 
@@ -308,10 +308,10 @@ func assertArchivedVault(t *testing.T, data []byte, secretNames []string, id, ki
 	}
 }
 
-// --keep-memory archives the bank, plans/, memory/ (with knowledge/) and legacy docs/knowledge/; without it, none.
+// --keep-memory archives the bank, plans/ and memory/ (with knowledge/); without it, none.
 func TestNukeKeepMemoryArchiveSet(t *testing.T) {
-	bank := "docs/memory/bank/repo/progress.md"
-	optional := []string{"plans/2026-10-18-x.md", "memory/repo/knowledge/x.md", "memory/repo/MEMORY.md", "docs/knowledge/x.md"}
+	bank := "memory/repo/progress.md"
+	optional := []string{"plans/2026-10-18-x.md", "memory/repo/knowledge/x.md", "memory/repo/MEMORY.md"}
 	for _, keepMemory := range []bool{true, false} {
 		t.Run(map[bool]string{true: "keep-memory", false: "default"}[keepMemory], func(t *testing.T) {
 			dir := fixtureNukeDir(t)
@@ -351,7 +351,7 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 	if err := nuke(nukeOpts{Dir: dir, KeepMemory: true, Out: &out}); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"memory/.git/HEAD", "plans/2026-10-18-x.md", "docs/memory/bank/repo/progress.md"} {
+	for _, want := range []string{"memory/.git/HEAD", "plans/2026-10-18-x.md", "memory/repo/progress.md"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("preview with --keep-memory should list %q:\n%s", want, out.String())
 		}
@@ -445,7 +445,7 @@ func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 // assertKeepMemoryPaths checks the kept set holds the store, the native memory and the bank but followed no symlink.
 func assertKeepMemoryPaths(t *testing.T, got []string) {
 	t.Helper()
-	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "docs/memory/bank/repo/progress.md"} {
+	for _, want := range []string{"memory/.git/HEAD", "memory/repo/MEMORY.md", "projects/-real/memory/MEMORY.md", "memory/repo/progress.md"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("keepMemoryPaths missing %s: %v", want, got)
 		}

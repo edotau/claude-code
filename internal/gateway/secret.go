@@ -3,9 +3,8 @@ package gateway
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -15,13 +14,13 @@ import (
 // secretName is the router secret's vault record.
 const secretName = providers.RouterSecretName
 
-// ClientSecret reads the vault secret, importing router.secret if needed; remove migration after 2026-11-13.
+// ClientSecret reads the vault secret, else mints and stores one under the lock.
 func ClientSecret() (string, error) {
 	if s, ok, err := vaultSecret(); err != nil || ok {
 		return s, err
 	}
 	var out string
-	err := paths.WithFileLock(secretFile(), func() error {
+	err := paths.WithFileLock(secretLockFile(), func() error {
 		var err error
 		out, err = initSecret()
 		return err
@@ -29,64 +28,29 @@ func ClientSecret() (string, error) {
 	return out, err
 }
 
-// initSecret runs under the file lock: re-check the vault, import or mint, verify, then drop the file.
+// initSecret runs under the file lock: re-check the vault, else mint, store and verify.
 func initSecret() (string, error) {
 	if s, ok, err := vaultSecret(); err != nil || ok {
 		return s, err
 	}
-	val, fromFile, err := legacyOrNewSecret()
-	if err != nil {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
+	val := hex.EncodeToString(b)
 	if err := storeVerified(val); err != nil {
 		return "", err
-	}
-	if fromFile {
-		if err := removeLegacySecret(); err != nil {
-			return "", err
-		}
 	}
 	return val, nil
 }
 
-// removeLegacySecret deletes router.secret; a missing file is not an error.
-func removeLegacySecret() error {
-	if err := os.Remove(secretFile()); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("proxy: remove legacy %s: %w", secretFile(), err)
-	}
-	return nil
-}
-
-// vaultSecret reads the vault record; ok is false when absent or empty. A hit also drops router.secret.
+// vaultSecret reads the vault record; ok is false when absent or empty.
 func vaultSecret() (s string, ok bool, err error) {
 	s, found, err := vault.ReadSecret(secretName)
 	if err != nil {
 		return "", false, secretErr(err)
 	}
-	if !found || s == "" {
-		return "", false, nil
-	}
-	if err := removeLegacySecret(); err != nil {
-		return "", false, err
-	}
-	return s, true, nil
-}
-
-// legacyOrNewSecret returns the legacy router.secret file's value, or a fresh random one when it is absent or empty.
-func legacyOrNewSecret() (val string, fromFile bool, err error) {
-	if b, err := os.ReadFile(secretFile()); err == nil {
-		val, fromFile = strings.TrimSpace(string(b)), true
-	} else if !os.IsNotExist(err) {
-		return "", false, fmt.Errorf("proxy: read %s: %w", secretFile(), err)
-	}
-	if val == "" {
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return "", false, err
-		}
-		val = hex.EncodeToString(b)
-	}
-	return val, fromFile, nil
+	return s, found && s != "", nil
 }
 
 // storeVerified writes val to the vault and confirms it reads back unchanged.
@@ -95,7 +59,7 @@ func storeVerified(val string) error {
 		return secretErr(err)
 	}
 	if got, found, err := vault.ReadSecret(secretName); err != nil || !found || got != val {
-		return fmt.Errorf("proxy: router secret did not read back from the vault (kept %s)", secretFile())
+		return errors.New("proxy: router secret did not read back from the vault")
 	}
 	return nil
 }

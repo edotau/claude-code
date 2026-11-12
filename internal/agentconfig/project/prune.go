@@ -24,15 +24,6 @@ func isGeneratedFile(path string) bool {
 	return ok && hasGeneratedBanner(text)
 }
 
-// isGeneratedSkillDir reports whether path is a real dir (not a symlink) whose SKILL.md carries a generated banner.
-func isGeneratedSkillDir(path string) bool {
-	info, err := os.Lstat(path)
-	if err != nil || !info.IsDir() {
-		return false
-	}
-	return isGeneratedFile(filepath.Join(path, "SKILL.md"))
-}
-
 // hasGeneratedBanner reports whether a banner is the first non-empty body line after any frontmatter.
 func hasGeneratedBanner(text string) bool {
 	_, body := textutil.ParseFrontmatter(text)
@@ -52,7 +43,7 @@ func hasGeneratedBanner(text string) bool {
 }
 
 // pruneEntries removes each entry of dir that match accepts (with the PRUNE reason), counting removals and failures.
-func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), remove func(string) error, dryRun bool) syncResult {
+func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bool), dryRun bool) syncResult {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -69,7 +60,7 @@ func pruneEntries(out io.Writer, dir string, match func(os.DirEntry) (string, bo
 		}
 		path := filepath.Join(dir, e.Name())
 		if !dryRun {
-			if err := remove(path); err != nil {
+			if err := os.Remove(path); err != nil {
 				fmt.Fprintf(os.Stderr, "  prune error: %v\n", err)
 				res.errored++
 				continue
@@ -87,58 +78,5 @@ func pruneGeneratedFiles(out io.Writer, dir, ext string, keep map[string]bool, d
 		ok := !keep[e.Name()] && strings.HasSuffix(e.Name(), ext) && isGeneratedFile(filepath.Join(dir, e.Name()))
 		return "orphaned: no agent source", ok
 	}
-	return pruneEntries(out, dir, match, os.Remove, dryRun)
-}
-
-// removeGeneratedSkillDir deletes a generated skill dir (symlinks, SKILL.md, dir); direct children of root only.
-func removeGeneratedSkillDir(path, root string) error {
-	resolved, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	if filepath.Dir(resolved) != absRoot {
-		return fmt.Errorf("refusing to delete dir outside %s: %s", root, path)
-	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return err
-	}
-	if err := refuseHandAdded(path, entries); err != nil {
-		return err
-	}
-	// Symlinks, then the SKILL.md marker, then the dir: the marker survives any failure before the last step.
-	if err := removeSymlinks(path, entries); err != nil {
-		return err
-	}
-	if err := os.Remove(filepath.Join(path, "SKILL.md")); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Remove(path)
-}
-
-// refuseHandAdded errs on an entry that is no symlink or SKILL.md; checked first, as the final rmdir would fail.
-func refuseHandAdded(path string, entries []os.DirEntry) error {
-	for _, e := range entries {
-		if e.Type()&os.ModeSymlink == 0 && e.Name() != "SKILL.md" {
-			return fmt.Errorf("refusing to delete %s: holds %s", path, e.Name())
-		}
-	}
-	return nil
-}
-
-// removeSymlinks deletes the symlink entries of dir.
-func removeSymlinks(dir string, entries []os.DirEntry) error {
-	for _, e := range entries {
-		if e.Type()&os.ModeSymlink == 0 {
-			continue
-		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
+	return pruneEntries(out, dir, match, dryRun)
 }

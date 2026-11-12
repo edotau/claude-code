@@ -429,37 +429,17 @@ func HomeOr(home string) (string, error) {
 	return os.UserHomeDir()
 }
 
-// LegacyBackupSource picks the newest "<path>.backup.<stamp>", else the plain ".backup"; RevertOne and codex restore.
-// Migration: remove after 2026-11-13 once every machine has run a post-2026-10-28 build.
-func LegacyBackupSource(path string) (src string, stepBack, ok bool) {
-	if versions, err := filepath.Glob(path + ".backup.*"); err == nil && len(versions) > 0 {
-		sort.Strings(versions)
-		return versions[len(versions)-1], true, true
-	}
-	src = path + ".backup"
-	_, err := os.Stat(src)
-	return src, false, err == nil
-}
-
 // RevertOne restores path from its newest cache-mirrored backup and removes it so the next revert goes further back.
 func RevertOne(label, path string, dryRun bool, out io.Writer) error {
 	if ops := fileOps[label]; ops.Revert != nil {
 		return ops.Revert(path, dryRun, out)
 	}
-	src, ok := "", false
-	if m := mirrorsOf(path); len(m) > 0 {
-		src, ok = m[0], true
+	m := mirrorsOf(path)
+	if len(m) == 0 {
+		fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
+		return nil
 	}
-	consumed := true
-	if !ok {
-		var stepBack, legacyOK bool
-		src, stepBack, legacyOK = LegacyBackupSource(path)
-		if !legacyOK {
-			fmt.Fprintf(out, "%s: no backup to revert for %s\n", label, path)
-			return nil
-		}
-		consumed = stepBack // a versioned sidecar is consumed so the next revert steps back; plain .backup stays
-	}
+	src := m[0]
 	if dryRun {
 		fmt.Fprintf(out, "%s: would restore %s from %s\n", label, path, src)
 		return nil
@@ -471,9 +451,7 @@ func RevertOne(label, path string, dryRun bool, out io.Writer) error {
 	if err := paths.AtomicWrite(path, data, 0o600); err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	if consumed {
-		_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
-	}
+	_ = os.Remove(src) // consumed: the next revert falls through to the next-newest version
 	fmt.Fprintf(out, "%s: restored %s from %s\n", label, path, src)
 	return nil
 }
