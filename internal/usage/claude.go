@@ -158,6 +158,7 @@ type claudeUsageCache struct {
 	Schema           int             `json:"schema"`
 	FetchedAt        time.Time       `json:"fetched_at"`
 	NotBefore        *time.Time      `json:"not_before,omitempty"`
+	NoWindowAt       *time.Time      `json:"no_window_at,omitempty"` // last OK answer with no weekly window; Body is left as it was
 	SubscriptionType string          `json:"subscription_type"`
 	Owner            string          `json:"owner,omitempty"` // claudeOwner of the credentials that fetched Body
 	Body             json.RawMessage `json:"body,omitempty"`
@@ -186,16 +187,11 @@ func CachedSevenDay(maxAge time.Duration) (utilization float64, resetsAt string,
 	if c.Owner != "" && cmp.Or(claudeFileOwner(), readClaudeOwnerSidecar()) != c.Owner {
 		return 0, "", false
 	}
-	var b struct {
-		SevenDay struct {
-			Utilization float64 `json:"utilization"`
-			ResetsAt    string  `json:"resets_at"`
-		} `json:"seven_day"`
-	}
-	if json.Unmarshal(c.Body, &b) != nil {
+	u, ok := claudeUsageWindows(c.Body)
+	if !ok || (c.NoWindowAt != nil && c.NoWindowAt.After(c.FetchedAt)) { // the newest answer had no weekly window
 		return 0, "", false
 	}
-	return b.SevenDay.Utilization, b.SevenDay.ResetsAt, true
+	return u.SevenDay.Utilization, u.SevenDay.ResetsAt, true
 }
 
 // claudeFileOwner is claudeOwner of the login in .credentials.json alone; "" when only a keychain holds it.
@@ -259,7 +255,7 @@ func readClaudeUsageCache(path string) *claudeUsageCache {
 		return nil
 	}
 	var c claudeUsageCache
-	if !schemas.DecodeOK(usageCacheFormat, raw, &c) || (len(c.Body) == 0 && c.NotBefore == nil) {
+	if !schemas.DecodeOK(usageCacheFormat, raw, &c) || (len(c.Body) == 0 && c.NotBefore == nil && c.NoWindowAt == nil) {
 		return nil
 	}
 	return &c
@@ -351,6 +347,9 @@ func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.
 	if cache != nil && now.Sub(cache.FetchedAt) < claudeUsageCacheTTL() {
 		return markCached(parseClaudeUsage(cache.Body, cache.SubscriptionType)), true
 	}
+	if cache.noWindowFresh(now) {
+		return claudeCachedOrNote(cache, "unreadable response", "usage unavailable: unreadable response"), true
+	}
 	if cache != nil && cache.NotBefore != nil && now.Before(*cache.NotBefore) {
 		return claudeCachedOrNote(cache, "rate limited until "+cache.NotBefore.Local().Format("15:04"),
 			"usage unavailable: rate limited until "+cache.NotBefore.Local().Format("15:04")), true
@@ -365,7 +364,8 @@ func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.
 func claudeHandleResponse(status int, hdr http.Header, body []byte, cache *claudeUsageCache, creds claudeOAuthCreds, path string, now time.Time) []quota {
 	switch status {
 	case http.StatusOK:
-		if _, ok := claudeUsageWindows(body); !ok { // never cache a body that lacks a headline window
+		if _, ok := claudeUsageWindows(body); !ok { // remember the empty answer for the TTL, keeping any good body's data
+			markClaudeNoWindow(path, cache, creds, now)
 			return claudeCachedOrNote(cache, "unreadable response", "usage unavailable: unreadable response")
 		}
 		writeClaudeUsageCache(path, claudeUsageCache{
@@ -385,6 +385,22 @@ func claudeHandleResponse(status int, hdr http.Header, body []byte, cache *claud
 		return claudeCachedOrNote(cache, fmt.Sprintf("HTTP %d", status),
 			fmt.Sprintf("usage unavailable: HTTP %d", status))
 	}
+}
+
+// noWindowFresh reports a window-less answer recorded within the cache TTL; safe on a nil cache.
+func (c *claudeUsageCache) noWindowFresh(now time.Time) bool {
+	return c != nil && c.NoWindowAt != nil && now.Sub(*c.NoWindowAt) < claudeUsageCacheTTL()
+}
+
+// markClaudeNoWindow caches a window-less OK answer as a negative entry; a good cached body and its fetch time stay.
+func markClaudeNoWindow(path string, cache *claudeUsageCache, creds claudeOAuthCreds, now time.Time) {
+	entry := claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Owner: claudeOwner(creds)}
+	if cache != nil {
+		entry = *cache
+		entry.NotBefore = nil // an OK answer means the rate limit is over
+	}
+	entry.NoWindowAt = &now
+	writeClaudeUsageCache(path, entry)
 }
 
 // claudePlanName is the plan name ~/.claude.json shows ("Ultra"); "" when absent.
