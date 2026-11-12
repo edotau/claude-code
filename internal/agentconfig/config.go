@@ -135,6 +135,7 @@ func ParseConfig(overlay []byte) (*Config, error) {
 func applyOverlay(cfg *Config, overlay []byte) error {
 	// Agents as json.RawMessage so a "name": null entry survives decode to signal clearing.
 	var o struct {
+		Comment    json.RawMessage            `json:"_comment"` // free-text note; accepted and ignored
 		GuardRules *guardRules                `json:"guardRules"`
 		Agents     map[string]json.RawMessage `json:"agents"`
 	}
