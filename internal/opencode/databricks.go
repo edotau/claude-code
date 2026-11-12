@@ -11,8 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeDatabricks is the interactive databricks launch: the curated menu split over a chat provider
-// (openai-compatible), a Responses provider (<id>-gpt, GPT-6 rejects chat tool calls) and a native Anthropic one (<id>-claude).
+// opencodeDatabricks splits the menu across chat, Responses (GPT-6 rejects chat tools) and native Anthropic providers.
 func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, error) { // env already holds the key
 	chatBase, respBase, claudeBase, err := databricksRoutes(p, dialect, base, routed)
 	if err != nil {

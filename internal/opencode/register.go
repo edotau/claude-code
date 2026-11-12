@@ -55,9 +55,7 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 	return agent.RouteInfo{Agent: "opencode", Route: agent.RouteNone, Reason: "no route for opencode: " + s.CLI.ConfigureHint}
 }
 
-// opencodeRouteDetail reports the opencode route `claude-code configure --restore` would render: provider,
-// model/small_model (the github-copilot route only), the file it writes, and — names/booleans only,
-// never a credential — whether opencode has its own GitHub Copilot login and whether the copilot CLI has one.
+// opencodeRouteDetail reports configure --restore routes, files and login booleans, never credentials.
 func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()

@@ -7,12 +7,10 @@ import (
 	"strings"
 )
 
-// secretFlagRE matches a CLI flag naming a secret (--key, --api-token=..., --header, -H, ...); names are case-insensitive.
-var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header))(=.*)?|-H)$`)
+// secretFlagRE matches secret-naming CLI flags, case-insensitively (plus -H).
+var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header|authorization|bearer|credential|pass))(=.*)?|-H)$`)
 
-// redactConfig blanks mcp.<name>.environment/headers values, provider.<name>.options.headers values,
-// secret-flag values in .command, and the userinfo and query string of .url in an OPENCODE_CONFIG_CONTENT string;
-// returns s unchanged on any parse error.
+// redactConfig masks structured config secrets; parse errors leave the input unchanged.
 func redactConfig(s string) string {
 	var cfg map[string]any
 	if json.Unmarshal([]byte(s), &cfg) != nil {
@@ -27,8 +25,9 @@ func redactConfig(s string) string {
 	return string(body)
 }
 
-// redactProviderOptions blanks provider.<name>.options.headers values in the decoded "provider" block;
-// options.apiKey is left alone, it is already an "{env:...}" reference, never the literal secret.
+var envReferenceRE = regexp.MustCompile(`^\{env:[^{}]+\}$`)
+
+// redactProviderOptions masks headers and literal API keys, preserving environment references.
 func redactProviderOptions(raw any) {
 	providers, ok := raw.(map[string]any)
 	if !ok {
@@ -41,6 +40,10 @@ func redactProviderOptions(raw any) {
 		}
 		if opts, ok := entry["options"].(map[string]any); ok {
 			redactConfigValues(opts["headers"])
+			key, _ := opts["apiKey"].(string)
+			if _, exists := opts["apiKey"]; exists && !envReferenceRE.MatchString(key) {
+				opts["apiKey"] = "<redacted>"
+			}
 		}
 	}
 }
@@ -93,20 +96,23 @@ func redactCommandSecrets(entry map[string]any) {
 	}
 }
 
-// redactURLQuery strips entry["url"]'s userinfo and query string; a stripped query leaves a visible marker.
+// redactURLQuery strips URL userinfo, query and fragment, marking removed query and fragment values.
 func redactURLQuery(entry map[string]any) {
 	raw, ok := entry["url"].(string)
 	if !ok {
 		return
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.RawQuery == "" && u.User == nil) {
+	if err != nil || (u.RawQuery == "" && u.User == nil && u.Fragment == "") {
 		return
 	}
 	marker := ""
 	if u.RawQuery != "" {
 		marker = "?<redacted>"
 	}
-	u.RawQuery, u.User = "", nil
+	if u.Fragment != "" {
+		marker += "#<redacted>"
+	}
+	u.RawQuery, u.User, u.Fragment, u.RawFragment = "", nil, "", ""
 	entry["url"] = u.String() + marker
 }

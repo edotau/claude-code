@@ -79,7 +79,7 @@ func opencodeBinKey() string {
 	return p
 }
 
-// OpencodeMajor is the major version from `opencode --version` (cached per binary); 0 = absent, unparseable or unprobed.
+// OpencodeMajor caches the binary's major version; 0 means absent, unparseable or unprobed.
 func OpencodeMajor() int {
 	v, _ := opencodeMajor()
 	return v
@@ -124,16 +124,14 @@ func storeOpencodeMajor(key string, v int) {
 	opencodeMu.Unlock()
 }
 
-// OpencodeAuth lists opencode's stored logins, sorted by integration ID: 2.x via `opencode auth list --format
-// json --standalone`, 1.x via auth.json. A failed 2.x or version probe still returns the auth.json data, plus an
-// error. Cached per binary/auth.json state, a failure for opencodeAuthRetry (a version-probe failure not at all).
+// OpencodeAuth caches sorted logins per binary/store; failed 2.x probes fall back to auth.json with an error.
 func OpencodeAuth() ([]OpencodeIntegration, error) {
 	bin, file, key := opencodeAuthKeys()
 	opencodeMu.Lock()
 	fresh := opencodeAuthErr == nil || time.Since(opencodeAuthAt) < opencodeAuthRetry
 	if opencodeAuthIsSet && opencodeAuthKey == key && fresh {
 		defer opencodeMu.Unlock()
-		return opencodeAuthVal, opencodeAuthErr
+		return cloneOpencodeIntegrations(opencodeAuthVal), opencodeAuthErr
 	}
 	gen := opencodeAuthGen
 	opencodeMu.Unlock()
@@ -150,10 +148,18 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 	}
 	opencodeMu.Lock()
 	if gen == opencodeAuthGen {
-		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, ints, err, time.Now(), true
+		opencodeAuthKey, opencodeAuthVal, opencodeAuthErr, opencodeAuthAt, opencodeAuthIsSet = key, cloneOpencodeIntegrations(ints), err, time.Now(), true
 	}
 	opencodeMu.Unlock()
 	return ints, err
+}
+
+func cloneOpencodeIntegrations(ints []OpencodeIntegration) []OpencodeIntegration {
+	out := slices.Clone(ints)
+	for i := range out {
+		out[i].Conns = slices.Clone(out[i].Conns)
+	}
+	return out
 }
 
 func opencodeAuthV1(file string) ([]OpencodeIntegration, error) {
@@ -318,9 +324,7 @@ func opencodeLoginsErr() ([]string, error) {
 	return names, err
 }
 
-// OpencodeLogoutArgv is the non-interactive logout command: 2.x needs the credential, 1.x only the
-// integration. An unresolved bin/opencode (missing or a broken link) is an error, never a bare "opencode"
-// PATH guess, so callers report the same "not installed / broken link" message as everywhere else.
+// OpencodeLogoutArgv resolves the binary (never PATH fallback): 2.x logs out a credential, 1.x an integration.
 func OpencodeLogoutArgv(id, credID string) ([]string, error) {
 	bin, err := paths.AgentBin("opencode")
 	if err != nil {

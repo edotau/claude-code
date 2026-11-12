@@ -26,8 +26,7 @@ var opencodeTools = map[string]struct {
 // opencodeEntry is one pattern/action pair; opencode is last-match-wins, so order is the policy.
 type opencodeEntry struct{ pattern, action string }
 
-// opencodePermission renders p as opencode's permission JSON (ordered keys: the order is the precedence).
-// Unmatched calls are "ask" (mode auto: "allow") and ask goes to opencode's --auto judge (D3); plan denies unlisted.
+// opencodePermission preserves rule precedence: unmatched ask uses --auto; auto allows and plan denies unlisted.
 func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	base := map[string]string{"auto": "allow", "plan": "deny"}[p.Mode]
 	if base == "" {
@@ -52,6 +51,10 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 			}
 		}
 	}
+	return renderOpencodePermission(base, byKey), nil
+}
+
+func renderOpencodePermission(base string, byKey map[string][]opencodeEntry) json.RawMessage {
 	keys := make([]string, 0, len(byKey))
 	for k := range byKey {
 		keys = append(keys, k)
@@ -67,10 +70,10 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 		writeEntries(&b, byKey[k])
 	}
 	b.WriteString("}")
-	return b.Bytes(), nil
+	return b.Bytes()
 }
 
-// planDenied are the keys plan mode keeps closed; the rest of opencode's read-only tools are open unless a Deny matches.
+// planDenied keeps write tools closed in plan mode; read-only tools allow unless a Deny matches.
 var planDenied = map[string]bool{"edit": true, "bash": true, "task": true}
 
 // planEntries seeds plan mode's read-only policy: read tools allow, write tools deny, other tools fall to "*".
@@ -88,7 +91,7 @@ func planEntries(mode string) map[string][]opencodeEntry {
 	return byKey
 }
 
-// appendEntry adds e after dropping an earlier entry for the same pattern, so the later decision is the one that stands.
+// appendEntry replaces an earlier matching pattern so the later decision wins.
 func appendEntry(list []opencodeEntry, e opencodeEntry) []opencodeEntry {
 	list = slices.DeleteFunc(list, func(x opencodeEntry) bool { return x.pattern == e.pattern })
 	return append(list, e)
@@ -163,8 +166,7 @@ func opencodeCommand(arg string) string {
 	return arg
 }
 
-// opencodeApplyPermissions sets req's policy as the config's permission and pins OPENCODE_PERMISSION to it,
-// so the global "permission":"allow" of ~/.config/opencode/opencode.json is not inherited. No policy leaves env as is.
+// opencodeApplyPermissions pins config and permission env over global policy; no policy leaves env unchanged.
 func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, error) {
 	if !req.Tools {
 		return env, nil

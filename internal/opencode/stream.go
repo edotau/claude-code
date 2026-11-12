@@ -58,8 +58,7 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	return ev.Part.Tokens.Output > 0
 }
 
-// parseOpenCodeEvents streams the root session's text parts; onMeaningful fires once on the first meaningful event,
-// onTool once per finished tool call, onStep on every step_start before that first meaningful event.
+// parseOpenCodeEvents streams root text, signals first content and finished tools, and reports each step_start.
 func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
 	t := &ocTurn{sink: sink, lg: lg, res: &res, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
