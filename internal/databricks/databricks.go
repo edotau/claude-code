@@ -198,8 +198,7 @@ func profileArg(args []string, i int) (name string, used int, ok bool) {
 func defaultModel(reg *providers.Registry, profile string) string {
 	id := aliasID(models.Opus)
 	if reg != nil && reg.Providers[profile] != nil {
-		pr := reg.Providers[profile]
-		return pr.WireModel(id)
+		return reg.Providers[profile].WireModel(id)
 	}
 	return id
 }

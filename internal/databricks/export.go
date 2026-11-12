@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -197,12 +197,7 @@ func exportRows(reg *providers.Registry) (rows []exportRow, skipped []string) {
 
 // presetRows is one row per exportable databricks preset provider, sorted by name.
 func presetRows(reg *providers.Registry) (rows []exportRow, skipped []string) {
-	names := make([]string, 0, len(reg.Providers))
-	for n := range reg.Providers {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
+	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
 		p := reg.Providers[n]
 		if p == nil || p.Preset != providers.PresetDatabricks {
 			continue
