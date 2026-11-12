@@ -3,6 +3,7 @@ package safety
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -39,10 +40,8 @@ func protectedWrite(cmd, cwd string) string {
 		return ""
 	}
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		for _, abs := range []string{p, core.CanonPath(p)} {
-			if matchesProtected(abs) {
-				return p
-			}
+		if slices.ContainsFunc([]string{p, core.CanonPath(p)}, matchesProtected) {
+			return p
 		}
 	}
 	return ""
