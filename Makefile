@@ -134,13 +134,20 @@ toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
 	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; else \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
 	case "$$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac; \
-	tgz="go$(GO_VERSION).$$os-$$arch.tar.gz"; url="https://dl.google.com/go/$$tgz"; tmp=$$(mktemp -d); \
+	command -v curl >/dev/null 2>&1 || { echo "toolchain: curl not found; install curl and re-run" >&2; exit 1; }; \
+	[ ! -e "$(GO_LOCAL_ROOT)" ] || { echo "toolchain: $(GO_LOCAL_ROOT) exists but has no go on PATH; remove it and re-run" >&2; exit 1; }; \
+	tgz="go$(GO_VERSION).$$os-$$arch.tar.gz"; url="https://dl.google.com/go/$$tgz"; tmp=$$(mktemp -d) || { echo "toolchain: mktemp failed" >&2; exit 1; }; \
+	fail() { echo "toolchain: $$1" >&2; rm -rf "$$tmp"; exit 1; }; \
 	echo "downloading $$url"; \
-	curl -fsSL -o "$$tmp/$$tgz" "$$url" && curl -fsSL -o "$$tmp/$$tgz.sha256" "$$url.sha256"; \
+	curl -fsSL -o "$$tmp/$$tgz" "$$url" || fail "download failed: $$url"; \
+	curl -fsSL -o "$$tmp/$$tgz.sha256" "$$url.sha256" || fail "checksum download failed: $$url.sha256"; \
 	got=$$( (sha256sum "$$tmp/$$tgz" 2>/dev/null || shasum -a 256 "$$tmp/$$tgz") | cut -d' ' -f1 ); \
-	[ "$$got" = "$$(cat "$$tmp/$$tgz.sha256")" ] || { echo "sha256 mismatch for $$tgz"; rm -rf "$$tmp"; exit 1; }; \
-	tar -C "$$tmp" -xzf "$$tmp/$$tgz" && mkdir -p "$(dir $(GO_LOCAL_ROOT))" && mv "$$tmp/go" "$(GO_LOCAL_ROOT)"; \
+	[ "$$got" = "$$(cat "$$tmp/$$tgz.sha256")" ] || fail "sha256 mismatch for $$tgz"; \
+	tar -C "$$tmp" -xzf "$$tmp/$$tgz" || fail "extract failed: $$tgz"; \
+	mkdir -p "$(dir $(GO_LOCAL_ROOT))" || fail "cannot create $(dir $(GO_LOCAL_ROOT))"; \
+	mv "$$tmp/go" "$(GO_LOCAL_ROOT)" || fail "cannot move go to $(GO_LOCAL_ROOT)"; \
 	rm -rf "$$tmp"; \
+	"$(GO_LOCAL_ROOT)/bin/go" version >/dev/null 2>&1 || { echo "toolchain: $(GO_LOCAL_ROOT)/bin/go does not run" >&2; exit 1; }; \
 	echo -e "$(C_OK)installed $$($(GO_LOCAL_ROOT)/bin/go version) -> $(GO_LOCAL_ROOT)"; \
 	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"; fi; \
 	if command -v tsc >/dev/null 2>&1; then echo -e "$(C_OK)tsc found: $$(tsc --version) ($$(command -v tsc))"; \
