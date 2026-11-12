@@ -135,13 +135,10 @@ func workspacePlan(root string, with []string) []workspaceAction {
 // workspaceExists reports whether path is present; a dangling symlink is present, and only not-exist means absent.
 func workspaceExists(path string) (bool, error) {
 	_, err := os.Lstat(path)
-	if err == nil {
-		return true, nil
-	}
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, err
+	return err == nil, err
 }
 
 // workspaceErrorAction reports a path that cannot be planned; applying it fails with err.
@@ -220,10 +217,7 @@ func workspaceIgnoreAction(root string) workspaceAction {
 // counts as absence, but any other read error propagates instead of being mistaken for it.
 func workspaceHasIgnore(path string) (bool, error) {
 	b, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
 	for line := range strings.SplitSeq(string(b), "\n") {

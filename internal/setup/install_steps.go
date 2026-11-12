@@ -158,7 +158,11 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	if !sameFile(self, target) {
 		fmt.Fprintf(w, "copy     %s → %s\n", self, target)
 		if !dryRun {
-			if err := copyBinary(self, target); err != nil {
+			data, err := os.ReadFile(self)
+			if err == nil {
+				err = paths.AtomicWrite(target, data, 0o755)
+			}
+			if err != nil {
 				return "", err
 			}
 		}
@@ -479,14 +483,6 @@ func sameBytes(a, b string) bool {
 			return ok(ea) && ok(eb)
 		}
 	}
-}
-
-func copyBinary(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return paths.AtomicWrite(dst, data, 0o755)
 }
 
 //go:embed tmux.conf
