@@ -25,8 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// opencode: a generated provider block via OPENCODE_CONFIG_CONTENT; the key is an {env:} reference.
-// Interactive runs also list every alias model and import the caller's Claude rules, commands, plugin and menu.
+// opencode generates provider config and projects rules, commands, plugin and menu for interactive runs.
 func opencode(p *providers.Provider, dialect, base, model, cred string, routed bool, h *agent.Headless) ([]string, []string, error) {
 	id, err := agentconfig.OwnedID(p)
 	if err != nil {
@@ -114,8 +113,7 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
 }
 
-// interactivePlugin writes the guard plugin for an interactive launch (h nil); a headless run's Exec adds it instead.
-// A write failure is an error: the launch must not run without the fail-closed guards.
+// interactivePlugin writes interactive guards; failures abort launch to keep guards fail-closed.
 func interactivePlugin(h *agent.Headless) (string, error) {
 	if h != nil {
 		return "", nil
@@ -123,8 +121,7 @@ func interactivePlugin(h *agent.Headless) (string, error) {
 	return writePlugin()
 }
 
-// opencodeHarnessWith is the per-launch config: the portable core as instructions, the projected commands, tools-off
-// when a headless run asks, and the guard plugin url when one was written.
+// opencodeHarnessWith builds per-launch instructions, commands, tools-off policy and the guard plugin URL.
 func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 	return func(cfg map[string]any) {
 		opencodeRulesOn(cfg)
@@ -254,8 +251,7 @@ func opencodeTitle(prompt string) string {
 	return strings.TrimSpace("opencode: " + line)
 }
 
-// opencodeCopilotTarget is opencode's own GitHub Copilot login (`opencode auth login` -> a "github-copilot"
-// connection in its stored logins): opus alias, pin-aware. ok is false without that login or a matching registry provider.
+// opencodeCopilotTarget resolves the pin-aware opus route on opencode's own github-copilot login, if registered.
 func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, bool) {
 	if !OpencodeCopilotLoginPresent() {
 		return providers.Target{}, "", false
@@ -267,8 +263,7 @@ func opencodeCopilotTarget(reg *providers.Registry) (providers.Target, string, b
 	return providers.Target{Provider: p, Model: p.Models[models.Opus]}, "opencode's own GitHub Copilot login (opencode auth login)", true
 }
 
-// OpencodeCopilotLoginPresent reports whether opencode's stored logins (OpencodeAuth: 1.x auth.json or the
-// 2.x CLI) include "github-copilot", the integration `opencode auth login` stores for a GitHub Copilot sign-in.
+// OpencodeCopilotLoginPresent checks opencode's stored github-copilot login (1.x auth.json or 2.x CLI).
 func OpencodeCopilotLoginPresent() bool {
 	return slices.Contains(listOpencodeLogins(), "github-copilot")
 }
@@ -305,11 +300,7 @@ func opencodeCopilotLogin(model string, h *agent.Headless) ([]string, []string, 
 	return env, argv, nil
 }
 
-// opencodeCopilotModelIDs resolves opencode's github-copilot route's sonnet ("model") and haiku
-// ("small_model") wire ids: sonnet carries the everyday coding load, haiku is the cheap alias for
-// sub-tasks; each honors CLAUDE_<SLOT>_MODEL then CLAUDE_MODEL the way providers.Select resolves a
-// session alias, rooted at the github-copilot provider instead of the session's. ok is false without a
-// registered github-copilot provider or either alias.
+// opencodeCopilotModelIDs resolves pin-aware sonnet/haiku IDs under github-copilot; false if either alias is missing.
 func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bool) {
 	p, found := reg.LoginProfile("github", "copilot")
 	if !found {
@@ -363,8 +354,7 @@ func modelsDefined(env []string) []string {
 	return append(env, opencodeNoModelsFetch+"=1")
 }
 
-// mutateOpencodeConfigEnv applies fn to the JSON in each opencodeConfigEnv entry of env (appending one when absent).
-// An unreadable block is an error, or with lenient replaced by an empty config.
+// mutateOpencodeConfigEnv edits each inline config (appending if absent); lenient replaces unreadable blocks.
 func mutateOpencodeConfigEnv(env []string, lenient bool, fn func(map[string]any)) ([]string, error) {
 	found := false
 	env = slices.Clone(env)
@@ -404,8 +394,7 @@ func mutateConfigJSON(body string, lenient bool, fn func(map[string]any)) (strin
 	return string(out), err
 }
 
-// opencodeOverlayModels is the overlay's model/small_model: github-copilot/ ids on the copilot-only dispatch (no
-// opencode-go login, so the table's opencode-go cells would be unservable), else the table's opencode cells.
+// opencodeOverlayModels selects github-copilot/ cells for copilot-only dispatches, else the table's opencode cells.
 func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	if !OpencodeOwnLoginPresent() && OpencodeCopilotLoginPresent() {
 		if reg, err := providers.Load(); err == nil && reg != nil {
@@ -449,8 +438,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	return res, err
 }
 
-// RenderSettings is the base launch env, then the effort as --variant on `opencode run` (the TUI has no such flag)
-// and the permission policy as config plus OPENCODE_PERMISSION, with --auto.
+// RenderSettings applies launch env, run-only effort --variant, and permission config with --auto.
 func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
 	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	if err != nil {
@@ -580,8 +568,7 @@ func (opencodeEngine) Presence(c router.Cell) error {
 	return nil
 }
 
-// OwnLogin is opencode on its own stored login/config: argv only, no harness route injected.
-// Tools off still rides OPENCODE_CONFIG_CONTENT, which opencode merges over its config.
+// OwnLogin uses stored login/config with argv only, adding inline config when tools are off.
 func (opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error) {
 	if err := agent.CheckPrompt(h); err != nil {
 		return nil, nil, err
@@ -608,8 +595,7 @@ func (opencodeEngine) RouteDetail() (string, bool) {
 // opencodeSystemAgent is the custom agent whose prompt carries --system-prompt for opencode.
 const opencodeSystemAgent = "harness-system"
 
-// opencodeSystemPrompt defines a primary agent with prompt in opencodeConfigEnv (merged into any config
-// already there) and selects it with --agent, the one system-prompt channel opencode run has.
+// opencodeSystemPrompt merges a primary agent carrying --system-prompt into inline config and selects it with --agent.
 func opencodeSystemPrompt(env, argv []string, prompt string) ([]string, []string) {
 	env, _ = mutateOpencodeConfigEnv(env, true, func(cfg map[string]any) {
 		agents, _ := cfg["agent"].(map[string]any)
@@ -647,8 +633,7 @@ func OpencodeCredID(prefix string) string {
 	return prefix
 }
 
-// opencodeCredential resolves prefix's credential: opencode's own stored login first, else (for `opencode`) the
-// vault key as launch env; an error names what is missing. The key value rides env only, never output.
+// opencodeCredential uses stored login then the opencode vault key via env only; missing credentials are errors.
 func opencodeCredential(prefix string) (env []string, err error) {
 	id := OpencodeCredID(prefix)
 	logins, lerr := opencodeLoginsErr()
@@ -689,8 +674,7 @@ type ownLoginKey struct{ key, env string }
 
 var ownLogin paths.Memo[ownLoginKey, bool] // InvalidateOpencodeAuth drops it; a probe in flight then is not kept
 
-// OpencodeOwnLoginPresent reports a usable `opencode` credential (Go/Zen plans): a stored login or the vault key.
-// The answer is reused for ownLoginTTL, so a launch's route calls read the vault once.
+// OpencodeOwnLoginPresent checks stored Go/Zen login or vault key, reusing the answer for ownLoginTTL.
 func OpencodeOwnLoginPresent() bool {
 	_, _, key := opencodeAuthKeys()
 	ok, _ := ownLogin.Do(ownLoginKey{key, os.Getenv(opencodeAPIKeyEnv)}, func(bool, error) time.Duration { return ownLoginTTL },

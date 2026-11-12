@@ -131,8 +131,7 @@ func (h *hookHost) note(phase, format string, args ...any) {
 	fmt.Fprintf(h.log, "%s %s phase=%s %s\n", time.Now().UTC().Format(time.RFC3339), h.session, phase, fmt.Sprintf(format, args...))
 }
 
-// fire runs each bound hook on event whose matcher hits tool, one Dispatch each so the log names the hook;
-// it stops at the first Block and returns it as err (only the before phase acts on it).
+// fire logs each matching hook and stops at the first Block; only the before phase acts on it.
 func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx []string, err error) {
 	payload["session_id"], payload["cwd"], payload["hook_event_name"] = h.session, h.cwd, event
 	if tool != "" {
@@ -148,12 +147,7 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 			h.note(phase, "event=%s hook=%s error=%v", event, b.Spec.Name, err)
 			continue
 		}
-		if res.Decision != core.Allow || res.Context != "" || res.Stderr != "" {
-			h.note(phase, "event=%s tool=%s hook=%s decision=%s context_chars=%d reason=%q", event, tool, b.Spec.Name,
-				[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(cmp.Or(res.Reason, res.Stderr), reasonLogRunes, "…"))
-		} else {
-			h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, b.Spec.Name)
-		}
+		h.noteResult(phase, event, tool, b.Spec.Name, res)
 		if res.Decision == core.Block {
 			return ctx, fmt.Errorf("hook %s blocked the dispatch: %s", b.Spec.Name, cmp.Or(res.Reason, res.Stderr, "no reason given"))
 		}
@@ -164,8 +158,16 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 	return ctx, nil
 }
 
-// before runs SessionStart then UserPromptSubmit and returns argv with their context folded ahead of the prompt;
-// a Block from either is the error, and the caller must not start the child.
+func (h *hookHost) noteResult(phase, event, tool, name string, res core.Result) {
+	if res.Decision != core.Allow || res.Context != "" || res.Stderr != "" {
+		h.note(phase, "event=%s tool=%s hook=%s decision=%s context_chars=%d reason=%q", event, tool, name,
+			[]string{"allow", "ask", "block"}[res.Decision], len(res.Context), textutil.CapRunes(cmp.Or(res.Reason, res.Stderr), reasonLogRunes, "…"))
+	} else {
+		h.note(phase, "event=%s tool=%s hook=%s decision=allow", event, tool, name)
+	}
+}
+
+// before folds SessionStart/UserPromptSubmit context into argv; a Block closes the host and prevents launch.
 func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 	if h == nil {
 		return argv, nil
@@ -188,8 +190,7 @@ func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 	return out, nil
 }
 
-// parser is the stream parser that hands each finished tool call to the during-run phase; onStep (may be nil)
-// fires on every step_start.
+// parser handles finished tool calls during runs; optional onStep fires on each step_start.
 func (h *hookHost) parser(onStep func()) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 	var onTool func(openCodeEvent)
 	if h != nil {
@@ -235,7 +236,7 @@ func (h *hookHost) after(res wire.Result) {
 	_, _ = h.fire("after", settings.EventSessionEnd, "", map[string]any{"reason": "other", "harness_agent": "opencode"})
 }
 
-// claudeTool maps an opencode tool call to the Claude tool name and input the hooks read; ok is false if none watches it.
+// claudeTool maps watched opencode tools and inputs to Claude hook names; others return ok=false.
 func claudeTool(tool string, in map[string]any) (string, map[string]any, bool) {
 	rename := func(name string, keys map[string]string) (string, map[string]any, bool) {
 		out := map[string]any{}

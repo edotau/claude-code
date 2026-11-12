@@ -60,9 +60,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 	return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
 }
 
-// opencodeLadderProvider resolves one opencodeLadder id to its registry provider: a provider whose
-// opencodeID matches directly (github-copilot, openai, nvidia, ...), else a synthetic provider for
-// opencode's own plan (opencode-go), which carries no registry entry.
+// opencodeLadderProvider resolves matching registry OpencodeIDs or a synthetic opencode-go provider.
 func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Provider, error) {
 	for _, name := range reg.Names() {
 		if p := reg.Providers[name]; p.OpencodeID == id {
@@ -75,9 +73,7 @@ func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Prov
 	return nil, fmt.Errorf("opencode ladder id %q: no provider has opencodeID %q", id, id)
 }
 
-// hubDispatch is one opencode-routed ladder step: `opencode run -m <opencodeID>/<model>` on provider, under
-// the exposed agent name — so Result.Agent reads the same across every dispatch of the chain, and only
-// Result.Provider shows which account actually answered.
+// hubDispatch runs opencode on one ladder provider; Result.Agent stays fixed while Result.Provider names the account.
 type hubDispatch struct {
 	agent    string
 	provider *providers.Provider
@@ -108,8 +104,7 @@ func (l hubDispatch) Caps() agent.Caps {
 		ReadOnly: agent.Emulated, SafeMode: agent.Native, Permissions: agent.Native, Direct: agent.Native, Env: agent.Native, SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated}
 }
 
-// Available requires the opencode binary and an opencode login for this dispatch's provider; a login-less
-// ladder step reports why here instead of failing mid-exec.
+// Available requires the binary and this provider's login, reporting missing logins before dispatch.
 func (l hubDispatch) Available() error {
 	if _, err := paths.AgentBin("opencode"); err != nil {
 		return err
@@ -191,8 +186,7 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	return bin, env, argv, nil
 }
 
-// resolveModel: "" takes provider's opus alias; an alias name maps through provider's table; anything else (a routed
-// cell's bare model, a raw id or "provider:model") is parsed against it directly.
+// resolveModel uses opus for empty input, maps aliases via the provider, and parses raw IDs directly.
 func (l hubDispatch) resolveModel(reqModel string) string {
 	reqModel = strings.TrimPrefix(reqModel, l.provider.OpencodeID+"/")
 	var id string
