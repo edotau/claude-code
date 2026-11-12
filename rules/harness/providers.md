@@ -29,6 +29,8 @@ paths:
 - Agents run on their pins (gemini on Google); per-call routes use
   `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
   An agent's own login: `--overlay '{"provider":"openai"}'` (codex), likewise `anthropic`, `github`, `google`.
+  `databricks:<profile>` confines the Databricks hop to that workspace; unless fallback is `none`, a failed or gated
+  dispatch may still fall back to the agent's own login, then `claude`.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
   dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code vault edit`); remove it to turn
   it off.
@@ -37,6 +39,12 @@ paths:
 
 Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id: `internal/providers/defaults.json` plus
 the vault overlay map each alias per provider.
+
+- **On a Databricks profile** `opus`/`sonnet`/`haiku` pick the first member of that tier's bucket
+  (`internal/router/table.json` → `databricks`) the agent can run and, with a fresh listing, the workspace lists
+  READY. An explicit `--model`, the overlay `model` and the agent record's model outrank the bucket.
+- **Any endpoint the workspace serves runs by its bare name** (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); a name
+  it lists no endpoint for is refused at preflight (with `--fallback` it falls back instead).
 
 - **`opus`** — architectural decisions, maximum-reasoning research and analysis.
 - **`sonnet`** — planning, review, orchestration, exploration; the default `claude` leaf.
@@ -53,12 +61,13 @@ static menu: routing never touches the network.
 - **Refresh:** `make install`, `doctor --refresh`, `preflight --live`; with the switch on, also `switch`,
   `<agent> profile`, `configure` exit (record changed or switch flipped on) and a detached `preflight --refresh` at
   session start, at most once per 15 minutes.
-- **Fallback ignores the model alias:** a swap takes the first READY entry in menu order, so a sonnet dispatch can land
-  on an opus endpoint. Menu order is the control. An explicit model in the record swaps too; the swap appears in
+- **A swap ignores the model alias:** a pinned or explicit model that is not READY is replaced by the first READY
+  entry in menu order, so a sonnet dispatch can land on an opus endpoint. Menu order is the control; an alias pick
+  walks its bucket first (Model selection). An explicit model in the record swaps too; the swap appears in
   `gateway` skips.
 - **Live rescue:** a codex dispatch that gets `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once
-  on the next READY Responses model. An exact `--model` never retries. copilot and opencode refuse unknown models
-  client-side, so there is no captured failure text for them.
+  on the next READY Responses model. An exact `--model` never retries. copilot and opencode have no live
+  rescue: preflight refuses a name the fresh listing lacks before launch; a cold listing skips that check with a note.
 
 ## Databricks routes (key rule)
 
