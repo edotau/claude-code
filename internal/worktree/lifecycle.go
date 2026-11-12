@@ -157,11 +157,7 @@ type CleanResult struct {
 	Reason        string // populated when Removed is false: why cleanup was refused
 }
 
-// Clean removes name's worktree only after a live recheck confirms it is unlocked, clean, merged and
-// owned by repo (resolveWorktree's collision check); it never forces removal, and keeps the branch
-// unless a safe `branch -d` succeeds. dryRun runs the same recheck and reports the verdict only. The
-// whole recheck-and-remove runs under the per-worktree lease (WithWorktreeLease), so it can never
-// interleave with an active resolve or merge on the same worktree.
+// Clean removes name's worktree only after a live recheck (unlocked, clean, merged, owned) under the lease; no force.
 func Clean(repo *Repo, name string, dryRun bool) (CleanResult, error) {
 	return cleanWithLog(repo, name, dryRun, os.Stderr)
 }
@@ -190,7 +186,7 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 		return CleanResult{}, err
 	}
 
-	gitDir, reason := cleanBusyReason(dest)
+	gitDir, reason := cleanBusyReason(dest, nil)
 	if reason != "" {
 		result.Reason = reason
 		return result, nil
@@ -224,8 +220,8 @@ func beginClean(name, dest string, log io.Writer) (CleanResult, error) {
 }
 
 // inUseReason is the refusal reason for a worktree some process is using ("" = free).
-func inUseReason(dest string) string {
-	reason, err := InUseBy(dest)
+func inUseReason(dest string, in func(string) ([]Proc, error)) string {
+	reason, err := inUseBy(dest, in)
 	if err != nil {
 		return "in-use check failed: " + err.Error()
 	}
@@ -243,9 +239,9 @@ func lockReason(locked bool, err error) string {
 	return ""
 }
 
-// cleanBusyReason runs the in-use, lock and in-progress-operation checks in order and returns dest's git dir.
-func cleanBusyReason(dest string) (gitDir, reason string) {
-	if reason := inUseReason(dest); reason != "" {
+// cleanBusyReason runs the in-use (lister in, nil = live), lock and operation checks in order; returns the git dir.
+func cleanBusyReason(dest string, in func(string) ([]Proc, error)) (gitDir, reason string) {
+	if reason := inUseReason(dest, in); reason != "" {
 		return "", reason
 	}
 	ctx, cancel := gitTimeoutCtx()
@@ -304,9 +300,7 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 	return result
 }
 
-// CleanAll previews (or, with apply, executes) Clean across every entry List finds that actually
-// exists on disk and isn't already orphaned; auto-prune and deletion of unregistered directories are
-// not done here, so an orphan is only ever reported, never removed, by this call.
+// CleanAll previews (or, with apply, runs) Clean for every existing, non-orphaned entry; orphans are only reported.
 func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 	entries, err := List(repo)
 	if err != nil {
@@ -360,9 +354,7 @@ func headOfContext(ctx context.Context, dest string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// isLockedAt stats the linked worktree's private "locked" marker directly, so Clean needs no full
-// `worktree list` round trip just to recheck one entry's lock state. Only a confirmed os.IsNotExist
-// counts as unlocked; any other stat error is an unknown state and must propagate.
+// isLockedAt stats the "locked" marker directly; only a confirmed IsNotExist is unlocked, any other error propagates.
 func isLockedAt(gitDir string) (bool, error) { return markerExists(gitDir, "locked") }
 
 // DiscardSummary is what CleanForce is about to throw away, reported before anything is removed.
@@ -371,10 +363,7 @@ type DiscardSummary struct {
 	Dirty, Unmerged      int
 }
 
-// CleanForce removes name's worktree even when dirty or unmerged, then force-deletes its branch.
-// It still refuses a worktree that is in use, locked, or the main checkout, and reports the
-// DiscardSummary before removing anything; dryRun reports the summary and removes nothing. Runs
-// under the per-worktree lease (WithWorktreeLease), like Clean.
+// CleanForce removes name even when dirty or unmerged and force-deletes its branch; still refuses in-use, locked, main.
 func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary)) (CleanResult, error) {
 	var result CleanResult
 	err := WithWorktreeLease(repo, name, func() error {
@@ -420,7 +409,7 @@ func forceBusyReason(repo *Repo, dest string) string {
 	if isMainCheckout(repo, dest) {
 		return "refusing to remove the main checkout"
 	}
-	if reason := inUseReason(dest); reason != "" {
+	if reason := inUseReason(dest, nil); reason != "" {
 		return reason
 	}
 	ctx, cancel := gitTimeoutCtx()

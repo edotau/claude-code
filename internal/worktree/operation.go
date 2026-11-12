@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// Operation is the durable record of one agent-mediated conflict resolution: the OIDs pinned before
-// the agent ever ran, so a crash-and-resume revalidates against those exact commits, never a fresh
-// Preflight's possibly-moved ones.
+// Operation is the durable record of one agent resolution; OIDs are pinned before the agent runs so resume revalidates.
 type Operation struct {
 	Schema            int `json:"schema"`
 	ID                string
@@ -28,24 +26,21 @@ type Operation struct {
 	Phase             string   // "resolving" | "resolved" | "failed" | "timeout"
 	StartedAt         time.Time
 	Deadline          time.Time
-	Agent             string // "claude" | "codex"
+	Agent             string // the agent name given to --resolve-agent
 	AgentExitOK       bool   // true only once the agent process itself returned success with no fallback
 }
 
 // operationsDir holds one JSON file per repo+worktree under the harness's existing runtime state dir.
 func operationsDir() string { return filepath.Join(paths.StateDir(), "worktree-merge-ops") }
 
-// operationPath is deterministic from repo+name, so --resume needs no id lookup — just the same
-// repo and worktree name the original `worktree merge --resolve-agent` call used.
+// operationPath is deterministic from repo+name, so --resume needs no id lookup.
 func operationPath(repoMain, name string) string {
 	slug := paths.Slug(filepath.Base(filepath.Clean(repoMain))+"-"+name, "._-", 0, "op")
 	sum := sha256.Sum256([]byte(filepath.Clean(repoMain) + "\x00" + name)) // the slug alone collides across repos/case
 	return filepath.Join(operationsDir(), slug+"-"+hex.EncodeToString(sum[:4])+".json")
 }
 
-// operationLeasePath is a separate lock file (not operationPath+".lock", to avoid colliding with
-// paths.WithFileLock's own ".lock" suffix convention) held for the full duration of one resolveWithAgent
-// call — fresh or resumed — so a concurrent resume can never race the still-running original.
+// operationLeasePath is the lock WithWorktreeLease holds; not ".lock", the suffix paths.WithFileLock owns.
 func operationLeasePath(repoMain, name string) string {
 	return operationPath(repoMain, name) + ".lease"
 }
@@ -60,8 +55,7 @@ func SaveOperation(op *Operation) error {
 	return paths.AtomicWrite(operationPath(op.Repo, op.Worktree), data, 0o600)
 }
 
-// loadOperation reads back whatever --resolve-agent last saved for repo+name; a missing file surfaces
-// as the plain *os.PathError from os.ReadFile, so --resume can report "nothing to resume" itself.
+// loadOperation reads the saved operation; a missing file surfaces as the plain *os.PathError for --resume to report.
 func loadOperation(repo *Repo, name string) (*Operation, error) {
 	data, err := os.ReadFile(operationPath(repo.Main, name))
 	if err != nil {
@@ -100,7 +94,12 @@ func loadResumable(repo *Repo, name string) (op *Operation, worktreePath string,
 	if op.Repo != repo.Main {
 		return nil, "", fmt.Errorf("operation %s belongs to %s, not %s", op.ID, op.Repo, repo.Main)
 	}
-	worktreePath = filepath.Join(repo.Root, op.Worktree)
+	if op.Worktree != name {
+		return nil, "", fmt.Errorf("operation %s records worktree %q, not %q", op.ID, op.Worktree, name)
+	}
+	if worktreePath, err = checkWorktreeName(repo, name); err != nil {
+		return nil, "", err
+	}
 	if _, err := os.Stat(worktreePath); err != nil {
 		return nil, "", fmt.Errorf("worktree %q not found at %s: %w", op.Worktree, worktreePath, err)
 	}

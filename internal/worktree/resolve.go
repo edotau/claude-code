@@ -21,11 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// WithWorktreeLease runs fn holding the exclusive per-worktree operation lease for repo+name: the one
-// invariant serializing a resolve, an ordinary merge, and a Clean on the same worktree so they can
-// never interleave. Always acquired before promote's own merge lock, never the reverse — Merge and the
-// CLI's merge lifecycle both nest promote inside this lease, so that is the only nesting order that
-// exists in this codebase and the two locks cannot deadlock against each other.
+// WithWorktreeLease runs fn under the lease serializing resolve, merge and clean per worktree (before the merge lock).
 func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 	leasePath := operationLeasePath(repo.Main, name)
 	// TryFileLock does not create the lease dir, which may not exist yet on a first resolve.
@@ -42,8 +38,7 @@ func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 	return nil
 }
 
-// Bounded-wait knobs and the one seam over the real agent dispatch; a test shrinks the first two and
-// fakes the clock/agent through the vars so the whole poll loop runs in milliseconds, never a real model.
+// Bounded-wait knobs and the agent-dispatch seam; tests shrink them so the poll loop runs in milliseconds.
 var (
 	nowFn          = time.Now
 	sleepFn        = time.Sleep
@@ -61,11 +56,7 @@ type askEnvelope struct {
 	} `json:"error"`
 }
 
-// runResolveAgent shells out to this same claude-code binary's own `ask` verb — --fallback none so an
-// explicitly selected codex dispatch either runs as codex or fails outright, never silently as claude — once,
-// with tools enabled, on prompt inside workDir. It never retries. The agent only edits files; it is
-// told not to run git add/commit/merge (a sandboxed agent can't write inside .git anyway) — the
-// controller (finalizeAgentResolution) stages and commits its edits once it exits.
+// runResolveAgent runs `ask --fallback none` once in workDir (codex never silently becomes claude); no retry.
 var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 	bin, err := claudeCodeBin()
 	if err != nil {
@@ -96,8 +87,7 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	return env, nil
 }
 
-// claudeCodeBin resolves the binary to self-exec: this code already runs inside it, so os.Executable
-// is the common case; PATH lookup is the fallback for an unusual invocation (e.g. `go run`).
+// claudeCodeBin resolves the binary to self-exec: os.Executable, else PATH (e.g. under `go run`).
 func claudeCodeBin() (string, error) {
 	if exe, err := os.Executable(); err == nil {
 		return exe, nil
@@ -105,8 +95,7 @@ func claudeCodeBin() (string, error) {
 	return exec.LookPath("claude-code")
 }
 
-// resolutionState is checkResolution's three-way verdict: still mid-resolution, a verified clean
-// commit, or a state no further waiting will fix (an abort, or a stale merge commit).
+// resolutionState is checkResolution's verdict: pending, a verified clean commit, or invalid (abort/stale).
 type resolutionState int
 
 const (
@@ -115,17 +104,7 @@ const (
 	resolutionInvalid
 )
 
-// resolveWithAgent drives one agent-mediated conflict resolution to completion. The caller must already
-// hold WithWorktreeLease(repo, name, ...) for the full span of this call — this function does no
-// locking of its own. op == nil starts fresh: it materializes plan's merge-tree-predicted conflict for
-// real inside the worktree (never repo.Main), invokes agentName once with tools enabled to edit (not
-// commit) the conflicted files, then the controller itself verifies and commits — see
-// finalizeAgentResolution. op != nil is the --resume path: it requires a persisted, successful,
-// fallback-free agent-exit receipt (op.AgentExitOK) before even polling — a failed, timed-out, or still
-// running operation can never be waved through by git state alone — then skips straight to polling the
-// saved operation (for a human or an agent that committed on its own despite the instruction not to); a
-// tools-enabled agent is never re-invoked automatically, crash or not. Either way, only promote (the
-// caller's job) commits repo.Main; this function only edits/polls the worktree and reports.
+// resolveWithAgent drives one agent resolution under the lease; op == nil runs fresh, else resumes by polling.
 func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
 	if op != nil {
 		if !op.AgentExitOK {
@@ -145,8 +124,16 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 	if err != nil {
 		return nil, nil, err
 	}
+	op = newResolveOperation(repo, plan, agentName, conflictPaths)
+	if err := SaveOperation(op); err != nil {
+		return nil, nil, abortMaterialized(plan.WorktreePath, err)
+	}
+	return runAndFinalize(ctx, op, plan, resolvePrompt(plan, conflictPaths))
+}
 
-	op = &Operation{
+// newResolveOperation is the "resolving" record for a fresh agent resolution, pinned to plan's OIDs.
+func newResolveOperation(repo *Repo, plan *MergePlan, agentName string, conflictPaths []string) *Operation {
+	op := &Operation{
 		ID:                newOperationID(),
 		Repo:              repo.Main,
 		Worktree:          filepath.Base(plan.WorktreePath),
@@ -159,17 +146,18 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 		Agent:             agentName,
 	}
 	op.Deadline = op.StartedAt.Add(maxResolveWait)
-	if err := SaveOperation(op); err != nil {
-		return nil, nil, abortMaterialized(plan.WorktreePath, err)
-	}
+	return op
+}
 
-	res, runErr := runResolveAgent(ctx, agentName, resolvePrompt(plan, conflictPaths), plan.WorktreePath, maxResolveWait)
+// runAndFinalize runs op's agent once, records the exit receipt, then verifies and commits its edits.
+func runAndFinalize(ctx context.Context, op *Operation, plan *MergePlan, prompt string) (*Operation, *MergeResult, error) {
+	res, runErr := runResolveAgent(ctx, op.Agent, prompt, plan.WorktreePath, maxResolveWait)
 	if runErr != nil {
-		return failOperation(op, fmt.Errorf("resolve: agent %s failed: %w", agentName, runErr))
+		return failOperation(op, fmt.Errorf("resolve: agent %s failed: %w", op.Agent, runErr))
 	}
 	if res.Fallback != "" {
 		return failOperation(op, fmt.Errorf(
-			"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", agentName, res.Fallback, res.FallbackReason))
+			"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", op.Agent, res.Fallback, res.FallbackReason))
 	}
 	op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
 	if err := SaveOperation(op); err != nil {
@@ -189,10 +177,7 @@ func abortMaterialized(worktreePath string, saveErr error) error {
 	return fmt.Errorf("resolve: save operation, merge aborted: %w", saveErr)
 }
 
-// materializeConflict turns plan's merge-tree-predicted conflict into a real one inside the worktree
-// via an actual `git merge` — conflict markers plus MERGE_HEAD, ready for an agent to resolve. A merge
-// that unexpectedly completes cleanly is reported as Phase "integrate" instead, so the caller knows
-// there's nothing left for an agent to do.
+// materializeConflict makes the predicted conflict real in the worktree; a clean merge returns Phase "integrate".
 func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, error) {
 	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, isDirty); err != nil {
 		return nil, err
@@ -224,8 +209,7 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 // defaultMarkerSize is git's conflict-marker width when a path sets no conflict-marker-size attribute.
 const defaultMarkerSize = 7
 
-// isConflictMarker matches a git marker line of width size: a run of size '=' alone, or size '<'/'>' alone
-// or followed by a space.
+// isConflictMarker matches a git marker line of width size: '=' alone, or '<'/'>' alone or followed by a space.
 func isConflictMarker(line string, size int) bool {
 	line = strings.TrimSuffix(line, "\r")
 	if line == strings.Repeat("=", size) {
@@ -264,9 +248,7 @@ func markerSizes(ctx context.Context, worktreePath string, paths []string) (map[
 	return sizes, nil
 }
 
-// conflictMarkersClear reports whether every path in paths is free of leftover conflict markers, by a
-// direct line scan of each file at that path's marker width (conflict-marker-size, default 7).
-// badPath names one offending path when clean is false; err means the check itself could not be trusted.
+// conflictMarkersClear scans each path at its marker width (default 7); badPath names one offender when clean is false.
 func conflictMarkersClear(ctx context.Context, worktreePath string, paths []string) (clean bool, badPath string, err error) {
 	sizes, err := markerSizes(ctx, worktreePath, paths)
 	if err != nil {
@@ -289,8 +271,7 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 	return true, "", nil
 }
 
-// changedPaths lists TRACKED changes only: untracked files an agent's own tooling drops (plugin caches) are never
-// staged, and Clean still refuses the worktree while they exist, so they cannot ride into the commit or be lost.
+// changedPaths lists TRACKED changes only: untracked tooling residue is never staged, and Clean still keeps the tree.
 func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
 	out, err := runGit(ctx, worktreePath, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=no")
 	if err != nil {
@@ -306,8 +287,7 @@ func changedPaths(ctx context.Context, worktreePath string) ([]string, error) {
 	return result, nil
 }
 
-// agentChangedPaths lists tracked paths that differ from the clean merge of the pinned OIDs (index or worktree), so
-// files the merge itself auto-merged and staged never read as agent edits.
+// agentChangedPaths lists tracked paths differing from the clean merge of the pinned OIDs (not auto-merged files).
 func agentChangedPaths(ctx context.Context, op *Operation, worktreePath string) ([]string, error) {
 	out, err := runGit(ctx, worktreePath, nil, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z",
 		op.OriginalSourceOID, op.TargetOID)
@@ -348,12 +328,7 @@ func outsideConflictPaths(changed, conflictPaths []string) []string {
 	return extra
 }
 
-// finalizeAgentResolution is the controller's half of the new contract: a sandboxed agent (e.g. codex's
-// workspace-write) can edit files but can't write inside .git, so it is told to edit only — this
-// function verifies every originally-conflicted path lost its markers and that nothing outside those
-// paths changed, then runs `git add` + `git commit --no-edit` itself. Either check failing fails the
-// operation outright (like a timeout: the operation file and the worktree's edits are preserved,
-// nothing here falls back to polling) since no further agent turn is coming.
+// finalizeAgentResolution checks markers are gone and nothing else changed, then add + commit; a failure fails the op.
 func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	clean, badPath, err := conflictMarkersClear(ctx, worktreePath, op.ConflictPaths)
 	if err != nil {
@@ -409,10 +384,7 @@ func agentEditsInScope(ctx context.Context, op *Operation, worktreePath string) 
 	return nil
 }
 
-// pollUntilResolved is the fallback path for --resume: nothing re-invokes the agent, so this only
-// detects a human (or an agent that committed on its own despite the instruction not to) finishing the
-// job out of band. It checks checkResolution every pollInterval until resolved, invalid, canceled, or
-// op.Deadline passes, updating and re-saving op at every terminal transition.
+// pollUntilResolved is the --resume path: it polls checkResolution until resolved, invalid, canceled or op.Deadline.
 func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -435,13 +407,7 @@ func pollUntilResolved(ctx context.Context, op *Operation, worktreePath string) 
 	}
 }
 
-// checkResolution inspects worktreePath's live git state against op's pinned OIDs — the one seam both
-// the poll loop and finalizeAgentResolution's post-commit check use, so resuming or finalizing
-// revalidates exactly what a live poll would have. MERGE_HEAD still set, or any unmerged path left,
-// means the agent is still mid-resolution. Uncommitted changes once MERGE_HEAD clears, or a HEAD
-// unchanged since the agent started, means the merge was aborted rather than resolved. Both pinned
-// commits must be ancestors of the new HEAD, rejecting a stale merge commit left over from an earlier
-// aborted attempt.
+// checkResolution checks git state vs op's pinned OIDs: pending mid-merge, invalid if aborted or stale, else resolved.
 func checkResolution(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
 	pending, err := resolutionMidMerge(ctx, worktreePath)
 	if err != nil {
@@ -476,8 +442,7 @@ func checkResolution(ctx context.Context, op *Operation, worktreePath string) (r
 	return verifyResolvedContent(ctx, op, worktreePath)
 }
 
-// verifyResolvedContent applies finalize's content checks to the committed resolution, so a resume accepts only
-// what a fresh finalize would: no conflict markers in the conflicted paths, no tracked edits outside them.
+// verifyResolvedContent applies finalize's content checks to a commit, so resume matches a fresh finalize.
 func verifyResolvedContent(ctx context.Context, op *Operation, worktreePath string) (resolutionState, string, error) {
 	clean, badPath, err := conflictMarkersClear(ctx, worktreePath, op.ConflictPaths)
 	if err != nil {
@@ -520,8 +485,7 @@ func checkPinnedAncestry(ctx context.Context, op *Operation, worktreePath, head 
 	return resolutionResolved, "", nil
 }
 
-// unmergedPaths reads `git diff --name-only --diff-filter=U -z`: every path still carrying an unmerged
-// (conflicted) index stage. Empty means every conflict the agent was handed has been staged/resolved.
+// unmergedPaths reads `git diff --name-only --diff-filter=U -z`; empty means every handed conflict is resolved.
 func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 	out, err := runGit(ctx, path, nil, "diff", "--name-only", "--diff-filter=U", "-z")
 	if err != nil {
@@ -559,10 +523,7 @@ func endOperation(op *Operation, phase string, err error) (*Operation, *MergeRes
 	return op, nil, err
 }
 
-// resolvePrompt frames the task for the agent: edit every listed conflicted file to its correct
-// resolved state, with no leftover conflict markers — and nothing else. It never asks the agent to
-// stage or commit (a sandboxed agent such as codex's workspace-write cannot write inside .git anyway);
-// finalizeAgentResolution does that once the agent exits.
+// resolvePrompt has the agent edit the conflicted files only; a sandboxed agent cannot write .git.
 func resolvePrompt(plan *MergePlan, conflictPaths []string) string {
 	return fmt.Sprintf(
 		"The git worktree at %s has a real merge conflict (MERGE_HEAD is set there), merging branch %q "+
@@ -575,8 +536,7 @@ func resolvePrompt(plan *MergePlan, conflictPaths []string) string {
 		plan.WorktreePath, plan.TargetRef, plan.TargetOID, conflictPaths)
 }
 
-// newOperationID is a short random tag for one saved Operation; collisions are harmless since the file
-// path is keyed by repo+worktree, not by this id.
+// newOperationID is a short random tag; collisions are harmless since the file path is keyed by repo+worktree.
 func newOperationID() string {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {

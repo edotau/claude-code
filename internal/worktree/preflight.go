@@ -15,8 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Issue codes Preflight (and promote's recheck) can append to a MergePlan; each names one condition
-// that must clear before Merge proceeds. IssueConflict is the one agent resolution acts on.
+// Issue codes Preflight (or promote) can add to a MergePlan; IssueConflict is what a resolve agent acts on.
 const (
 	issueDetachedTarget     = "detached-target"
 	issueTargetMismatch     = "target-mismatch"
@@ -28,17 +27,14 @@ const (
 	IssueConflict           = "conflict"
 )
 
-// Issue is one blocking condition Preflight or promote found, named by Code; Paths names the
-// checkout(s) or conflicted files involved, Detail carries a human-readable reason.
+// Issue is one blocking condition named by Code; Paths names the checkouts or files, Detail the reason.
 type Issue struct {
 	Code   string
 	Paths  []string
 	Detail string
 }
 
-// MergePlan is Preflight's pinned, read-only snapshot of a worktree merge: both OIDs, the resolved
-// target branch, and every Issue found. A non-empty Issues means Merge must not proceed — the plan
-// itself is still returned so a caller (notably `worktree merge --dry-run`) can show why.
+// MergePlan is Preflight's pinned, read-only snapshot; a non-empty Issues means Merge must not proceed.
 type MergePlan struct {
 	CommonDir      string
 	MainGitDir     string // main checkout's own git-dir, resolved once by Preflight ("" = look it up)
@@ -67,9 +63,7 @@ func gitEnv(extra ...string) []string {
 	return append(env, extra...)
 }
 
-// runGit is the one seam over external git invocation in this file and merge.go: a test fakes a
-// capability failure or an unsupported exit code through it, without a specially built git binary.
-// extraEnv is appended to the subprocess environment; nil for the common case.
+// runGit is the one seam over git here and in merge.go, so tests fake failures; extraEnv is appended (nil = none).
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = gitEnv(extraEnv...)
@@ -80,17 +74,12 @@ var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...st
 // gitWaitDelay bounds how long a cancelled git call may hold its output pipes open before being abandoned.
 var gitWaitDelay = 5 * time.Second
 
-// Preflight resolves name to its worktree path, rejects an unsafe starting state (steps 1), pins both
-// OIDs and simulates the merge (step 2), and returns the plan either way — a non-nil error means
-// Preflight itself could not run (bad name, missing worktree, git infra failure), never a rejected state.
-// ctx cancellation stops the next git call; Preflight does no writes, so a cancel never leaves partial state.
+// Preflight resolves name, rejects unsafe state, pins both OIDs and simulates the merge; an error = it could not run.
 func Preflight(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
 	return preflight(ctx, repo, name, target, false)
 }
 
-// preflightAfterResolution re-plans once an agent resolution is committed: the first Preflight proved the worktree
-// held no untracked files, so any now present are the agent's tooling residue (e.g. a plugin cache) — they cannot
-// ride into the promoted commits, and Clean still keeps the worktree while they exist.
+// preflightAfterResolution re-plans after a committed agent resolution, tolerating untracked tooling residue.
 func preflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*MergePlan, error) {
 	return preflight(ctx, repo, name, target, true)
 }
@@ -104,9 +93,6 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 		return nil, err
 	} else if stop {
 		return plan, nil
-	}
-	if err := pinOIDs(ctx, repo, plan); err != nil {
-		return nil, err
 	}
 	if err := simulateIssues(ctx, repo, plan); err != nil {
 		return nil, err
@@ -138,32 +124,40 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 	return plan, nil
 }
 
-// screenCheckouts records an issue for a detached or mismatched target and a dirty or mid-operation checkout; stop
-// is true once the plan holds any issue.
+// screenCheckouts records an issue for a bad target or dirty/mid-operation checkout; with none, the plan pins HEADs.
 func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
 	if stop, err := screenTargetBranch(ctx, repo, plan, target); err != nil || stop {
 		return stop, err
 	}
+	if plan.TargetOID, err = headOfContext(ctx, repo.Main); err != nil {
+		return false, err
+	}
+	if plan.SourceOID, err = headOfContext(ctx, plan.WorktreePath); err != nil {
+		return false, err
+	}
+	if err := screenStates(ctx, repo, plan, trackedOnlyWorktree); err != nil {
+		return false, err
+	}
+	if len(plan.Issues) > 0 {
+		plan.TargetOID, plan.SourceOID = "", "" // dirty or mid-operation: nothing is pinned
+		return true, nil
+	}
+	return false, nil
+}
 
-	targetOID, err := headOfContext(ctx, repo.Main)
-	if err != nil {
-		return false, err
-	}
-	sourceOID, err := headOfContext(ctx, plan.WorktreePath)
-	if err != nil {
-		return false, err
-	}
-	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, targetOID+"..."+sourceOID); err != nil {
-		return false, err
+// screenStates records an issue for a dirty or mid-operation target and worktree checkout.
+func screenStates(ctx context.Context, repo *Repo, plan *MergePlan, trackedOnlyWorktree bool) error {
+	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+"..."+plan.SourceOID); err != nil {
+		return err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, trackedOnlyWorktree); err != nil {
-		return false, err
+		return err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	return len(plan.Issues) > 0, nil // dirty or mid-operation: stop before pinning OIDs or writing anything
+	return nil
 }
 
 // screenTargetBranch records the main checkout's branch on plan; stop is true for a detached or non-target checkout.
@@ -183,22 +177,6 @@ func screenTargetBranch(ctx context.Context, repo *Repo, plan *MergePlan, target
 		return true, nil
 	}
 	return false, nil
-}
-
-// pinOIDs fixes the target and source HEADs on the plan.
-func pinOIDs(ctx context.Context, repo *Repo, plan *MergePlan) (err error) {
-	plan.TargetOID, err = headOfContext(ctx, repo.Main)
-	if err != nil {
-		return err
-	}
-	plan.SourceOID, err = headOfContext(ctx, plan.WorktreePath)
-	if err != nil {
-		return err
-	}
-	if plan.TargetOID == "" || plan.SourceOID == "" {
-		return fmt.Errorf("could not resolve HEAD for %s or %s", repo.Main, plan.WorktreePath)
-	}
-	return nil
 }
 
 // simulateIssues adds the unrelated-history, capability or conflict issue the dry-run merge predicts.
@@ -228,12 +206,7 @@ func simulateIssues(ctx context.Context, repo *Repo, plan *MergePlan) error {
 	return nil
 }
 
-// simulateMerge runs `git merge-tree --write-tree --name-only -z` for source into target and reports
-// the conflicted paths (nil = clean). A non-nil error means the simulation itself could not be
-// trusted — a capability failure or an exit code outside {0,1} — and is never a signal to proceed as
-// if it were clean. It isolates every object the write side effect produces into a throwaway
-// alternate object directory, removed before return, so repoPath's real store is never touched.
-// commonDir is repoPath's common dir when already known ("" = look it up).
+// simulateMerge runs `git merge-tree --write-tree` in a scratch object dir; nil = clean, an error is never clean.
 func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOID string) (conflicts []string, err error) {
 	args := []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", sourceOID, targetOID}
 	env, cleanup, isoErr := isolatedObjectDir(ctx, repoPath, commonDir)
@@ -252,9 +225,7 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 	}
 }
 
-// isolatedObjectDir makes a scratch object directory with repoPath's real one layered as an alternate
-// (read access to every existing object, writes landing only in the scratch dir — see
-// git-merge-tree(1) and the GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES env vars it honors).
+// isolatedObjectDir makes a scratch object dir with the real one as an alternate, so repoPath's store is never written.
 func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]string, func() error, error) {
 	if commonDir == "" {
 		var err error
@@ -282,9 +253,7 @@ func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]strin
 	}, nil
 }
 
-// parseConflicts reads merge-tree's -z/--name-only/--no-messages output: the written tree OID as the
-// first NUL-terminated field, then one conflicted path per remaining non-empty field. It never greps
-// for conflict markers — the structured field layout is the only thing trusted here.
+// parseConflicts reads merge-tree -z output: tree OID first, then one conflicted path per field; never greps markers.
 func parseConflicts(out []byte) []string {
 	fields := strings.Split(string(out), "\x00")
 	var conflicts []string
@@ -386,8 +355,7 @@ func inProgressIssue(ctx context.Context, path, gitDir string) (*Issue, error) {
 	return &Issue{Code: issueInProgress, Paths: []string{path}, Detail: op + " in progress"}, nil
 }
 
-// checkCheckoutState folds the dirty and in-progress-operation checks for one checkout into a single
-// blocking Issue (dirty wins when both are true; the operation marker is secondary context).
+// checkCheckoutState folds the dirty and in-progress checks for one checkout into one blocking Issue (dirty wins).
 func checkCheckoutState(ctx context.Context, path, gitDir string, dirtyProbe func(context.Context, string) (bool, error)) (*Issue, error) {
 	dirty, err := dirtyProbe(ctx, path)
 	if err != nil {
@@ -414,8 +382,7 @@ func checkWorktreeState(ctx context.Context, path, gitDir string, trackedOnly bo
 	return checkCheckoutState(ctx, path, gitDir, probe)
 }
 
-// isDirty reports uncommitted changes in path (Preflight and inspect share it). --untracked-files=all
-// overrides a repo-local status.showUntrackedFiles=no, which would otherwise hide new files from this check.
+// isDirty reports uncommitted changes; --untracked-files=all overrides a repo-local showUntrackedFiles=no.
 func isDirty(ctx context.Context, path string) (bool, error) {
 	out, err := runGit(ctx, path, nil, "status", "--porcelain", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
@@ -424,9 +391,7 @@ func isDirty(ctx context.Context, path string) (bool, error) {
 	return len(strings.TrimSpace(string(out))) > 0, nil
 }
 
-// opMarkers names the per-worktree git-dir markers for a mid-operation state; a linked worktree's own
-// git-dir (never --git-common-dir) carries these, distinct per worktree. MERGE_AUTOSTASH means a
-// restore of the pre-merge local edits is still pending — see lifecycle.go's Clean, which refuses on it.
+// opMarkers names the per-worktree git-dir mid-operation markers; MERGE_AUTOSTASH means a pre-merge restore is pending.
 var opMarkers = []struct{ marker, op string }{
 	{"MERGE_HEAD", "merge"},
 	{"MERGE_AUTOSTASH", "merge (autostash restore pending)"},
@@ -448,8 +413,7 @@ func markerExists(gitDir, name string) (bool, error) {
 	}
 }
 
-// inProgressOp reports the mid-operation marker under path's own git-dir ("" = look it up), if any. Only a
-// confirmed os.IsNotExist counts as "no marker"; any other stat error is an unknown state and propagates.
+// inProgressOp reports the mid-operation marker in gitDir ("" = look it up); only IsNotExist means none.
 func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bool, err error) {
 	if gitDir == "" {
 		if gitDir, err = gitDirOf(ctx, path); err != nil {
@@ -468,8 +432,7 @@ func inProgressOp(ctx context.Context, path, gitDir string) (op string, found bo
 	return "", false, nil
 }
 
-// requireBranch is currentBranch's stricter sibling (list.go): Preflight must reject a detached
-// target outright rather than silently keying off its OID the way the staleness check tolerates.
+// requireBranch is currentBranch's stricter sibling: a detached target is rejected, not keyed off its OID.
 func requireBranch(ctx context.Context, path string) (string, error) {
 	out, err := runGit(ctx, path, nil, "symbolic-ref", "--short", "-q", "HEAD")
 	if code, ok := asExitErr(err); ok && code == 1 {
@@ -484,8 +447,7 @@ func requireBranch(ctx context.Context, path string) (string, error) {
 // errDetachedHead is requireBranch's only "not on a branch" verdict; every other git failure is a real error.
 var errDetachedHead = errors.New("HEAD is detached, not on a branch")
 
-// unrelatedHistories reports whether source and target share no common ancestor, using asExitErr's
-// contract (exit 1 = clean answer, anything else = a failure).
+// unrelatedHistories reports whether source and target share no ancestor (asExitErr: exit 1 = clean answer).
 func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID string) (bool, error) {
 	_, err := runGit(ctx, repoPath, nil, "merge-base", sourceOID, targetOID)
 	if err == nil {
@@ -497,8 +459,7 @@ func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID stri
 	return false, err
 }
 
-// isAncestor reports whether ancestor is reachable from descendant (fast-forward is possible),
-// via the same exit-code contract as unrelatedHistories.
+// isAncestor reports whether ancestor is reachable from descendant, with unrelatedHistories' exit-code contract.
 func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
 	_, err := runGit(ctx, repoPath, nil, "merge-base", "--is-ancestor", ancestor, descendant)
 	if err == nil {
@@ -539,8 +500,7 @@ func gitDirOf(ctx context.Context, path string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// gitErrorDetail recovers a failed command's own stderr (exec.Cmd.Output populates it on an
-// *exec.ExitError) so a blocked merge reports git's reason, not just "exit status N".
+// gitErrorDetail recovers a failed command's stderr from an *exec.ExitError, so a block reports git's reason.
 func gitErrorDetail(err error) string {
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {

@@ -14,9 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// MergeResult reports one terminal transition of the two-phase merge — "integrate" (inside the
-// worktree) or "promote" (the fast-forward onto repo.Main). ResumeHint is populated only when the
-// caller must retry manually (the target moved, or ancestry no longer holds).
+// MergeResult reports one terminal transition ("integrate" or "promote"); ResumeHint is set when the caller must retry.
 type MergeResult struct {
 	Phase      string
 	BeforeOID  string
@@ -24,9 +22,7 @@ type MergeResult struct {
 	ResumeHint string
 }
 
-// integrateTarget merges the pinned target OID into the worktree itself — never repo.Main — so any
-// integration commit lands in the worktree's own history. Callers gate on plan.Issues (a predicted
-// conflict) before calling this; resolve handles the ones that stop here instead.
+// integrateTarget merges the pinned target OID into the worktree (never repo.Main); callers gate on plan.Issues first.
 func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
 		return nil, err
@@ -49,11 +45,7 @@ func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeRe
 	return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 }
 
-// promote reacquires the merge lock, rechecks both OIDs and checkout states against what Preflight
-// pinned, requires ancestry, and fast-forwards repo.Main onto the integrated worktree HEAD — never a
-// real merge commit. Target movement or a failed ancestry/re-simulation check stops with a retry hint;
-// this never falls back to a real conflicting merge. A ctx already canceled when promote is entered
-// returns immediately without acquiring the lock or touching repo.Main.
+// promote rechecks OIDs and states under the merge lock, requires ancestry and fast-forwards repo.Main.
 func promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -175,8 +167,7 @@ func ShortOID(oid string) string {
 	return oid
 }
 
-// Merge runs the non-dry-run lifecycle under the caller's worktree lease: resume-or-plan, the verify-gate decision,
-// then integrate -> verify -> promote -> clean. Errors are unprefixed; the caller adds "worktree merge: ".
+// Merge runs the lifecycle under the caller's lease: plan or resume, gate, integrate, verify, promote, clean.
 func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*mergeOutcome, error) {
 	var plan *MergePlan
 	var err error
@@ -239,8 +230,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
 }
 
-// afterPromote reports the promotion, ticks the plan, then cleans the worktree unless NoClean. The ledger closes
-// exactly once: by the clean (carrying the merge and branch state) or, when no removal happens, right here.
+// afterPromote reports the promotion, ticks the plan, then cleans unless NoClean; the ledger closes exactly once.
 func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*mergeOutcome, error) {
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
@@ -285,8 +275,7 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 	return nil
 }
 
-// PlanOrResolve runs Preflight and shows the plan; a predicted conflict with ResolveAgent set goes to resolveWithAgent
-// and re-Preflights. A nil plan with a nil error means blocked and already shown (dry-run, no agent, other Issue).
+// PlanOrResolve runs Preflight; a predicted conflict with ResolveAgent resolves and re-plans; nil plan = blocked.
 func PlanOrResolve(ctx context.Context, repo *Repo, req MergeRequest, dryRun bool) (*MergePlan, error) {
 	plan, err := Preflight(ctx, repo, req.Name, req.Target)
 	if err != nil {
@@ -318,8 +307,7 @@ func resolveConflict(ctx context.Context, repo *Repo, plan *MergePlan, req Merge
 	return replanPinned(ctx, repo, req, origTargetRef, origTargetOID, "agent resolution", "during resolution")
 }
 
-// resumeMerge reattaches to the --resolve-agent operation saved for req.Name without re-invoking the agent, then
-// returns a fresh Preflight plan; both the saved target branch and OID must still match.
+// resumeMerge reattaches to the saved --resolve-agent operation without re-invoking the agent and re-plans.
 func resumeMerge(ctx context.Context, repo *Repo, req MergeRequest) (*MergePlan, error) {
 	op, worktreePath, err := loadResumable(repo, req.Name)
 	if err != nil {
@@ -391,8 +379,7 @@ func issueCodes(issues []Issue) string {
 	return strings.Join(codes, ", ")
 }
 
-// mergeLockFile is the one harness lock serializing the fast-forward promote step across concurrent
-// `worktree merge` runs. It coordinates this harness's own operations only, never an external writer.
+// mergeLockFile serializes the fast-forward promote across `worktree merge` runs, never external writers.
 const mergeLockFile = "worktree-merge.lock"
 
 // mergeLockWait is how long acquire waits (when wait<=0) before errMergeBusy; a var so tests need not sit it out.
@@ -401,8 +388,7 @@ var mergeLockWait = 5 * time.Second
 // errMergeBusy is returned when the merge lock is not granted within the wait.
 var errMergeBusy = errors.New("worktree merge: another promote holds the merge lock")
 
-// acquire runs fn holding the one merge lock; wait<=0 means mergeLockWait. Not reentrant: fn must
-// never call acquire itself, or a single caller would deadlock on its own held lock.
+// acquire runs fn holding the merge lock (wait<=0 means mergeLockWait); not reentrant, fn must never call acquire.
 func acquire(wait time.Duration, fn func() error) error {
 	dir := paths.StateDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {

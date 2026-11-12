@@ -31,9 +31,7 @@ type goPkg struct {
 	TestGoFiles, XTestGoFiles                   []string
 }
 
-// scopedGoGate builds the merge gate: build and vet everything, test the packages base...HEAD changed, every
-// package that imports them (tests included, transitively) and the registry packages. full is true for a
-// go.mod/go.sum change or an unowned file that is neither markdown nor Go.
+// scopedGoGate builds the merge gate: build and vet all, test changed packages and their importers; full = whole suite.
 func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", base+"...HEAD")
 	if err != nil {
@@ -92,7 +90,7 @@ func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, 
 func scopedGateCommand(pkgs []string) string {
 	args := make([]string, len(pkgs))
 	for i, p := range pkgs {
-		args[i] = "./" + p
+		args[i] = textutil.QuoteSH("./" + p)
 	}
 	if len(args) == 0 { // a bare `go test` runs the root dir and fails when it has no Go files
 		return "go build ./... && go vet ./..."
@@ -305,8 +303,7 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 	return gate, source
 }
 
-// normalizeScope cleans scope dirs to slash form without a leading ./ or trailing /; "." or "" means the whole repo.
-// A name starting with - keeps its ./ so the toolchain reads it as a path, never as an option.
+// normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
 func normalizeScope(scope []string) []string {
 	var out []string
 	for _, d := range scope {
@@ -442,8 +439,7 @@ func stripMakeComment(line string) string {
 	return line
 }
 
-// runVerify runs cmdStr in workDir under `bash -c 'set -o pipefail; ...'` so a failing pipeline stage fails the gate;
-// ctx cancellation kills it, and a nonzero exit is the one signal that stops promotion.
+// runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
 func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
 	cmd.Dir, cmd.Env = workDir, gateEnv()
@@ -454,7 +450,7 @@ func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Wr
 	return cmd.Run()
 }
 
-// gateEnv is the parent environment minus the vault master key, which no gate needs.
+// gateEnv is gitEnv (so a caller's GIT_* hook state cannot redirect the gate's git) minus the vault master key.
 func gateEnv() []string {
-	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
+	return slices.DeleteFunc(gitEnv(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
 }

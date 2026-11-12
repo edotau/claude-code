@@ -221,8 +221,8 @@ func TestInUseByRealProcess(t *testing.T) {
 func useRealProcessScan(t *testing.T) {
 	t.Helper()
 	stubbedIn, stubbedUp, stubbedScan, origSettle := processesIn, parentOf, scanProcs, inUseSettle
-	if platformScan.in != nil { // TestMain stubbed the scan; this test needs the OS one
-		processesIn, parentOf, scanProcs = platformScan.in, platformScan.up, platformScan.procs
+	if platformScan.procs != nil { // TestMain stubbed the scan; this test needs the OS one
+		processesIn, parentOf, scanProcs = nil, platformScan.up, platformScan.procs
 	}
 	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
 	t.Cleanup(func() { processesIn, parentOf, scanProcs, inUseSettle = stubbedIn, stubbedUp, stubbedScan, origSettle })

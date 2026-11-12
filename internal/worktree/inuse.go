@@ -22,66 +22,82 @@ type Proc struct {
 	Comm string
 }
 
-// processesIn finds live processes whose cwd is dir or under it; each platform's init() assigns the
-// real implementation (linux: /proc/*/cwd, darwin: lsof), seamed here so tests can stub it.
+// processesIn is a test override of the per-dir process lister; nil means scanIn over scanProcs.
 var processesIn func(dir string) ([]Proc, error)
 
-// inUseSettle is how long a busy worktree is re-checked before refusing: git's own background maintenance
-// (auto gc after a commit) briefly runs inside it and exits on its own.
+// inUseSettle is how long a busy worktree is re-checked before refusing: git's auto gc exits on its own.
 var inUseSettle = time.Second
+
+// inUsePoll is the pause between settle re-checks of a busy worktree.
+const inUsePoll = 100 * time.Millisecond
 
 // parentOf returns pid's parent pid, used only to exclude the calling process's own ancestry below.
 var parentOf func(pid int) (int, error)
 
 // platformScan holds the OS implementations StubProcessScanForTest replaced, so a real-process test can restore them.
 var platformScan struct {
-	in    func(string) ([]Proc, error)
 	up    func(int) (int, error)
 	procs func() ([]procCwd, error)
 }
 
-// StubProcessScanForTest makes the system-wide process scan (lsof, ps) report nothing for a whole test binary
-// (call from TestMain); the caller's own cwd check in InUseBy stays real.
+// StubProcessScanForTest makes the process scan (lsof, ps) report nothing for a test binary; call from TestMain.
 func StubProcessScanForTest() {
-	platformScan.in, platformScan.up, platformScan.procs = processesIn, parentOf, scanProcs
+	platformScan.up, platformScan.procs = parentOf, scanProcs
 	processesIn = func(string) ([]Proc, error) { return nil, nil }
 	parentOf = func(int) (int, error) { return 0, nil }
 	scanProcs = func() ([]procCwd, error) { return nil, nil }
 }
 
-// InUseBy reports a refusal reason if dest is unsafe to remove right now: the calling process's own
-// cwd is inside it ("cd out first"), or another live process (not the caller or an ancestor) has its
-// cwd inside it ("in use by pid N (<comm>)"). "" means clear. Resolves symlinks on both sides first.
-func InUseBy(dest string) (string, error) {
+// InUseBy returns a refusal reason when the caller's cwd or another live non-ancestor process is in dest; "" = clear.
+func InUseBy(dest string) (string, error) { return inUseBy(dest, nil) }
+
+// inUseBy is InUseBy with an optional lister; nil means liveLister.
+func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
 	real, err := filepath.EvalSymlinks(dest)
 	if err != nil {
 		real = dest // not resolvable yet; compare against the raw path
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(cwd); err == nil && paths.Within(resolved, real) {
-			return "current directory is inside it; cd out first", nil
-		}
+	if cwdInside(real) {
+		return "current directory is inside it; cd out first", nil
 	}
-	if processesIn == nil {
+	if in == nil {
+		in = liveLister()
+	}
+	if in == nil {
 		return "", nil // no detector wired for this OS
 	}
+	return settleForeign(in, real)
+}
+
+// cwdInside reports whether the calling process's own cwd resolves inside real.
+func cwdInside(real string) bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(cwd)
+	return err == nil && paths.Within(resolved, real)
+}
+
+// settleForeign re-checks a busy dir for inUseSettle before returning the refusal for the first foreign process.
+func settleForeign(in func(string) ([]Proc, error), real string) (string, error) {
 	excluded := ancestry(os.Getpid())
 	deadline := time.Now().Add(inUseSettle)
 	for {
-		busy, err := foreignProc(real, excluded)
+		busy, err := foreignProc(in, real, excluded)
 		if err != nil || busy == nil {
 			return "", err
 		}
 		if time.Now().After(deadline) {
 			return fmt.Sprintf("in use by pid %d (%s)", busy.PID, busy.Comm), nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(inUsePoll)
 	}
 }
 
 // foreignProc returns the first live process inside dir that is not the caller or one of its ancestors.
-func foreignProc(dir string, excluded map[int]bool) (*Proc, error) {
-	procs, err := processesIn(dir)
+func foreignProc(in func(string) ([]Proc, error), dir string, excluded map[int]bool) (*Proc, error) {
+	procs, err := in(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +107,34 @@ func foreignProc(dir string, excluded map[int]bool) (*Proc, error) {
 		}
 	}
 	return nil, nil
+}
+
+// liveLister is the per-dir process lister: the processesIn override if set, else one live scan; nil = no detector.
+func liveLister() func(string) ([]Proc, error) {
+	if processesIn != nil {
+		return processesIn
+	}
+	if scanProcs != nil {
+		return scanIn
+	}
+	return nil
+}
+
+// firstLook scans once and answers "nothing inside" from it; a busy dir is re-asked live so the settle loop sees exits.
+func firstLook() func(string) ([]Proc, error) {
+	if processesIn != nil || scanProcs == nil {
+		return liveLister()
+	}
+	all, err := scanProcs()
+	return func(dir string) ([]Proc, error) {
+		if err != nil {
+			return nil, err
+		}
+		if len(filterProcs(all, dir)) == 0 {
+			return nil, nil
+		}
+		return scanIn(dir)
+	}
 }
 
 // ancestry walks pid's parent chain so InUseBy can exclude the caller's own process tree.
@@ -153,8 +197,7 @@ func scanIn(dir string) ([]Proc, error) {
 	return filterProcs(all, dir), nil
 }
 
-// PeerAgents lists agent processes with a cwd inside checkout (not .git, not a linked worktree), excluding the
-// caller's ancestry and everything descended from an agent in it. Linked worktrees are passed in as linked.
+// PeerAgents lists agent processes in checkout (not .git, linked worktrees, the caller's ancestry or its descendants).
 func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 	if scanProcs == nil {
 		return nil, nil
@@ -165,14 +208,7 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 	}
 	skip := pidsWithin(all, append([]string{filepath.Join(checkout, ".git")}, linked...))
 	mine := ancestry(os.Getpid())
-	own := map[int]bool{} // the caller's ancestors that are themselves agents by name
-	if commName != nil {
-		for pid := range mine {
-			if agentComms[commName(pid)] {
-				own[pid] = true
-			}
-		}
-	}
+	own := agentAncestors(mine)
 	var out []Proc
 	for _, p := range filterProcs(all, checkout) {
 		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
@@ -181,6 +217,20 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// agentAncestors returns the caller's ancestors that are themselves agents by name.
+func agentAncestors(mine map[int]bool) map[int]bool {
+	own := map[int]bool{}
+	if commName == nil {
+		return own
+	}
+	for pid := range mine {
+		if agentComms[commName(pid)] {
+			own[pid] = true
+		}
+	}
+	return own
 }
 
 // pidsWithin returns the pids of all whose cwd is inside any of dirs.

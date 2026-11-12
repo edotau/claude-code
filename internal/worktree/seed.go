@@ -42,9 +42,12 @@ func seedPath(main, dest, name string) error {
 	return copyEnvFile(source, target, info.Mode().Perm())
 }
 
+// seedProbeTimeout bounds the git check-ignore that gates seeding a path into a new worktree.
+const seedProbeTimeout = 10 * time.Second
+
 // seedIgnored reports whether name is git-ignored in dest; the dest branch's rules govern what may be seeded.
 func seedIgnored(dest, name string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), seedProbeTimeout)
 	defer cancel()
 	probe := name
 	if name == ".venv" {
