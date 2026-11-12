@@ -274,8 +274,21 @@ var lineLoc = regexp.MustCompile(`line \d+`)
 
 // SimplicityFindings returns one-line complexity and quality findings present in after but not in before.
 func SimplicityFindings(path, before, after string) []string {
+	return SimplicityFindingsWithBaseline(path, after, func() (string, bool) { return before, true })
+}
+
+// SimplicityFindingsWithBaseline loads before only when after has findings; false suppresses findings.
+func SimplicityFindingsWithBaseline(path, after string, baseline func() (string, bool)) []string {
 	lang := DetectLanguage(path)
 	if lang == "" {
+		return nil
+	}
+	found := simplicityKeyed(path, after, lang)
+	if len(found) == 0 {
+		return nil
+	}
+	before, ok := baseline()
+	if !ok {
 		return nil
 	}
 	old := map[string]int{}
@@ -283,7 +296,7 @@ func SimplicityFindings(path, before, after string) []string {
 		old[f.key]++
 	}
 	var out []string
-	for _, f := range simplicityKeyed(path, after, lang) {
+	for _, f := range found {
 		if old[f.key] > 0 {
 			old[f.key]--
 			continue
