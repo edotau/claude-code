@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -75,17 +76,13 @@ var helperBlocks = []helperBlock{
 }
 
 // lintTargets is every workflow script plus every skill script under root.
-func lintTargets(root string) ([]string, error) {
-	skills, err := skillScripts(root)
-	return append(workflowScripts(root), skills...), err
+func lintTargets(root string) []string {
+	return append(workflowScripts(root), skillScripts(root)...)
 }
 
 // workflowHelperDrift returns one message per script that calls a block's functions with that block missing or differing.
 func workflowHelperDrift(root string) []string {
-	scripts, err := lintTargets(root)
-	if err != nil {
-		return []string{"skills scripts: " + err.Error()}
-	}
+	scripts := lintTargets(root)
 	srcs := map[string]string{}
 	for _, s := range scripts {
 		if data, err := os.ReadFile(s); err == nil { // lintScript already reports an unreadable script
@@ -125,12 +122,7 @@ func blockDrift(b helperBlock, scripts []string, srcs map[string]string) []strin
 
 // usesAny reports whether src contains any of the call tokens.
 func usesAny(src string, uses []string) bool {
-	for _, u := range uses {
-		if strings.Contains(src, u) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(uses, func(u string) bool { return strings.Contains(src, u) })
 }
 
 // WorkflowDrift returns the saved-workflow doc and helper-block drift under root; empty when both are in sync.

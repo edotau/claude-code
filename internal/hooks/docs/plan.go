@@ -494,13 +494,10 @@ func Reminder(in *core.Input) core.Result {
 	if err != nil {
 		return core.Result{}
 	}
-	items := stillPartial(string(data))
-	if items == "" {
-		return core.ExitResult(core.ExitProceed, stderr.String())
-	}
-	msg := "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
 	res := core.ExitResult(core.ExitProceed, stderr.String())
-	res.SystemMessage = msg
+	if items := stillPartial(string(data)); items != "" {
+		res.SystemMessage = "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
+	}
 	return res
 }
 

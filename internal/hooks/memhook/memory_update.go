@@ -13,7 +13,7 @@ import (
 // updateNotSaved is the visible line when the Stop gate fails open without an update.
 const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
 
-// sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; with no spawn possible it blocks at most updateMaxBlocks times asking for `claude-code memory update`.
+// sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work, else blocks to ask for one.
 func sessionUpdate(in *core.Input, stderr io.Writer) (code int, failedOpen bool) {
 	memory.RefreshStaleEmbeddings(in.CWD)
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
@@ -37,7 +37,7 @@ func End(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// Compact (ADK add_events_to_memory): before Claude Code compacts the context, update any work no earlier dispatch covered so the bank holds them; the transcript file itself survives compaction, so this never blocks.
+// Compact (PreCompact) updates any work no earlier dispatch covered before the context compacts; it never blocks.
 func Compact(in *core.Input) core.Result {
 	in = AgentInput(sessionRootInput(in))
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
