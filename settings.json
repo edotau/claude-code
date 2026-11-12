@@ -51,7 +51,8 @@
       "Edit(~/.ssh/**)",
       "Edit(**/state/vault.db)",
       "Edit(**/.credentials.json)",
-      "Edit(~/.claude/settings.json)"
+      "Edit(~/.claude/settings.json)",
+      "Edit(//**/.claude/.claude/settings.local.json)"
     ],
     "ask": [
       "Bash(git push --force:*)",

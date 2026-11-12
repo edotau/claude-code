@@ -22,9 +22,10 @@ per request and logs `via=<host>`. A tunnel that cannot start or has died fails 
 by a provider's `auth.command` is that command's own traffic and is not tunnelled.
 
 `--host auto` (`agents ask`, and the global flag) and `--remote auto` become a host name on this machine, before any
-ssh call: the env value `HARNESS_REMOTE_HOST` (process env, else the vault's: `claude-code configure` → environment), else
-the one other online tailnet machine that answers `claude-code version` over ssh within 5 s, kept 10 minutes in
-`state/harness/remote/auto-host.json`. No machine or more than one is an error that lists them; it never guesses.
+ssh call: the env value `HARNESS_REMOTE_HOST` (process env, else the vault's: `claude-code configure` →
+environment), else the one other online tailnet machine that answers `claude-code version` over ssh within 5 s, kept
+10 minutes in `state/harness/remote/auto-host.json`. No machine or more than one is an error that lists them; it
+never guesses.
 
 An overlay `profile: auto` picks, among the Databricks serving rows that pass the local checks (a stored credential, no
 auth mark, and the model served to that agent, dropped when no workspace serves it; no token is requested, so a revoked

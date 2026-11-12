@@ -74,8 +74,8 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 ## Providers
 
 Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay (rows added by `configure github`
-and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes it). Each entry is a **profile** (an account on a provider: `qa`,
-`ultra`, `chatgpt`); see [Naming](#naming).
+and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes it). Each
+entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see [Naming](#naming).
 
 ```jsonc
 "providers": {
