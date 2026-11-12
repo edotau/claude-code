@@ -120,9 +120,10 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 // is dated by its file's mtime) and adds each token-bearing one to its local day in counts.
 func foldResponses(path string, resps []transcript.Response, cutoff time.Time, counts map[string]*dayCount) []transcript.Response {
 	var mtimeDay string
-	kept := inWindowResponses(resps, cutoff)
-	for _, r := range kept {
+	var kept []transcript.Response
+	for _, r := range inWindowResponses(resps, cutoff) {
 		if r.Usage.Total() == 0 {
+			kept = append(kept, r)
 			continue
 		}
 		day := r.At.Local().Format("2006-01-02")
@@ -134,9 +135,10 @@ func foldResponses(path string, resps []transcript.Response, cutoff time.Time, c
 			}
 			day = mtimeDay
 		}
-		if day == "" {
+		if day == "" { // undatable: leave it out of the aggregate too, so it matches the daily buckets
 			continue
 		}
+		kept = append(kept, r)
 		addDayCount(counts, day, int(r.Usage.Total()), 1)
 	}
 	return kept
@@ -196,14 +198,24 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	if strings.ContainsAny(o.session, `*?[]\/`) || o.session == "." || o.session == ".." {
 		return usageOpts{}, fmt.Errorf("--session must be a bare session id, without glob characters or path separators (got %q)", o.session)
 	}
-	if o.days > maxDays {
-		return usageOpts{}, fmt.Errorf("--days must be at most %d (got %d)", maxDays, o.days)
-	}
-	if o.days <= 0 {
-		return usageOpts{}, fmt.Errorf("--days must be 1 or more (got %d); use --days 1 for the last day", o.days)
+	if o.session == "" { // --days is ignored with --session
+		if err := checkDays(o.days); err != nil {
+			return usageOpts{}, err
+		}
 	}
 	o.wantProvider = o.wantProvider && o.show != "total"
 	return o, nil
+}
+
+// checkDays validates --days.
+func checkDays(days int) error {
+	if days > maxDays {
+		return fmt.Errorf("--days must be at most %d (got %d)", maxDays, days)
+	}
+	if days <= 0 {
+		return fmt.Errorf("--days must be 1 or more (got %d); use --days 1 for the last day", days)
+	}
+	return nil
 }
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
@@ -414,7 +426,10 @@ func newestModTime(dir string) (time.Time, error) {
 		if err != nil {
 			return err
 		}
-		info, err := d.Info() // unknown mtime could be in window, so it is an error, not a skip
+		info, err := d.Info()               // unknown mtime could be in window, so it is an error, not a skip
+		if errors.Is(err, fs.ErrNotExist) { // deleted mid-walk: nothing left to date
+			return nil
+		}
 		if err != nil {
 			return err
 		}

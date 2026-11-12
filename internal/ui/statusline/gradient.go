@@ -246,12 +246,16 @@ func velocityText(v values, mode string, pal theme.Palettes) string {
 	return strings.Join(parts, " ")
 }
 
+// maxBarWidth caps a configured bar so a typo cannot allocate without bound on every render.
+const maxBarWidth = 200
+
 // contextBarParts returns the filled and empty runs separately so renderers classify cells by construction.
 func contextBarParts(pct int, bar barConfig) (filledPart, emptyPart string) {
 	width := bar.Width
 	if width <= 0 {
 		width = 8
 	}
+	width = min(width, maxBarWidth)
 	filled, empty := bar.FilledGlyph, bar.EmptyGlyph
 	if filled == "" {
 		filled = "█"

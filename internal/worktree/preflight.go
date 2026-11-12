@@ -232,6 +232,9 @@ func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]strin
 			return nil, nil, err
 		}
 	}
+	if strings.ContainsRune(commonDir, os.PathListSeparator) {
+		return nil, nil, fmt.Errorf("git common dir %q contains %q and cannot be an alternate object directory", commonDir, os.PathListSeparator)
+	}
 	tmp, err := os.MkdirTemp("", "worktree-merge-tree-*")
 	if err != nil {
 		return nil, nil, err

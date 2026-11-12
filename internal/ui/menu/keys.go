@@ -2,6 +2,7 @@ package menu
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -179,10 +180,13 @@ func readAnswer(d *dialog, prompt string) (string, bool) {
 	return strings.TrimRight(line, "\r\n"), true
 }
 
+// errMintDeclined is runMint declining at the confirm, distinct from a mint that printed no token.
+var errMintDeclined = errors.New("mint declined")
+
 // runMint asks first (a stray Enter must never start a mint), then runs the token-minting CLI.
 func runMint(argv []string) (string, error) {
 	if !confirmTerminal("Run `"+strings.Join(argv, " ")+"` to mint a new token", false) {
-		return "", nil
+		return "", errMintDeclined
 	}
 	return configure.RunMint(argv)
 }
@@ -200,6 +204,10 @@ func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) boo
 		return true
 	}
 	tok, err := runMint(argv)
+	if errors.Is(err, errMintDeclined) {
+		d.printf("%s: mint cancelled\n", kt.Label)
+		return false
+	}
 	if err != nil {
 		d.printf("%s: %v\n", kt.Label, err)
 		return false

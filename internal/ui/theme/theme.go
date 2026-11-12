@@ -184,7 +184,7 @@ func mergeFile(dest string, overlay map[string]any, dryRun bool) (changed bool, 
 	if err != nil && !os.IsNotExist(err) {
 		return false, "", err
 	}
-	if len(raw) > 0 {
+	if len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(textutil.StripJSONC(raw), &base); err != nil {
 			return false, "", fmt.Errorf("existing file: %w", err)
 		}

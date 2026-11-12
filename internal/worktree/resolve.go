@@ -122,7 +122,7 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 	}
 	conflictPaths, err := unmergedPaths(ctx, plan.WorktreePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, abortMaterialized(plan.WorktreePath, err)
 	}
 	op = newResolveOperation(repo, plan, agentName, conflictPaths)
 	if err := SaveOperation(op); err != nil {

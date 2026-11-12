@@ -78,17 +78,22 @@ func decodeRune(buf []byte) (Key, int) {
 	return Key{Kind: KeyRune, Rune: r}, n
 }
 
-// decodeEscape handles a lone Esc and the CSI arrow sequences (ESC [ A/B/C/D); anything else drops, since
-// Pick has no other escape-driven key.
+// decodeEscape handles a lone Esc and CSI/SS3 arrow sequences (ESC [ or ESC O, A-D); anything else drops.
 func decodeEscape(buf []byte) (Key, int) {
 	if len(buf) == 1 {
 		return Key{Kind: KeyEsc}, 1
 	}
-	if buf[1] != '[' {
+	if buf[1] != '[' && buf[1] != 'O' {
 		return dropped, 1
 	}
 	if len(buf) < 3 {
-		return Key{}, 0 // "ESC [" with no final byte yet
+		return Key{}, 0 // "ESC [" or "ESC O" with no final byte yet
+	}
+	if buf[1] == 'O' { // SS3 arrows (application cursor mode); other SS3 keys drop through their final byte
+		if kind, ok := csiArrows[buf[2]]; ok {
+			return Key{Kind: kind}, 3
+		}
+		return dropped, 3
 	}
 	if kind, ok := csiArrows[buf[2]]; ok {
 		return Key{Kind: kind}, 3
