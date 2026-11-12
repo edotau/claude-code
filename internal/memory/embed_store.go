@@ -325,7 +325,7 @@ func embedClaimLive(tx *bbolt.Tx, profile string, now time.Time) bool {
 	return len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now)
 }
 
-// embedProvider is the first of the session and claude-record profiles that can embed, matching NewSemantic's order.
+// embedProvider is the first of the session and claude-record profiles that can embed, matching embedQuery's order.
 func embedProvider() *providers.Provider {
 	reg, err := providers.Load()
 	if err != nil {

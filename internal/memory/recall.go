@@ -75,7 +75,7 @@ func startSemantic(query string, enabled bool) <-chan semanticReady {
 	ready := make(chan semanticReady, 1)
 	if enabled {
 		go func() {
-			sem, err := NewSemantic(query)
+			sem, err := embedQuery(query)
 			ready <- semanticReady{sem, err}
 		}()
 	}
