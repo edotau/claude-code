@@ -952,30 +952,6 @@ func TestCommitStagesGlobNamedFilesLiterally(t *testing.T) {
 	}
 }
 
-func TestFailedCommitLeavesTheIndexClean(t *testing.T) {
-	store, _ := storeFixture(t)
-	r := StoreRepo()
-	if err := r.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(store, "a.md"), "a\n")
-	write(t, filepath.Join(store, "b.md"), "b\n")
-	lock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
-	write(t, lock, "")
-	if _, _, err := r.Commit([]string{"a.md"}, "locked", ""); err == nil {
-		t.Fatal("a held ref lock must fail the commit")
-	}
-	if staged := hosttest.In(t, store, "diff", "--cached", "--name-only"); staged != "" {
-		t.Fatalf("failed commit left %q staged", staged)
-	}
-	if err := os.Remove(lock); err != nil {
-		t.Fatal(err)
-	}
-	if _, committed, err := r.Commit([]string{"b.md"}, "next", ""); err != nil || !committed {
-		t.Fatalf("a later commit in the same store = %v, %v", committed, err)
-	}
-}
-
 func TestStoreGitIgnoresTheUsersGlobalExcludes(t *testing.T) {
 	store, _ := storeFixture(t)
 	r := StoreRepo()

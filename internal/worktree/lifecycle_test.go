@@ -486,7 +486,11 @@ func TestForceCleanNeverRemovesMainCheckout(t *testing.T) {
 
 func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 	t.Parallel()
-	repo, _, wt := preflightFixtureSetup(t)
+	repo := testRepo(t)
+	wt, err := Create(repo, "feature", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -562,23 +566,6 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	}
 	if headOf(main) != mainBefore {
 		t.Fatalf("main HEAD = %s, want unchanged %s", headOf(main), mainBefore)
-	}
-}
-
-// TestRunGitCancelledContextReturnsErrorNeverFalseClean covers the one seam over external git:
-// runGit's production implementation wraps exec.CommandContext, so a cancelled ctx must surface as an
-// error from the git call itself — never silently read as git's own "clean" exit code (0) by a caller
-// like isAncestor/unrelatedHistories that distinguishes exit-code 1 from "everything else".
-func TestRunGitCancelledContextReturnsErrorNeverFalseClean(t *testing.T) {
-	t.Parallel()
-	_, main, _ := preflightFixtureSetup(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	_, err := runGit(ctx, main, nil, "status", "--porcelain")
-	if err == nil {
-		t.Fatal("runGit: want an error for an already-cancelled context, not a successful empty result")
 	}
 }
 

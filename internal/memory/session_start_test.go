@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -330,6 +331,9 @@ func TestRecordSessionRootKeepsValidFile(t *testing.T) {
 // Racing repairs of one corrupt root leave one root, and every caller sees that same root once it returns.
 func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
 	isolatedConfig(t)
+	orig := gitOut // no git: sessionRootFor falls back to the absolute cwd
+	gitOut = func(string, ...string) (string, error) { return "", errors.New("no git") }
+	t.Cleanup(func() { gitOut = orig })
 	const id = "11111111-2222-3333-4444-555555555555"
 	cwds := make([]string, 6)
 	for i := range cwds {

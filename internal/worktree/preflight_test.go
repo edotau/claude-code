@@ -222,24 +222,6 @@ func TestPreflightRenameConflict(t *testing.T) {
 	}
 }
 
-func TestPreflightDirtyTarget(t *testing.T) {
-	t.Parallel()
-	repo, main, wt := preflightFixtureSetup(t)
-	mergeFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
-	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	plan, err := Preflight(context.Background(), repo, "feature", "")
-	if err != nil {
-		t.Fatalf("Preflight: %v", err)
-	}
-	assertDirtyTargetIssue(t, plan, "f.txt")
-	if plan.TargetOID != "" || plan.SourceOID != "" {
-		t.Fatalf("OIDs pinned despite an overlapping dirty target: %+v", plan)
-	}
-}
-
 func assertDirtyTargetIssue(t *testing.T, plan *MergePlan, path string) {
 	t.Helper()
 	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyTarget {
@@ -532,6 +514,9 @@ func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertDirtyTargetIssue(t, plan, "f.txt")
+	if plan.TargetOID != "" || plan.SourceOID != "" {
+		t.Fatalf("OIDs pinned despite an overlapping dirty target: %+v", plan)
+	}
 	want := fmt.Sprintf("f.txt (held by session peer-ses (pid %d))", os.Getpid())
 	if !strings.Contains(plan.Issues[0].Detail, want) {
 		t.Fatalf("detail = %q, want %q", plan.Issues[0].Detail, want)

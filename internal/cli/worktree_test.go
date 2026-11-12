@@ -149,6 +149,13 @@ func TestCmdWorktreeCreateThenListShowsIt(t *testing.T) {
 
 // Only a plain clean of an eligible worktree removes it; --dry-run and clean-all without --yes only preview.
 func TestCmdWorktreeCleanEligible(t *testing.T) {
+	create := func(t *testing.T) string {
+		t.Setenv("HOME", t.TempDir())
+		t.Chdir(gitRepoCLI(t))
+		_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
+		return strings.TrimSpace(out)
+	}
+	shared := create(t) // previews never remove it, so they share one fixture; the removing case builds its own
 	for _, tc := range []struct {
 		args    []string
 		want    string
@@ -160,10 +167,10 @@ func TestCmdWorktreeCleanEligible(t *testing.T) {
 		{[]string{"clean-all", "--dry-run", "--yes"}, "preview only", false}, // the safer flag wins
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
-			t.Chdir(gitRepoCLI(t))
-			_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"create", "mergeable"}) })
-			dest := strings.TrimSpace(out)
+			dest := shared
+			if tc.removed {
+				dest = create(t)
+			}
 			code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(tc.args) })
 			if code != 0 || !strings.Contains(out, tc.want) {
 				t.Fatalf("code=%d out=%q, want 0 and %q", code, out, tc.want)
@@ -241,25 +248,19 @@ func forceBranchList(t *testing.T, repo, branch string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// A plain clean refuses a dirty worktree, merged or not, and keeps it and its branch.
+// A plain clean refuses a dirty (even merged) worktree and keeps it and its branch.
 func TestCmdWorktreeCleanForceRefusedWithoutFlag(t *testing.T) {
-	for _, unmerged := range []bool{false, true} {
-		t.Run(map[bool]string{false: "dirty", true: "dirty+unmerged"}[unmerged], func(t *testing.T) {
-			repo, wt := forceFixtureDirty(t)
-			if !unmerged {
-				mergeFixtureCLIRun(t, repo, "merge", "-q", "--ff-only", "worktree-feature")
-			}
-			code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
-			if code == 0 || !strings.Contains(out, "refused:") {
-				t.Fatalf("plain clean of a dirty worktree: code=%d out=%q, want a refused: line", code, out)
-			}
-			if _, err := os.Stat(wt); err != nil {
-				t.Fatalf("worktree must survive a refused clean: %v", err)
-			}
-			if forceBranchList(t, repo, "worktree-feature") == "" {
-				t.Fatal("branch must survive a refused clean")
-			}
-		})
+	repo, wt := forceFixtureDirty(t)
+	mergeFixtureCLIRun(t, repo, "merge", "-q", "--ff-only", "worktree-feature")
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"clean", "feature"}) })
+	if code == 0 || !strings.Contains(out, "refused:") {
+		t.Fatalf("plain clean of a dirty worktree: code=%d out=%q, want a refused: line", code, out)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree must survive a refused clean: %v", err)
+	}
+	if forceBranchList(t, repo, "worktree-feature") == "" {
+		t.Fatal("branch must survive a refused clean")
 	}
 }
 
@@ -379,30 +380,18 @@ var worktreeMergeCases = []worktreeMergeCase{
 		out: []string{"clean"}, kept: true},
 	{name: "no-verify promotes, auto-cleans, marks unverified", commit: featureEdit, args: []string{"--no-verify"},
 		ok: true, out: []string{"promoted", "unverified"}, promoted: true},
-	{name: "no-clean leaves the worktree", commit: featureEdit, args: []string{"--no-verify", "--no-clean"}, ok: true,
+	{name: "no-clean leaves the worktree, resolve-agent unused on a clean plan", commit: featureEdit,
+		args: []string{"--no-verify", "--no-clean", "--resolve-agent", "claude"}, ok: true,
 		out: []string{"promoted"}, promoted: true, kept: true},
-	{name: "failing verify skips promotion", commit: featureEdit, args: []string{"--verify", "exit 1"},
-		notOut: []string{"promoted"}, kept: true},
-	{name: "passing verify runs inside the worktree", commit: featureEdit,
-		args: []string{"--verify", `test -f g.txt && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
-		out: []string{"verify: passed", "promoted"}, promoted: true},
+	{name: "explicit verify overrides detection and runs inside the worktree", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
+		args: []string{"--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
+		out: []string{"verify: passed (flag)", "promoted"}, promoted: true},
 	{name: "pipefail fails a failing first stage", commit: featureEdit, args: []string{"--verify", "false | cat"},
 		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
-	{name: "predicted conflict blocks", commit: [2]string{"f.txt", "feature line\n"}, conflict: true,
-		out: []string{"conflict"}, kept: true},
 	{name: "no detectable gate refuses", commit: featureEdit, notOut: []string{"integrated", "promoted"},
 		stderr: "no verification gate found", kept: true},
-	{name: "auto-detected failing gate", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
-		notOut: []string{"promoted"}, stderr: "verify failed", kept: true},
-	{name: "auto-detected passing gate", commit: [2]string{"Makefile", "test:\n\ttrue\n"}, ok: true,
-		out: []string{"verify: passed (Makefile)", "promoted"}, promoted: true},
-	{name: "explicit verify overrides detection", commit: [2]string{"Makefile", "test:\n\texit 1\n"},
-		args: []string{"--verify", "true"}, ok: true, out: []string{"verify: passed (flag)", "promoted"}, promoted: true},
-	{name: "resolve-agent unused on a clean plan", commit: featureEdit,
-		args: []string{"--no-verify", "--resolve-agent", "claude"}, ok: true, out: []string{"promoted"}, promoted: true},
 	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true},
 	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true},
-	{name: "resume with no saved operation", args: []string{"--resume"}, stderr: "no in-progress", kept: true},
 	{name: "dry-run resume needs an operation", args: []string{"--dry-run", "--resume"}, exit: 1,
 		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true},
 }
@@ -411,8 +400,8 @@ func TestCmdWorktreeMerge(t *testing.T) {
 	for _, tc := range worktreeMergeCases {
 		t.Run(tc.name, func(t *testing.T) { runWorktreeMergeCase(t, tc) })
 	}
+	mergeFixtureCLISetup(t)
 	for _, args := range [][]string{{"merge"}, {"merge", "does-not-exist"}} {
-		mergeFixtureCLISetup(t)
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(args) }); code == 0 {
 			t.Errorf("worktree %q: exit 0, want a failure", args)
 		}

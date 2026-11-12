@@ -106,6 +106,8 @@ func seedAliasFold(t *testing.T, e aliasEnv) (link string) {
 	write(t, filepath.Join(e.da, nativeIndexFile), "- [Shared](shared.md) — one\n")
 	write(t, filepath.Join(e.db, nativeIndexFile), "- [Shared](shared.md) — one\n- [Extra](extra.md) — two\n")
 	write(t, filepath.Join(e.db, "archive", "old.md"), "old\n")
+	write(t, filepath.Join(e.da, "archive", "sessionHistory-2026-11.md"), "# Hist\n\n## 2026-11-01 — t <!-- id:55555555 -->\nx\n")
+	write(t, filepath.Join(e.db, "archive", "sessionHistory-2026-11.md"), "# Hist\n\n## 2026-11-02 — s <!-- id:66666666 -->\ny\n")
 	write(t, filepath.Join(e.db, "handoffs", "h.md"), "handoff\n")
 	write(t, filepath.Join(e.db, "reports", "r.md"), "report\n")
 	link = filepath.Join(e.cfg, "projects", "-some-proj", "memory")
@@ -164,6 +166,10 @@ func assertFoldedFiles(t *testing.T, e aliasEnv) {
 	if strings.Count(nv, "[Shared]") != 1 || strings.Count(nv, "[Extra]") != 1 {
 		t.Errorf("MEMORY.md:\n%s", nv)
 	}
+	// same-named monthly archives with different entries merge
+	if got := aliasRead(t, filepath.Join(e.da, "archive", "sessionHistory-2026-11.md")); !strings.Contains(got, "id:55555555") || !strings.Contains(got, "id:66666666") {
+		t.Errorf("archive not merged:\n%s", got)
+	}
 }
 
 // storeCommits is the memory repo's commit count as text (git prints 0 on an unborn branch).
@@ -197,6 +203,9 @@ func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 	t.Helper()
 	if pathExists(e.db) {
 		t.Errorf("source store %s not removed", e.db)
+	}
+	if _, ok := vaultGet(t, e.kb); ok {
+		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
 	}
 	cat := aliasRead(t, filepath.Join(StoreDir(), catalogFile))
 	if strings.Contains(cat, "- "+e.kb+" ") || !strings.Contains(cat, "- "+e.ka+" ") {
@@ -321,33 +330,8 @@ func TestAliasWithoutSeparateStoreRecordsAliasOnly(t *testing.T) {
 	if err != nil || !o.Accepts(e.b) {
 		t.Errorf("alias not recorded in .origin (origin-only path): %+v err=%v", o, err)
 	}
-}
-
-func TestAliasSecondRunAfterOriginOnlyIsError(t *testing.T) {
-	e := newAliasEnv(t)
-	os.RemoveAll(e.db)
-	if _, err := alias(t, e, false); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := alias(t, e, false); err == nil {
 		t.Errorf("repeat origin-only alias: expected error, got nil")
-	}
-}
-
-// TestAliasFoldDeletesSourceVaultRow: addOriginAlias-style folding (foldOrigin's drop path) must
-// delete the source store's own vault row in the same transaction that gives the target the alias —
-// never leave a stale row behind for a dir that no longer exists.
-func TestAliasFoldDeletesSourceVaultRow(t *testing.T) {
-	e := newAliasEnv(t)
-	if _, err := alias(t, e, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := vaultGet(t, e.kb); ok {
-		t.Errorf("source key %q still has a vault row after folding into %q", e.kb, e.ka)
-	}
-	got, err := readOrigin(e.da)
-	if err != nil || !got.Accepts(e.b) {
-		t.Errorf("target row missing the folded alias: %+v, %v", got, err)
 	}
 }
 

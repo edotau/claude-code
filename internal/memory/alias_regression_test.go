@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -24,22 +23,6 @@ func TestAliasRejectsIncompleteProjectLinks(t *testing.T) {
 	}
 	if got, err := os.Readlink(link); err != nil || got != e.db {
 		t.Fatalf("source link = %q, %v; want %q unchanged", got, err, e.db)
-	}
-}
-
-// Given both stores rotated a same-named monthly archive with different entries, When folding, Then entries merge.
-func TestAliasFoldsSameNamedSessionArchives(t *testing.T) {
-	e := newAliasEnv(t)
-	rel := filepath.Join("archive", "sessionHistory-2026-11.md")
-	write(t, filepath.Join(e.da, rel), "# Hist\n\n## 2026-11-01 — t <!-- id:33333333 -->\nx\n")
-	write(t, filepath.Join(e.db, rel), "# Hist\n\n## 2026-11-02 — s <!-- id:44444444 -->\ny\n")
-
-	if _, err := alias(t, e, false); err != nil {
-		t.Fatalf("AliasRepo: %v", err)
-	}
-	got := aliasRead(t, filepath.Join(e.da, rel))
-	if !strings.Contains(got, "id:33333333") || !strings.Contains(got, "id:44444444") {
-		t.Errorf("archive not merged:\n%s", got)
 	}
 }
 
