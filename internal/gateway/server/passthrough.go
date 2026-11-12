@@ -326,11 +326,13 @@ type headTailBuffer struct {
 }
 
 func (h *headTailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
 	if room := tailCap - len(h.head); room > 0 {
 		h.head = append(h.head, p[:min(room, len(p))]...)
 		p = p[min(room, len(p)):]
 	}
-	return h.tail.Write(p)
+	_, _ = h.tail.Write(p)
+	return n, nil
 }
 
 // Bytes returns the head followed by the retained tail, dropping an oversized middle.

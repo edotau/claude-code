@@ -343,7 +343,7 @@ func subOverlay(base string) string {
 func allHeaderValues(h http.Header) string {
 	var sb strings.Builder
 	for k, vs := range h {
-		sb.WriteString(k + "=" + strings.Join(vs, ",") + "\n")
+		fmt.Fprintf(&sb, "%s=%s\n", k, strings.Join(vs, ","))
 	}
 	return sb.String()
 }

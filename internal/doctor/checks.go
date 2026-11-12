@@ -367,7 +367,7 @@ func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 	for _, in := range ints {
 		p := opencodeProviderByID(reg, in.ID)
 		if p == nil || !providers.CredentialPresent(p) {
-			continue // TEST-DISABLE
+			continue // no registry provider or no credential: auth.json duplicates nothing
 		}
 		for _, c := range in.Conns {
 			if c.Kind == "credential" && c.Method == "key" {
@@ -432,7 +432,7 @@ func toolDoctorOK(s tools.Status) bool {
 	return err == nil
 }
 
-// agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> below|above <bound>: <reason>, or not installed.
+// agentVersionDetail renders one agent's version row: ok <ver>, warn <ver> <problem>, or not installed.
 func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 	v, err := tools.Version(spec.Name)
 	switch {
@@ -509,19 +509,10 @@ func agentDoctorDetail(s tools.Status, bin string) string {
 
 // extraPATHCopies lists PATH copies of name that resolve somewhere other than primary, as " · also on PATH: …".
 func extraPATHCopies(name, primary string) string {
-	first, err := filepath.EvalSymlinks(primary)
-	if err != nil { // broken/inaccessible symlink: fall back to the path itself so comparison still works
-		first = primary
-	}
-	first, _ = filepath.Abs(first)
+	first, _ := filepath.Abs(paths.Canon(primary)) // a broken symlink compares by its own path
 	var out strings.Builder
 	for _, path := range toolPATHCopies(name) {
-		real, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			real = path
-		}
-		real, _ = filepath.Abs(real)
-		if real == first {
+		if real, _ := filepath.Abs(paths.Canon(path)); real == first {
 			continue
 		}
 		extra := path

@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -317,13 +319,8 @@ func redactArgs(args []string) []string {
 }
 
 func scanMap(d def, field string, m map[string]string) []secretFinding {
-	var keys []string
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	var out []secretFinding
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
 		if textutil.LooksSecret(m[k]) {
 			out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: field, Key: k})
 		}
@@ -340,8 +337,7 @@ type report struct {
 	Unscanned []string        `json:"unscanned,omitempty"` // config files that exist but could not be read or parsed
 }
 
-// ExitCode is 1 when a server failed, `claude mcp list` errored, a secret was found, or a config file was unscanned, else 0. A fail-open
-// health skip (claude not on PATH) never contributes to the exit code on its own.
+// ExitCode is 1 on a failed server, a list error, a secret or an unscanned file; a fail-open health skip never counts.
 func (r report) ExitCode() int {
 	if r.Health.Failed > 0 || r.Health.Error != "" || len(r.Secrets) > 0 || len(r.Unscanned) > 0 {
 		return 1
@@ -359,7 +355,7 @@ type options struct {
 	JSON          bool
 }
 
-// summary is the one-row `doctor` view of the config scan, without the ~1s live `claude mcp list` (doctor --mcp runs it).
+// summary is the one-row `doctor` view of the config scan, without the live `claude mcp list` (doctor --mcp runs it).
 func summary(o options) (ok bool, detail string) {
 	rep := configReport(o)
 	detail = fmt.Sprintf("%d defined, %d secrets, %d unscanned; doctor --mcp for live health",
