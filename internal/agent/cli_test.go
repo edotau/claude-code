@@ -50,34 +50,6 @@ func TestVendorEngineOversizedPromptRefusalScopedToArgv(t *testing.T) {
 	})
 }
 
-// TestVendorEngineNilProviderDefense tests that vendorRunner.Run safely handles
-// the edge case where vendorTarget returns own=false with nil Provider.
-// Line 104 (res.Provider = t.Provider.Name) must not panic when t.Provider is nil.
-// Similarly, copilotEngine.Run (copilot.go) must handle nil Provider.
-func TestVendorEngineNilProviderDefense(t *testing.T) {
-	setConfigDir(t)
-	t.Setenv("HOME", t.TempDir())
-
-	// Simulate the scenario where vendorTargetNote returns own=false with nil Provider.
-	// The vulnerable code path is when own=false and t.Provider is accessed.
-	// This test ensures the code doesn't panic with nil dereference.
-
-	req := RunOptions{Prompt: "test"}
-
-	// Call vendorTarget and check if t.Provider is nil when own=false.
-	// If it is, the subsequent code must handle it gracefully (not panic).
-	t_, own, err := SchemaFor("opencode").Target(req)
-
-	// If we got here without panicking, that's good. But we should also check
-	// that if own=false and we got a valid return, t.Provider is not nil OR
-	// the calling code handles nil safely (with a nil check).
-	if err == nil && !own && t_.Provider == nil {
-		t.Logf("WARNING: vendorTarget returned own=false with nil Provider; " +
-			"vendorRunner.Run line 104 must have a nil check")
-		return // This is the defect scenario; fix should add nil check in Run()
-	}
-}
-
 // A quiet child stream logs a heartbeat line while it runs.
 func TestHeartbeatLogsWhenQuiet(t *testing.T) {
 	old := heartbeatEvery

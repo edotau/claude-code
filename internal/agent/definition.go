@@ -192,8 +192,8 @@ func refusePersona(c Caps, agentName string, p *Schema) error {
 	if p == nil || c.Persona != Emulated || p.Tools == nil {
 		return nil
 	}
-	for _, t := range []string{"Bash", "Write", "Edit"} {
-		if !slices.Contains(p.Tools, t) {
+	for _, r := range ReadOnlyDeny {
+		if !slices.Contains(p.Tools, r.Tool) {
 			return fmt.Errorf("persona %q limits tools to %q and %s cannot enforce that; run it on claude", p.Name, strings.Join(p.Tools, ","), agentName)
 		}
 	}

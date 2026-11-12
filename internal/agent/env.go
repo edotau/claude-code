@@ -260,11 +260,20 @@ func ChildErr(ctx context.Context, name string, err error, tail *retry.TailBuffe
 	if ctx.Err() != nil {
 		return fmt.Errorf("%s: %w", name, ctx.Err())
 	}
-	if t := strings.TrimSpace(tail.String()); t != "" {
-		if len(t) > 600 {
-			t = "…" + strings.ToValidUTF8(t[len(t)-600:], "")
-		}
-		return fmt.Errorf("%s: %w: %s", name, err, textutil.RedactSecrets(t))
+	if t := stderrTail(tail.String()); t != "" {
+		return fmt.Errorf("%s: %w: %s", name, err, t)
 	}
 	return fmt.Errorf("%s: %w", name, err)
+}
+
+// stderrTailBytes caps the stderr an error quotes.
+const stderrTailBytes = 600
+
+// stderrTail is a child's stderr fit for an error: trimmed, its last stderrTailBytes, secrets redacted.
+func stderrTail(s string) string {
+	t := strings.TrimSpace(s)
+	if len(t) > stderrTailBytes {
+		t = "…" + strings.ToValidUTF8(t[len(t)-stderrTailBytes:], "") // the cut may split a rune
+	}
+	return textutil.RedactSecrets(t)
 }

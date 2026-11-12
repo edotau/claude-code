@@ -124,12 +124,17 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, pick, err
 	}
+	return rc.finishChain(c, pick), pick, nil
+}
+
+// finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.
+func (rc routeCtx) finishChain(c Chain, pick router.PickResult) Chain {
 	if len(c.Dispatches) > 0 { // a candidate the confinement set aside was never an attempt; only an empty chain names it
 		c.Skipped = slices.DeleteFunc(c.Skipped, func(s string) bool {
 			return slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return k.Outside() && s == k.Agent+": "+k.Reason })
 		})
 	}
-	if len(c.Dispatches) > 0 && databricksDispatch(reg, c.Dispatches[0]) {
+	if len(c.Dispatches) > 0 && databricksDispatch(rc.reg, c.Dispatches[0]) {
 		rc.pf.note(proxyNote())
 	}
 	if len(rc.pf.Failed)+len(rc.pf.Notes) > 0 {
@@ -138,7 +143,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		}
 		c.Preflight = rc.pf
 	}
-	return c, pick, nil
+	return c
 }
 
 var registryWarnOnce sync.Once
@@ -204,16 +209,27 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	if pin >= 0 && rc.want != "claude" && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
 		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
 	}
+	if last := rc.claudeBackstop(cands, req); last >= 0 {
+		out = append(out, step{i: last, rc: rc})
+	}
+	return out, req
+}
+
+// claudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
+func (rc routeCtx) claudeBackstop(cands []router.Candidate, req int) int {
+	if rc.mode != router.FallbackAll && rc.mode != "" {
+		return -1
+	}
 	last := -1
 	for i, c := range cands {
 		if c.Agent == "claude" {
 			last = i
 		}
 	}
-	if last >= 0 && last != req && (rc.mode == router.FallbackAll || rc.mode == "") {
-		out = append(out, step{i: last, rc: rc})
+	if last == req {
+		return -1
 	}
-	return out, req
+	return last
 }
 
 // pinIndex is the pick candidate running the wanted agent on its own pin (profile, else its own login); -1 = none.
@@ -287,31 +303,14 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
 	armFailed := rc.armFinding()
 	for _, s := range steps {
-		cand := pick.Candidates[s.i]
-		if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
-			c.Skipped = append(c.Skipped, cand.Agent+" ("+cmp.Or(cand.Account, cand.Profile)+"): preflight "+armFailed.String())
-			continue
-		}
-		cell, skip := s.rc.candidateCell(cand)
-		if s.pin && skip == "" && s.i == req && rc.asksModel(cand, cell.Model) {
-			continue
-		}
-		if skip != "" {
-			c.Skipped = append(c.Skipped, skip)
-			continue
-		}
-		disp, skip, err := s.rc.buildDispatch(cand, cell)
-		if err != nil {
+		disp, skip, ok, err := rc.stepDispatch(pick.Candidates[s.i], s, req, armFailed, alias)
+		switch {
+		case err != nil:
 			return Chain{}, err
-		}
-		if skip != "" {
+		case skip != "":
 			c.Skipped = append(c.Skipped, skip)
 			continue
-		}
-		disp = s.rc.discoveryCandidate(disp, cand, alias)
-		disp.servedRepick = s.rc.servedRepickFor(cand)
-		disp.otherRoute, disp.rung, disp.swap = s.rc.otherRoute(cand), s.i+1, s.pin
-		if slices.ContainsFunc(c.Dispatches, disp.same) { // the pin is the requested target
+		case !ok || slices.ContainsFunc(c.Dispatches, disp.same): // the pin is the requested target
 			continue
 		}
 		if s.i == req && !s.pin {
@@ -322,18 +321,48 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	return c, nil
 }
 
+// stepDispatch is the dispatch for step s on cand, or the reason it is skipped; !ok drops a pin that is the request.
+func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFailed *Finding, alias string) (disp Dispatch, skip string, ok bool, err error) {
+	if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
+		return Dispatch{}, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + armFailed.String(), false, nil
+	}
+	cell, skip := s.rc.candidateCell(cand)
+	if skip != "" {
+		return Dispatch{}, skip, false, nil
+	}
+	if s.pin && s.i == req && rc.asksModel(cand, cell.Model) {
+		return Dispatch{}, "", false, nil
+	}
+	if disp, skip, err = s.rc.buildDispatch(cand, cell); err != nil || skip != "" {
+		return Dispatch{}, skip, false, err
+	}
+	disp = s.rc.discoveryCandidate(disp, cand, alias)
+	disp.servedRepick = s.rc.servedRepickFor(cand)
+	disp.otherRoute, disp.rung, disp.swap = s.rc.otherRoute(cand), s.i+1, s.pin
+	return disp, "", true, nil
+}
+
 // otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or overlay workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
-	if arm := router.ArmProfile(); arm != "" && cand.Agent == rc.want && cand.Profile == arm {
-		return false // databricks:<p> asked for this workspace: running there is not a fallback
-	}
-	if cp, _ := router.Confined(); cp != "" && cand.Agent == rc.want {
-		return false // the confinement admitted it: the pin was set aside, nothing fell back
+	if rc.askedWorkspace(cand) {
+		return false
 	}
 	if rc.lead != "" && cand.Agent == rc.want {
 		return cand.Profile != rc.lead && cand.Account != router.ProviderAccount(rc.lead) // an own-login row has no Profile
 	}
 	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
+}
+
+// askedWorkspace reports the wanted agent on the overlay workspace or inside a confinement: neither is a fallback.
+func (rc routeCtx) askedWorkspace(cand router.Candidate) bool {
+	if cand.Agent != rc.want {
+		return false
+	}
+	if arm := router.ArmProfile(); arm != "" && cand.Profile == arm {
+		return true // databricks:<p> asked for this workspace: running there is not a fallback
+	}
+	cp, _ := router.Confined() // the confinement admitted it: the pin was set aside, nothing fell back
+	return cp != ""
 }
 
 // same reports whether o runs the same agent, account, model and effort as d.
@@ -424,28 +453,10 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
 func resolveExplicit(q RouteReq) (Chain, error) {
-	r, pf := q.Engine, &Preflight{}
-	if q.Profile != "" {
-		reg, err := providers.Load()
-		if err != nil {
-			return Chain{}, err
-		}
-		p, err := reg.Get(q.Profile)
-		if err != nil {
-			return Chain{}, err
-		}
-		if f := explicitFinding(q, p, pf); f != nil {
-			return Chain{}, &PreflightError{Finding: *f}
-		}
-		if !q.Native && isHubAgent(q.Agent) && p.OpencodeID != "" {
-			start, err := hubStart(reg, q.Agent, q.Profile)
-			if err != nil {
-				return Chain{}, err
-			}
-			r = newHubDispatch(q.Agent, start, reg)
-		}
-	} else if f := modelFinding(q, pf); f != nil {
-		return Chain{}, &PreflightError{Finding: *f}
+	pf := &Preflight{}
+	r, err := explicitEngine(q, pf)
+	if err != nil {
+		return Chain{}, err
 	}
 	chain := explicitChain(r, RunOptions{Provider: q.Profile, Model: q.Model})
 	if isHubAgent(q.Agent) && q.Model == "" {
@@ -455,6 +466,35 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		pf.Chosen, chain.Preflight = hopTarget(chain.Dispatches[0]), pf
 	}
 	return chain, nil
+}
+
+// explicitEngine is q's engine after its explicit backend passes preflight; a hub agent on a hub profile is its ladder.
+func explicitEngine(q RouteReq, pf *Preflight) (Engine, error) {
+	if q.Profile == "" {
+		if f := modelFinding(q, pf); f != nil {
+			return nil, &PreflightError{Finding: *f}
+		}
+		return q.Engine, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, err
+	}
+	p, err := reg.Get(q.Profile)
+	if err != nil {
+		return nil, err
+	}
+	if f := explicitFinding(q, p, pf); f != nil {
+		return nil, &PreflightError{Finding: *f}
+	}
+	if q.Native || !isHubAgent(q.Agent) || p.OpencodeID == "" {
+		return q.Engine, nil
+	}
+	start, err := hubStart(reg, q.Agent, q.Profile)
+	if err != nil {
+		return nil, err
+	}
+	return newHubDispatch(q.Agent, start, reg), nil
 }
 
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).

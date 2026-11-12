@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
@@ -97,15 +98,28 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Fin
 	return out
 }
 
-// CheckModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.
-func CheckModel(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
+// checkModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.
+func checkModel(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
+	base, effort, ok := geminiEffort(agentName, model) // agy takes <id>-<effort>; the endpoint is <id>
+	if !ok {
+		return checkServed(agentName, p, model, now)
+	}
+	if wire, failed, note = checkServed(agentName, p, base, now); failed != nil {
+		failed.Model = model
+		return "", failed, note
+	}
+	return wire + "-" + effort, nil, note
+}
+
+// checkServed is checkModel for a model with no effort suffix.
+func checkServed(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
 	if model == "" || model == router.DiscoveryModel || slices.Contains(router.Aliases, models.Strip1M(model)) {
 		return model, nil, ""
 	}
 	fail := func(check, detail string) (string, *Finding, string) {
 		return "", &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}, ""
 	}
-	served := ServedSpelling(agentName, p, model, now)
+	served := servedSpelling(agentName, p, model, now)
 	wire, why := preflightModelWire(agentName, p, served)
 	spelled := cmp.Or(wire, providers.SpellPin(p, served)) // a Responses agent's wire check runs before Serves' wording
 	switch {
@@ -125,18 +139,24 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	return wire, nil, note
 }
 
-// ServedSpelling is id as agentName asks p for it: databricks-<id> where served; claude never takes GPT/Gemini.
-func ServedSpelling(agentName string, p *providers.Provider, id string, now time.Time) string {
+// geminiEffort cuts gemini's trailing native effort off model; ok is false for any other agent or no suffix.
+func geminiEffort(agentName, model string) (base, effort string, ok bool) {
+	base, effort, cut := strings.CutLast(model, "-")
+	return base, effort, agentName == agentid.Gemini && cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
+}
+
+// servedSpelling is id as agentName asks p for it: databricks-<id> where served; claude never takes GPT/Gemini.
+func servedSpelling(agentName string, p *providers.Provider, id string, now time.Time) string {
 	if fam := models.FamilyKind(id); agentName == "claude" && (fam == models.FamilyGPT || fam == models.FamilyGemini) {
 		return providers.SpellPin(p, id)
 	}
 	return router.SpellServed(p, id, now)
 }
 
-// launchWire is the model a launch requests from p for id: ServedSpelling, else p's plain wire spelling.
+// launchWire is the model a launch requests from p for id: servedSpelling, else p's plain wire spelling.
 func launchWire(agentName string, p *providers.Provider, id string) string {
 	id = models.Strip1M(id)
-	return cmp.Or(ServedSpelling(agentName, p, id, time.Now()), p.WireModel(id))
+	return cmp.Or(servedSpelling(agentName, p, id, time.Now()), p.WireModel(id))
 }
 
 // unlisted reports a Databricks row whose fresh listing has no endpoint wire.
@@ -180,9 +200,9 @@ func preflightEndpoint(p *providers.Provider, wire string, now time.Time) (note,
 	return "", ""
 }
 
-// CheckModelNoted is CheckModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).
+// CheckModelNoted is checkModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).
 func CheckModelNoted(agentName string, p *providers.Provider, model string, now time.Time, pf *Preflight) (string, *Finding) {
-	wire, failed, note := CheckModel(agentName, p, model, now)
+	wire, failed, note := checkModel(agentName, p, model, now)
 	if note == "" {
 		return wire, failed
 	}

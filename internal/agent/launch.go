@@ -185,8 +185,8 @@ func ensureRouter(ctx context.Context) (string, error) {
 	return gateway.ViaBase(base), nil
 }
 
-// RefuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
-func RefuseDirect(direct bool) error {
+// refuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
+func refuseDirect(direct bool) error {
 	if direct && egress.Host() != "" {
 		return fmt.Errorf("--direct cannot be combined with --remote %s: a direct agent would bypass the egress host", egress.Host())
 	}
@@ -285,7 +285,7 @@ func ResetSessionTokens() {
 // login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
 func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
 	if !e.LoginServes(p) {
-		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code run %s --provider %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code %s --profile %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
 	return e.Login(p, model, h)
 }

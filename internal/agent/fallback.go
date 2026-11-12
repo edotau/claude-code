@@ -82,16 +82,21 @@ func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDis
 	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
-	d := c.Dispatches[ran]
-	if ran > 0 || d.fallsBack(c.Want) { // a different agent, route or the pin is a fallback
-		hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
-		res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
-		res.Requested, res.RequestedWhy = c.requested, strings.Join(hopReasons[:min(1, len(hopReasons))], "")
-		if c.Preflight != nil && len(c.Preflight.Failed) > 0 {
-			res.Requested, res.RequestedWhy = c.Preflight.Requested, c.Preflight.Failed[0].String()
-		}
+	if ran > 0 || c.Dispatches[ran].fallsBack(c.Want) { // a different agent, route or the pin is a fallback
+		res = c.markFallback(res, reasons)
 	}
 	return res, err
+}
+
+// markFallback names on res what c asked for and why the chain moved past it.
+func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
+	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
+	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
+	res.Requested, res.RequestedWhy = c.requested, strings.Join(hopReasons[:min(1, len(hopReasons))], "")
+	if c.Preflight != nil && len(c.Preflight.Failed) > 0 {
+		res.Requested, res.RequestedWhy = c.Preflight.Requested, c.Preflight.Failed[0].String()
+	}
+	return res
 }
 
 // announceFallback tells notify and the sink in one line, both accounts named, that disp takes over from prev.
@@ -410,25 +415,27 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	if cerr := ctx.Err(); cerr != nil {
 		return true, s.cancelled(i, disp, cerr)
 	}
-	if i > 0 {
-		s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
-		s.req.Prompt = s.nextPrompt(midRun) // the git reconcile steps go to an editing successor only
-		s.noteSkips(notify)
-		if herr := announceFallback(sink, notify, s.prevDispatch, disp, s.err); herr != nil {
-			return true, herr
-		}
+	if herr := s.handOff(i, disp, midRun, sink, notify); herr != nil {
+		return true, herr
 	}
 	panicked := s.dispatch(ctx, c, i, disp, sink, notify)
 	// Bookkeeping precedes panic handling so a panicking fallback is still reported as the fallback.
-	if panicked {
-		s.stopped = true
-		return true, nil
+	s.stopped = panicked || (i == 0 && explicitBackend(s.req))
+	return s.stopped, nil
+}
+
+// handOff records why hop i-1 failed and announces disp taking over; the lead (i == 0) hands off nothing.
+func (s *fallbackState) handOff(i int, disp Dispatch, midRun bool, sink wire.Sink, notify func(string)) error {
+	if i == 0 {
+		return nil
 	}
-	if i == 0 && explicitBackend(s.req) {
-		s.stopped = true
-		return true, nil
+	s.reasons = append(s.reasons, hopLabel(s.prevDispatch)+": "+FallbackReason(s.err))
+	s.req.Prompt = s.nextPrompt(midRun) // the git reconcile steps go to an editing successor only
+	s.noteSkips(notify)
+	if herr := announceFallback(sink, notify, s.prevDispatch, disp, s.err); herr != nil {
+		return herr
 	}
-	return false, nil
+	return nil
 }
 
 // cancelled records a context cancel; only a first-hop cancel is returned as the error.

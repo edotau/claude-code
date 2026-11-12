@@ -130,7 +130,7 @@ func remoteScriptTail(req RunOptions) []string {
 		on   bool
 		flag string
 	}{{req.Tools, "--tools"}, {req.ReadOnly, "--read-only"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
-		{req.NoPersist, "--no-persist"}, {req.SafeMode, "--safe-mode"}, {req.Direct, "--direct"}} {
+		{req.NoPersist, "--no-persist"}, {req.SafeMode, "--safe-mode"}, {req.Direct, "--direct"}, {req.Native, "--native"}} {
 		if b.on {
 			w = append(w, b.flag)
 		}
@@ -261,10 +261,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 
 // noResult classifies an ssh exit that never delivered a result event.
 func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool) *retry.Error {
-	detail := strings.TrimSpace(tail.String())
-	if len(detail) > 600 {
-		detail = "…" + strings.ToValidUTF8(detail[len(detail)-600:], "") // the cut may split a rune
-	}
+	detail := stderrTail(tail.String())
 	code := -1
 	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		code = ee.ExitCode()
@@ -280,7 +277,7 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 		kind = retry.KindFatal
 	}
 	if detail != "" {
-		msg += ": " + textutil.RedactSecrets(detail)
+		msg += ": " + detail
 	}
 	return &retry.Error{Kind: kind, Agent: r.agent, Progressed: streamed, Err: errors.New(msg)}
 }
@@ -350,7 +347,7 @@ func ListRemote(host, bin, format string, out io.Writer) error {
 	var stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = out, &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("agents: %s: %v: %s", host, err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("agents: %s: %v: %s", host, err, stderrTail(stderr.String()))
 	}
 	return nil
 }

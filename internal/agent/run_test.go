@@ -949,11 +949,11 @@ func TestFitChainSkipsSmallWindows(t *testing.T) {
 	if sb >= lb {
 		t.Fatalf("fixture: small budget %d must be under lead %d", sb, lb)
 	}
-	got := fitChain(chain, (lb+sb)/2, RunOptions{})
+	got := fitChain(chain, (lb+sb)/2, RunOptions{}, false)
 	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
 		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
 	}
-	if kept := fitChain(chain, sb-1, RunOptions{}); len(kept.Dispatches) != 2 {
+	if kept := fitChain(chain, sb-1, RunOptions{}, false); len(kept.Dispatches) != 2 {
 		t.Errorf("a prompt under both budgets must keep both, got %+v", kept)
 	}
 }

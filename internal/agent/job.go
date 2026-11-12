@@ -98,9 +98,9 @@ func resolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, e
 		case 1:
 			return match[0], nil
 		case 0:
-			return Record{}, fmt.Errorf("no dispatch matches %q (see claude-code <agent> status)", ref)
+			return Record{}, fmt.Errorf("no dispatch matches %q (see claude-code agents status)", ref)
 		default:
-			return Record{}, fmt.Errorf("%q matches %d dispatches, be more specific (see claude-code <agent> status)", ref, len(match))
+			return Record{}, fmt.Errorf("%q matches %d dispatches, be more specific (see claude-code agents status)", ref, len(match))
 		}
 	}
 	for _, r := range recs {
@@ -108,7 +108,7 @@ func resolveRecord(recs []Record, ref string, pred func(Record) bool) (Record, e
 			return r, nil
 		}
 	}
-	return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
+	return Record{}, errors.New("no matching dispatch found (see claude-code agents status)")
 }
 
 // jobArgvSettled reads rec's pid argv, retrying for ~500ms while it does not match: a child spawned a moment ago
@@ -160,9 +160,7 @@ func failIfRunning(rec *Record, msg string) error {
 	return rec.Save()
 }
 
-// Cancel verifies rec.PID is still the job it was spawned as (guards against pid reuse), interrupts it
-// (SIGINT), waits up to 5s, escalates to SIGKILL and waits up to 2s more, and only once the process is
-// gone marks a still-"running" record Status "error", Error "cancelled by claude-code <agent> cancel".
+// Cancel checks rec.PID is still its job, SIGINTs it (SIGKILL after 5s), then marks a still-running record cancelled.
 func Cancel(rec *Record) error {
 	if rec.PID <= 0 {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
@@ -170,6 +168,17 @@ func Cancel(rec *Record) error {
 	if !proc.Alive(rec.PID) {
 		return failIfRunning(rec, "process gone")
 	}
+	if err := checkJobPID(rec); err != nil {
+		return err
+	}
+	if err := escalate(rec.PID, rec.ID); err != nil {
+		return err
+	}
+	return failIfRunning(rec, "cancelled by claude-code agents cancel")
+}
+
+// checkJobPID refuses to signal a rec.PID that is a foreground run or a reused pid.
+func checkJobPID(rec *Record) error {
 	argv, err := jobArgvSettled(rec)
 	if err != nil {
 		return fmt.Errorf("dispatch %q: cannot read pid %d command line: %w", rec.ID, rec.PID, err)
@@ -183,10 +192,7 @@ func Cancel(rec *Record) error {
 	if !sameStart(rec) {
 		return fmt.Errorf("dispatch %q: pid %d is not the process spawned for it (pid reused); not signalling it", rec.ID, rec.PID)
 	}
-	if err := escalate(rec.PID, rec.ID); err != nil {
-		return err
-	}
-	return failIfRunning(rec, fmt.Sprintf("cancelled by claude-code %s cancel", rec.Agent))
+	return nil
 }
 
 // sameStart reports whether rec.PID still has the start time recorded at spawn; no recorded time fails closed.

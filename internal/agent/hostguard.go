@@ -172,6 +172,11 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	if gp == nil {
 		return ctx, nil
 	}
+	return guardHopProvider(ctx, arm, r, gp)
+}
+
+// guardHopProvider checks gp's route host and marks gp the hop's own credential.
+func guardHopProvider(ctx context.Context, arm string, r Engine, gp *providers.Provider) (context.Context, *retry.Error) {
 	if _, isHub := r.(HubEngine); isHub { // a hub dispatch sends the opencode login's credential, not the registry's
 		return withOwnProvider(ctx, gp), nil
 	}
