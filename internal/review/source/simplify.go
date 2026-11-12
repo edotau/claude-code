@@ -266,7 +266,11 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)
 	if parsed.jsonOut {
-		if err := writeJSON(stdout, report); err != nil {
+		b, err := PyMarshalIndent(report)
+		if err == nil {
+			_, err = stdout.Write(b)
+		}
+		if err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
 			return 1
 		}

@@ -123,22 +123,22 @@ func qualityReportFor(target string, isDir bool, language string, warn io.Writer
 }
 
 func emitQualityJSON(report any, output string, stdout io.Writer) error {
-	var buf strings.Builder
-	if err := writeJSON(&buf, report); err != nil {
+	b, err := PyMarshalIndent(report)
+	if err != nil {
 		return err
 	}
 	if output == "" {
-		_, err := fmt.Fprintln(stdout, buf.String())
+		_, err := fmt.Fprintln(stdout, string(b))
 		return err
 	}
 	// AtomicWrite would create a missing parent directory; fail as the plain write did.
 	if _, err := os.Stat(filepath.Dir(output)); err != nil {
 		return fmt.Errorf("write %s: %w", output, err)
 	}
-	if err := paths.AtomicWrite(output, []byte(buf.String()), 0o644); err != nil {
+	if err := paths.AtomicWrite(output, b, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", output, err)
 	}
-	_, err := fmt.Fprintf(stdout, "Results written to %s\n", output)
+	_, err = fmt.Fprintf(stdout, "Results written to %s\n", output)
 	return err
 }
 

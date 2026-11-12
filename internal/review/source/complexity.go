@@ -356,8 +356,15 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 	sort.Strings(files)
 	results, failed := analyzeComplexityFiles(files, th, stderr)
 	summary := buildComplexitySummary(results, parsed.threshold)
+	if len(results) == 0 && failed > 0 {
+		summary.Status, summary.Verdict = "error", "FAIL"
+	}
 	if parsed.jsonOut {
-		if err := writeJSON(stdout, summary); err != nil {
+		b, err := PyMarshalIndent(summary)
+		if err == nil {
+			_, err = stdout.Write(b)
+		}
+		if err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
 			return 1
 		}
