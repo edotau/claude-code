@@ -39,8 +39,6 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 
 `code-engineer`'s tiers size a job it was already asked to run; TRIVIAL with no workflow request still goes inline.
 
-TRIVIAL runs inline; other tasks use the applicable phases without expanding the requested scope.
-
 ## Phase 1: Adversarial review (MEDIUM+)
 
 Vet the task request before code is written. Checklist and verdict discipline:
@@ -83,7 +81,7 @@ Shape, leaf types, test agent and concurrency: `skills/subagent-workflows/SKILL.
 ## Phase 7: Merge
 
 Default is no worktree (`rules/standards/worktree-git.md`); if one was used, merge per
-`skills/using-git-worktrees/SKILL.md`. Never `stash`/`checkout`/`reset` the live tree.
+`skills/using-git-worktrees/SKILL.md`.
 After a merge, stop any leaf still running on that work; a leaf at its turn limit reports partial work without
 committing.
 

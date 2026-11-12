@@ -7,6 +7,7 @@ paths:
   - "commands/**"
   - "rules/**"
   - "skills/**"
+  - "workflows/**"
 ---
 # Harness Change Protocol
 
