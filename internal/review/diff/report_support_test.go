@@ -17,7 +17,7 @@ func TestQualityCheckerUsesHeadContents(t *testing.T) {
 	hosttest.In(t, repo, "checkout", "-b", "feature")
 	commitFile(t, repo, "app.py", "def run():\n    return 1\n", "feat: add app")
 	want, err := runQualityChecker(repo, "main", "feature")
-	if err != nil || mInt(want, "files_analyzed") != 1 {
+	if err != nil || want.Summary.FilesAnalyzed != 1 {
 		t.Fatalf("head analysis = %v, %v; want one file", want, err)
 	}
 	hosttest.WriteRel(t, repo, "app.py", "def run():\n"+strings.Repeat("    print('debug')\n", 100))
