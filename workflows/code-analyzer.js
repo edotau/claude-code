@@ -739,7 +739,7 @@ for (let round = 1; round <= ROUNDS; round++) {
         ? `Files: ${u.chunk.files.map(f => f.path).join(' ')}\n\n`
         : `(the scope agent returned nothing — ${FILES_MODE ? 'read the files under ' + u.group.join(' ') : 'run git diff --stat ' + (RANGE || 'HEAD~1..HEAD') + ' -- ' + (u.group.join(' ') || '.')} yourself)`)
     return auditGate(() => agent(S.audit.task(prompt),
-      { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel(S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
+      { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel((RAW.audit && RAW.audit.model) || u.dim.model || S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
     )).then(r => S.audit.done(`find:${round}:${u.key}`, r))
   }
   const refuteStage = (found, u) => {
