@@ -56,7 +56,7 @@ func newDispatchRun(session func() string) *dispatchRun {
 	return &dispatchRun{session: session, roster: map[string]string{}, efforts: map[string]string{}, registry: sync.OnceValues(loadRegistry)}
 }
 
-// rosterModel is rosterModel(name), read once per run.
+// rosterModel is the named agent's frontmatter model, read once per run.
 func (r *dispatchRun) rosterModel(name string) string {
 	m, ok := r.roster[name]
 	if !ok {
