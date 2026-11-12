@@ -48,7 +48,8 @@ type streamer struct {
 	usedTools bool
 	finish    string
 	usage     *chatUsage
-	buf       bytes.Buffer // reused by event() to avoid a per-event json.Marshal allocation
+	late      strings.Builder // text that arrived while a tool block was open, emitted after the tools stop
+	buf       bytes.Buffer    // reused by event() to avoid a per-event json.Marshal allocation
 }
 
 // textBlock is a text content block or text_delta; typed payloads skip map[string]any's per-chunk marshal cost.
@@ -269,6 +270,10 @@ func (s *streamer) choice(ch streamChoice) error {
 }
 
 func (s *streamer) text(t string) error {
+	if len(s.opened) > 0 { // a text block may not start while a tool block is open
+		s.late.WriteString(t)
+		return nil
+	}
 	if !s.openText {
 		if err := s.event("content_block_start", blockStartEvent{Type: "content_block_start", Index: s.next,
 			ContentBlock: textBlock{Type: "text", Text: ""}}); err != nil {
@@ -417,6 +422,14 @@ func (s *streamer) end(err error) error {
 	}
 	if err := s.closeTools(); err != nil {
 		return err
+	}
+	if s.late.Len() > 0 {
+		if err := s.text(s.late.String()); err != nil {
+			return err
+		}
+		if err := s.closeText(); err != nil {
+			return err
+		}
 	}
 	usage := map[string]any{"output_tokens": 0}
 	if s.usage != nil {
