@@ -70,8 +70,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 }
 
 // installCompact runs every install step for real (never dry-run) and prints one line per step:
-// install (binary + snapshot), agents, settings, settings (windows) when applicable, agents, extras.
-// Steps run in installVerbose's order; the extras line prints last. Warnings always print in full.
+// compact one-line-per-step form of install; the extras line prints last. Warnings always print in full.
 func installCompact(w io.Writer) error {
 	commit := snapshotPreInstall(w, false, true)
 	target, err := installBinaryTarget(io.Discard, false)
@@ -372,7 +371,7 @@ func installClipBridge(w io.Writer, bin string, dryRun bool) {
 	}
 }
 
-// installGitHooks points core.hooksPath at the repo's .githooks (its pre-push is a no-op by choice); best-effort.
+// installGitHooks points core.hooksPath at the repo's .githooks (its pre-push body is commented out); best-effort.
 func installGitHooks(w io.Writer, dryRun bool) {
 	root := paths.ConfigDir()
 	if _, err := os.Stat(filepath.Join(root, ".githooks")); err != nil {
@@ -416,6 +415,9 @@ func linkUserBins(w io.Writer, target string, dryRun bool) error {
 // linkOnPath points userBinDir/name at target; a real file there is left alone.
 func linkOnPath(w io.Writer, name, target string, dryRun bool) error {
 	dir := userBinDir()
+	if dir == "" {
+		return errors.New("link " + name + ": cannot resolve the home directory")
+	}
 	link := filepath.Join(dir, name)
 	if cur, err := os.Readlink(link); err == nil && cur == target {
 		return nil

@@ -551,7 +551,7 @@ func rowLabel(provider, profile string) string {
 // recordQuotaState stores the fetched rows in quota.json; a var so package tests never write the real file.
 var recordQuotaState = func(qs []quota) { recordQuotas(qs, time.Now()) }
 
-// recordQuotas keeps each account's worst window (Fable's model cap and failure rows excluded); returns how many it stored.
+// recordQuotas keeps each account's worst window (Fable's model cap and failures excluded); returns the stored count.
 func recordQuotas(qs []quota, now time.Time) int {
 	worst := map[string]quota{}
 	for _, q := range qs {
@@ -572,7 +572,7 @@ func recordQuotas(qs []quota, now time.Time) int {
 	return n
 }
 
-// recordable is true for a windowed, ungrouped, freshly fetched row; cached rows carry no fetch time and would look fresh.
+// recordable is true for a windowed, ungrouped, freshly fetched row; cached rows carry no fetch time.
 func recordable(q quota) bool {
 	return q.Window != "" && q.Group == "" && q.Note == "" && !q.cached
 }

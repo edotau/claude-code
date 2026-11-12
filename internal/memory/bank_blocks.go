@@ -406,7 +406,11 @@ func ShowBlock(ref string) (string, string, error) {
 		if d.IsDir() || !strings.HasSuffix(p, ".md") {
 			return nil
 		}
-		if b, ok := blockWithRef(p, ref, derived); ok {
+		b, ok, err := blockWithRef(p, ref, derived)
+		if err != nil {
+			return err
+		}
+		if ok {
 			foundPath, foundBlock = p, b
 			return filepath.SkipAll // stop at the first file holding it: the rest of the store need not be read
 		}
@@ -422,13 +426,16 @@ func ShowBlock(ref string) (string, string, error) {
 }
 
 // blockWithRef returns the last block in file p carrying ref (an id marker, or a contentRef when derived).
-func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
-	data, err := os.ReadFile(p)
+func blockWithRef(p, ref string, derived bool) (found string, ok bool, err error) {
+	data, err := readFile(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
 	if err != nil {
-		return "", false
+		return "", false, err
 	}
 	if !derived && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
-		return "", false
+		return "", false, nil
 	}
 	_, blocks := entryBlocks(logicalName(p), string(data))
 	if derived { // native topics and knowledge notes are indexed whole, under their own grammar
@@ -445,7 +452,7 @@ func blockWithRef(p, ref string, derived bool) (found string, ok bool) {
 			found, ok = b, true
 		}
 	}
-	return found, ok
+	return found, ok, nil
 }
 
 var archiveName = regexp.MustCompile(`^(decisionLog|sessionHistory|conventions)-\d{4}-\d{2}\.md$`)

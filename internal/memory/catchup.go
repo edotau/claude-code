@@ -197,7 +197,9 @@ func runSweep(current string, now time.Time, out io.Writer) {
 	}
 	if saved > 0 {
 		prev := catchupDoneCount()
-		_ = paths.AtomicWrite(catchupDonePath(), []byte(strconv.Itoa(prev+saved)), 0o600)
+		if err := paths.AtomicWrite(catchupDonePath(), []byte(strconv.Itoa(prev+saved)), 0o600); err != nil {
+			fmt.Fprintf(out, "memory catchup: %d session(s) saved but the done note failed: %v\n", saved, err)
+		}
 	}
 }
 

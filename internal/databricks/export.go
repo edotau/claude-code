@@ -89,7 +89,10 @@ func writeExport(rows []exportRow, out string, merge, force bool) int {
 		return 0
 	}
 	if out == "" {
-		out = defaultPath()
+		var err error
+		if out, err = defaultPath(); err != nil {
+			return fail("export: %v", err)
+		}
 	}
 	out, err := resolveLink(out)
 	if err != nil {

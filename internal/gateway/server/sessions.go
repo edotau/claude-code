@@ -182,7 +182,7 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.m, textutil.SHA256Hex([]byte(tok)))
+	delete(s.m, textutil.SHA256Hex([]byte(tok))) // stays deleted in memory even if the save fails: fail closed
 	return s.saveLocked()
 }
 
@@ -308,8 +308,11 @@ func (s *sessionStore) dropLocked(dead map[string]*session) bool {
 // identity probes ses's pid; verified is false when the probe itself failed, so bound is only a guess then.
 func (s *sessionStore) identity(ses *session) (bound, verified bool) {
 	start, err := s.procStart(ses.pid)
+	if errors.Is(err, proc.ErrNoProcess) {
+		return false, true // an exited process is a verified miss, so probeUnlocked expires the token
+	}
 	if err != nil {
-		return !errors.Is(err, proc.ErrNoProcess), false // a failed probe keeps the token for pruning
+		return true, false // a failed probe keeps the token for pruning
 	}
 	return start == ses.start, true
 }

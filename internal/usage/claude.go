@@ -333,7 +333,7 @@ func claudeFetch(ctx context.Context, creds claudeOAuthCreds, path string) []quo
 	return claudeHandleResponse(status, hdr, body, cache, creds, path, now)
 }
 
-// claudeServeLocal answers without a request: from a fresh cache, a rate-limit hold, or a stale token; done is false to fetch.
+// claudeServeLocal answers without a request: a fresh cache, a rate-limit hold, or a stale token; done=false fetches.
 func claudeServeLocal(cache *claudeUsageCache, creds claudeOAuthCreds, now time.Time) (rows []quota, done bool) {
 	if cache != nil && now.Sub(cache.FetchedAt) < claudeUsageCacheTTL() {
 		return markCached(parseClaudeUsage(cache.Body, cache.SubscriptionType)), true

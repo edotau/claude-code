@@ -11,8 +11,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // buildDevRegistry runs the real builder over eps on a non-Databricks row, where every endpoint rides anthropic.
@@ -140,7 +140,11 @@ func TestArmRegistryEligibility(t *testing.T) {
 		want        bool
 	}{{"darwin", "databricks:dbx", false}, {"darwin", "", true}, {"linux", "databricks:dbx", true}} {
 		setGOOS(t, c.goos)
-		t.Setenv(router.EnvCoworker, c.route)
+		overlay := ""
+		if c.route != "" {
+			overlay = `{"provider":"databricks","profile":"dbx"}`
+		}
+		t.Setenv(agentconfig.OverlayVar, overlay)
 		if got := copilotRegistryEligible(false, dbx); got != c.want {
 			t.Errorf("%s route %q: registry eligible = %v, want %v", c.goos, c.route, got, c.want)
 		}

@@ -22,13 +22,15 @@ const (
 )
 
 // defaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
-func defaultPath() string {
-	home, _ := os.UserHomeDir()
-	p := os.Getenv(envConfigFile)
-	if p == "" {
-		return filepath.Join(home, ".databrickscfg")
+func defaultPath() (string, error) {
+	if p := os.Getenv(envConfigFile); p != "" {
+		return paths.ExpandHome(p), nil
 	}
-	return paths.ExpandHome(p)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("no home directory for ~/.databrickscfg (set %s): %w", envConfigFile, err)
+	}
+	return filepath.Join(home, ".databrickscfg"), nil
 }
 
 // section is one [name] block with its keys; a repeated key or header merges, last value wins.

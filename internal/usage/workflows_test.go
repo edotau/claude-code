@@ -315,7 +315,7 @@ func TestScanWorkflowNamesPairsResults(t *testing.T) {
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"","input":{"name":"no-id"}},{"type":"tool_use","id":"a","input":{"name":"named","scriptPath":"/tmp/unused.js"}},{"type":"tool_use","id":"b","input":{"scriptPath":"/tmp/from-path.js"}},{"type":"tool_use","id":"inline","input":{}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"text","content":"Run ID: wf_text"},{"type":"tool_result","tool_use_id":"ignored","content":"Run ID: wf_ignored"},{"type":"tool_result","tool_use_id":"missing","content":"Run ID: wf_unknown"},{"type":"tool_result","tool_use_id":"inline","content":"Run ID: wf_inline"},{"type":"tool_result","tool_use_id":"a","content":"no run id"},{"type":"tool_result","tool_use_id":"a","content":"Run ID: wf_named"},{"type":"tool_result","tool_use_id":"b","content":"Run ID: wf_named"},{"type":"tool_result","tool_use_id":"b","content":[{"type":"text","text":"Transcript dir: /tmp/wf_path"}]}]}}`,
 	}, "\n"))
-	names := scanWorkflowNamesFromTranscript(path)
+	names, _ := scanWorkflowNames(path)
 	if len(names) != 2 || names["wf_named"] != "named" || names["wf_path"] != "from-path" {
 		t.Fatalf("workflow names = %v", names)
 	}

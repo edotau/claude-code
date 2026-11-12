@@ -239,6 +239,8 @@ func userContentPaths(dir string, hasGit bool) ([]string, error) {
 	for _, rel := range []string{"state/vault.db", "settings.json", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("stat %s: %w", rel, err) // a dropped file would be deleted unarchived
 		}
 	}
 	if !hasGit {
@@ -457,7 +459,14 @@ func memoryRoots(dir string) ([]string, error) {
 	candidates = append(candidates, projects...)
 	var roots []string
 	for _, rel := range candidates {
-		if fi, err := os.Lstat(filepath.Join(dir, rel)); err == nil && fi.IsDir() {
+		fi, err := os.Lstat(filepath.Join(dir, rel))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stat %s: %w", rel, err)
+		}
+		if fi.IsDir() {
 			roots = append(roots, filepath.Join(dir, rel))
 		}
 	}

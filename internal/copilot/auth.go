@@ -213,7 +213,7 @@ var commentRE = regexp.MustCompile(`(?m)^[ \t]*//.*$`)
 func copilotStoredLogin() string {
 	dir, err := paths.CopilotHome()
 	if err != nil {
-		dir = ".copilot"
+		return ""
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
 	if err != nil {

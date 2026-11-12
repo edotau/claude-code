@@ -226,7 +226,12 @@ func workspaceHasIgnore(path string) (bool, error) {
 		}
 		return false, err
 	}
-	return slices.Contains(strings.Split(string(b), "\n"), workspaceIgnoreLine), nil
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if strings.TrimSpace(line) == workspaceIgnoreLine {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
@@ -248,7 +253,7 @@ func workspaceMemoryAction(root string) workspaceAction {
 // workspaceRel maps a link name to its path under <kind>/: agents and commands are .md files
 // ("ns:cmd" → ns/cmd.md), skills are directories.
 func workspaceRel(kind, name string) (string, error) {
-	if name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+	if name == "" || name == "." || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
 		return "", fmt.Errorf("%w: bad %s name %q", errWorkspaceUsage, kind, name)
 	}
 	switch kind {
@@ -256,7 +261,7 @@ func workspaceRel(kind, name string) (string, error) {
 		return strings.TrimSuffix(name, ".md") + ".md", nil
 	case "commands":
 		ns, cmd, ok := strings.Cut(name, ":")
-		if !ok {
+		if !ok || ns == "" || strings.TrimSuffix(cmd, ".md") == "" {
 			return "", fmt.Errorf("%w: command %q: want <namespace>:<command>", errWorkspaceUsage, name)
 		}
 		return filepath.Join(ns, strings.TrimSuffix(cmd, ".md")+".md"), nil

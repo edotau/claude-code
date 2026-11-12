@@ -527,7 +527,7 @@ func databricksGemini(p *providers.Provider) (string, bool) {
 
 // safeRest rejects a passthrough tail that could climb out of the route: dot segments, empty segments, escapes.
 func safeRest(rest string) error {
-	if strings.ContainsAny(rest, "\\%\x00") || strings.Contains(rest, "//") || strings.HasPrefix(rest, "/") {
+	if strings.ContainsAny(rest, "\\%?#\x00") || strings.Contains(rest, "//") || strings.HasPrefix(rest, "/") {
 		return errors.New("proxy: passthrough path must be plain segments")
 	}
 	for seg := range strings.SplitSeq(rest, "/") {

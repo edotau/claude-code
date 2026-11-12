@@ -25,7 +25,7 @@ var (
 	bankFmtSpan    = regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
 )
 
-// bankFmtTargetDirs is the glob paths inside one bank dir worth formatting; bare "*.md" is handled separately.
+// bankFmtTargetDirs are the subdirs of one bank dir whose *.md files get formatted; top-level files come from bankFiles.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
 // bankFmtTargets lists every markdown file formatBank formats, across every repo store and home/.
@@ -110,16 +110,13 @@ func formatBankLocked(check bool) (changed []string, err error) {
 		return nil, err
 	}
 	changed, err = formatFiles(files, check)
-	if err != nil {
-		return changed, err
-	}
-	if !check && len(changed) > 0 {
+	if !check && len(changed) > 0 { // commit what was written even when a later file failed, so a retry is not blind to it
 		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil) // fmt spans every repo's bank: skip, never wedge
-		if err := commitStore("fmt: wrap bank lines", scope...); err != nil {
-			return changed, err
+		if cerr := commitStore("fmt: wrap bank lines", scope...); cerr != nil {
+			return changed, errors.Join(err, cerr)
 		}
 	}
-	return changed, nil
+	return changed, err
 }
 
 // formatFiles wraps each file in place (check=true only reports) and returns the ones that changed.
@@ -133,13 +130,12 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 		if next == string(data) {
 			continue
 		}
+		if !check {
+			if err := paths.AtomicWrite(f, []byte(next), 0o600); err != nil {
+				return changed, err
+			}
+		}
 		changed = append(changed, f)
-		if check {
-			continue
-		}
-		if err := paths.AtomicWrite(f, []byte(next), 0o600); err != nil {
-			return changed, err
-		}
 	}
 	return changed, nil
 }

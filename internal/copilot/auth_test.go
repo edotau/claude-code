@@ -90,7 +90,7 @@ func TestCopilotUsedPctBacksOffAndCapsRefresh(t *testing.T) {
 	}
 }
 
-// An unreadable registry may hide a GitHub pin: the presence gate and route headroom must say so, not read it as unpinned.
+// An unreadable registry may hide a GitHub pin: the presence gate and headroom must say so, not read it as unpinned.
 func TestUnreadableRegistryIsNotReadAsUnpinned(t *testing.T) {
 	pinsScratch(t)
 	t.Setenv("GH_CONFIG_DIR", t.TempDir())

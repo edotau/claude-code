@@ -2,7 +2,9 @@ package menu
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -90,9 +92,17 @@ func tsAdminState() string {
 	if time.Since(tsAdminVerdict.at) > time.Minute {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		tsAdminVerdict.text = tsGreen("valid")
-		if tsCheck(ctx) != nil {
+		err := tsCheck(ctx)
+		var netErr net.Error
+		if err != nil && (ctx.Err() != nil || errors.As(err, &netErr)) {
+			// a network failure says nothing about the credential: keep any prior verdict and retry in a minute
+			if tsAdminVerdict.text == "" {
+				tsAdminVerdict.text = ansi.SpanOff + "unknown" + ansi.SpanEnd
+			}
+		} else if err != nil {
 			tsAdminVerdict.text = ansi.SpanWarn + "invalid" + ansi.SpanEnd
+		} else {
+			tsAdminVerdict.text = tsGreen("valid")
 		}
 		tsAdminVerdict.at = time.Now()
 	}

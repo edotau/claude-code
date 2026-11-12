@@ -31,7 +31,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
@@ -444,7 +443,7 @@ func runArmedBYOK(t *testing.T) (sdkOptions, []string) {
 	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
 	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM", nil }
 	pathstest.FakeVendor(t, "copilot", "exit 0")
-	t.Setenv(router.EnvCoworker, "databricks:dbx")
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
 	t.Setenv("GH_TOKEN", "ghp-planted")
 	t.Setenv("COPILOT_GITHUB_TOKEN", "ghp-planted")
 	var got sdkOptions

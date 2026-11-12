@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var keyringLookup = KeyringLookup
@@ -503,11 +503,9 @@ func rotateKeyLocked(force bool) (oldKid, newKid string, err error) {
 	}
 	// Convenience pointer only, updated after the atomic reseal commits; resolveKey/matchKey
 	// never depend on this being current (R1, R2).
-	if e := keyringSet(acct, value); e != nil {
-		return oldKid, newKid, e
-	}
-	audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "")
-	return oldKid, newKid, nil
+	e = keyringSet(acct, value)
+	audit.Log(audit.KeyRotate, oldKid+"->"+newKid, "") // the reseal committed: log it even when the pointer write failed
+	return oldKid, newKid, e
 }
 
 // rotatePreflight resolves the outgoing keyring-held key and checks meta/kid and the guard; old is nil if unresolved.
@@ -713,8 +711,7 @@ func parseKey(value, vaultID string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.Sum256(root)
-	return &Key{Kid: hex.EncodeToString(sum[:])[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
+	return &Key{Kid: textutil.SHA256Hex(root)[:16], aead: aead, backupsAEAD: backupAEAD, raw: trimmed}, nil
 }
 
 // newAEAD derives the subkey for info from root and vaultID and wraps it in AES-GCM with random nonces.

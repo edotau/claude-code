@@ -3,8 +3,6 @@ package vault
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // EnvName is a valid secret or env var name (letters, digits, _; not leading a digit); import accepts only this shape.
@@ -121,8 +120,7 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 	if aerr != nil {
 		return 0, nil, aerr
 	}
-	sum := sha256.Sum256([]byte(abs))
-	lockPath := filepath.Join(paths.ConfigDir(), "state", "dotenv-"+hex.EncodeToString(sum[:8]))
+	lockPath := filepath.Join(paths.ConfigDir(), "state", "dotenv-"+textutil.SHA256Hex([]byte(abs))[:16])
 	err = paths.WithFileLock(lockPath, func() (lerr error) {
 		added, skipped, lerr = appendDotenvLocked(path, pairs)
 		return lerr
@@ -148,6 +146,9 @@ func appendDotenvLocked(path string, pairs []Pair) (added int, skipped []string,
 		if have[p.Name] {
 			skipped = append(skipped, p.Name)
 			continue
+		}
+		if strings.ContainsAny(p.Value, "\r\n") { // the format has no escapes: a multi-line value cannot round-trip
+			return 0, nil, fmt.Errorf("%s holds a newline; a .env line cannot carry it", p.Name)
 		}
 		b.WriteString(p.Name)
 		b.WriteString("=")

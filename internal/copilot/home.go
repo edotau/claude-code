@@ -42,7 +42,7 @@ func checkCopilotRegistryOS() error {
 	return nil
 }
 
-// copilotStripEnv is the inherited GitHub login/routing env a registry child must not see (plus proc.CopilotProviderPrefix).
+// copilotStripEnv is the inherited GitHub login/routing env a registry child must not see.
 var copilotStripEnv = []string{
 	"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN", "COPILOT_GITHUB_TOKEN",
 	"COPILOT_SDK_AUTH_TOKEN", "GH_HOST", "COPILOT_GH_HOST", "COPILOT_API_URL", "GH_CONFIG_DIR",
@@ -163,17 +163,14 @@ func refreshLink(src, dst string) error {
 func copySettings(src, dst string) error {
 	raw, err := os.ReadFile(src)
 	if errors.Is(err, os.ErrNotExist) {
-		_ = os.Remove(dst)
-		return nil
+		return removeStale(dst)
 	}
 	if err != nil {
-		_ = os.Remove(dst) // a stale copy must not outlive a failed read
-		return fmt.Errorf("copilot: settings.json not carried over: %w", err)
+		return notCarried(err, removeStale(dst))
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
-		_ = os.Remove(dst)
-		return fmt.Errorf("copilot: settings.json not carried over: %w", err)
+		return notCarried(err, removeStale(dst))
 	}
 	delete(m, "model")
 	out, err := json.MarshalIndent(m, "", "  ")
@@ -181,6 +178,18 @@ func copySettings(src, dst string) error {
 		return fmt.Errorf("copilot: settings.json not carried over: %w", err)
 	}
 	return paths.AtomicWrite(dst, out, 0o600)
+}
+
+// removeStale deletes a stale settings copy; a failed remove is an error, since the copy may carry a model key.
+func removeStale(dst string) error {
+	if err := os.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("copilot: stale %s not removed: %w", dst, err)
+	}
+	return nil
+}
+
+func notCarried(cause, rmErr error) error {
+	return errors.Join(fmt.Errorf("copilot: settings.json not carried over: %w", cause), rmErr)
 }
 
 // checkNoGitHubLogin fails when the private home's config.json holds a logged-in GitHub user or token.

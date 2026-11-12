@@ -67,9 +67,12 @@ func tailscaleStatus(ctx context.Context) (tailscale.Local, error) {
 	if !tsStatus.at.IsZero() && time.Since(tsStatus.at) < tsStatusTTL {
 		return tsStatus.st, tsStatus.err
 	}
-	tsStatus.st, tsStatus.err = tsStatusFetch(ctx)
-	tsStatus.at = time.Now()
-	return tsStatus.st, tsStatus.err
+	st, err := tsStatusFetch(ctx)
+	if err != nil && ctx.Err() != nil {
+		return st, err // the caller's own deadline, not tailscale's answer: never cached for another caller
+	}
+	tsStatus.st, tsStatus.err, tsStatus.at = st, err, time.Now()
+	return st, err
 }
 
 // webSearchKey is the Tavily key the web_search MCP server reads.
@@ -116,6 +119,11 @@ func webSearchClients() []mcpClient {
 
 // runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
 func runWebSearch(d *dialog) {
+	_, _, lerr := vault.Lookup(webSearchKey)
+	if lerr != nil {
+		d.printf("web search: cannot read %s: %v; nothing changed\n", webSearchKey, lerr)
+		return
+	}
 	if _, _, ok := vault.Get(webSearchKey); !ok {
 		raw, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
 		_, val := configure.ParseAssignment(raw)

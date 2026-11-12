@@ -72,12 +72,12 @@ func maskArrays(o, n any, secret bool, key string) (any, any) {
 	if ook {
 		ov, _ = maskSlices(oa, nil, secret, key)
 	} else {
-		ov, _ = maskLeaf(o, nil, secret, key)
+		ov, _ = maskPair(o, nil, secret, key)
 	}
 	if nok {
 		_, nv = maskSlices(nil, na, secret, key)
 	} else {
-		_, nv = maskLeaf(nil, n, secret, key)
+		_, nv = maskPair(nil, n, secret, key)
 	}
 	return ov, nv
 }
@@ -106,11 +106,11 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string
 		nn[k] = nv
 	}
 	if !ook {
-		o, _ = maskLeaf(o, nil, secret, key)
+		o, _ = maskPair(o, nil, secret, key)
 		return o, nn
 	}
 	if !nok {
-		_, n = maskLeaf(nil, n, secret, key)
+		_, n = maskPair(nil, n, secret, key)
 		return oo, n
 	}
 	return oo, nn
@@ -175,7 +175,7 @@ func parseDoc(doc []byte) (any, bool) {
 	return v, true
 }
 
-// diffInputs returns the masked line lists for both documents; non-JSON text falls back to textutil.RedactSecrets.
+// diffInputs returns masked line lists for both documents; non-JSON text falls back to textutil.RedactSecrets.
 func diffInputs(oldDoc, newDoc []byte) ([]string, []string) {
 	ov, ook := parseDoc(oldDoc)
 	nv, nok := parseDoc(newDoc)
@@ -184,6 +184,10 @@ func diffInputs(oldDoc, newDoc []byte) ([]string, []string) {
 		return normalize(ov), normalize(nv)
 	}
 	raw := func(doc []byte) []string {
+		if v, ok := parseDoc(doc); ok {
+			v, _ = maskPair(v, nil, false, "")
+			return normalize(v)
+		}
 		if strings.TrimSpace(string(doc)) == "" {
 			return nil
 		}

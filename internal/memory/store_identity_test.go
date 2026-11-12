@@ -138,7 +138,7 @@ func TestResolveHarness(t *testing.T) {
 	dir := idEnsure(t, cfg)
 	o, err := readOrigin(dir)
 	if err != nil || o.Key != harnessStoreKey() || o.Origin != paths.CanonDeep(cfg) {
-		t.Errorf("harness .origin = %+v, %v", o, err)
+		t.Errorf("harness origin = %+v, %v", o, err)
 	}
 }
 
@@ -235,7 +235,7 @@ func TestSameBasenameCollisionExtendsHash(t *testing.T) {
 	}
 }
 
-// A foreign dir without .origin, a reserved name and the harness key are never claimed.
+// A foreign dir with no vault origin row, a reserved name and the harness key are never claimed.
 func TestForeignAndReservedDirsNeverClaimed(t *testing.T) {
 	cfg := tempConfig(t)
 	c := gitRepo(t, t.TempDir(), "zed")
@@ -350,7 +350,7 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	}
 }
 
-// A hand-written harness .origin aliasing an external checkout routes that checkout to the harness store.
+// A hand-written harness origin aliasing an external checkout routes that checkout to the harness store.
 func TestAliasToHarnessStore(t *testing.T) {
 	cfg := gitRepo(t, t.TempDir(), ".claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -411,7 +411,9 @@ func seedJunkStores(t *testing.T, store string) {
 		os.MkdirAll(filepath.Join(store, r), 0o755)
 		write(t, filepath.Join(store, r, legacyOriginFile), `{"version":1,"key":"`+r+`","origin":"/r"}`)
 	}
-	os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym"))
+	if err := os.Symlink(filepath.Join(store, "alpha"), filepath.Join(store, "sym")); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
 }
 
 func TestRepoDirsSkipsJunk(t *testing.T) {
