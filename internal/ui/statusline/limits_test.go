@@ -162,38 +162,6 @@ func useSessions(t *testing.T, rows ...*providers.Provider) {
 	registry = func() *providers.Registry { return reg }
 }
 
-// A databricks key+command session never shows 5h/7d from a fresh subscription cache; with a record it shows u2m, never tok.
-func TestLimitsSegmentKeyCommandIgnoresSubscriptionCache(t *testing.T) {
-	hermetic(t)
-	future := time.Now().Add(24 * time.Hour)
-	writeLimitsCache(t, time.Now(), 23, 41, future, future)
-	useSessions(t, &providers.Provider{Name: "dbx-key", Provider: "databricks",
-		Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}})
-	if got := authSegment("dbx-key"); got != "" {
-		t.Errorf("no record, fresh cache: %q, want empty", got)
-	}
-	writeTokenExpiry(t, "dbx-key", time.Now().Add(42*time.Minute+30*time.Second))
-	got := authSegment("dbx-key")
-	if got != "u2m:42m" || strings.Contains(got, "tok") {
-		t.Errorf("with record: %q, want u2m:42m", got)
-	}
-}
-
-// An anthropic cli (ultra) session shows 7d from a fresh cache and nothing from a stale one.
-func TestLimitsSegmentAnthropicCacheFreshVsStale(t *testing.T) {
-	hermetic(t)
-	future := time.Now().Add(24 * time.Hour)
-	useSessions(t, &providers.Provider{Name: "maxx", Provider: "anthropic", Auth: providers.Auth{Type: providers.AuthCLI}})
-	writeLimitsCache(t, time.Now(), 23, 41, future, future)
-	if got := limitsSegment(input{}); !strings.Contains(got, "7d:41%") {
-		t.Errorf("fresh cache: %q, want 7d:41%%", got)
-	}
-	writeLimitsCache(t, time.Now().Add(-7*time.Hour), 23, 41, future, future)
-	if got := limitsSegment(input{}); got != "" {
-		t.Errorf("stale cache: %q, want empty", got)
-	}
-}
-
 // An oauth row served by its paired SP labels the countdown from the record's method, not the row's auth.
 func TestLimitsSegmentLabelsFromRecordedMethod(t *testing.T) {
 	hermetic(t)

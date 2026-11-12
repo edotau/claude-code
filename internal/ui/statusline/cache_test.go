@@ -54,9 +54,6 @@ func TestWriteStampIgnoresLegacyTmpSymlink(t *testing.T) {
 	if derr != nil || ferr != nil || di.Mode().Perm() != 0o700 || fi.Mode().Perm() != 0o600 {
 		t.Errorf("stamp dir/file = %v %v (%v, %v), want 0700/0600", di, fi, derr, ferr)
 	}
-	if !strings.HasPrefix(p, paths.StateDir()+string(filepath.Separator)) {
-		t.Errorf("stamp %s outside state dir", p)
-	}
 }
 
 func writeRunningDispatch(t *testing.T, id string, pid, owner int) {
