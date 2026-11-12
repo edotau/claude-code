@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,5 +80,41 @@ func assertCatalogModel(t *testing.T, want string) {
 	got, err := Catalog(context.Background())
 	if err != nil || len(got) != 1 || got[0].ID != want {
 		t.Fatalf("Catalog = %v, %v; want %s", got, err, want)
+	}
+}
+
+// TestDiscoverPickerProfilesSkipsUnusableRows: a keyless API row and an empty listing are skips, never errors.
+func TestDiscoverPickerProfilesSkipsUnusableRows(t *testing.T) {
+	catalogScratch(t)
+	orig := discoverLive
+	t.Cleanup(func() { discoverLive = orig })
+	listings := map[string][]providers.ModelInfo{"listed": {{ID: "live-model-a"}, {ID: "live-model-b"}}, "empty": nil}
+	discoverLive = func(_ context.Context, p *providers.Provider) ([]providers.ModelInfo, error) {
+		live, ok := listings[p.Name]
+		if !ok {
+			return nil, errors.New("catalog request failed (HTTP 503) for " + p.Name)
+		}
+		return live, nil
+	}
+	gh := func(name string) *providers.Provider {
+		return &providers.Provider{Name: name, Provider: "github", Login: "someone", Auth: providers.Auth{Type: providers.AuthCLI}}
+	}
+	keyless := &providers.Provider{Name: "keyless", Provider: "anthropic", Protocol: providers.ProtocolAnthropic,
+		BaseURL: "https://api.anthropic.com", Auth: providers.Auth{Type: providers.AuthKey, Env: "ANTHROPIC_API_KEY"}}
+	for _, tc := range []struct {
+		p              *providers.Provider
+		status, note   string
+		wantDiscovered int
+	}{
+		{keyless, "skipped", "vault set ANTHROPIC_API_KEY", 0}, // never reaches the stub: "keyless" would be a 503 error
+		{gh("empty"), "skipped", "no models", 0},
+		{gh("listed"), "preview", "", 2},
+		{gh("down"), "error", "HTTP 503", 0},
+	} {
+		r := discoverPickerProfile(tc.p, false)
+		if r.Status != tc.status || !strings.Contains(r.Note, tc.note) || r.Discovered != tc.wantDiscovered {
+			t.Errorf("%s = %q discovered=%d note=%q, want %q discovered=%d note containing %q",
+				tc.p.Name, r.Status, r.Discovered, r.Note, tc.status, tc.wantDiscovered, tc.note)
+		}
 	}
 }
