@@ -1538,23 +1538,19 @@ func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 
 const acmeProvider = `"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}`
 
-// profileFixture isolates the vault and seeds provider acme (no opencodeID) plus, when active is set, a "work" set.
-func profileFixture(t *testing.T, active string) {
+// profileFixture isolates the vault and seeds provider acme (no opencodeID).
+func profileFixture(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	doc := `{` + acmeProvider + `}`
-	if active != "" {
-		doc = `{` + acmeProvider + `,"profiles":{"active":"` + active + `","sets":{"work":{
-		  "codex":{"account":"acme","model":"acme-large","effort":"high"}}}}}`
-	}
 	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
 		t.Fatalf("seed overlay: %v", err)
 	}
 }
 
 func TestClientPrepareHubNativeFallback(t *testing.T) {
-	profileFixture(t, "")
+	profileFixture(t)
 	t.Setenv("HOME", t.TempDir())
 	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	client := newClient()
@@ -1595,7 +1591,7 @@ func TestClientPrepareHonorsCancellation(t *testing.T) {
 
 // An explicit --profile with no --model runs the classifier's alias, as the pinned route does.
 func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
-	profileFixture(t, "")
+	profileFixture(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	client := newClient()
@@ -1617,7 +1613,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 
 // An explicit --profile is one dispatch for every agent even with --fallback all: nothing can silently take over.
 func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
-	profileFixture(t, "")
+	profileFixture(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	client := newClient()

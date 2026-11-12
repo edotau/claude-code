@@ -190,9 +190,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t batchTask, i
 		b.failBeforeStart(ctx, sctx, t, i, err, done, false)
 		return
 	}
-	wg.Go(func() {
-		b.execute(ctx, sctx, t, i, done)
-	})
+	wg.Go(func() { b.execute(ctx, sctx, t, i, done) })
 }
 
 // execute prepares and runs t on its reserved slot, retrying a real failure once, and reports to done.

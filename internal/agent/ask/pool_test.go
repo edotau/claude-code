@@ -459,7 +459,7 @@ func TestRetrySkippedWhenCancelled(t *testing.T) {
 
 // A batch task's own profile reaches the request and prepares; an unknown one fails before any run.
 func TestBatchTaskProfileReachesRequest(t *testing.T) {
-	profileFixture(t, "")
+	profileFixture(t)
 	build := func(n int, profile string) batchTask {
 		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
 		bt, err := buildTask(line, batchOpts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)

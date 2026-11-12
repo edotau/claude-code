@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -67,7 +66,10 @@ func printResult(prefix, agentName, ref, format string, full bool) int {
 		return resultExit(rec)
 	}
 	out := &textutil.ErrWriter{W: os.Stdout}
-	printLog(out, log)
+	fmt.Fprint(out, log)
+	if log != "" && !strings.HasSuffix(log, "\n") {
+		fmt.Fprintln(out)
+	}
 	if full {
 		if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
 			fmt.Fprintln(out, "ask:", line)
@@ -95,14 +97,6 @@ func resultJSON(rec agent.Record, agentName, log string, full bool) any {
 		Resume  string `json:"resume,omitempty"`
 		Log     string `json:"log"`
 	}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}
-}
-
-// printLog writes a job log, adding a trailing newline when it lacks one.
-func printLog(w io.Writer, log string) {
-	fmt.Fprint(w, log)
-	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Fprintln(w)
-	}
 }
 
 // TailJob prints a job's log (json: its events); exit 1 for an errored job or a followed job that was lost.
