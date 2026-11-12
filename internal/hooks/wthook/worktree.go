@@ -171,7 +171,7 @@ var busyScanTTL = time.Minute
 
 // busyLine returns the peer notice and any process-scan or dedupe-state error.
 func busyLine(in *core.Input, run *hookRun) (string, error) {
-	file := filepath.Join(paths.StateDir(), "worktree-busy", sessionSlug(in.SessionID))
+	file := seenFile(in.SessionID)
 	if st, err := os.Stat(file); err == nil && st.Mode().IsRegular() && time.Since(st.ModTime()) < busyScanTTL {
 		return "", nil
 	}
@@ -189,19 +189,25 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 		ids = append(ids, strconv.Itoa(p.PID))
 	}
 	sort.Strings(ids)
-	key := strings.Join(ids, ",")
-	prev, _ := os.ReadFile(file)
-	if err = paths.AtomicWrite(file, []byte(key), 0o600); err != nil { // rewritten when unchanged: it refreshes the TTL
-		err = fmt.Errorf("write peer state %s: %w", file, err)
-	}
-	if string(prev) == key {
-		return "", err
-	}
-	if len(peers) == 0 {
+	first, err := notePeers(in.SessionID, strings.Join(ids, ","))
+	if !first || len(peers) == 0 {
 		return "", err
 	}
 	return fmt.Sprintf("Another session (%s pid %d) is working in this checkout on %s; before editing, "+
 		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch), err
+}
+
+// notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.
+func notePeers(session, ids string) (bool, error) {
+	first, err := seenAdd(session, "peers\t"+ids)
+	if err == nil && !first {
+		now := time.Now()
+		err = os.Chtimes(seenFile(session), now, now)
+	}
+	if err != nil {
+		err = fmt.Errorf("write peer state %s: %w", seenFile(session), err)
+	}
+	return first, err
 }
 
 // CheckoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.

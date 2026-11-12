@@ -407,17 +407,17 @@ func TestClaimCheckNestedTooDeepAsks(t *testing.T) {
 func TestFirstSightingLeavesNoLockFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	firstSighting("sess", "k1")
-	dir := filepath.Join(paths.StateDir(), "hooks", "claims-seen")
+	dir := filepath.Dir(seenFile("sess"))
 	ents, err := os.ReadDir(dir)
 	if err != nil || len(ents) != 1 || strings.HasSuffix(ents[0].Name(), ".lock") {
 		t.Fatalf("claims-seen dir = %v (err %v); want only the seen file", ents, err)
 	}
 }
 
-// TestFirstSightingFailsOpenOnHeldLock: a held lock costs at most claimsSeenWait, then the advisory still shows.
+// TestFirstSightingFailsOpenOnHeldLock: a held lock costs at most seenWait, then the advisory still shows.
 func TestFirstSightingFailsOpenOnHeldLock(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	file := filepath.Join(paths.StateDir(), "hooks", "claims-seen", "sess")
+	file := seenFile("sess")
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)
 	}
