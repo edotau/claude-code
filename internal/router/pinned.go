@@ -60,13 +60,6 @@ func (t *RouteTable) gateProfile(
 	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), now)
 	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
 	noteNotReady(res, agent, pin, model, c.Model, p)
-	return t.gateProfileCell(ctx, agent, pin, c, p, st, o, now, configured, res)
-}
-
-func (t *RouteTable) gateProfileCell(
-	ctx context.Context, agent, pin string, c Cell, p *providers.Provider, st State, o PickOpts, now time.Time,
-	configured func(agent string, c Cell) error, res *PickResult,
-) []Candidate {
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
 		return nil

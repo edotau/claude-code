@@ -174,8 +174,7 @@ func isDecodeErr(err error) bool {
 	return !errors.As(err, &pe)
 }
 
-// Record stores a fetched window reading for key; an exhaustion remembered from a failure survives a lower read
-// until it expires, since a usage endpoint can lag the upstream's own verdict.
+// Record stores a fetched window reading for key; a failure's remembered exhaustion survives a lower read.
 func Record(key string, usedPct float64, window string, resetsAt, now time.Time) error {
 	return update(func(s State) {
 		e := s[key]
@@ -450,8 +449,7 @@ func normalizeOffset(o string) string {
 	return o
 }
 
-// ResetFor is the failure's own reset, else the account's known window: credits reset monthly, a subscription
-// window at its stored reset, else in an hour (re-checked then, never forever).
+// ResetFor is the failure's own reset, else the stored window reset; credits reset monthly, else in an hour.
 func ResetFor(text, billing string, e Entry, now time.Time) time.Time {
 	if t, ok := ParseReset(text, now); ok {
 		return t

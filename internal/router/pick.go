@@ -632,9 +632,6 @@ var workRepoMarkers = func() ([]string, error) {
 
 // gitRemoteURLs lists fetch/push URLs via git remote -v; tests replace this seam.
 var gitRemoteURLs = perDir(func(dir string) ([]string, error) {
-	if dir == "" {
-		dir = "."
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "-v").Output()
