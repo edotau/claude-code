@@ -161,10 +161,10 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 	return "", false
 }
 
-// isWebSearchMCP is a call to the harness web_search MCP server (`network websearch`).
+// isWebSearchMCP is the harness web_search server's one tool; the request carries no command, so name and tool must match.
 func isWebSearchMCP(req copilot.PermissionRequest) bool {
 	r, ok := requestValue(req).(rpc.PermissionRequestMCP)
-	return ok && r.ServerName == webSearchServer
+	return ok && r.ServerName == webSearchServer && r.ToolName == webSearchTool
 }
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
@@ -186,3 +186,6 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 
 // webSearchServer is the harness Tavily MCP server (`network websearch`), the one the read-only tier may call.
 const webSearchServer = "web_search"
+
+// webSearchTool is the only tool that server exposes.
+const webSearchTool = "web_search"
