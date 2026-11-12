@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -77,13 +78,9 @@ func copyEnvFile(source, target string, perm os.FileMode) error {
 	if copyErr == nil {
 		copyErr = out.Chmod(perm)
 	}
-	closeErr := out.Close()
-	if copyErr != nil || closeErr != nil {
+	err = cmp.Or(copyErr, out.Close())
+	if err != nil {
 		_ = os.Remove(target)
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
 	}
-	return nil
+	return err
 }

@@ -232,13 +232,7 @@ func commitLines(commits string) string {
 	if commits == "" {
 		return "  - none\n"
 	}
-	var sb strings.Builder
-	for commit := range strings.SplitSeq(commits, "\n") {
-		sb.WriteString("  - ")
-		sb.WriteString(commit)
-		sb.WriteString("\n")
-	}
-	return sb.String()
+	return "  - " + strings.ReplaceAll(commits, "\n", "\n  - ") + "\n"
 }
 
 // withLedgerLock runs fn under the memory bank lock (so an update or dream cannot interleave) and the file lock.

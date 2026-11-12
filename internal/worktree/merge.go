@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -51,10 +52,9 @@ func promote(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResult, er
 		return nil, err
 	}
 	var result *MergeResult
-	err := acquire(0, func() error {
-		r, lockedErr := promoteLocked(ctx, repo, plan)
-		result = r
-		return lockedErr
+	err := acquire(0, func() (err error) {
+		result, err = promoteLocked(ctx, repo, plan)
+		return err
 	})
 	return result, err
 }
@@ -360,15 +360,7 @@ func notifyConflict(plan *MergePlan, errOut io.Writer) {
 
 // onlyConflictIssue reports whether every blocking Issue is a predicted conflict, the one case --resolve-agent acts on.
 func onlyConflictIssue(issues []Issue) bool {
-	if len(issues) == 0 {
-		return false
-	}
-	for _, iss := range issues {
-		if iss.Code != IssueConflict {
-			return false
-		}
-	}
-	return true
+	return len(issues) > 0 && !slices.ContainsFunc(issues, func(iss Issue) bool { return iss.Code != IssueConflict })
 }
 
 func issueCodes(issues []Issue) string {

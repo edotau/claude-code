@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -58,10 +59,7 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 			set[p] = true
 		}
 	}
-	for p := range set {
-		pkgs = append(pkgs, p)
-	}
-	slices.Sort(pkgs)
+	pkgs = slices.Sorted(maps.Keys(set))
 	return scopedGateCommand(pkgs), pkgs, false, nil
 }
 
@@ -88,10 +86,7 @@ func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, 
 
 // scopedGateCommand renders the build, vet and test command line for pkgs.
 func scopedGateCommand(pkgs []string) string {
-	args := make([]string, len(pkgs))
-	for i, p := range pkgs {
-		args[i] = textutil.QuoteSH("./" + p)
-	}
+	args := mapStrings(pkgs, func(p string) string { return textutil.QuoteSH("./" + p) })
 	if len(args) == 0 { // a bare `go test` runs the root dir and fails when it has no Go files
 		return "go build ./... && go vet ./..."
 	}
@@ -267,13 +262,7 @@ func hasMakeTarget(makefile, target string) bool {
 	if err != nil {
 		return false
 	}
-	prefix := target + ":"
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return true
-		}
-	}
-	return false
+	return strings.Contains("\n"+string(data), "\n"+target+":")
 }
 
 // hasNPMTestScript reports whether pkgJSON declares a "test" script.
@@ -426,7 +415,7 @@ func hasMakeLintCheck(makefile string) bool {
 			inRecipe = true
 		case strings.TrimSpace(line) == "":
 		case strings.HasPrefix(line, "\t") && inRecipe:
-			if makeCheckRef.MatchString(stripMakeComment(line)) {
+			if code, _, _ := strings.Cut(line, "#"); makeCheckRef.MatchString(code) {
 				return true
 			}
 		default:
@@ -434,14 +423,6 @@ func hasMakeLintCheck(makefile string) bool {
 		}
 	}
 	return false
-}
-
-// stripMakeComment drops a trailing # comment from a recipe line.
-func stripMakeComment(line string) string {
-	if before, _, ok := strings.Cut(line, "#"); ok {
-		return before
-	}
-	return line
 }
 
 // runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.

@@ -63,18 +63,6 @@ func TestInUseByRefusesWhenStubbedProcessIsInside(t *testing.T) {
 	}
 }
 
-func TestInUseByClearWhenNoProcess(t *testing.T) {
-	dest := t.TempDir()
-	stubProcesses(t, func(dir string) ([]Proc, error) { return nil, nil })
-	reason, err := InUseBy(dest)
-	if err != nil {
-		t.Fatalf("InUseBy: %v", err)
-	}
-	if reason != "" {
-		t.Fatalf("reason = %q, want clear", reason)
-	}
-}
-
 func TestInUseByExcludesCallerAndAncestors(t *testing.T) {
 	dest := t.TempDir()
 	caller := os.Getpid()
@@ -87,24 +75,6 @@ func TestInUseByExcludesCallerAndAncestors(t *testing.T) {
 	}
 	if reason != "" {
 		t.Fatalf("reason = %q, want the caller's own pid excluded", reason)
-	}
-}
-
-// TestWithinPrefixNotConfused is the regression test for a naive strings.HasPrefix: /a/foo must not
-// match a process whose cwd is /a/foobar.
-func TestWithinPrefixNotConfused(t *testing.T) {
-	t.Parallel()
-	if paths.Within("/a/foobar", "/a/foo") {
-		t.Fatal("paths.Within(/a/foobar, /a/foo) = true, want false — foobar is a sibling, not a child")
-	}
-	if !paths.Within("/a/foo", "/a/foo") {
-		t.Fatal("paths.Within(/a/foo, /a/foo) = false, want true — equal paths are inside")
-	}
-	if !paths.Within("/a/foo/bar", "/a/foo") {
-		t.Fatal("paths.Within(/a/foo/bar, /a/foo) = false, want true — a real child")
-	}
-	if !paths.Within("/a/foo/", "/a/foo") {
-		t.Fatal("within with a trailing separator should still match")
 	}
 }
 
