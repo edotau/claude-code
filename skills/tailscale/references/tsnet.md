@@ -12,7 +12,7 @@ Common use cases:
 - Build serverless or short-lived workers as ephemeral tailnet nodes (`Server.Ephemeral = true`).
 - Identify the calling user from the WireGuard identity (`LocalClient.WhoIs`) and authorize via capability grants in the policy file.
 
-> tsnet is **Go-only**. For other languages, run the regular `tailscaled` daemon (often as a sidecar) — refer to `containers.md`.
+> tsnet is **Go-only**. For other languages, run the regular `tailscaled` daemon (often as a sidecar).
 
 ## Mental model
 
