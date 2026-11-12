@@ -48,8 +48,7 @@ type stepsResult struct {
 	OversizedTasks       []oversizedTask      `json:"oversized_tasks,omitempty"`
 }
 
-// oversizedTask is a `## Tasks` (or phase task) line that isn't leaf-sized: too many packages, too many
-// findings/items, or a code task with no `owns:` segment (agents/Plan.md's leaf-sized task rule).
+// oversizedTask is a task line that isn't leaf-sized: too many packages or findings, or a code task with no `owns:`.
 type oversizedTask struct {
 	Title  string `json:"title"`
 	Reason string `json:"reason"`
@@ -130,8 +129,7 @@ func maxFindingsCount(line string) (int, bool) {
 	return best, found
 }
 
-// findOversizedTasks flags `## Tasks` (or phase task) checklist lines that aren't leaf-sized per
-// agents/Plan.md: >3 packages, >10 findings/items, or a code task with no (or an empty) `owns:`; fences skip.
+// findOversizedTasks flags checklist task lines not leaf-sized per agents/Plan.md (>3 packages, >10 items, no `owns:`).
 func findOversizedTasks(text string) []oversizedTask {
 	var out []oversizedTask
 	var fence fenceState

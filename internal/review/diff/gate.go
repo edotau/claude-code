@@ -149,28 +149,12 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 	if len(changed) > 0 {
 		fmt.Fprintln(stdout, "[simplicity] complexity_checker (medium):")
 		var buf bytes.Buffer
-		rc := runStagedComplexity(repo, changed, &buf)
-		if rc != 0 {
-			fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc)
-			indentLines(stdout, buf.String())
-		} else if matched, ok := filterLines(buf.String(), gateVerdictLineRe()); ok {
-			fmt.Fprintln(stdout, matched)
-		} else {
-			fmt.Fprintln(stdout, "  clean")
-		}
+		printDetector(stdout, runStagedComplexity(repo, changed, &buf), buf.String(), gateVerdictLineRe())
 	}
 
 	fmt.Fprintln(stdout, "[surgical] diff_surgeon (staged):")
 	var out2 bytes.Buffer
-	rc2 := runDiffIn(repo, nil, &out2, &out2)
-	if rc2 != 0 {
-		fmt.Fprintf(stdout, "  detector failed (exit %d):\n", rc2)
-		indentLines(stdout, out2.String())
-	} else if matched, ok := filterLines(out2.String(), gateNoiseLineRe()); ok {
-		fmt.Fprintln(stdout, matched)
-	} else {
-		fmt.Fprintln(stdout, "  clean")
-	}
+	printDetector(stdout, runDiffIn(repo, nil, &out2, &out2), out2.String(), gateNoiseLineRe())
 
 	fmt.Fprintln(stdout, "--- /code-review gate ---")
 	return 0
@@ -204,6 +188,18 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 		}
 	}
 	return repo, false
+}
+
+// printDetector prints a detector's failure, its lines matching re, or "clean".
+func printDetector(w io.Writer, rc int, text string, re *regexp.Regexp) {
+	if rc != 0 {
+		fmt.Fprintf(w, "  detector failed (exit %d):\n", rc)
+		indentLines(w, text)
+	} else if matched, ok := filterLines(text, re); ok {
+		fmt.Fprintln(w, matched)
+	} else {
+		fmt.Fprintln(w, "  clean")
+	}
 }
 
 func indentLines(w io.Writer, text string) {

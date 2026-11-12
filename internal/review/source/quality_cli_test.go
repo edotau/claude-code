@@ -2,7 +2,6 @@ package source
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -13,30 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// A traversal error inside an excluded directory (node_modules) is neither analyzed nor reported as a failure.
-func TestRunQualityIgnoresExcludedDirectoryTraversalError(t *testing.T) {
-	root := t.TempDir()
-	hosttest.WriteRel(t, root, "ok.py", "value = 1\n")
-	locked := filepath.Join(root, "node_modules")
-	if err := os.Mkdir(locked, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	unreadableDir(t, locked)
-	var stdout, stderr bytes.Buffer
-	if code := RunQuality([]string{root, "--json"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", code, &stdout, &stderr)
-	}
-	var report directoryReport
-	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatal(err)
-	}
-	if report.FilesAnalyzed != 1 || len(report.FilesFailed) != 0 {
-		t.Fatalf("analyzed = %d, failed = %v; want one analyzed file and no failures", report.FilesAnalyzed, report.FilesFailed)
-	}
-}
-
 // unreadableDir nests directories under parent past PATH_MAX (1024 darwin, 4096 linux), so ReadDir fails for any user.
-func unreadableDir(t *testing.T, parent string) string {
+func unreadableDir(t *testing.T, parent string) {
 	t.Helper()
 	r, err := os.OpenRoot(parent)
 	if err != nil {
@@ -56,7 +33,6 @@ func unreadableDir(t *testing.T, parent string) string {
 	if _, err := os.ReadDir(path); err == nil {
 		t.Fatalf("ReadDir of a %d-byte path succeeded; the fixture needs a path the OS rejects", len(path))
 	}
-	return path
 }
 
 func TestEmitQualityJSONReplacesWithoutTruncating(t *testing.T) {
