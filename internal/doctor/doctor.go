@@ -70,7 +70,26 @@ func Run(args []string) int {
 		helptext.Fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
 	}
+	if msg, bad := strayFlags(fs, o); bad {
+		return helptext.FailUsage("doctor: %s", msg)
+	}
 	return runDoctor(o, fs.Args())
+}
+
+// strayFlags names the first of --days, --since, --range given without the mode that reads it.
+func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
+	git := o.gitScan || o.all
+	for _, f := range []struct {
+		name, mode string
+		on         bool
+	}{
+		{"days", "--audit", o.auditMode}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
+	} {
+		if helptext.Explicit(fs, f.name) && !f.on {
+			return fmt.Sprintf("--%s only applies with %s; add it or drop --%s", f.name, f.mode, f.name), true
+		}
+	}
+	return "", false
 }
 
 // conflictingModes names the first pair of mode flags that would silently drop one another.

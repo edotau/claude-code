@@ -64,8 +64,8 @@ var maxBytes int64 = 1 << 20
 // Include JSON escaping and the newline in the single-write limit.
 const maxLineBytes = 4 << 10
 
-// File is the live log.
-func File() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
+// logFile is the live log.
+func logFile() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
 
 // Log appends one event. Fail-open: callers are hooks and the router hot path, so nothing is returned.
 func Log(a Action, resource, detail string) {
@@ -95,7 +95,7 @@ func Log(a Action, resource, detail string) {
 		}
 		event.Detail = event.Detail[:n]
 	}
-	file := File()
+	file := logFile()
 	dir := filepath.Dir(file)
 	if os.MkdirAll(dir, 0o700) != nil {
 		return
@@ -112,8 +112,7 @@ func Log(a Action, resource, detail string) {
 	_, _ = f.Write(append(line, '\n'))
 }
 
-// rotate moves a full log to .1 under a lock, re-checking the size so racing writers rotate once.
-// It renames over .1 only after the archive shift succeeded, so a failed shift never drops history.
+// rotate moves a full log to .1 under a lock, only after the archive shift succeeded, so a failed shift keeps history.
 func rotate(file string) error {
 	return paths.WithFileLock(file, func() error {
 		if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
@@ -129,8 +128,7 @@ func rotate(file string) error {
 // keepRotated bounds the archive: rotations keep .1 through .keepRotated (about keepRotated MiB) and drop the oldest.
 const keepRotated = 5
 
-// archiveOld shifts .1..(keepRotated-1) up one so a new rotation never overwrites history; the oldest falls off.
-// A missing source is normal before the archive fills; any other rename failure is returned.
+// archiveOld shifts .1..(keepRotated-1) up one, the oldest falling off; a missing source is normal.
 func archiveOld(rotated string) error {
 	base := rotated[:len(rotated)-1]
 	for n := keepRotated; n >= 2; n-- {
@@ -146,9 +144,9 @@ func archiveOld(rotated string) error {
 func Read(since time.Time) ([]Event, error) {
 	files := make([]string, 0, keepRotated+1)
 	for n := keepRotated; n >= 1; n-- {
-		files = append(files, File()+"."+strconv.Itoa(n))
+		files = append(files, logFile()+"."+strconv.Itoa(n))
 	}
-	files = append(files, File())
+	files = append(files, logFile())
 	var out []Event
 	for _, f := range files {
 		evs, err := readFile(f, since)
@@ -201,7 +199,7 @@ const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{
 	Name: "audit", Owner: "internal/audit", Kind: schemas.Log,
-	Glob:    func() string { return File() + "*" },
+	Glob:    func() string { return logFile() + "*" },
 	New:     func() any { return &Event{} },
 	Version: schemaVersion, Keep: "audit trail is kept; rotated at 1 MiB", Migrate: schemas.SameShape,
 })
@@ -209,8 +207,7 @@ var format = schemas.Register(schemas.Format{
 // Report prints the typed action log (switches, pins, secret sets, safety blocks, failovers) for `doctor --audit`.
 func Report(days int, format string) int {
 	if days <= 0 {
-		helptext.Fprint(os.Stderr, "usage: claude-code doctor --audit [--days 7] [--format text|json]\n")
-		return 2
+		return helptext.FailUsage("doctor --audit: --days must be at least 1, got %d; try --days 7", days)
 	}
 	ev, err := Read(time.Now().AddDate(0, 0, -days))
 	if err != nil {
@@ -227,7 +224,7 @@ func Report(days int, format string) int {
 		return 0
 	}
 	if len(ev) == 0 {
-		fmt.Printf("no audited actions in the last %d day(s) (%s)\n", days, File())
+		fmt.Printf("no audited actions in the last %d day(s) (%s)\n", days, logFile())
 		return 0
 	}
 	for _, e := range ev {

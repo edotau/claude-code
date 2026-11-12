@@ -23,7 +23,7 @@ func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
 	if s := Summary(ev); s[ProviderSwitch] != 1 || s[HookBlocked] != 1 {
 		t.Errorf("Summary = %v", s)
 	}
-	if fi, _ := os.Stat(File()); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(logFile()); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
@@ -33,7 +33,7 @@ func TestLogRedactsCredentials(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tok := "sk" + "-abcdefghijklmnopqrstuvwxyz0123"
 	Log(SecretSet, "OPENAI_API_KEY", "value "+tok)
-	b, _ := os.ReadFile(File())
+	b, _ := os.ReadFile(logFile())
 	if strings.Contains(string(b), tok) || !strings.Contains(string(b), "REDACTED") {
 		t.Errorf("log line: %s", b)
 	}
@@ -43,7 +43,7 @@ func TestLogRedactsCredentials(t *testing.T) {
 func TestLogRedactsEmbeddedCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	Log(SecretSet, "AWS_SECRET", "export AWS_SECRET=AKIAIOSFODNN7EXAMPLE")
-	b, _ := os.ReadFile(File())
+	b, _ := os.ReadFile(logFile())
 	if strings.Contains(string(b), "AKIAIOSFODNN7EXAMPLE") || !strings.Contains(string(b), "REDACTED") {
 		t.Errorf("log line: %s", b)
 	}
@@ -58,10 +58,10 @@ func TestRotationAndMalformedLines(t *testing.T) {
 	for range 5 {
 		Log(ModelPin, "HARNESS_OPUS_MODEL", "claude-opus-5-5")
 	}
-	if _, err := os.Stat(File() + ".1"); err != nil {
+	if _, err := os.Stat(logFile() + ".1"); err != nil {
 		t.Fatalf("no rotation: %v", err)
 	}
-	f, err := os.OpenFile(File(), os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(logFile(), os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,10 +81,10 @@ func TestAuditLogSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	seed := `{"time":"` + ts + `","action":"model_pin","resource":"old"}` + "\n" +
 		`{"schema":2,"time":"` + ts + `","action":"model_pin","resource":"future"}` + "\n"
-	if err := os.MkdirAll(filepath.Dir(File()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logFile()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(File(), []byte(seed), 0o600); err != nil {
+	if err := os.WriteFile(logFile(), []byte(seed), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	Log(KeyRotate, "new", "")
@@ -100,7 +100,7 @@ func TestAuditLogSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	if strings.Join(res, ",") != "old,new" {
 		t.Errorf("resources = %v, want [old new] (schema 2 skipped)", res)
 	}
-	b, _ := os.ReadFile(File())
+	b, _ := os.ReadFile(logFile())
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
 	if last := lines[len(lines)-1]; !strings.Contains(last, `"schema":1`) {
 		t.Errorf("new line lacks schema 1: %s", last)
@@ -113,7 +113,7 @@ func TestRotateTwiceKeepsRotatedHistory(t *testing.T) {
 	old := maxBytes
 	maxBytes = 50
 	defer func() { maxBytes = old }()
-	file := File()
+	file := logFile()
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestRotateKeepsPreviousGeneration(t *testing.T) {
 	old := maxBytes
 	maxBytes = 50
 	defer func() { maxBytes = old }()
-	file := File()
+	file := logFile()
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -159,14 +159,14 @@ func TestRotateKeepsPreviousGeneration(t *testing.T) {
 
 func TestReadIncludesEveryKeptArchive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(File()), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logFile()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	suffixes := []string{".5", ".4", ".3", ".2", ".1", ""}
 	for _, suffix := range suffixes {
 		seed := `{"schema":1,"time":"2026-11-08T23:59:59Z","action":"model_pin","resource":"expired"}` + "\n" +
 			fmt.Sprintf(`{"schema":1,"time":"2026-11-09T00:00:00Z","action":"model_pin","resource":%q}`, suffix) + "\n"
-		if err := os.WriteFile(File()+suffix, []byte(seed), 0o600); err != nil {
+		if err := os.WriteFile(logFile()+suffix, []byte(seed), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -214,7 +214,7 @@ func TestRotatePreservesHistoryOnFailure(t *testing.T) {
 // A pre-existing loose state dir and audit file are tightened, not left at their old modes.
 func TestLogTightensExistingModes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	file := File()
+	file := logFile()
 	dir := filepath.Dir(file)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

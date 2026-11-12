@@ -17,8 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// secretScanner audits the config surface for inline, plaintext secrets. Findings accumulate across
-// files; Out receives the human-readable report. Values are never echoed, only their location.
+// secretScanner audits the config surface for inline secrets; Out gets the report, values are never echoed.
 type secretScanner struct {
 	Out      io.Writer
 	Findings []string
@@ -49,6 +48,14 @@ func defaultScanTargets() []string {
 	return dedupExisting(out)
 }
 
+// resolvedPath is p with symlinks resolved, or p itself when they cannot be.
+func resolvedPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
 // dedupExisting drops duplicates (by resolved path) and anything that doesn't exist, preserving order.
 func dedupExisting(files []string) []string {
 	seen := map[string]bool{}
@@ -60,10 +67,7 @@ func dedupExisting(files []string) []string {
 		if _, err := os.Stat(p); err != nil {
 			continue
 		}
-		rp := p
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			rp = r
-		}
+		rp := resolvedPath(p)
 		if seen[rp] {
 			continue
 		}
@@ -169,22 +173,31 @@ func (s *secretScanner) scanFile(path string) {
 		return
 	}
 	if jsonErr == nil {
-		walkJSONStrings(nil, doc, func(p []string, val string) {
-			metadata := marketplaceRepoPath(p) ||
-				(filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
-			if providers.LooksLikeSecretGeneric(val, !metadata) {
-				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
-			}
-		})
+		s.scanJSONLeaves(path, doc)
 	} else {
-		for k, v := range providers.ReadEnvFile(path) {
-			if providers.LooksLikeSecret(v) {
-				s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
-			}
-		}
+		s.scanEnvLines(path)
 	}
 	if len(s.Findings) == before {
 		s.ok(path + " — clean")
+	}
+}
+
+// scanJSONLeaves flags every string leaf of doc that looks like an inline secret.
+func (s *secretScanner) scanJSONLeaves(path string, doc any) {
+	walkJSONStrings(nil, doc, func(p []string, val string) {
+		metadata := marketplaceRepoPath(p) || (filepath.Base(path) == ".claude.json" && claudeMetadataPath(p))
+		if providers.LooksLikeSecretGeneric(val, !metadata) {
+			s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, strings.Join(p, ".")))
+		}
+	})
+}
+
+// scanEnvLines flags every KEY=value line of a non-JSON file whose value looks like a secret.
+func (s *secretScanner) scanEnvLines(path string) {
+	for k, v := range providers.ReadEnvFile(path) {
+		if providers.LooksLikeSecret(v) {
+			s.flag(fmt.Sprintf("%s → %s holds an inline secret", path, k))
+		}
 	}
 }
 

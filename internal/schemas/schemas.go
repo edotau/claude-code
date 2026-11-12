@@ -178,7 +178,7 @@ func LogMigration(format string, from, to, records int) {
 		return
 	}
 	p := LedgerPath()
-	if os.MkdirAll(filepath.Dir(p), 0o755) != nil {
+	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
 		return
 	}
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
