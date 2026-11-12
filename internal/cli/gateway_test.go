@@ -761,3 +761,28 @@ func TestMintProxyTokenRejectsInvalidConfigDir(t *testing.T) {
 		t.Fatal("invalid config dir was applied")
 	}
 }
+
+// TestGatewayRouteRefusesModelNoEndpointServes: an explicit model no endpoint serves exits non-zero naming it; a
+// served bare name passes that refusal (a later gate may still find no candidate to run it).
+func TestGatewayRouteRefusesModelNoEndpointServes(t *testing.T) {
+	for _, c := range []struct {
+		model   string
+		refused bool
+	}{{"gpt-9-zzz", true}, {"gpt-6-1-terra", false}} {
+		t.Run(c.model, func(t *testing.T) {
+			parityEnv(t, "terra-par", true)
+			s := router.Served{Profile: "terra-par", FetchedAt: time.Now(),
+				Models: []router.ServedModel{{ID: "databricks-gpt-6-1-terra", Ready: "READY"}}}
+			if err := router.SaveServed(s); err != nil {
+				t.Fatal(err)
+			}
+			code, _, errOut := hosttest.CaptureOutput(t, func() int {
+				return gatewayRoute([]string{"--profile", "terra-par", "--model", c.model, "--fallback", "agents"})
+			})
+			refused := strings.Contains(errOut, "--model "+c.model+": not a READY endpoint on terra-par")
+			if refused != c.refused || (c.refused && code == 0) {
+				t.Fatalf("--model %s: exit %d, stderr %q; want refused=%v", c.model, code, errOut, c.refused)
+			}
+		})
+	}
+}
