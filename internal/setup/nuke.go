@@ -437,7 +437,7 @@ func tarUnpushed(tw *tar.Writer, dir string) error {
 	if err != nil {
 		return fmt.Errorf("bundle unpushed commits: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }() // best-effort: a leftover temp bundle dir is harmless
 	path := filepath.Join(tmp, unpushedBundle)
 	if _, err := gitOutput("-C", dir, "bundle", "create", path, "--branches", "--not", "--remotes"); err != nil {
 		return fmt.Errorf("bundle unpushed commits: %w", err)
