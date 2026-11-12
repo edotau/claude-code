@@ -27,39 +27,16 @@ type Call struct {
 	NoRedirect  bool // return a 3xx instead of following it
 }
 
-// Do sends c under ctx and returns the status, at most Limit bytes and the response header. Status 0 means no
-// response arrived (build, Authorize or transport error); otherwise a read error or ErrTooLarge comes with the
-// status and the bytes read so far. No retry.
+// Do sends c: status (0 = no response), up to Limit bytes, header; a read error or ErrTooLarge keeps the status.
 func Do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, err error) {
 	if c.Limit <= 0 {
 		return 0, nil, nil, errors.New("httpx: Limit is required")
 	}
-	var rd io.Reader
-	if len(c.Body) > 0 {
-		rd = bytes.NewReader(c.Body)
-	}
-	req, err := http.NewRequestWithContext(ctx, c.Method, c.URL, rd)
+	req, err := c.request(ctx)
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	for k, v := range c.Header {
-		req.Header[k] = append([]string(nil), v...)
-	}
-	if c.Authorize != nil {
-		if err := c.Authorize(req.Header); err != nil {
-			return 0, nil, nil, err
-		}
-	}
-	client := c.Client
-	if client == nil {
-		client = &http.Client{Timeout: defaultTimeout}
-	}
-	if c.NoRedirect {
-		cp := *client
-		cp.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-		client = &cp
-	}
-	resp, err := client.Do(req)
+	resp, err := c.client().Do(req)
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -69,4 +46,39 @@ func Do(ctx context.Context, c Call) (status int, body []byte, hdr http.Header, 
 		body, err = body[:c.Limit], ErrTooLarge
 	}
 	return resp.StatusCode, body, resp.Header, err
+}
+
+// request builds c's request with Header copied and Authorize applied.
+func (c Call) request(ctx context.Context) (*http.Request, error) {
+	var rd io.Reader
+	if len(c.Body) > 0 {
+		rd = bytes.NewReader(c.Body)
+	}
+	req, err := http.NewRequestWithContext(ctx, c.Method, c.URL, rd)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range c.Header {
+		req.Header[k] = append([]string(nil), v...)
+	}
+	if c.Authorize != nil {
+		if err := c.Authorize(req.Header); err != nil {
+			return nil, err
+		}
+	}
+	return req, nil
+}
+
+// client is c.Client or a default-timeout one, with redirects off under NoRedirect.
+func (c Call) client() *http.Client {
+	client := c.Client
+	if client == nil {
+		client = &http.Client{Timeout: defaultTimeout}
+	}
+	if c.NoRedirect {
+		cp := *client
+		cp.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &cp
+	}
+	return client
 }

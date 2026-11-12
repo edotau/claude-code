@@ -57,10 +57,13 @@ func parseKeyExpiry(s string) (time.Duration, error) {
 		if err != nil {
 			return 0, err
 		}
+		if days < 0 { // checked before the multiply: a huge negative count wraps to a positive Duration
+			return 0, fmt.Errorf("key expiry %q is negative", s)
+		}
 		if int64(days) > maxKeyDays {
 			return 0, fmt.Errorf("key expiry %q overflows: at most %dd", s, maxKeyDays)
 		}
-		return nonNegative(s, time.Duration(days)*24*time.Hour)
+		return time.Duration(days) * 24 * time.Hour, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {

@@ -18,18 +18,23 @@ import (
 // errNoSubnetRoutes means this box advertises no subnet routes to approve.
 var errNoSubnetRoutes = errors.New("this box advertises no subnet routes; run --subnet <cidr> first")
 
+// errKeyEnvEmpty: --key-env named a variable that holds no key; the vault key must not stand in for it.
+var errKeyEnvEmpty = errors.New("is empty or unset")
+
 // resolveAuthKey picks the auth key: literal ("-" reads stdin), then the keyEnv variable, then the vault.
 func resolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 	key := authKey
 	if key == "-" {
 		in, err := io.ReadAll(stdin)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("reading --auth-key from stdin: %w", err)
 		}
 		key = strings.TrimSpace(string(in))
 	}
 	if key == "" && keyEnv != "" {
-		key = strings.TrimSpace(os.Getenv(keyEnv))
+		if key = strings.TrimSpace(os.Getenv(keyEnv)); key == "" {
+			return "", fmt.Errorf("--key-env %s %w; export it or drop --key-env", keyEnv, errKeyEnvEmpty)
+		}
 	}
 	if key == "" {
 		key, _, _ = vault.Get(authKeyName)

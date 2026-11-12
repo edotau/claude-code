@@ -228,8 +228,11 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
 	}
 	key, err := resolveAuthKey(o.authKey, o.keyEnv, os.Stdin)
+	if errors.Is(err, errKeyEnvEmpty) {
+		return helptext.FailUsage("network tailscale connect: %v", err)
+	}
 	if err != nil {
-		return helptext.Fail("network tailscale connect: reading --auth-key from stdin: %v", err)
+		return helptext.Fail("network tailscale connect: %v", err)
 	}
 	if key == "" {
 		return tailscaleConnectKeyless(ctx, o.advertise)

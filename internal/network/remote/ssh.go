@@ -199,6 +199,20 @@ func flagValues(args []string) map[string]string {
 	return flags
 }
 
+// boolFlagOn reports whether the last of the named bool flags in args is on: bare, or =value that parses true.
+func boolFlagOn(args []string, names ...string) bool {
+	on := false
+	for _, a := range args {
+		k, v, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !strings.HasPrefix(a, "-") || !slices.Contains(names, k) {
+			continue
+		}
+		b, err := strconv.ParseBool(v)
+		on = !hasVal || err != nil || b
+	}
+	return on
+}
+
 // freeLocalPort is the first port from first to last free on this machine's loopback, else first; tests swap it.
 var freeLocalPort = func(first, last int) int {
 	for p := first; p <= last; p++ {
@@ -223,8 +237,7 @@ func loginForward(args []string) ([]string, int) {
 		return slices.Delete(slices.Clone(args), i, i+1), 0
 	}
 	flags := flagValues(args[2:])
-	noBrowserRun := func(k string) bool { _, ok := flags[k]; return ok }
-	if flags["as"] == "sp" || slices.ContainsFunc([]string{"dry-run", "h", "help"}, noBrowserRun) {
+	if flags["as"] == "sp" || boolFlagOn(args[2:], "dry-run", "h", "help") {
 		return args, 0
 	}
 	port, out := oauth.DefaultPort, slices.Clone(args)
@@ -266,8 +279,7 @@ var tailnetHosts = func() []string {
 	return names
 }
 
-// Complete is tab completion behind --host or egressFlag: host names, then local's candidates for the rest
-// (bash splits <flag>=<host> at the =), plus --host-browser on a --host login.
+// Complete completes after --host or egressFlag: host names, then local's words; bash splits <flag>=<host> at the =.
 func Complete(words []string, egressFlag string, local func([]string) []string) []string {
 	if len(words) == 0 || words[0] != Flag && words[0] != egressFlag {
 		return local(words)
@@ -277,19 +289,29 @@ func Complete(words []string, egressFlag string, local func([]string) []string) 
 		skip = 3
 	}
 	if len(words) <= skip {
-		var out []string
-		for _, h := range tailnetHosts() {
-			if strings.HasPrefix(h, words[len(words)-1]) && h != "" {
-				out = append(out, h)
-			}
-		}
-		return out
+		return hostCandidates(words[len(words)-1])
 	}
 	rest := words[skip:]
 	out := local(rest)
-	cur := rest[len(rest)-1]
-	if words[0] == Flag && isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(HostBrowser, cur) {
+	if words[0] == Flag && wantsHostBrowser(rest) {
 		out = append(out, HostBrowser)
 	}
 	return out
+}
+
+// hostCandidates lists the tailnet host names that start with prefix.
+func hostCandidates(prefix string) []string {
+	var out []string
+	for _, h := range tailnetHosts() {
+		if strings.HasPrefix(h, prefix) && h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// wantsHostBrowser reports whether the word being typed in a login's args is a prefix of --host-browser.
+func wantsHostBrowser(rest []string) bool {
+	cur := rest[len(rest)-1]
+	return isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(HostBrowser, cur)
 }
