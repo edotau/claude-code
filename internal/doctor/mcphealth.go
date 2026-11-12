@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,14 +52,12 @@ func (d serverDef) MarshalJSON() ([]byte, error) {
 	}{plain(r), r.hadSecrets})
 }
 
-// redacted returns a copy of d with every secret-shaped env, header, arg and URL query value replaced.
+// redacted returns a copy of d with every secret-shaped env, header, arg and URL credential replaced.
 func (d serverDef) redacted() serverDef {
+	args, url := redactArgs(d.Args), maskURL(d.URL)
 	d.hadSecrets = d.hadSecrets || textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) ||
-		(d.URL != "" && queryParamSecret.MatchString(d.URL))
-	d.Env, d.Headers, d.Args = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), redactArgs(d.Args)
-	if d.URL != "" {
-		d.URL = queryParamSecret.ReplaceAllString(d.URL, "${1}REDACTED")
-	}
+		!slices.Equal(args, d.Args) || url != d.URL
+	d.Env, d.Headers, d.Args, d.URL = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), args, url
 	return d
 }
 
@@ -268,7 +267,7 @@ func expandArgsHome(cmd string) string {
 type secretFinding struct {
 	Scope  string `json:"scope"`
 	Server string `json:"server"`
-	Field  string `json:"field"` // env | headers | url
+	Field  string `json:"field"` // env | headers | url | args (Key = arg index)
 	Key    string `json:"key,omitempty"`
 }
 
@@ -276,14 +275,26 @@ type secretFinding struct {
 // separator and param name so redact() can replace just the value.
 var queryParamSecret = regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key)=)[^&\s]+`)
 
-// findSecrets scans every server's env, headers, and url for inline plaintext credentials.
+// urlUserinfo matches the password of scheme://user:password@host; group 1 keeps everything before it.
+var urlUserinfo = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s]+@`)
+
+// secretFlag matches a flag name that carries a credential as its value (--password, --api-key, -token).
+var secretFlag = regexp.MustCompile(`(?i)^--?[\w-]*(?:passw(?:or)?d|passphrase|secret|token|key|credential)$`)
+
+// findSecrets scans every server's env, headers, url, and args for inline plaintext credentials.
 func findSecrets(defs []def) []secretFinding {
 	var out []secretFinding
 	for _, d := range defs {
 		out = append(out, scanMap(d, "env", d.D.Env)...)
 		out = append(out, scanMap(d, "headers", d.D.Headers)...)
-		if d.D.URL != "" && queryParamSecret.MatchString(d.D.URL) {
+		if maskURL(d.D.URL) != d.D.URL {
 			out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: "url"})
+		}
+		masked := redactArgs(d.D.Args)
+		for i, a := range d.D.Args {
+			if masked[i] != a {
+				out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: "args", Key: strconv.Itoa(i)})
+			}
 		}
 	}
 	return out
@@ -301,21 +312,41 @@ func redact(defs []def) []def {
 	return out
 }
 
-// scrub masks credential-shaped words and token/key query values in free text.
-func scrub(s string) string {
-	return queryParamSecret.ReplaceAllString(textutil.RedactSecrets(s), "${1}REDACTED")
+// maskURL masks the password in URL userinfo and token/key query values, keeping scheme, host and path.
+func maskURL(s string) string {
+	return queryParamSecret.ReplaceAllString(urlUserinfo.ReplaceAllString(s, "${1}REDACTED@"), "${1}REDACTED")
 }
 
-// redactArgs returns a copy of args with credential-shaped words masked.
+// scrub masks credential-shaped words, URL passwords and token/key query values in free text.
+func scrub(s string) string {
+	return maskURL(textutil.RedactSecrets(s))
+}
+
+// redactArgs masks credential-shaped words and the value of a secret-named flag (--name value, --name=value).
 func redactArgs(args []string) []string {
 	if args == nil {
 		return nil
 	}
 	out := make([]string, len(args))
+	maskNext := false
 	for i, a := range args {
-		out[i] = scrub(a)
+		name, val, hasVal := strings.Cut(a, "=")
+		switch {
+		case maskNext && literalValue(a):
+			out[i] = "REDACTED"
+		case hasVal && secretFlag.MatchString(name) && literalValue(val):
+			out[i] = name + "=REDACTED"
+		default:
+			out[i] = scrub(a)
+		}
+		maskNext = !hasVal && secretFlag.MatchString(name)
 	}
 	return out
+}
+
+// literalValue reports a flag value that is real text: not empty, a ${ENV} reference, another flag or a <placeholder>.
+func literalValue(v string) bool {
+	return v != "" && !strings.HasPrefix(v, "$") && !strings.HasPrefix(v, "-") && !strings.ContainsAny(v, "<>")
 }
 
 func scanMap(d def, field string, m map[string]string) []secretFinding {
@@ -449,7 +480,7 @@ func printConflictsSection(w io.Writer, conflicts []conflict) {
 }
 
 func printSecretsSection(w io.Writer, rep report) {
-	fmt.Fprintln(w, "== inline credential scan (MCP env/headers/url) ==")
+	fmt.Fprintln(w, "== inline credential scan (MCP env/headers/url/args) ==")
 	if len(rep.Secrets) == 0 && len(rep.Unscanned) == 0 {
 		fmt.Fprintln(w, "  ✓ no inline secrets found")
 	}
@@ -459,7 +490,7 @@ func printSecretsSection(w io.Writer, rep report) {
 	for _, f := range rep.Secrets {
 		switch f.Field {
 		case "url":
-			fmt.Fprintf(w, "  ⚠ [%s] server '%s' url has a plaintext token/key query param\n", f.Scope, f.Server)
+			fmt.Fprintf(w, "  ⚠ [%s] server '%s' url has a plaintext credential (user:password or token/key param)\n", f.Scope, f.Server)
 		default:
 			fmt.Fprintf(w, "  ⚠ [%s] server '%s' %s %s holds an inline secret (use ${ENV} or a token helper)\n", f.Scope, f.Server, f.Field, f.Key)
 		}
