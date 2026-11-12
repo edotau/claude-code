@@ -97,6 +97,9 @@ func run(args []string, resume bool, verb string) int {
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
 	}
+	if remote.IsSelf(f.host) { // --remote naming this machine runs here
+		f.host = ""
+	}
 	r := &askRun{f: f, fs: fs, args: args, resume: resume}
 	for _, phase := range []func() (int, bool){r.prelude, r.selectAgent, r.checkArm, r.parsePerms, r.dispatchMode, r.resolveRecord, r.resolveLead, r.parsePerms} {
 		if code, done := phase(); done {
@@ -262,6 +265,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 	}
 	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
 		return r.fail(err, 2)
+	}
+	if remote.IsSelf(f.host) { // --remote naming this machine runs here
+		f.host = ""
 	}
 	if f.outputSchema != "" { // a --retry/--job record may carry an already-resolved schema: re-resolve the flag
 		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {

@@ -69,6 +69,44 @@ func ResolveAuto(host string) (string, error) {
 	}
 }
 
+// selfNames is this machine's tailnet DNS name and OS hostname; a seam so tests name the machine.
+var selfNames = func() []string {
+	names := []string{}
+	if h, err := os.Hostname(); err == nil {
+		names = append(names, h)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), autoProbeTimeout)
+	defer cancel()
+	if st, err := tailscale.Status(ctx); err == nil {
+		names = append(names, strings.TrimSuffix(st.DNSName, "."))
+	}
+	return names
+}
+
+// IsSelf reports whether host names this machine: its tailnet DNS name, OS hostname, or either one's first label.
+func IsSelf(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" || host == Auto {
+		return false
+	}
+	for _, n := range selfNames() {
+		n = strings.ToLower(n)
+		if label, _, _ := strings.Cut(n, "."); n != "" && (host == n || host == label) {
+			return true
+		}
+	}
+	return false
+}
+
+// LocalArgs is the verb after `flag <host>` when host names this machine, so the caller runs it here with no hop.
+func LocalArgs(flag string, args []string) ([]string, bool) {
+	host, rest, err := SplitHost(flag, args)
+	if err != nil || !IsSelf(host) {
+		return nil, false
+	}
+	return rest, true
+}
+
 // answering probes every peer at once and keeps, in order, the ones that answer.
 func answering(peers []string) []string {
 	ok := make([]bool, len(peers))
