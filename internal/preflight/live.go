@@ -304,18 +304,27 @@ func StaticLine(reg *providers.Registry, now time.Time) string {
 		return "Preflight: " + fieldsLine(ps[0].Detail)
 	}
 	dbx := profiles(reg, ps)
+	if !hasDatabricksSession(reg, ps, dbx) {
+		return "" // no Databricks profile in play
+	}
+	return staticProblems(ps, len(dbx) > 0)
+}
+
+func hasDatabricksSession(reg *providers.Registry, ps []Pin, dbx []*providers.Provider) bool {
 	var session string // claude's row is present exactly when the session has a profile
 	if i := slices.IndexFunc(ps, func(p Pin) bool { return p.Agent == "claude" }); i >= 0 {
 		session = ps[i].Profile
 	}
-	if prov := reg.Providers[session]; len(dbx) == 0 && (prov == nil || prov.Preset != providers.PresetDatabricks) {
-		return "" // no Databricks profile in play
-	}
+	prov := reg.Providers[session]
+	return len(dbx) > 0 || (prov != nil && prov.Preset == providers.PresetDatabricks)
+}
+
+func staticProblems(ps []Pin, dbx bool) string {
 	var parts []string
 	for _, p := range notOK(ps) {
 		parts = append(parts, fmt.Sprintf("%s %s (%s)", p.Agent, p.Status, cmp.Or(p.Detail, p.Profile)))
 	}
-	if len(dbx) > 0 && !proxyUp() {
+	if dbx && !proxyUp() {
 		parts = append([]string{"proxy not running"}, parts...)
 	}
 	if len(parts) == 0 {

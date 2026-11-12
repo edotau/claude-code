@@ -18,8 +18,7 @@ const (
 // AliasNames lists every alias in precedence order (the opus alias is the session default).
 var AliasNames = []string{Opus, Sonnet, Haiku, Fable}
 
-// NextAlias is the demotion ladder a quota-dead model falls down: opus → sonnet → haiku → "" (none). Fable sits
-// outside it: a distinct family, not a cheaper alias of the same one.
+// NextAlias demotes opus → sonnet → haiku → ""; Fable is a distinct family outside the ladder.
 func NextAlias(alias string) string {
 	switch alias {
 	case Opus:
@@ -109,8 +108,7 @@ func ContextWindow(id string) int {
 	return ContextWindowStd
 }
 
-// Window is id's input window: the catalog's context limit when set, else ContextWindow's 1M/200K rule.
-// Gemini rows carry 1,048,576 (agy TUI shows "Gemini 4 Argon (Medium) 0/1.0M tokens"; codex rejects input over 1,048,576).
+// Window uses the catalog context limit, else ContextWindow; Gemini limits can be 1,048,576 tokens.
 func Window(id string) int {
 	if l, ok := Limits(id); ok && l.Context > 0 {
 		return l.Context
@@ -123,10 +121,10 @@ func PromptTokens(window, output int) int {
 	if window <= output {
 		return 0
 	}
-	return window - output - window/10
+	return max(0, window-output-window/10)
 }
 
-// ThinkingKnobs returns (MAX_THINKING_TOKENS, CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING); adaptive-only models reject a budget.
+// ThinkingKnobs returns thinking budget and adaptive-disable flag; adaptive-only models reject a budget.
 func ThinkingKnobs(id string) (maxTokens, disableAdaptive string) {
 	f, maj, min, ok := ParseClaudeID(id)
 	if !ok || (f != Haiku && atLeast(maj, min, 4, 8)) {
@@ -168,13 +166,13 @@ const (
 	familyOther  Family = "other"
 )
 
-// legacyClaudeRE matches Claude ids the catalog and ParseClaudeID do not list (claude-3-7-sonnet, us.anthropic.claude-...).
+// legacyClaudeRE matches uncatalogued Claude ids, including claude-3-7-sonnet and Bedrock prefixes.
 var legacyClaudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-`)
 
 // openAIReasoningRE: OpenAI reasoning models (o-series, gpt-5 and newer) reject max_tokens, temperature and top_p.
 var openAIReasoningRE = regexp.MustCompile(`^(?:o\d|gpt-(?:[5-9]|[1-9]\d))(?:\D|$)`)
 
-// normID is the catalog id of s when it resolves, else s lowered, [1m]-stripped and without vendor or wire prefix.
+// normID resolves catalog ids, else lowers, strips [1m] and removes vendor/wire prefixes.
 func normID(s string) string {
 	if canonical, _, ok := Resolve(s); ok {
 		return canonical
@@ -187,7 +185,7 @@ func normID(s string) string {
 	return rest
 }
 
-// FamilyKind classifies id by vendor family through the catalog (any spelling), falling back to the name for unlisted ids.
+// FamilyKind classifies vendor families through the catalog, falling back to names for unlisted ids.
 func FamilyKind(id string) Family {
 	n := normID(id)
 	switch {
@@ -230,8 +228,7 @@ const (
 	useGeneral   = "General"
 )
 
-// UseCase maps a model id (and optional display name) onto Anthropic's four aliases by family, or a
-// non-chat kind. Pure and table-driven: no vendor exposes alias metadata, so this goes by id markers.
+// UseCase maps id/name markers to Claude aliases or non-chat kinds; vendors expose no alias metadata.
 func UseCase(id, name string) string {
 	s := strings.ToLower(id + " " + name)
 	if id == "auto" {

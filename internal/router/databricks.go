@@ -53,8 +53,7 @@ func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts,
 	return profile, first, cell.Effort, true
 }
 
-// gateDatabricksCodex is codex's Databricks candidate at alias: the same configured/auth/exhausted gates as any
-// agent, on account databricks·<profile>. ok is false (no Skip) when Databricks is off or serves no usable model.
+// gateDatabricksCodex gates codex on Databricks; disabled or unusable Databricks returns false without a Skip.
 func (t *RouteTable) gateDatabricksCodex(
 	pg *pickGate, alias string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
 ) (Candidate, bool) {
@@ -94,19 +93,7 @@ func (t *RouteTable) gateCandidate(
 	if arm := ArmProfile(); arm != "" {
 		return t.gateArm(ctx, pg, alias, agent, arm, spec, st, o, now, configured, res)
 	}
-	var group []Candidate
-	if agent != "claude" && spec.Profile != "" {
-		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
-		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
-		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
-	} else {
-		group = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
-		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
-			for i := range group {
-				group[i].Model = spec.Model
-			}
-		}
-	}
+	group := t.gateBase(ctx, pg, alias, agent, spec, st, o, now, configured, res)
 	if agent == "copilot" {
 		group = append(group, t.gateSessionCopilot(ctx, pg, alias, "", "", spec, group, st, o, now, configured, res)...)
 	}
@@ -174,8 +161,7 @@ func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
 	return leastRecent(st[ProviderAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
 }
 
-// gateLead puts the agent on o.Lead, then (fallback permitting) sibling workspaces and login rows, ahead of base.
-// gemini never runs on a non-Google row (owner rule R1).
+// gateLead prepends lead, sibling workspaces and logins as fallback permits; gemini requires Google/gateway rows.
 func (t *RouteTable) gateLead(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, base []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -185,11 +171,7 @@ func (t *RouteTable) gateLead(
 		return base
 	}
 	var lead []Candidate
-	rows := []string{o.Lead}
-	if agent != "gemini" && o.Fallback != FallbackNone && slices.Contains(providers.DatabricksProfiles(pg.reg), o.Lead) {
-		rows = append(rows, workspaceRows(pg.reg, o.Lead)...)
-	}
-	rows = append(rows, loginProfiles(pg.reg, agent)...)
+	rows := leadRows(pg.reg, agent, o)
 	for i, prof := range rows {
 		if prof == "" || (i > 0 && slices.Contains(rows[:i], prof)) {
 			continue
@@ -200,18 +182,7 @@ func (t *RouteTable) gateLead(
 		}
 		lead = append(lead, t.gateRow(ctx, pg, alias, agent, prof, spec.Model, i > 0, st, o, now, configured, res)...)
 	}
-	same := func(a, b Candidate) bool { return a.Agent == b.Agent && a.Account == b.Account && a.Model == b.Model }
-	for i, l := range lead {
-		if j := slices.IndexFunc(base, func(c Candidate) bool { return same(c, l) }); j >= 0 {
-			lead[i] = base[j]
-		}
-	}
-	for _, c := range base {
-		if !slices.ContainsFunc(lead, func(l Candidate) bool { return same(l, c) }) {
-			lead = append(lead, c)
-		}
-	}
-	return lead
+	return mergeLead(lead, base)
 }
 
 // gateArm gates agent inside route databricks:<arm>: on arm, then (fallback permitting) on its own logins.
@@ -400,4 +371,48 @@ func sessionDatabricks(reg *providers.Registry, agent string, canServe func(stri
 		return "", nil, false
 	}
 	return profile, p, true
+}
+
+func (t *RouteTable) gateBase(
+	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	var group []Candidate
+	if agent != "claude" && spec.Profile != "" {
+		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
+		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
+	} else {
+		group = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
+		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
+			for i := range group {
+				group[i].Model = spec.Model
+			}
+		}
+	}
+	return group
+}
+
+func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {
+	rows := []string{o.Lead}
+	if agent != "gemini" && o.Fallback != FallbackNone && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
+		rows = append(rows, workspaceRows(reg, o.Lead)...)
+	}
+	rows = append(rows, loginProfiles(reg, agent)...)
+	return rows
+}
+
+func mergeLead(lead, base []Candidate) []Candidate {
+	same := func(a, b Candidate) bool { return a.Agent == b.Agent && a.Account == b.Account && a.Model == b.Model }
+	for i, l := range lead {
+		if j := slices.IndexFunc(base, func(c Candidate) bool { return same(c, l) }); j >= 0 {
+			lead[i] = base[j]
+		}
+	}
+	for _, c := range base {
+		if !slices.ContainsFunc(lead, func(l Candidate) bool { return same(l, c) }) {
+			lead = append(lead, c)
+		}
+	}
+	return lead
 }

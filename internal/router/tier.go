@@ -99,16 +99,14 @@ func lowSignal(p string, paths int) string {
 			return rule
 		}
 	}
-	// A single touched file plus a mechanical verb and no scope word is still a one-liner, just
-	// one that names its target — allow a longer prompt than the path-less case above.
-	if paths == 1 && len(p) < 200 && mechanicalRe().MatchString(p) && !scopeRe().MatchString(p) {
+	// A mechanical single-file prompt without scope words allows 200 characters instead of 120.
+	if singleFileMechanical(p, paths) {
 		return "mechanical"
 	}
 	return ""
 }
 
-// EffortTierSignal is classifyPromptSignal as an effort tier plus the rule that fired ("keyword:refactor", "paths>=2",
-// "open-search"), for a hook that says WHY it picked a tier.
+// EffortTierSignal returns an effort tier and the matching rule for hook diagnostics.
 func EffortTierSignal(prompt string) (tier, signal string) {
 	c, signal := classifyPromptSignal(prompt)
 	switch c {
@@ -137,4 +135,8 @@ type RuleClassifier struct{}
 func (RuleClassifier) Alias(task string) string {
 	t, _ := EffortTierSignal(task)
 	return models.AliasModel(t)
+}
+
+func singleFileMechanical(p string, paths int) bool {
+	return paths == 1 && len(p) < 200 && mechanicalRe().MatchString(p) && !scopeRe().MatchString(p)
 }
