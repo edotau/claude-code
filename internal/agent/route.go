@@ -30,6 +30,7 @@ type Dispatch struct {
 	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
 	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
 	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
+	swap                         bool                       // the wanted agent's pin standing in for the requested target
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 }
 
@@ -39,6 +40,7 @@ type Chain struct {
 	Dispatches []Dispatch
 	Skipped    []string
 	Preflight  *Preflight // nil when the preflight failed nothing and skipped no check
+	requested  string     // the requested target's <profile>:<model> when it is a dispatch of this chain
 }
 
 // Single is a one-dispatch chain on r with the caller's request untouched (an explicit backend, or a test).
@@ -103,6 +105,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		pickWant = ""
 	}
 	pick := tb.Pick(ctx, alias, pickWant, loadState(), o)
+	pick.Skipped = slices.DeleteFunc(pick.Skipped, func(s router.Skip) bool { return offOrder(s.Agent, want) })
 	reg := loadRegistryWarn()
 	c := Chain{Want: want}
 	if nativeLead {
@@ -115,7 +118,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	current, _ := models.Alias(alias)
 	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: nonClaudeDispatchID(exact, explicitModel, pins[want].Model),
-		explicitModel: explicitModel, native: native, pf: &Preflight{}}
+		explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
@@ -166,18 +169,110 @@ func pickSkips(pick router.PickResult, nativeLead bool) []string {
 	return skipped
 }
 
-// addCandidates appends a dispatch to c for each pick candidate whose cell can run, recording the rest as skipped.
+// offOrder reports a gate skip of an agent the order never holds: not the wanted agent, claude or the registry.
+func offOrder(label, want string) bool {
+	who, _, _ := strings.Cut(label, "·")
+	return who != want && who != "claude" && who != "registry"
+}
+
+// step is one hop of the fallback order: a pick candidate, how its cell is read, and whether it is the pin hop.
+type step struct {
+	i   int
+	rc  routeCtx
+	pin bool
+}
+
+// steps is the fallback order over the pick: the requested target, the wanted agent's pin, then the last claude hop.
+func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool) (out []step, req int) {
+	pin := rc.pinIndex(cands, alias)
+	req = rc.requestedIndex(cands, pin)
+	if nativeLead { // opencode's own config is the requested target, and its hub pin is no hop of a native run
+		req, pin = -1, -1
+	}
+	if req >= 0 {
+		out = append(out, step{i: req, rc: rc})
+	}
+	if pin >= 0 && rc.want != "claude" && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
+		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
+	}
+	last := -1
+	for i, c := range cands {
+		if c.Agent == "claude" {
+			last = i
+		}
+	}
+	if last >= 0 && last != req && (rc.mode == router.FallbackAll || rc.mode == "") {
+		out = append(out, step{i: last, rc: rc})
+	}
+	return out, req
+}
+
+// pinIndex is the pick candidate running the wanted agent on its own pin (profile, else its own login); -1 = none.
+func (rc routeCtx) pinIndex(cands []router.Candidate, alias string) int {
+	first := func(is func(router.Candidate) bool) int {
+		return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == rc.want && is(c) })
+	}
+	if pin := rc.pins[rc.want].Profile; pin != "" {
+		return first(func(c router.Candidate) bool { return c.Profile == pin })
+	}
+	cell, _ := rc.tb.Cell(rc.want, alias)
+	acct, _ := ResolveAccount(rc.want, cell)
+	if acct = cmp.Or(acct, cell.Account); acct != "" && !isHubAgent(rc.want) { // several login rows: the signed-in one
+		if i := first(func(c router.Candidate) bool { return c.Account == acct }); i >= 0 {
+			return i
+		}
+	}
+	return first(func(c router.Candidate) bool { return c.Profile == "" })
+}
+
+// requestedIndex is the candidate the caller asked for: the wanted agent on the --route workspace, the lead or its pin.
+func (rc routeCtx) requestedIndex(cands []router.Candidate, pin int) int {
+	on := func(profile string) int {
+		acct := router.ProviderAccount(profile)
+		return slices.IndexFunc(cands, func(c router.Candidate) bool {
+			return c.Agent == rc.want && (c.Profile == profile || c.Account == acct)
+		})
+	}
+	switch arm := router.ArmProfile(); {
+	case arm != "":
+		return on(arm)
+	case rc.want == "claude":
+		return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == "claude" })
+	case rc.lead != "":
+		return on(rc.lead)
+	}
+	return pin
+}
+
+// asPin is rc reading a candidate as the wanted agent's pin: no caller model, no lead.
+func (rc routeCtx) asPin() routeCtx {
+	rc.lead, rc.row, rc.exact, rc.callerModel, rc.explicitModel = "", "", "", "", false
+	rc.dispatchID = nonClaudeDispatchID("", false, rc.pins[rc.want].Model)
+	return rc
+}
+
+// asksModel reports the caller's --model naming the model a pin cell already runs: the pin is the requested target.
+func (rc routeCtx) asksModel(cand router.Candidate, cell string) bool {
+	asked := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
+	a, _, okA := models.Resolve(asked)
+	b, _, okB := models.Resolve(cell)
+	return asked == cell || (okA && okB && a == b)
+}
+
+// addCandidates appends a dispatch to c for each step of the fallback order whose cell can run; the rest are skipped.
 func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
-	for i, cand := range pick.Candidates {
-		if nativeLead && isHubAgent(cand.Agent) {
+	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
+	for _, s := range steps {
+		cand := pick.Candidates[s.i]
+		cell, skip := s.rc.candidateCell(cand)
+		if s.pin && skip == "" && s.i == req && rc.asksModel(cand, cell.Model) {
 			continue
 		}
-		cell, skip := rc.candidateCell(cand)
 		if skip != "" {
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		disp, skip, err := rc.buildDispatch(cand, cell)
+		disp, skip, err := s.rc.buildDispatch(cand, cell)
 		if err != nil {
 			return Chain{}, err
 		}
@@ -185,12 +280,16 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 			c.Skipped = append(c.Skipped, skip)
 			continue
 		}
-		disp = rc.discoveryCandidate(disp, cand, alias)
-		disp.servedRepick = rc.servedRepickFor(cand)
-		disp.otherRoute, disp.rung = rc.otherRoute(cand), i+1
-		if !slices.ContainsFunc(c.Dispatches, disp.same) { // ladder rung models can collapse onto one cell
-			c.Dispatches = append(c.Dispatches, disp)
+		disp = s.rc.discoveryCandidate(disp, cand, alias)
+		disp.servedRepick = s.rc.servedRepickFor(cand)
+		disp.otherRoute, disp.rung, disp.swap = s.rc.otherRoute(cand), s.i+1, s.pin
+		if slices.ContainsFunc(c.Dispatches, disp.same) { // the pin is the requested target
+			continue
 		}
+		if s.i == req && !s.pin {
+			c.requested = cmp.Or(disp.Model, disp.Account)
+		}
+		c.Dispatches = append(c.Dispatches, disp)
 	}
 	return c, nil
 }
@@ -347,6 +446,7 @@ type routeCtx struct {
 	lead                          string // profile the wanted agent leads with; "" = its pin
 	current, dispatchID           string
 	explicitModel, native         bool
+	mode                          string     // --fallback: all = requested, pin, claude; agents = no claude
 	pf                            *Preflight // findings and notes the candidate checks add
 }
 
@@ -394,7 +494,8 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 	if !concrete || p == nil || cand.Agent != rc.want {
 		return false
 	}
-	return wireAgent(cand.Agent) || (rc.exact != "" && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
+	onWire := rc.exact != "" || speaksResponses(cand.Agent) // codex takes a Claude id only where Responses serves it
+	return wireAgent(cand.Agent) || (onWire && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
 }
 
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.

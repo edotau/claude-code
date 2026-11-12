@@ -1,7 +1,7 @@
 # Agents and Models: What Runs Where
 
 Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifecycle:
-[agent-verbs.md](agent-verbs.md). Routing and failure policy: [cost-routing.md](cost-routing.md).
+[agent-verbs.md](agent-verbs.md). Routing, aliases and failure policy: [cost-routing.md](cost-routing.md).
 
 ## Live sources
 
@@ -9,8 +9,6 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - `claude-code <agent> profile` shows that machine's current pin; never copy it to another machine.
 - `claude-code gateway --agent <agent>` previews routing. `claude-code <agent> catalog` lists the current menu;
   OpenCode uses `catalog list` and can query a requested profile. Do not infer availability from an old benchmark.
-- Provider aliases live in `internal/providers/defaults.json` plus the vault overlay; model alias resolution is
-  under `internal/models`. The router's table records concrete model/account prices.
 
 ## Execution surfaces
 
@@ -22,18 +20,14 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 | `gemini` | Antigravity (`agy`) | `~/.gemini/GEMINI.md`, rendered by sync |
 | `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
 
-Projection details: `rules/harness/agent.md`. Hook applicability: `rules/harness/hooks.md`.
-Unsupported flags appear in the result's `dropped`; read-only behavior varies by CLI. In particular codex/claude
-read-only mode drops tools, whereas Gemini needs its read tools for packed context. Check capability definitions
-in each agent's registration package when a task depends on a boundary.
+Projection and per-agent read-only behavior: `rules/harness/agent.md`. Hook applicability: `rules/harness/hooks.md`.
+Unsupported flags appear in the result's `dropped`; check capability definitions in each agent's registration
+package when a task depends on a boundary.
 
 ## Per-call routes
 
-`--route databricks:<profile>` selects the Databricks arm without changing the agent's persistent pin.
-`--route databricks:auto` chooses the workspace with the fewest live dispatches. `--fallback none` refuses a missing
-credential or unsupported route instead of changing agents. Other fallback policies must be explicit in the brief;
-report the actual run receipt, not a planned model. `--remote <h>` keeps execution here and tunnels Databricks calls;
-`--host <h>` executes on that host, where profiles resolve.
+`--route databricks:<profile>` selects the Databricks arm without changing the agent's persistent pin; `:auto`,
+`--remote` and `--host`: `rules/harness/network.md`. Report the actual run receipt, not a planned model.
 
 ## Measurements
 

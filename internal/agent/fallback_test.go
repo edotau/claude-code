@@ -704,9 +704,6 @@ func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
 func failPinVendors(fakes map[string]*pinFallbackRunner) {
 	fakes["codex"].res = wire.Result{}
 	fakes["codex"].err = &retry.Error{Agent: "codex", Kind: retry.KindQuota, Status: 402, Err: errors.New("402 monthly quota exhausted")}
-	fakes["opencode"].res = wire.Result{}
-	fakes["opencode"].err = &retry.Error{Agent: "opencode", Kind: retry.KindAuth, Status: 401,
-		AuthReason: "refresh token rejected", Err: errors.New("401 refresh token rejected")}
 }
 
 func assertPinVendorsMarked(t *testing.T) {
@@ -714,9 +711,6 @@ func assertPinVendorsMarked(t *testing.T) {
 	state := router.LoadState()
 	if e := state["openai·openai"]; e.Status(time.Now()) != router.StateExhausted {
 		t.Errorf("quota.json did not mark openai·openai exhausted: %+v", e)
-	}
-	if e := state["opencode·go"]; e.AuthReason != "refresh token rejected" || e.AuthAt.IsZero() {
-		t.Errorf("quota.json did not mark opencode·go auth: %+v", e)
 	}
 }
 
@@ -736,16 +730,19 @@ func TestPinFirstFallbackQuotaAuthFallback(t *testing.T) {
 	if err != nil || res.Agent != "claude" || res.Answer != "answer from claude" || res.Fallback != "codex" {
 		t.Fatalf("result = %+v, err = %v", res, err)
 	}
-	for _, name := range []string{"codex", "opencode", "claude"} {
+	for _, name := range []string{"codex", "claude"} {
 		if f := fakes[name]; f == nil || len(f.seen) != 1 {
 			t.Errorf("%s agent = %+v, want one request", name, f)
 		}
+	}
+	if fakes["opencode"] != nil {
+		t.Errorf("opencode is no hop of a codex dispatch: %+v", c.Dispatches)
 	}
 	if got := fakes["claude"].seen[0].Model; got != "sonnet" {
 		t.Errorf("claude model = %q, want sonnet", got)
 	}
 	assertPinVendorsMarked(t)
-	containsAll(t, res.FallbackReason, "codex (openai·openai):", "opencode (opencode·go):")
+	containsAll(t, res.FallbackReason, "codex (openai·openai):")
 }
 
 func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
@@ -758,7 +755,7 @@ func TestPinFirstFallbackClaudeExhausted(t *testing.T) {
 	if err == nil {
 		t.Fatal("all hops failed, want an error")
 	}
-	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "opencode: auth rejected", "claude: anthropic·ultra exhausted")
+	containsAll(t, err.Error(), "every hop failed", "codex (openai·openai):", "claude: anthropic·ultra exhausted")
 }
 
 func TestPinFirstFallbackContentPolicy(t *testing.T) {
@@ -774,10 +771,8 @@ func TestPinFirstFallbackContentPolicy(t *testing.T) {
 	if len(fakes["codex"].seen) != 1 {
 		t.Errorf("codex requests = %d, want 1", len(fakes["codex"].seen))
 	}
-	for _, name := range []string{"opencode", "claude"} {
-		if f := fakes[name]; f == nil || len(f.seen) != 0 {
-			t.Errorf("%s agent = %+v, want zero requests", name, f)
-		}
+	if f := fakes["claude"]; f == nil || len(f.seen) != 0 {
+		t.Errorf("claude agent = %+v, want zero requests", f)
 	}
 }
 

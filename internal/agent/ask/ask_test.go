@@ -1497,9 +1497,12 @@ func checkArmChildEnv(t *testing.T, name, goos string) {
 	for i := 1; i < len(bins); i++ {
 		assertArmFirstParty(t, bins[i], envs[i])
 	}
-	want := []string{"copilot", "codex", "agy", "opencode", "claude"} // the ladder's first-party order
+	want := []string{armDevHop[name].bin, "claude"} // the agent's own-login pin, then claude
+	if name == "claude" || name == "opencode" {     // claude has no pin hop; the fixture pins opencode outside dev
+		want = []string{"claude"}
+	}
 	if !slices.Equal(bins[1:], want) {
-		t.Errorf("launches after the dev hop %v, want every first-party login %v\n%s", bins[1:], want, stderr)
+		t.Errorf("launches after the dev hop %v, want the pin then claude %v\n%s", bins[1:], want, stderr)
 	}
 }
 

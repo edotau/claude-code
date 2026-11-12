@@ -36,7 +36,8 @@ type Envelope struct {
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
-	Usage           *Usage          `json:"usage"` // null when the agent reports no token counts
+	Requested       string          `json:"requested,omitempty"` // <profile>[:<model>] asked for, when another step answered
+	Usage           *Usage          `json:"usage"`               // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
 	Error           *EnvelopeError  `json:"error"` // null on success
 	Answer          string          `json:"answer"`
@@ -55,7 +56,7 @@ type Envelope struct {
 // NewEnvelope builds the envelope for a finished run; err nil means success.
 func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
-		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason,
+		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested,
 		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
 	if env.Dropped == nil {
 		env.Dropped = []string{}
@@ -138,6 +139,13 @@ func RanOn(res Result) string {
 	fb := "none"
 	if res.Fallback != "" {
 		fb = "from " + res.Fallback
+	}
+	if res.Fallback != "" && res.Requested != "" { // the requested target is known: name it and the first reason
+		fb = "from " + res.Requested
+		first, _, _ := strings.Cut(res.FallbackReason, "; ")
+		if why := cmp.Or(res.RequestedWhy, first); why != "" {
+			fb += " (" + why + ")"
+		}
 	}
 	return fmt.Sprintf("ran on %s · %s · %s · fallback %s", who, cmp.Or(acct, "own login"), cmp.Or(model, "default"), fb) +
 		ranOnCost(res)
@@ -225,6 +233,8 @@ type Result struct {
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
 	Fallback        string          `json:"fallback,omitempty"`        // the requested agent when another agent or route answered; Agent is the answerer
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
+	Requested       string          `json:"requested,omitempty"`       // <profile>[:<model>] asked for, when another step answered
+	RequestedWhy    string          `json:"-"`                         // why the requested target did not answer
 	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot dispatch hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order

@@ -85,6 +85,7 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	}
 	p.Opts = o
 	p.Record = c.record(ctx, o, claim)
+	p.Record.Preflight = p.Chain.Preflight
 	if o.Pack != nil {
 		if err := c.packPrompt(ctx, p); err != nil { // the record is already claimed on disk: close it
 			p.Record.finishSave(wire.Result{Agent: o.Agent, Status: wire.StatusError}, err, time.Since(p.Record.Time), c.Notify)

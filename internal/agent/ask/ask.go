@@ -372,6 +372,9 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
+	for _, l := range prepared.Chain.Preflight.Lines() {
+		fmt.Fprintln(os.Stderr, "preflight:", l)
+	}
 	saveErr := prepared.Record.Save()
 	if saveErr != nil && !background {
 		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", saveErr)

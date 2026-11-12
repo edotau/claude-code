@@ -165,9 +165,11 @@ func profileCodexDispatches(c Chain, profile string) []Dispatch {
 	return out
 }
 
-func astraRoute(t *testing.T) Chain {
+// astraRoute asks codex for astra on profile: only a requested row is a hop, the session profile is not one by itself.
+func astraRoute(t *testing.T, profile string) Chain {
 	t.Helper()
-	c, _, err := RouteChainFor(context.Background(), "codex", astra, "sonnet", router.FallbackAgents, false, router.PickOpts{Configured: allConfigured})
+	c, _, err := RouteChainFor(context.Background(), "codex", astra, "sonnet", router.FallbackAgents, false,
+		router.PickOpts{Configured: allConfigured, Lead: profile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +182,7 @@ func TestAstraProfileEligibilitySupportedRetained(t *testing.T) {
 		{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol", Responses: true},
 		{ID: astra, Label: "GPT-6 Astra", Responses: true},
 	})
-	c := astraRoute(t)
+	c := astraRoute(t, profile)
 	want := profile + ":" + p.WireModel(astra)
 	dispatches := profileCodexDispatches(c, profile)
 	if len(dispatches) != 1 || dispatches[0].Model != want {
@@ -199,7 +201,7 @@ func TestAstraProfileEligibilityUnsupportedSkipped(t *testing.T) {
 		{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol", Responses: true},
 		{ID: astra, Label: "GPT-6 Astra", Responses: false},
 	})
-	c := astraRoute(t)
+	c := astraRoute(t, profile)
 	if dispatches := profileCodexDispatches(c, profile); len(dispatches) != 0 {
 		t.Errorf("profile without an astra Responses route kept codex dispatches: %+v", dispatches)
 	}
@@ -441,7 +443,7 @@ func TestRouteLeadIgnoresRetiredArmEnv(t *testing.T) {
 	}
 }
 
-// pinFirstSetup configures codex pinned to openai with opencode and claude behind it, each swapped for a stub.
+// pinFirstSetup configures codex pinned to openai with claude behind it (opencode is no hop), each swapped for a stub.
 func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[string]*pinFallbackRunner) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
@@ -472,10 +474,8 @@ func pinFirstSetup(t *testing.T, exhausted bool) (Chain, router.PickResult, map[
 		}
 		fakes[f.name], c.Dispatches[i].Agent = f, f
 	}
-	for _, name := range []string{"codex", "opencode"} {
-		if fakes[name] == nil {
-			t.Fatalf("missing %s dispatch: %+v; skipped %v", name, c.Dispatches, c.Skipped)
-		}
+	if fakes["codex"] == nil {
+		t.Fatalf("missing codex dispatch: %+v; skipped %v", c.Dispatches, c.Skipped)
 	}
 	return c, pick, fakes
 }
@@ -486,18 +486,20 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 	for _, disp := range c.Dispatches {
 		got = append(got, disp.Agent.Name()+" ("+disp.Account+")")
 	}
-	want := []string{"codex (openai·openai)", "opencode (opencode·go)", "claude (anthropic·ultra)"}
+	want := []string{"codex (openai·openai)", "claude (anthropic·ultra)"} // requested (= the pin), then claude
 	if !slices.Equal(got, want) {
 		t.Fatalf("dispatches = %v, want %v", got, want)
 	}
-	if c.Dispatches[0].Model != "openai:gpt-6.1-sol" || c.Dispatches[2].Model != "sonnet" {
-		t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[2].Model)
+	if c.Dispatches[0].Model != "openai:gpt-6.1-sol" || c.Dispatches[1].Model != "sonnet" {
+		t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[1].Model)
 	}
-	for _, name := range []string{"copilot", "gemini"} {
-		if !slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return s.Agent == name && s.Gate == router.GateOff }) {
-			t.Errorf("%s missing off gate: %+v", name, pick.Skipped)
+	for _, name := range []string{"copilot", "gemini", "opencode"} { // never in the order, so never a skip reason
+		if slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return strings.HasPrefix(s.Agent, name) }) {
+			t.Errorf("%s is off the order but listed as skipped: %+v", name, pick.Skipped)
 		}
-		containsAll(t, strings.Join(c.Skipped, "; "), name+": deactivated (no profile set)")
+		if strings.Contains(strings.Join(c.Skipped, "; "), name) {
+			t.Errorf("%s is off the order but in the chain's skips: %v", name, c.Skipped)
+		}
 	}
 }
 

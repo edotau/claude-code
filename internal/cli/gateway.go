@@ -206,7 +206,7 @@ func gatewayRoute(args []string) int {
 	model := fs.String("model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
 	want := fs.String("agent", "", "the agent asked for; it leads when it passes the gates")
 	task := fs.String("task", "", "task text the classifier reads when --model is absent")
-	fallback := fs.String("fallback", "", "all|agents|none (all if "+router.EnvFallback+" set, else none)")
+	fallback := fs.String("fallback", "", "all (pin, then claude)|agents (pin)|none (exit)")
 	route := fs.String("route", "", "fallback ladder: default|first-party|databricks[:<profile>] (default: by session profile)")
 	profile := fs.String("profile", "", "lead profile, or session")
 	provider := fs.String("provider", "", "lead on this provider's signed-in profile")

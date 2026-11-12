@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 	"time"
@@ -104,11 +105,12 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	} else {
 		wire, why = ProfileServes(agentName, p, model)
 	}
+	spelled := cmp.Or(wire, providers.SpellPin(p, model)) // a Responses agent's wire check runs before Serves' wording
 	switch {
+	case speaksResponses(agentName) && p.Preset == providers.PresetDatabricks && spelled != "" && !providers.ResponsesServable(p, spelled):
+		return fail("wire", p.Name+" serves no "+model+" over Responses")
 	case why != "":
 		return fail("served", why)
-	case speaksResponses(agentName) && p.Preset == providers.PresetDatabricks && !providers.ResponsesServable(p, wire):
-		return fail("wire", p.Name+" serves no "+model+" over Responses")
 	case p.Preset != providers.PresetDatabricks:
 		return wire, nil, ""
 	}
