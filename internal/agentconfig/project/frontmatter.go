@@ -85,12 +85,11 @@ func toString(v any) string {
 // Banner prefixes a generated file carries as its first body line; prune only ever deletes files that carry one.
 const (
 	agentBannerText        = "Synced from .claude/agents/"
-	agentSkillBannerPrefix = "<!-- " + agentBannerText          // current agent .md projections, legacy agent-as-skill
-	realSkillBannerPrefix  = "<!-- Synced from .claude/skills/" // legacy skill copies under ~/.gemini/skills
+	agentSkillBannerPrefix = "<!-- " + agentBannerText // current agent .md projections, legacy agent-as-skill
 	codexBannerPrefix      = "# " + agentBannerText
 )
 
-var generatedBannerPrefixes = []string{agentSkillBannerPrefix, realSkillBannerPrefix, codexBannerPrefix, docsBannerPrefix}
+var generatedBannerPrefixes = []string{agentSkillBannerPrefix, codexBannerPrefix, docsBannerPrefix}
 
 // projectedSkillNames is the set of link names the skills pass creates; prune's keep-set for ~/.agents/skills.
 func projectedSkillNames(skills []Source) map[string]bool {

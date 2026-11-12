@@ -204,8 +204,10 @@ func (p *parsed) vaultSection(raw json.RawMessage) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p.doc.Vault); err != nil {
 		p.skip("vault", err)
-	} else if err := validateKeyCommand(p.doc.Vault.KeyCommand); err != nil {
-		p.skip("vault.key_command", err)
+	} else if p.doc.Vault.KeyCommand != "" {
+		if _, err := vault.ParseKeyCommandArgv(p.doc.Vault.KeyCommand); err != nil {
+			p.skip("vault.key_command", err)
+		}
 	}
 }
 
@@ -244,21 +246,6 @@ func validateOverlay(name string, raw json.RawMessage) error {
 		return err
 	}
 	return errors.New("retired overlay has no effect; delete the section")
-}
-
-// validateKeyCommand checks vault.key_command, when set, is a JSON argv array with a non-empty argv[0].
-func validateKeyCommand(keyCommand string) error {
-	if keyCommand == "" {
-		return nil
-	}
-	var argv []string
-	if err := json.Unmarshal([]byte(keyCommand), &argv); err != nil {
-		return err
-	}
-	if len(argv) == 0 || argv[0] == "" {
-		return errors.New("must be a JSON array of strings with non-empty argv[0]")
-	}
-	return nil
 }
 
 // applyPinsEnv diffs cur against d for the pins and env buckets and writes the changes.
