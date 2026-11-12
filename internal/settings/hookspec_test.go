@@ -77,7 +77,7 @@ func TestPlanHooksRegistered(t *testing.T) {
 func checkDocsPlacement(t *testing.T, byName map[string]EventSpec, docsCount int) {
 	t.Helper()
 	docs, ok := byName["docs-placement"]
-	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit" || !docs.Blocks {
+	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit|MultiEdit|Bash" || !docs.Blocks {
 		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
 	}
 }
