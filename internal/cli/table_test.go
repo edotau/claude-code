@@ -486,7 +486,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	tree := specTree()
 	for verb, want := range map[string][]string{
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"ls", "set", "get", "delete", "import", "export", "edit", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "delete", "import", "export", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "fmt", "report"},
@@ -912,7 +912,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
-		"vault delete": true, "vault edit": true, "test ramdisk": true,
+		"vault delete": true, "test ramdisk": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 	}
 	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&

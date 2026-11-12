@@ -144,22 +144,6 @@ func TestCmdVaultBareIsLs(t *testing.T) {
 	}
 }
 
-// vault edit -h prints its own usage-only page, not vaultPage's COMMANDS list.
-func TestCmdVaultEditHelpPrintsOwnPage(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := vaultRun(t, "edit", "-h")
-	if code != 0 {
-		t.Fatalf("vault edit -h: exit %d, want 0", code)
-	}
-	got := stdout + stderr
-	if !strings.HasPrefix(got, "usage: claude-code vault edit\n") {
-		t.Errorf("vault edit -h: want its own usage line first:\n%s", got)
-	}
-	if strings.Contains(got, "COMMANDS") || strings.Contains(got, "claude-code vault <command>") {
-		t.Errorf("vault edit -h: leaked the parent vaultPage:\n%s", got)
-	}
-}
-
 // The dispatch table and the completion spec name the same vault subcommands.
 func TestVaultVerbs(t *testing.T) {
 	var verbs, spec []string

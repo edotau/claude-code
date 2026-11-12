@@ -35,7 +35,6 @@ func vaultSpec() *helptext.Node {
 		"delete":        {Args: []func() []string{secretNames}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
-		"edit":          {},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
 	}}
 }
@@ -51,7 +50,6 @@ var vaultPage = helptext.Page{
 		{"delete", "remove a secret"},
 		{"import", "seal every NAME=value line of a .env file"},
 		{"export", "append secrets to ./.env (0600); --out for another path"},
-		{"edit", "pins, env and overlays in $EDITOR, one transaction"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
 	},
 	Hint: "claude-code vault <command> -h lists that command's arguments and flags.",
@@ -60,7 +58,7 @@ var vaultPage = helptext.Page{
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"import": cmdVaultImport, "export": cmdVaultExport, "edit": cmdVaultEdit, "rotate-secret": cmdVaultRotateSecret,
+	"import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
 }
 
 // cmdVault dispatches the vault subcommands; bare `vault` lists.
@@ -176,24 +174,6 @@ func vaultStoreTailscale(dryRun bool, creds []tailscale.Cred) int {
 	}
 	for _, c := range creds {
 		fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s)\n", c.Name, vault.Redact(c.Value))
-	}
-	return 0
-}
-
-func cmdVaultEdit(args []string) int {
-	fs := helptext.NewFlagSet("vault edit", helptext.Page{
-		Usage: "claude-code vault edit",
-		About: "Edit pins, env and overlays in $EDITOR, as one transaction.",
-	})
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() > 0 {
-		return vaultUsageErr("edit", fs.Args())
-	}
-	if err := vaultdoc.Edit(os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "vault edit:", err)
-		return 1
 	}
 	return 0
 }

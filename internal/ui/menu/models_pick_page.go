@@ -70,7 +70,7 @@ func modelRow(d *dialog, name string) *billingRow {
 		desc := copilotRouteDesc(d)
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
 	}
-	if name == "codex" || name == "gemini" { // their own CLI catalogs pin CODEX_MODEL/GEMINI_MODEL: `vault edit`
+	if name == "codex" || name == "gemini" { // their own CLI catalogs pick their model
 		return nil
 	}
 	p, claude := modelTarget(d, name)

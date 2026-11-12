@@ -40,7 +40,7 @@ Owner shortcuts are documented in `rules/workflows/agents.md` → Slash commands
 ## Account and model
 
 - Sign-in: `claude-code configure agents --agent codex` → Login (`codex login`, ChatGPT) or an API key.
-- Model ids: `codex debug models`; pin `CODEX_MODEL` and `CODEX_EFFORT` in `claude-code vault edit`.
+- Model ids: `codex debug models`; set the effort in `claude-code configure codex` (the codex agent record).
 - `claude-code codex profile <profile>` pins `CODEX_PROFILE`; `codex off|on` toggles routing; `codex setup` checks.
 
 ## Usage

@@ -149,7 +149,7 @@ func setAgentProfile(w io.Writer, name, profile string) error {
 		return fmt.Errorf("%w (see claude-code configure provider --list)", err)
 	}
 	if p := reg.Providers[profile]; name == "copilot" && p != nil && p.Provider == "github" && p.Login == "" {
-		fmt.Fprintf(w, "copilot: %s has no login; billing follows gh's active account (set one with `vault edit`)\n", profile)
+		fmt.Fprintf(w, "copilot: %s has no login; billing follows gh's active account (add a login in `claude-code configure github`)\n", profile)
 	}
 	fmt.Fprintf(w, "%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
 	preflight.Warm(w, reg, time.Now())

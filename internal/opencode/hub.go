@@ -62,7 +62,7 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		}
 		return first, nil
 	}
-	return nil, fmt.Errorf("%s: no opencode ladder configured (set opencodeLadder with `claude-code vault edit`)", agentName)
+	return nil, fmt.Errorf("%s: no opencode ladder configured (set opencode.ladder in `claude-code configure routing`)", agentName)
 }
 
 // opencodeLadderProvider resolves matching registry OpencodeIDs or a synthetic opencode-go provider.

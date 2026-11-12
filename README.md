@@ -73,8 +73,8 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 
 ## Providers
 
-Built-ins live in `internal/providers/defaults.json`. `claude-code vault edit` overlays them **by name** (an entry
-replaces the built-in; `null` removes it). Each entry is a **profile** (an account on a provider: `qa`,
+Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay (rows added by `configure github`
+and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes it). Each entry is a **profile** (an account on a provider: `qa`,
 `ultra`, `chatgpt`); see [Naming](#naming).
 
 ```jsonc
@@ -131,7 +131,7 @@ a credential in the same configuration retains history.
 ### Vault
 
 `state/vault.db` holds custom launch env, provider/agent overlays and `key_command` as one JSON document, plus
-sealed secrets. `vault edit` opens it in `$EDITOR` and saves atomically; secrets never appear in it. `vault ls`
+sealed secrets. `configure` edits the env (settings → environment), agent records and provider rows. `vault ls`
 shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--format json` keeps empty sections).
 
 ```jsonc
@@ -216,7 +216,7 @@ first-party (→ Anthropic, or the agent's own login). `gateway` names the verb 
 | Surface | Form | Example |
 | --- | --- | --- |
 | Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
-| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault ls` AGENT table, `vault edit` → `agents.records` |
+| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault ls` AGENT table, `configure` agent pages |
 | Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
 
 Agent records are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`,

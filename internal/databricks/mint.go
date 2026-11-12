@@ -237,7 +237,7 @@ func kindServed(p *providers.Provider, auth string) error {
 	case auth == providers.AuthOAuth && p.Auth.Type != providers.AuthOAuth:
 		return fmt.Errorf("%s has no user login (its auth type is %s)", p.Name, authLabel(p))
 	case auth == providers.AuthM2M && p.Auth.Type != providers.AuthM2M && !providers.SPPresent(p):
-		return fmt.Errorf("%s has no service principal (pair one with `claude-code vault edit`)", p.Name)
+		return fmt.Errorf("%s has no service principal (pair one in `claude-code configure databricks` → Identity)", p.Name)
 	}
 	return nil
 }
