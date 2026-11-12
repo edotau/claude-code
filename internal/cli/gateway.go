@@ -239,10 +239,7 @@ var gatewayPage = helptext.Page{
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
 func gatewayRoute(args []string) int {
 	const name = "gateway"
-	fs := helptext.NewFlagSet(name, gatewayPage)
-	q := gatewayRouteFlags(fs)
-	overlay := fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)
-	format := helptext.FormatFlag(fs)
+	fs, q, overlay, format := gatewayFlags()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -263,15 +260,18 @@ func gatewayRoute(args []string) int {
 	return resolveGatewayRoute(*q, *format)
 }
 
-func gatewayRouteFlags(fs *flag.FlagSet) *agent.RouteReq {
-	q := &agent.RouteReq{Preview: true, Refresh: ask.RouteRefresh}
+// gatewayFlags makes bare gateway's flag set: the route request, --overlay and --format.
+func gatewayFlags() (fs *flag.FlagSet, q *agent.RouteReq, overlay, format *string) {
+	fs = helptext.NewFlagSet("gateway", gatewayPage)
+	q = &agent.RouteReq{Preview: true, Refresh: ask.RouteRefresh}
 	fs.StringVar(&q.Model, "model", "", "alias (opus), version (opus-5-5) or wire id (default: classify --task, else sonnet)")
 	fs.StringVar(&q.Agent, "agent", "", "the agent asked for; it leads when it passes the gates")
 	fs.StringVar(&q.Task, "task", "", "task text the classifier reads when --model is absent")
 	fs.StringVar(&q.Fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
 	fs.StringVar(&q.Profile, "profile", "", "lead profile, or session")
 	fs.StringVar(&q.Provider, "provider", "", "lead on this provider's signed-in profile")
-	return q
+	overlay = fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	return fs, q, overlay, helptext.FormatFlag(fs)
 }
 
 func resolveGatewayRoute(q agent.RouteReq, format string) int {
@@ -494,25 +494,13 @@ func printEnds(w io.Writer, res router.PickResult) {
 
 // gatewaySpec describes completion for the gateway command.
 func gatewaySpec() *helptext.Node {
-	routeFlags := []helptext.Flag{{Name: "model", Values: func() []string { return router.Aliases }},
-		{Name: "agent", Values: func() []string { return router.TableAgents }}, {Name: "task"},
-		{Name: "fallback", Values: func() []string { return router.FallbackModes }},
-		{Name: "overlay"}, {Name: "profile"}, {Name: "provider"}, helptext.CompletionFormatFlag()}
-	return &helptext.Node{Flags: routeFlags, Sub: map[string]*helptext.Node{
-		"proxy": {
-			Flags: []helptext.Flag{
-				{Name: "start", IsBool: true},
-				{Name: "stop", IsBool: true},
-				{Name: "restart", IsBool: true},
-				{Name: "status", IsBool: true},
-				{Name: "serve", IsBool: true},
-				{Name: "port"},
-				{Name: "client-token"},
-				{Name: "revoke-client-token"},
-				helptext.CompletionFormatFlag(),
-			},
-		},
-	}}
+	fs, _, _, _ := gatewayFlags()
+	proxy, _ := proxyFlags()
+	return &helptext.Node{Flags: helptext.FlagsOf(fs, map[string]func() []string{
+		"model":    func() []string { return router.Aliases },
+		"agent":    func() []string { return router.TableAgents },
+		"fallback": func() []string { return router.FallbackModes },
+	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)}}}
 }
 
 func cmdGatewayToken(args []string) int {

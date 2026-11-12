@@ -256,19 +256,19 @@ func BoolFlag(name string) Flag { return Flag{Name: name, IsBool: true} }
 // ValuedFlag is a flag whose value comes from values.
 func ValuedFlag(name string, values func() []string) Flag { return Flag{Name: name, Values: values} }
 
-// FlagsOf lists fs's flags for completion: bool flags are boolean, "format" completes text|json, and values
-// supplies the value domain of any other flag by name.
+// FlagsOf lists fs's flags for completion; values maps a flag to its domain, else "format" completes text|json.
 func FlagsOf(fs *flag.FlagSet, values map[string]func() []string) []Flag {
 	var out []Flag
 	fs.VisitAll(func(f *flag.Flag) {
 		b, isBool := f.Value.(interface{ IsBoolFlag() bool })
+		v, named := values[f.Name]
 		switch {
 		case isBool && b.IsBoolFlag():
 			out = append(out, BoolFlag(f.Name))
-		case f.Name == "format":
+		case f.Name == "format" && !named:
 			out = append(out, CompletionFormatFlag())
 		default:
-			out = append(out, Flag{Name: f.Name, Values: values[f.Name]})
+			out = append(out, Flag{Name: f.Name, Values: v})
 		}
 	})
 	return out

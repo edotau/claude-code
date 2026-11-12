@@ -109,7 +109,7 @@ func TestCompletionExact(t *testing.T) {
 		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--format", "--git", "--mcp", "--prompts",
 			"--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
-		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, engineNames()},
+		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
 		{"ask --model has no domain", []string{"agents", "ask", "--model", ""}, nil},
 		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},

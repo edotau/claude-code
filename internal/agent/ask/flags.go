@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -39,6 +40,23 @@ type askFlags struct {
 	permMode                                                                                                                                                                                                           string
 	leadProvider                                                                                                                                                                                                       string
 	env                                                                                                                                                                                                                []string
+}
+
+// CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
+func CompletionFlags() []helptext.Flag {
+	fs, _ := askFlagSet()
+	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
+		"mode": func() []string { return []string{"default", "auto", "plan"} }, "format": nil,
+		"fallback": func() []string { return router.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
+}
+
+// engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
+func engineNames() []string {
+	var out []string
+	for _, r := range agent.Engines() {
+		out = append(out, r.Name())
+	}
+	return out
 }
 
 func askFlagSet() (*flag.FlagSet, *askFlags) {
