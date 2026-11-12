@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -645,16 +644,6 @@ func NonNil[T any](s []T) []T {
 // capSlice is NonNil plus truncation to n entries.
 func capSlice[T any](s []T, n int) []T {
 	return NonNil(s[:min(len(s), n)])
-}
-
-// writeJSON writes v as PyMarshalIndent does (ensure_ascii, no HTML-escaping).
-func writeJSON(w io.Writer, v any) error {
-	b, err := PyMarshalIndent(v)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(b)
-	return err
 }
 
 // PyFloat marshals like Python's json.dumps(float): always keeps a decimal point ("100.0", not "100").

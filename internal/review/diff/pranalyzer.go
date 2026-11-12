@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -538,12 +539,12 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 
 	var buf strings.Builder
 	if *jsonOut {
-		js, jsErr := indentJSON(report)
+		js, jsErr := source.PyMarshalIndent(report)
 		if jsErr != nil {
 			fmt.Fprintf(stderr, "Error: %v\n", jsErr)
 			return 1
 		}
-		buf.WriteString(js)
+		buf.Write(js)
 		buf.WriteString("\n")
 	} else {
 		printPRReport(&buf, report)
