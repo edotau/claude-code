@@ -27,7 +27,9 @@ the one other
 online tailnet machine that answers `claude-code version` over ssh within 5 s, kept 10 minutes in
 `state/harness/remote/auto-host.json`. No machine or more than one is an error that lists them; it never guesses.
 
-`--route databricks:auto` picks, among the Databricks serving rows whose credential resolves here, the workspace with
+`--route databricks:auto` picks, among the Databricks serving rows that pass the local checks (a stored credential, no
+auth mark, and the model served to that agent; no token is requested, so a revoked login or an unreachable workspace
+is only found on the first request), the workspace not cooling from a rate limit with
 the fewest live dispatches (in-flight markers on its account plus running dispatch records routed to it; cap 24 per
 account); a tie goes to the one picked least recently (`state/harness/ask/route-auto.json`), then name order. From
 there it is `--route databricks:<that workspace>`: the `ran on` line and the dispatch record name it, and with
