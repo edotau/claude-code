@@ -67,13 +67,11 @@ func Fits(c Claim, lim Limits) (bool, Snapshot) {
 }
 
 // TryClaim counts/writes under one lock; contention rolls back over-cap writes; Snapshot excludes this claim.
+// An empty ID claims nothing and returns (true, Snapshot{}).
 func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	dir := Dir()
-	if c.Owner <= 0 || os.MkdirAll(dir, 0o700) != nil {
-		return true, Snapshot{} // an unidentifiable owner writes nothing and retires nothing
-	}
-	if c.ID == "" {
-		c.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	if c.Owner <= 0 || c.ID == "" || os.MkdirAll(dir, 0o700) != nil {
+		return true, Snapshot{} // an unidentifiable owner or id writes nothing: no release could match it
 	}
 	var snap Snapshot
 	ok := true

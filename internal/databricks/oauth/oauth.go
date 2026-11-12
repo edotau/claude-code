@@ -141,7 +141,11 @@ type tokenRequest struct {
 	replay   bool // the grant is idempotent: a request that may have been processed can be sent again
 }
 
-var tokenClient = &http.Client{Timeout: 30 * time.Second}
+// tokenClient never follows a redirect: a 3xx would replay the grant form (refresh_token, code) to another host.
+var tokenClient = &http.Client{
+	Timeout:       30 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 // retryable: a one-shot grant retries only 429/503 or a transport error before the request was written.
 func (r tokenRequest) retryable(status int, written bool) bool {

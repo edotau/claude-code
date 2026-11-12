@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -304,16 +305,24 @@ func domainMatches(domain, target string) bool {
 
 var pathPatterns sync.Map
 
-// pathMatches globs a path: "*" and "?" stay inside a segment, "**" crosses directories, a leading "./" is ignored.
+// pathMatches globs a path as written, then as canonical forms when both are absolute (/tmp equals /private/tmp).
 func pathMatches(pattern, p string) bool {
-	pattern = cleanGlobPath(pattern)
+	pattern, p = cleanGlobPath(pattern), cleanGlobPath(p)
+	if globMatches(pattern, p) {
+		return true
+	}
+	return path.IsAbs(pattern) && path.IsAbs(p) && globMatches(paths.CanonDeep(pattern), paths.CanonDeep(p))
+}
+
+// globMatches globs a cleaned path: "*" and "?" stay inside a segment, "**" crosses directories.
+func globMatches(pattern, p string) bool {
 	cached, ok := pathPatterns.Load(pattern)
 	if !ok {
 		re, _ := regexp.Compile("^" + globRegexp(pattern) + "$") // Cache failed compilations as non-matches.
 		cached, _ = pathPatterns.LoadOrStore(pattern, re)
 	}
 	re := cached.(*regexp.Regexp)
-	return re != nil && re.MatchString(cleanGlobPath(p))
+	return re != nil && re.MatchString(p)
 }
 
 func cleanGlobPath(s string) string {
