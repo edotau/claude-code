@@ -105,8 +105,9 @@ func CheckModel(agentName string, p *providers.Provider, model string, now time.
 	fail := func(check, detail string) (string, *Finding, string) {
 		return "", &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}, ""
 	}
-	wire, why := preflightModelWire(agentName, p, model)
-	spelled := cmp.Or(wire, providers.SpellPin(p, model)) // a Responses agent's wire check runs before Serves' wording
+	served := router.SpellServed(p, model, now) // an unlisted id the workspace serves as databricks-<id>
+	wire, why := preflightModelWire(agentName, p, served)
+	spelled := cmp.Or(wire, providers.SpellPin(p, served)) // a Responses agent's wire check runs before Serves' wording
 	switch {
 	case preflightResponsesMismatch(agentName, p, spelled):
 		return fail("wire", p.Name+" serves no "+model+" over Responses")

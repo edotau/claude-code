@@ -124,7 +124,7 @@ func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin
 	return m, ""
 }
 
-// selectPinnedModel: model pin if p serves it, else own-account cell, else (codex) a Responses model, else the alias.
+// selectPinnedModel: model pin, else own-account cell, else Databricks tier, else alias; codex gets a Responses model.
 func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string) string {
 	if p == nil {
 		return cell.Model
@@ -137,7 +137,7 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 	if ProviderAccount(p.Name) == cell.Account {
 		return cell.Model
 	}
-	m := p.WireModel(cmp.Or(p.Models[alias], cell.Model))
+	m := cmp.Or(DatabricksModel(agent, alias, p), p.WireModel(cmp.Or(p.Models[alias], cell.Model)))
 	if agent == "codex" && !providers.ServesResponses(p, m) {
 		return cmp.Or(providers.FirstResponsesModel(p), m)
 	}

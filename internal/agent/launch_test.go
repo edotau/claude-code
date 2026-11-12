@@ -328,7 +328,7 @@ func TestConfigureRouteRefusesAIGatewayWire(t *testing.T) {
 		`"options":{"wire":"%s"},"auth":{"type":"key","env":"DBX_GW_TEST_TOKEN"}}}}}`
 	const refusal = "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"
 	for _, wire := range []string{providers.WireAIGateway, "serving"} {
-		reg, err := providers.Parse([]byte("{}"), []byte(fmt.Sprintf(doc, wire)))
+		reg, err := providers.Parse([]byte("{}"), fmt.Appendf(nil, doc, wire))
 		if err != nil {
 			t.Fatal(err)
 		}

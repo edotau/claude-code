@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strings"
@@ -33,8 +34,7 @@ type pickGate struct {
 	held map[string]bool
 }
 
-// codexHop is the model and effort codex's Databricks hops run for alias: codex's own pick respelled for the
-// profile when it serves Responses, else the profile's first Responses model.
+// codexHop is codex's Databricks model and effort at alias: pin, else tier, else cell; non-Responses → first Responses.
 func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
 	profile, first, ok := databricksResponses(reg, now, o.canServe)
 	if !ok {
@@ -42,7 +42,8 @@ func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts,
 	}
 	cell, _ := t.Cell("codex", alias)
 	p := reg.Providers[profile]
-	cell.Model = o.codexModel(providers.Target{Provider: p, Model: cell.Model}).Model
+	tier := cmp.Or(DatabricksModel("codex", alias, p), cell.Model)
+	cell.Model = o.codexModel(providers.Target{Provider: p, Model: tier}).Model
 	if wire := p.WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(p, wire) {
 		if ready, fresh := ServedReady(p, wire, now); fresh && !ready {
 			return profile, first, cell.Effort, true

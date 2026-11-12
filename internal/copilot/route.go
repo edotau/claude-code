@@ -45,6 +45,11 @@ func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target,
 	return ft, ri.Reason, nil
 }
 
+// tierModel is copilot's Databricks tier model at alias on p (router table), else p's own alias model.
+func tierModel(p *providers.Provider, alias string) string {
+	return cmp.Or(router.DatabricksModel("copilot", alias, p), p.Models[alias])
+}
+
 // copilotDatabricksFallback: this session's (else the vault-pinned) profile when it is a signed-in Databricks row,
 // else the first Databricks profile whose credential resolves, else RouteNone. detail names why GitHub was refused.
 func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.RouteInfo {
@@ -54,7 +59,7 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 			if copilotRegistryEligible(false, providers.Target{Provider: p}) && checkCopilotRegistryOS() != nil {
 				reason += " (macOS: launches only with --direct)" // the registry launch refuses here; the gate has no ctx
 			}
-			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: p.Models[models.Opus],
+			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: tierModel(p, models.Opus),
 				Reason: reason, OK: true}
 		}
 	}
@@ -88,7 +93,7 @@ func copilotGithubRow(reg *providers.Registry) (*providers.Provider, bool) {
 func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 	if pin := vault.GetAgentRecord("copilot").Profile; reg != nil && reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile is the route
 		p := reg.Providers[pin]
-		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: tierModel(p, models.Opus)}})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
