@@ -17,13 +17,11 @@ import (
 // every other field reads the merged routing object directly — defaults.json seeds the real defaults.
 const firstOutputFloor = 90 * time.Second
 
-// Routing is the one `routing` object in the providers overlay: weights, cell overrides, routing switches and
-// opencode's own sub-pick knobs. It replaces the registry's former top-level
-// RouteWeights, Route and OpencodeLadder fields.
+// Routing is the one `routing` object in the providers overlay: weights, cells, switches, ladders, opencode knobs.
 type Routing struct {
-	// Weights replaces internal/router's composite-score weights whole (was top-level routeWeights).
+	// Weights replaces internal/router's composite-score weights whole.
 	Weights map[string]float64 `json:"weights,omitempty"`
-	// Cells overrides internal/router's table cells, keyed agent → alias (was top-level route).
+	// Cells overrides internal/router's table cells, keyed agent → alias.
 	Cells map[string]map[string]RouteCell `json:"cells,omitempty"`
 	// ServedAware lets the router pick Databricks models the workspace lists READY; nil = off (static menu).
 	ServedAware *bool `json:"servedAware,omitempty"`
@@ -62,8 +60,7 @@ func (g Rung) label() string { return cmp.Or(g.Agent, "*") + "/" + cmp.Or(g.Prov
 // empty slice means explicitly empty — the distinction `omitempty` on a plain slice cannot survive a
 // marshal round-trip (an empty slice and an absent field both omit).
 type OpencodeRouting struct {
-	// Ladder orders opencode's own paid backends (RouteOpencodeSubIDs); the free Zen catalog always runs
-	// first regardless of this order (was top-level opencodeLadder).
+	// Ladder orders opencode's own paid backends (RouteOpencodeSubIDs); the free Zen catalog always runs first.
 	Ladder *[]string `json:"ladder,omitempty"`
 	// WorkRepoMarkers are the remote-URL substrings marking a repo as work (zen-free never serves one);
 	// defaults.json seeds an empty list — no repo is a work repo until the user sets markers.

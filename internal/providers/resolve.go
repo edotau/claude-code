@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -45,21 +46,13 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
 }
 
-// Select resolves the session: profile = flag → claude record profile → registry default; each alias =
-// record alias → record model → the profile's model table.
+// Select resolves the session: profile = flag → record profile → default; alias = record alias → model → table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
 	recs, err := agentRecords()
 	if err != nil {
 		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
 	}
-	name := providerFlag
-	if name == "" {
-		name = strings.TrimSpace(recs["claude"].Profile)
-	}
-	if name == "" {
-		name = reg.Default
-	}
-	p, err := reg.Get(name)
+	p, err := reg.Get(cmp.Or(providerFlag, strings.TrimSpace(recs["claude"].Profile), reg.Default))
 	if err != nil {
 		return Selection{}, err
 	}
@@ -67,13 +60,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	rec := recs["claude"]
 	all := strings.TrimSpace(rec.Model)
 	for _, alias := range models.AliasNames {
-		spec := strings.TrimSpace(rec.Aliases[alias])
-		if spec == "" {
-			spec = all
-		}
-		if spec == "" {
-			spec = p.Models[alias]
-		}
+		spec := cmp.Or(strings.TrimSpace(rec.Aliases[alias]), all, p.Models[alias])
 		if spec == "" {
 			continue
 		}

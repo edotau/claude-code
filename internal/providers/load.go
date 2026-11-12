@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"cmp"
 	_ "embed"
 	"encoding/json"
@@ -174,10 +175,30 @@ func clonePtr[T any](p *T) *T {
 	return &v
 }
 
-// Validate checks an overlay merged with the embedded defaults.
+// Validate checks an overlay merged with the embedded defaults; unlike Load it refuses an unknown routing key.
 func Validate(overlay []byte) error {
-	_, err := Parse(defaultsJSON, overlay)
-	return err
+	if _, err := Parse(defaultsJSON, overlay); err != nil {
+		return err
+	}
+	return checkRoutingKeys(overlay)
+}
+
+// checkRoutingKeys refuses an overlay whose routing object carries a key Routing does not define (a typo).
+func checkRoutingKeys(overlay []byte) error {
+	top, err := decodeOverlayTop(string(overlay))
+	if err != nil {
+		return err
+	}
+	raw, ok := top["routing"]
+	if !ok {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&Routing{}); err != nil {
+		return fmt.Errorf("vault overlay/providers: routing: %w", err)
+	}
+	return nil
 }
 
 // regFile is a registry document: Registry's scalar fields plus the raw providers value (nested or flat).
@@ -221,19 +242,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	if err != nil {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
-	known := map[string]string{}
-	for n, p := range reg.Providers {
-		known[n] = p.Provider
-	}
-	legacyErr := checkLegacyRoutingKeys(overlay)
-	if len(overlay) > 0 {
-		o, err := decodeRegistry(overlay, known)
-		if err != nil { // keep the base: still name, order, expand and decorate it below
-			legacyErr = cmp.Or(legacyErr, fmt.Errorf("vault overlay/providers: %w", err))
-		} else if err := applyOverlay(reg, o); err != nil {
-			legacyErr = cmp.Or(legacyErr, fmt.Errorf("vault overlay/providers: %w", err))
-		}
-	}
+	legacyErr := cmp.Or(checkLegacyRoutingKeys(overlay), mergeOverlay(reg, overlay))
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
@@ -246,6 +255,25 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		return reg, legacyErr
 	}
 	return reg, reg.validate()
+}
+
+// mergeOverlay applies overlay onto reg; on an error reg keeps the base, still named, ordered and expanded by Parse.
+func mergeOverlay(reg *Registry, overlay []byte) error {
+	if len(overlay) == 0 {
+		return nil
+	}
+	known := map[string]string{}
+	for n, p := range reg.Providers {
+		known[n] = p.Provider
+	}
+	o, err := decodeRegistry(overlay, known)
+	if err == nil {
+		err = applyOverlay(reg, o)
+	}
+	if err != nil {
+		return fmt.Errorf("vault overlay/providers: %w", err)
+	}
+	return nil
 }
 
 // legacyRoutingKeys maps a retired top-level overlay key to the routing path it moved under; Parse rejects

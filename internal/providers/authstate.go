@@ -85,19 +85,10 @@ type ProviderStatus struct {
 
 // Resolve reports credential presence in env -> vault -> auth.file -> command order, without resolving a key.
 func Resolve(p *Provider) ProviderStatus {
-	var st ProviderStatus
-	switch p.Auth.Type {
-	case AuthNone:
-		st.Source = "none"
-		st.Note = "no credential needed"
-		return st
-	case AuthCLI:
-		st.Source = "cli"
-		if p.Auth.Login != "" {
-			st.Note = "via `" + p.Auth.Login + "` login"
-		}
+	if st, ok := credentialFreeStatus(p); ok {
 		return st
 	}
+	var st ProviderStatus
 	if p.Auth.Env != "" {
 		source, err := vault.HasSecretErr(p.Auth.Env)
 		st.Source = source
@@ -115,6 +106,21 @@ func Resolve(p *Provider) ProviderStatus {
 		st.Note = "set " + p.Auth.Env
 	}
 	return st
+}
+
+// credentialFreeStatus is the status of a row that holds no credential of its own (none, cli); ok false otherwise.
+func credentialFreeStatus(p *Provider) (ProviderStatus, bool) {
+	switch p.Auth.Type {
+	case AuthNone:
+		return ProviderStatus{Source: "none", Note: "no credential needed"}, true
+	case AuthCLI:
+		st := ProviderStatus{Source: "cli"}
+		if p.Auth.Login != "" {
+			st.Note = "via `" + p.Auth.Login + "` login"
+		}
+		return st, true
+	}
+	return ProviderStatus{}, false
 }
 
 // profileSecretSource is the source of the profile's own sealed or key secret ("" when none).

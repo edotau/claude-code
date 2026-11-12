@@ -163,7 +163,7 @@ func decodeCatalogPage(body []byte, source string) (doc catalogDoc, empty bool, 
 	}
 	array := catalogArrayKey(source)
 	// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints.
-	if _, ok := fields[array]; !ok && len(fields) == 0 && array != "data" {
+	if len(fields) == 0 && array != "data" { // an empty object has no array field either
 		return doc, true, nil
 	}
 	if !validCatalogArray(fields, array) {
@@ -298,13 +298,13 @@ func discoveryGet(ctx context.Context, p *Provider, u, source string) ([]byte, e
 	return body, nil
 }
 
-// authorizeDiscovery sets the credential headers on a catalog GET; errors name no secret.
+// authorizeDiscovery sets the credential headers on a catalog GET; errors keep the login hint, redacted.
 func authorizeDiscovery(ctx context.Context, p *Provider, h http.Header, source string) error {
 	if err := authorizeCatalog(ctx, p, h); err != nil {
 		if p.Auth.Type == AuthCLI {
 			return errors.New("no harness-readable subscription credential")
 		}
-		return errors.New("catalog authentication unavailable; check profile credentials")
+		return fmt.Errorf("catalog authentication unavailable: %s", redactDetail(err.Error()))
 	}
 	if source == "gemini-models" && p.Auth.Type == AuthKey {
 		token, err := Credential(ctx, p)
