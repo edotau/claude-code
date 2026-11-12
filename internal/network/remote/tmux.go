@@ -114,19 +114,24 @@ func buildCommand(opts Opts) (string, string, error) {
 	return b.String(), name, nil
 }
 
-// sessionName returns opts.Name or a generated one, rejecting names outside the tmux allowlist.
+// normalizeName adds the cc- prefix to a bare name and rejects names outside the tmux allowlist or containing ".".
+func normalizeName(name string) (string, error) {
+	full := name
+	if !strings.HasPrefix(full, "cc-") {
+		full = "cc-" + full
+	}
+	if !validName(full) || strings.Contains(full, ".") { // tmux renames "." to "_"; --list shows cc-* only
+		return "", fmt.Errorf("--name/session %q must match %s without \".\" (cc- is added if missing)", name, nameRe().String())
+	}
+	return full, nil
+}
+
+// sessionName returns opts.Name normalized, or a generated one.
 func sessionName(opts Opts) (string, error) {
-	name := opts.Name
-	if name == "" {
-		name = defaultName(opts.Agent)
+	if opts.Name == "" {
+		return defaultName(opts.Agent), nil
 	}
-	if !validName(name) {
-		return "", fmt.Errorf("--name %q must match %s", name, nameRe().String())
-	}
-	if !strings.HasPrefix(name, "cc-") || strings.Contains(name, ".") { // tmux renames "." to "_"; --list shows cc-* only
-		return "", fmt.Errorf("--name %q must start with cc- and contain no \".\"", name)
-	}
-	return name, nil
+	return normalizeName(opts.Name)
 }
 
 // fieldSep separates tmux -F columns; not a tab, which tmux rewrites to "_". No field can hold "|".
