@@ -43,6 +43,9 @@ YAMLFMT_VERSION ?= v0.21.0
 MDSMITH_VERSION ?= v0.57.0
 MDSMITH         := bin/mdsmith
 RTK_VERSION     ?= 1.1.0
+# TypeScript compiler for the mods under mods/ (`tsc -p mods/<name>`); `make toolchain` installs it.
+TS_VERSION      ?= 7.0.2
+TS_LOCAL_PREFIX ?= $(HOME)/.local
 YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 
 .DEFAULT_GOAL := help
@@ -113,7 +116,7 @@ examples: help-svg  ## Regenerate the README menu image
 
 .PHONY: bootstrap
 bootstrap:  ## Set up a fresh box: toolchain, install, configure
-	@$(MAKE) go-toolchain
+	@$(MAKE) toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
@@ -122,13 +125,13 @@ INTO ?= $(HOME)/.claude
 .PHONY: adopt
 adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	@if [ -e "$(INTO)/.git" ]; then echo "$(INTO) is already a checkout"; exit 0; fi; \
-	$(MAKE) go-toolchain compile && \
+	$(MAKE) toolchain compile && \
 	CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
 	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
 
-.PHONY: go-toolchain
-go-toolchain:  ## Install go.mod's Go to ~/.local/go if missing
-	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; exit 0; fi; \
+.PHONY: toolchain
+toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
+	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; else \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
 	case "$$arch" in x86_64) arch=amd64;; aarch64|arm64) arch=arm64;; esac; \
 	tgz="go$(GO_VERSION).$$os-$$arch.tar.gz"; url="https://dl.google.com/go/$$tgz"; tmp=$$(mktemp -d); \
@@ -139,7 +142,11 @@ go-toolchain:  ## Install go.mod's Go to ~/.local/go if missing
 	tar -C "$$tmp" -xzf "$$tmp/$$tgz" && mkdir -p "$(dir $(GO_LOCAL_ROOT))" && mv "$$tmp/go" "$(GO_LOCAL_ROOT)"; \
 	rm -rf "$$tmp"; \
 	echo -e "$(C_OK)installed $$($(GO_LOCAL_ROOT)/bin/go version) -> $(GO_LOCAL_ROOT)"; \
-	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"
+	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"; fi; \
+	if command -v tsc >/dev/null 2>&1; then echo -e "$(C_OK)tsc found: $$(tsc --version) ($$(command -v tsc))"; \
+	elif ! command -v npm >/dev/null 2>&1; then echo -e "$(C_NOTE)tsc skipped: npm not found (it ships as an npm package)"; \
+	else npm install --global --prefix "$(TS_LOCAL_PREFIX)" --no-fund --no-audit "typescript@$(TS_VERSION)" && \
+	echo -e "$(C_OK)installed $$($(TS_LOCAL_PREFIX)/bin/tsc --version) -> $(TS_LOCAL_PREFIX)/bin/tsc"; fi
 
 .PHONY: setup-env
 setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)

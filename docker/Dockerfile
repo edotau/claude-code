@@ -60,7 +60,7 @@ RUN git init -q -b main \
 # go.mod's Go (sha256-checked) into ~/.local/go, then the harness and its pinned gate tools.
 # GO_JOBS caps parallel compiles: anthropic-sdk-go alone OOMs a 2 GiB podman machine at the default.
 ARG GO_JOBS=2
-RUN make go-toolchain && GOFLAGS="-p=${GO_JOBS}" make install DEV_TOOLS=1
+RUN make toolchain &&GOFLAGS="-p=${GO_JOBS}" make install DEV_TOOLS=1
 
 ENTRYPOINT ["claude"]
 CMD ["--help"]
