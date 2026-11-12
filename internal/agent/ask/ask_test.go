@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -916,16 +917,26 @@ func TestBatchFollowFlagErrors(t *testing.T) {
 // runCLI runs `claude-code agents ask <argv>` in-process (argv[0] is "ask"); returns exit code, stdout and stderr.
 func runCLI(t *testing.T, argv ...string) (int, string, string) {
 	t.Helper()
-	outR, outW, _ := os.Pipe()
-	errR, errW, _ := os.Pipe()
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o, e []byte
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); o, _ = io.ReadAll(outR) }() // drained while Cmd runs, so big output cannot block
+	go func() { defer wg.Done(); e, _ = io.ReadAll(errR) }()
 	oldOut, oldErr := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = outW, errW
 	code := Cmd(argv[1:])
 	os.Stdout, os.Stderr = oldOut, oldErr
 	outW.Close()
 	errW.Close()
-	o, _ := io.ReadAll(outR)
-	e, _ := io.ReadAll(errR)
+	wg.Wait()
 	return code, string(o), string(e)
 }
 

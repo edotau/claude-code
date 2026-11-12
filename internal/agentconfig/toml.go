@@ -11,8 +11,8 @@ import (
 
 // TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
 func TOMLQuote(s string) string {
-	b, _ := json.Marshal(s) // a JSON string is a valid TOML basic string
-	return string(b)
+	b, _ := json.Marshal(s)                                // a JSON string is a valid TOML basic string
+	return strings.ReplaceAll(string(b), "\x7f", `\u007f`) // TOML forbids a raw DEL; JSON leaves it
 }
 
 func TOMLInline(pairs [][2]string) string {
@@ -62,8 +62,8 @@ func topLevelKeysOf(section string) []string {
 			break
 		}
 		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			if key, _, ok := strings.Cut(trimmed, "="); ok {
-				keys = append(keys, TOMLKeyName(key))
+			if key, ok := assignedKey(trimmed); ok {
+				keys = append(keys, key)
 			}
 		}
 	}
@@ -103,8 +103,49 @@ func dropTopLevelKeys(raw string, keys []string) string {
 
 // assignsKey reports whether line is a "key = ..." assignment of one of keys.
 func assignsKey(line string, keys []string) bool {
-	key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
-	return ok && slices.Contains(keys, TOMLKeyName(key))
+	key, ok := assignedKey(strings.TrimSpace(line))
+	return ok && slices.Contains(keys, key)
+}
+
+// assignedKey is the key of a "key = value" line, split at the first '=' outside quotes; a dotted key keeps its dots.
+func assignedKey(line string) (string, bool) {
+	dotted := false
+	for i := 0; i < len(line); {
+		switch c := line[i]; c {
+		case '"', '\'':
+			i = skipQuoted(line, i+1, c)
+		case '=':
+			if dotted {
+				return dropUnquotedSpace(line[:i]), true
+			}
+			return TOMLKeyName(line[:i]), true
+		case '.':
+			dotted = true
+			i++
+		default:
+			i++
+		}
+	}
+	return "", false
+}
+
+// dropUnquotedSpace removes the blanks around a dotted key's parts, keeping quoted parts ("a b") byte-for-byte.
+func dropUnquotedSpace(key string) string {
+	var b strings.Builder
+	for i := 0; i < len(key); {
+		switch c := key[i]; c {
+		case '"', '\'':
+			end := skipQuoted(key, i+1, c)
+			b.WriteString(key[i:end])
+			i = end
+		case ' ', '\t':
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
 }
 
 // FirstTopLevelHeaderIndex finds the first top-level table header line, outside strings and arrays; -1 for none.
@@ -258,7 +299,25 @@ func multilineBasic(body string) (string, error) {
 			b.WriteByte(c)
 		}
 	}
-	return strconv.Unquote(`"` + b.String() + `"`)
+	quoted := `"` + b.String() + `"`
+	if err := checkEscapes(quoted); err != nil {
+		return "", err
+	}
+	return strconv.Unquote(quoted)
+}
+
+// checkEscapes rejects the escapes Go's strconv.Unquote accepts but TOML does not (\a, \v, \x, octal, \').
+func checkEscapes(quoted string) error {
+	for i := 0; i < len(quoted); i++ {
+		if quoted[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(quoted) || !strings.ContainsRune(`btnfr"\\uU`, rune(quoted[i])) {
+			return errors.New("invalid TOML string escape")
+		}
+	}
+	return nil
 }
 
 // lineEndingBackslash returns the index past the whitespace a backslash at i trims, or 0 when no newline follows it.
@@ -305,6 +364,9 @@ func basicString(value string) (parsed, rest string, err error) {
 	quoted, err := strconv.QuotedPrefix(value)
 	if err != nil || !strings.HasPrefix(quoted, "\"") {
 		return "", "", errors.New("expected quoted string")
+	}
+	if err = checkEscapes(quoted); err != nil {
+		return "", "", err
 	}
 	if parsed, err = strconv.Unquote(quoted); err != nil {
 		return "", "", err

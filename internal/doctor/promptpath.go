@@ -129,11 +129,11 @@ func rules(root string) []string {
 }
 
 func hasPaths(ls []string) bool {
-	if len(ls) == 0 || ls[0] != "---" {
+	if len(ls) == 0 || strings.TrimRight(ls[0], "\r") != "---" {
 		return false
 	}
 	for _, l := range ls[1:] {
-		if l == "---" {
+		if strings.TrimRight(l, " \t\r") == "---" {
 			return false
 		}
 		if strings.HasPrefix(l, "paths:") {

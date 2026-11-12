@@ -247,7 +247,7 @@ func mirroredIn(text string) bool {
 	for line := range strings.SplitSeq(strings.TrimPrefix(text, "\ufeff"), "\n") { // Windows editors write a UTF-8 BOM
 		line = strings.ToLower(strings.TrimSpace(line))
 		if strings.HasPrefix(line, "[") {
-			inWSL2 = line == "[wsl2]"
+			inWSL2 = strings.TrimSpace(strings.SplitN(line, "#", 2)[0]) == "[wsl2]"
 			continue
 		}
 		k, v, ok := strings.Cut(line, "=")

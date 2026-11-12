@@ -254,9 +254,16 @@ func plaintextLeftovers(cfgDir, codexHome string) []string {
 	})
 	entries, _ := os.ReadDir(codexHome)
 	for _, e := range entries {
-		if e.Name() != "config.toml" {
-			leftovers = append(leftovers, e.Name())
+		if e.Name() == "config.toml" || e.Name() == "config.toml.lock" && emptyFile(filepath.Join(codexHome, e.Name())) {
+			continue // the write lock is created empty; anything written into it is a leftover
 		}
+		leftovers = append(leftovers, e.Name())
 	}
 	return leftovers
+}
+
+// emptyFile reports whether p is a zero-length regular file.
+func emptyFile(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode().IsRegular() && fi.Size() == 0
 }

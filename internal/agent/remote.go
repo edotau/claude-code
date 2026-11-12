@@ -254,7 +254,9 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool) *retry.Error {
 	detail := stderrTail(tail.String())
 	code := -1
-	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
+	if werr == nil {
+		code = 0
+	} else if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		code = ee.ExitCode()
 	}
 	msg := fmt.Sprintf("ssh %s: connection failed (exit %d)", r.host, code)
@@ -336,6 +338,7 @@ func ListRemote(host, bin, format string, out io.Writer) error {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	var stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = out, &stderr
+	cmd.WaitDelay = 5 * time.Second // a stuck pipe copier must not outlive the timeout
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("agents: %s: %v: %s", host, err, stderrTail(stderr.String()))
 	}

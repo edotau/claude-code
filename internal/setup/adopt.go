@@ -62,7 +62,7 @@ func clashDiffers(src, target string, fi os.FileInfo) bool {
 
 // trackedFiles runs `git -C repo ls-files -z` and returns repo-relative, slash-separated paths.
 func trackedFiles(repo string) ([]string, error) {
-	out, err := exec.Command("git", "-C", repo, "ls-files", "-z").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	out, err := gitOutput("-C", repo, "ls-files", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -182,11 +182,21 @@ func installCheckout(opts adoptOpts) error {
 }
 
 func commitHash(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	out, err := gitOutput("-C", dir, "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// gitTimeout bounds a read-only git call so a hung git fails instead of blocking the verb.
+const gitTimeout = 2 * time.Minute
+
+// gitOutput runs git with args under gitTimeout and returns its stdout.
+func gitOutput(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "git", args...).Output()
 }
 
 // checkoutTimeout bounds the restore so a hung git fails into the rollback instead of blocking with .git moved.

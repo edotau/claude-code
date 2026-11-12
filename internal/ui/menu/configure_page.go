@@ -453,6 +453,9 @@ func runAuthOption(d *dialog, kt configure.KeyTarget, o configure.AuthOption) bo
 // mintAuthValue runs o's mint command and stores its token; done is false when none was found (paste next).
 func mintAuthValue(d *dialog, kt configure.KeyTarget, o configure.AuthOption) (done, ok bool) {
 	tok, err := runMint(o.Mint)
+	if errors.Is(err, errMintDeclined) {
+		return false, false
+	}
 	if err != nil {
 		d.printf("%s: %v\n", kt.Label, err)
 		return true, false

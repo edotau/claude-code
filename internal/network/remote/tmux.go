@@ -59,6 +59,9 @@ func agentLaunchArgs(agent, task string) []string {
 	case agentid.Copilot:
 		return []string{"-i", task}
 	default: // claude, codex
+		if strings.HasPrefix(task, "-") {
+			return []string{"--", task} // keep a dash-leading task from parsing as a flag
+		}
 		return []string{task}
 	}
 }
@@ -119,6 +122,9 @@ func sessionName(opts Opts) (string, error) {
 	}
 	if !validName(name) {
 		return "", fmt.Errorf("--name %q must match %s", name, nameRe().String())
+	}
+	if !strings.HasPrefix(name, "cc-") || strings.Contains(name, ".") { // tmux renames "." to "_"; --list shows cc-* only
+		return "", fmt.Errorf("--name %q must start with cc- and contain no \".\"", name)
 	}
 	return name, nil
 }

@@ -286,7 +286,11 @@ func bareKeyValue(masked string, open []int, i int, key string) (int, bool) {
 		!atKeyPosition(masked, i) {
 		return 0, false
 	}
-	return colonValue(masked, i+len(key))
+	end := i + len(key)
+	if j := skipSpaces(masked, end); j < len(masked) && (masked[j] == ',' || masked[j] == '}') {
+		return end, true // shorthand `{ model }` pins the key to the variable of the same name
+	}
+	return colonValue(masked, end)
 }
 
 // colonValue returns the offset after the colon that follows optional whitespace at i.
@@ -614,13 +618,16 @@ func maskedGroupEnd(masked string, open int, opener, closer byte) int {
 	return len(masked)
 }
 
+var metaDeclRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`export\s+const\s+meta\s*=\s*\{`) })
+
 // metaLiteralDefects flags an `export const meta` whose value is not a pure literal.
 func metaLiteralDefects(path, src string) []string {
-	start := strings.Index(src, "export const meta = {")
-	if start < 0 {
+	loc := metaDeclRe().FindStringIndex(src)
+	if loc == nil {
 		return nil
 	}
-	meta := delimitedWindow(src, stripStrings(src), start+len("export const meta = "), '{', '}')
+	start := loc[0]
+	meta := delimitedWindow(src, stripStrings(src), loc[1]-1, '{', '}')
 	if !metaHasNonLiteral(stripStrings(meta)) {
 		return nil
 	}

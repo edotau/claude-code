@@ -70,7 +70,10 @@ func createBranchName(name, want string) (string, error) {
 	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	if gitCmd(ctx, "check-ref-format", "--branch", branch).Run() != nil {
+	if err := gitCmd(ctx, "check-ref-format", "--branch", branch).Run(); err != nil {
+		if _, isExit := asExitErr(err); !isExit {
+			return "", fmt.Errorf("git check-ref-format %q: %w", branch, err)
+		}
 		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
 	}
 	return branch, nil

@@ -368,7 +368,11 @@ func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (m
 		rows = append(rows, [2]string{"change service principal", "new client id and secret"})
 	}
 	idx, err := dbxShell(d).Pick("identity · "+env, rows, max(slices.Index(modes, cur), 0))
-	if err != nil || idx < 0 {
+	if err != nil {
+		d.printf("%s: identity: %v\n", env, err)
+		return "", false, false
+	}
+	if idx < 0 {
 		return "", false, false
 	}
 	if idx == len(modes) {

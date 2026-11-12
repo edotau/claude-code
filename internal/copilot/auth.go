@@ -233,10 +233,13 @@ func copilotStoredLogin() string {
 // ghUserRE matches the host-level `user: <name>` line (the active account) in gh's hosts.yml.
 var ghUserRE = regexp.MustCompile(`(?m)^github\.com:\n(?:[ \t]+.*\n)*?[ \t]{1,4}user:[ \t]*(\S+)`)
 
-// ghConfigDir is gh's config directory: $GH_CONFIG_DIR, else ~/.config/gh.
+// ghConfigDir is gh's config directory: $GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else ~/.config/gh.
 func ghConfigDir() string {
 	if dir := os.Getenv("GH_CONFIG_DIR"); dir != "" {
 		return dir
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "gh")
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "gh")

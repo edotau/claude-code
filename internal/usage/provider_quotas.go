@@ -247,8 +247,12 @@ func parseWham(body []byte) []quota {
 		if w == nil {
 			continue
 		}
+		resets := ""
+		if w.ResetAt > 0 {
+			resets = time.Unix(w.ResetAt, 0).Local().Format("2006-01-02 15:04")
+		}
 		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: textutil.Title(u.Plan), Window: windowLabel(w.Seconds),
-			UsedPct: w.UsedPct, Resets: time.Unix(w.ResetAt, 0).Local().Format("2006-01-02 15:04")})
+			UsedPct: w.UsedPct, Resets: resets})
 	}
 	if len(out) == 0 {
 		out = append(out, quota{Provider: "openai", Account: u.Email, Plan: textutil.Title(u.Plan), Note: "no rate-limit windows reported"})

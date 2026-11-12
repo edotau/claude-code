@@ -214,7 +214,9 @@ func presentedSecret(req *http.Request) string {
 		got = req.Header.Get("X-Api-Key")
 	}
 	if got == "" {
-		got, _ = strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
+		if tok, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer "); ok {
+			got = tok
+		}
 	}
 	return got
 }

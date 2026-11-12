@@ -298,11 +298,11 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 		return linkResult{}, false
 	}
 	root := filepath.Clean(cwd)
-	top := gitMain(root)
+	top, definitive := gitMain(root)
 	if top != "" {
 		root = paths.CanonDeep(top)
 	}
-	target, err := repoDirWith(cwd, func(string) string { return top }) // RepoDir without a second git probe
+	target, err := repoDirWith(cwd, func(string) (string, bool) { return top, definitive }) // RepoDir, no second git probe
 	if err != nil {
 		return linkResult{}, false
 	}

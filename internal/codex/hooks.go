@@ -116,7 +116,7 @@ func rebuildCodexGroup(raw json.RawMessage, foreign []json.RawMessage) (json.Raw
 
 // writeCodexHooks writes hooks.json under a file lock, refusing when it changed since the merge read it.
 func writeCodexHooks(path string, old, next []byte, existed bool) error {
-	return withCodexLock(path, func() error {
+	return WithConfigLock(path, func() error {
 		target, err := codexWriteTarget(path)
 		if err != nil {
 			return err

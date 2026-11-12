@@ -596,7 +596,7 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o sdkOption
 		opts = &copilot.SetModelOptions{ReasoningEffort: &o.ReasoningEffort}
 	}
 	if err := session.SetModel(ctx, o.Model, opts); err != nil {
-		return fmt.Errorf("%w: select %s: %v", errUnregisteredPick, o.Model, err)
+		return fmt.Errorf("%w: select %s: %w", errUnregisteredPick, o.Model, err)
 	}
 	return nil
 }

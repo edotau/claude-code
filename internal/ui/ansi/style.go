@@ -63,17 +63,32 @@ func Status(on bool, line string) string {
 	if !on {
 		return Strip(line)
 	}
-	line = spanRE.ReplaceAllStringFunc(line, func(sp string) string {
-		code := Dim
-		switch {
-		case strings.HasPrefix(sp, SpanOK):
-			code = Green
-		case strings.HasPrefix(sp, SpanWarn):
-			code = Yellow
-		}
-		return code + strings.TrimSuffix(sp[len(SpanOK):], SpanEnd) + Reset
-	})
-	return statusRE.ReplaceAllStringFunc(line, func(tok string) string { return statusCode[tok] + tok + Reset })
+	var out strings.Builder
+	last := 0
+	for _, loc := range spanRE.FindAllStringIndex(line, -1) {
+		out.WriteString(paintTokens(line[last:loc[0]]))
+		out.WriteString(paintSpan(line[loc[0]:loc[1]]))
+		last = loc[1]
+	}
+	out.WriteString(paintTokens(line[last:]))
+	return out.String()
+}
+
+// paintSpan paints one span-marked value in its color, dropping the markers.
+func paintSpan(sp string) string {
+	code := Dim
+	switch {
+	case strings.HasPrefix(sp, SpanOK):
+		code = Green
+	case strings.HasPrefix(sp, SpanWarn):
+		code = Yellow
+	}
+	return code + strings.TrimSuffix(sp[len(SpanOK):], SpanEnd) + Reset
+}
+
+// paintTokens paints the status tokens in text that sits outside any span.
+func paintTokens(text string) string {
+	return statusRE.ReplaceAllStringFunc(text, func(tok string) string { return statusCode[tok] + tok + Reset })
 }
 
 // Span markers are zero-meaning runes a row wraps around one value: SpanOK..SpanEnd paints green, SpanWarn yellow and

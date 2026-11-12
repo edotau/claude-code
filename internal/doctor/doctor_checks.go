@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -115,13 +114,7 @@ func formatsCheck() check {
 	if len(stale) > 0 {
 		return check{Name: "formats", OK: false, Detail: strings.Join(stale, " · ")}
 	}
-	return check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current · %d migrations applied", current, ledgerLines())}
-}
-
-// ledgerLines counts the migration ledger's lines; an unreadable ledger counts as 0.
-func ledgerLines() int {
-	data, _ := os.ReadFile(schemas.LedgerPath())
-	return bytes.Count(data, []byte("\n"))
+	return check{Name: "formats", OK: true, Detail: fmt.Sprintf("%d formats current", current)}
 }
 
 func vaultDoctorChecks() []check {
