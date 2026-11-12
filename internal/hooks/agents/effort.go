@@ -477,30 +477,31 @@ func lowerFirst(desc string) string {
 	return string(r)
 }
 
-// pinModel fills updated["model"] from the classifier when the dispatch left it unset,
-// and returns the model note and visible reason ("" when nothing was pinned).
+// pinModel fills an unset updated["model"] from the classifier; returns the note and visible reason ("" = no pin).
 func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
-	// An explicit model is a deliberate choice by whoever dispatched — never second-guess it.
-	// `inherit` is not one of those: it is the default spelling for "unset", and honoring it ran
-	// every unpinned spawn on the parent session's model. The roster's own pin outranks every
-	// decision too: a model-pinned agent already carries its tier.
+	// never override an explicit model or a roster pin; `inherit` means unset (honoring it ran on the parent's model)
 	if explicitModel(in) || task == "" || agentPinsModel(run, in.Nested("tool_input", "subagent_type")) {
 		return "", ""
 	}
 	tier, signal := router.EffortTierSignal(task)
 	model := models.AliasModel(tier)
 	updated["model"] = model
-	pinEffort(run, in, updated, tier)
-	return fmt.Sprintf("dispatch-effort: dispatch model unset and the task classifies %s — pinned model=%s"+
-			" (set model explicitly to override).", tier, model),
-		fmt.Sprintf("dispatch-effort: %s → %s (%s)", tier, model, signal)
+	effort := ""
+	if set := pinEffort(run, in, updated, tier); set != "" {
+		effort = " effort=" + set
+	}
+	return fmt.Sprintf("dispatch-effort: dispatch model unset and the task classifies %s — pinned model=%s%s"+
+			" (set model explicitly to override).", tier, model, effort),
+		fmt.Sprintf("dispatch-effort: %s → %s%s (%s)", tier, model, effort, signal)
 }
 
-// pinEffort sets updated["effort"] to the classified tier in the model pin's rewrite, unless the call or agent file sets one.
-func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) {
-	if strings.TrimSpace(in.Nested("tool_input", "effort")) == "" && run.rosterEffort(in.Nested("tool_input", "subagent_type")) == "" {
-		updated["effort"] = tier
+// pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns what it set, else "".
+func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) string {
+	if strings.TrimSpace(in.Nested("tool_input", "effort")) != "" || run.rosterEffort(in.Nested("tool_input", "subagent_type")) != "" {
+		return ""
 	}
+	updated["effort"] = tier
+	return tier
 }
 
 // explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).

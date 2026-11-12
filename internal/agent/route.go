@@ -519,7 +519,7 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
 	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
-		cell.Model = rc.reg.Providers[cand.Profile].WireModel(cell.Model)
+		cell.Model = launchWire(cand.Agent, rc.reg.Providers[cand.Profile], cell.Model)
 	}
 }
 
@@ -607,7 +607,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 		p = rc.reg.Providers[cand.Profile]
 	}
 	if speaksResponses(cand.Agent) && p != nil {
-		wire := p.WireModel(rc.exact)
+		wire := launchWire(cand.Agent, p, rc.exact)
 		if !providers.ServesResponses(p, wire) {
 			return cell, who + ": serves no " + rc.exact + " over Responses"
 		}
@@ -906,22 +906,24 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	hint, err := previewHint(tb, q.Model, q.Task)
+	profiles := previewProfiles(q, lead)
+	if err := previewServes(tb, q.Model, profiles); err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
+	chain, pick, err := chainFor(ctx, q, previewHint(tb, q.Model, q.Task), lead)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	chain, pick, err := chainFor(ctx, q, hint, lead)
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
+	if _, _, exact := modelRow(q.Model); exact != "" && !slices.ContainsFunc(chain.Dispatches, func(d Dispatch) bool {
+		return sameModel(d.Model, exact)
+	}) {
+		return Chain{}, router.PickResult{}, fmt.Errorf("--model %s: no %s candidate runs it; claude-code models --live "+
+			"--profile %s lists what is served", q.Model, cmp.Or(q.Agent, "routed"), cmp.Or(firstName(profiles), "<p>"))
 	}
 	return chain, previewOutcome(chain, pick), nil
 }
 
-func previewHint(tb *router.RouteTable, model, task string) (string, error) {
-	id, _, ok := models.Resolve(model)
-	if exact := !ok || models.FamilyKind(id) != models.FamilyClaude; model != "" && model != router.DiscoveryModel && !exact && tb.AliasOf(model) == "" {
-		return "", fmt.Errorf("--model %q names no alias or version the table routes", model)
-	}
+func previewHint(tb *router.RouteTable, model, task string) string {
 	hint := tb.AliasOf(model)
 	if hint == "" && task != "" {
 		hint = router.RuleClassifier{}.Alias(task)
@@ -929,7 +931,7 @@ func previewHint(tb *router.RouteTable, model, task string) (string, error) {
 	if hint == "" {
 		hint = router.Aliases[1]
 	}
-	return hint, nil
+	return hint
 }
 
 func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {

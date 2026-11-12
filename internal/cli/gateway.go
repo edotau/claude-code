@@ -230,7 +230,7 @@ func gatewayRoute(args []string) int {
 
 func gatewayRouteFlags(fs *flag.FlagSet) *agent.RouteReq {
 	q := &agent.RouteReq{Preview: true, Refresh: ask.RouteRefresh}
-	fs.StringVar(&q.Model, "model", "", "alias (opus) or version (opus-5-5) (default: classify --task, else sonnet)")
+	fs.StringVar(&q.Model, "model", "", "alias (opus), version (opus-5-5) or wire id (default: classify --task, else sonnet)")
 	fs.StringVar(&q.Agent, "agent", "", "the agent asked for; it leads when it passes the gates")
 	fs.StringVar(&q.Task, "task", "", "task text the classifier reads when --model is absent")
 	fs.StringVar(&q.Fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
@@ -422,11 +422,14 @@ func printSkipped(w io.Writer, skipped []router.Skip) {
 	}
 }
 
-// printPins prints each agent's profile pin (off, or - when unset), wrapped at 80 cols under a 7-space indent.
+// printPins prints each agent's profile[/model] pin (off, or - when unset), wrapped at 80 cols under a 7-space indent.
 func printPins(w io.Writer, pins map[string]pinJSON) {
 	line, n := "pins   ", 0
 	for _, a := range pinAgents {
 		tok := a + "=" + cmp.Or(pins[a].Profile, "-")
+		if pins[a].Model != "" {
+			tok += "/" + pins[a].Model
+		}
 		if !pins[a].Active {
 			tok = a + "=off"
 		}

@@ -245,8 +245,7 @@ func agyGatewayBase(id string) (base, effort string, ok bool) {
 	return models.Wire("dotted", canonical), "", true
 }
 
-// geminiGateway runs agy in its env-only gateway mode against the router's /p/<profile>/gemini route, which swaps
-// in a fresh Databricks token per request; the key agy holds is a session token scoped to this profile.
+// geminiGateway runs agy on the router's /p/<profile>/gemini route; agy holds only a profile-scoped session token.
 func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	rb, err := agent.EnsureRouter(ctx)
 	if err != nil {

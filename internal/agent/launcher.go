@@ -144,6 +144,8 @@ func applyModel(sel *providers.Selection, model string, session bool, verbAlias 
 	wire = models.Strip1M(wire)
 	if canonical != "" {
 		wire = sel.Provider.WireModel(canonical)
+	} else if sel.Provider != nil { // preflight's spelling: a bare id the workspace serves runs as databricks-<id>
+		wire = launchWire("claude", sel.Provider, wire)
 	}
 	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
 }

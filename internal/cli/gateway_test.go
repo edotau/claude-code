@@ -479,18 +479,25 @@ func TestRouterPreviewMatchesDispatch(t *testing.T) {
 		name, model string
 		responses   bool
 		wantSkip    string // a skip naming this profile must appear
+		refused     bool   // no candidate runs the model: the preview refuses it, naming the profile's listing
 	}{
-		{"exact_supported", "gpt-6-astra", true, ""},
-		{"exact_unsupported", "gpt-6-astra", false, "astra-par"},
-		{"alias_control", "sonnet", true, ""},
+		{"exact_supported", "gpt-6-astra", true, "", false},
+		{"exact_unsupported", "gpt-6-astra", false, "", true},
+		{"alias_control", "sonnet", true, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := parityEnv(t, "astra-par", tc.responses)
-			code, out, _ := hosttest.CaptureOutput(t, func() int {
+			code, out, errOut := hosttest.CaptureOutput(t, func() int {
 				return gatewayRoute(
 					[]string{"--agent", "codex", "--profile", "astra-par", "--model", tc.model, "--fallback", "agents", "--format", "json"})
 			})
+			if tc.refused {
+				if code == 0 || !strings.Contains(errOut, "--model gpt-6-astra") || !strings.Contains(errOut, "--profile astra-par") {
+					t.Fatalf("preview exit %d, stderr %q: want a refusal naming the model and astra-par's listing", code, errOut)
+				}
+				return
+			}
 			if code != 0 {
 				t.Fatalf("preview exit %d: %s", code, out)
 			}
