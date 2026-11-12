@@ -39,7 +39,7 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	fs.StringVar(&f.host, "host", "", "ssh host: alias, MagicDNS/tailnet name, or IP")
 	fs.StringVar(&f.dir, "dir", "", "remote working directory (default ~)")
 	fs.StringVar(&f.agent, "agent", "claude", "agent CLI: "+strings.Join(Agents, "|"))
-	fs.StringVar(&f.name, "name", "", "tmux session name (default cc-<agent>-<id>)")
+	fs.StringVar(&f.name, "name", "", "tmux session name, cc- prefix added if missing (default cc-<agent>-<id>)")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print the ssh argv instead of running it")
 	fs.BoolVar(&f.list, "list", false, "list cc-* tmux sessions on --host")
 	fs.BoolVar(&f.status, "status", false, "with --list, classify each pane's state")
