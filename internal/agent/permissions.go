@@ -33,6 +33,8 @@ type Permissions struct {
 	Allow []Rule `json:"allow,omitempty"`
 	Ask   []Rule `json:"ask,omitempty"`
 	Deny  []Rule `json:"deny,omitempty"`
+
+	paths map[Rule]pathMatcher // Immutable; current rule values are the keys, so edits cannot reuse a stale matcher.
 }
 
 // Each visits rules in strictness order: Deny, Ask, then Allow.
@@ -123,7 +125,7 @@ func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, erro
 			*set.out = append(*set.out, r)
 		}
 	}
-	return p, nil
+	return p.compilePaths(), nil
 }
 
 // DefaultPermissions is name's default dispatch policy, the first layer ResolvePermissions applies.
@@ -149,7 +151,24 @@ func resolvePermissions(layers ...Permissions) (out Permissions, widened []strin
 		out = Permissions{Mode: cmp.Or(l.Mode, out.Mode), Allow: union(out.Allow, l.Allow), Ask: union(ask, l.Ask),
 			Deny: union(out.Deny, l.Deny)}
 	}
-	return out, widened
+	return out.compilePaths(), widened
+}
+
+func (p Permissions) compilePaths() Permissions {
+	p.paths = nil
+	p.Each(func(_ Decision, r Rule) {
+		if r.Arg == "" || r.Tool == "Bash" || r.Tool == "WebFetch" && strings.HasPrefix(r.Arg, "domain:") {
+			return
+		}
+		if _, ok := p.paths[r]; ok {
+			return
+		}
+		if p.paths == nil {
+			p.paths = make(map[Rule]pathMatcher)
+		}
+		p.paths[r] = compilePath(r.Arg)
+	})
+	return p
 }
 
 // widening is what l grants beyond base: an allow neither layer denies, or a mode that leaves plan.
@@ -218,11 +237,11 @@ func (p Permissions) decideBash(cmd string, depth int) Decision {
 
 func (p Permissions) decideOne(tool, arg string) Decision {
 	switch {
-	case anyRule(p.Deny, tool, arg):
+	case p.anyRule(p.Deny, tool, arg):
 		return Deny
-	case anyRule(p.Ask, tool, arg):
+	case p.anyRule(p.Ask, tool, arg):
 		return Ask
-	case anyRule(p.Allow, tool, arg):
+	case p.anyRule(p.Allow, tool, arg):
 		return Allow
 	case p.Mode == "plan":
 		return Deny
@@ -230,8 +249,17 @@ func (p Permissions) decideOne(tool, arg string) Decision {
 	return Ask
 }
 
-func anyRule(rules []Rule, tool, arg string) bool {
+func (p Permissions) anyRule(rules []Rule, tool, arg string) bool {
 	for _, r := range rules {
+		if r.Tool != tool {
+			continue
+		}
+		if m, ok := p.paths[r]; ok {
+			if m.matches(arg) {
+				return true
+			}
+			continue
+		}
 		if r.matches(tool, arg) {
 			return true
 		}
@@ -304,8 +332,35 @@ func domainMatches(domain, target string) bool {
 
 // pathMatches globs a path: "*" and "?" stay inside a segment, "**" crosses directories, a leading "./" is ignored.
 func pathMatches(pattern, p string) bool {
-	re, err := regexp.Compile("^" + globRegexp(cleanGlobPath(pattern)) + "$")
-	return err == nil && re.MatchString(cleanGlobPath(p))
+	return compilePath(pattern).matches(p)
+}
+
+type pathMatcher struct {
+	literal string
+	re      *regexp.Regexp
+}
+
+func compilePath(pattern string) pathMatcher {
+	pattern = cleanGlobPath(pattern)
+	if !utf8.ValidString(pattern) {
+		return pathMatcher{}
+	}
+	if !strings.ContainsAny(pattern, "*?") {
+		return pathMatcher{literal: pattern}
+	}
+	re, _ := regexp.Compile("^" + globRegexp(pattern) + "$") // A failed compilation remains a non-match.
+	return pathMatcher{re: re}
+}
+
+func (m pathMatcher) matches(p string) bool {
+	p = cleanGlobPath(p)
+	if m.literal != "" {
+		if !utf8.ValidString(p) {
+			p = string([]rune(p)) // regexp treats each invalid UTF-8 byte as RuneError.
+		}
+		return m.literal == p
+	}
+	return m.re != nil && m.re.MatchString(p)
 }
 
 func cleanGlobPath(s string) string {
