@@ -441,7 +441,7 @@ func runArmedBYOK(t *testing.T) (sdkOptions, []string) {
 	t.Helper()
 	macFallbackScratch(t)
 	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
-	agent.MintSession = func(context.Context, string, int) (string, error) { return "cct_ARM", nil }
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return "cct_ARM", nil }
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
 	t.Setenv("GH_TOKEN", "ghp-planted")

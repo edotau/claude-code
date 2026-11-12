@@ -92,12 +92,12 @@ func LoadTarget(t testing.TB, provider, model string) providers.Target {
 	return providers.Target{Provider: p, Model: model}
 }
 
-// StubProxy stubs the router at base, its secret and session mints for the test.
-func StubProxy(t testing.TB, base, secret string) {
+// StubProxy stubs the router at base and session mints, which answer token, for the test.
+func StubProxy(t testing.TB, base, token string) {
 	t.Helper()
-	oe, os_, om, op := agent.EnsureRouter, agent.RouterSecret, agent.MintSession, retry.SharedPoll
-	t.Cleanup(func() { agent.EnsureRouter, agent.RouterSecret, agent.MintSession, retry.SharedPoll = oe, os_, om, op })
-	agent.StubProxyForTest(base, secret)
+	oe, om, op := agent.EnsureRouter, agent.MintSession, retry.SharedPoll
+	t.Cleanup(func() { agent.EnsureRouter, agent.MintSession, retry.SharedPoll = oe, om, op })
+	agent.StubProxyForTest(base, token)
 }
 
 // SocketAccepts dials rather than stats: the socket file exists a moment before the holder listens on it.

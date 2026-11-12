@@ -1313,7 +1313,9 @@ func armChildEnvFixture(t *testing.T) string {
 	t.Setenv(agentconfig.OverlayVar, "") // ApplyCoworker and carryOverlay export into this process: restore after the run
 	armCopilotLogin(t)
 	orig := agent.MintSession
-	agent.MintSession = func(_ context.Context, p string, _ int) (string, error) { return "cct_ARM_" + p, nil }
+	agent.MintSession = func(_ context.Context, p []string, _ int) (string, error) {
+		return "cct_ARM_" + strings.Join(p, ","), nil
+	}
 	t.Cleanup(func() { agent.MintSession = orig })
 	return dump
 }

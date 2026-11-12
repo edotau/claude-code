@@ -53,7 +53,7 @@ quota | derived | 0 | state/harness/quota.json | internal/router | keep
 remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/network/remote | keep
 route-auto | cache | 1 | state/harness/ask/route-auto.json | internal/agent/ask | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/gateway | keep
-router-sessions | record | 1 | state/harness/proxy/sessions.json | internal/gateway | keep
+router-sessions | record | 2 | state/harness/proxy/sessions.json | internal/gateway | keep
 served-models | cache | 1 | state/harness/preflight/*.json | internal/router | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
 setup-state | record | 1 | state/harness/setup.json | internal/setup | keep

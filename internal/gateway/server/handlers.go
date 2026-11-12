@@ -235,12 +235,17 @@ func (r *Router) authorized(req *http.Request) bool {
 	return r.sessions.accept(tok, profile) || r.clientAccepted(req, tok, profile)
 }
 
-// admit scopes a token to its path's profile, drops the proxy auth headers, and honours the identity for launches only.
+// admit scopes a token to its profile set, drops the proxy auth headers, and honours the identity for launches only.
 func (r *Router) admit(req *http.Request) *http.Request {
 	launch := true
-	if !r.secretOK(req) { // a session or client token: pin its profile for the resolved target and fallbacks
-		launch = !strings.HasPrefix(presentedSecret(req), clientTokenPf) // an editor's client token picks no identity
-		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, profileOfPath(req.URL.Path)))
+	if !r.secretOK(req) { // a session or client token: pin its profiles for the resolved target and fallbacks
+		tok := presentedSecret(req)
+		launch = !strings.HasPrefix(tok, clientTokenPf) // an editor's client token picks no identity
+		scope := r.sessions.profiles(tok)
+		if scope == nil { // a client token reaches only its path's profile
+			scope = []string{profileOfPath(req.URL.Path)}
+		}
+		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, scope))
 	}
 	stripClientAuth(req)
 	if launch {

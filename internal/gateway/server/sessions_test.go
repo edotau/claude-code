@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,7 +60,7 @@ func (g *sessionRig) call(t *testing.T, path, body, key string) (int, string) {
 
 func (g *sessionRig) mint(t *testing.T, profile string) string {
 	t.Helper()
-	code, b := g.call(t, gateway.SessionPath, `{"profile":"`+profile+`","pid":4242}`, secret)
+	code, b := g.call(t, gateway.SessionPath, `{"profiles":["`+profile+`"],"pid":4242}`, secret)
 	var out gateway.SessionResponse
 	if code != 200 || json.Unmarshal([]byte(b), &out) != nil || out.Token == "" {
 		t.Fatalf("mint = %d %s", code, b)
@@ -78,7 +79,7 @@ func TestSessionTokenScopeAndMintAuth(t *testing.T) {
 	if code, _ := g.call(t, "/p/other/v1/messages", `{}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("other profile = %d, want 401", code)
 	}
-	if code, _ := g.call(t, gateway.SessionPath, `{"profile":"dev","pid":4242}`, tok); code != http.StatusUnauthorized {
+	if code, _ := g.call(t, gateway.SessionPath, `{"profiles":["dev"],"pid":4242}`, tok); code != http.StatusUnauthorized {
 		t.Errorf("mint with a session token = %d, want 401", code)
 	}
 	if code, _ := g.call(t, gateway.SessionRevokePath, `{"token":"`+tok+`"}`, tok); code != http.StatusUnauthorized {
@@ -156,7 +157,7 @@ func TestSessionMintPrunesDeadProcesses(t *testing.T) {
 func TestSessionTokenSurvivesRouterRestart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	first := newRouter(secret)
-	token, err := first.sessions.mint("dev", os.Getpid())
+	token, err := first.sessions.mint([]string{"dev"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func TestSessionTokenSurvivesRouterRestart(t *testing.T) {
 func TestRevokedSessionTokenStaysRevokedAfterRestart(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	first := newRouter(secret)
-	token, err := first.sessions.mint("dev", os.Getpid())
+	token, err := first.sessions.mint([]string{"dev"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestRevokedSessionTokenStaysRevokedAfterRestart(t *testing.T) {
 func TestSessionTokenPersistenceIsPrivateAndHashed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	router := newRouter(secret)
-	token, err := router.sessions.mint("dev", os.Getpid())
+	token, err := router.sessions.mint([]string{"dev"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +246,7 @@ func TestFailedIdentityProbeRejectsWithoutRenewingTrust(t *testing.T) {
 	if code, _ := g.call(t, "/p/dev/v1/messages", `{}`, token); code != http.StatusUnauthorized {
 		t.Errorf("failed identity probe accepted request: status=%d, want 401", code)
 	}
-	if after := sessionSnapshot(t, g, token); after != before {
+	if after := sessionSnapshot(t, g, token); !reflect.DeepEqual(after, before) {
 		t.Errorf("failed identity probe renewed session: before=%+v after=%+v", before, after)
 	}
 	g.advance(time.Second) // inside a wrongly renewed trust window: failure must still reject.

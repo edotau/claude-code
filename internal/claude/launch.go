@@ -380,19 +380,13 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if id := providers.IdentityFrom(ctx); id != "" {
 		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
 	}
-	tok, err := armToken(ctx, base, p.Name)
+	tok, err := proxyToken(ctx, base, sel)
 	if err != nil {
 		return "", "", err
 	}
-	if tok != "" {
-		plan.Set[ProxyKeyEnv] = tok
-	}
-	if passthrough {
-		secret, err := clientSecret(tok)
-		if err != nil {
-			return "", "", err
-		}
-		hdrs = append(hdrs, gateway.ClientHeader+": "+secret)
+	plan.Set[ProxyKeyEnv] = tok
+	if passthrough { // Authorization holds the login, so the token rides the client header
+		hdrs = append(hdrs, gateway.ClientHeader+": "+tok)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return textutil.QuoteSH(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
@@ -408,31 +402,23 @@ func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
 	return nil
 }
 
-// clientSecret is the client header's router secret (Authorization holds the login): token tok, else the gateway's.
-func clientSecret(tok string) (string, error) {
-	if tok != "" {
-		return tok, nil
-	}
-	secret, err := gateway.ClientSecret()
-	if err != nil {
-		return "", fmt.Errorf("proxy secret: %w", err)
-	}
-	return secret, nil
-}
-
-// ProxyKeyEnv carries an armed launch's session token to `resolve --proxy`; ScrubDeny's HARNESS_*_API_KEY drops it
+// ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`; ScrubDeny's HARNESS_*_API_KEY drops it
 // from grandchildren, so a nested launch mints its own.
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
-// armToken is this process's session token for profile on routerBase inside overlay databricks:<p>, minted once;
-// "" when not armed, so the child keeps the router secret.
-func armToken(ctx context.Context, routerBase, profile string) (string, error) {
-	if router.ArmProfile() == "" {
-		return "", nil
+// proxyToken is this process's session token on routerBase for the session profile and its alias profiles.
+func proxyToken(ctx context.Context, routerBase string, sel providers.Selection) (string, error) {
+	var aliases []string
+	for _, t := range sel.Aliases {
+		aliases = append(aliases, t.Provider.Name)
 	}
-	tok, err := agent.SessionToken(ctx, routerBase, profile)
+	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
 	if err != nil {
-		return "", fmt.Errorf("proxy: session token for profile %s: %w", profile, err)
+		return "", fmt.Errorf("proxy: %w", err)
+	}
+	tok, err := agent.SessionToken(ctx, routerBase, scope...)
+	if err != nil {
+		return "", fmt.Errorf("proxy: session token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
 	return tok, nil
 }
