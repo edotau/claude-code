@@ -287,20 +287,13 @@ func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) 
 	return key, ensure
 }
 
-// codexModels previews the menu shared by opencode, copilot and codex merged with what profile serves, writes it only
-// after a confirm, then lists the ids codex can use over Responses.
+// codexModels previews the shared menu merged with what profile serves, writes it after a confirm, lists Responses ids.
 func codexModels(d *dialog, profile string) bool {
 	if profile == "" {
 		d.printf("codex: no profile pinned; set one on the Profile row\n")
 		return false
 	}
-	res, err := configure.DiscoverModels(context.Background(),
-		configure.ModelQuery{Agent: agentid.OpenCode, Profile: profile, Mode: configure.VerifiedModels})
-	if err != nil {
-		d.printf("codex: %v\n", err)
-		return false
-	}
-	pl, err := catalog.MenuSync(res.Provider, *res.Snapshot, catalog.SyncOptions{})
+	pl, err := codexMenuPlan(profile)
 	if err != nil {
 		d.printf("codex: %v\n", err)
 		return false
@@ -317,14 +310,29 @@ func codexModels(d *dialog, profile string) bool {
 		menuNow, applied = pl.Next, true
 		d.printf("codex: menu updated; relaunch codex to pick it up\n")
 	}
+	d.printf("codex: usable over Responses on %s: %s\n", profile, cmp.Or(strings.Join(codexUsable(menuNow, pl.IDs), ", "), "none"))
+	return applied
+}
+
+// codexMenuPlan is the shared menu merged with what profile serves.
+func codexMenuPlan(profile string) (catalog.SyncPlan, error) {
+	res, err := configure.DiscoverModels(context.Background(),
+		configure.ModelQuery{Agent: agentid.OpenCode, Profile: profile, Mode: configure.VerifiedModels})
+	if err != nil {
+		return catalog.SyncPlan{}, err
+	}
+	return catalog.MenuSync(res.Provider, *res.Snapshot, catalog.SyncOptions{})
+}
+
+// codexUsable is the ids in menu that speak Responses and are served (ids).
+func codexUsable(menu []providers.OpencodeModel, ids []string) []string {
 	var usable []string
-	for _, m := range menuNow {
-		if m.Responses && slices.Contains(pl.IDs, m.ID) {
+	for _, m := range menu {
+		if m.Responses && slices.Contains(ids, m.ID) {
 			usable = append(usable, m.ID)
 		}
 	}
-	d.printf("codex: usable over Responses on %s: %s\n", profile, cmp.Or(strings.Join(usable, ", "), "none"))
-	return applied
+	return usable
 }
 
 // sealCodexMenu seals pl and stores its merged menu, printing the failure and returning false when either step errs.

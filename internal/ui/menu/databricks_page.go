@@ -51,13 +51,10 @@ var dbxAgents = []string{agentid.Claude, agentid.Codex, agentid.OpenCode, agenti
 
 // dbxState is one env's authType (m2m when its service principal minted last) and its no-network expiry text.
 func dbxState(reg *providers.Registry, env string) (authType, text string, ok bool) {
-	if reg == nil {
+	if reg == nil || reg.Providers[env] == nil {
 		return "", "no login", false
 	}
 	p := reg.Providers[env]
-	if p == nil {
-		return "", "no login", false
-	}
 	authType = "command"
 	if p.Auth.Sealed() {
 		authType = p.Auth.Type
@@ -70,15 +67,21 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 			authType = providers.AuthM2M
 		}
 	}
+	text, ok = dbxLoginState(st.Present, exp)
+	return authType, text, ok
+}
+
+// dbxLoginState is the state text for a login that is present (or not) and expires at exp (zero: unknown).
+func dbxLoginState(present bool, exp time.Time) (string, bool) {
 	switch {
-	case !st.Present:
-		return authType, "no login", false
+	case !present:
+		return "no login", false
 	case exp.IsZero():
-		return authType, "logged in", true
+		return "logged in", true
 	case time.Until(exp) <= 0:
-		return authType, dbxExpired, true
+		return dbxExpired, true
 	}
-	return authType, dbxLeft(time.Until(exp)), true
+	return dbxLeft(time.Until(exp)), true
 }
 
 // dbxLeft is a live token's remaining time, green, or yellow in its last five minutes.

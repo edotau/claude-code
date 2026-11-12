@@ -60,6 +60,7 @@ func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = ioctlTermios(fd, ioctlSet, &prev) }()
+	defer restoreOnSignal(func() { _ = ioctlTermios(fd, ioctlSet, &prev) })()
 	var line []byte
 	var esc escState
 	buf := make([]byte, 4096)

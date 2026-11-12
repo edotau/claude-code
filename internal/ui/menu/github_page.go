@@ -170,11 +170,24 @@ func applyGitHubAccount(d *dialog, login string) bool {
 	return applyGitHubAuth(d, profile)
 }
 
+// githubLogin is profile name's login ("" for the follow-gh pin); false, after a message, when the registry lacks it.
+func githubLogin(d *dialog, name string) (string, bool) {
+	if name == "" {
+		return "", true
+	}
+	p := d.reg.Providers[name]
+	if p == nil {
+		d.printf("github auth: no profile %q in the registry; run configure github to add it\n", name)
+		return "", false
+	}
+	return p.Login, true
+}
+
 // applyGitHubAuth switches gh to name's login and stores the pin, rolling gh back if the vault write fails.
 func applyGitHubAuth(d *dialog, name string) bool {
-	login := ""
-	if name != "" {
-		login = d.reg.Providers[name].Login
+	login, ok := githubLogin(d, name)
+	if !ok {
+		return false
 	}
 	prev := copilot.GHActiveAccount()
 	if name != "" {

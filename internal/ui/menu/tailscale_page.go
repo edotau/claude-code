@@ -183,7 +183,6 @@ func tsAuthKey(d *dialog, s *shell) {
 	d.printf("auth key: saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
 }
 
-// tsYes asks a [y/N] question on s: only an answer starting with y is yes.
 // tsReplaceOK asks before overwriting a different stored value of name; "no" (the default) changes nothing.
 func tsReplaceOK(d *dialog, s *shell, name, next string) bool {
 	old, had, err := vault.ReadSecret(name)
@@ -201,6 +200,7 @@ func tsReplaceOK(d *dialog, s *shell, name, next string) bool {
 	return false
 }
 
+// tsYes asks a [y/N] question on s: only an answer starting with y is yes.
 func tsYes(s *shell, question string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.Line(question+" [y/N] "))), "y")
 }

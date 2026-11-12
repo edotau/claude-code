@@ -117,12 +117,13 @@ func webSearchClients() []mcpClient {
 // runWebSearch sets the Tavily key when missing, then points every client's web_search at claude-code.
 func runWebSearch(d *dialog) {
 	if _, _, ok := vault.Get(webSearchKey); !ok {
-		val, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
-		if err != nil || strings.TrimSpace(val) == "" {
+		raw, err := secretLine(d, "Paste "+webSearchKey+" (app.tavily.com → API keys; input hidden): ")
+		_, val := configure.ParseAssignment(raw)
+		if err != nil || val == "" {
 			d.println("web search: no key entered; nothing changed")
 			return
 		}
-		if !storeValue(d, webSearchKey, strings.TrimSpace(val)) {
+		if !storeValue(d, webSearchKey, val) {
 			return
 		}
 	}
@@ -133,7 +134,7 @@ func runWebSearch(d *dialog) {
 			continue
 		}
 		if err := c.register(bin); err != nil {
-			d.printf("web search: %s: %v\n", c.name, err)
+			d.printf("web search: %s: %s\n", c.name, strings.TrimPrefix(err.Error(), c.name+": "))
 			continue
 		}
 		d.printf("web search: %s now runs %s network websearch\n", c.name, bin)

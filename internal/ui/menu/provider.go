@@ -134,23 +134,30 @@ func runProviderAll(d *dialog) bool {
 		return true // nothing configured is not a failure
 	}
 	res := allCheckAll(context.Background(), d.reg, rows)
-	if !d.o.JSON {
+	if d.o.JSON {
+		if !printAllJSON(d, res) {
+			return false
+		}
+	} else {
 		for _, s := range res {
 			d.println(allLine(s))
 		}
-	}
-	if !d.o.JSON && !d.o.Check && !d.o.DryRun && allStdinTTY() && allStderrTTY() {
-		offerAllLogins(d, res)
-	}
-	if d.o.JSON {
-		b, err := json.MarshalIndent(res, "", "  ")
-		if err != nil {
-			d.printf("provider: encode results: %v\n", err)
-			return false
+		if !d.o.Check && !d.o.DryRun && allStdinTTY() && allStderrTTY() {
+			offerAllLogins(d, res)
 		}
-		fmt.Fprintln(d.out, string(b))
 	}
 	return slices.IndexFunc(res, func(s allRowStatus) bool { return s.Status != allOK }) < 0
+}
+
+// printAllJSON writes res as indented JSON; false when it cannot be encoded.
+func printAllJSON(d *dialog, res []allRowStatus) bool {
+	b, err := json.MarshalIndent(res, "", "  ")
+	if err != nil {
+		d.printf("provider: encode results: %v\n", err)
+		return false
+	}
+	fmt.Fprintln(d.out, string(b))
+	return true
 }
 
 // offerAllLogins offers login to each needs-login or rejected row in res, replacing it with the final verdict.
