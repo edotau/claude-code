@@ -1,4 +1,4 @@
-// `docs-placement` — PreToolUse(Write|Edit): BLOCKS a markdown write targeting a repo ROOT, or a
+// `docs-placement` — PreToolUse(Write|Edit|Bash): BLOCKS a markdown write targeting a repo ROOT, or a
 // <repo>/docs page git REFUSES to keep (ignored -> gone on a fresh clone), naming the canonical
 // docs/ path instead. Root anchors, tracked files, and this harness's docs/images + docs/templates pass.
 package docs
@@ -35,7 +35,7 @@ var rootAnchors = map[string]bool{
 // Placement gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
 func Placement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
-	if tool != "" && tool != "write" && tool != "edit" && tool != "create" && tool != "apply_patch" {
+	if tool != "" && tool != "write" && tool != "edit" && tool != "multiedit" && tool != "create" && tool != "apply_patch" && tool != "bash" {
 		return core.ExitProceed
 	}
 	if os.Getenv(docsPlacementDisableEnv) == "0" {
@@ -46,7 +46,20 @@ func Placement(in *core.Input, stderr io.Writer) int {
 	if tool == "apply_patch" {
 		return docsPlacementPatch(ctx, in, stderr)
 	}
+	if tool == "bash" {
+		return docsPlacementBash(ctx, in, stderr)
+	}
 	return docsPlacementPath(ctx, in, in.Nested("tool_input", "file_path"), stderr)
+}
+
+// docsPlacementBash checks every markdown file a shell command writes (redirect, tee, sed -i, cp, mv).
+func docsPlacementBash(ctx context.Context, in *core.Input, stderr io.Writer) int {
+	for _, path := range core.WrittenPaths(in.ToolCommand(), in.CWD) {
+		if code := docsPlacementPath(ctx, in, path, stderr); code != core.ExitProceed {
+			return code
+		}
+	}
+	return core.ExitProceed
 }
 
 // applyPatchText returns the first apply_patch payload carrying a patch header ("" when there is none).

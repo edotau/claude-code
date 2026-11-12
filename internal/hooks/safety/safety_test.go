@@ -737,3 +737,23 @@ func copilotBashPayload(cmd string) io.Reader {
 	})
 	return strings.NewReader(string(b))
 }
+
+func TestSafetyBlocksShellWritesToProtectedFiles(t *testing.T) {
+	for _, c := range []struct {
+		cmd  string
+		want core.Decision
+	}{
+		{"sed -i s/a/b/ ~/.claude/settings.json", core.Block},
+		{"perl -pi -e s/a/b/ ~/.claude/settings.local.json", core.Block},
+		{"echo x | tee -a ~/.ssh/authorized_keys", core.Block},
+		{"cp new.db /Users/me/.claude/state/vault.db", core.Block},
+		{"cat > $HOME/.claude/settings.json <<'EOF'\n{}\nEOF", core.Block},
+		{"cat ~/.claude/settings.json", core.Allow},
+		{"cp ~/.claude/settings.json /tmp/backup.json", core.Allow},
+		{"echo x > /tmp/settings.json", core.Allow},
+	} {
+		if got, msg := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
+			t.Errorf("%q: %v, want %v (%s)", c.cmd, got, c.want, msg)
+		}
+	}
+}

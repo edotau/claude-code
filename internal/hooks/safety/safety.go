@@ -211,7 +211,7 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 // (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	var harness, worktrees, hit string
-	shell.EachGit(dropRemoteHeredocs(dropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
+	shell.EachGit(dropRemoteHeredocs(core.DropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
 		if !gitBannedUnder(target, verb, args, &harness, &worktrees) {
 			return false
 		}
@@ -251,8 +251,12 @@ func foldCase(p string) string {
 	return strings.ToLower(p)
 }
 
-// hardBlockVerdict blocks a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
+// hardBlockVerdict blocks a write to an Edit-protected file or a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
+	if p := protectedWrite(cmd, in.CWD); p != "" {
+		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
+			"Edit it by hand, or run it yourself in a terminal."), "protected write"
+	}
 	if strings.Contains(cmd, "<<") {
 		scan = cmd
 	}

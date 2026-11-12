@@ -30,7 +30,7 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 	body, _ := os.ReadFile(file)
 	for _, want := range []string{`execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name]`,
 		`{"name":"permission-gate","matcher":"Bash|Write|Edit|Read|WebFetch|Glob|Grep","budgetMs":5000,"failClosed":true}`,
-		`{"name":"docs-placement","matcher":"Write|Edit","budgetMs":5000,"failClosed":false}`, `"tool.execute.before"`} {
+		`{"name":"docs-placement","matcher":"Write|Edit|MultiEdit|Bash","budgetMs":5000,"failClosed":false}`, `"tool.execute.before"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin lacks %s", want)
 		}
