@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,50 +83,75 @@ var loginPage = helptext.Page{
 		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.",
 }
 
-// login runs the u2m browser login for a provider row and seals its refresh token.
-func login(args []string) int {
+// loginFlags is login's parsed command line; fs is kept so loginProfile can tell an explicit --auth-type.
+type loginFlags struct {
+	fs                *flag.FlagSet
+	dryRun, force     bool
+	authType, profile string
+	as                string
+	h                 headless
+}
+
+// parseLogin binds and parses login's flags; done reports the exit code to return instead of running.
+func parseLogin(args []string) (f loginFlags, code int, done bool) {
 	fs := helptext.NewFlagSet("databricks login", loginPage)
-	dryRun := fs.Bool("dry-run", false, "report what would happen; open no browser, write nothing")
-	force := fs.Bool("force", false, "log in again even when the cached token is still valid")
-	authType := fs.String("auth-type", "", "auth type to switch the profile to: only oauth is accepted (needed to change a non-oauth profile)")
-	fs.StringVar(authType, "t", "", "shorthand for --auth-type")
-	profileName := profileFlag(fs)
-	as := fs.String("as", "", "identity: user (browser login, no SP fallback) or sp (service-principal mint, no browser)")
-	var h headless
-	fs.IntVar(&h.port, "port", 0, "exact localhost callback port to listen on, error if busy (default: 8030, next free up to 8050)")
-	fs.BoolVar(&h.noBrowser, "no-browser", false, "do not open a browser; print the URL and the ssh -L forward hint")
-	fs.BoolVar(&h.paste, "paste", false, "also accept the redirected URL pasted on stdin when the callback cannot be forwarded")
+	f.fs = fs
+	fs.BoolVar(&f.dryRun, "dry-run", false, "report what would happen; open no browser, write nothing")
+	fs.BoolVar(&f.force, "force", false, "log in again even when the cached token is still valid")
+	fs.StringVar(&f.authType, "auth-type", "", "auth type to switch the profile to: only oauth is accepted (needed to change a non-oauth profile)")
+	fs.StringVar(&f.authType, "t", "", "shorthand for --auth-type")
+	profileFlagVar(fs, &f.profile, profileUsage)
+	fs.StringVar(&f.as, "as", "", "identity: user (browser login, no SP fallback) or sp (service-principal mint, no browser)")
+	fs.IntVar(&f.h.port, "port", 0, "exact localhost callback port to listen on, error if busy (default: 8030, next free up to 8050)")
+	fs.BoolVar(&f.h.noBrowser, "no-browser", false, "do not open a browser; print the URL and the ssh -L forward hint")
+	fs.BoolVar(&f.h.paste, "paste", false, "also accept the redirected URL pasted on stdin when the callback cannot be forwarded")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
-		return helptext.ExitCode(err)
+		return f, helptext.ExitCode(err), true
 	}
 	if len(names) > 0 {
-		return usageProfile("login", names[0])
+		return f, usageProfile("login", names[0]), true
 	}
-	if code, bad := checkLoginFlags(*as, *authType); bad {
+	if err := checkProfileFlag(fs, f.profile); err != nil {
+		fail("login: %v", err)
+		return f, 2, true
+	}
+	return f, 0, false
+}
+
+// login runs the u2m browser login for a provider row and seals its refresh token.
+func login(args []string) int {
+	f, code, done := parseLogin(args)
+	if done {
 		return code
 	}
-	if code, bad := checkHeadless(h, *as); bad {
+	if code, bad := checkLoginFlags(f.as, f.authType); bad {
 		return code
 	}
-	p, err := loginProfile(fs, *profileName)
+	if code, bad := checkHeadless(f.h, f.as); bad {
+		return code
+	}
+	return loginRowAs(f)
+}
+
+// loginRowAs resolves the profile and identity for f and runs the service-principal mint or the browser login.
+func loginRowAs(f loginFlags) int {
+	p, err := loginProfile(f.fs, f.profile)
 	if err != nil {
 		return fail("login: %v", err)
 	}
-	mode, err := providers.ResolveIdentity(p.Identity, *as)
+	mode, err := providers.ResolveIdentity(p.Identity, f.as)
 	if err != nil {
 		return fail("login: %s: %v", p.Name, err)
 	}
-	if mode == providers.IdentitySP {
-		if code, bad := checkHeadless(h, providers.IdentitySP); bad {
+	// A paired service principal mints with no browser, so the browser-only flags would be dropped: refuse them.
+	if mode == providers.IdentitySP || mode == providers.IdentityAuto && f.as == "" && providers.SPPresent(p) {
+		if code, bad := checkHeadless(f.h, providers.IdentitySP); bad {
 			return code
 		}
-		return loginSP(p, *dryRun)
+		return loginSP(p, f.dryRun)
 	}
-	if mode == providers.IdentityAuto && *as == "" && providers.SPPresent(p) { // paired: no browser needed, flags unused
-		return loginSP(p, *dryRun)
-	}
-	return loginUser(p, mode, h, *dryRun, !*force && p.Auth.Method() == providers.AuthOAuth)
+	return loginUser(p, mode, f.h, f.dryRun, !f.force && p.Auth.Method() == providers.AuthOAuth)
 }
 
 // identityNote says what a browser login means for each identity login opens it for.
@@ -190,6 +216,21 @@ func loginSP(p *providers.Provider, dryRun bool) int {
 	return 0
 }
 
+// checkProfileFlag refuses an explicit empty --profile/-p, which would otherwise fall back to the default profile.
+func checkProfileFlag(fs *flag.FlagSet, name string) error {
+	if name == "" && flagSet(fs, "profile", "p") {
+		return errEmptyProfile
+	}
+	return nil
+}
+
+// flagSet reports whether fs was given any of names on the command line.
+func flagSet(fs *flag.FlagSet, names ...string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || slices.Contains(names, f.Name) })
+	return set
+}
+
 // loginProfile resolves the profile to log in, refusing a non-oauth one unless --auth-type was passed.
 func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, error) {
 	reg, err := providers.Load()
@@ -204,9 +245,7 @@ func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, er
 	if err != nil {
 		return nil, err
 	}
-	explicit := false
-	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "auth-type" || f.Name == "t" })
-	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !explicit {
+	if t := p.Auth.Method(); t != "" && t != providers.AuthOAuth && !flagSet(fs, "auth-type", "t") {
 		return nil, fmt.Errorf("%s has auth type %q and signs in without a browser; use `login -p <oauth profile>`, "+
 			"or pass --auth-type oauth to switch this row to a browser login", p.Name, t)
 	}
@@ -245,7 +284,7 @@ func checkHeadless(h headless, as string) (code int, bad bool) {
 	}
 	if as == providers.IdentitySP {
 		fail("login: --port, --no-browser and --paste apply to the browser login only; " +
-			"a service principal (--as sp) has no callback")
+			"a service principal mints with no callback (pass --as user for the browser login)")
 		return 2, true
 	}
 	return 0, false
@@ -253,11 +292,9 @@ func checkHeadless(h headless, as string) (code int, bad bool) {
 
 // loginDryRun reports what login would do for p without opening a browser or writing anything.
 func loginDryRun(p *providers.Provider, reuse, noBrowser bool) int {
-	if reuse {
-		if exp, ok := providers.TokenExpiry(p.Name); ok && time.Until(exp) > 0 {
-			fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
-			return 0
-		}
+	if reuse && cachedLoginUsable(p) {
+		fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
+		return 0
 	}
 	if p.Auth.Method() != providers.AuthOAuth {
 		if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
@@ -272,6 +309,15 @@ func loginDryRun(p *providers.Provider, reuse, noBrowser bool) int {
 	}
 	fmt.Printf("would %s for %s and seal the refresh token as %s; nothing written\n", how, p.Name, providers.AuthSecretName(p))
 	return 0
+}
+
+// cachedLoginUsable is the no-network part of ValidU2M: a stored login secret and an unexpired cached token.
+func cachedLoginUsable(p *providers.Provider) bool {
+	if providers.HasSecret(providers.AuthSecretName(p)) == "" {
+		return false
+	}
+	exp, ok := providers.TokenExpiry(p.Name)
+	return ok && time.Until(exp) > 0
 }
 
 // LoginRow runs the u2m browser login for the named row, switching its authType to oauth first if needed.
@@ -396,7 +442,7 @@ func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, a
 	return kept, err
 }
 
-// dropDerivedCommands removes auth.command/refreshCommand equal to the preset's cliProfile derivation; returns the kept keys.
+// dropDerivedCommands removes auth.command/refreshCommand equal to the preset's derivation; returns the kept keys.
 func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage) []string {
 	derived := map[string]string{}
 	if p.Preset == providers.PresetDatabricks && p.CLIProfile != "" {
@@ -421,13 +467,6 @@ func dropDerivedCommands(p *providers.Provider, auth map[string]json.RawMessage)
 // profileUsage is the --profile help shared by every command that resolves one profile.
 const profileUsage = "Databricks profile (default: session, pinned, else the first)"
 
-// profileFlag registers --profile (and its shorthand -p), the Databricks profile a command acts on.
-func profileFlag(fs *flag.FlagSet) *string {
-	v := new(string)
-	profileFlagVar(fs, v, profileUsage)
-	return v
-}
-
 // profileFlagVar binds --profile and -p to v; help shows them as one "-p, --profile NAME" row.
 func profileFlagVar(fs *flag.FlagSet, v *string, usage string) {
 	helptext.NameVar(fs, v, "profile", usage)
@@ -444,8 +483,7 @@ var (
 	SetRow = providers.SetProviderFields
 )
 
-// SaveIdentity writes env's identity mode and paired client id to its provider row, then seals secret (when given)
-// as DATABRICKS_<ENV>_M2M, restoring the old one if the row write fails; never echoed. Mode sp needs a client id.
+// SaveIdentity writes env's identity mode and client id to its row, then seals secret as _M2M (restored on failure).
 func SaveIdentity(reg *providers.Registry, env, mode, spID, secret string) error {
 	p := reg.Providers[env]
 	if p == nil {

@@ -53,6 +53,7 @@ type iniState struct {
 	skipping bool // inside an unterminated header's block: its keys belong to no section
 	notes    []string
 	sc       *lineScanner
+	err      error // the first fatal parse error: an unterminated multi-line value
 }
 
 // lineScanner counts the lines it scans so notes can name them.
@@ -111,7 +112,12 @@ func (st *iniState) keyLine(line string) {
 	if _, dup := st.cur.keys[k]; dup {
 		st.note("", " in [%s]: key %q repeated; the last value wins", st.cur.name, k)
 	}
-	st.cur.keys[k] = readValue(line[i+1:], st.sc)
+	start := st.sc.n
+	v, ok := readValue(line[i+1:], st.sc)
+	if !ok && st.err == nil {
+		st.err = fmt.Errorf("line %d: key %q has an unterminated multi-line value", start, k)
+	}
+	st.cur.keys[k] = v
 }
 
 // parseSections scans INI text into sections (headerless keys go to DEFAULT) plus a note per skipped or merged line.
@@ -119,29 +125,36 @@ func parseSections(text string) ([]*section, []string, error) {
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	st := &iniState{byName: map[string]*section{}, sc: &lineScanner{Scanner: sc}}
-	for st.sc.Scan() {
-		line := sc.Text()
-		if st.sc.n == 1 {
-			line = strings.TrimPrefix(line, "\ufeff") // a UTF-8 BOM would hide the first header
-		}
-		line = strings.TrimSpace(line)
-		if v, ok := pairingComment(line); ok {
-			st.pair, st.pairSet = v, true
-			continue
-		}
-		if line == "" || line[0] == '#' || line[0] == ';' {
-			continue
-		}
-		if name, ok := headerName(line); ok {
-			st.header(name)
-		} else if line[0] == '[' {
-			st.note("unable to parse ", ": unterminated section header; its keys up to the next header are skipped")
-			st.skipping, st.pair, st.pairSet = true, "", false
-		} else {
-			st.keyLine(line)
-		}
+	for st.err == nil && st.sc.Scan() {
+		st.line(sc.Text())
+	}
+	if st.err != nil {
+		return nil, nil, st.err
 	}
 	return st.out, st.notes, sc.Err()
+}
+
+// line handles one scanned line: a pairing comment, a header, an unterminated header, or a key.
+func (st *iniState) line(line string) {
+	if st.sc.n == 1 {
+		line = strings.TrimPrefix(line, "\ufeff") // a UTF-8 BOM would hide the first header
+	}
+	line = strings.TrimSpace(line)
+	if v, ok := pairingComment(line); ok {
+		st.pair, st.pairSet = v, true
+		return
+	}
+	if line == "" || line[0] == '#' || line[0] == ';' {
+		return
+	}
+	if name, ok := headerName(line); ok {
+		st.header(name)
+	} else if line[0] == '[' {
+		st.note("unable to parse ", ": unterminated section header; its keys up to the next header are skipped")
+		st.skipping, st.pair, st.pairSet = true, "", false
+	} else {
+		st.keyLine(line)
+	}
 }
 
 // headerName returns the name of a "[name]" line, tolerating a trailing comment.
@@ -160,8 +173,8 @@ func headerName(line string) (string, bool) {
 	return strings.TrimSpace(line[1:end]), true
 }
 
-// readValue reads a value that may span lines: a triple-quoted or backtick block, or lines ending in a backslash.
-func readValue(raw string, sc *lineScanner) string {
+// readValue reads a value that may span lines; ok is false when a quoted block never closes before the end.
+func readValue(raw string, sc *lineScanner) (val string, ok bool) {
 	v := strings.TrimSpace(raw)
 	for _, d := range []string{`"""`, `'''`, "`"} {
 		if !strings.HasPrefix(v, d) {
@@ -171,15 +184,16 @@ func readValue(raw string, sc *lineScanner) string {
 		for !strings.Contains(rest, d) && sc.Scan() {
 			rest += "\n" + sc.Text()
 		}
-		if end := strings.Index(rest, d); end >= 0 {
-			rest = rest[:end]
+		end := strings.Index(rest, d)
+		if end < 0 {
+			return rest, false
 		}
-		return rest
+		return rest[:end], true
 	}
 	for strings.HasSuffix(v, `\`) && sc.Scan() {
 		v = strings.TrimSuffix(v, `\`) + strings.TrimSpace(sc.Text())
 	}
-	return cleanValue(v)
+	return cleanValue(v), true
 }
 
 // cleanValue trims a value, strips one pair of matching quotes, else cuts an inline " #" / " ;" comment.

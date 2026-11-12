@@ -128,8 +128,7 @@ func runImport(path string, cands []cfgCandidate, options importOptions, apply, 
 	return 0
 }
 
-// planImport plans the import and the legacy fold, writing only when write is set; it returns the rows, the fold plan
-// and both docs.
+// planImport plans the import and the legacy fold, writing only when write is set; returns rows, fold plan, docs.
 func planImport(cands []cfgCandidate, options importOptions, fold, write bool, key *vault.Key) (
 	rows []importRow, plan foldPlan, oldDoc, newDoc []byte, err error,
 ) {

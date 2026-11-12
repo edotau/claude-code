@@ -70,17 +70,9 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	}
 	o.Client = cmp.Or(o.Client, http.DefaultClient)
 	if o.ClientRoutes {
-		if _, err := NewScope(p, ""); err != nil {
+		if err := checkClientRoutes(p, targets); err != nil {
 			return nil, err
 		}
-		for _, t := range targets {
-			if _, _, err := clientProbeRoute(p, t); !t.Missing && err != nil {
-				return nil, err
-			}
-		}
-		client := *o.Client
-		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-		o.Client = &client
 	}
 	o.Concurrency = max(cmp.Or(o.Concurrency, 4), 1)
 	o.Timeout = cmp.Or(o.Timeout, 30*time.Second)
@@ -103,6 +95,19 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	return out, ctx.Err()
 }
 
+// checkClientRoutes refuses a provider scope or a present target that has no client route.
+func checkClientRoutes(p *providers.Provider, targets []CheckTarget) error {
+	if _, err := NewScope(p, ""); err != nil {
+		return err
+	}
+	for _, t := range targets {
+		if _, _, err := clientProbeRoute(p, t); !t.Missing && err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // StatusTransient marks a probe lost to a passing condition (timeout, 429, 5xx, mint error), not a model verdict.
 const StatusTransient = "transient"
 
@@ -113,18 +118,9 @@ func TransientHTTP(code int) bool {
 
 func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t CheckTarget, chatBase, respBase string) CheckResult {
 	r := CheckResult{ID: t.ID}
-	url, body := chatBase+"/"+t.Wire+"/invocations", chatBody
-	if t.Responses {
-		url, body = respBase+"/responses", func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }
-	}
-	anthropic := false
-	if o.ClientRoutes {
-		route, dialect, err := clientProbeRoute(p, t)
-		if err != nil {
-			return CheckResult{ID: t.ID, Status: "fail", Error: "client route unavailable"}
-		}
-		url, anthropic = route, dialect == providers.ProtocolAnthropic
-		body = func(tools bool) map[string]any { return clientProbeBody(t.Wire, dialect, tools) }
+	url, body, anthropic, err := probeTarget(p, o, t, chatBase, respBase)
+	if err != nil {
+		return CheckResult{ID: t.ID, Status: "fail", Error: "client route unavailable"}
 	}
 	rep, err := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(true), Anthropic: anthropic})
 	r.HTTP, r.LatencyMS = rep.HTTP, rep.LatencyMS
@@ -142,16 +138,35 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 		if rep.Denied { // a spend-budget 403 denies the endpoint, not the tools: no tools-less retry
 			return r
 		}
-		rep2, err2 := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(false), Anthropic: anthropic})
-		switch {
-		case err2 == nil && rep2.HTTP/100 == 2:
-			r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", rep2.HTTP, rep2.LatencyMS, "no", ""
-		case err2 != nil:
-			r.Status, r.Error = StatusTransient, "tools-less retry: "+err2.Error()
-		case TransientHTTP(rep2.HTTP):
-			r.Status, r.HTTP, r.LatencyMS = StatusTransient, rep2.HTTP, rep2.LatencyMS
-			r.Error = fmt.Sprintf("tools-less retry: HTTP %d: %s", rep2.HTTP, TruncateMsg([]byte(rep2.Body)))
-		}
+		return retryToolsLess(ctx, p, o, r, ProbeCall{URL: url, Body: body(false), Anthropic: anthropic})
+	}
+	return r
+}
+
+// probeTarget is t's probe URL, body builder and dialect: the workspace routes, or the client's with ClientRoutes.
+func probeTarget(p *providers.Provider, o CheckOptions, t CheckTarget, chatBase, respBase string) (string, func(bool) map[string]any, bool, error) {
+	if o.ClientRoutes {
+		route, dialect, err := clientProbeRoute(p, t)
+		body := func(tools bool) map[string]any { return clientProbeBody(t.Wire, dialect, tools) }
+		return route, body, dialect == providers.ProtocolAnthropic, err
+	}
+	if t.Responses {
+		return respBase + "/responses", func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }, false, nil
+	}
+	return chatBase + "/" + t.Wire + "/invocations", chatBody, false, nil
+}
+
+// retryToolsLess resends c without tools after a non-transient failure and folds the verdict into r.
+func retryToolsLess(ctx context.Context, p *providers.Provider, o CheckOptions, r CheckResult, c ProbeCall) CheckResult {
+	rep2, err2 := probeBudget(ctx, p, o, c)
+	switch {
+	case err2 == nil && rep2.HTTP/100 == 2:
+		r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", rep2.HTTP, rep2.LatencyMS, "no", ""
+	case err2 != nil:
+		r.Status, r.Error = StatusTransient, "tools-less retry: "+err2.Error()
+	case TransientHTTP(rep2.HTTP):
+		r.Status, r.HTTP, r.LatencyMS = StatusTransient, rep2.HTTP, rep2.LatencyMS
+		r.Error = fmt.Sprintf("tools-less retry: HTTP %d: %s", rep2.HTTP, TruncateMsg([]byte(rep2.Body)))
 	}
 	return r
 }
@@ -273,8 +288,10 @@ func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, c 
 	if c.Anthropic {
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
+	client := *o.Client // a redirect would replay p.Headers to another host: report the 3xx instead
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	start := time.Now()
-	resp, err := o.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return ProbeReply{LatencyMS: time.Since(start).Milliseconds()}, probeFailure(ctx, err, o.Timeout)
 	}

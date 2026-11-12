@@ -117,6 +117,11 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	case err != nil:
 		return "", errors.New("cannot read bounded identity response")
 	}
+	return parseIdentity(body)
+}
+
+// parseIdentity is the SCIM user id of an active identity response body.
+func parseIdentity(body []byte) (string, error) {
 	var identity struct {
 		ID     string `json:"id"`
 		Active *bool  `json:"active"`
@@ -189,8 +194,7 @@ func validCachedSnapshot(raw string, scope Scope, snapshot *Snapshot) bool {
 	return json.Unmarshal([]byte(raw), snapshot) == nil && snapshot.Scope == scope && completeSnapshot(*snapshot)
 }
 
-// Discover reads under a subject validated within identityTTL for the credential's own JWT sub, else validates
-// first; a forced refresh always validates and never falls back to stale discovery.
+// Discover reads under a subject validated within identityTTL, else validates first; refresh skips stale discovery.
 func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapshot, error) {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()

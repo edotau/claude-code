@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"net/http"
@@ -207,8 +208,8 @@ func TestPlanProfileErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, err := plan(args)
 			if name == "no value" || name == "= (empty)" {
-				if err != nil { // an empty name falls back to the workspace's last profile, then the pin
-					t.Fatalf("plan(%q) error = %v", args, err)
+				if !errors.Is(err, errEmptyProfile) { // an empty name is refused, never defaulted
+					t.Fatalf("plan(%q) error = %v; want errEmptyProfile", args, err)
 				}
 				return
 			}
