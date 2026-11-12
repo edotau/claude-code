@@ -164,7 +164,7 @@ func (e *leaseEnv) partialKeepsMintedAt() {
 	}
 }
 
-// (g) NewSemantic still reads an expired record
+// (g) embedQuery still reads an expired record
 func (e *leaseEnv) recallReadsExpired() {
 	e.t.Helper()
 	if _, _, err := embedChanged(e.ctx, e.root, e.c); err != nil {
@@ -176,7 +176,7 @@ func (e *leaseEnv) recallReadsExpired() {
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return e.c, nil }
 	e.t.Setenv("CLAUDE_PROFILE", "fake")
 	e.t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	if _, err := NewSemantic("gamma"); err != nil {
+	if _, err := embedQuery("gamma"); err != nil {
 		e.t.Fatalf("an expired record must still serve recall: %v", err)
 	}
 }
@@ -472,11 +472,11 @@ func TestNewSemanticReadErrorFallsBackToPin(t *testing.T) {
 			return [][]float32{{1, 0, 0}}, nil
 		}}, nil
 	}
-	if _, err := NewSemantic("q"); err != nil || opened != "dev" {
+	if _, err := embedQuery("q"); err != nil || opened != "dev" {
 		t.Fatalf("qa unreadable: opened %q err %v, want the pinned dev profile", opened, err)
 	}
 	readProfileCache = func(string) (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
-	if _, err := NewSemantic("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
+	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("every profile unreadable: err %v, want 'unreadable'", err)
 	}
 }
@@ -507,14 +507,14 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 			return [][]float32{{1, 0, 0}}, nil
 		}}, nil
 	}
-	if _, err := NewSemantic("q"); err != nil {
+	if _, err := embedQuery("q"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("a stale marker must be removed on success: %v", err)
 	}
 	midQuery = func() { time.Sleep(30 * time.Millisecond); write(t, marker, "") } // file mtimes tick coarsely
-	if _, err := NewSemantic("q"); err != nil {
+	if _, err := embedQuery("q"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -581,12 +581,12 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|https://new|gte"}, nil
 	}
-	_, err := NewSemantic("q")
+	_, err := embedQuery("q")
 	if _, statErr := os.Stat(filepath.Join(StateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {
 		t.Errorf("a local namespace mismatch wrote the endpoint backoff marker: %v", statErr)
 	}
 	if !errors.Is(err, errEmbedMismatch) {
-		t.Errorf("NewSemantic = %v, want the namespace mismatch", err)
+		t.Errorf("embedQuery = %v, want the namespace mismatch", err)
 	}
 }
 
@@ -644,8 +644,8 @@ func TestSemanticCacheReadsSharedProfileOnce(t *testing.T) {
 	prev := readProfileCache
 	t.Cleanup(func() { readProfileCache = prev })
 	readProfileCache = func(string) (vectorRecord, error) { reads++; return vectorRecord{}, nil }
-	if _, err := NewSemantic("q"); err == nil {
-		t.Fatal("NewSemantic succeeded with no cache")
+	if _, err := embedQuery("q"); err == nil {
+		t.Fatal("embedQuery succeeded with no cache")
 	}
 	if reads != 1 {
 		t.Errorf("profile cache read %d times, want 1", reads)

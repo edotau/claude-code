@@ -108,8 +108,8 @@ func runDigestModel(ctx context.Context, dir, claude, input string) ([]string, e
 	return lines, nil
 }
 
-// Digest summarizes dir's archive into archive/digest.md with one headless call outside the lock; failure keeps it.
-func Digest(ctx context.Context, dir, claude string) (string, error) {
+// digest summarizes dir's archive into archive/digest.md with one headless call outside the lock; failure keeps it.
+func digest(ctx context.Context, dir, claude string) (string, error) {
 	if claude == "" {
 		return "", errors.New("claude binary not found")
 	}

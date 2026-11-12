@@ -348,11 +348,11 @@ type Semantic struct {
 	blocks map[string]string
 }
 
-// readProfileCache is the per-profile read NewSemantic uses; a var so tests can fail one profile.
+// readProfileCache is the per-profile read embedQuery uses; a var so tests can fail one profile.
 var readProfileCache = readEmbedCache
 
-// NewSemantic embeds a query against the session cache, falling back to the agent record.
-func NewSemantic(query string) (*Semantic, error) {
+// embedQuery embeds a query against the session cache, falling back to the agent record.
+func embedQuery(query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
