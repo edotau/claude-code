@@ -252,7 +252,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err != nil {
 		return nil, nil, cl, err
 	}
-	if err := agent.CheckRouteNames(launcherSet(cl.Set), req.OverlaySet); err != nil {
+	if err := agent.CheckRouteNames(launcherSet(cl.Set), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)

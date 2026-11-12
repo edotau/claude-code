@@ -130,7 +130,7 @@ func ErrorKind(err error) string {
 
 // RanOn is the "ran on" line for a finished run, from its final hop: agent · account·profile · model · fallback.
 func RanOn(res Result) string {
-	if len(res.Hops) == 0 && res.Status == StatusError { // no dispatch started: nothing ran
+	if nothingRan(res) {
 		return ""
 	}
 	who, acct, model := finalHop(res)
@@ -190,10 +190,22 @@ func ranOnCost(res Result) string {
 
 // DidNotRun is the "did not run" line for a dispatch that ended before any dispatch started, else "".
 func DidNotRun(res Result) string {
-	if len(res.Hops) > 0 || res.Status != StatusError || res.Agent == "" {
+	if !nothingRan(res) || res.Agent == "" {
 		return ""
 	}
-	return strings.TrimSpace("did not run " + res.Agent + " — " + strings.TrimPrefix(res.FallbackReason, res.Agent+": "))
+	line := "did not run " + res.Agent
+	if why := strings.TrimPrefix(res.FallbackReason, res.Agent+": "); why != "" {
+		line += " — " + why
+	}
+	return line
+}
+
+// nothingRan reports a failed run with no hop, or one whose every hop was refused before it started.
+func nothingRan(res Result) bool {
+	if len(res.Hops) == 0 {
+		return res.Status == StatusError
+	}
+	return !slices.ContainsFunc(res.Hops, func(h Hop) bool { return !h.NotStarted })
 }
 
 // RemoteError is a failure the remote reported in its envelope; Kind is the remote's envelope token, kept verbatim.
@@ -246,6 +258,7 @@ type Result struct {
 	Hops            []Hop           `json:"hops,omitempty"`            // every dispatch runWithFallback tried, in order
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
+	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
 }
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.
@@ -255,6 +268,8 @@ type Hop struct {
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
 	ErrorKind string `json:"error_kind,omitempty"`
+	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
+	NotStarted bool `json:"not_started,omitempty"`
 	// Errors lists every attempt's failure, oldest first, when the dispatch was retried.
 	Errors []EnvelopeError `json:"errors,omitempty"`
 }

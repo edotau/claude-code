@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -91,7 +92,10 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	if p.Auth.Login == "copilot" { // the GitHub login bills the pinned profile
+	if p.Auth.Login == "copilot" { // a named GitHub row bills its own login's profile; any other copilot row, the pin
+		if p.Provider == "github" {
+			return "github·" + cmp.Or(providers.GithubAccountName(reg, p.Login), p.Name), router.DefaultBilling(p)
+		}
 		return copilotLoginAccount(), router.DefaultBilling(p)
 	}
 	return p.Account(), router.DefaultBilling(p)

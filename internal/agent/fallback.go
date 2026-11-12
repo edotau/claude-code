@@ -119,7 +119,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
-		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: lreq.Model}, ce
+		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: lreq.Model, NotStarted: true}, ce
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
@@ -145,7 +145,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := accountRefused(disp); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
-		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: lreq.Model}, skip
+		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: lreq.Model, NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
@@ -189,7 +189,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: disp.Account, Profile: cmp.Or(res.Provider, req.Provider),
-		Model: cmp.Or(res.Model, req.Model)}
+		Model: cmp.Or(res.Model, req.Model), NotStarted: res.NotStarted}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {

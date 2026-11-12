@@ -283,7 +283,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	}
 	req, err := checkRun(r, req)
 	if err != nil {
-		return wire.Result{Agent: r.Name(), Status: wire.StatusError}, retry.Fatal(r.Name(), err)
+		return wire.Result{Agent: r.Name(), Status: wire.StatusError, NotStarted: true}, retry.Fatal(r.Name(), err)
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
 	ctx = withPermissionsEnv(ctx, req.Permissions)
@@ -291,6 +291,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
 		if err := r.Available(); err != nil {
+			res.NotStarted = true
 			return res, retry.Fatal(r.Name(), err)
 		}
 	}
@@ -346,6 +347,7 @@ type runState struct {
 	dropped, emulated []string
 	attempts          int
 	failed            []*retry.Error
+	started           bool // some attempt got past its guard and the engine's own pre-start checks
 }
 
 func (s *runState) note(e *retry.Error) *retry.Error {
@@ -376,7 +378,11 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 	out, err := r.Run(actx, s.req, cw)
 	// Preserve the actual agent named by a delegating engine.
 	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), append(slices.Clone(s.emulated), out.Emulated...)
+	if _, ok := errors.AsType[notStartedError](err); ok {
+		out.NotStarted = true
+	}
 	s.res = out
+	s.started = s.started || !out.NotStarted
 	e := retry.Classify(r.Name(), err, cw.Progressed)
 	fallToNextAlias(r, &s.req, e, notify)
 	if e != nil {
@@ -393,6 +399,7 @@ func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverE
 		res.Transport = &wire.Transport{}
 	}
 	res.Transport.Attempts = s.attempts
+	res.NotStarted = e != nil && !s.started
 	if e == nil {
 		res.Recovered = s.failed
 		if s.req.OutputSchema != "" { // Every answer is checked, native or emulated.
@@ -445,6 +452,7 @@ type RunOptions struct {
 	EnvNames                                            []string    `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
 	Unset                                               []string    `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
 	OverlaySet                                          []string    `json:"-"`                   // names an overlay file sets; refused where the route sets them
+	OverlayUnset                                        []string    `json:"-"`                   // names an overlay file unsets; refused like OverlaySet
 	OutputSchema                                        string      // JSON Schema text the answer must satisfy
 	Permissions                                         Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
 	Identity                                            string      `json:"identity,omitempty"`   // --as user|sp, claude only: the identity a live holder applies
