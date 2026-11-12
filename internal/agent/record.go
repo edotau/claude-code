@@ -293,14 +293,21 @@ func LoadRecord(id string) (Record, error) {
 	if id == "" { // an empty prefix would match every record
 		return Record{}, errors.New("no matching dispatch found (see claude-code <agent> status)")
 	}
-	names, err := recordNames(paths.DispatchDir())
+	dir := paths.DispatchDir()
+	name := id + ".json"
+	if filepath.Base(name) == name && !strings.ContainsRune(name, '\x00') {
+		if r, err := readRecord(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
+			return r, err
+		}
+	}
+	names, err := recordNames(dir)
 	if err != nil {
 		return Record{}, fmt.Errorf("dispatch %q: %w", id, err)
 	}
 	var match []string
 	for _, n := range names {
-		if n == id+".json" {
-			return readRecord(filepath.Join(paths.DispatchDir(), n))
+		if n == name {
+			return readRecord(filepath.Join(dir, n))
 		}
 		if strings.HasPrefix(n, id) {
 			match = append(match, n)
@@ -309,7 +316,7 @@ func LoadRecord(id string) (Record, error) {
 	if len(match) != 1 {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents ask --log)", id, len(match))
 	}
-	return readRecord(filepath.Join(paths.DispatchDir(), match[0]))
+	return readRecord(filepath.Join(dir, match[0]))
 }
 
 // AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
