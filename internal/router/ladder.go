@@ -63,12 +63,23 @@ func Coworker() (provider, profile string, err error) {
 	return provider, profile, nil
 }
 
+// BadOverlay is the provider Confined reports for an unparseable overlay: it names no account, so nothing routes.
+const BadOverlay = "invalid-overlay"
+
+// unresolvedProfile is the lead profile ConfineLead returns when the registry cannot load: no row has this name.
+const unresolvedProfile = "confinement-unresolved"
+
 // Confined is the non-Databricks confinement Coworker names: its provider and optional profile; "" outside one.
+// A set overlay Coworker rejects fails closed as BadOverlay.
 func Confined() (provider, profile string) {
-	if provider, profile, err := Coworker(); err == nil && provider != RouteDatabricks {
-		return provider, profile
+	provider, profile, err := Coworker()
+	switch {
+	case err != nil:
+		return BadOverlay, ""
+	case provider == RouteDatabricks:
+		return "", ""
 	}
-	return "", ""
+	return provider, profile
 }
 
 // OwnProfiles lists agent's own-login rows under provider, in name order (claude: the anthropic CLI-login rows).
@@ -94,10 +105,12 @@ func ConfineLead(agentName, profile, provider, model string) (string, string) {
 	case agentName != "claude":
 		return "", cp
 	}
-	if reg, err := providers.Load(); err == nil { // claude reads a profile, never a provider lead: its own login row
-		if own := OwnProfiles(reg, agentName, cp); len(own) > 0 {
-			return own[0], ""
-		}
+	reg, err := providers.Load()
+	if err != nil { // fail closed: a profile no row has, never an unconfined lead
+		return unresolvedProfile, ""
+	}
+	if own := OwnProfiles(reg, agentName, cp); len(own) > 0 { // claude reads a profile, never a provider lead
+		return own[0], ""
 	}
 	return "", ""
 }
