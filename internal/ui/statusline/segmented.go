@@ -319,7 +319,7 @@ func renderDashboard(v values, cfg config, pal theme.Palettes, stops []ansi.RGB,
 	head := promptHead(v, cfg, pal, stops, mode)
 	indentW := 0
 	if head != "" {
-		indentW = headWidth(v, cfg) + utf8.RuneCountInString(sepPath)
+		indentW = utf8.RuneCountInString(v.userHost + ":" + v.path + sepPath) // the head's printable width
 	}
 	built := buildDashboardCols(dashboardColumns(dash), v, cfg, head != "")
 	if len(built) == 0 {
@@ -353,12 +353,4 @@ func promptHead(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode
 	return ansi.Paint(mode, ansi.Hex(pal.Sem("user")), v.userHost, true) +
 		ansi.Paint(mode, ansi.Hex(pal.Sem("punct")), ":", false) +
 		ansi.Paint(mode, ansi.GradAt(stops, 0), v.path, true)
-}
-
-// headWidth is the head's printable width, so the dashboard header row can sit over the shifted values.
-func headWidth(v values, cfg config) int {
-	if !cfg.seg("path") {
-		return 0
-	}
-	return utf8.RuneCountInString(v.userHost) + 1 + utf8.RuneCountInString(v.path)
 }
