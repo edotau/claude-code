@@ -533,12 +533,6 @@ func rosterEntry(name string) (model, effort string) {
 	return model, effort
 }
 
-// rosterModel is rosterEntry's model.
-func rosterModel(name string) string {
-	model, _ := rosterEntry(name)
-	return model
-}
-
 // agentPinsModel reports whether the named subagent's frontmatter sets any model, `inherit` included (it
 // asks for the session model). No roster file = a built-in, the classifier applies; a path-shaped name is refused.
 func agentPinsModel(run *dispatchRun, name string) bool {
