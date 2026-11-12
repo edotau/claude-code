@@ -3,9 +3,7 @@ package clipboard
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // clearTimeout bounds ClearIfMatch so a hung clipboard tool cannot leave the secret uncleared forever.
@@ -166,8 +165,7 @@ func WriteSecret(ctx context.Context, value string) error {
 
 // Digest is the sha256 hex digest ScheduleClear/ClearIfMatch compare against.
 func Digest(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
+	return textutil.SHA256Hex([]byte(value))
 }
 
 // ScheduleClear spawns a detached `clip-clear --after <after>` child that clears the clipboard if it

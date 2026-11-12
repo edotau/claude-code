@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // gitBranch reads .git/HEAD directly (a per-render fork costs more than the render); falls back to git.
@@ -23,11 +23,11 @@ func gitBranch(cwd string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	out, err := proc.RunGitInherit(ctx, cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 // gitBranchFast walks up to .git (one gitfile hop; detached → "HEAD"); ok=false → ask git; ("", true) → no repo.
@@ -162,22 +162,23 @@ func sumNumstat(out []byte) (adds, dels int) {
 const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 func numstat(ctx context.Context, cwd, base string) ([]byte, error) {
-	return exec.CommandContext(ctx, "git", "-C", cwd, "--no-optional-locks", "diff", "--numstat",
-		"--no-ext-diff", "--no-textconv", base).Output()
+	out, err := proc.RunGitInherit(ctx, cwd, "--no-optional-locks", "diff", "--numstat", "--no-ext-diff", "--no-textconv", base)
+	return []byte(out), err
 }
 
 func inWorkTree(ctx context.Context, cwd string) bool {
-	return exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--is-inside-work-tree").Run() == nil
+	_, err := proc.RunGitInherit(ctx, cwd, "rev-parse", "--is-inside-work-tree")
+	return err == nil
 }
 
 // untrackedLines counts untracked lines, stopping early once ctx expires.
 func untrackedLines(ctx context.Context, cwd string) int {
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "--others", "--exclude-standard", "-z", "--", ":/").Output()
+	out, err := proc.RunGitInherit(ctx, cwd, "ls-files", "--others", "--exclude-standard", "-z", "--", ":/")
 	if err != nil {
 		return 0
 	}
 	total, seen := 0, 0
-	for rel := range strings.SplitSeq(string(out), "\x00") {
+	for rel := range strings.SplitSeq(out, "\x00") {
 		if rel == "" {
 			continue
 		}

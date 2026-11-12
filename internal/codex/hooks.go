@@ -2,7 +2,6 @@ package codex
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -221,7 +220,7 @@ func codexTrustDigest(event, name string, group settings.MatcherGroup, hook sett
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("sha256:%x", sha256.Sum256(canonical)), nil
+	return "sha256:" + textutil.SHA256Hex(canonical), nil
 }
 
 // Codex resolves the source directory through symlinks but retains the hooks.json leaf.

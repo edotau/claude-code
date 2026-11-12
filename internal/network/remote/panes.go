@@ -2,8 +2,6 @@ package remote
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -14,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Pane states; a static pane is unknown, never idle: this package does not claim a pane is idle.
@@ -99,8 +98,7 @@ func normalizePane(raw string) string {
 
 // fingerprintPane returns a bounded (16 hex char) hash of normalized pane text — never the text itself.
 func fingerprintPane(normalized string) string {
-	sum := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(sum[:])[:16]
+	return textutil.SHA256Hex([]byte(normalized))[:16]
 }
 
 // classifyPane maps a capture and its previous fingerprint to a state, a reason and the new fingerprint.

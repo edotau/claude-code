@@ -2,10 +2,8 @@ package agents
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // CodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
@@ -167,7 +166,7 @@ func recordCodexRoute(in *core.Input, record codexRouteRecord) error {
 		return nil
 	}
 	record.SessionID, record.At = in.SessionID, time.Now().UnixMilli()
-	path := filepath.Join(paths.StateDir(), "codex", fmt.Sprintf("routing-%x.jsonl", sha256.Sum256([]byte(in.SessionID))))
+	path := filepath.Join(paths.StateDir(), "codex", "routing-"+textutil.SHA256Hex([]byte(in.SessionID))+".jsonl")
 	return paths.WithFileLock(path, func() error { return appendCodexRoute(path, record) })
 }
 
