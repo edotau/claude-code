@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hostedHooks are the registry's hook modules run around a headless `opencode run`; PreToolUse ones only detect.
+// hostedHooks are the registry's hook modules run around a headless `opencode run`.
 var hostedHooks = hostedSet()
 
 func hostedSet() map[string]bool {
@@ -90,6 +90,23 @@ func hostedBound(safeMode bool) []hooks.Bound {
 		}
 	}
 	return bound
+}
+
+// pureGates names the bound PreToolUse hooks opencode runs (hosted or in the plugin): the ones that can stop a call.
+func pureGates() []string {
+	gate := map[string]bool{}
+	for _, surface := range []string{"hosted", "plugin"} {
+		for _, sp := range settings.SpecsFor("opencode", surface) {
+			gate[sp.Name] = sp.Event == settings.EventPreToolUse
+		}
+	}
+	var names []string
+	for _, b := range bindHooks() {
+		if gate[b.Spec.Name] && !slices.Contains(names, b.Spec.Name) {
+			names = append(names, b.Spec.Name)
+		}
+	}
+	return names
 }
 
 // dropPlugin removes the specs the injected plugin already runs in-process, so no guard runs twice (no-op on nil).
@@ -201,7 +218,7 @@ func (h *hookHost) parser(onStep func()) func(*bufio.Reader, wire.Sink, func(), 
 	}
 }
 
-// during is PreToolUse (detect-only) then PostToolUse for one finished tool call; its context is logged, not injected.
+// during is PostToolUse for one finished tool call; its context is logged, not injected.
 func (h *hookHost) during(ev openCodeEvent) {
 	if ev.SessionID != "" {
 		h.session = ev.SessionID
@@ -211,8 +228,6 @@ func (h *hookHost) during(ev openCodeEvent) {
 		return
 	}
 	h.seen[ev.Part.CallID] = true
-	// Blocks are detect-only here: fire has logged them and the tool call already ran.
-	_, _ = h.fire("during", settings.EventPreToolUse, tool, map[string]any{"tool_input": input})
 	_, _ = h.fire("during", settings.EventPostToolUse, tool, map[string]any{"tool_input": input, "tool_response": ev.Part.State.Output})
 }
 
