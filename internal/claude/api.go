@@ -40,9 +40,7 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	if p.Auth.Method() == providers.AuthCLI {
 		return res, false, nil
 	}
-	if len(req.Env) > 0 {
-		res.Dropped = []string{"--env"} // the HTTP one-shot spawns no process to carry it
-	}
+	res.Dropped = oneShotDropped(req)
 	effort, err := oneShotEffort(req, t)
 	if err != nil {
 		return res, true, retry.Fatal("claude", err)
@@ -76,6 +74,18 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	res.Answer, res.Usage = answer.String(), usage
 	logAPIRun(ctx, res, err)
 	return res, true, err
+}
+
+// oneShotDropped names the flags that need a process: the HTTP one-shot has none to carry --env or write a debug file.
+func oneShotDropped(req agent.RunOptions) []string {
+	var out []string
+	if len(req.Env) > 0 {
+		out = append(out, "--env")
+	}
+	if req.DebugFile != "" {
+		out = append(out, "--debug-file="+req.DebugFile)
+	}
+	return out
 }
 
 // oneShotEffort is the flag's effort, else the stored record's, spelled as the CLI path spells it.
@@ -242,7 +252,8 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage,
 	client := anthropic.NewClient(
 		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(r.BaseURL),
-		option.WithMaxRetries(0), // the caller's dispatch loop owns retries
+		option.WithHTTPClient(chatClient), // the header timeout and egress proxy the chat route has
+		option.WithMaxRetries(0),          // the caller's dispatch loop owns retries
 		option.WithMiddleware(anthropicAuthorization(r)),
 	)
 	params := anthropic.MessageNewParams{
@@ -258,32 +269,44 @@ func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage,
 	stream := client.Messages.NewStreaming(ctx, params)
 	defer stream.Close()
 	for stream.Next() {
-		switch ev := stream.Current().AsAny().(type) {
-		case anthropic.MessageStartEvent:
-			model = ev.Message.Model
-			u := ev.Message.Usage
-			res.InputTokens, res.OutputTokens = int(u.InputTokens), int(u.OutputTokens)
-			res.CacheCreationTokens, res.CacheReadTokens = int(u.CacheCreationInputTokens), int(u.CacheReadInputTokens)
-		case anthropic.ContentBlockDeltaEvent:
-			if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
-				if _, err := io.WriteString(w, t.Text); err != nil {
-					return res, model, err
-				}
-			}
-		case anthropic.MessageDeltaEvent:
-			if ev.Usage.InputTokens > 0 { // cumulative; input may be absent mid-stream
-				res.InputTokens = int(ev.Usage.InputTokens)
-			}
-			if ev.Usage.CacheCreationInputTokens > 0 {
-				res.CacheCreationTokens = int(ev.Usage.CacheCreationInputTokens)
-			}
-			if ev.Usage.CacheReadInputTokens > 0 {
-				res.CacheReadTokens = int(ev.Usage.CacheReadInputTokens)
-			}
-			res.OutputTokens = int(ev.Usage.OutputTokens)
+		if err := applyMessageEvent(stream.Current().AsAny(), &res, &model, w); err != nil {
+			return res, model, err
 		}
 	}
 	return res, model, boxSDKError(stream.Err())
+}
+
+// applyMessageEvent folds one stream event into usage and model, and writes a text delta to w.
+func applyMessageEvent(ev any, res *wire.Usage, model *string, w io.Writer) error {
+	switch ev := ev.(type) {
+	case anthropic.MessageStartEvent:
+		*model = ev.Message.Model
+		u := ev.Message.Usage
+		res.InputTokens, res.OutputTokens = int(u.InputTokens), int(u.OutputTokens)
+		res.CacheCreationTokens, res.CacheReadTokens = int(u.CacheCreationInputTokens), int(u.CacheReadInputTokens)
+	case anthropic.ContentBlockDeltaEvent:
+		if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
+			_, err := io.WriteString(w, t.Text)
+			return err
+		}
+	case anthropic.MessageDeltaEvent:
+		foldDeltaUsage(res, ev.Usage)
+	}
+	return nil
+}
+
+// foldDeltaUsage applies a message_delta's cumulative usage; input and cache counts may be absent mid-stream.
+func foldDeltaUsage(res *wire.Usage, u anthropic.MessageDeltaUsage) {
+	if u.InputTokens > 0 {
+		res.InputTokens = int(u.InputTokens)
+	}
+	if u.CacheCreationInputTokens > 0 {
+		res.CacheCreationTokens = int(u.CacheCreationInputTokens)
+	}
+	if u.CacheReadInputTokens > 0 {
+		res.CacheReadTokens = int(u.CacheReadInputTokens)
+	}
+	res.OutputTokens = int(u.OutputTokens)
 }
 
 func anthropicAuthorization(r apiRequest) option.Middleware {

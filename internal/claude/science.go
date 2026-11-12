@@ -68,7 +68,11 @@ func scienceEnv(args []string) (agent.Plan, error) {
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	return science(os.Environ(), argv)
+	plan, err := science(os.Environ(), argv)
+	if err == nil && cfg != "" {
+		plan.Files = []agent.LaunchFile{{Path: cfg, Data: scienceTOML}} // written at exec, so --print-env stays read-only
+	}
+	return plan, err
 }
 
 // scienceTOML is the generic claude-science config shipped in the binary; company/HPC detail stays out of it.
@@ -95,8 +99,7 @@ func scienceConfigPort(raw []byte) int {
 	return 3000
 }
 
-// scienceDefaultsFile materializes the embedded config only for a box without claude-science's own config.toml,
-// so a user's existing grants are never replaced; "" means pass no --config.
+// scienceDefaultsFile is the embedded config's path, "" when the box has claude-science's own config.toml; it writes nothing.
 func scienceDefaultsFile() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -109,11 +112,7 @@ func scienceDefaultsFile() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "claude-code", "science.toml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
-	return path, paths.AtomicWrite(path, scienceTOML, 0o600)
+	return filepath.Join(dir, "claude-code", "science.toml"), nil
 }
 
 // scienceArgs splits the harness's leading --port (either argv form) from the agent argv, which passes untouched.

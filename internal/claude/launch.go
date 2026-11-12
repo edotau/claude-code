@@ -59,19 +59,10 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err := refuseProvider(sel); err != nil {
 		return agent.Plan{}, err
 	}
-	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), providers.WipeKeys...)}
-	if !passthrough {
-		plan.Unset = append(plan.Unset, oauthKey)
-	}
-	if configDirEnvIsDefault() {
-		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
-	}
-	setModelAliasEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
+	plan, err := newClaudePlan(bin, o, sel, passthrough)
+	if err != nil {
 		return agent.Plan{}, err
 	}
-	set1MOff(&plan, sel, p)
-	plan.Set[providers.EnvSessionProfile] = p.Name
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
 	proxied := sel.NeedsRouter(reg) || armedHop(p, args)
 	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
@@ -92,7 +83,26 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	return plan, nil
 }
 
-// refuseProvider refuses a vendor sign-in and any AI Gateway-wire row; the proxy keeps that wire, launches never use it.
+// newClaudePlan is the plan before routing: the wiped keys, the model and thinking knobs, and the session profile.
+func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, passthrough bool) (agent.Plan, error) {
+	p := sel.Provider
+	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), providers.WipeKeys...)}
+	if !passthrough {
+		plan.Unset = append(plan.Unset, oauthKey)
+	}
+	if configDirEnvIsDefault() {
+		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
+	}
+	setModelAliasEnv(&plan, sel)
+	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
+		return agent.Plan{}, err
+	}
+	set1MOff(&plan, sel, p)
+	plan.Set[providers.EnvSessionProfile] = p.Name
+	return plan, nil
+}
+
+// refuseProvider refuses a vendor sign-in and any AI Gateway-wire row; only the proxy keeps that wire.
 func refuseProvider(sel providers.Selection) error {
 	if p := sel.Provider; p.Auth.Login != "" {
 		return fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
@@ -352,10 +362,8 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 }
 
 func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {
-	for _, t := range sel.Aliases {
-		if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
-			return "", "", fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
-		}
+	if err := refuseCLIAliases(sel, passthrough); err != nil {
+		return "", "", err
 	}
 	base, err := agent.EnsureRouter(ctx)
 	if err != nil {
@@ -374,17 +382,36 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 		plan.Set[ProxyKeyEnv] = tok
 	}
 	if passthrough {
-		// The login stays in Authorization, so the router secret (armed: the session token) rides in its own header.
-		secret := tok
-		if secret == "" {
-			if secret, err = gateway.ClientSecret(); err != nil {
-				return "", "", fmt.Errorf("proxy secret: %w", err)
-			}
+		secret, err := clientSecret(tok)
+		if err != nil {
+			return "", "", err
 		}
 		hdrs = append(hdrs, gateway.ClientHeader+": "+secret)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return textutil.QuoteSH(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+}
+
+// refuseCLIAliases refuses an alias on a cli login unless the session profile is a cli-login one too.
+func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
+	for _, t := range sel.Aliases {
+		if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
+			return fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
+		}
+	}
+	return nil
+}
+
+// clientSecret is the client header's router secret (Authorization holds the login): token tok, else the gateway's.
+func clientSecret(tok string) (string, error) {
+	if tok != "" {
+		return tok, nil
+	}
+	secret, err := gateway.ClientSecret()
+	if err != nil {
+		return "", fmt.Errorf("proxy secret: %w", err)
+	}
+	return secret, nil
 }
 
 // ProxyKeyEnv carries an armed launch's session token to `resolve --proxy`; ScrubDeny's HARNESS_*_API_KEY drops it
