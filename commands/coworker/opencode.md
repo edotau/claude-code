@@ -2,7 +2,6 @@
 description: "Run opencode: a task on the Databricks arm (Databricks first, first-party login as the fallback), or one of its verbs"
 argument-hint: "[key=value …] <task> | [profile=<p>] [model=<m>] <verb> [args…]"
 allowed-tools: Bash(claude-code agents ask --agent opencode *), Bash(claude-code opencode *)
-disable-model-invocation: true
 ---
 
 # /coworker:opencode

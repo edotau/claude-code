@@ -2,7 +2,6 @@
 description: "Run copilot: a task on the Databricks arm (Databricks first, first-party login as the fallback), or one of its verbs"
 argument-hint: "[key=value …] <task> | [profile=<p>] [model=<m>] <verb> [args…]"
 allowed-tools: Bash(claude-code agents ask --agent copilot *), Bash(claude-code copilot *)
-disable-model-invocation: true
 ---
 
 # /coworker:copilot

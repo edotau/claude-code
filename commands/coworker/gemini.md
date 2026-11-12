@@ -2,7 +2,6 @@
 description: "Run gemini: a task on the Databricks arm (Databricks first, first-party login as the fallback), or one of its verbs"
 argument-hint: "[key=value …] <task> | [profile=<p>] [model=<m>] <verb> [args…]"
 allowed-tools: Bash(claude-code agents ask --agent gemini *), Bash(claude-code gemini *)
-disable-model-invocation: true
 ---
 
 # /coworker:gemini
