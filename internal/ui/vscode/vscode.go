@@ -1,5 +1,5 @@
-// Package vscode merges the tracked VS Code settings template into VS Code's Machine settings.json
-// — the scope Settings Sync never syncs, so every box renders its own copy locally.
+// Package vscode merges the tracked VS Code settings template into VS Code's settings.json: the User scope
+// (Settings Sync syncs it), or the unsynced Machine scope under ~/.vscode-server on Linux.
 package vscode
 
 import (

@@ -18,17 +18,18 @@ func reportMerge(label, dest string, result mergeResult) {
 	}
 }
 
-// Run merges the tracked VS Code settings template into VS Code's Machine settings.json.
-// Machine scope is per-box and is NOT Settings-Synced, so the merge is what seeds a fresh box instead.
+// Run merges the tracked VS Code settings template into VS Code's settings.json.
+// That is the User scope (Settings Sync syncs it) except under ~/.vscode-server, the unsynced Machine scope.
 func Run(args []string) int {
 	fs := helptext.NewFlagSet("theme vscode", helptext.Page{Usage: "claude-code theme vscode [flags]",
-		About: "Merge embedded templates into VS Code's Machine settings and local keybindings.\n" +
-			"Machine settings are per-box and excluded from Settings Sync.\n" +
+		About: "Merge embedded templates into VS Code's settings.json and keybindings.\n" +
+			"settings.json is the User scope, which Settings Sync syncs; under\n" +
+			"~/.vscode-server it is the Machine scope, which Settings Sync skips.\n" +
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
 			"Link the Claude Code Agents extension into the detected extensions directory."})
 	var o syncOptions
 	fs.StringVar(&o.Template, "template", "", "settings template to merge (default: the one embedded in the binary)")
-	fs.StringVar(&o.Dest, "dest", "", "VS Code Machine settings.json (default: platform-detected)")
+	fs.StringVar(&o.Dest, "dest", "", "VS Code settings.json (default: platform-detected)")
 	fs.StringVar(&o.ExtensionsDir, "extensions-dir", "", "link the Agents extension here (default: platform-detected)")
 	fs.StringVar(&o.KeybindingsTemplate, "keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
 	fs.StringVar(&o.KeybindingsDest, "keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
