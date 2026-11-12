@@ -106,7 +106,7 @@ func gitHeadBranch(gitDir string) (string, bool) {
 }
 
 // A slow git (network FS, huge index) must degrade to no velocity, not stall the bar.
-const gitDiffTimeout = 700 * time.Millisecond
+var gitDiffTimeout = 700 * time.Millisecond
 
 // Bound the untracked sweep so a stray build dir can't charge thousands of reads to a render.
 const (
@@ -121,8 +121,14 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
 	defer cancel()
+	untrackedDone := make(chan int, 1)
+	go func() { untrackedDone <- untrackedLines(ctx, cwd) }()
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "--no-optional-locks", "diff", "--numstat",
 		"--no-ext-diff", "--no-textconv", "HEAD").Output()
+	if err != nil {
+		cancel()
+	}
+	untracked := <-untrackedDone
 	if err != nil {
 		return 0, 0, false
 	}
@@ -139,7 +145,6 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 		adds += a
 		dels += d
 	}
-	untracked := untrackedLines(ctx, cwd)
 	if ctx.Err() != nil { // deadline spent mid-sweep: no partial count, the caller falls back to the ledger
 		return 0, 0, false
 	}
