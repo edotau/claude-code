@@ -29,7 +29,11 @@ type ReviewOptions struct {
 
 // Review is `<agent> review`: review scope's diff in one run, or in parts; a detached split replays args.
 func Review(name string, args []string, o ReviewOptions) int {
-	parent := reviewParent()
+	parent, perr := reviewParent()
+	if perr != nil { // the job record cannot be closed later, so do not run a review nobody will be told about
+		return helptext.Fail("%s review: %v", name, perr)
+	}
+	started := time.Now()
 	fail := func(err error) int {
 		if parent != nil { // a detached split's child: every exit closes the job record
 			return finishSplitReview(parent, err)
@@ -61,23 +65,22 @@ func Review(name string, args []string, o ReviewOptions) int {
 		return rc
 	}
 	if rc != 0 { // the diff no longer splits in the child: the one run's outcome is the job's
-		return finishSplitReview(parent, fmt.Errorf("review failed: %s", lastDispatchError(name)))
+		return finishSplitReview(parent, fmt.Errorf("review failed: %s", lastDispatchError(name, started)))
 	}
 	return finishSplitReview(parent, nil)
 }
 
 // reviewParent loads the job record a detached split review's child reports to; nil in a foreground review.
-func reviewParent() *agent.Record {
+func reviewParent() (*agent.Record, error) {
 	id := os.Getenv(reviewJobEnv)
 	if id == "" {
-		return nil
+		return nil, nil
 	}
 	r, err := agent.LoadRecord(id)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "review: job record %s not updated: %v\n", id, err)
-		return nil
+		return nil, fmt.Errorf("job record %s unreadable: %w", id, err)
 	}
-	return &r
+	return &r, nil
 }
 
 // reviewDiff materializes scope's diff in cwd under reviewDiffTimeout.
@@ -101,12 +104,13 @@ func runSplitReview(name string, args []string, parts []part, o ReviewOptions, p
 			werr := printMerged(o.Adversarial, parts, answers)
 			return finishSplitReview(parent, errors.Join(fmt.Errorf("part %d/%d: %w", i+1, len(parts), err), werr))
 		}
+		partStart := time.Now()
 		ans, rc := captureAnswer(func() int { return Cmd(askArgs) })
 		cleanup()
 		if rc != 0 {
 			werr := printMerged(o.Adversarial, parts, answers)
 			return finishSplitReview(parent, errors.Join(
-				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(name)), werr))
+				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(name, partStart)), werr))
 		}
 		answers = append(answers, ans)
 	}
