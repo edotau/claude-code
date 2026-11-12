@@ -760,3 +760,19 @@ func TestDatabricksGeminiRouteRejectsTraversal(t *testing.T) {
 		t.Fatalf("upstream reached: %v", g[0].uri)
 	}
 }
+
+// A passthrough chat stream cut mid-body still meters the usage it relayed before breaking the client stream.
+func TestPassthroughStreamCutMidBodyIsMetered(t *testing.T) {
+	_, resp := sendChat(t, `{"model":"m","stream":true}`, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"completion_tokens\":4,\"prompt_tokens\":11,\"total_tokens\":15}}\n\n")
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	})
+	if _, err := io.ReadAll(resp.Body); err == nil {
+		t.Error("client read the cut stream to a clean EOF, want it broken")
+	}
+	if got := ledgerSettled(t, 1); len(got) != 1 || got[0].Input != 11 || got[0].Output != 4 {
+		t.Errorf("ledger = %+v, want one entry with 11 in, 4 out", got)
+	}
+}
