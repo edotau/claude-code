@@ -169,7 +169,7 @@ func agentDreamPrompt(cwd string, changed []string) (string, error) {
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return dreamPromptOpen + " The local bank is " + Dir(cwd) + "; the memory root " + StoreDir() + " holds the home bank and every repo store. " +
+	return fmt.Sprintf(dreamPromptFormat, Dir(cwd), StoreDir()) +
 		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 

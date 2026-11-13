@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -106,6 +107,9 @@ func settleBank(root string, now time.Time) (rotated int, err error) {
 
 // settleBankLocked is settleBank for a caller already holding the bank lock.
 func settleBankLocked(root string, now time.Time) (rotated int, err error) {
+	if skipped, err := recoverEach(); err != nil || skipped != nil {
+		return 0, errors.Join(err, skipped)
+	}
 	dirs := bankDirs(root) // an unscaffolded repo gets its store from Init (with its origin), never here
 	for _, d := range dirs {
 		n, err := settleDir(d, now)
@@ -195,27 +199,39 @@ func newestMtime(dir string) time.Time {
 }
 
 // settleDir stamps IDs, strikes revised entries, rotates sessionHistory, writes the MEMORY.md region, wraps files.
-func settleDir(d string, now time.Time) (rotated int, err error) {
+func settleDir(d string, now time.Time) (int, error) {
+	rotated, wrapped, err := settleSteps(d, now)
+	return rotated, errors.Join(err, wrapDir(d, wrapped)) // a failed step still leaves the dir wrapped
+}
+
+// settleSteps is settleDir's writing steps; wrapped names the typed files they already left wrapped (nil on error).
+func settleSteps(d string, now time.Time) (rotated int, wrapped map[string]string, err error) {
 	_, texts, err := assignIDTexts(d, now)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if err := reviseDir(d, texts); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	rotated, err = rotateSessionHistory(d, now)
-	if err != nil {
-		return rotated, err
+	if rotated, err = rotateSessionHistory(d, now); err != nil {
+		return rotated, nil, err
 	}
-	if _, err = writeBankRegion(d, now); err != nil {
-		return rotated, err
-	}
+	_, err = writeBankRegion(d, now)
+	return rotated, texts, err
+}
+
+// wrapDir wraps d's markdown, skipping the typed files in held: settle wrapped their text before writing it.
+func wrapDir(d string, held map[string]string) error {
 	targets, err := dirFmtTargets(d)
 	if err != nil {
-		return rotated, err
+		return err
 	}
+	targets = slices.DeleteFunc(targets, func(p string) bool {
+		_, ok := held[filepath.Base(p)]
+		return ok && filepath.Dir(p) == d
+	})
 	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
-	return rotated, err
+	return err
 }
 
 func writeCatalog(now time.Time) error {

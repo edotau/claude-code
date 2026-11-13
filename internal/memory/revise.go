@@ -16,12 +16,18 @@ import (
 )
 
 var (
-	// reviseRef reads `Supersedes <id>` and `Supersedes "<title>" (<id>)` in a block's whitespace-joined text.
-	reviseRef = regexp.MustCompile(`\b[Ss]upersedes\s+(?:"[^"]*"\s+\()?(z?[0-9a-f]{8})\b`)
+	// reviseRef finds declarations at a line or sentence boundary.
+	declarationDelimiters = regexp.MustCompile("`+|[\"“”‘’']")
+	reviseRef             = regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8})\\b`?\\)?)")
 	// replacedPointer is the line settle writes under an old entry's title.
-	replacedPointer = regexp.MustCompile(`Replaced by (z?[0-9a-f]{8})(?: \(\d{4}-\d{2}-\d{2}\))?\.`)
+	replacedPointer = regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8})(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
 	// titlePrefix is what stays outside the strike: the heading or bullet mark and the date prefix.
 	titlePrefix = regexp.MustCompile(`^(?:#+ |- )?(?:\d{4}-\d{2}-\d{2}\s*[—–-]\s*)?`)
+	// struckSpan and seeNote are what a title may carry beyond live text: the strike itself and a "(see <id>)" pointer.
+	struckSpan = regexp.MustCompile(`~~.*?~~`)
+	seeNote    = regexp.MustCompile(`\(see z?[0-9a-f]{8}\)`)
+	// pointerLine is a whole line holding only the pointer settle writes.
+	pointerLine = regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
 )
 
 // reviseFiles are the typed files whose entries replace one another (archives of them included).
@@ -36,7 +42,8 @@ var ErrReviseInput = errors.New("memory revise")
 // bankDoc is one typed bank file or archive split into blocks, for edits that span entries.
 type bankDoc struct {
 	path   string
-	text   string // the file as read; edits replace one block in it, so nothing else moves
+	header string
+	text   string // current file text, rebuilt from the header and blocks on edit
 	blocks []string
 	ids    []string   // ids[i] is blocks[i]'s persisted id, "" when it has none
 	refs   [][]string // refs[i] are the ids blocks[i] says it supersedes
@@ -45,8 +52,8 @@ type bankDoc struct {
 
 // setBlock replaces block i, in both the block list and the file text, and flags the doc dirty.
 func (d *bankDoc) setBlock(i int, block string) {
-	d.text = strings.Replace(d.text, d.blocks[i], block, 1)
 	d.blocks[i] = block
+	d.text = rejoin(d.header, d.blocks)
 	d.dirty = true
 }
 
@@ -60,53 +67,166 @@ type revision struct {
 	newDate      string
 }
 
-// plainText is block's text without fenced lines and id markers, whitespace-joined (wrapping never splits a match).
-func plainText(block string) string {
-	lines := strings.Split(block, "\n")
-	fenced := fencedLines(lines)
-	var kept []string
-	for i, l := range lines {
-		if !fenced[i] {
-			kept = append(kept, stripID(l))
-		}
-	}
-	return strings.Join(strings.Fields(strings.Join(kept, " ")), " ")
-}
-
 // revisedIDs lists the ids block says it supersedes, in order, without repeats or its own id.
 func revisedIDs(block, self string) []string {
-	if !strings.Contains(block, "upersedes") { // nearly every block: skip the whitespace join and the regexp
+	if !strings.Contains(strings.ToLower(block), "supersedes") {
 		return nil
 	}
+	_, body, _ := strings.Cut(block, "\n")
+	lines := strings.Split(body, "\n")
+	fenced := fencedLines(lines)
+	for i, line := range lines {
+		if fenced[i] || strings.HasPrefix(strings.TrimSpace(line), ">") {
+			lines[i] = ""
+		}
+	}
+	body = strings.Join(lines, "\n")
 	var out []string
-	for _, m := range reviseRef.FindAllStringSubmatch(plainText(block), -1) {
-		if m[1] != self && !slices.Contains(out, m[1]) {
-			out = append(out, m[1])
+	for _, m := range reviseRef.FindAllStringSubmatchIndex(body, -1) {
+		id := body[m[4]:m[5]]
+		if declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
+			out = append(out, id)
 		}
 	}
 	return out
 }
 
-// replacedBy is the id block's `Replaced by` pointer names, "" when it has none.
-func replacedBy(block string) string {
-	if !strings.Contains(block, "Replaced") {
+// declarationOutside rejects declarations inside inline code or quoted examples.
+func declarationOutside(prefix string) bool {
+	quote, ticks := "", ""
+	for _, at := range declarationDelimiters.FindAllStringIndex(prefix, -1) {
+		token := prefix[at[0]:at[1]]
+		if strings.HasPrefix(token, "`") {
+			ticks = toggleDelimiter(ticks, token)
+			continue
+		}
+		if ticks == "" {
+			quote = declarationQuote(quote, token, prefix[:at[0]])
+		}
+	}
+	return quote == "" && ticks == ""
+}
+
+func toggleDelimiter(open, token string) string {
+	if open == token {
 		return ""
 	}
-	if m := replacedPointer.FindStringSubmatch(strings.Join(strings.Fields(block), " ")); m != nil {
-		return m[1]
+	if open == "" {
+		return token
+	}
+	return open
+}
+
+func declarationQuote(open, token, prefix string) string {
+	if open != "" {
+		if open == token {
+			return ""
+		}
+		return open
+	}
+	switch token {
+	case "“":
+		return "”"
+	case "‘":
+		return "’"
+	case "\"":
+		return token
+	case "'":
+		if prefix == "" || strings.ContainsAny(prefix[len(prefix)-1:], " \t\n(") {
+			return token
+		}
 	}
 	return ""
 }
 
-// isSupersededBlock reports a struck-out title, a SUPERSEDED title or a `Replaced by` pointer.
+// replacedBy accepts only the pointer immediately below the title, including wrapped bullet continuations.
+func replacedBy(block string) string {
+	if !strings.Contains(block, "Replaced") {
+		return ""
+	}
+	title, body := replacementBody(block)
+	if partlyStruck(title) {
+		return ""
+	}
+	pointer := ""
+	for line := range strings.SplitSeq(body, "\n") {
+		if pointer != "" {
+			pointer += " "
+		}
+		pointer += strings.TrimSpace(line)
+		if m := replacedPointer.FindStringSubmatch(pointer); m != nil {
+			return m[1]
+		}
+		if !strings.HasPrefix("Replaced by ", pointer) && !strings.HasPrefix(pointer, "Replaced by ") {
+			break
+		}
+		if strings.ContainsAny(pointer, "\"`>") {
+			break
+		}
+	}
+	return ""
+}
+
+// replacementBody skips the wrapped title of a conventions bullet, through its id marker.
+func replacementBody(block string) (title, body string) {
+	title, body, _ = strings.Cut(block, "\n")
+	if !strings.HasPrefix(title, "- ") || idMarker.MatchString(title) {
+		return title, body
+	}
+	parts := []string{title}
+	for strings.HasPrefix(body, "  ") {
+		line, rest, _ := strings.Cut(body, "\n")
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "Replaced") || trimmed == "" || nextFence("", trimmed) != "" {
+			break
+		}
+		parts = append(parts, strings.TrimSpace(line))
+		body = rest
+		if idMarker.MatchString(line) {
+			break
+		}
+	}
+	return strings.Join(parts, " "), body
+}
+
+// partlyStruck reports a title with a ~~strike~~ and live text beside it: two decisions, only one reversed.
+func partlyStruck(first string) bool {
+	if strings.Count(first, "~~") < 2 {
+		return false
+	}
+	body := stripID(first)
+	body = body[len(titlePrefix.FindString(body)):]
+	rest := seeNote.ReplaceAllString(struckSpan.ReplaceAllString(body, ""), "")
+	return strings.Trim(rest, " \t;,.:—–-") != ""
+}
+
+// isSupersededBlock reports a struck-out or SUPERSEDED title or a `Replaced by` pointer; a partly struck one is live.
 func isSupersededBlock(block string) bool {
 	return isSupersededTitle(textutil.FirstLine(block)) || replacedBy(block) != ""
 }
 
+// dropPointer is block without the lines that hold only a `Replaced by` pointer.
+func dropPointer(block string) string {
+	lines := strings.Split(block, "\n")
+	return strings.Join(slices.DeleteFunc(lines, pointerLine.MatchString), "\n")
+}
+
+// healPartial removes the pointer settle once wrote under a partly struck entry, so recall serves it again.
+func healPartial(docs []*bankDoc) {
+	for _, d := range docs {
+		for i, b := range d.blocks {
+			if strings.Contains(b, "Replaced by") && partlyStruck(textutil.FirstLine(b)) {
+				if healed := dropPointer(b); healed != b {
+					d.setBlock(i, healed)
+				}
+			}
+		}
+	}
+}
+
 // newBankDoc splits text (the content of path) into blocks with their ids and the ids each supersedes.
 func newBankDoc(path, text string) *bankDoc {
-	_, blocks := entryBlocks(logicalName(path), text)
-	d := &bankDoc{path: path, text: text, blocks: blocks, ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
+	header, blocks := entryBlocks(logicalName(path), text)
+	d := &bankDoc{path: path, header: header, text: text, blocks: blocks, ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
 	for i, b := range blocks {
 		d.ids[i] = ownerID(b)
 		d.refs[i] = revisedIDs(b, d.ids[i])
@@ -316,10 +436,13 @@ func (p *revisePlan) pair(newID, oldID, newDate string) (*revision, string) {
 	switch {
 	case !known:
 		return nil, fmt.Sprintf("supersedes: %s names unknown id %s", newID, oldID)
+	case !revisionVisible(p.docs[ol.doc].path, p.docs[p.loc[newID].doc].path):
+		return nil, fmt.Sprintf("supersedes: %s: a home entry may be replaced only by a home entry", newID)
 	case reaches(p.edges, oldID, newID):
 		if newID < oldID { // one line per cycle
 			return nil, fmt.Sprintf("supersedes: %s and %s name each other (neither marked)", newID, oldID)
 		}
+	case partlyStruck(textutil.FirstLine(p.docs[ol.doc].blocks[ol.idx])): // half of it is still valid: never replaced
 	case replacedBy(p.docs[ol.doc].blocks[ol.idx]) == "" && !p.claimed[oldID]:
 		p.claimed[oldID] = true
 		return &revision{old: ol, oldID: oldID, newID: newID, newDate: newDate}, ""
@@ -390,6 +513,7 @@ func applyRevisions(docs []*bankDoc, revs []revision) {
 func writeDirtyDocs(docs []*bankDoc) error {
 	for _, d := range docs {
 		if d.dirty {
+			d.text = formatBankMarkdown(d.text) // a strike or pointer may push a line past the wrap width
 			if err := paths.AtomicWrite(d.path, []byte(d.text), 0o600); err != nil {
 				return err
 			}
@@ -404,6 +528,7 @@ func reviseDir(dir string, texts map[string]string) error {
 	if err != nil {
 		return err
 	}
+	healPartial(docs)
 	revs, _ := planRevisions(docs)
 	applyRevisions(docs, revs)
 	return writeDirtyDocs(docs)
@@ -433,7 +558,10 @@ func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
 		return "", fmt.Errorf("%w: old and new id are both %s", ErrReviseInput, oldID)
 	}
 	var msg string
-	err := WithBankLock(BankLockWait, func() error {
+	err := withReviseLocks(root, func() error {
+		if skipped, err := recoverEach(); err != nil || skipped != nil {
+			return errors.Join(err, skipped)
+		}
 		docs, err := loadBankDocs(bankDirs(root)...)
 		if err != nil {
 			return err
@@ -444,6 +572,26 @@ func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
 	return msg, err
 }
 
+// withReviseLocks takes store, home and bank locks in the worker order, with the foreground wait.
+func withReviseLocks(root string, fn func() error) error {
+	dirs := []string{Dir(root)}
+	if !paths.SamePath(dirs[0], HomeBankDir()) {
+		dirs = append(dirs, HomeBankDir())
+	}
+	var lock func(int) error
+	lock = func(i int) error {
+		if i == len(dirs) {
+			return WithBankLock(BankLockWait, fn)
+		}
+		ran, err := paths.TryFileLock(lockPath(dirs[i])+".lock", updateLockWait, func() error { return lock(i + 1) })
+		if err == nil && !ran {
+			return errors.New("memory revise: busy: another update or dream holds the bank; retry when it finishes")
+		}
+		return err
+	}
+	return lock(0)
+}
+
 // checkRevise refuses unknown ids and cycles, and returns the "nothing to do" note when oldID is already replaced.
 func checkRevise(docs []*bankDoc, loc map[string]blockLoc, oldID, newID string) (note string, err error) {
 	for _, id := range []string{oldID, newID} {
@@ -452,6 +600,12 @@ func checkRevise(docs []*bankDoc, loc map[string]blockLoc, oldID, newID string) 
 		}
 	}
 	ol := loc[oldID]
+	if !revisionVisible(docs[ol.doc].path, docs[loc[newID].doc].path) {
+		return "", fmt.Errorf("%w: a home entry may be replaced only by a home entry", ErrReviseInput)
+	}
+	if partlyStruck(textutil.FirstLine(docs[ol.doc].blocks[ol.idx])) {
+		return "", fmt.Errorf("%w: %s's title is only partly struck, so half of it is still valid; split the entry first", ErrReviseInput, oldID)
+	}
 	if by := replacedBy(docs[ol.doc].blocks[ol.idx]); by != "" {
 		return fmt.Sprintf("nothing to do: %s is already replaced by %s\n", oldID, by), nil
 	}
@@ -459,6 +613,12 @@ func checkRevise(docs []*bankDoc, loc map[string]blockLoc, oldID, newID string) 
 		return "", fmt.Errorf("%w: %s already supersedes %s", ErrReviseInput, oldID, newID)
 	}
 	return "", nil
+}
+
+// revisionVisible preserves visibility wherever the old entry can be recalled.
+func revisionVisible(oldPath, newPath string) bool {
+	home := HomeBankDir() + string(filepath.Separator)
+	return !strings.HasPrefix(oldPath, home) || strings.HasPrefix(newPath, home)
 }
 
 // reviseDocs plans the revision of oldID by newID over docs and commits it unless dryRun.
@@ -511,10 +671,13 @@ func dirtyChanges(docs []*bankDoc) ([]Change, error) {
 // chainEnd follows h's `Replaced by` pointers to the live entry, within reviseHopCap hops; false when it breaks.
 func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool) {
 	cur := h
-	for range reviseHopCap {
+	for hop := 0; hop <= reviseHopCap; hop++ {
 		next := replacedBy(cur.Block)
 		if next == "" {
 			return cur, !isSupersededBlock(cur.Block)
+		}
+		if hop == reviseHopCap {
+			break
 		}
 		n, ok := findBlockByID(next, files, segs)
 		if !ok {
@@ -567,6 +730,10 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 			if live, ok := chainEnd(h, files, segs); ok {
 				add(live.withScore(h))
 				followed = true
+			} else {
+				h.UnresolvedReplacement = true
+				h.Block += "\n[Replacement unavailable; showing the original entry.]"
+				add(h)
 			}
 		}
 	}
@@ -585,7 +752,13 @@ func (h SearchHit) withScore(from SearchHit) SearchHit {
 // RecallRepo is SearchRepo as recall serves it: replaced entries give way to their live replacement, top k kept.
 func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
 	if all {
-		return SearchRepo(repo, all, q, k) // every store at once has no one corpus to follow a pointer in
+		files := allCorpusFiles()
+		segs := loadSegments(files, false)
+		hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
+		if k > 0 && len(hits) > k {
+			hits = hits[:k]
+		}
+		return hits, root(repo), nil
 	}
 	top, err := ResolveRepo(repo)
 	if err != nil {

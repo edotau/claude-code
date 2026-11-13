@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -23,7 +25,6 @@ import (
 const (
 	catchupWindow = 14 * 24 * time.Hour // transcripts older than this are never swept
 	catchupMax    = 3                   // sessions saved per sweep, newest first
-	catchupScan   = 200                 // leading transcript lines searched for the entrypoint
 )
 
 // sweepCand is one finished session the sweep would save.
@@ -35,9 +36,11 @@ type sweepCand struct {
 
 func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done") }
 
-// transcriptInteractive: `claude -p` workers, leaves and pings say "sdk-*"; any other entrypoint is a person.
+// transcriptInteractive scans through the first user prompt, even after a long metadata prelude.
 func transcriptInteractive(path string) (interactive bool) {
-	scanTranscriptHead(path, catchupScan, func(line []byte) bool {
+	interactive = true // Replaying a worker costs a call; skipping an uncertain session loses its save.
+	entrypoint := ""
+	scanTranscriptHead(path, math.MaxInt, func(line []byte) bool {
 		var rec struct {
 			Type       string `json:"type"`
 			Entrypoint string `json:"entrypoint"`
@@ -48,29 +51,60 @@ func transcriptInteractive(path string) (interactive bool) {
 		if json.Unmarshal(line, &rec) != nil {
 			return false
 		}
+
 		if rec.Entrypoint != "" {
-			interactive = !strings.HasPrefix(rec.Entrypoint, "sdk-")
+			entrypoint = rec.Entrypoint
 		}
 		if rec.Type != "user" { // read on to the first prompt: a memory job inherits its parent's entrypoint
 			return false
 		}
-		var prompt string
-		if json.Unmarshal(rec.Message.Content, &prompt) == nil && memoryJobPrompt(prompt) {
-			interactive = false
-		}
+		interactive = !strings.HasPrefix(entrypoint, "sdk-") && !memoryJobPrompt(transcriptPrompt(rec.Message.Content))
 		return true
 	})
 	return interactive
 }
 
-// The openings of the update and dream job prompts; a transcript that starts with one is a worker, never a session.
+// Worker prompt openings are followed by the bank-specific continuation below.
 const (
 	updatePromptOpen = "Background update of a finished session."
 	dreamPromptOpen  = "Background daily consolidation of the memory bank."
 )
 
+// Prompt formats are shared with the builders so classification requires the worker-only continuation.
+const (
+	updatePromptFormat = updatePromptOpen + " The bank directory is %s and the shared home bank is %s; write only there. "
+	dreamPromptFormat  = dreamPromptOpen + " The local bank is %s; the memory root %s holds the home bank and every repo store. "
+)
+
+var memoryJobPatterns = []*regexp.Regexp{workerPromptPattern(updatePromptFormat), workerPromptPattern(dreamPromptFormat)}
+
+func workerPromptPattern(format string) *regexp.Regexp {
+	return regexp.MustCompile("^" + strings.ReplaceAll(regexp.QuoteMeta(format), "%s", `[^\r\n]+?`))
+}
+
 func memoryJobPrompt(s string) bool {
-	return strings.HasPrefix(s, updatePromptOpen) || strings.HasPrefix(s, dreamPromptOpen)
+	return slices.ContainsFunc(memoryJobPatterns, func(re *regexp.Regexp) bool { return re.MatchString(s) })
+}
+
+func transcriptPrompt(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, b := range blocks {
+		if b.Type == "text" {
+			out.WriteString(b.Text)
+		}
+	}
+	return out.String()
 }
 
 // sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.

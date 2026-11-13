@@ -124,15 +124,20 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(out, errw, root, profile, o.Reembed)
 		return nil
 	}
+	hasStore := statOK(Dir(root))
 	rotated, err := settleBank(root, time.Now())
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
-	fmt.Fprintf(out, "indexed %s", Dir(root))
-	if rotated > 0 {
-		fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
+	if hasStore {
+		fmt.Fprintf(out, "indexed %s", Dir(root))
+		if rotated > 0 {
+			fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
+		}
+		fmt.Fprintln(out)
+	} else {
+		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", Dir(root))
 	}
-	fmt.Fprintln(out)
 	refreshNotice(errw, "memory index", root)
 	embedIndex(out, errw, root, profile, o.Reembed)
 	return nil

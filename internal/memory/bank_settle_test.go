@@ -115,3 +115,31 @@ func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
 		t.Fatal("the refusal leaked the credential")
 	}
 }
+
+// TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
+func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
+	dir := t.TempDir()
+	long := "- " + strings.Repeat("word ", 40) + "\n"
+	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n\n"+long)
+	write(t, filepath.Join(dir, "decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
+	entries := make([]string, sessionHistoryMaxEntries+1)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("## Session %02d\n\n%s", i, long)
+	}
+	write(t, filepath.Join(dir, "sessionHistory.md"), rejoin("# Session history", entries))
+	now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
+	if err := os.MkdirAll(archivePath(dir, "sessionHistory.md", now), 0o700); err != nil { // the rotation cannot append
+		t.Fatal(err)
+	}
+
+	if _, err := settleDir(dir, now); err == nil {
+		t.Fatal("settle succeeded with an unwritable archive")
+	}
+	files, err := dirFmtTargets(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := formatFiles(files, true); err != nil || len(changed) != 0 {
+		t.Fatalf("settle left unwrapped files %v (err %v)", changed, err)
+	}
+}
