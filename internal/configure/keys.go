@@ -207,12 +207,17 @@ func fallbackKeyTarget(reg *providers.Registry, name string, s agent.Schema, kno
 
 // Probe live-checks a present keyed credential (4s cap); "" when there is nothing to Probe.
 func Probe(kt KeyTarget) (status, detail string) {
-	if kt.Provider == nil {
+	return probeWith(context.Background(), kt.Provider)
+}
+
+// probeWith is Probe over a caller-built ctx, bounded by the same 4s cap.
+func probeWith(ctx context.Context, p *providers.Provider) (status, detail string) {
+	if p == nil {
 		return "", ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	return providers.ProbeCredential(ctx, kt.Provider)
+	return providers.ProbeCredential(ctx, p)
 }
 
 // probeTTL is how long a verified/rejected probe result is trusted before re-probing; "unreachable" is never cached.
@@ -354,21 +359,9 @@ func cliArgv(argv []string) ([]string, error) {
 	return resolved, nil
 }
 
-// ProbeValue live-checks a candidate value for p without storing it first, via the env-var seam
-// providers.Credential already checks ahead of the vault; the previous env is restored after.
+// ProbeValue live-checks a candidate for p without storing it; it rides the probe's ctx, never the process env.
 func ProbeValue(p *providers.Provider, envVar, candidate string) (status, detail string) {
-	prev, had := os.LookupEnv(envVar)
-	if err := os.Setenv(envVar, candidate); err != nil {
-		return providers.ProbeUnreachable, fmt.Sprintf("cannot set %s for credential probe: %v", envVar, err)
-	}
-	defer func() {
-		if had {
-			_ = os.Setenv(envVar, prev)
-		} else {
-			_ = os.Unsetenv(envVar)
-		}
-	}()
-	return Probe(KeyTarget{Provider: p})
+	return probeWith(providers.WithCredentialOverride(context.Background(), envVar, candidate), p)
 }
 
 // RotateOptions lists how an already-present kt can be rotated: its own CLI first (login, then mint —

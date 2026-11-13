@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -308,36 +309,29 @@ func bankFmtTokenize(s string) []string {
 // bankFmtPack greedily fills lines ≤ BankFmtMaxLine runes; a single over-width token is kept whole.
 func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 	var lines []string
-	cur := firstPrefix
-	onLine := 0
-	last := ""
+	prefix, row := firstPrefix, []string(nil)
 	for _, t := range tokens {
-		prev := last
-		last = t
-		sep := ""
-		if onLine > 0 {
-			sep = " "
-		}
-		candidate := cur + sep + t
-		if onLine > 0 && utf8.RuneCountInString(candidate) > BankFmtMaxLine {
-			if listItem(contIndent+t+" x") != nil { // a bare marker must not open a line: carry the prior word
-				if onLine > 1 {
-					lines = append(lines, strings.TrimSuffix(cur, " "+prev))
-					cur = contIndent + prev + " " + t
-					onLine = 2
-				} else { // one token precedes it: keep the marker on that line, over width
-					cur = candidate
-					onLine++
-				}
-				continue
-			}
-			lines = append(lines, cur)
-			cur = contIndent + t
-			onLine = 1
+		cur := prefix + strings.Join(row, " ")
+		if len(row) == 0 || utf8.RuneCountInString(cur+" "+t) <= BankFmtMaxLine {
+			row = append(row, t)
 			continue
 		}
-		cur = candidate
-		onLine++
+		keep := len(row)
+		if bankFmtMarker(contIndent, t) { // a marker must not open a line: carry the trailing marker run and a word
+			keep = len(row) - 1
+			for keep > 0 && bankFmtMarker(contIndent, row[keep]) {
+				keep--
+			}
+		}
+		if keep == 0 { // nothing precedes the run: keep it on this line, over width
+			row = append(row, t)
+			continue
+		}
+		lines = append(lines, prefix+strings.Join(row[:keep], " "))
+		prefix, row = contIndent, append(slices.Clone(row[keep:]), t)
 	}
-	return append(lines, cur)
+	return append(lines, prefix+strings.Join(row, " "))
 }
+
+// bankFmtMarker reports whether tok, opening a continuation line, would read as a list marker.
+func bankFmtMarker(contIndent, tok string) bool { return listItem(contIndent+tok+" x") != nil }

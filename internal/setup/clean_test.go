@@ -844,6 +844,7 @@ type sandboxFixture struct {
 
 func newSandboxFixture(t *testing.T) sandboxFixture {
 	t.Helper()
+	stubPidAlive(t, func(int) bool { return false })
 	fx := sandboxFixture{cfg: vaulttest.Use(t)}
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
 	tmp := t.TempDir()

@@ -153,8 +153,10 @@ var noSync atomic.Bool
 // DisableSyncForTests makes commits skip fsync, which is slow on darwin.
 func DisableSyncForTests() { noSync.Store(true) }
 
-func Update(fn func(*Tx) error) error {
-	path := Path()
+func Update(fn func(*Tx) error) error { return UpdateAt(Path(), fn) }
+
+// UpdateAt is Update on the vault file at path, creating it when missing; it reads no environment.
+func UpdateAt(path string, fn func(*Tx) error) error {
 	if err := create(path); err != nil {
 		return err
 	}
@@ -179,7 +181,7 @@ func Update(fn func(*Tx) error) error {
 	})
 }
 
-// newVaultID is 16 random hex bytes, the identity its master key is stored under in the keyring (vault-key/<id>).
+// newVaultID is 16 random hex bytes,the identity its master key is stored under in the keyring (vault-key/<id>).
 func newVaultID() string {
 	id := make([]byte, 16)
 	if _, err := rand.Read(id); err != nil {

@@ -17,11 +17,21 @@ linters:
     - gocognit
     - perfsprint
     - modernize
+    - forbidigo
   settings:
     gocognit:
       min-complexity: 30
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: '^os\.(Setenv|Unsetenv|Clearenv|Chdir)$'
+          pkg: '^os$'
+          msg: 'use internal/proc: process-wide state has one home'
   exclusions:
     rules:
+      # internal/proc is the one home; hosttest is a test-helper package; tests restore their own state.
+      - path: '(^|/)internal/(proc|hosttest)/|_test\.go$'
+        linters: [forbidigo]
       - path: _test\.go
         linters:
           - gocognit

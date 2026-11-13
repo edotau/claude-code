@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -136,9 +137,9 @@ type stagedKey struct {
 func (k stagedKey) restore(d *dialog, name string) {
 	var err error
 	if k.had {
-		err = os.Setenv(name, k.prev)
+		err = proc.Setenv(name, k.prev)
 	} else {
-		err = os.Unsetenv(name)
+		err = proc.Unsetenv(name)
 	}
 	if err != nil {
 		d.printf("%s: env not restored: %v\n", name, err)
@@ -151,7 +152,7 @@ func (d *dialog) stage(name, val string) bool {
 	if !seen {
 		k.prev, k.had = os.LookupEnv(name)
 	}
-	if err := os.Setenv(name, val); err != nil {
+	if err := proc.Setenv(name, val); err != nil {
 		d.printf("%s: not staged: %v\n", name, err)
 		return false
 	}

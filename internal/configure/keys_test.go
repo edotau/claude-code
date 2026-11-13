@@ -673,6 +673,83 @@ func TestProbeValueRejectsInvalidCandidateBeforeRequest(t *testing.T) {
 	}
 }
 
+// envEverSet polls name until the returned stop func is called; stop reports whether it was ever set.
+func envEverSet(name string) (stop func() bool) {
+	done, finished := make(chan struct{}), make(chan struct{})
+	var seen atomic.Bool
+	go func() {
+		defer close(finished)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				if _, set := os.LookupEnv(name); set {
+					seen.Store(true)
+				}
+			}
+		}
+	}()
+	return func() bool { close(done); <-finished; return seen.Load() }
+}
+
+// probeIsolated probes prov with cand: verified when own, else rejected; no detail may carry a candidate.
+func probeIsolated(prov *providers.Provider, name, cand string, own bool, all []string) bool {
+	status, detail := ProbeValue(prov, name, cand)
+	want := providers.ProbeRejected
+	if own {
+		want = providers.ProbeVerified
+	}
+	return status == want && !slices.ContainsFunc(all, func(c string) bool { return strings.Contains(detail, c) })
+}
+
+func TestProbeValueConcurrentCandidatesStayIsolated(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const name = "CONFIGURE_PROBE_CONCURRENT"
+	if _, set := os.LookupEnv(name); set {
+		t.Fatalf("%s is set in the test environment", name)
+	}
+	cands := []string{"candidate-alpha-9f1c", "candidate-beta-27d4"}
+	provs := []*providers.Provider{fakeKeyedProvider(t, name, cands[0]), fakeKeyedProvider(t, name, cands[1])}
+	stop := envEverSet(name)
+	bad := probeAllConcurrently(provs, name, cands)
+	if stop() {
+		t.Errorf("%s was set in the process environment during a probe", name)
+	}
+	if bad != 0 {
+		t.Errorf("%d probes saw another probe's candidate or leaked one in the detail (mismatch)", bad)
+	}
+}
+
+// probeAllConcurrently probes each provider with its own and the other candidate, 20 rounds; it returns mismatches.
+func probeAllConcurrently(provs []*providers.Provider, name string, cands []string) int32 {
+	var bad atomic.Int32
+	done := make(chan struct{})
+	launched := 0
+	for range 20 {
+		for i := range cands {
+			for _, own := range []bool{true, false} {
+				launched++
+				go func() {
+					defer func() { done <- struct{}{} }()
+					cand := cands[i]
+					if !own {
+						cand = cands[1-i]
+					}
+					if !probeIsolated(provs[i], name, cand, own, cands) {
+						bad.Add(1)
+					}
+				}()
+			}
+		}
+	}
+	for range launched {
+		<-done
+	}
+	return bad.Load()
+}
+
 // Dropping tailscale from `configure keys`/secrets is deliberate (BREAKING CHANGE): no row, no
 // TAILSCALE_OAUTH_CLIENT_SECRET console link — both now live only in the read-only remote section.
 func TestKeysAndSecretsNeverCarryTailscale(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ func tsPage(t *testing.T, input string, admin bool) (*dialog, *bytes.Buffer) {
 	sh, l, m, e, v, c := tsShell, tsLogin, tsMint, tsExitNode, tsValidate, tsCheck
 	t.Cleanup(func() { tsShell, tsLogin, tsMint, tsExitNode, tsValidate, tsCheck = sh, l, m, e, v, c })
 	tsCheck = func(context.Context) error { return nil }
+	tsAdminVerdict.Lock()
 	tsAdminVerdict.at = time.Time{}
+	tsAdminVerdict.Unlock()
 	tsValidate = func(context.Context, string, string) error { t.Error("validate ran"); return nil }
 	var out bytes.Buffer
 	tsShell = func(*dialog) *shell { return &shell{Out: &out, In: bufio.NewReader(strings.NewReader(input))} }
@@ -48,6 +51,19 @@ func tsPage(t *testing.T, input string, admin bool) (*dialog, *bytes.Buffer) {
 		return "", nil
 	}
 	return &dialog{out: &out}, &out
+}
+
+// Concurrent admin-state reads share one verdict under its mutex (run with -race).
+func TestTsAdminStateConcurrent(t *testing.T) {
+	tsPage(t, "", true)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() { _ = tsAdminState() })
+	}
+	wg.Wait()
+	if got := tsAdminState(); !strings.Contains(got, "valid") {
+		t.Errorf("tsAdminState = %q, want valid", got)
+	}
 }
 
 // tsConnected stubs Status as a Running node named dns with the given exit-node state.
