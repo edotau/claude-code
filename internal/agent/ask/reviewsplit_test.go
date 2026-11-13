@@ -63,7 +63,7 @@ func TestSplitDiffOversizedFileSplitsOnHunks(t *testing.T) {
 
 func TestMergeReportsWorstVerdictAndDedup(t *testing.T) {
 	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}}
-	out := mergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", "BLOCK\n[LOW] a:1 — x — y\n[HIGH] b:2 — z — w"})
+	out := mergeReports(false, parts, []string{"SHIP\n[LOW] a:1 — x — y", "BLOCK\n[LOW] a:1 — x — y\n[HIGH] b:2 — z — w"})
 	if !strings.HasPrefix(out, "BLOCK\n") || strings.Count(out, "a:1") != 1 {
 		t.Fatalf("want BLOCK first and one a:1 line:\n%s", out)
 	}
@@ -102,11 +102,11 @@ func TestMergeReportsBlankAdversarialAnswerIsNotClean(t *testing.T) {
 	}
 }
 
-func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
+func TestMergeReportsUnjudgedPartIsNotShip(t *testing.T) {
 	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}}
-	out := mergeReports(false, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", ""})
-	if !strings.HasPrefix(out, "NEEDS WORK\n") {
-		t.Fatalf("an unjudged part must not merge to SHIP IT:\n%s", out)
+	out := mergeReports(false, parts, []string{"SHIP\n[LOW] a:1 — x — y", ""})
+	if !strings.HasPrefix(out, "FIX REQUIRED\n") {
+		t.Fatalf("an unjudged part must not merge to SHIP:\n%s", out)
 	}
 	out = mergeReports(false, parts, []string{"BLOCK\n[HIGH] a:1 — x — y", "no verdict here"})
 	if !strings.HasPrefix(out, "BLOCK\n") {
@@ -116,7 +116,7 @@ func TestMergeReportsUnjudgedPartIsNotShipIt(t *testing.T) {
 
 func TestMergeReportsPartialAnswersNumberAgainstFullPartCount(t *testing.T) {
 	parts := []part{{Files: []string{"a"}}, {Files: []string{"b"}}, {Files: []string{"c"}}}
-	got := mergeReports(true, parts, []string{"SHIP IT\n[LOW] a:1 — x — y", cleanVerdict})
+	got := mergeReports(true, parts, []string{"SHIP\n[LOW] a:1 — x — y", cleanVerdict})
 	for _, want := range []string{"## part 1/3", "## part 2/3", "findings across 3 parts"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("partial report missing %q:\n%s", want, got)

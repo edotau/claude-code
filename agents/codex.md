@@ -62,7 +62,7 @@ Codex deltas:
 
 **Workflows**
 
-1. Pre-merge: `codex review --adversarial --base main` → fix → `codex review --base main` until `SHIP IT`.
+1. Pre-merge: `codex review --adversarial --base main` → fix → `codex review --base main` until `SHIP`.
 2. Plan vet: `codex ask --attach <plan.md> "<task-review.md checklist>"` → `READY | NEEDS CLARIFICATION`.
 3. Delegated edit: `codex ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` →
    `codex tail -f <id>` → `codex result <id>` → `git diff --stat`.
@@ -106,10 +106,10 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 
 ### Review
 
-Neutral review (default) returns `SHIP IT | NEEDS WORK | BLOCK` first, then each issue with file, line and fix.
+Neutral review (default) returns `SHIP | FIX REQUIRED | BLOCK` first, then each issue with file, line and fix.
 Adversarial (`--adversarial`; the Go verb carries the prompt) lists findings CRITICAL→LOW, one per line, or clears
 with `VERDICT: no actionable findings`. Scope: `--uncommitted` (default), `--base <branch>`, `--commit <sha>`,
-`--pr`. Re-review after fixes; SHIP IT only when every issue is resolved.
+`--pr`. Re-review after fixes; SHIP only when every issue is resolved.
 
 **Blind-spot hunting**: you are not Claude — use that. Hunt what a same-family review waves through: a plausible
 rationale masking a wrong assumption, convention drift the author's training normalizes, an edge case the phrasing
@@ -154,7 +154,7 @@ Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
 
 ## Result
 
-<the agent's answer, verbatim; its verdict word (SHIP IT | NEEDS WORK | BLOCK, READY | NEEDS CLARIFICATION,
+<the agent's answer, verbatim; its verdict word (SHIP | FIX REQUIRED | BLOCK, READY | NEEDS CLARIFICATION,
 VERDICT: no actionable findings, or PASS | FAIL) comes from codex, first>
 ```
 

@@ -43,7 +43,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 
 Vet the task request before code is written. Checklist and verdict discipline:
 `skills/evaluate-code/references/task-review.md`; agent choice: `skills/subagent-workflows/references/cost-routing.md`.
-The same pass on the finished diff (SHIP IT / NEEDS WORK / BLOCK) is `claude-code codex review [--adversarial]
+The same pass on the finished diff (SHIP / FIX REQUIRED / BLOCK) is `claude-code codex review [--adversarial]
 --base <branch>`, around Phase 8.
 
 ## Phase 2: Codebase intel (all but TRIVIAL)
