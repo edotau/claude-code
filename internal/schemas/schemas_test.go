@@ -189,7 +189,7 @@ var writers = map[string]string{
 	"internal/memory/bank_fmt.go:formatFiles":                  unversioned("memory-bank: bank markdown format"),
 	"internal/memory/bank_blocks.go:appendBlocks":              unversioned("memory-bank: bank blocks"),
 	"internal/memory/digest.go:digest":                         unversioned("memory-bank: bank digest markdown"),
-	"internal/memory/doctor.go:writeDoctorNotice":              unversioned("text: per-store doctor notice line"),
+	"internal/memory/doctor.go:cacheDoctorNotice":              unversioned("text: per-store doctor notice line"),
 	"internal/memory/dream.go:stampDream":                      unversioned("text: per-store dream timestamp stamp"),
 	"internal/memory/embed_store.go:refreshEmbeddings":         unversioned("marker: embedding refresh spawn stamp"),
 	"internal/memory/embed.go:embedQuery":                      unversioned("marker: semantic-recall backoff stamp"),

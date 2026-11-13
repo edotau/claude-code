@@ -76,3 +76,23 @@ func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
 		}
 	}
 }
+
+// Given a cached notice naming a problem, When the problem is fixed and `memory index` settles, Then the cache clears.
+func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
+	tempConfig(t)
+	prev := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = prev })
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return nil, errors.New("stub") }
+	decisionLog := filepath.Join(HomeBankDir(), "decisionLog.md")
+	decisionLogOver(t, decisionLog, 80)
+	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	write(t, decisionLog, "# D\n")
+	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{Repo: HomeBankDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if notice := mustRead(t, doctorNoticePath(HomeBankDir())); notice != "" {
+		t.Errorf("cached notice after the fix and an index = %q, want it cleared", notice)
+	}
+}

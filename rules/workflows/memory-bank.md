@@ -118,11 +118,14 @@ everything the native loader reads. Past a `fileCaps` limit `memory dream` archi
   decisions → decisionLog, patterns → conventions.
 - `memory-update` / `memory-end` (Stop / SessionEnd) — after enough edits, run `memory update` headless so a session
   that forgets still persists; the first dispatch claims a detached `memory watch` that updates after 10 quiet
-  minutes (a crash fires no SessionEnd). `memory-compact` does the same before compaction.
+  minutes (a crash fires no SessionEnd). `memory-compact` does the same before compaction. A detached worker
+  (`CLAUDE_MEMORY_DETACHED`) queues up to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground
+  `memory update` waits `updateLockWait` (5 s) and says so.
 - `memory dream` — archives durable-file overflow and consolidates; it never moves entries to home. `memory promote`
   is the only route to home.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
-  store. **Never hand-edit generated regions.**
+  store. **Never hand-edit generated regions.** `index`, `dream`, `update`, `import` and plain `review` also
+  refresh the cached session-start notice (`state/harness/memory/doctor-notice-<store>`); session start only reads it.
 - `memory review` — caps, staleness, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
   moves the block (no link back); `rules` and `skill` print the block, target and procedure and edit nothing;
   `claude-md` does the same only inside `memory dream`'s own run and is refused anywhere else (`promoteJudgment`).

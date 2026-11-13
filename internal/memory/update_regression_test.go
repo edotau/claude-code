@@ -211,3 +211,31 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 		t.Fatal("agent never ran")
 	}
 }
+
+// Given a peer holds the store lock past the foreground wait, When a detached update runs, Then it queues and saves.
+func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
+	clearChildEnv(t)
+	isolatedConfig(t)
+	root := repoRoot(t, "detached-wait")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	prevFg, prevDetached := updateLockWait, detachedLockWait
+	updateLockWait, detachedLockWait = 10*time.Millisecond, 5*time.Second
+	t.Cleanup(func() { updateLockWait, detachedLockWait = prevFg, prevDetached })
+	t.Setenv(DetachedEnv, "1")
+	held, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_, _ = paths.TryFileLock(lockPath(Dir(root))+".lock", 0, func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	time.AfterFunc(100*time.Millisecond, func() { close(release) }) // longer than updateLockWait, far inside detachedLockWait
+	ranAgent := false
+	err := update(updateOptions{CWD: root, Session: "detached", Run: func(context.Context, string, string) (string, error) {
+		ranAgent = true
+		return "fixture", nil
+	}})
+	if err != nil || !ranAgent {
+		t.Fatalf("detached update behind a lock held 100ms: err=%v ran=%v, want it queued and run", err, ranAgent)
+	}
+}
