@@ -19,6 +19,7 @@ import (
 	"time"
 
 	_ "github.com/edotau/claude-code/internal/nonet" // test binaries refuse real DNS: tests mock their API calls
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // ConfigDir is CLAUDE_CONFIG_DIR, else the git clone holding the running binary in its bin/, else ~/.claude.
@@ -96,7 +97,7 @@ func ExportConfigDir() {
 		return
 	}
 	if r := installRoot(); r != "" {
-		_ = os.Setenv("CLAUDE_CONFIG_DIR", r)
+		_ = proc.Setenv("CLAUDE_CONFIG_DIR", r)
 	}
 }
 
@@ -267,7 +268,7 @@ var lockTimeout = 2 * time.Minute
 func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
 
 // lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.
-func lockPoll() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
+var lockPoll = func() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
 
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
@@ -460,6 +461,39 @@ func SwapSymlink(target, link string) error {
 		return errors.Join(err, os.Remove(tmp))
 	}
 	return nil
+}
+
+// ResolveLink follows path through symlinks so a write lands on the real file; followDangling chases a dangling
+// link to its missing target, else a dangling link is an error.
+func ResolveLink(path string, followDangling bool) (string, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return real, nil
+	}
+	fi, lerr := os.Lstat(path)
+	if !followDangling {
+		if lerr == nil {
+			return "", fmt.Errorf("%s is a symlink to a missing file: create its target or remove the link", path)
+		}
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return "", err
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		t, rerr := os.Readlink(path)
+		if rerr != nil {
+			return "", rerr
+		}
+		if !filepath.IsAbs(t) {
+			t = filepath.Join(filepath.Dir(path), t)
+		}
+		return ResolveLink(t, true)
+	}
+	return path, nil
 }
 
 // ShortHome replaces a leading home directory with ~, leaving sibling paths unchanged.

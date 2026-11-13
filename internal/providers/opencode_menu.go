@@ -265,8 +265,7 @@ func AppendPickerModels(p *Provider, live []ModelInfo) (added []ModelInfo, err e
 		if err != nil {
 			return errors.New("cannot encode picker additions")
 		}
-		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(data)), Kid: key.Kid,
-			Len: len(data), Label: "picker additions", SetAt: time.Now().UTC()})
+		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
 	})
 	return added, err
 }

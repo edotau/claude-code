@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -344,6 +345,75 @@ func TestTryFileLockContention(t *testing.T) {
 	if !ran {
 		t.Error("TryFileLock must run fn once the lock is released")
 	}
+}
+
+// holdLock takes path's WithFileLock in a goroutine and returns the func that releases it.
+func holdLock(t *testing.T, path string) (release func()) {
+	t.Helper()
+	held, stop, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() { done <- WithFileLock(path, func() error { close(held); <-stop; return nil }) }()
+	<-held
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			close(stop)
+			if err := <-done; err != nil {
+				t.Errorf("holder: %v", err)
+			}
+		})
+	}
+	t.Cleanup(release) // a failed assertion must not leave the lock held for the next subtest
+	return release
+}
+
+// signalPoll is a lockPoll that returns d and signals the channel on its first call: a waiter found the lock held.
+func signalPoll(d time.Duration) (func() time.Duration, <-chan struct{}) {
+	sig := make(chan struct{}, 1)
+	return func() time.Duration {
+		select {
+		case sig <- struct{}{}:
+		default:
+		}
+		return d
+	}, sig
+}
+
+// WithFileLock waits lockTimeout for a holder: it succeeds once the holder releases inside the wait, else ErrLockTimeout.
+func TestWithFileLockWaitsForHolder(t *testing.T) {
+	oldWait, oldPoll := lockTimeout, lockPoll
+	t.Cleanup(func() { lockTimeout, lockPoll = oldWait, oldPoll })
+	path := filepath.Join(t.TempDir(), "f")
+
+	t.Run("released inside the wait", func(t *testing.T) {
+		poll, waiting := signalPoll(time.Millisecond)
+		lockTimeout, lockPoll = 5*time.Second, poll
+		release, done := holdLock(t, path), make(chan error, 1)
+		go func() { done <- WithFileLock(path, func() error { return nil }) }()
+		select {
+		case <-waiting: // the second locker found the lock held and is polling
+			release()
+		case err := <-done:
+			t.Fatalf("second locker returned %v without waiting for the holder", err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("second locker after the release: %v", err)
+		}
+	})
+
+	t.Run("held past the wait", func(t *testing.T) {
+		wait := 10 * time.Millisecond
+		lockTimeout, lockPoll = wait, func() time.Duration { return wait / 10 }
+		release, ran, start := holdLock(t, path), false, time.Now()
+		err := WithFileLock(path, func() error { ran = true; return nil })
+		elapsed := time.Since(start)
+		release()
+		if ran || !errors.Is(err, ErrLockTimeout) {
+			t.Fatalf("ran=%t err=%v, want fn skipped and ErrLockTimeout", ran, err)
+		}
+		if elapsed < wait || elapsed > 50*wait {
+			t.Errorf("gave up after %v, want between %v and %v", elapsed, wait, 50*wait)
+		}
+	})
 }
 
 func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -518,7 +518,7 @@ func changedPageKeys(d *dialog, before map[string]stagedKey) []string {
 func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 	if prev, ok := before[name]; ok {
 		d.pending[name] = prev
-		_ = os.Setenv(name, prev.val)
+		_ = proc.Setenv(name, prev.val)
 		return
 	}
 	d.pending[name].restore(d, name)

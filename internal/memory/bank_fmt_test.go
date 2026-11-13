@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -75,6 +76,15 @@ func markerAfterOneTokenCases() []wrapCase {
 	return cases
 }
 
+// markerRunCases: after one over-long token a RUN of marker tokens stays together on that line, never opening one.
+func markerRunCases() []wrapCase {
+	long := strings.Repeat("y", 2*BankFmtMaxLine)
+	return []wrapCase{
+		{name: "marker run + +", input: "- " + long + " + + tail", want: "- " + long + " + +\n  tail"},
+		{name: "marker run - *", input: "- " + long + " - * word", want: "- " + long + " - *\n  word"},
+	}
+}
+
 // untouchedCases are the over-width surfaces formatBankMarkdown must leave byte-identical.
 func untouchedCases() []wrapCase {
 	return []wrapCase{
@@ -133,7 +143,7 @@ func runWrapCases(t *testing.T, cases []wrapCase) {
 // each wrap at a word boundary with continuation indented to the item's content column.
 func TestFormatBankMarkdownWrapTable(t *testing.T) {
 	t.Parallel()
-	runWrapCases(t, append(wrapBreakCases(), markerAfterOneTokenCases()...))
+	runWrapCases(t, slices.Concat(wrapBreakCases(), markerAfterOneTokenCases(), markerRunCases()))
 }
 
 // A RULES region opened and closed on one line must not switch wrapping off for the rest of the file.

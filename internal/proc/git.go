@@ -45,6 +45,11 @@ func RunGitRaw(ctx context.Context, dir string, args ...string) (string, error) 
 	return runRaw(ctx, GitEnv(), dir, args...)
 }
 
+// RunGitInheritRaw is RunGitInherit with stdout returned byte-for-byte, trailing newlines kept (file contents).
+func RunGitInheritRaw(ctx context.Context, dir string, args ...string) (string, error) {
+	return runRaw(ctx, os.Environ(), dir, args...)
+}
+
 func run(ctx context.Context, env []string, dir string, args ...string) (string, error) {
 	out, err := runRaw(ctx, env, dir, args...)
 	return strings.TrimRight(out, "\n"), err

@@ -33,18 +33,24 @@ func Store(name, value string) error {
 		return fmt.Errorf("%s: a secret must be one line", name)
 	}
 	if err := UpdateSealed(func(tx *Tx, key *Key) error {
-		return tx.PutRecord(name, Record{
-			Sealed: key.Seal(name, value),
-			Kid:    key.Kid,
-			Prefix: MetaPrefix(value),
-			Len:    len(value),
-			SetAt:  time.Now(),
-		})
+		return tx.PutStored(key, name, value)
 	}); err != nil {
 		return err
 	}
 	audit.Log(audit.SecretSet, name, "vault")
 	return nil
+}
+
+// PutStored seals value under name with Store's metadata (prefix, length, now), inside the caller's transaction.
+func (t *Tx) PutStored(key *Key, name, value string) error {
+	return t.PutRecord(name, Record{
+		Sealed: key.Seal(name, value), Kid: key.Kid, Prefix: MetaPrefix(value), Len: len(value), SetAt: time.Now(),
+	})
+}
+
+// PutSealed seals value under name with a display label and set-time, inside the caller's transaction.
+func (t *Tx) PutSealed(key *Key, name, value, label string, at time.Time) error {
+	return t.PutRecord(name, Record{Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value), Label: label, SetAt: at})
 }
 
 // Delete removes name's vault record without resolving a key and audits it; an absent name is a silent no-op.

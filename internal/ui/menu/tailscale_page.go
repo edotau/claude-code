@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
@@ -27,6 +28,7 @@ var (
 
 // tsAdminVerdict caches the admin credential check for a minute; tsAdminKey clears it after a change.
 var tsAdminVerdict struct {
+	sync.Mutex
 	at   time.Time
 	text string
 }
@@ -90,6 +92,8 @@ func tsAdminState() string {
 	if !configure.HasAdminCredential() {
 		return ansi.SpanOff + "absent" + ansi.SpanEnd
 	}
+	tsAdminVerdict.Lock()
+	defer tsAdminVerdict.Unlock()
 	if time.Since(tsAdminVerdict.at) > time.Minute {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -165,7 +169,9 @@ func tsAdminKey(d *dialog, s *shell) {
 		return
 	}
 	d.println("admin key: sealed in the vault")
+	tsAdminVerdict.Lock()
 	tsAdminVerdict.at = time.Time{}
+	tsAdminVerdict.Unlock()
 }
 
 // tsAuthKey asks the key's options, mints it, prints it once and seals it as TAILSCALE_AUTHKEY.

@@ -37,7 +37,7 @@ var AnthropicStripEnv = []string{
 
 // ScrubDeny is every inherited credential/routing var a launch never passes through (it would override its own).
 var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
-	"DATABRICKS_*",
+	"DATABRICKS_*", "AGY_LLM_GATEWAY_*",
 	"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "AZURE_OPENAI_*",
 	"GEMINI_API_KEY", "GOOGLE_API_KEY",
 	"COPILOT_GITHUB_TOKEN", CopilotProviderPrefix + "*", EnvCopilotProvidersConfig,
@@ -47,6 +47,9 @@ var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	"COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }...)
+
+// ScrubDenyCredentials is ScrubDeny plus every credential-shaped name glob, for a child whose credential owner is unknown.
+var ScrubDenyCredentials = append(slices.Clone(ScrubDeny), "*_KEY", "*_TOKEN", "*_SECRET", "*_PASSWORD", "*_CREDENTIALS")
 
 // OwnLoginEnv is each agent's own sign-in credential env by agent name; a Databricks overlay hop holds none of them.
 var OwnLoginEnv = map[string][]string{

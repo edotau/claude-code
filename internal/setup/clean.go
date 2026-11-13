@@ -52,6 +52,8 @@ type target struct {
 	optIn bool
 	// keep, when set, is consulted per matched entry before age gating; true protects it from removal.
 	keep func(path string) bool
+	// note, when set, names why a kept match stays; a dry run lists those as "kept: <reason>".
+	note func(path string) string
 }
 
 // cfgPath and statePath join under the config and state dirs; the target lists below resolve them fresh per call.
@@ -113,7 +115,7 @@ func stateTargets() []target {
 		},
 		{
 			name: "memory-sandboxes", doc: "leftover `memory sandbox` dirs in the temp dir (seed-commit verified)",
-			globs: sandboxGlobs, keep: keepNonSandbox,
+			globs: sandboxGlobs, keep: keepNonSandbox, note: sandboxNote,
 		},
 	}
 }
@@ -291,6 +293,18 @@ func removeVerb(apply bool) string {
 	return "would remove"
 }
 
+// reportKept lists the matches of a target that its note function says stay, with the reason.
+func reportKept(errw io.Writer, t target) {
+	for _, pattern := range t.globs() {
+		matches, _ := filepath.Glob(pattern)
+		for _, m := range matches {
+			if why := t.note(m); why != "" {
+				fmt.Fprintf(errw, "  kept: %s %s\n", why, m)
+			}
+		}
+	}
+}
+
 // reportNested sweeps the nested config dir when it is safe, or says why it was kept.
 func reportNested(errw io.Writer, apply bool, tot *sweepTotals) {
 	n := NestedConfig()
@@ -323,6 +337,9 @@ func sweepTarget(errw io.Writer, t target, cutoff time.Time, apply bool, tot *sw
 	}
 	hits, size, failed := pruneAgedTo(errw, t.globs(), tcut, apply, t.keep)
 	tot.failed += failed
+	if !apply && t.note != nil {
+		reportKept(errw, t)
+	}
 	if len(hits) == 0 {
 		return
 	}

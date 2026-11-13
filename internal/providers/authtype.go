@@ -118,7 +118,7 @@ func sealedAuth(t string) bool { return slices.Contains(supportedAuthTypes, t) }
 // AuthHost is the https://host a row talks to: the preset host, else BaseURL's origin; "" when neither parses.
 func AuthHost(p *Provider) string {
 	h := rawAuthHost(p)
-	if u, err := url.Parse(h); err == nil && u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
+	if u, err := url.Parse(h); err == nil && textutil.IsPlainHTTPOffLoopback(u) {
 		return ""
 	}
 	return h
@@ -139,7 +139,7 @@ func rawAuthHost(p *Provider) string {
 // checkAuthScheme refuses a sealed auth type whose host is plain http outside loopback; the error carries no credential.
 func checkAuthScheme(p *Provider) error {
 	u, err := url.Parse(rawAuthHost(p))
-	if err != nil || u.Scheme != "http" || textutil.IsLoopbackHost(u.Hostname()) {
+	if err != nil || !textutil.IsPlainHTTPOffLoopback(u) {
 		return nil
 	}
 	return fmt.Errorf("%s: auth.type %s needs an https host, got scheme %q", p.Name, p.Auth.Type, u.Scheme)

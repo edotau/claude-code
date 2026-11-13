@@ -45,7 +45,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if v, ok := cachedCommand(p.Name); ok && p.Auth.Command != "" { // a refreshed command token outranks static sources
 		return v, nil
 	}
-	v, vaultErr := vaultCredential(p)
+	v, vaultErr := vaultCredential(ctx, p)
 	if v != "" {
 		return v, nil
 	}
@@ -65,10 +65,35 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, keyHint(p), hint(p))
 }
 
+type credOverrideKey struct{}
+
+// credOverride is one in-memory candidate for a key name; an empty value means "unset", never "fall back".
+type credOverride struct{ name, value string }
+
+// WithCredentialOverride makes Credential read value for the key name ahead of env and vault, for ctx's calls only.
+func WithCredentialOverride(ctx context.Context, name, value string) context.Context {
+	return context.WithValue(ctx, credOverrideKey{}, credOverride{name, value})
+}
+
+// overrideFor returns ctx's override value for name and whether one applies.
+func overrideFor(ctx context.Context, name string) (string, bool) {
+	o, ok := ctx.Value(credOverrideKey{}).(credOverride)
+	if !ok || o.name != name {
+		return "", false
+	}
+	return o.value, true
+}
+
 // vaultCredential returns the first non-empty effective secret among the key names, plus the first vault error seen.
-func vaultCredential(p *Provider) (string, error) {
+func vaultCredential(ctx context.Context, p *Provider) (string, error) {
 	var vaultErr error
 	for _, n := range keyNames(p) {
+		if v, ok := overrideFor(ctx, n); ok {
+			if v != "" {
+				return v, vaultErr
+			}
+			continue
+		}
 		v, _, err := vault.EffectiveSecret(n)
 		vaultErr = cmp.Or(vaultErr, err)
 		if err == nil && v != "" {

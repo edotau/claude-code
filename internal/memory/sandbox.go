@@ -5,16 +5,80 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
+
+// SandboxOwnerFile is the marker in a sandbox root naming the process that created it.
+const SandboxOwnerFile = "owner.json"
+
+// SandboxOwner is the marker's content: the creating process and when it started.
+type SandboxOwner struct {
+	PID   int   `json:"pid"`
+	Start int64 `json:"start"`
+}
+
+// SandboxRegistry lists every sandbox dir ever created, whatever TMPDIR it was under.
+func SandboxRegistry() string { return filepath.Join(StateDir(), "sandboxes.list") }
+
+// UpdateSandboxRegistry adds dir when non-empty, drops entries whose dir is gone, and returns the live ones.
+func UpdateSandboxRegistry(add string) (live []string, err error) {
+	file := SandboxRegistry()
+	if err = os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return nil, err
+	}
+	err = paths.WithFileLock(file, func() error {
+		data, err := os.ReadFile(file)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		live = liveSandboxDirs(append(strings.Split(string(data), "\n"), add))
+		body := strings.Join(live, "\n") + "\n"
+		if len(live) == 0 {
+			body = ""
+		}
+		if body == string(data) {
+			return nil
+		}
+		return paths.AtomicWrite(file, []byte(body), 0o600)
+	})
+	return live, err
+}
+
+// liveSandboxDirs keeps the absolute, unique entries whose dir is not known to be gone (any doubt keeps it).
+func liveSandboxDirs(entries []string) (live []string) {
+	for _, l := range entries {
+		l = strings.TrimRight(l, "\r")
+		if _, err := os.Lstat(l); l == "" || !filepath.IsAbs(l) || slices.Contains(live, l) || errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		live = append(live, l)
+	}
+	return live
+}
+
+// recordSandbox writes the owner marker into dir and registers dir for the clean sweep.
+func recordSandbox(dir string) error {
+	data, err := json.Marshal(SandboxOwner{PID: os.Getpid(), Start: time.Now().Unix()})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, SandboxOwnerFile), data, 0o600); err != nil {
+		return err
+	}
+	_, err = UpdateSandboxRegistry(dir)
+	return err
+}
 
 // SandboxOptions selects the stores and whether their contents are copied.
 type SandboxOptions struct {
@@ -50,6 +114,12 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 			err = errors.Join(err, os.RemoveAll(res.Dir))
 		}
 	}()
+	if res.Dir, err = filepath.Abs(res.Dir); err != nil {
+		return res, err
+	}
+	if err = recordSandbox(res.Dir); err != nil {
+		return res, err
+	}
 	res.Env = map[string]string{"CLAUDE_CONFIG_DIR": res.Dir}
 	var files []string
 	for _, key := range slices.Sorted(maps.Keys(stores)) {
@@ -138,20 +208,9 @@ func sandboxStore(config, key, src string, empty bool) ([]string, error) {
 	return files, nil
 }
 
-// sandboxOrigins switches only for the vault write; no source vault bucket is copied.
-func sandboxOrigins(config string, origins []Origin) (err error) {
-	previous, present := os.LookupEnv("CLAUDE_CONFIG_DIR")
-	if err := os.Setenv("CLAUDE_CONFIG_DIR", config); err != nil {
-		return err
-	}
-	defer func() {
-		if present {
-			err = errors.Join(err, os.Setenv("CLAUDE_CONFIG_DIR", previous))
-		} else {
-			err = errors.Join(err, os.Unsetenv("CLAUDE_CONFIG_DIR"))
-		}
-	}()
-	return vault.Update(func(tx *vault.Tx) error {
+// sandboxOrigins writes the origins into the sandbox vault by path; no source vault bucket is copied.
+func sandboxOrigins(config string, origins []Origin) error {
+	return vault.UpdateAt(filepath.Join(config, "state", "vault.db"), func(tx *vault.Tx) error {
 		for _, o := range origins {
 			data, err := json.Marshal(o)
 			if err != nil {

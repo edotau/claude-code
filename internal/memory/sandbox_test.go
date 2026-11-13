@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -34,9 +35,7 @@ func TestSandboxPreservesIdentityAndSource(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if after := sandboxFiles(t, cfg); !reflect.DeepEqual(before, after) {
-		t.Fatal("source config changed")
-	}
+	requireOnlyRegistryAdded(t, before, sandboxFiles(t, cfg), res.Dir)
 	want := sandboxFiles(t, dir)
 	for _, name := range []string{"x.lock", ".postupdate", ".git/config", "link.md"} {
 		delete(want, name)
@@ -54,6 +53,70 @@ func TestSandboxPreservesIdentityAndSource(t *testing.T) {
 		t.Fatalf("commit count: %q", got)
 	}
 	sandboxVaultOnly(t)
+}
+
+// requireOnlyRegistryAdded fails unless the registry (naming dir) and its lock are the only source-config changes.
+func requireOnlyRegistryAdded(t *testing.T, before, after map[string]string, dir string) {
+	t.Helper()
+	const reg = "state/harness/memory/sandboxes.list"
+	if !strings.Contains(after[reg], dir) {
+		t.Fatalf("registry %q does not name %s", after[reg], dir)
+	}
+	delete(after, reg)
+	delete(after, reg+".lock")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("source config changed")
+	}
+}
+
+func TestSandboxOriginsConcurrentConfigsStayIsolated(t *testing.T) {
+	vault.DisableSyncForTests()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dirs := [2]string{t.TempDir(), t.TempDir()}
+	keys := [2]string{"alpha", "beta"}
+	var wg sync.WaitGroup
+	for i := range dirs {
+		wg.Go(func() {
+			if err := sandboxOrigins(dirs[i], []Origin{{Version: OriginVersion, Key: keys[i]}}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	for i, dir := range dirs {
+		err := vault.ViewAt(filepath.Join(dir, "state", "vault.db"), func(tx *vault.Tx) error {
+			if got := tx.Names(vault.MemoryOrigins); !reflect.DeepEqual(got, []string{keys[i]}) {
+				t.Errorf("vault %d origins = %v, want [%s]", i, got, keys[i])
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A messy registry (blank, duplicate, trailing slash, CRLF, relative, gone) keeps only the real absolute dirs.
+func TestUpdateSandboxRegistryTidiesMessyFile(t *testing.T) {
+	tempConfig(t)
+	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()
+	gone := filepath.Join(t.TempDir(), "gone")
+	write(t, SandboxRegistry(), "\n"+a+"\n\n"+a+"\n"+b+"/\n.\n"+c+"\r\n"+gone+"\n")
+	live, err := UpdateSandboxRegistry("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, d := range live {
+		got[filepath.Clean(d)] = true
+	}
+	if want := map[string]bool{a: true, b: true, c: true}; len(live) != 3 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("live = %q, want one entry each of %q", live, []string{a, b, c})
+	}
+	data, err := os.ReadFile(SandboxRegistry())
+	if err != nil || string(data) != strings.Join(live, "\n")+"\n" {
+		t.Errorf("registry rewritten as %q (%v), want the live entries one per line, no blanks", data, err)
+	}
 }
 
 func sandboxFiles(t *testing.T, dir string) map[string]string {

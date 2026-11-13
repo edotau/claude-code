@@ -32,6 +32,21 @@ func TestScrubDropsDenyFamilies(t *testing.T) {
 	}
 }
 
+// An inherited agy gateway selection is dropped, and a launch-kept name survives.
+func TestScrubDropsAgyGatewayEnv(t *testing.T) {
+	environ := []string{"AGY_LLM_GATEWAY_URL=http://evil", "AGY_LLM_GATEWAY_API_KEY=k", "AGY_LLM_GATEWAY_TIER_PRO=x", "AGY_OTHER=1"}
+	for name, scrub := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubAgent": ScrubAgent} {
+		kept, dropped := scrub(environ, nil)
+		if !slices.Equal(kept, []string{"AGY_OTHER=1"}) || len(dropped) != 3 {
+			t.Errorf("%s: kept = %q dropped = %q, want only AGY_OTHER kept", name, kept, dropped)
+		}
+	}
+	kept, _ := Scrub(environ, map[string]bool{"AGY_LLM_GATEWAY_URL": true})
+	if !slices.Contains(kept, "AGY_LLM_GATEWAY_URL=http://evil") {
+		t.Errorf("kept = %q, want the keep-listed name to survive", kept)
+	}
+}
+
 // Non-credential vars, and anything outside the deny table, pass through untouched.
 func TestScrubKeepsNonCredentialVars(t *testing.T) {
 	environ := []string{"PATH=/bin", "HOME=/h", "GH_TOKEN=x", "GITHUB_TOKEN=y", "AWS_PROFILE=p", "LANG=en_US"}
