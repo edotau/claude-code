@@ -36,9 +36,11 @@ func agentsSpec() *helptext.Node {
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
-		"diff":  {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
-		"list":  {Flags: []helptext.Flag{flag("host"), flag("host-bin"), formatFlag()}},
-		"ask":   {Flags: ask.CompletionFlags()},
+		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
+			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
+		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
+		"list": {Flags: []helptext.Flag{flag("host"), flag("host-bin"), formatFlag()}},
+		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("output-schema")}},
@@ -89,6 +91,7 @@ var agentsPage = helptext.Page{
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"reap", "mark dead running dispatches as error; drop stale markers"},
 		{"label", "print a leaf's dispatch description prefix"},
+		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
 		{"status", "show a dispatch's state (any agent): status <id>"},
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
@@ -101,6 +104,9 @@ var agentsPage = helptext.Page{
 
 // agentsSubPages are the `agents <verb> -h` pages: usage tail, blurb and hint.
 var agentsSubPages = map[string][3]string{
+	"find": {"find <pattern> [flags]", "Search tracked and new unignored files in path and line order; skip binary files and files over 1 MiB. " +
+		"Callers are name-based, not type-resolved. Stops at budget + 1; more is a lower bound.",
+		"Exit 0 matches, 1 none, 2 error."},
 	"list": {"list [flags]", "List each agent, whether it is available and which request fields (model, profile, effort, …) it honors."},
 	"reap": {"reap [flags]", "Mark dispatch records still \"running\" whose process is gone as error, and drop stale " +
 		"agent-inflight markers."},
@@ -155,6 +161,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"diff":   cmdAgentsDiff,
+	"find":   cmdAgentsFind,
 	"status": func(a []string) int { return cmdAgentsJob("status", a) },
 	"result": func(a []string) int { return cmdAgentsJob("result", a) },
 	"tail":   func(a []string) int { return cmdAgentsJob("tail", a) },
@@ -329,6 +336,37 @@ func cmdAgentsDiff(args []string) int {
 	}
 	return agent.Diff(agent.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, JSON: *format == helptext.JSON,
 		Out: os.Stdout, Err: os.Stderr})
+}
+
+func cmdAgentsFind(args []string) int {
+	fs := agentsFlags("find")
+	o := agent.FindOptions{Dir: ".", Out: os.Stdout, Err: os.Stderr}
+	fs.BoolVar(&o.Name, "name", false, "match file paths instead of content")
+	fs.BoolVar(&o.Func, "func", false, "match Go function or method declarations")
+	fs.BoolVar(&o.Def, "def", false, "match Go top-level func, type, const or var declarations")
+	fs.BoolVar(&o.Callers, "callers", false, "name-based Go calls to exactly pattern; no type resolution")
+	fs.BoolVar(&o.IgnoreCase, "i", false, "ignore case")
+	fs.BoolVar(&o.Word, "w", false, "match whole words")
+	fs.BoolVar(&o.Files, "l", false, "print matching file names only")
+	fs.IntVar(&o.Max, "max", agent.FindDefaultMax, "result-line budget; more is a lower bound when cut")
+	fs.Func("path", "limit to a repo path prefix or glob; repeat per path (as agents diff)", func(v string) error {
+		o.Paths = append(o.Paths, v)
+		return nil
+	})
+	format := helptext.FormatFlag(fs)
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents find", err)
+	}
+	if len(pos) != 1 {
+		fs.Usage()
+		return 2
+	}
+	o.Pattern, o.JSON = pos[0], *format == helptext.JSON
+	return agent.Find(o)
 }
 
 // cmdAgentsDispatch is `agents dispatch <role> <task>`.
