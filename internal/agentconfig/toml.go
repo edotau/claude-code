@@ -7,12 +7,20 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // TOMLQuote renders s as a TOML basic string (a JSON string is one) for a codex -c override.
 func TOMLQuote(s string) string {
 	b, _ := json.Marshal(s)                                // a JSON string is a valid TOML basic string
 	return strings.ReplaceAll(string(b), "\x7f", `\u007f`) // TOML forbids a raw DEL; JSON leaves it
+}
+
+// TOMLQuoteRaw is TOMLQuote without JSON's \u003c, \u003e and \u0026 escapes for <, > and &.
+func TOMLQuoteRaw(s string) string {
+	b, _ := textutil.MarshalNoEscape(s) // a string always encodes
+	return strings.ReplaceAll(string(b), "\x7f", `\u007f`)
 }
 
 func TOMLInline(pairs [][2]string) string {

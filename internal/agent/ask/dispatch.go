@@ -247,18 +247,20 @@ func (a *armRetry) streamLeg(ctx context.Context, cl *agent.Client, o agent.RunO
 	}()
 	o.AutoArm = true
 	req := a.probe(o)
-	p, err := a.prepare(ctx, cl, req)
+	p, err := a.prepare(ctx, cl, req, nil)
 	if err != nil {
 		return wire.FailureEnvelope(a.agentName, err)
 	}
 	_ = startPrepared(cl, p, false)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	st := wire.NewStamper()
 	sink := sinkFunc(func(ev wire.Event) error {
-		if ev.Type != wire.EventResult && ev.Type != wire.EventProgress {
-			st.Stamp(&ev)
-			ch <- ev
+		if ev.Type == wire.EventResult || ev.Type == wire.EventProgress {
+			return nil
 		}
-		return nil
+		st.Stamp(&ev)
+		return sendLegEvent(ctx, cancel, ch, ev)
 	})
 	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
 		return cl.Exec(ctx, p, sink, agent.RunRecordedOpts{})
@@ -267,6 +269,27 @@ func (a *armRetry) streamLeg(ctx context.Context, cl *agent.Client, o agent.RunO
 		return wire.FailureEnvelope(a.agentName, pf.err)
 	}
 	return wire.NewEnvelope(res, err, p.Record.ID)
+}
+
+// armStreamStall is how long a leg waits to hand an event to a consumer that stopped draining before it gives up.
+var armStreamStall = 2 * time.Minute
+
+// errLegAbandoned is the cancellation cause when a leg's consumer stops draining.
+var errLegAbandoned = errors.New("dispatch: stream consumer abandoned")
+
+// sendLegEvent hands ev to ch; a cancelled ctx or a consumer stalled past armStreamStall ends the leg.
+func sendLegEvent(ctx context.Context, cancel context.CancelCauseFunc, ch chan<- wire.Event, ev wire.Event) error {
+	t := time.NewTimer(armStreamStall)
+	defer t.Stop()
+	select {
+	case ch <- ev:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case <-t.C:
+		cancel(errLegAbandoned)
+		return errLegAbandoned
+	}
 }
 
 // sinkFunc adapts a function to wire.Sink.

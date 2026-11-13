@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -166,20 +167,26 @@ func TestFindCallLines(t *testing.T) {
 }
 
 func TestFindErrors(t *testing.T) {
+	var out, stderr bytes.Buffer
+	if code := Find(FindOptions{Dir: t.TempDir(), Max: FindDefaultMax, Out: &out, Err: &stderr}); code != 2 || stderr.Len() == 0 {
+		t.Fatalf("code=%d err=%q", code, stderr.String())
+	}
+}
+
+func TestFindSkipsUnparseableGo(t *testing.T) {
 	root := findFixture(t)
 	writeFindFixture(t, root, "src/code.go", "invalid Go")
+	writeFindFixture(t, root, "src/ok.go", "package fixture\nfunc Target() {}\n")
+	runFindGit(t, root, "add", "--", "src/ok.go")
 	for _, tc := range []struct {
-		name, dir string
-		goMode    bool
-	}{
-		{"parser", root, true}, {"not_repo", t.TempDir(), false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var out, stderr bytes.Buffer
-			if code := Find(FindOptions{Dir: tc.dir, Func: tc.goMode, Max: FindDefaultMax, Out: &out, Err: &stderr}); code != 2 || stderr.Len() == 0 {
-				t.Fatalf("code=%d err=%q", code, stderr.String())
-			}
-		})
+		pattern, out string
+		code         int
+	}{{"^Target$", "src/ok.go:2:func Target() {}\n", 0}, {"^Absent$", "", 1}} {
+		var out, stderr bytes.Buffer
+		code := Find(FindOptions{Dir: root, Pattern: tc.pattern, Func: true, Max: FindDefaultMax, Out: &out, Err: &stderr})
+		if code != tc.code || out.String() != tc.out || !strings.HasPrefix(stderr.String(), "find: skipped src/code.go: ") {
+			t.Fatalf("%s: code=%d out=%q err=%q", tc.pattern, code, out.String(), stderr.String())
+		}
 	}
 }
 
@@ -196,6 +203,27 @@ func TestFindStopsEarly(t *testing.T) {
 	want := "src/a.go:2:func Target() {}\n... 1 more (raise --max or narrow --path)\n"
 	if code != 0 || out.String() != want || stderr.Len() != 0 {
 		t.Fatalf("%d %q %q", code, out.String(), stderr.String())
+	}
+}
+
+func TestFindSkipsSymlinkedParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on windows")
+	}
+	root, outside := findFixture(t), t.TempDir()
+	writeFindFixture(t, root, "dir/secret.txt", "needle\n")
+	runFindGit(t, root, "add", "--", "dir/secret.txt")
+	writeFindFixture(t, outside, "secret.txt", "needle OUTSIDE\n")
+	if err := os.RemoveAll(filepath.Join(root, "dir")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "dir")); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	Find(FindOptions{Dir: root, Pattern: "OUTSIDE", Max: FindDefaultMax, Out: &out, Err: &stderr})
+	if out.Len() != 0 {
+		t.Fatalf("read outside the repo: %q", out.String())
 	}
 }
 

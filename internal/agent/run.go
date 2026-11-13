@@ -335,8 +335,11 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}
-	if req.ReadOnly && r.Caps().ReadOnly == Emulated { // the agent enforces the read-only deny rules itself
-		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), ReadOnlyDeny...)
+	if req.ReadOnly {
+		req.Permissions = withReadOnlyRules(r.Caps(), req.Permissions)
+		if r.Caps().ReadOnly == Emulated { // gated read-only: git status/diff must not rewrite .git/index; --env cannot undo it
+			req.Env = append(slices.Clone(req.Env), "GIT_OPTIONAL_LOCKS=0")
+		}
 	}
 	return req, refusePermissions(r.Caps(), r.Name(), req.Permissions)
 }

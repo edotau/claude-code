@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -105,7 +106,7 @@ func runSplitReview(name string, args []string, parts []part, o ReviewOptions, p
 			return finishSplitReview(parent, errors.Join(fmt.Errorf("part %d/%d: %w", i+1, len(parts), err), werr))
 		}
 		partStart := time.Now()
-		ans, rc := captureAnswer(func() int { return Cmd(askArgs) })
+		ans, rc := captureAnswer(func(out io.Writer) int { return cmdTo(askArgs, out) })
 		cleanup()
 		if rc != 0 {
 			werr := printMerged(o.Adversarial, parts, answers)
@@ -178,20 +179,9 @@ func finishSplitReview(parent *agent.Record, err error) int {
 	return 0
 }
 
-// captureAnswer runs f with os.Stdout redirected to a pipe and returns what it wrote.
-func captureAnswer(f func() int) (string, int) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return "", f()
-	}
-	defer r.Close()
-	orig := os.Stdout
-	os.Stdout = w
-	done := make(chan string, 1) // buffered: after a panic in f nobody receives, and the reader must still exit
-	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
-	restore := func() { os.Stdout = orig; _ = w.Close() }
-	defer restore() // a panic in f must not leave stdout on the pipe
-	rc := f()
-	restore()
-	return <-done, rc
+// captureAnswer runs f with a private writer for its answer and returns what it wrote; stdout is untouched.
+func captureAnswer(f func(out io.Writer) int) (string, int) {
+	var b bytes.Buffer
+	rc := f(&b)
+	return b.String(), rc
 }

@@ -198,7 +198,8 @@ type Leg struct {
 // Legs builds r's legs for q; the shape follows the role name, the agent comes from the table.
 func Legs(r Role, q Request) []Leg {
 	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
-		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback, Lead: q.Lead, Provider: q.Profile}.ApplyOverlay(q.Overlay)
+		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback, Lead: q.Lead, Provider: q.Profile,
+		AutoArm: q.Auto != ""}.ApplyOverlay(q.Overlay)
 	switch r.Name {
 	case "explore":
 		return exploreLegs(base, q)
@@ -355,7 +356,7 @@ func requireReadOnly(agentName string) error {
 	if !needsTools(agentName) || enforcesReadOnly(agentName) {
 		return nil
 	}
-	return fmt.Errorf("explore on %s is read-only by prompt only; use codex or copilot (read-only enforced)", agentName)
+	return fmt.Errorf("explore on %s needs native read-only support, which it emulates with permission denies; use codex or copilot", agentName)
 }
 
 // Args builds the `ask` argv for an explore run: --tools only when the agent needs it to read.

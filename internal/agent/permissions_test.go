@@ -102,6 +102,72 @@ func TestPermissionFailClosedAndModeFallback(t *testing.T) {
 }
 
 // Given Bash(git log:*), Then it matches at a word boundary only.
+func checkBash(t *testing.T, p Permissions, cases map[string]Decision) {
+	t.Helper()
+	for cmd, want := range cases {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("%q: got %v, want %v", cmd, got, want)
+		}
+	}
+}
+
+// Given the file-redirect deny, Then only a write to a file is refused: stream merges and a quoted `>` pass.
+func TestPermissionFileRedirectDeny(t *testing.T) {
+	p := Permissions{Mode: "plan", Deny: []Rule{{"Bash", RedirectFileArg}},
+		Allow: []Rule{{"Bash", "go test *"}, {"Bash", "tail *"}, {"Bash", "echo *"}, {"Bash", "cat *"}}}
+	checkBash(t, p, map[string]Decision{
+		"go test ./x 2>&1 | tail -5": Allow, "go test ./x 2>&-": Allow, "go test ./x >&2": Allow, "go test ./x 1>&2": Allow,
+		`echo "a > b"`: Allow, "echo 'x>y'": Allow, `echo a\>b`: Allow,
+		"go test ./x > o": Deny, "go test ./x >> o": Deny, "go test ./x >| o": Deny, "go test ./x &> o": Deny,
+		"go test ./x 2> o": Deny, "go test ./x >&o": Deny, "go test ./x 2>&1 > o": Deny, "go test ./x >(tee o)": Deny,
+		"cat <<EOF > f\nx\nEOF": Deny, "echo $(go test > f)": Deny, "go test ./x 2>&1 >o | tail": Deny,
+		"env FOO=1 go test ./x > o": Deny, "time go test ./x >> o": Deny, "env FOO=1 go test ./x 2>&1 | tail": Allow,
+		"cat <<< hi": Ask,
+	})
+}
+
+// Given a cd rule for the workdir, Then only a bare absolute cd into it or below passes.
+func TestPermissionCdInsideWorkdir(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{CdRule("/work/repo"), {"Bash", "go test *"}}}
+	checkBash(t, p, map[string]Decision{
+		"cd /work/repo": Allow, "cd /work/repo/internal/x": Allow, "cd /work/repo && go test ./...": Allow,
+		`cd "/work/repo/a"`: Allow, "cd /work/repo/": Allow,
+		"cd /work": Deny, "cd /work/repo/../other": Deny, "cd /work/repository": Deny, "cd /": Deny, "cd": Deny,
+		"cd internal": Deny, "cd ~": Deny, "cd $HOME": Deny, "cd /work/repo/$X": Deny, "cd /work/repo/a*": Deny,
+		"cd -P /work/repo": Deny, "cd /work/repo /etc": Deny, "cd /work/repo; cd /etc": Deny, "pushd /work/repo": Deny,
+		"cd /work/repo/..": Deny, "cd /work/repo/./..": Deny, "cd /work/repo/a/../..": Deny,
+		"cd /work/repo/..x": Allow, "cd /work/repo/a/..": Allow, "cd /work/repo//a": Allow,
+	})
+	// an empty workdir must allow no cd at all, not every absolute one
+	checkBash(t, Permissions{Mode: "plan", Allow: []Rule{CdRule("")}}, map[string]Decision{"cd /": Deny, "cd /etc": Deny})
+}
+
+// Given go test allowed, Then a bare env or time prefix is granted by the normalized form; unsafe prefixes are not.
+func TestPermissionWrapperNormalizationGrants(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "go test *"}}, Deny: []Rule{{"Bash", "rm:*"}, {"Bash", "FOO=9 *"}}}
+	checkBash(t, p, map[string]Decision{
+		"FOO=1 go test ./x": Allow, "env FOO=1 go test ./x": Allow, "time go test ./x": Allow, "time FOO=1 go test": Allow,
+		"GOOS=linux go test ./x": Allow, "A=1 B=2 go test ./x": Allow,
+		"PATH=/tmp go test": Deny, "NODE_OPTIONS=--x go test": Deny, "HTTPS_PROXY=x go test": Deny, "HARNESS_X=1 go test": Deny,
+		"OPENAI_API_KEY=x go test": Deny, "GOFLAGS=-toolexec=x go test": Deny, "LD_PRELOAD=x go test": Deny,
+		"env -i go test": Deny, "sudo go test": Deny, "/usr/bin/env FOO=1 go test": Deny, "time -p go test": Deny,
+		"nohup go test": Deny, "FOO=1 rm x": Deny, "time rm x": Deny, "env FOO=1 rm x": Deny, "FOO=9 go test": Deny,
+		"path=/tmp go test": Deny, "Ld_Preload=x go test": Deny,
+		"PATH= go test": Deny, "FOO= go test": Allow, "time": Deny, "env": Deny, "FOO=1": Deny, "time FOO=1": Deny,
+	})
+}
+
+// Given the sed print rule, Then only `sed -n <range>p FILE` passes: no -i, -e, w/e commands or extra options.
+func TestPermissionSedPrintOnly(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", SedPrintArg}}, Deny: []Rule{{"Bash", RedirectFileArg}}}
+	checkBash(t, p, map[string]Decision{
+		"sed -n 5p f.go": Allow, "sed -n '10,20p' a b": Allow, "sed -n '$p' f": Allow, "sed -n 3,$p f": Allow,
+		"sed -i 5p f": Deny, "sed -n -i 5p f": Deny, "sed -n 5p -i f": Deny, "sed -n 'w out' f": Deny,
+		"sed -n '5p;w out' f": Deny, "sed -n '1e id' f": Deny, "sed -n 5p": Deny, "sed -n -e 5p f": Deny,
+		"sed 5p f": Deny, "sed -n 5w f": Deny, "sed -n 5p f > o": Deny, "sed -n 5p -- f": Deny,
+	})
+}
+
 func TestPermissionBashWordBoundary(t *testing.T) {
 	p := mustPerms(t, "auto", []string{"Bash(git log:*)", "Bash(ls)"}, nil, nil)
 	cases := map[string]Decision{"git log": Allow, "git log -1": Allow, "git logx": Ask, "git logx -1": Ask, "ls": Allow, "ls -l": Ask}

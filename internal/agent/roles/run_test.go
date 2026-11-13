@@ -88,6 +88,18 @@ func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	}
 }
 
+// An auto-picked workspace marks every leg's options, so a detached leg's job child can still move on a 429.
+func TestLegsCarryAutoArm(t *testing.T) {
+	vaulttest.Use(t)
+	for auto, want := range map[string]bool{"dev": true, "": false} {
+		for _, l := range Legs(mustRole(t, "fleet"), Request{Task: "t", Auto: auto}) {
+			if l.Opts.AutoArm != want {
+				t.Errorf("Auto %q: leg %s AutoArm = %v, want %v", auto, l.Label, l.Opts.AutoArm, want)
+			}
+		}
+	}
+}
+
 func TestRoleFleetOneLeg(t *testing.T) {
 	vaulttest.Use(t)
 	legs := Legs(mustRole(t, "fleet"), Request{Task: "do it"})
@@ -183,6 +195,47 @@ func TestRunProgressTagsWholeLines(t *testing.T) {
 	Run(context.Background(), nil, Role{Name: "fleet"}, []Leg{{Label: "x"}}, 1, &out)
 	if got := out.String(); got != "[x] hello\n[x] world\n" {
 		t.Errorf("progress = %q", got)
+	}
+}
+
+// movedOrSilent is a closed stream: one ok result that moved dev → qa, or no event at all.
+func movedOrSilent(moved bool) <-chan wire.Event {
+	ch := make(chan wire.Event, 1)
+	if moved {
+		ch <- wire.ResultEvent(wire.Envelope{Status: "ok", Answer: "from the runner", Hops: []wire.Hop{{Profile: "dev"}, {Profile: "qa"}}})
+	}
+	close(ch)
+	return ch
+}
+
+// RunWith keeps the injected runner's envelope; a pre-failed leg never reaches it, a silent runner fails its leg.
+func TestRunWithInjectedRunner(t *testing.T) {
+	var mu sync.Mutex
+	var ran []string
+	runner := func(_ context.Context, o agent.RunOptions) <-chan wire.Event {
+		mu.Lock()
+		ran = append(ran, o.Prompt)
+		mu.Unlock()
+		return movedOrSilent(o.Prompt == "moved")
+	}
+	legs := []Leg{{Label: "moved", Opts: agent.RunOptions{Prompt: "moved"}}, {Label: "silent", Opts: agent.RunOptions{Prompt: "silent"}},
+		{Label: "refused", Opts: agent.RunOptions{Prompt: "refused"}, Err: "not allowed"}}
+	rep := RunWith(context.Background(), Role{Name: "fleet"}, legs, 3, nil, runner)
+	msg := func(l LegResult) string {
+		if l.Envelope.Error == nil {
+			return ""
+		}
+		return l.Envelope.Error.Message
+	}
+	got := rep.Legs
+	if rep.Status != "partial" || got[0].Envelope.Answer != "from the runner" || len(got[0].Envelope.Hops) != 2 {
+		t.Errorf("status %q legs %+v, want partial with the runner's envelope and both hops kept", rep.Status, got)
+	}
+	if !strings.Contains(msg(got[1]), "no result event") || !strings.Contains(msg(got[2]), "not allowed") {
+		t.Errorf("silent leg %q, refused leg %q, want the missing-result and the pre-failure errors", msg(got[1]), msg(got[2]))
+	}
+	if slices.Contains(ran, "refused") {
+		t.Errorf("runner saw %v, want the refused leg kept from it", ran)
 	}
 }
 
@@ -370,7 +423,7 @@ func TestExploreToolsReadOnly(t *testing.T) {
 func TestExploreRejectsPromptOnlyAgents(t *testing.T) {
 	for _, vendor := range []string{"gemini", "opencode"} {
 		t.Run(vendor, func(t *testing.T) {
-			want := "explore on " + vendor + " is read-only by prompt only; use codex or copilot (read-only enforced)"
+			want := "explore on " + vendor + " needs native read-only support, which it emulates with permission denies; use codex or copilot"
 			args, err := Args(vendor, "/work", "inspect", true, true)
 			assertExploreRefusal(t, err, want)
 			if args != nil {

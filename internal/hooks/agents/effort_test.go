@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -253,7 +253,7 @@ func effortResult(payload string) core.Result {
 }
 
 // runEffortHook renders the pin step through the production PreToolUse emitter.
-func runEffortHook(r io.Reader, stdout io.Writer) int {
+func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(core.ParseInput(r)), stdout, os.Stderr)
 }
 
@@ -741,7 +741,7 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
-	listAgents = func(string) ([]project.Source, error) { return nil, errors.New("permission denied") }
+	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
 	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode"}; !slices.Equal(got, want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
@@ -763,5 +763,31 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
 		t.Fatalf("claude = %+v, want a claimed slot (negative control)", r)
+	}
+}
+
+// Concurrent picks under different confinements each see their own overlay, never a peer's swap.
+func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
+	oc := labelCell
+	t.Cleanup(func() { labelCell = oc })
+	labelCell = func(*dispatchRun, string, string) string {
+		before := os.Getenv(agentconfig.OverlayVar)
+		runtime.Gosched()
+		if os.Getenv(agentconfig.OverlayVar) != before {
+			return "torn"
+		}
+		return before
+	}
+	profiles := []string{"dev", "qa"}
+	got := make([]string, 40)
+	var wg sync.WaitGroup
+	for i := range got {
+		wg.Go(func() { got[i] = coworkerPick(newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet") })
+	}
+	wg.Wait()
+	for i, g := range got {
+		if want := agentconfig.InlineOverlay("databricks", profiles[i%2]); g != want {
+			t.Fatalf("pick %d saw overlay %q, want %q", i, g, want)
+		}
 	}
 }

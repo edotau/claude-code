@@ -200,14 +200,11 @@ func ProbeContext(ctx context.Context, login string) context.Context {
 	return context.WithValue(ctx, loginScrubKey{}, loginScrub{own: login})
 }
 
-// credentialPatterns are the credential-shaped names dropped when the registry cannot say whose they are.
-var credentialPatterns = []string{"*_KEY", "*_TOKEN", "*_SECRET", "*_PASSWORD", "*_CREDENTIALS"}
-
 // scrubExcept drops every registry credential name of the profiles other than ownName, except those in mine.
 func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string {
 	reg, err := providers.Load()
 	if err != nil { // fail closed: foreign owners are unknown, so drop every credential-shaped name not held
-		return proc.Drop(env, proc.EnvKeepSet(mine), append(slices.Clone(proc.ScrubDeny), credentialPatterns...))
+		return proc.Drop(env, proc.EnvKeepSet(mine), proc.ScrubDenyCredentials)
 	}
 	foreign := map[string]bool{}
 	for _, p := range reg.Providers {

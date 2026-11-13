@@ -64,6 +64,11 @@ func judgeCall(p agent.Permissions, tool string, args []string) core.Result {
 	return core.Result{}
 }
 
+// GateBlocks reports whether the permission-gate refuses tool(arg) under p, for the doctor permissions report.
+func GateBlocks(p agent.Permissions, tool, arg string) bool {
+	return judgeCall(p, tool, []string{arg}).Decision == core.Block
+}
+
 // decideCall judges arg as tool plus the rule tool that also covers it: Edit is Write too, Grep and Glob are Read too.
 func decideCall(judge agent.Permissions, tool, arg string) agent.Decision {
 	d := judge.Decide(tool, arg)
@@ -121,8 +126,8 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
 	next := "\nReport it instead of retrying another way."
 	switch {
-	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, "*>*"):
-		next = "\nRedirects (`>`, `2>&1`) are refused: run the same command again without them."
+	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, agent.RedirectFileArg):
+		next = "\nFile redirects (`>`, `>>`, `&>`) are refused; `2>&1` is allowed: run the same command again without them."
 	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
 		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
 		next = "\nOnly the allow list runs here: continue with an allowed call; do not retry this one another way."

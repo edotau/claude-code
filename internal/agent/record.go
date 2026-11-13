@@ -346,6 +346,22 @@ type RunRecordedOpts struct {
 	Job      bool         // a --job child: stdout is the log, so out is dropped and the log keeps events + stderr only
 	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `<agent> result` reads it)
 	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
+	Hold     bool         // a retried attempt: no answer, result event or Finish; the caller's Conclude does them once
+}
+
+// Conclude ends a record whose attempts ran with Hold: the answer, the one result event, then Finish and Save.
+func (r *Record) Conclude(res wire.Result, err error, o RunRecordedOpts) {
+	if o.AnswerTo != nil && res.Answer != "" {
+		if _, werr := io.WriteString(o.AnswerTo, res.Answer); werr != nil && err == nil {
+			err = fmt.Errorf("write final answer: %w", werr)
+		}
+	}
+	events := wire.NewEventLog(r.EventsPath(), r.ID)
+	if rerr := events.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, r.ID))); rerr != nil && err == nil {
+		err = rerr
+	}
+	events.Close()
+	r.finishSave(res, err, time.Since(r.Time), o.Notify)
 }
 
 // runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id.
@@ -367,6 +383,9 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	if err == nil {
 		res, err = run(ctx, sink)
 		logSink.Close() // flush before writing the answer, so tail -f never misses the last line
+		if o.Hold {
+			return res, err
+		}
 		if o.AnswerTo != nil && res.Answer != "" {
 			if _, werr := io.WriteString(o.AnswerTo, res.Answer); werr != nil && err == nil {
 				err = fmt.Errorf("write final answer: %w", werr)

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -24,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -509,24 +509,6 @@ func briefExternal(task string) string {
 	return named[0]
 }
 
-// lowerFirst lowercases desc's first letter unless its first word looks like an acronym or identifier.
-func lowerFirst(desc string) string {
-	word := strings.TrimRight(strings.Fields(desc + " x")[0], ".,:;!?")
-	if strings.ContainsAny(word, "._/`0123456789") {
-		return desc
-	}
-	r := []rune(desc)
-	i := 0
-	for i < len(r) && unicode.IsSpace(r[i]) {
-		i++
-	}
-	if i >= len(r) || !unicode.IsUpper(r[i]) || (i+1 < len(r) && unicode.IsUpper(r[i+1])) {
-		return desc
-	}
-	r[i] = unicode.ToLower(r[i])
-	return string(r)
-}
-
 // pinModel fills an unset updated["model"] from the classifier; returns the note and visible reason ("" = no pin).
 func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
 	// never override an explicit model or a roster pin; `inherit` means unset (honoring it ran on the parent's model)
@@ -648,6 +630,9 @@ func labelConfinement(cfg agentconfig.Overlay) string {
 	return cfg.Confinement()
 }
 
+// pickEnvMu serializes coworkerPick's env swap: the route readers only see the process environment.
+var pickEnvMu sync.Mutex
+
 // coworkerPick is labelCell inside confinement confine: the env ask exports for that overlay, restored after.
 func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
 	provider, profile, _ := strings.Cut(confine, ":")
@@ -655,9 +640,11 @@ func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
 	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
 		env[providers.EnvSessionProfile] = p
 	}
+	pickEnvMu.Lock()
+	defer pickEnvMu.Unlock() // deferred first, so it runs after every restoreEnv
 	for k, v := range env {
 		old, had := os.LookupEnv(k)
-		_ = os.Setenv(k, v)
+		_ = proc.Setenv(k, v)
 		defer restoreEnv(k, old, had)
 	}
 	return labelCell(run, agent, tier)
@@ -665,10 +652,10 @@ func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
 
 func restoreEnv(k, old string, had bool) {
 	if had {
-		_ = os.Setenv(k, old)
+		_ = proc.Setenv(k, old)
 		return
 	}
-	_ = os.Unsetenv(k)
+	_ = proc.Unsetenv(k)
 }
 
 // Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.

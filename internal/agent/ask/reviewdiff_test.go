@@ -581,3 +581,17 @@ func TestReviewArgsModelPrecedesPrompt(t *testing.T) {
 		t.Errorf("args = %v, want no --model", none)
 	}
 }
+
+func TestReviewArgsReadOnlyForCopilot(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for agentName, want := range map[string]bool{"copilot": true, "codex": false, "gemini": false} {
+		args, cleanup, err := reviewArgs(agentName, []byte("d"), false, false, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cleanup()
+		if got := slices.Contains(args, "--read-only"); got != want {
+			t.Errorf("%s: --read-only = %v, want %v (args %v)", agentName, got, want, args)
+		}
+	}
+}

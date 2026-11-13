@@ -9,12 +9,42 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 )
 
+// A record still marked running whose process is dead reads "lost" like the dispatches list, never "quiet".
+func TestDeadRunningDispatchReadsLost(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	rec := agent.ClaimRecord("codex", agent.RunOptions{}, now.Add(-20*time.Minute))
+	rec.Status, rec.PID = "running", deadPID
+	d := dispatchFromRecord(rec, "", now)
+	if row := formatDispatch(d, now); d.Quiet || d.Status != "lost" || strings.Contains(row, "quiet") || !strings.Contains(row, "lost") {
+		t.Errorf("dead running dispatch: quiet=%v status=%q row=%q, want lost", d.Quiet, d.Status, row)
+	}
+}
+
+// A last signal in the future (clock moved back) shows a zero age, never a negative one.
+func TestFutureSignalClampsToZero(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	rec := agent.ClaimRecord("codex", agent.RunOptions{}, now.Add(-time.Minute))
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := os.WriteFile(rec.EventsPath(), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	future := now.Add(time.Hour)
+	if err := os.Chtimes(rec.EventsPath(), future, future); err != nil {
+		t.Fatal(err)
+	}
+	if row := formatDispatch(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "last=0s") {
+		t.Errorf("row = %q, want last=0s", row)
+	}
+}
+
 // A running dispatch's last sign of life is its newest event/log write; past quietAfter the row reads "⚠ quiet".
 func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	rec := agent.ClaimRecord("codex", agent.RunOptions{}, now.Add(-20*time.Minute))
-	rec.Status = "running"
+	rec.Status, rec.PID = "running", os.Getpid()
 	if err := os.WriteFile(rec.EventsPath(), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

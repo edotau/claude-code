@@ -3,14 +3,18 @@ package ask
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -41,6 +45,23 @@ func TestUnsupportedKeyNamesTheKeyDispatchCannotHonour(t *testing.T) {
 	}
 }
 
+// An empty overlay names nothing; one with several unsupported keys still names one of them, never "".
+func TestUnsupportedKeyEmptyAndSeveral(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ov   agentconfig.Overlay
+		want []string
+	}{
+		"empty":   {agentconfig.Overlay{}, []string{""}},
+		"two":     {agentconfig.Overlay{Effort: "high", Host: "h"}, []string{"effort", "host"}},
+		"all":     {agentconfig.Overlay{Model: "m", Effort: "high", Host: "h"}, []string{"model", "effort", "host"}},
+		"allowed": {agentconfig.Overlay{Profile: "dev", Fallback: "none"}, []string{""}},
+	} {
+		if got := unsupportedKey(tc.ov); !slices.Contains(tc.want, got) {
+			t.Errorf("%s: unsupportedKey = %q, want one of %q", name, got, tc.want)
+		}
+	}
+}
+
 func TestDispatchReportWriteFailureExitsOne(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
@@ -61,6 +82,26 @@ func TestDispatchReportWriteFailureExitsOne(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			checkDispatchReportWriteFailure(t, full, format)
 		})
+	}
+}
+
+// A consumer that stops draining ends the leg (and frees the gate) instead of blocking its send forever.
+func TestStreamLegAbandonedConsumerReleasesGate(t *testing.T) {
+	armRateFixture(t, nil, nil)
+	orig := armStreamStall
+	armStreamStall = 50 * time.Millisecond
+	t.Cleanup(func() { armStreamStall = orig })
+	a := &armRetry{agentName: "codex", fallback: router.FallbackNone, tried: []string{"dev"}}
+	o := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone}
+	done := make(chan struct{})
+	go func() {
+		a.streamLeg(t.Context(), newClient(), o, make(chan wire.Event)) // unbuffered, never read
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamLeg still blocked on an undrained channel")
 	}
 }
 

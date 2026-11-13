@@ -3,17 +3,24 @@ package agent
 import (
 	"go/ast"
 	"go/parser"
+	"go/scanner"
 	"go/token"
 	"regexp"
 	"slices"
 	"strings"
 )
 
+// findSkip marks a file that could not be parsed; the search skips it instead of failing.
+type findSkip struct{ error }
+
 func findGo(p string, data []byte, o FindOptions, re *regexp.Regexp) ([]FindMatch, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, p, data, parser.SkipObjectResolution)
 	if err != nil {
-		return nil, err
+		if list, ok := err.(scanner.ErrorList); ok && len(list) > 0 {
+			err = list[0]
+		}
+		return nil, &findSkip{err}
 	}
 	lines := map[int]bool{}
 	add := func(id *ast.Ident) {

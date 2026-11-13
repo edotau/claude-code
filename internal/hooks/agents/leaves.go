@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -26,6 +27,24 @@ import (
 
 // agentCallRe finds `agent(` call sites in a Workflow script.
 var agentCallRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[^\w$.])agent\s*\(`) })
+
+// lowerFirst lowercases desc's first letter unless its first word looks like an acronym or identifier.
+func lowerFirst(desc string) string {
+	word := strings.TrimRight(strings.Fields(desc + " x")[0], ".,:;!?")
+	if strings.ContainsAny(word, "._/`0123456789") {
+		return desc
+	}
+	r := []rune(desc)
+	i := 0
+	for i < len(r) && unicode.IsSpace(r[i]) {
+		i++
+	}
+	if i >= len(r) || !unicode.IsUpper(r[i]) || (i+1 < len(r) && unicode.IsUpper(r[i+1])) {
+		return desc
+	}
+	r[i] = unicode.ToLower(r[i])
+	return string(r)
+}
 
 // Effort: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
 func Effort(in *core.Input) core.Result {

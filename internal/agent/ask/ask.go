@@ -48,6 +48,9 @@ var askPage = helptext.Page{
 // Cmd is `agents ask` with no session id and the `agents ask` page.
 func Cmd(args []string) int { return Run(args, false, "") }
 
+// cmdTo is Cmd with the answer and envelope written to out instead of the process stdout.
+func cmdTo(args []string, out io.Writer) int { return runTo(args, false, "", out) }
+
 // retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
 func retargetPage(fs *flag.FlagSet, name string) {
 	p := askPage
@@ -65,7 +68,8 @@ type askRun struct {
 	fs          *flag.FlagSet
 	args        []string
 	resume      bool
-	ref         string // the raw selector Prepare resolves; f.name becomes the agent so envelopes publish it
+	out         io.Writer // where the answer and envelope go: stdout, or a review part's buffer
+	ref         string    // the raw selector Prepare resolves; f.name becomes the agent so envelopes publish it
 	ag          string
 	persona     *agent.Schema
 	defs        map[string]*agent.Schema
@@ -82,7 +86,10 @@ type askRun struct {
 }
 
 // Run is `agents ask`; resume makes the first positional the session id, verb names the `<verb> ask` page -h prints.
-func Run(args []string, resume bool, verb string) int {
+func Run(args []string, resume bool, verb string) int { return runTo(args, resume, verb, os.Stdout) }
+
+// runTo is Run writing the answer and envelope to out.
+func runTo(args []string, resume bool, verb string, out io.Writer) int {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
@@ -96,7 +103,7 @@ func Run(args []string, resume bool, verb string) int {
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{f: f, fs: fs, args: args, resume: resume}
+	r := &askRun{f: f, fs: fs, args: args, resume: resume, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -486,7 +493,7 @@ func (r *askRun) execute() int {
 	if a := r.armRun(); a != nil {
 		req, run = a.probe(req), a.run
 	}
-	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native, run)
+	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native, run, r.out)
 }
 
 // readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
@@ -510,7 +517,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it (run, else once) and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, name string, background, native bool, run askRunner) int {
+	env, keepEnv []string, as, format, name string, background, native bool, run askRunner, out io.Writer) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
@@ -532,7 +539,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if run != nil {
 		return run(ctx, cl, prepared, req)
 	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
+	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, out)
 }
 
 // startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.
@@ -650,14 +657,17 @@ func absDebugFile(p string) string {
 }
 
 // stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func stdoutSink(format, dispatchID string) wire.Sink {
+func stdoutSink(format, dispatchID string) wire.Sink { return sinkTo(os.Stdout, format, dispatchID) }
+
+// sinkTo is stdoutSink writing to out.
+func sinkTo(out io.Writer, format, dispatchID string) wire.Sink {
 	switch format {
 	case helptext.JSON:
 		return wire.Discard
 	case agent.FormatStreamJSON:
-		return wire.NewJSONLSink(os.Stdout, dispatchID)
+		return wire.NewJSONLSink(out, dispatchID)
 	}
-	return wire.NewTextSink(os.Stdout)
+	return wire.NewTextSink(out)
 }
 
 // RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
@@ -736,11 +746,16 @@ func init() {
 // Gate: only the job's bank globs are writable and only its listed commands run; plan mode denies the rest.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	write, bash := memory.BankScope(ctx, workdir)
-	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: "*>*"}}}
+	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
 	for _, tool := range []string{"Edit", "Write"} {
 		p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: memory.StoreDir() + "/.git/**"})
 		for _, w := range write {
 			p.Allow = append(p.Allow, agent.Rule{Tool: tool, Arg: w})
+		}
+	}
+	for _, w := range write { // cd only into a bank directory
+		if dir, ok := strings.CutSuffix(w, "/**"); ok {
+			p.Allow = append(p.Allow, agent.CdRule(dir))
 		}
 	}
 	for _, b := range bash {

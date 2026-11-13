@@ -62,8 +62,7 @@ func (rep simplifyReport) findings(dir string) []fileFinding {
 	return out
 }
 
-// introduced drops the findings a file already had at the base, comparing (file, kind, function) and the value; a file
-// new since the base keeps all of them. note says why the base could not be read, when every finding stays.
+// introduced drops findings the base already had (same file, kind, function, value); note says why a base read failed.
 func introduced(ctx context.Context, in gateInput, after []fileFinding) (fresh []fileFinding, note string) {
 	before, err := baselineFindings(ctx, in, after)
 	if err != nil {
