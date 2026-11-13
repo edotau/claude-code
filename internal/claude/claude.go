@@ -67,6 +67,7 @@ func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire
 
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
 func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink wire.Sink) (wire.Result, error) {
+	ctx, req = gateOffAnthropic(ctx, req)
 	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
@@ -153,8 +154,7 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	if err := refuseUnmappedDeny(s.Permissions); err != nil {
 		return env, argv, emulated, cleanup, err
 	}
-	anthropic := s.Target.Provider != nil && s.Target.Provider.Provider == "anthropic"
-	return env, append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, anthropic)...), emulated, cleanup, nil
+	return env, append(argv, permissionArgs(s.Permissions, s.Tools, s.Autonomous, onAnthropic(s.Target))...), emulated, cleanup, nil
 }
 
 // claudeEffort spells e for claude's CLI and Messages API; "" stays "" and an unknown effort is refused.
@@ -253,6 +253,9 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if req.Gate {
 		args = append(args, gateArgs()...)
 	}
+	if err := refuseUngatedBypass(args, req); err != nil {
+		return nil, nil, agent.ClaudeLaunch{}, err
+	}
 	o := agent.ClaudeOptions{Provider: launchProvider(req), Model: req.Model, KeepEnv: req.KeepEnv}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
@@ -270,8 +273,8 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
 	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), launcherSet(cl.Set))
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: set, Extra: req.Env}.Environ(ctx) // --env last, so it wins
-	if req.Gate && !slices.ContainsFunc(cmd.Env, func(e string) bool { return strings.HasPrefix(e, agent.DispatchPermissionsEnv+"=") }) {
-		return nil, nil, cl, retry.Fatal("claude", errors.New("gated launch refused: the child env carries no "+agent.DispatchPermissionsEnv))
+	if err := refuseGateEnv(req, cmd.Env); err != nil {
+		return nil, nil, cl, err
 	}
 	return cmd, tail, cl, nil
 }
@@ -291,8 +294,8 @@ func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
 	refuse := func(err error) ([]string, error) {
 		return nil, retry.Fatal("claude", fmt.Errorf("gated launch refused: %w", err))
 	}
-	if req.Permissions.IsZero() {
-		return refuse(errors.New("no permission policy to enforce"))
+	if err := refuseGate(req); err != nil {
+		return refuse(err)
 	}
 	exe, err := gateExe()
 	if err == nil {
@@ -645,6 +648,7 @@ type claudeLive struct {
 }
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
+	ctx, req = gateOffAnthropic(ctx, req)
 	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages"}, req)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")

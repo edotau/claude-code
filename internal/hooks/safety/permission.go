@@ -126,6 +126,9 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
 		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
 		next = "\nOnly the allow list runs here: continue with an allowed call; do not retry this one another way."
+		if decideCall(agent.Permissions{Deny: p.Deny}, call.Tool, call.Arg) != agent.Deny { // an --allow never beats a deny
+			next += "\nOnly the dispatcher can permit it: re-dispatch with --allow '" + call.String() + "'."
+		}
 	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +
 		call.String() + rules + modeNote(p) + next}

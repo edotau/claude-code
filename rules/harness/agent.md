@@ -33,8 +33,10 @@ paths:
   any other agent drops its tools (fail closed).
   copilot `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's
   permission rules (a Deny returns feedback and the run continues) and the native hooks.
-  claude `--tools` off Anthropic is an allow list (edit tools plus go/git/read commands, `--allow` adds to it), not
-  approve-all: there is no judge there, so anything unlisted is denied.
+  claude `--tools` off Anthropic is an allow list (go/git/read commands, Edit/Write under `--workdir`; `--allow` adds,
+  `--deny`/`--ask` refuse; `--mode plan`, `--safe-mode` keep the old launch), not approve-all: no judge, so
+  anything unlisted is denied. It runs gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies
+  `.claude/` writes; tools `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; redirects refused).
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
