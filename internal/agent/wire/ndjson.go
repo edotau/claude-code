@@ -10,52 +10,47 @@ import (
 	"time"
 )
 
-// decodeLines skips blank lines and logs non-JSON output without losing subsequent events.
-func decodeLines(br *bufio.Reader, lg StreamLog, fn func(raw []byte) (stop bool, err error)) error {
+// DecodeEvents decodes br's JSON lines into E for handle, timing each when tick; blank and non-JSON lines are
+// skipped (non-JSON logged raw), and a valid line that does not fit E runs onBad, then aborts.
+func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
+	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
+	ts := TransportTracker{Start: Clock()}
 	for {
 		raw, readErr := br.ReadBytes('\n')
-		raw = bytes.TrimSpace(raw)
-		if len(raw) > 0 {
-			if !json.Valid(raw) {
-				lg.Emit("raw", string(raw))
-			} else {
-				stop, err := fn(raw)
-				if err != nil {
-					return err
-				}
-				if stop {
-					return nil
-				}
-			}
+		if stop, err := decodeLine(bytes.TrimSpace(raw), &ts, lg, label, tick, onBad, handle); err != nil || stop {
+			return ts.Result(), err
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return nil
+				return ts.Result(), nil
 			}
-			return readErr
+			return ts.Result(), readErr
 		}
 	}
 }
 
-// DecodeEvents decodes br's JSON lines into E for handle, timing each when tick; a bad line runs onBad, then aborts.
-func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
-	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
-	ts := TransportTracker{Start: Clock()}
-	err := decodeLines(br, lg, func(raw []byte) (bool, error) {
-		var ev E
-		if err := json.Unmarshal(raw, &ev); err != nil {
-			err = fmt.Errorf("%s: %w", label, err)
-			if onBad != nil {
-				onBad(err)
-			}
-			return false, err
+// decodeLine handles one trimmed line for DecodeEvents; stop ends the stream cleanly, err aborts it.
+func decodeLine[E any](raw []byte, ts *TransportTracker, lg StreamLog, label string, tick bool, onBad func(error),
+	handle func(E, *TransportTracker) (bool, error)) (stop bool, err error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	var ev E
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		if _, ok := errors.AsType[*json.SyntaxError](err); ok {
+			lg.Emit("raw", string(raw))
+			return false, nil
 		}
-		if tick {
-			ts.Event(Clock())
+		err = fmt.Errorf("%s: %w", label, err)
+		if onBad != nil {
+			onBad(err)
 		}
-		return handle(ev, &ts)
-	})
-	return ts.Result(), err
+		return false, err
+	}
+	if tick {
+		ts.Event(Clock())
+	}
+	return handle(ev, ts)
 }
 
 var Clock = time.Now
