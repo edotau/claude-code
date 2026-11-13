@@ -171,7 +171,7 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	fi
 
 ##@ Quality
-# Umbrella gate: lint, doctor --git over unpushed commits, sharded tests, no-keyring tests, go build, govulncheck
+# Umbrella gate: lint, doctor --git over unpushed commits, one go test run, no-keyring tests, go build, govulncheck
 # (skipped offline), doctor --prompts, agents sync --dry-run, cli-menu.svg freshness.
 .PHONY: audit
 audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
