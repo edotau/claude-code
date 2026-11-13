@@ -20,7 +20,7 @@ const BankFmtMaxLine = 120
 var (
 	bankFmtHeading = regexp.MustCompile(`^#{1,6}\s`)
 	bankFmtComment = regexp.MustCompile(`^<!--.*-->$`)
-	bankFmtBullet  = regexp.MustCompile(`^(\s*)([-*] )(.*)$`)
+	bankFmtBullet  = regexp.MustCompile(`^(\s*)([-*+] )(.*)$`)
 	bankFmtOrdered = regexp.MustCompile(`^(\s*)(\d+\. )(.*)$`)
 	bankFmtSpan    = regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
 )
@@ -320,10 +320,15 @@ func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 		}
 		candidate := cur + sep + t
 		if onLine > 0 && utf8.RuneCountInString(candidate) > BankFmtMaxLine {
-			if onLine > 1 && listItem(contIndent+t+" x") != nil { // a bare marker must not open a line: carry the prior word
-				lines = append(lines, strings.TrimSuffix(cur, " "+prev))
-				cur = contIndent + prev + " " + t
-				onLine = 2
+			if listItem(contIndent+t+" x") != nil { // a bare marker must not open a line: carry the prior word
+				if onLine > 1 {
+					lines = append(lines, strings.TrimSuffix(cur, " "+prev))
+					cur = contIndent + prev + " " + t
+					onLine = 2
+				} else { // one token precedes it: keep the marker on that line, over width
+					cur = candidate
+					onLine++
+				}
 				continue
 			}
 			lines = append(lines, cur)
