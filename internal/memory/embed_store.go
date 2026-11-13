@@ -28,7 +28,6 @@ var vectorStore = &boltVectorStore{}
 
 // vectorWrite atomically merges a mint while releasing its claim.
 type vectorWrite struct {
-	Profile string
 	Owner   int64
 	Started int64
 	Merge   func(vectorRecord) vectorRecord
@@ -36,18 +35,18 @@ type vectorWrite struct {
 
 func (s *boltVectorStore) Put(write vectorWrite) (stored bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		if !claimOwnedBy(tx, write.Profile, write.Owner) { // taken over or expired: refuse, stored stays false
+		if !claimOwnedBy(tx, write.Owner) { // taken over or expired: refuse, stored stays false
 			return nil
 		}
-		if err := dropClaim(tx, write.Profile, write.Owner); err != nil {
+		if err := dropClaim(tx, write.Owner); err != nil {
 			return err
 		}
-		current := decodeEmbedRecord(tx, write.Profile)
+		current := decodeEmbedRecord(tx)
 		if current.MintedAt >= write.Started && current.MintedAt <= time.Now().UnixNano() {
 			return nil
 		}
 		stored = true
-		return putEmbedRecord(tx, write.Profile, write.Merge(current))
+		return putEmbedRecord(tx, write.Merge(current))
 	})
 	return stored, err
 }
@@ -59,12 +58,14 @@ const (
 	embedClaimSlack = 30 * time.Second // added to the caller's ctx deadline when sizing a claim
 )
 
-// Cache profiles hold JSON metadata and binary vector rows; claims hold profile -> expiry+owner.
+// The shared cache holds JSON metadata and binary vector rows; claims hold one mint key -> expiry+owner.
 var (
-	embedCacheBucket = []byte("cache")
-	embedClaimBucket = []byte("claims")
-	embedRowsBucket  = []byte("rows")
-	embedMetadataKey = []byte("metadata")
+	embedVectorBucket = []byte("vectors")
+	embedLegacyBucket = []byte("cache") // v2: one bucket per profile, folded into the shared one by FoldLegacy
+	embedClaimBucket  = []byte("claims")
+	embedClaimKey     = []byte("mint")
+	embedRowsBucket   = []byte("rows")
+	embedMetadataKey  = []byte("metadata")
 )
 
 // Timeouts for the bbolt file lock; a var so tests can shorten them.
@@ -74,7 +75,7 @@ var (
 )
 
 var (
-	// errEmbedValid means the profile's record is inside its validity lease, so nothing was minted.
+	// errEmbedValid means the cache record is inside its validity lease, so nothing was minted.
 	errEmbedValid = errors.New("embedding cache is still valid")
 	// errEmbedBusy means another session holds the minting claim.
 	errEmbedBusy = errors.New("another session is minting the embedding cache")
@@ -84,7 +85,22 @@ var (
 	errReembedEarly = errors.New("re-embed is not open yet")
 )
 
-// embedDBPath is the one bbolt file holding every profile's entry-vector record, scoped like StateDir.
+// openEmbedDB opens embeddings.db, refusing a file shorter than its page high-water mark (bbolt would SIGSEGV on read).
+func openEmbedDB(opts *bbolt.Options) (*bbolt.DB, error) {
+	db, err := bbolt.Open(embedDBPath(), 0o600, opts)
+	if err != nil {
+		return nil, err
+	}
+	var want int64
+	_ = db.View(func(tx *bbolt.Tx) error { want = tx.Size(); return nil })
+	if st, err := os.Stat(embedDBPath()); err != nil || st.Size() < want {
+		_ = db.Close()
+		return nil, errors.New("embeddings.db is truncated")
+	}
+	return db, nil
+}
+
+// embedDBPath is the one bbolt file holding the shared entry-vector record, scoped like StateDir.
 func embedDBPath() string { return filepath.Join(StateDir(), "embeddings.db") }
 
 func mintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
@@ -103,12 +119,9 @@ func reembedOpensAt(f vectorRecord, now time.Time) (time.Time, bool) {
 	return at, !now.Before(at)
 }
 
-// reembedWindow reads profile's record and reports when --reembed opens and whether it is open now.
-func reembedWindow(profile string, now time.Time) (opensAt time.Time, open bool, err error) {
-	if !safeProfile.MatchString(profile) {
-		return time.Time{}, false, fmt.Errorf("embeddings: unsafe profile name %q", profile)
-	}
-	f, err := readEmbedCache(profile)
+// reembedWindow reads the shared record and reports when --reembed opens and whether it is open now.
+func reembedWindow(now time.Time) (opensAt time.Time, open bool, err error) {
+	f, err := readEmbedCache()
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -116,13 +129,11 @@ func reembedWindow(profile string, now time.Time) (opensAt time.Time, open bool,
 	return at, open, nil
 }
 
-// readEmbedCache reads profile's record without blocking long; a missing file or record is empty.
-func readEmbedCache(profile string) (vectorRecord, error) {
-	return vectorStore.Vectors(profile)
-}
+// readEmbedCache reads the shared record without blocking long; a missing file or record is empty. A var for tests.
+var readEmbedCache = vectorStore.Vectors
 
-func (s *boltVectorStore) Vectors(profile string) (vectorRecord, error) {
-	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
+func (s *boltVectorStore) Vectors() (vectorRecord, error) {
+	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
 	if errors.Is(err, os.ErrNotExist) {
 		return vectorRecord{}, nil
 	}
@@ -132,43 +143,45 @@ func (s *boltVectorStore) Vectors(profile string) (vectorRecord, error) {
 	defer db.Close()
 	var f vectorRecord
 	err = db.View(func(tx *bbolt.Tx) error {
-		f = decodeEmbedRecord(tx, profile)
+		f = decodeEmbedRecord(tx)
 		return nil
 	})
 	return f, err
 }
 
-func decodeEmbedMetadata(tx *bbolt.Tx, profile string) vectorRecord {
-	b := tx.Bucket(embedCacheBucket)
-	if b == nil || b.Bucket([]byte(profile)) == nil {
-		return vectorRecord{}
-	}
-	var f vectorRecord
-	if !schemas.DecodeOK(embedFormat, b.Bucket([]byte(profile)).Get(embedMetadataKey), &f) {
-		return vectorRecord{}
-	}
-	return f
+func decodeEmbedRecord(tx *bbolt.Tx) vectorRecord {
+	return decodeVectorBucket(tx.Bucket(embedVectorBucket), embedFormat)
 }
 
-func decodeEmbedRecord(tx *bbolt.Tx, profile string) vectorRecord {
-	f := decodeEmbedMetadata(tx, profile)
-	if f.Rows == nil {
-		return f
+// decodeVectorMeta reads b's metadata at format f's version; a missing or mismatched one is the empty record.
+func decodeVectorMeta(b *bbolt.Bucket, f schemas.Format) vectorRecord {
+	var rec vectorRecord
+	if b == nil || !schemas.DecodeOK(f, b.Get(embedMetadataKey), &rec) {
+		return vectorRecord{}
 	}
-	rows := tx.Bucket(embedCacheBucket).Bucket([]byte(profile)).Bucket(embedRowsBucket)
+	return rec
+}
+
+// decodeVectorBucket is decodeVectorMeta plus the binary rows; a row that is missing or not whole float32s is dropped.
+func decodeVectorBucket(b *bbolt.Bucket, f schemas.Format) vectorRecord {
+	rec := decodeVectorMeta(b, f)
+	if rec.Rows == nil {
+		return rec
+	}
+	rows := b.Bucket(embedRowsBucket)
 	if rows == nil {
 		return vectorRecord{}
 	}
-	for id, row := range f.Rows {
+	for id, row := range rec.Rows {
 		raw := rows.Get([]byte(id))
 		if raw == nil || len(raw)%4 != 0 {
-			delete(f.Rows, id)
+			delete(rec.Rows, id)
 			continue
 		}
 		row.Vec = string(raw)
-		f.Rows[id] = row
+		rec.Rows[id] = row
 	}
-	return f
+	return rec
 }
 
 // updateEmbedDB runs fn in one short read-write transaction on embeddings.db, creating the file and buckets.
@@ -176,13 +189,13 @@ func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
 		return err
 	}
-	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{Timeout: embedWriteTimeout})
+	db, err := openEmbedDB(&bbolt.Options{Timeout: embedWriteTimeout})
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	return db.Update(func(tx *bbolt.Tx) error {
-		for _, name := range [][]byte{embedCacheBucket, embedClaimBucket} {
+		for _, name := range [][]byte{embedVectorBucket, embedClaimBucket} {
 			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 				return err
 			}
@@ -191,25 +204,16 @@ func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
 	})
 }
 
-func deleteEmbedRecord(cache *bbolt.Bucket, profile string) error {
-	key := []byte(profile)
-	if cache.Bucket(key) != nil {
-		return cache.DeleteBucket(key)
-	}
-	return cache.Delete(key)
-}
-
-func putEmbedRecord(tx *bbolt.Tx, profile string, f vectorRecord) error {
+func putEmbedRecord(tx *bbolt.Tx, f vectorRecord) error {
 	f.Schema = embedCacheSchema
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return err
 	}
-	cache := tx.Bucket(embedCacheBucket)
-	if err := deleteEmbedRecord(cache, profile); err != nil {
+	if err := tx.DeleteBucket(embedVectorBucket); err != nil {
 		return err
 	}
-	b, err := cache.CreateBucket([]byte(profile))
+	b, err := tx.CreateBucket(embedVectorBucket)
 	if err != nil {
 		return err
 	}
@@ -245,11 +249,11 @@ func embedClaimExpiry(ctx context.Context, now time.Time) time.Time {
 	return now.Add(embedClaimTTL)
 }
 
-// Claim takes profile's claim for owner until expiry; held is the live claim's expiry when another has it.
-func (s *boltVectorStore) Claim(profile string, owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
+// Claim takes the mint claim for owner until expiry; held is the live claim's expiry when another has it.
+func (s *boltVectorStore) Claim(owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
 	err = updateEmbedDB(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(embedClaimBucket)
-		if v := b.Get([]byte(profile)); len(v) == 16 {
+		if v := b.Get(embedClaimKey); len(v) == 16 {
 			if exp := time.Unix(0, int64(binary.BigEndian.Uint64(v))); exp.After(now) {
 				held = exp
 				return nil
@@ -259,27 +263,27 @@ func (s *boltVectorStore) Claim(profile string, owner int64, now, expiry time.Ti
 		binary.BigEndian.PutUint64(v[:8], uint64(expiry.UnixNano()))
 		binary.BigEndian.PutUint64(v[8:], uint64(owner))
 		ok = true
-		return b.Put([]byte(profile), v[:])
+		return b.Put(embedClaimKey, v[:])
 	})
 	return held, ok, err
 }
 
-// claimOwnedBy reports whether profile's claim record names owner.
-func claimOwnedBy(tx *bbolt.Tx, profile string, owner int64) bool {
-	v := tx.Bucket(embedClaimBucket).Get([]byte(profile))
+// claimOwnedBy reports whether the mint claim names owner.
+func claimOwnedBy(tx *bbolt.Tx, owner int64) bool {
+	v := tx.Bucket(embedClaimBucket).Get(embedClaimKey)
 	return len(v) == 16 && int64(binary.BigEndian.Uint64(v[8:])) == owner
 }
 
-func dropClaim(tx *bbolt.Tx, profile string, owner int64) error {
-	if claimOwnedBy(tx, profile, owner) {
-		return tx.Bucket(embedClaimBucket).Delete([]byte(profile))
+func dropClaim(tx *bbolt.Tx, owner int64) error {
+	if claimOwnedBy(tx, owner) {
+		return tx.Bucket(embedClaimBucket).Delete(embedClaimKey)
 	}
 	return nil
 }
 
-// Release drops owner's claim on profile and returns the failure that left it behind; a taken-over claim is left alone.
-func (s *boltVectorStore) Release(profile string, owner int64) error {
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, profile, owner) })
+// Release drops owner's claim and returns the failure that left it behind; a taken-over claim is left alone.
+func (s *boltVectorStore) Release(owner int64) error {
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, owner) })
 }
 
 // embedDBBroken reports an open failure that blames the file's bytes: not a lock timeout, a permission or a missing file.
@@ -288,14 +292,92 @@ func embedDBBroken(err error) bool {
 }
 
 // quarantineEmbedDB moves a damaged or zero-byte embeddings.db aside so the next write open creates a fresh one.
-func quarantineEmbedDB() error { return os.Rename(embedDBPath(), embedDBPath()+".damaged") }
-
-// RefreshDue reads the mint lease and claim lock-free; a record minted against another host is due inside its lease.
-func (s *boltVectorStore) RefreshDue(profile, host string, now time.Time) bool {
-	if !safeProfile.MatchString(profile) {
-		return false
+func quarantineEmbedDB() error {
+	err := os.Rename(embedDBPath(), embedDBPath()+".damaged")
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "memory: embeddings.db was damaged; set aside as embeddings.db.damaged, rebuilding empty")
 	}
-	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
+	return err
+}
+
+// legacyFormat is the v2 layout FoldLegacy reads.
+var legacyFormat = schemas.Format{Name: embedFormat.Name, Version: 2}
+
+// legacyPresent reports whether the file still holds the v2 per-profile buckets; a missing or damaged file has none.
+func legacyPresent() (found bool, err error) {
+	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
+	if errors.Is(err, os.ErrNotExist) || embedDBBroken(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	err = db.View(func(tx *bbolt.Tx) error {
+		found = tx.Bucket(embedLegacyBucket) != nil
+		return nil
+	})
+	return found, err
+}
+
+// FoldLegacy folds the v2 per-profile records embedded with model into the shared cache, once; the rest are dropped.
+func (s *boltVectorStore) FoldLegacy(model string) error {
+	if found, err := legacyPresent(); err != nil || !found {
+		return err
+	}
+	if err := updateEmbedDB(func(tx *bbolt.Tx) error { return foldLegacyTx(tx, model) }); err != nil {
+		return err
+	}
+	stamps, _ := filepath.Glob(filepath.Join(StateDir(), embedCachePre+"*.refresh*"))
+	for _, stamp := range stamps {
+		_ = os.Remove(stamp)
+	}
+	return nil
+}
+
+func foldLegacyTx(tx *bbolt.Tx, model string) error {
+	old := tx.Bucket(embedLegacyBucket)
+	if old == nil { // another process folded first
+		return nil
+	}
+	shared := decodeEmbedRecord(tx)
+	if shared.Model != model || shared.Rows == nil {
+		shared = vectorRecord{Model: model, Rows: map[string]vectorRow{}}
+	}
+	_ = old.ForEachBucket(func(name []byte) error { // any profile's vector for a hash is as good as another's
+		foldLegacyRecord(&shared, decodeVectorBucket(old.Bucket(name), legacyFormat))
+		return nil
+	})
+	for _, name := range [][]byte{embedLegacyBucket, embedClaimBucket} { // the old buckets and the per-profile claims
+		if err := tx.DeleteBucket(name); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.CreateBucket(embedClaimBucket); err != nil {
+		return err
+	}
+	return putEmbedRecord(tx, shared)
+}
+
+// foldLegacyRecord adds rec's rows to shared unless rec is another model or the id is already held.
+func foldLegacyRecord(shared *vectorRecord, rec vectorRecord) {
+	if rec.Model != shared.Model {
+		return
+	}
+	if shared.Dim == 0 {
+		shared.Dim, shared.DimAt = rec.Dim, rec.DimAt
+	}
+	shared.MintedAt = max(shared.MintedAt, rec.MintedAt)
+	for id, row := range rec.Rows {
+		if _, held := shared.Rows[id]; !held {
+			shared.Rows[id] = row
+		}
+	}
+}
+
+// RefreshDue reads the mint lease and claim lock-free: due when the record is outside its lease and no claim is live.
+func (s *boltVectorStore) RefreshDue(now time.Time) bool {
+	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
 	if errors.Is(err, os.ErrNotExist) {
 		return true
 	}
@@ -305,52 +387,26 @@ func (s *boltVectorStore) RefreshDue(profile, host string, now time.Time) bool {
 	defer db.Close()
 	due := false
 	err = db.View(func(tx *bbolt.Tx) error {
-		rec := decodeEmbedMetadata(tx, profile)
-		if embedValid(rec, now) && rec.Namespace == embedNamespace(profile, host, rec.Model) {
-			return nil
-		}
-		due = !embedClaimLive(tx, profile, now)
+		due = !embedValid(decodeVectorMeta(tx.Bucket(embedVectorBucket), embedFormat), now) && !embedClaimLive(tx, now)
 		return nil
 	})
 	return err == nil && due
 }
 
-// embedClaimLive reports whether another worker's unexpired mint claim for profile is recorded.
-func embedClaimLive(tx *bbolt.Tx, profile string, now time.Time) bool {
+// embedClaimLive reports whether another worker's unexpired mint claim is recorded.
+func embedClaimLive(tx *bbolt.Tx, now time.Time) bool {
 	b := tx.Bucket(embedClaimBucket)
 	if b == nil {
 		return false
 	}
-	v := b.Get([]byte(profile))
+	v := b.Get(embedClaimKey)
 	return len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now)
 }
 
-// embedProvider is the first of the session and claude-record profiles that can embed, matching embedQuery's order.
-func embedProvider() *providers.Provider {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	for name := range embedProfiles(context.Background()) {
-		if p := reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
-			return p
-		}
-	}
-	return nil
-}
-
-// embedProfile names embedProvider's profile, "" when none can embed.
-func embedProfile() string {
-	if p := embedProvider(); p != nil {
-		return p.Name
-	}
-	return ""
-}
-
-// refreshEmbeddings starts a detached mint at most once per claim TTL; failed launches release the slot.
-func refreshEmbeddings(root, profile, host string, now time.Time) bool {
-	stamp := filepath.Join(StateDir(), embedCachePre+profile+".refresh")
-	if IsUpdateChild() || !safeProfile.MatchString(profile) || embedBackedOff(profile, now) || refreshStampFresh(stamp, now) {
+// refreshEmbeddings starts a detached mint at most once per claim TTL, whichever workspace it runs through.
+func refreshEmbeddings(root, profile string, now time.Time) bool {
+	stamp := filepath.Join(StateDir(), "embeddings.refresh")
+	if IsUpdateChild() || refreshStampFresh(stamp, now) {
 		return false
 	}
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
@@ -358,7 +414,7 @@ func refreshEmbeddings(root, profile, host string, now time.Time) bool {
 	}
 	spawned := false
 	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
-		if refreshStampFresh(stamp, now) || !vectorStore.RefreshDue(profile, host, now) {
+		if refreshStampFresh(stamp, now) || !vectorStore.RefreshDue(now) {
 			return nil
 		}
 		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
@@ -379,12 +435,6 @@ func refreshStampFresh(stamp string, now time.Time) bool {
 	return err == nil && now.Sub(st.ModTime()) < embedClaimTTL
 }
 
-// embedBackedOff reports a recent endpoint failure, when a mint would only fail and retry.
-func embedBackedOff(profile string, now time.Time) bool {
-	st, err := os.Stat(filepath.Join(StateDir(), embedCachePre+profile+".backoff"))
-	return err == nil && now.Sub(st.ModTime()) < embedBackoff
-}
-
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
 func spawnEmbedRefresh(root, profile string) bool {
 	args := []string{"memory", "index", "--mint-only", "--repo", root}
@@ -399,8 +449,8 @@ func RefreshStaleEmbeddings(cwd string) {
 	if IsUpdateChild() || !bankExists(cwd) {
 		return
 	}
-	if p := embedProvider(); p != nil {
-		refreshEmbeddings(cwd, p.Name, p.Host, time.Now())
+	if profile, err := embedEndpoint(context.Background()); err == nil {
+		refreshEmbeddings(cwd, profile, time.Now())
 	}
 }
 

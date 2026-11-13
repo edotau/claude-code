@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -23,19 +24,18 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
-	"go.etcd.io/bbolt"
 )
 
-// embedCacheSchema is the embedding cache's schema version; a mismatch is a miss, never migrated.
-const embedCacheSchema = 2
+// embedCacheSchema is the embedding cache's schema version; v2 (per-profile buckets) is folded once by FoldLegacy.
+const embedCacheSchema = 3
 
 const (
 	embedBatch     = 16
 	embedTextRunes = 2000
 	embedMaxRows   = 4000
 	embedBodyLimit = 32 << 20
-	embedCachePre  = "embeddings-"
-	embedBackoff   = time.Minute // after a failed query, keyword-only for this long
+	embedCachePre  = "embeddings-" // prefix of the per-profile .backoff markers and the retired per-profile stamps
+	embedBackoff   = time.Minute   // after a failed query, keyword-only for this long
 )
 
 // embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
@@ -44,20 +44,19 @@ var embedRecallWait = 1200 * time.Millisecond
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
 	Glob: embedDBPath,
-	Keep: "bbolt profile metadata and binary float32 rows; a version mismatch is a miss",
+	Keep: "bbolt metadata and binary float32 rows of one shared cache; a version mismatch is a miss",
 })
 
 var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
-// vectorRecord holds content vectors scoped to a profile, workspace and model.
+// vectorRecord holds the content vectors of one embedding model, whichever workspace produced them.
 type vectorRecord struct {
-	Schema    int                  `json:"schema"`
-	Namespace string               `json:"namespace"`
-	Model     string               `json:"model"`
-	Dim       int                  `json:"dim,omitempty"`       // vector dimension of the endpoint's latest response
-	DimAt     int64                `json:"dim_at,omitempty"`    // ns of the run that set Dim
-	MintedAt  int64                `json:"minted_at,omitempty"` // ns of the last full mint
-	Rows      map[string]vectorRow `json:"rows"`
+	Schema   int                  `json:"schema"`
+	Model    string               `json:"model"`
+	Dim      int                  `json:"dim,omitempty"`       // vector dimension of the endpoint's latest response
+	DimAt    int64                `json:"dim_at,omitempty"`    // ns of the run that set Dim
+	MintedAt int64                `json:"minted_at,omitempty"` // ns of the last full mint
+	Rows     map[string]vectorRow `json:"rows"`
 }
 
 type vectorRow struct {
@@ -69,9 +68,7 @@ type vectorRow struct {
 
 // EmbedClient embeds texts with one named model; EmbedFunc honours ctx.
 type EmbedClient struct {
-	Profile   string // the profile whose cache this client reads and writes
-	Model     string
-	Namespace string // profile|host|model: vectors are comparable only within one namespace
+	Model     string // vectors are comparable only within one model
 	EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
@@ -83,9 +80,9 @@ func entryEmbedText(e Entry) string {
 	return textutil.TruncateRunes(e.Type+": "+e.Body, embedTextRunes)
 }
 
-// freshEmbedCache is an empty cache for c's namespace.
+// freshEmbedCache is an empty cache for c's model.
 func freshEmbedCache(c *EmbedClient) vectorRecord {
-	return vectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]vectorRow{}}
+	return vectorRecord{Model: c.Model, Rows: map[string]vectorRow{}}
 }
 
 // currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
@@ -131,19 +128,16 @@ func checkEmbedLease(rec vectorRecord, now time.Time, force bool) error {
 	return nil
 }
 
-// embedBase is the cache a mint starts from: c's record, or a fresh one when forced or from another namespace.
+// embedBase is the cache a mint starts from: the shared record, or a fresh one when forced or from another model.
 func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) {
-	if !safeProfile.MatchString(c.Profile) {
-		return vectorRecord{}, fmt.Errorf("embeddings: unsafe profile name %q", c.Profile)
-	}
-	rec, err := readEmbedCache(c.Profile)
+	rec, err := readEmbedCache()
 	if embedDBBroken(err) && quarantineEmbedDB() == nil { // a derived cache: set the damaged file aside and mint anew
-		rec, err = readEmbedCache(c.Profile)
+		rec, err = readEmbedCache()
 	}
 	if err != nil {
 		return vectorRecord{}, err
 	}
-	if rec.Namespace != c.Namespace || rec.Rows == nil { // a foreign record's lease does not bind this namespace
+	if rec.Model != c.Model || rec.Rows == nil { // another model's record and lease do not bind this model
 		rec = freshEmbedCache(c)
 	}
 	if err := checkEmbedLease(rec, now, force); err != nil {
@@ -156,6 +150,9 @@ func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) 
 }
 
 func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) (embedded, total int, err error) {
+	if err := vectorStore.FoldLegacy(c.Model); err != nil { // before the first read: folded rows are not paid twice
+		return 0, 0, err
+	}
 	now := time.Now()
 	rec, err := embedBase(c, now, force)
 	if err != nil {
@@ -174,7 +171,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
 	current, cerr := currentEntryHashes(root)
 	if cerr != nil {
-		rerr := vectorStore.Release(c.Profile, owner) // nothing was stored, so the claim is still ours to drop
+		rerr := vectorStore.Release(owner) // nothing was stored, so the claim is still ours to drop
 		return embedded, total, errors.Join(embedErr, cerr, rerr)
 	}
 	run.current = current
@@ -186,13 +183,13 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	return embedded, total, errors.Join(embedErr, cerr)
 }
 
-// claimEmbed takes the profile's mint claim, then rechecks the base: a mint that landed before it must not be paid twice.
+// claimEmbed takes the cache's mint claim, then rechecks the base: a mint that landed before it must not be paid twice.
 func claimEmbed(ctx context.Context, c *EmbedClient, now time.Time, force bool) (int64, error) {
 	owner, err := newEmbedOwner()
 	if err != nil {
 		return 0, err
 	}
-	held, ok, err := vectorStore.Claim(c.Profile, owner, now, embedClaimExpiry(ctx, now))
+	held, ok, err := vectorStore.Claim(owner, now, embedClaimExpiry(ctx, now))
 	if err != nil {
 		return 0, err
 	}
@@ -200,14 +197,14 @@ func claimEmbed(ctx context.Context, c *EmbedClient, now time.Time, force bool) 
 		return 0, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
 	}
 	if _, err := embedBase(c, now, force); err != nil {
-		return 0, errors.Join(err, vectorStore.Release(c.Profile, owner))
+		return 0, errors.Join(err, vectorStore.Release(owner))
 	}
 	return owner, nil
 }
 
 // store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
 func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
-	stored, err = vectorStore.Put(vectorWrite{Profile: r.c.Profile, Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
+	stored, err = vectorStore.Put(vectorWrite{Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
 		out := r.merge(cur)
 		if complete && r.covers(out) { // a partial or migrated-incomplete run keeps its rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
@@ -215,7 +212,7 @@ func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
 		return out
 	}})
 	if err != nil {
-		err = errors.Join(err, vectorStore.Release(r.c.Profile, owner)) // the tx rolled back, so the claim is still ours
+		err = errors.Join(err, vectorStore.Release(owner)) // the tx rolled back, so the claim is still ours
 	}
 	return stored, err
 }
@@ -266,7 +263,7 @@ type embedRun struct {
 }
 
 func (r *embedRun) merge(cur vectorRecord) vectorRecord {
-	if cur.Namespace != r.c.Namespace || cur.Rows == nil {
+	if cur.Model != r.c.Model || cur.Rows == nil {
 		cur = freshEmbedCache(r.c)
 	}
 	fresh := r.fresh
@@ -348,10 +345,7 @@ type Semantic struct {
 	blocks map[string]string
 }
 
-// readProfileCache is the per-profile read embedQuery uses; a var so tests can fail one profile.
-var readProfileCache = readEmbedCache
-
-// embedQuery embeds a query against the session cache, falling back to the agent record.
+// embedQuery embeds a query with the first usable workspace's endpoint and scores it against the shared cache.
 func embedQuery(query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
@@ -560,7 +554,7 @@ func embedProfiles(ctx context.Context) iter.Seq[string] {
 		if other != "" && other != name && !yield(other) {
 			return
 		}
-		for _, db := range databricksProfiles() { // neither can embed: any workspace serves the same embedding model
+		for _, db := range databricksProfiles() { // any workspace serves the same embedding model
 			if db != name && db != other && !yield(db) {
 				return
 			}
@@ -568,7 +562,16 @@ func embedProfiles(ctx context.Context) iter.Seq[string] {
 	}
 }
 
-// databricksProfiles lists the registry's Databricks workspaces in name order.
+// embedCapable is false only for a profile the registry knows as a non-Databricks provider, which cannot embed.
+func embedCapable(name string) bool {
+	reg, err := providers.Load()
+	if err != nil || reg.Providers[name] == nil {
+		return true
+	}
+	return reg.Providers[name].Preset == providers.PresetDatabricks
+}
+
+// databricksProfiles lists the registry's Databricks workspaces in name order, so candidate order is deterministic.
 func databricksProfiles() []string {
 	reg, err := providers.Load()
 	if err != nil {
@@ -606,41 +609,34 @@ func embedBackoffPath(profile string) string {
 	return filepath.Join(StateDir(), embedCachePre+profile+".backoff")
 }
 
-// hasCacheMeta reports whether profile's metadata shows a cache, within ctx's deadline; it reads no vectors.
-func hasCacheMeta(ctx context.Context, profile string) (bool, error) {
-	timeout := embedReadTimeout
-	if dl, ok := ctx.Deadline(); ok {
-		timeout = min(timeout, time.Until(dl))
+// embedEndpoint is the first candidate workspace whose endpoint is not backing off; err says why none is.
+func embedEndpoint(ctx context.Context) (string, error) {
+	var paused error
+	for name := range embedProfiles(ctx) { // lazy: the claude record's profile loads only if the session one is paused
+		if !safeProfile.MatchString(name) || !embedCapable(name) {
+			continue
+		}
+		if err := backoffPause(embedBackoffPath(name)); err != nil {
+			paused = err
+			continue
+		}
+		return name, nil
 	}
-	if timeout <= 0 {
-		return false, ctx.Err()
+	if ctx.Err() != nil {
+		return "", fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
-	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: timeout})
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
-	var ok bool
-	err = db.View(func(tx *bbolt.Tx) error {
-		m := decodeEmbedMetadata(tx, profile)
-		ok = m.Model != "" && len(m.Rows) > 0
-		return nil
-	})
-	return ok, err
+	return "", cmp.Or(paused, errors.New("no embedding profile"))
 }
 
-// readCacheWithin is readProfileCache bounded by ctx; the abandoned read ends on its own lock timeout.
-func readCacheWithin(ctx context.Context, profile string) (vectorRecord, error) {
+// readCacheWithin is readEmbedCache bounded by ctx; the abandoned read ends on its own lock timeout.
+func readCacheWithin(ctx context.Context) (vectorRecord, error) {
 	type read struct {
 		c   vectorRecord
 		err error
 	}
 	done := make(chan read, 1)
 	go func() {
-		c, err := readProfileCache(profile)
+		c, err := readEmbedCache()
 		done <- read{c, err}
 	}()
 	select {
@@ -651,56 +647,25 @@ func readCacheWithin(ctx context.Context, profile string) (vectorRecord, error) 
 	}
 }
 
-// profileCache loads profile's vectors when its metadata shows a cache; paused means its backoff marker is fresh.
-func profileCache(ctx context.Context, profile string) (c vectorRecord, paused bool, err error) {
-	if ok, err := hasCacheMeta(ctx, profile); err != nil || !ok {
-		return vectorRecord{}, false, err
-	}
-	if err := backoffPause(embedBackoffPath(profile)); err != nil {
-		return vectorRecord{}, true, err
-	}
-	c, err = readCacheWithin(ctx, profile)
-	return c, false, err
-}
-
-// semanticCache picks the first unpaused profile with a cache; a backoff marker skips a profile before any vector loads.
+// semanticCache pairs the endpoint profile that will embed the query with the shared cache it is scored against.
 func semanticCache(ctx context.Context) (string, vectorRecord, error) {
-	var readErr, pauseErr error
-	for name := range embedProfiles(ctx) { // lazy: the claude record's profile loads only if the session one misses
-		if !safeProfile.MatchString(name) {
-			continue
-		}
-		c, paused, err := profileCache(ctx, name)
-		if paused { // this profile's endpoint is backing off; the next one may still serve
-			pauseErr = err
-			continue
-		}
-		if err != nil { // a locked or unreadable profile is a miss; the next one may serve
-			readErr = err
-			continue
-		}
-		if c.Model != "" && len(c.Rows) > 0 {
-			return name, c, nil
-		}
+	profile, err := embedEndpoint(ctx)
+	if err != nil {
+		return "", vectorRecord{}, err
 	}
-	return "", vectorRecord{}, semanticCacheMiss(ctx, pauseErr, readErr)
+	c, err := readCacheWithin(ctx)
+	switch {
+	case ctx.Err() != nil:
+		return "", vectorRecord{}, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
+	case err != nil:
+		return "", vectorRecord{}, fmt.Errorf("embedding cache unreadable: %w", err)
+	case c.Model == "" || len(c.Rows) == 0:
+		return "", vectorRecord{}, errors.New("no embedding cache")
+	}
+	return profile, c, nil
 }
 
-// semanticCacheMiss is why no profile served: a backoff pause, the recall deadline, or an unreadable or absent cache.
-func semanticCacheMiss(ctx context.Context, pauseErr, readErr error) error {
-	if pauseErr != nil {
-		return pauseErr
-	}
-	if ctx.Err() != nil {
-		return fmt.Errorf("query embedding exceeded %s", embedRecallWait)
-	}
-	if readErr != nil {
-		return fmt.Errorf("embedding cache unreadable: %w", readErr)
-	}
-	return errors.New("no embedding cache")
-}
-
-// errEmbedMismatch marks a query that cannot use the cache (namespace or dimension): local config, not an endpoint failure.
+// errEmbedMismatch marks a query that cannot use the cache (model or dimension): local config, not an endpoint failure.
 var errEmbedMismatch = errors.New("embedding cache mismatch")
 
 type semanticResult struct {
@@ -713,8 +678,8 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 	if err != nil {
 		return semanticResult{err: err}
 	}
-	if cache.Namespace == "" || c.Namespace != cache.Namespace { // checked first: no prompt text leaves on a mismatch
-		return semanticResult{err: fmt.Errorf("%w: belongs to another workspace or model", errEmbedMismatch)}
+	if cache.Model == "" || c.Model != cache.Model { // checked first: no prompt text leaves on a mismatch
+		return semanticResult{err: fmt.Errorf("%w: built with another model", errEmbedMismatch)}
 	}
 	vecs, err := c.EmbedFunc(ctx, []string{query})
 	if err == nil && len(vecs) != 1 {
@@ -752,11 +717,6 @@ func embeddingModelFor(ctx context.Context, p *providers.Provider) (string, erro
 	return model, nil
 }
 
-// embedNamespace names the workspace and model a cache was embedded against.
-func embedNamespace(name, host, model string) string {
-	return name + "|" + strings.TrimRight(host, "/") + "|" + model
-}
-
 // openDatabricksEmbed is profile's embeddings client; credentials come only from providers.Authorize.
 func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClient, error) {
 	reg, err := providers.Load()
@@ -776,8 +736,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 			return nil, err
 		}
 	}
-	ns := embedNamespace(p.Name, p.Host, model)
-	return &EmbedClient{Profile: p.Name, Model: model, Namespace: ns, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return embedDatabricks(ctx, p, model, texts)
 	}}, nil
 }
