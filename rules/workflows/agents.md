@@ -17,7 +17,7 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 | Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle) |
 | Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
 | Owner prompt-box syntax | `@agent-<name>` selects a subagent; owner-only `/<agent>` and `/coworker` shortcuts below |
-| Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`) |
+| Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`; test files and `testdata` need `--with-tests`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
 | Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |

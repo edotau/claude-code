@@ -32,7 +32,7 @@ type askFlags struct {
 	timeout, followIdle                                                                                                                                                                                                time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                                                       int
 	dirs, files                                                                                                                                                                                                        string
-	diff, index                                                                                                                                                                                                        bool
+	diff, index, withTests                                                                                                                                                                                             bool
 	pack                                                                                                                                                                                                               *pack.Spec
 	agents                                                                                                                                                                                                             agentsFlag
 	attach                                                                                                                                                                                                             attachFlag
@@ -110,6 +110,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.index, "index", false, "prepend an index of every matched path")
 	fs.IntVar(&f.maxFiles, "max-files", pack.DefaultMaxFiles, "max files to inline (0 = index only)")
 	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
+	fs.BoolVar(&f.withTests, "with-tests", false, "inline test files and testdata under --dirs (skipped by default)")
 	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
 	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
@@ -161,7 +162,7 @@ func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 		return nil, err
 	}
 	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
-		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
+		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, WithTests: f.withTests, IndexOnly: f.maxFiles == 0}, nil
 }
 
 // packCombos refuses negative pack limits and a pack with --batch, --live or --host.
@@ -177,7 +178,7 @@ func packCombos(f *askFlags) error {
 
 // packTuningUnset refuses a pack tuning flag typed without --dirs, --files or --diff.
 func packTuningUnset(fs *flag.FlagSet) error {
-	for _, n := range []string{"index", "max-files", "max-file-bytes"} {
+	for _, n := range []string{"index", "max-files", "max-file-bytes", "with-tests"} {
 		if helptext.Explicit(fs, n) {
 			return fmt.Errorf("--%s needs --dirs, --files or --diff", n)
 		}
@@ -332,7 +333,7 @@ func askReselect(ref, ag string, name *string, persona **agent.Schema, defs map[
 	return ref, rest, nil
 }
 
-// readFramedPrompt reads the prompt up to the NUL that ends it and returns the reader, whose remaining EOF is the cancel signal.
+// readFramedPrompt reads the prompt up to its ending NUL; the returned reader's remaining EOF is the cancel signal.
 func readFramedPrompt(in io.Reader) (*bufio.Reader, string, error) {
 	rd := bufio.NewReader(in)
 	p, err := rd.ReadString(0)
