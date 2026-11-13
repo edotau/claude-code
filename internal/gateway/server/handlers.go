@@ -343,6 +343,7 @@ func (r *Router) health(w http.ResponseWriter) {
 	w.Header().Set(gateway.PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
 	w.Header().Set(gateway.HeaderBuild, textutil.BuildVersion())
 	w.Header().Set(gateway.HeaderConfig, gateway.ConfigID())
+	w.Header().Set(gateway.HeaderDispatchTag, "1")
 	w.Header().Set(gateway.HeaderSessions, strconv.Itoa(r.sessions.count()))
 	w.Header().Set(gateway.HeaderInflight, strconv.FormatInt(r.inflight.Load(), 10))
 	_, _ = io.WriteString(w, "ok\n")

@@ -146,7 +146,7 @@ func TestStreamErrClass(t *testing.T) {
 func TestTerminalWatchSplitAndEscapedMarkers(t *testing.T) {
 	var split terminalWatch
 	split.see([]byte(`data: {"type":"response.comp`))
-	split.see([]byte(`leted","response":{}}`))
+	split.see([]byte("leted\",\"response\":{}}\n\n"))
 	if !split.done {
 		t.Error("split response.completed not seen")
 	}
@@ -154,6 +154,80 @@ func TestTerminalWatchSplitAndEscapedMarkers(t *testing.T) {
 	text.see([]byte(`data: {"delta":"say \"response.completed\" now"}`))
 	if text.done {
 		t.Error("escaped marker inside a delta counted as terminal")
+	}
+}
+
+// Finding 1: the marker text as a payload value of a non-terminal event is not a finished stream.
+func TestTerminalWatchIgnoresMarkerInPayloadValue(t *testing.T) {
+	var w terminalWatch
+	w.see([]byte("data: {\"type\":\"content_block_delta\",\"delta\":\"message_stop\"}\n\n"))
+	w.see([]byte("data: {\"type\":\"response.output_text.delta\",\"delta\":\"response.completed\"}\n\n"))
+	if w.done {
+		t.Fatal("marker text inside a payload value counted as the terminal event")
+	}
+}
+
+// Finding 2: a terminal event cut off before its blank line is not a finished stream; the completed frame is.
+func TestTerminalWatchNeedsCompleteFrame(t *testing.T) {
+	var w terminalWatch
+	w.see([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n"))
+	if w.done {
+		t.Fatal("a terminal frame without its blank line counted as finished")
+	}
+	w.see([]byte("\n"))
+	if !w.done {
+		t.Fatal("a complete message_stop frame was not seen")
+	}
+}
+
+// A frame over the cap is dropped as not terminal and memory stays bounded; the next frame still counts.
+func TestTerminalWatchOverCapFrameNotTerminal(t *testing.T) {
+	var w terminalWatch
+	w.see([]byte("data: {\"type\":\"x\",\"pad\":\"" + strings.Repeat("a", 2*frameCap) + "\",\"z\":\"message_stop\"}\n\n"))
+	if w.done || cap(w.data) > 2*frameCap {
+		t.Fatalf("over-cap frame: done=%t cap=%d", w.done, cap(w.data))
+	}
+	w.see([]byte("data: [DONE]\n\n"))
+	if !w.done {
+		t.Fatal("[DONE] after an over-cap frame not seen")
+	}
+}
+
+// Frame shapes a stream really sends: empty and comment frames, CRLF, splits at the blank line, the line cap edges.
+func TestTerminalWatchFrameShapes(t *testing.T) {
+	// frame is one data-only terminal frame whose "data: ..." line is exactly lineLen bytes, then its blank line.
+	frame := func(lineLen int) string {
+		const head, tail = `data: {"type":"message_stop","p":"`, `"}`
+		return head + strings.Repeat("a", lineLen-len(head)-len(tail)) + tail + "\n\n"
+	}
+	cut := func(s string, n int) []string { return []string{s[:n], s[n:]} }
+	for _, tc := range []struct {
+		name   string
+		chunks []string
+		done   bool
+	}{
+		{"empty frame", []string{"\n\n"}, false},
+		{"comment-only frames", []string{": ping\n\n: pong\n\n"}, false},
+		{"comment line inside a terminal frame", []string{": c\nevent: message_stop\n\n"}, true},
+		{"CRLF terminal frame", []string{"event: message_stop\r\ndata: {}\r\n\r\n"}, true},
+		{"CRLF split at the blank line", []string{"data: [DONE]\r\n", "\r\n"}, true},
+		{"CRLF split inside the blank line", []string{"data: [DONE]\r\n\r", "\n"}, true},
+		{"CRLF blank line never finished", []string{"data: [DONE]\r\n\r"}, false},
+		{"one read, data one byte under the cap", []string{frame(frameCap + 5)}, true},
+		{"one read, data one byte over the cap", []string{frame(frameCap + 7)}, false},
+		{"line split across reads, exactly at the cap", cut(frame(frameCap), 10), true},
+		{"line split across reads, one byte over", cut(frame(frameCap+1), 10), false},
+		{"next frame counts after an over-cap split line", append(cut(frame(frameCap+1), 10), "data: [DONE]\n\n"), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var w terminalWatch
+			for _, c := range tc.chunks {
+				w.see([]byte(c))
+			}
+			if w.done != tc.done {
+				t.Errorf("done = %t, want %t", w.done, tc.done)
+			}
+		})
 	}
 }
 

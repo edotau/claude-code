@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -84,33 +85,102 @@ func streamErrClass(err error) string {
 	return "other"
 }
 
-// terminalMarkers end an SSE reply: Responses, Anthropic and chat wires; quoted so escaped text in a delta can't match.
-var terminalMarkers = [][]byte{
-	[]byte(`"response.completed"`), []byte(`"response.incomplete"`), []byte(`"response.failed"`),
-	[]byte(`"message_stop"`), []byte("data: [DONE]"),
-}
-
-// terminalWatch notes whether a stream's terminal event went by, keeping a tail so a marker split across reads matches.
+// terminalWatch notes whether a complete terminal SSE frame went by; a frame over frameCap is dropped as not terminal.
 type terminalWatch struct {
-	tail []byte
-	done bool
+	line     []byte // partial line carried across reads
+	data     []byte // the current frame's data, kept only when it has no event: line
+	event    string
+	hasEvent bool
+	hasData  bool
+	over     bool // the current frame exceeded frameCap
+	skipLine bool // the current line exceeded frameCap: ignore its rest
+	done     bool
 }
 
-const markerOverlap = 32 // longer than any marker, so one split across reads still matches
+const frameCap = 64 << 10
 
 func (t *terminalWatch) see(p []byte) {
-	if t.done {
-		return
-	}
-	seam := append(append([]byte(nil), t.tail...), p[:min(len(p), markerOverlap)]...)
-	for _, m := range terminalMarkers {
-		if bytes.Contains(p, m) || bytes.Contains(seam, m) {
-			t.done = true
+	for len(p) > 0 && !t.done {
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			t.partial(p)
 			return
 		}
+		line := p[:i]
+		if len(t.line) > 0 || t.skipLine {
+			t.partial(line)
+			line = t.line
+		}
+		if !t.skipLine {
+			t.handle(line)
+		}
+		t.line, t.skipLine = t.line[:0], false
+		p = p[i+1:]
 	}
-	t.tail = append(t.tail, p[max(0, len(p)-markerOverlap):]...)
-	t.tail = t.tail[max(0, len(t.tail)-markerOverlap):]
+}
+
+// partial appends an unfinished line piece, marking the frame over-cap once the line outgrows frameCap.
+func (t *terminalWatch) partial(b []byte) {
+	if t.skipLine {
+		return
+	}
+	if len(t.line)+len(b) > frameCap {
+		t.over, t.skipLine, t.line = true, true, t.line[:0]
+		return
+	}
+	t.line = append(t.line, b...)
+}
+
+// handle reads one SSE line; a blank line closes the frame and judges it.
+func (t *terminalWatch) handle(line []byte) {
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	switch {
+	case len(line) == 0:
+		if t.frameTerminal() {
+			t.done = true
+		}
+		t.event, t.hasEvent, t.hasData, t.over, t.data = "", false, false, false, t.data[:0]
+	case bytes.HasPrefix(line, []byte("event:")):
+		t.event, t.hasEvent = strings.TrimSpace(string(line[6:])), true
+	case bytes.HasPrefix(line, []byte("data:")) && !t.hasEvent && !t.over:
+		v := bytes.TrimPrefix(line[5:], []byte{' '})
+		if len(t.data)+len(v)+1 > frameCap {
+			t.over, t.data = true, t.data[:0]
+			return
+		}
+		if t.hasData {
+			t.data = append(t.data, '\n')
+		}
+		t.data, t.hasData = append(t.data, v...), true
+	}
+}
+
+// frameTerminal judges a complete frame: its event: type where one is sent, else [DONE] or its data's top-level type.
+func (t *terminalWatch) frameTerminal() bool {
+	if t.over {
+		return false
+	}
+	if t.hasEvent {
+		return terminalType(t.event)
+	}
+	if string(t.data) == "[DONE]" {
+		return true
+	}
+	if !bytes.Contains(t.data, []byte("response.")) && !bytes.Contains(t.data, []byte("message_stop")) {
+		return false // cheap prefilter: a terminal type name must appear in the data
+	}
+	var f struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(t.data, &f) == nil && terminalType(f.Type)
+}
+
+func terminalType(s string) bool {
+	switch s {
+	case "response.completed", "response.incomplete", "response.failed", "message_stop":
+		return true
+	}
+	return false
 }
 
 func drain(resp *http.Response) {

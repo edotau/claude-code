@@ -332,6 +332,18 @@ type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
+// Finding 4: the upstream message is one quoted msg= token, last on the line, after any stream=broken.
+func TestErrDiagQuotesMessageAndKeepsItLast(t *testing.T) {
+	got := errDiag([]byte(`{"error_code":"E","message":"x dispatch=evil \"stream=broken\""}`))
+	if want := ` err=E msg="x dispatch=evil \"stream=broken\""`; got != want {
+		t.Errorf("errDiag = %q, want %q", got, want)
+	}
+	want := ` err=E stream=broken:eof msg="x dispatch=evil \"stream=broken\""`
+	if line := addBroken(got, " stream=broken:eof"); line != want {
+		t.Errorf("addBroken = %q, want %q", line, want)
+	}
+}
+
 // A passthrough 429 logs sanitized diagnostics and relays the upstream body unchanged.
 func TestPassthroughLogsDiagnostics(t *testing.T) {
 	const upBody = `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"slow down"}`
