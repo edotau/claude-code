@@ -24,7 +24,7 @@ func scanWinPaths(text string) []string {
 }
 
 func TestDescribeRejectsSpecialFiles(t *testing.T) {
-	if _, _, ok := describe(os.DevNull); ok {
+	if _, _, _, ok := describe(os.DevNull); ok {
 		t.Fatal("null device reported as a regular attachment")
 	}
 }
@@ -267,8 +267,7 @@ func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := ResolvePaths(&core.Input{Prompt: "read " + f + "."})
-	want := "File paths resolved from the prompt (use these for reads and @-references):\n  " + f + " (6 B)"
-	if calls != 0 || res.Context != want || !strings.Contains(res.SystemMessage, "notes.md — 6 B") {
-		t.Fatalf("path prompt: calls=%d context=%q message=%q, want context %q", calls, res.Context, res.SystemMessage, want)
+	if calls != 0 || res.Context != "" || !strings.Contains(res.SystemMessage, "notes.md — 6 B") {
+		t.Fatalf("path prompt: calls=%d context=%q message=%q, want no context", calls, res.Context, res.SystemMessage)
 	}
 }
