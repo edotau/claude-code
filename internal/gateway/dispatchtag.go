@@ -1,5 +1,12 @@
 package gateway
 
+import (
+	"context"
+	"net/url"
+	"strconv"
+	"strings"
+)
+
 // DispatchPrefix opens a router path that tags the request with its dispatch id: /d/<id>/…, composable with /via/.
 const DispatchPrefix = "/d/"
 
@@ -9,6 +16,40 @@ func DispatchBase(base, id string) string {
 		return base
 	}
 	return base + DispatchPrefix + id
+}
+
+// TaggedBase is DispatchBase only when the daemon at base advertises dispatch tags; an older daemon would 404 /d/.
+func TaggedBase(ctx context.Context, base, id string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return base
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return base
+	}
+	if st, ok := Holder(ctx, port); !ok || !st.DispatchTag {
+		return base
+	}
+	return DispatchBase(base, id)
+}
+
+// UntaggedBase is raw without a leading /d/<id> path segment pair, so a tagged base compares as its /p/<profile> route.
+func UntaggedBase(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	rest, ok := strings.CutPrefix(u.Path, DispatchPrefix)
+	if !ok {
+		return raw
+	}
+	id, tail, _ := strings.Cut(rest, "/")
+	if !ValidDispatchID(id) {
+		return raw
+	}
+	u.Path, u.RawPath = "/"+tail, ""
+	return u.String()
 }
 
 const maxDispatchIDLen = 128

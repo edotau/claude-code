@@ -155,6 +155,44 @@ func TestGuardedClientHeaderStallTimesOut(t *testing.T) {
 	}
 }
 
+// Finding 11: a repeated /d/ or /via/ prefix is a 400, never a silent replacement of the first.
+func TestStripViaRejectsDuplicatePrefix(t *testing.T) {
+	for _, path := range []string{"/d/a/d/b/p/x", "/via/h1/via/h2/p/x", "/d/a/via/h/d/b/p/x", "/via/h/d/a/via/h2/p/x"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1"+path, nil)
+		if _, ok := stripVia(w, req); ok || w.Code != http.StatusBadRequest {
+			t.Errorf("%s: ok=%t status=%d, want a 400", path, ok, w.Code)
+		}
+	}
+}
+
+// The dispatch tag is stripped only as a leading segment: a 128-char id passes, an empty or 129-char one is a 400.
+func TestStripViaDispatchSegmentShapes(t *testing.T) {
+	const maxID = 128 // the documented limit, deliberately not read from gateway
+	id128 := strings.Repeat("a", maxID)
+	for _, tc := range []struct {
+		name, path, wantPath, wantDiag string
+		wantCode                       int // 0 = passes
+	}{
+		{"128-char id", "/d/" + id128 + "/p/x", "/p/x", " dispatch=" + id128, 0},
+		{"129-char id", "/d/" + id128 + "a/p/x", "", "", http.StatusBadRequest},
+		{"empty segment", "/d//p/x", "", "", http.StatusBadRequest},
+		{"no path after the id", "/d/abc", "/", " dispatch=abc", 0},
+		{"tag after the profile segment is not a tag", "/p/up1/d/abc/v1/messages", "/p/up1/d/abc/v1/messages", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			out, ok := stripVia(w, httptest.NewRequest(http.MethodPost, "http://127.0.0.1"+tc.path, nil))
+			if ok != (tc.wantCode == 0) || tc.wantCode != 0 && w.Code != tc.wantCode {
+				t.Fatalf("ok=%t status=%d, want status %d", ok, w.Code, tc.wantCode)
+			}
+			if ok && (out.URL.Path != tc.wantPath || dispatchDiag(out) != tc.wantDiag) {
+				t.Errorf("path %q diag %q, want %q %q", out.URL.Path, dispatchDiag(out), tc.wantPath, tc.wantDiag)
+			}
+		})
+	}
+}
+
 // /d/<id>/ composes with /via/<host>/ in either order, logs dispatch=<id>, and a bad id is a 400 that never routes.
 func TestDispatchPrefixLogsDispatchID(t *testing.T) {
 	up := newUpstream(t, ok)

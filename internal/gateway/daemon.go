@@ -304,6 +304,8 @@ const (
 	HeaderSessions = "X-Claude-Code-Proxy-Sessions"
 	HeaderInflight = "X-Claude-Code-Proxy-Inflight"
 	HeaderConfig   = "X-Claude-Code-Proxy-Config"
+
+	HeaderDispatchTag = "X-Claude-Code-Proxy-Dispatch-Tag" // "1" when the daemon strips a /d/<id> prefix
 )
 
 // ConfigID names this process's config dir without exposing the path.
@@ -318,6 +320,8 @@ type HolderState struct {
 	Sessions int
 	Inflight int64
 	Config   string
+
+	DispatchTag bool
 }
 
 // Holder identifies who answers on port: router reports a claude-code /healthz, pid its PIDHeader (0 = older build).
@@ -330,6 +334,7 @@ func Holder(ctx context.Context, port int) (HolderState, bool) {
 	st.PID, _ = strconv.Atoi(resp.Header.Get(PIDHeader))
 	st.Build = resp.Header.Get(HeaderBuild)
 	st.Config = resp.Header.Get(HeaderConfig)
+	st.DispatchTag = resp.Header.Get(HeaderDispatchTag) == "1"
 	st.Sessions, _ = strconv.Atoi(resp.Header.Get(HeaderSessions))
 	st.Inflight, _ = strconv.ParseInt(resp.Header.Get(HeaderInflight), 10, 64)
 	return st, resp.StatusCode == http.StatusOK

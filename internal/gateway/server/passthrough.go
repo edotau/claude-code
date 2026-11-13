@@ -56,8 +56,16 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 			attempts, time.Since(start).Round(time.Millisecond), viaDiag(in), dispatchDiag(in), extra)
 	}()
 	model, extra = r.forwardPassthrough(sw, in, provider, dialect, rest)
-	extra += brokenDiag(sw)
+	extra = addBroken(extra, brokenDiag(sw))
 	sw.abortIfBroken() // the deferred log line still runs
+}
+
+// addBroken puts the stream=broken token before the line's msg= token, which must stay last.
+func addBroken(extra, broken string) string {
+	if i := strings.Index(extra, " msg="); i >= 0 {
+		return extra[:i] + broken + extra[i:]
+	}
+	return extra + broken
 }
 
 func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request,
@@ -468,7 +476,7 @@ func passthroughDiag(resp *http.Response, reqBytes int) string {
 	return b.String()
 }
 
-// errDiag is the " err=<code> msg=<message>" log suffix read from an upstream error body; "" when it names neither.
+// errDiag is the " err=<code> msg=<quoted message>" suffix of an upstream error body; msg= stays last on the line.
 func errDiag(body []byte) string {
 	var e struct {
 		Code    string `json:"error_code"`
@@ -485,7 +493,7 @@ func errDiag(body []byte) string {
 		out += " err=" + agentToken(c)
 	}
 	if m := logMessage(cmp.Or(e.Message, e.Error.Message)); m != "" {
-		out += " msg=" + m
+		out += " msg=" + strconv.Quote(m)
 	}
 	return out
 }

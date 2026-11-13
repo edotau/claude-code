@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -88,7 +87,7 @@ func rejectLocal(_, address string, _ syscall.RawConn) error {
 	if ip == nil {
 		return fmt.Errorf("proxy: unresolvable dial target %q", address)
 	}
-	if localIP(ip) {
+	if textutil.IsNonPublicIP(ip, false) { // CGNAT stays open: tailnet MagicDNS names resolve there
 		return fmt.Errorf(
 			"proxy: %s resolves into the local network (%s); spell a local gateway as a literal address in base_url",
 			address, ip)
@@ -96,26 +95,10 @@ func rejectLocal(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// nonPublic are ranges net.IP's predicates miss; CGNAT 100.64/10 stays open: tailnet MagicDNS names resolve there.
-var nonPublic = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),   // "this network"
-	netip.MustParsePrefix("240.0.0.0/4"), // reserved, with the limited broadcast 255.255.255.255
-	netip.MustParsePrefix("::/96"),       // IPv4-compatible IPv6 (::127.0.0.1), which To4 does not unwrap
-}
-
-// localIP reports a loopback, private (incl. IPv6 unique-local), link-local, multicast, unspecified or nonPublic ip.
-func localIP(ip net.IP) bool {
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return true
-	}
-	addr, _ := netip.AddrFromSlice(ip)
-	addr = addr.Unmap() // ::ffff:0.1.2.3 matches 0.0.0.0/8
-	return slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(addr) })
-}
-
-// stripVia pins and strips leading /via/<host> and /d/<id> segments, either order; false after a 400.
+// stripVia pins and strips leading /via/<host> and /d/<id> segments, either order, once each; false after a 400.
 func stripVia(w http.ResponseWriter, req *http.Request) (*http.Request, bool) {
-	for range 2 {
+	var seen []string
+	for range 3 {
 		prefix := ""
 		for _, p := range []string{gateway.ViaPrefix, gateway.DispatchPrefix} {
 			if strings.HasPrefix(req.URL.Path, p) {
@@ -125,6 +108,11 @@ func stripVia(w http.ResponseWriter, req *http.Request) (*http.Request, bool) {
 		if prefix == "" {
 			break
 		}
+		if slices.Contains(seen, prefix) {
+			writeError(w, http.StatusBadRequest, "proxy: duplicate "+prefix+" prefix")
+			return nil, false
+		}
+		seen = append(seen, prefix)
 		seg, rest, _ := strings.Cut(req.URL.Path[len(prefix):], "/")
 		ctx, err := pinSegment(req.Context(), prefix, seg)
 		if err != nil {
@@ -145,7 +133,7 @@ type dispatchKey struct{}
 // pinSegment validates one stripped path segment and returns ctx carrying it: the egress host or the dispatch id.
 func pinSegment(ctx context.Context, prefix, seg string) (context.Context, error) {
 	if prefix == gateway.ViaPrefix {
-		if err := textutil.ValidHost(seg); err != nil {
+		if err := egress.Valid(seg); err != nil {
 			return nil, fmt.Errorf("host>: %w", err)
 		}
 		return egress.WithHost(ctx, seg), nil
