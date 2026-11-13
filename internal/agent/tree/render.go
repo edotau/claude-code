@@ -84,11 +84,11 @@ func renderTree(w io.Writer, tree *Tree, now time.Time) {
 		}
 		fmt.Fprintln(w)
 	}
-	renderDispatches(w, tree.Dispatches, width)
+	renderDispatches(w, tree.Dispatches, now, width)
 }
 
 // renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
-func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
+func renderDispatches(w io.Writer, dispatches []Dispatch, now time.Time, width int) {
 	if len(dispatches) == 0 {
 		return
 	}
@@ -96,6 +96,9 @@ func renderDispatches(w io.Writer, dispatches []Dispatch, width int) {
 	for _, l := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
 		where := cmp.Or(l.Route, l.Provider, providers.AgentRecord(l.Agent).Profile, "own login") // no overlay provider: its pinned profile
 		prefix := fmt.Sprintf("  %s  %-15s  %-22s  %-6s", l.ID, where, strings.TrimPrefix(cmp.Or(l.Model, "default"), "databricks-"), l.Duration)
+		if sig := signalText(l, now); sig != "" {
+			prefix += "  " + sig
+		}
 		fmt.Fprintln(w, fitRow(prefix, cmp.Or(l.Task, l.Repo), "", width))
 	}
 }
@@ -211,17 +214,24 @@ func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths,
 	label := stripPaths(sub.Description, home, cwd)
 	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
 	for _, disp := range sub.Dispatches {
-		fmt.Fprintf(w, "%s  %s\n", indent, formatDispatch(disp))
+		fmt.Fprintf(w, "%s  %s\n", indent, fitRow(formatDispatch(disp, now), "", "", width))
 	}
 }
 
-// formatDispatch renders one dispatch: "↳ codex gpt-6-astra running 2m14s", or "↳ codex→claude ok 1m40s ⚠ fallback".
-func formatDispatch(l Dispatch) string {
+// formatDispatch renders one dispatch: "↳ codex gpt-6-astra running 2m14s last=9s", "… ⚠ quiet 7m" or "… ⚠ fallback".
+func formatDispatch(l Dispatch, now time.Time) string {
 	name := l.Agent
 	if l.Fallback != "" {
 		name = l.Fallback + "→" + l.Agent
 	}
-	s := fmt.Sprintf("↳ %s %s %s %s", name, l.Model, l.Status, l.Duration)
+	status, sig := l.Status, signalText(l, now)
+	if l.Quiet {
+		status, sig = sig, ""
+	}
+	s := fmt.Sprintf("↳ %s %s %s %s", name, l.Model, status, l.Duration)
+	if sig != "" {
+		s += " " + sig
+	}
 	if l.Fallback != "" {
 		s += " ⚠ fallback"
 	}

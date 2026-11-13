@@ -73,8 +73,8 @@ func TestRenderWriteErrors(t *testing.T) {
 
 func TestFormatDispatchFlagsFallback(t *testing.T) {
 	fb := Dispatch{Agent: "codex", Fallback: "claude"}
-	if !strings.Contains(formatDispatch(fb), "⚠ fallback") {
-		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb))
+	if !strings.Contains(formatDispatch(fb, time.Now()), "⚠ fallback") {
+		t.Errorf("formatDispatch(fallback) = %q, want it to flag the fallback", formatDispatch(fb, time.Now()))
 	}
 }
 
