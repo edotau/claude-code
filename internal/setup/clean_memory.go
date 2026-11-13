@@ -1,15 +1,18 @@
 package setup
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // orphanAccessLog allows only the two legacy names without a corresponding store.
@@ -90,4 +93,37 @@ func memoryStateSession(p string) string {
 		}
 	}
 	return ""
+}
+
+// sandboxPrefix and sandboxSeed mirror what internal/memory/sandbox.go writes: sandbox.go leaves no marker
+// file, so the root commit of <dir>/memory (author + subject) is the only provenance it carries.
+const (
+	sandboxPrefix = "claude-memory-sandbox-"
+	sandboxSeed   = "Memory sandbox\x1fchore(memory): seed sandbox"
+)
+
+// sandboxGlobs matches the sandbox dirs `memory sandbox` creates directly under the OS temp dir.
+func sandboxGlobs() []string { return []string{filepath.Join(os.TempDir(), sandboxPrefix+"*")} }
+
+// keepNonSandbox protects every match that is not provably a memory sandbox; clean removes only the rest.
+func keepNonSandbox(p string) bool { return !isSandbox(p) }
+
+// isSandbox is true for a real (non-symlink) dir directly under the temp dir, outside the live config dir,
+// whose memory/ repo starts with the sandbox seed commit.
+func isSandbox(p string) bool {
+	p = filepath.Clean(p)
+	if filepath.Dir(p) != filepath.Clean(os.TempDir()) || paths.Within(p, paths.ConfigDir()) {
+		return false
+	}
+	if fi, err := os.Lstat(p); err != nil || !fi.IsDir() {
+		return false
+	}
+	mem := filepath.Join(p, "memory")
+	if fi, err := os.Lstat(filepath.Join(mem, ".git")); err != nil || !fi.IsDir() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	root, err := proc.RunGit(ctx, mem, "log", "--max-parents=0", "--format=%an%x1f%s")
+	return err == nil && root == sandboxSeed
 }

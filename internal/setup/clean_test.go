@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -122,6 +123,7 @@ func seedFiles(t *testing.T, dir string, rels []string, contents string, old tim
 func seedDebris(t *testing.T) string {
 	t.Helper()
 	dir := vaulttest.Use(t)
+	t.Setenv("TMPDIR", t.TempDir()) // the sandbox target sweeps the temp dir; never the real one
 	// The real scan keeps all memory state whenever a same-uid process has an unreadable fd table (host-dependent).
 	oldOpen := openMemoryFiles
 	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
@@ -817,5 +819,108 @@ func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
 	}
 	if exists(t, dead) || !exists(t, live) {
 		t.Fatalf("dead kept=%v live kept=%v\n%s", exists(t, dead), exists(t, live), out.String())
+	}
+}
+
+// makeSandbox creates a real `memory sandbox` dir under TMPDIR (empty banks) and ages it.
+func makeSandbox(t *testing.T, age time.Duration) string {
+	t.Helper()
+	res, err := memory.Sandbox(memory.SandboxOptions{Empty: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-age)
+	if err := filepath.WalkDir(res.Dir, func(p string, _ os.DirEntry, _ error) error { return os.Chtimes(p, old, old) }); err != nil {
+		t.Fatal(err)
+	}
+	return res.Dir
+}
+
+// sandboxFixture is a TMPDIR holding aged and young sandboxes plus look-alikes that must survive.
+type sandboxFixture struct {
+	cfg, vaultPath                       string
+	aged, young, fake, bare, link, other string
+}
+
+func newSandboxFixture(t *testing.T) sandboxFixture {
+	t.Helper()
+	fx := sandboxFixture{cfg: vaulttest.Use(t)}
+	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "foo")
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	fx.aged, fx.young = makeSandbox(t, 40*24*time.Hour), makeSandbox(t, time.Hour)
+	if filepath.Dir(fx.aged) != filepath.Clean(tmp) {
+		t.Fatalf("sandbox %s not under TMPDIR %s", fx.aged, tmp)
+	}
+	fx.fake = filepath.Join(tmp, sandboxPrefix+"fake") // right name, no seed commit
+	write(t, filepath.Join(fx.fake, "memory", ".git", "HEAD"), "ref: refs/heads/main\n")
+	fx.bare = filepath.Join(tmp, sandboxPrefix+"bare") // right name, not a sandbox at all
+	write(t, filepath.Join(fx.bare, "notes.txt"), "x")
+	fx.link = filepath.Join(tmp, sandboxPrefix+"link") // symlink to a real sandbox
+	if err := os.Symlink(fx.aged, fx.link); err != nil {
+		t.Fatal(err)
+	}
+	fx.other = filepath.Join(tmp, "unrelated-dir")
+	write(t, filepath.Join(fx.other, "f"), "x")
+	fx.vaultPath = vault.Path()
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	for _, p := range []string{fx.fake, fx.bare, fx.link, fx.other, filepath.Join(fx.fake, "memory", ".git", "HEAD"), filepath.Join(fx.bare, "notes.txt"), filepath.Join(fx.other, "f")} {
+		_ = os.Chtimes(p, old, old)
+	}
+	return fx
+}
+
+// requireSurvivors reports every path the sweep must have left alone.
+func (fx sandboxFixture) requireSurvivors(t *testing.T) {
+	t.Helper()
+	for _, keep := range []string{fx.young, fx.fake, fx.bare, fx.other, fx.cfg} {
+		if _, err := os.Lstat(keep); err != nil {
+			t.Errorf("%s was removed: %v", keep, err)
+		}
+	}
+	if _, err := os.Stat(fx.vaultPath); err != nil {
+		t.Errorf("vault was removed: %v", err)
+	}
+	if fi, err := os.Lstat(fx.link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("symlink look-alike was removed or replaced: %v", err)
+	}
+}
+
+// dryRun previews the sweep and fails unless it reports one entry and removes nothing.
+func (fx sandboxFixture) dryRun(t *testing.T) {
+	t.Helper()
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", "memory-sandboxes", "--dry-run"}, &out, &errw); code != 0 || !strings.Contains(errw.String(), "would remove 1 entry") {
+		t.Fatalf("dry run = %d, want 1 entry:\n%s", code, errw.String())
+	}
+	if !exists(t, fx.aged) {
+		t.Fatal("--dry-run removed a sandbox")
+	}
+}
+
+// TestCleanMemorySandboxes: aged real sandboxes go (and --dry-run only previews); young ones, look-alikes
+// without the seed commit, symlinks and the real memory store and vault survive.
+func TestCleanMemorySandboxes(t *testing.T) {
+	fx := newSandboxFixture(t)
+	fx.dryRun(t)
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", "memory-sandboxes"}, &out, &errw); code != 0 {
+		t.Fatalf("clean = %d:\n%s", code, errw.String())
+	}
+	if exists(t, fx.aged) {
+		t.Error("aged sandbox survived")
+	}
+	fx.requireSurvivors(t)
+}
+
+// TestCleanListNamesMemorySandboxesAndDefaultSweeps: --list shows the target and a bare sweep selects it.
+func TestCleanListNamesMemorySandboxesAndDefaultSweeps(t *testing.T) {
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--list"}, &out, &errw); code != 0 || !strings.Contains(out.String(), "memory-sandboxes") {
+		t.Fatalf("--list = %d, missing memory-sandboxes:\n%s", code, out.String())
+	}
+	sel, err := selectTargets(targets(), "")
+	if err != nil || !slices.ContainsFunc(sel, func(tg target) bool { return tg.name == "memory-sandboxes" }) {
+		t.Fatalf("default selection lacks memory-sandboxes (err %v)", err)
 	}
 }
