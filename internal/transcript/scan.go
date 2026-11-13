@@ -48,9 +48,18 @@ const dispatchIDExpr = `\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+`
 var dispatchIDPattern = regexp.MustCompile(
 	`ask: dispatch (` + dispatchIDExpr + `)|job (` + dispatchIDExpr + `) started|\\*"(?:id|dispatch_id)\\*":\s*\\*"(` + dispatchIDExpr + `)\\*"`)
 
+// mayHaveDispatchID is a literal prefilter: every dispatchIDPattern match contains one of these.
+func mayHaveDispatchID(line []byte) bool {
+	return bytes.Contains(line, []byte("ask: dispatch")) || bytes.Contains(line, []byte(" started")) ||
+		bytes.Contains(line, []byte(`"id`)) || bytes.Contains(line, []byte(`"dispatch_id`))
+}
+
 // AppendDispatchIDs adds the dispatch ids one transcript line's tool result printed that seen lacks, marking them seen.
 func AppendDispatchIDs(ids []string, seen map[string]bool, line []byte) []string {
 	if !bytes.Contains(line, toolResultKey) {
+		return ids
+	}
+	if !mayHaveDispatchID(line) {
 		return ids
 	}
 	for _, m := range dispatchIDPattern.FindAllSubmatch(line, -1) {
