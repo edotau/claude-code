@@ -33,6 +33,7 @@ const (
 	extractToolName        = "web_extract"
 	extractToolDescription = "Read public web pages as markdown via Tavily; up to 20 URLs; honors robots.txt"
 	maxExtractURLs         = 20
+	extractPageCapRunes    = 12000 // per-page bound on extract output
 	toolDescription        = "Search the web via Tavily for up-to-date public information, current events, " +
 		"and recent data. Use when the question needs information beyond your training data."
 	tavilyURL         = "https://api.tavily.com/search"
@@ -538,9 +539,20 @@ func renderExtract(ctx context.Context, urls []string) (string, int, error) {
 			continue
 		}
 		ok++
-		fmt.Fprintf(&sb, "# %s\n%s\n\n", raw, content[normURL(raw)])
+		fmt.Fprintf(&sb, "# %s\n%s\n\n", raw, capExtractPage(content[normURL(raw)]))
 	}
 	return sb.String(), ok, nil
+}
+
+// capExtractPage keeps a page's first extractPageCapRunes runes and ends with a one-line truncation notice.
+func capExtractPage(page string) string {
+	total := textutil.RuneLen(page)
+	if total <= extractPageCapRunes {
+		return page
+	}
+	note := fmt.Sprintf("\n…[truncated: %d of %d chars shown; pass a narrower URL or fetch the section you need]",
+		extractPageCapRunes, total)
+	return textutil.CapRunes(page, extractPageCapRunes, note)
 }
 
 // extractURLs prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
