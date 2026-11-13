@@ -1,7 +1,6 @@
 ---
 paths:
   - "internal/memory/**"
-  - "skills/reflection/**"
 ---
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/<repo>/`)
 
@@ -18,9 +17,8 @@ their own, git repo or not: they use the launching workspace's store, which ever
 ## Precedence
 
 The code under `internal/memory` is the source of truth, then this file (store layout, file contracts, caps, verbs),
-then `skills/reflection/SKILL.md` (the promotion ladder, which verbs print a procedure), then the prompts embedded
-in `internal/memory/prompts/` (`claude-code memory <verb>` prints them). Each fact lives in one of these; the rest
-point to it, and on a disagreement the earlier one wins.
+then the prompts embedded in `internal/memory/prompts/` (`claude-code memory <verb>` prints them). Each fact lives in
+one of these; the rest point to it, and on a disagreement the earlier one wins.
 
 ## Verbs
 
@@ -47,7 +45,29 @@ point to it, and on a disagreement the earlier one wins.
 | `timeline` | Recent bank entries and sessionHistory |
 | `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
 
-Which verbs print a procedure, and when: `skills/reflection/SKILL.md` → Verb table.
+A verb needing judgment prints its embedded procedure for the live session (or the headless `memory update`) to
+apply; all others print none:
+
+| Verb | Prints a procedure when |
+| --- | --- |
+| `init` | `projectContext.md` is still the template |
+| `review` | `--candidates` (the ranking procedure) |
+| `promote <id> --to <target>` | `--to rules\|skill`, and `--to claude-md` inside `memory dream` |
+| `update` | no session or `--transcript` resolves (live session) |
+| `dream` | the headless run hands it to the model; `--dry-run` is a deterministic preview, no model |
+
+## Promotion ladder
+
+The one copy; the other docs point here. Each step up costs more context:
+
+1. `promote --to home` — moves the block (no link back) to the home bank (`~/.claude/memory/home/`, cross-project).
+2. `promote --to rules` — prints the block for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md`
+   (enforced); never `rules/workflows/` or `CLAUDE.md`. `promote --to skill` — prints it for
+   `skills/<name>/SKILL.md` or its `references/` (how-to).
+3. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on tier). Gated: 3+ bank entries and a hard
+   prohibition, so the verb runs only inside `memory dream`'s cross-pollination step and is refused anywhere else.
+
+Only `home` writes; every other target prints the block, its target and the procedure, and the agent edits by hand.
 
 ## Files + mutation contracts
 
@@ -98,7 +118,7 @@ everything the native loader reads. Past a `fileCaps` limit `memory dream` archi
 - `memory review` — caps, staleness, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
   moves the block (no link back); `rules` and `skill` print the block, target and procedure and edit nothing;
   `claude-md` does the same only inside `memory dream`'s own run and is refused anywhere else (`promoteJudgment`).
-  The ladder: `skills/reflection/SKILL.md` → Promotion ladder.
+  The ladder: Promotion ladder above.
 - `memory init` scaffolds a fresh repo's store (also minted on first use).
 
 The store's git repo is never pushed and nothing in it rides a project's commits.

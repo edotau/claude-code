@@ -9,7 +9,7 @@ rule or skill so it stands alone**, or **gate `claude-md`**. That's this referen
 
 ## The promotion gradient
 
-Full ladder: `skills/reflection/SKILL.md` → Promotion ladder. In short: `home` (cross-project bank) → `rules`
+Full ladder: `rules/workflows/memory-bank.md` → Promotion ladder. In short: `home` (cross-project bank) → `rules`
 (`rules/standards/` or `rules/software/<lang>/`, enforced) or `skill` (`skills/<name>/SKILL.md`, how-to) → `claude-md`
 (`CLAUDE.md` → Hard rules, always on).
 

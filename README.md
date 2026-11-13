@@ -398,8 +398,7 @@ Per-hook matrix and which agent runs what (block, detect-only or advisory):
 
 One store, `~/.claude/memory/`: a local-only git repo, never pushed. A session gets the catalog plus this repo's active
 context; the rest loads on demand, and `memory dream` consolidates daily in the background. Store layout, file
-contracts, caps, precedence and every `memory` verb: `rules/workflows/memory-bank.md`; the promotion ladder:
-`skills/reflection/SKILL.md`.
+contracts, caps, precedence, every `memory` verb and the promotion ladder: `rules/workflows/memory-bank.md`.
 
 ## Status line
 
