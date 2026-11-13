@@ -199,8 +199,8 @@ func gitSinceBlock(transcript, cwd string) string {
 	if since.IsZero() || cwd == "" {
 		return ""
 	}
-	commits, _ := gitOut(cwd, "log", "--oneline", "--since="+since.Format(time.RFC3339))
-	touched, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format=")
+	log, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format="+commitMark+"%h %s")
+	commits, touched := splitCommitLog(log)
 	status, _ := gitOut(cwd, "status", "--porcelain")
 	if commits == "" && touched == "" && status == "" {
 		return ""
@@ -218,6 +218,22 @@ func gitSinceBlock(transcript, cwd string) string {
 		b.WriteString("\n")
 	}
 	return textutil.CapRunes(b.String(), gitBlockMaxRunes, "\n…(list truncated)\n")
+}
+
+// commitMark prefixes each commit line of the combined log so file lines can be told apart.
+const commitMark = "\x01"
+
+// splitCommitLog separates the combined `log --name-only` output into oneline commits and touched paths.
+func splitCommitLog(log string) (commits, touched string) {
+	var c, f []string
+	for ln := range strings.SplitSeq(log, "\n") {
+		if subject, ok := strings.CutPrefix(ln, commitMark); ok {
+			c = append(c, subject)
+		} else {
+			f = append(f, ln)
+		}
+	}
+	return strings.Join(c, "\n"), strings.Join(f, "\n")
 }
 
 // gitBlockMaxRunes keeps a huge working tree from pushing the worker prompt past the argv limit (agent.MaxPromptBytes).

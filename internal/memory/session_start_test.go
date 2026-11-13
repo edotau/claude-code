@@ -61,7 +61,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	if strings.Contains(got, "scaffolded") {
 		t.Errorf("notice must not re-announce the scaffold: %q", got[:min(len(got), 500)])
 	}
-	for _, want := range []string{"Previous session id: " + s1, "did not complete (failed) (log: /x.log)"} {
+	for _, want := range []string{"Previous session: " + s1, "did not complete (failed) (log: /x.log)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notice lacks %q: %q", want, got[:min(len(got), 500)])
 		}

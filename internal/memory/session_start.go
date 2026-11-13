@@ -69,7 +69,7 @@ func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 
 // bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.
 func bankLoadNote(prefix string) string {
-	note := "Session memory bank (local + shared home) loaded below. It auto-saves at session end; `claude-code memory update` is the manual override."
+	note := "Session memory bank loaded below; auto-saves at session end (`claude-code memory update` = manual)."
 	if prefix != "" {
 		note = prefix + " " + note
 	}
@@ -84,7 +84,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 	}
 	note := ""
 	if prevID != sessionID {
-		note = " Previous session id: " + prevID + " (reference for the prior session's transcript / claude --resume)."
+		note = " Previous session: " + prevID + "."
 	}
 	if res, ok := readUpdateResult(prevID); ok && res.needsAttention(now) {
 		hint := ""
@@ -394,10 +394,10 @@ func sessionSurface(root string) string {
 	dir := Dir(root)
 	var parts []string
 	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
-		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>`; catalog "+filepath.Join(StoreDir(), catalogFile)+" -->")
+		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>` -->")
 	}
 	if bankExists(root) { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- THIS REPO (" + dir + ") — focus only; read the typed files on demand -->"
+		head := "<!-- THIS REPO (" + dir + ") -->"
 		if focus := repoFocus(dir); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
@@ -405,7 +405,7 @@ func sessionSurface(root string) string {
 	}
 	if home := HomeBankDir(); !isHomeBank(root) {
 		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, capChars("<!-- HOME BANK ("+home+") — essentials -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+			parts = append(parts, capChars("<!-- HOME BANK ("+home+") -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
 	}
 	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
@@ -438,7 +438,9 @@ func repoFocus(dir string) []string {
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
 	r := filepath.Clean(root)
-	if top, _ := gitMain(r); top != "" {
+	if known, ok := nativeRoots.Load(r); ok {
+		r = known.(string)
+	} else if top, _ := gitMain(r); top != "" {
 		r = paths.CanonDeep(top)
 	}
 	target := nativeLinkTarget(projectsMemory(paths.ProjectSlug(r)))

@@ -37,6 +37,7 @@ For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
    entries, prioritizing:
    - Keep: Gotchas, active conventions, recent patterns
    - Remove: Generic observations, one-time context, resolved issues
+   - Pointer hooks ≤ 80 characters; never repeat the six bank links — the generated region already carries them
 6. **Never edit the RULES region** (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit approval
 
 ## Phase 5: Refresh the bank

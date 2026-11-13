@@ -292,6 +292,9 @@ func projectsMemory(slug string) string {
 	return filepath.Join(paths.ConfigDir(), "projects", slug, "memory")
 }
 
+// nativeRoots remembers the slug root linkNativeFor resolved per cleaned cwd, so nativeLinked skips a second git fork.
+var nativeRoots sync.Map
+
 // linkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
 func linkNativeFor(cwd string) (linkResult, bool) {
 	if cwd == "" {
@@ -302,6 +305,7 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 	if top != "" {
 		root = paths.CanonDeep(top)
 	}
+	nativeRoots.Store(filepath.Clean(cwd), root)
 	target, err := repoDirWith(cwd, func(string) (string, bool) { return top, definitive }) // RepoDir, no second git probe
 	if err != nil {
 		return linkResult{}, false
