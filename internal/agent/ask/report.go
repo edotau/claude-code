@@ -14,12 +14,17 @@ import (
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
 func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, isJob bool, format string) int {
+	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), jobOpts(isJob, format))
+	return reportAsk(format, p, res, err)
+}
+
+// jobOpts is the recorded-run options of a foreground ask; a --job child's stdout is the log, so the answer lands once.
+func jobOpts(isJob bool, format string) agent.RunRecordedOpts {
 	opts := agent.RunRecordedOpts{Job: isJob}
 	if isJob && format == helptext.Text {
-		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
+		opts.AnswerTo = os.Stdout
 	}
-	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
-	return reportAsk(format, p, res, err)
+	return opts
 }
 
 // reportAsk prints one finished dispatch: its answer or envelope, then the stderr trailer; the exit code.
