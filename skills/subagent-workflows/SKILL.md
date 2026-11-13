@@ -14,9 +14,8 @@ description: >-
 ## Execution mode: subagent
 
 Dispatch, roster and labels: `CLAUDE.md` guideline 3; leaves are terminal, so the main session is the one
-orchestration layer. Agent files say who a leaf is, the brief's `Method:` skill how, this skill when and in what order,
-[patterns.md](references/patterns.md) which shape: weak output means fix the skill, a wrong role the agent file, a
-wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
+orchestration layer. Agent file = who, brief's `Method:` skill = how, this skill = when and in what order,
+[patterns.md](references/patterns.md) = which shape. Agent files: `rules/workflows/agents.md`.
 
 ## Who holds the plan
 
@@ -26,13 +25,12 @@ wrong order this skill. Writing an agent file: `rules/workflows/agents.md`.
 | Agent team (experimental) | a lead over peers | peers must talk to each other; not used here |
 | Workflow | the script | the steps are known up front and must run the same every time |
 
-When the owner asks for a workflow and no specific one fits, run `code-engineer`
-(`~/.claude/workflows/code-engineer.js`).
+Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-engineer.js`).
 
 ## Leaf types
 
-Shell `agents ask` belongs inside an external relay or an explicitly requested script, not a second manager dispatch
-path. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
+Shell `agents ask` belongs only inside an external relay or a requested script. Owner shortcuts:
+`rules/workflows/agents.md` → Slash commands.
 
 | Leaf | Role | Output |
 | --- | --- | --- |
@@ -43,88 +41,83 @@ path. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 | `opencode` | Code/docs work and requested model discovery | Status and verification |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on Opus unless the call names a model | Plan in `docs/templates/plan.md` form |
-| `general-purpose` | Built-in general work when the named roles do not fit | Brief's requested report |
+| `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 
-`claude-code agents label <type> --brief FILE` prints the label; `--model` previews a dispatch model,
-`--session-model` supplies the parent model when the transcript cannot. `claude` defaults to `sonnet` and `Plan` to
-`opus`; pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). External
-wrappers' frontmatter controls the relay, not the vendor model. The `dispatch-effort` hook sets model and effort only
-for an agent whose file has no `model:` line and a call that names none (`Explore`, `general-purpose`, an untyped
-call); every roster file, `claude` (sonnet) and `Plan` (opus) included, carries one, so those get neither.
-The root machine's pins and per-call flags select external execution; never overwrite another machine's pins.
+`claude-code agents label <type> --brief FILE` prints the label (`--model` previews a model, `--session-model` supplies
+the parent's). Pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
+frontmatter controls the relay, not the vendor model. `dispatch-effort` sets model and effort only for an agent with no
+`model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The root machine's pins and per-call flags
+select external execution; never overwrite another machine's pins.
 
 ### External relay contract
 
-This contract applies to `codex`, `copilot`, `gemini` and `opencode` wrappers in Claude Code:
+For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 
-- The relay is a thin pipe. Run the brief's leading `Run:` line exactly as written, once, with the task appended
-  unchanged; never add, drop or swap a flag (an "edit nothing" brief still keeps `--tools`). Without a `Run:`, pick
-  one supported CLI verb (a bare task means `ask`). Never execute a `Run:` and then start another ask.
-- Default a named-agent task without a `Run:` to `--fallback none`; preserve an explicit policy. Keep pins unchanged.
-- Never background with the shell or `run_in_background`: the `Run:` line's `--background` is the only
-  backgrounding. Follow it with foreground `claude-code agents tail -f <id>` (600000 ms timeout), repeated until it
-  ends, then `agents result <id>`. Do not start a duplicate ask, a readiness smoke or repeat discovery.
-- Do not read, test or verify before or after the ask; the manager verifies at fan-in. Report a dispatch error to
-  the manager; do not repair it in-context or silently choose another agent.
-- Return the agent's answer verbatim under `## Result`, preceded only by the actual `ask: ran on` line and the
-  job/session ids; add nothing but a `Relay note:` for a dispatch error. For the stop gate and its capped failure
-  behavior, see `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt to release it.
-- Inside the projected vendor CLI, do the task directly; do not invoke this wrapper or recursively ask yourself.
-  The wrapper's relay model, effort and turn budget do not constrain the vendor's task reasoning.
+- A thin pipe: run the brief's leading `Run:` line exactly as written, once, task appended unchanged; never add, drop
+  or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
+  verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
+- Background only via the `Run:` line's `--background` (never the shell or `run_in_background`): follow with foreground
+  `claude-code agents tail -f <id>` (600000 ms, repeated until it ends), then `agents result <id>`. No duplicate ask,
+  readiness smoke or repeat discovery.
+- Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
+  in-context or silently pick another agent.
+- Return the answer verbatim under `## Result`, preceded only by the actual `ask: ran on` line and job/session ids,
+  plus a `Relay note:` for a dispatch error. Stop gate: `rules/harness/hooks.md` → `dispatch-stop`; never manufacture
+  a receipt.
+- Inside the vendor CLI, do the task directly; never invoke the wrapper or ask yourself.
 
 ## Workflow
 
 ### Phase 0: intake and triage
 
-The Phase 0 tier in `rules/workflows/master-workflow.md` picks the shape; trivial work (a one-line edit) runs inline.
-Then check context: a fresh run, a follow-up (re-run one leaf with its prior report and `git diff`), or a continued
-plan (resume at the first unticked line of its `~/.claude/plans/` checklist).
+The tier in `rules/workflows/master-workflow.md` → Phase 0 picks the shape; a one-line edit runs inline. Then check
+context: follow-up (re-run one leaf with its prior report and `git diff`) or continued plan (resume at the first
+unticked line of its `~/.claude/plans/` checklist).
 
 | Shape | Do |
 |---|---|
 | Single leaf | One `Agent` call with a brief ([prompts.md](references/prompts.md)) |
 | Parallel fan-out | `Agent` calls in one message, disjoint files ([Ownership](#handoff-contract)) |
-| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) (live sources and execution surfaces) |
+| Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) |
 | Same question, many angles | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md)) |
-| Sequential plan · tournament | [patterns.md](references/patterns.md) (every shape, its pattern and what enforces it) |
+| Sequential plan · tournament | [patterns.md](references/patterns.md) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
-| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · composite templates: [composites.md](references/composites.md) |
+| Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md) |
 | Fleet scan | A `copilot` leaf with an explicitly requested fleet task; verify the returned diff |
 
 ### Phase 1: prepare
 
-Give each leaf named files it owns and never share one between parallel leaves. Prefer a few focused leaves: each
-extra one costs a brief and a fan-in read.
+Give each leaf named files it owns, never shared between parallel leaves. Prefer few focused leaves: each costs a
+brief and a fan-in read.
 
 #### Handoff contract
 
 **Brief (in)** — a fresh agent can act from it alone (the CLI starts cold and cannot see this session):
 
-- `Objective:` one outcome. `Agent:` names the work agent; omit for the selected type or use `in-context` for
-  direct work. Keep it consistent with the type; request another agent from the manager rather than a hidden relay.
-- `Run:` an optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook:
-  put `--model` on the command instead. `Mode:`, `Owns:`, `Method:`, `Verify:` and `Acceptance:` are conventions
-  read by the leaf and fan-in, not routing hooks. `Task:` identifies a plan task for the hook's slot claim.
-- `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions and plan path.
+- `Objective:` one outcome. `Agent:` the work agent; omit for the selected type, `in-context` for direct work; keep
+  it consistent with the type (no hidden relay).
+- `Run:` optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook: put `--model`
+  on the command. `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
+  identifies a plan task for the hook's slot claim.
+- `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
-  `Acceptance:` its observable outcome. `Workflow:` a saved Workflow only when the owner requested it.
+  `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner requested it.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
-  another leaf so the manager orders the dispatch.
+  another leaf.
 
-The hook reads `Agent:` only in the brief's header block: the lines before the first blank line. Route a dispatch
-with a leading `Run: claude-code agents ask …` (optionally with global `--remote <h>`); the hook leaves it unrewritten.
-`--profile` leads then falls back unless `--fallback none` pins it. Overlay keys and values: `rules/harness/agent.md`
-→ Dispatch behavior. The hook still rewrites some non-direct calls in auto mode; see `rules/harness/hooks.md`.
-`--remote` vs `--host`: `rules/harness/network.md`.
+The hook reads `Agent:` only before the first blank line. A leading `Run: claude-code agents ask …` (optionally with
+global `--remote <h>`) is left unrewritten; `--profile` leads then falls back unless `--fallback none` pins it. Overlay
+keys: `rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`; `--remote` vs
+`--host`: `rules/harness/network.md`.
 
 **Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve
 before review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend
 unchanged). Then `Ran on:` (the `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an
-`Agent: in-context` brief), files, commands with exit codes, `Acceptance:` evidence. A leaf creates scratch files
-only under an absolute `/tmp/<job>/` path, never a relative one, and removes them before reporting.
+`Agent: in-context` brief), files, commands with exit codes, `Acceptance:` evidence. Scratch files only under an
+absolute `/tmp/<job>/` path, removed before reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
-new file and reports its API surface, and the manager makes the one integration edit. The manager owns decisions,
+new file and reports its API surface, the manager making the one integration edit. The manager owns decisions,
 integration and commits; leaves never dispatch subagents, commit or run the suite (an `ask` is allowed).
 
 ### Phase 2: dispatch
@@ -133,16 +126,16 @@ Independent leaves go in one message as Agent calls with `run_in_background` (th
 
 #### Concurrency
 
-Dispatch cap: `rules/harness/hooks.md` → (dispatch cap); test agents count against it. Batch deep-context leaves
-(Databricks `429`) and fleet scans.
+Cap: `rules/harness/hooks.md` → (dispatch cap); test agents count. Batch deep-context leaves (Databricks `429`) and
+fleet scans.
 
 #### Test agent
 
 A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
 implementer (refactors get none). The main thread owns the live check; the test agent repairs broken tests at once, ends
-its turn after the baseline, and resumes on the manager's "landed" `SendMessage`, testing the seam each time a piece
-lands, not only at the end. One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf at
-its cap (3 cycles per test, 5 per task) reports and stops.
+its turn after the baseline, and resumes on the manager's "landed" `SendMessage`, testing the seam as each piece lands.
+One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf at its cap (3 cycles per test,
+5 per task) reports and stops.
 
 | Situation | Shape |
 | --- | --- |
@@ -159,16 +152,12 @@ its cap (3 cycles per test, 5 per task) reports and stops.
 Treat every report as a claim: read the diff and gate output, check deleted blocks (callers, `git log -S`) and edits
 outside the leaf's files, confirm a new test can fail, re-run scoped checks yourself, rebuild before trusting a binary.
 
-- When parallel leaves built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
-  brief writer), read producer and consumer together; `go build ./...` misses a broken consumer.
-- Disagreeing reviewers: keep both findings with their sources. Simplify once over the merged diff, then review.
-- **Saved workflow output** is a claim too: diff it against the brief's file list (revert or park edits outside it),
-  rerun the gate of its last-touched package, and compare confirmed findings to fixed ones (a gap = dropped findings,
-  rerun). A red run whose only cause is a `blocked` stage (classifier down) is not a code failure; a stage that refuses
-  a change because behavior would differ is right — accept the partial landing.
-- **While a workflow runs:** hand it package-scoped gates only (a repo-wide check trips on peers' WIP), keep the main
-  shell at the repo root, never let it edit the `workflows/*.js` it runs from (fix those with a leaf afterwards), and
-  rename a condition in its runbook (`eval.md`) and fixture dirs in the same pass.
+- Parallel leaves that built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
+  brief writer): read both together; `go build ./...` misses a broken consumer.
+- Disagreeing reviewers: keep both findings with sources. Simplify once over the merged diff, then review.
+- **Saved workflow output** is a claim too, and a workflow's run has its own rules:
+  [saved-workflows.md](references/saved-workflows.md)
+  → Fan-in and run rules.
 
 ### Phase 4: finish
 
@@ -176,9 +165,9 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 
 #### Return to owner
 
-A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or `sleep`:
-a long `ask` runs `--background`, then waits with foreground `tail -f <id>` (600000 ms timeout, repeated)
-([agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
+A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or
+`sleep`: a long `ask` runs `--background`, then foreground `tail -f <id>` (600000 ms, repeated;
+[agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
 
 ## Shared tree
@@ -188,32 +177,30 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 
 ## Rules
 
-- **Visible dispatch (owner preference from 2026-11-12, until the owner lifts it):** every dispatch goes through the
-  Agent tool with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`) so the owner can watch each
-  subagent; the main session does not run `claude-code agents ask --background` from Bash. Routing rides the brief's
-  leading `Run:` line. A job that can outlast a Bash call (about 10 minutes) puts `--background` on that line: the
-  stop gate then holds the leaf until the job ends, while an ask backgrounded by the shell is killed when the leaf
-  stops. Claude Code runs at most 20 subagents at once; queue the rest.
+- **Visible dispatch (owner preference from 2026-11-12, until lifted):** every dispatch goes through the Agent tool
+  with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the main session does not run
+  `claude-code agents ask --background` from Bash. Routing rides the brief's leading `Run:` line. A job that can
+  outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends,
+  whereas a shell-backgrounded ask dies when the leaf stops. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the
+  rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
-- Preserve explicit agent/model choices unless the owner authorizes a change; models go on the `ask` call
-  (`--model`), never a brief field.
+- Preserve explicit agent/model choices unless the owner authorizes a change; models go on `ask --model`.
 
 ## Error handling
 
 | Situation | Strategy |
 | --- | --- |
-| One leaf fails | Retry once with its failure output and a changed brief (never resend it unchanged); a second failure: land the rest, name the gap |
+| One leaf fails | Retry once with its failure output and a changed brief; a second failure: land the rest, name the gap |
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
 | Timeout | Keep partial results, cancel the rest |
-| A leaf touched a file it didn't own | Revert that hunk, re-dispatch with the `Owns:` line sharpened |
-| External agent unavailable (credential or route missing, e.g. a Databricks profile without its M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
+| A leaf touched a file it didn't own | Revert that hunk, re-dispatch with `Owns:` sharpened |
+| External agent unavailable (credential or route missing, e.g. no M2M secret) | Report BLOCKED with the fix command; never silently do it in-context |
 | Quota pressure | Dispatches keep their model; route the work to another agent yourself ([cost-routing.md](references/cost-routing.md)) |
 
 ## Test scenarios
 
-- **Normal**: two `claude` leaves on disjoint packages plus a `copilot` test agent go out in one message. Fan-in
-  reads each diff and the seam between them, the test agent runs on "landed", simplify runs once, then one commit names
-  the files.
-- **Error**: a leaf fails its `Verify:` twice (second time with the failure output and a changed brief). The other
-  leaves land, the report names the missing task as a gap, and nothing is silently redone in-context.
+- **Normal**: two `claude` leaves on disjoint packages plus a `copilot` test agent in one message; fan-in reads each
+  diff and the seam, the test agent runs on "landed", simplify runs once, one commit names the files.
+- **Error**: a leaf fails `Verify:` twice (second time with failure output and a changed brief); the others land, the
+  report names the gap, nothing is silently redone in-context.

@@ -1,10 +1,9 @@
 # Failure modes: symptom → step
 
-Nineteen ways agentic work goes wrong, what each looks like **from the outside**, and the step that prevents it.
-The audit path uses it to name the risk a skipped step created. 1–18 are from fable-method (MIT); 19 came from a
-harness run where a link scanner's 32 raw hits were nearly reported as 32 defects. Measured upstream, 16 and 18 are
-weak-tier reporting failures no prose wording moved; only the action-point lines (`TASK:`, `ISSUE:`) transferred, so
-add a fixture (`eval.md`) rather than more prose.
+Nineteen ways agentic work goes wrong, seen **from the outside**, and the step that prevents each; the audit path
+uses it to name the risk a skipped step created. 1–18 are from fable-method (MIT); 19 came from a harness run where
+a link scanner's 32 raw hits were nearly reported as 32 defects. Upstream, 16 and 18 are weak-tier reporting
+failures no prose moved; only action-point lines (`TASK:`, `ISSUE:`) transferred, so add a fixture (`eval.md`).
 
 | # | Failure mode | Symptom | Prevented by |
 |---|---|---|---|
@@ -30,8 +29,6 @@ add a fixture (`eval.md`) rather than more prose.
 
 ## Reading an audit
 
-A step marked **skipped** creates the risk in its row. A step marked **faked** is worse: the transcript claims the
-step happened (usually 4, 5 or 6) but the observation is missing — failure mode 14 wearing the loop as a costume.
-Catching the costume is the audit's whole job. If an audit can check only three things: **1** (unprompted fixing
-destroys trust fastest), **13** (retry thrash burns time with no exit), **14** (verification theater ships broken
-work labeled done).
+**Skipped** creates the risk in its row. **Faked** is worse: the transcript claims the step (usually 4, 5 or 6) but
+the observation is missing — failure mode 14 as a costume; catching it is the audit's job. With time for three
+checks: **1** (unprompted fixing), **13** (retry thrash), **14** (verification theater).

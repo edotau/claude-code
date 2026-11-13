@@ -1,9 +1,9 @@
 # PR & contract review — blast radius and breaking changes
 
-Two judgment passes the detectors can't make: **what else could this change break** (blast radius) and **does it
-break a published contract** (breaking changes). Examples use Django/DRF, a data warehouse and React; substitute
-your stack. For GitHub PRs use `claude-code scm pr diff <id>`. Run the full treatment on a PR over ~200 changed lines or
-one touching a shared module, serializer, migration or shared table; scope first:
+Two judgment passes detectors can't make: **what else could this break** (blast radius) and **does it break a
+published contract** (breaking changes). Examples are Django/DRF, a data warehouse and React; substitute your stack.
+GitHub PRs: `claude-code scm pr diff <id>`. Full treatment for a PR over ~200 lines or touching a shared module,
+serializer, migration or shared table; scope first:
 
 ```bash
 BASE=$(git merge-base HEAD main)
@@ -13,8 +13,7 @@ git diff "$BASE"...HEAD --name-only   # bare file list for the passes below
 
 ## Pass 1 — Blast radius
 
-For each changed file ask *who depends on this* before judging it in isolation; a 5-line edit to a shared helper can
-break every stage that imports it.
+For each changed file ask who depends on it; a 5-line edit to a shared helper can break every importer.
 
 ```bash
 grep -rn "from mypkg.pipelines import\|import mypkg.pipelines" --include="*.py" .   # Python importers
@@ -35,8 +34,8 @@ The most exposed file sets the review bar:
 
 ## Pass 2 — Breaking-change detection
 
-A contract is anything a consumer you don't control relies on: a REST response shape, a DB column, an env var, a
-table schema. Adding is usually safe; removing, renaming, tightening or retyping usually isn't.
+A contract is anything a consumer you don't control relies on (REST response shape, DB column, env var, table
+schema). Adding is usually safe; removing, renaming, tightening or retyping usually isn't.
 
 | Safe (non-breaking) | Breaking (needs version bump / migration / coordination) |
 |---|---|
@@ -67,17 +66,17 @@ list is a latent breaking change.
 - A new `NOT NULL` column needs a `default` or a data migration, or it fails on existing rows.
 - Confirm the migration is reversible, or the rollback story is documented.
 
-**Config / env vars** — a new var absent from the deploy config breaks the deploy, not the diff; a removed one may
-still be set on running instances. Flag both:
+**Config / env vars** — a new var missing from the deploy config breaks the deploy; a removed one may still be set
+on running instances. Flag both:
 `git diff "$BASE"...HEAD | grep -E "^[-+].*(os\.environ|getenv|env\()"`.
 
-**Data table schema** — a dropped/renamed/retyped column is a breaking API change for every downstream job and
-dashboard: identify readers (Pass 1), require the additive-then-remove two-phase rollout.
+**Data table schema** — a dropped/renamed/retyped column breaks every downstream job and dashboard: find readers
+(Pass 1), require the two-phase rollout.
 
 ## Output
 
-Lead with blast radius and breaking changes; the most exposed surface sets the verdict (the linter owns style). If
-a PR is too large to review properly, ask for a split before reviewing.
+Lead with blast radius and breaking changes; the most exposed surface sets the verdict (linter owns style). A PR too
+large to review: ask for a split first.
 
 ```text
 Blast radius : HIGH — serializers/order.py renders 4 views, 1 React consumer

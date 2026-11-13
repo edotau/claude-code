@@ -1,13 +1,12 @@
 # Performance review lens
 
-Find the *real* bottleneck — the one the data points at. Run inline during a review, or as a proactive pass on a
-slow stage or SLA breach (this absorbs the retired `performance-optimizer` agent).
+Find the bottleneck the data points at. Run inline in a review, or proactively on a slow stage or SLA breach
+(absorbs the retired `performance-optimizer` agent).
 
 ## The one rule: measure before you optimize
 
-An "optimization" you can't show moving a number is churn, and the slow line is rarely the one that looks slow.
-Order: reproduce the slowness → measure → fix the biggest contributor → re-measure → stop when it meets the SLA.
-Never micro-optimize a cold path or trade readability for an unmeasured win.
+An optimization that moves no number is churn. Order: reproduce → measure → fix the biggest contributor →
+re-measure → stop at the SLA. Never micro-optimize a cold path or trade readability for an unmeasured win.
 
 ```bash
 python -m cProfile -s cumtime script.py | head -30   # where does wall-time actually go?
@@ -18,7 +17,7 @@ go test -bench . -cpuprofile cpu.out && go tool pprof cpu.out
 
 ## Highest-value target: N+1 queries
 
-A loop that touches a related object fires one query per row (1 + N instead of 1 or 2). Django shown:
+A loop touching a related object fires one query per row (1 + N). Django shown:
 
 ```python
 for task in Task.objects.all():                # N+1: .project and .assignee each query per row
@@ -29,8 +28,8 @@ for task in Task.objects.select_related("project", "assignee").prefetch_related(
 ```
 
 `select_related` is FK/1:1 (JOIN); `prefetch_related` is M2M/reverse FK (second query). Detect with
-`assertNumQueries` or django-silk. On Spark the analogue is a per-row Python UDF or a lookup in a loop: vectorize
-or broadcast-join. Don't cache over an N+1; fix the query.
+`assertNumQueries` or django-silk. Spark analogue: a per-row UDF or lookup in a loop — vectorize or broadcast-join.
+Don't cache over an N+1; fix the query.
 
 ## Symptoms → fixes
 
@@ -50,6 +49,6 @@ or broadcast-join. Don't cache over an N+1; fix the query.
 ## Report format
 
 **file:line · impact (measured ms/queries/MB) · fix · expected delta** — "N+1 in `tasks/views.py:42` — 380
-queries/request → 2 with `select_related`; ~300ms→40ms." Rank by measured impact; a finding without a number is a
-hypothesis, labeled as one. A proactive audit adds an executive summary (score, critical count), the critical
-issues, priority-ordered recommendations and the estimated improvement per metric.
+queries/request → 2 with `select_related`; ~300ms→40ms." Rank by measured impact; label a number-less finding a
+hypothesis. A proactive audit adds a summary (score, critical count), critical issues, prioritized recommendations
+and estimated improvement per metric.

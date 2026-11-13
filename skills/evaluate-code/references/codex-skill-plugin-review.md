@@ -1,19 +1,18 @@
 # Skill and Plugin Review Procedures
 
-Run by any reviewer; on codex via `claude-code codex ask "<the mode section below + the artifact path>"`
+Any reviewer runs these; on codex via `claude-code codex ask "<the mode section below + the artifact path>"`
 (`agents/codex.md` → Skill or plugin audit).
 
 ## SKILL mode
 
-1. **Locate and read.** Find the SKILL.md (user indicates path). Read frontmatter + body; check for
-   `references/`, `examples/`, `scripts/`.
+1. **Read** the SKILL.md (frontmatter + body) and any `references/`, `examples/`, `scripts/`.
 2. **Validate structure.** YAML frontmatter between `---`; required `name`, `description`; substantial body.
-3. **Apply review criteria** — description triggering, content quality, progressive disclosure.
-4. **Review supporting files** (if present) for quality, relevance, and correctness.
-5. **Identify issues**, categorized critical/major/minor. Anti-patterns: vague trigger descriptions,
-   too much content in SKILL.md (belongs in `references/`), second person in the description,
-   missing key triggers, no examples/references when they'd help.
-6. **Recommend** specific fixes, before/after examples when helpful, prioritized by impact.
+3. **Apply criteria** — description triggering, content quality, progressive disclosure.
+4. **Review supporting files** for quality, relevance, correctness.
+5. **Categorize issues** critical/major/minor. Anti-patterns: vague trigger descriptions, too much in SKILL.md
+   (belongs in `references/`), second person in the description, missing key triggers, no examples/references
+   where they'd help.
+6. **Recommend** specific fixes (before/after when helpful), prioritized by impact.
 
 ### SKILL Output Format
 
@@ -37,21 +36,19 @@ referenced files → report with paths.
 
 ## PLUGIN mode
 
-1. **Locate plugin root.** Check for the plugin manifest file; note location.
-2. **Validate manifest.** JSON syntax (`jq` or Read); required `name` (kebab-case); warn (don't fail) on unknown fields.
-3. **Validate directory structure.** `Glob` component dirs (`commands/`, `agents/`, `skills/`,
-   `hooks/`); confirm layout/auto-discovery match expected locations.
-4. **Validate commands** (`commands/**/*.md`): frontmatter present, `description` exists,
-   `argument-hint` format, `allowed-tools` is an array if present, markdown body exists; check
-   naming conflicts.
-5. **Validate agents** (`agents/*.md`, flat): frontmatter `name`/`description`/`model`; name
-   lowercase-hyphen 3–50 chars and equal to the file stem; model is a plain alias
-   (`inherit`/`sonnet`/`opus`/`haiku`); substantial system prompt.
-6. **Validate skills** (`skills/*/SKILL.md`): SKILL.md exists; frontmatter `name`/`description`;
-   concise description; referenced files exist.
-7. **Validate hooks**: valid JSON/config; valid event names; commands reference existing scripts.
-8. **File organization**: README present/comprehensive; no cruft (node_modules, .DS_Store); .gitignore if needed.
-9. **Security**: no hardcoded credentials anywhere; no obvious hook security issues; no secrets in examples.
+1. **Locate the plugin root** via its manifest.
+2. **Manifest.** Valid JSON (`jq` or Read); required `name` (kebab-case); unknown fields warn, never fail.
+3. **Directory structure.** `Glob` component dirs (`commands/`, `agents/`, `skills/`, `hooks/`); layout matches
+   auto-discovery.
+4. **Commands** (`commands/**/*.md`): frontmatter, `description`, `argument-hint` format, `allowed-tools` an array if
+   present, markdown body; naming conflicts.
+5. **Agents** (`agents/*.md`, flat): frontmatter `name`/`description`/`model`; name lowercase-hyphen 3–50 chars
+   equal to the file stem; model a plain alias (`inherit`/`sonnet`/`opus`/`haiku`); substantial system prompt.
+6. **Skills** (`skills/*/SKILL.md`): exists; frontmatter `name`/`description`; concise description; referenced
+   files exist.
+7. **Hooks**: valid JSON/config and event names; commands reference existing scripts.
+8. **Organization**: README present; no cruft (node_modules, .DS_Store); .gitignore if needed.
+9. **Security**: no hardcoded credentials, hook security issues, or secrets in examples.
 
 ### PLUGIN Output Format
 

@@ -16,5 +16,5 @@
 | `tvly` exit code | 2 bad input, 3 auth, 4 API error | Fix the input; code 3 means the key |
 
 - Chrome needs remote debugging: `curl -s http://127.0.0.1:9222/json/version` answers when it is available.
-- A direct data link (CSV, JSON, PDF) is better downloaded with `curl -sSL -o <file> <url>` than extracted.
-- Never retry a block with spoofing, proxy rotation or CAPTCHA solving.
+- Direct data links (CSV, JSON, PDF): `curl -sSL -o <file> <url>`. Never retry a block with spoofing, proxy rotation
+  or CAPTCHA solving.
