@@ -39,7 +39,8 @@ the one picked least recently (`state/harness/ask/route-auto.json`), then name o
 and the concrete route is sent. Never name a profile `auto`: the overlay reads `profile: auto` as the pick, so such a
 row cannot be addressed. When the picked workspace answers 429 before any answer, it is cooled, the pick reruns without
 it and the same agent retries there, until one answers or none is left; only then the `--fallback` policy applies (so
-`none` still fails, naming every workspace tried), and a named profile never moves. A `--host` ask that cannot run fails
+`none` still fails, naming every workspace tried), and a named profile never moves. The retry serves a foreground ask
+and a `--job` or `--background` run alike; `--session`, `--live` and `--host` never move. A `--host` ask that cannot run fails
 before the task with one line naming what the target lacks: the `claude-code` binary, the agent's CLI, the Databricks
 profile, or the model.
 

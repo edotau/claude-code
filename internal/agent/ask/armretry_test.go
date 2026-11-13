@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -167,6 +168,26 @@ func TestAutoRateLimitMovesBeforeAgentFallback(t *testing.T) {
 	for _, b := range bins {
 		if b != "codex" {
 			t.Errorf("launches %v, want only codex before any agent fallback", bins)
+		}
+	}
+}
+
+// A --job child on an auto pick retries like a foreground ask; --session, --live and --host never move.
+func TestArmRunServesJobAndKeepsExclusions(t *testing.T) {
+	run := func(mut func(*askRun)) *armRetry {
+		r := &askRun{f: &askFlags{}, auto: "dev", jobRec: &agent.Record{Request: agent.RunOptions{AutoArm: true}}}
+		mut(r)
+		return r.armRun()
+	}
+	if a := run(func(*askRun) {}); a == nil || !a.job {
+		t.Fatalf("armRun = %+v, want a job retry", a)
+	}
+	for name, mut := range map[string]func(*askRun){
+		"session": func(r *askRun) { r.f.session = "s" }, "live": func(r *askRun) { r.f.live = true },
+		"host": func(r *askRun) { r.f.host = "h" }, "not auto": func(r *askRun) { r.auto = "" },
+	} {
+		if a := run(mut); a != nil {
+			t.Errorf("%s: armRun = %+v, want nil", name, a)
 		}
 	}
 }

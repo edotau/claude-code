@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // A 429 with no Retry-After keeps its workspace out of the pick this long; a longer one is capped at armCoolMax.
@@ -35,16 +36,21 @@ func armAutoPick(value string) bool {
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.
 type armRetry struct {
 	agentName, model, fallback, format string
+	job                                bool     // a --job child: the answer also lands on stdout, the log
 	tried                              []string // the workspaces asked so far, in order
 }
+
+// jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
+func (r *askRun) jobAutoArm() bool { return r.jobRec != nil && r.jobRec.Request.AutoArm }
 
 // armRun is the retry state of r's run, or nil when it was not an auto pick or cannot move (job, host, resumed session).
 func (r *askRun) armRun() *armRetry {
 	f := r.f
-	if r.auto == "" || r.jobRec != nil || f.host != "" || f.background || f.live || f.session != "" {
+	if r.auto == "" || f.host != "" || f.background || f.live || f.session != "" {
 		return nil
 	}
-	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, tried: []string{r.auto}}
+	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, job: r.jobRec != nil,
+		tried: []string{r.auto}}
 }
 
 // probe is req for the first attempt: fallback none while another workspace is left, so a 429 moves workspaces first.
@@ -58,8 +64,12 @@ func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 // run executes p, and while its failure is a 429 with another workspace left, re-runs req on the next pick.
 func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int {
 	var hops []wire.Hop
+	opts := agent.RunRecordedOpts{Job: a.job}
+	if a.job && a.format == helptext.Text {
+		opts.AnswerTo = os.Stdout
+	}
 	for {
-		res, err := cl.Exec(ctx, p, stdoutSink(a.format, p.Record.ID), agent.RunRecordedOpts{})
+		res, err := cl.Exec(ctx, p, stdoutSink(a.format, p.Record.ID), opts)
 		hops = append(hops, res.Hops...)
 		res.Hops = slices.Clone(hops)
 		next, again := a.next(ctx, res, err, req)
