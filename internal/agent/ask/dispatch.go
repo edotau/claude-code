@@ -1,8 +1,10 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +23,51 @@ type DispatchOptions struct {
 	Role, Schema, Format string
 	Jobs                 int
 	Background           bool
+	Route                *RouteFlags // the flags shared with ask; nil applies none
+}
+
+// RouteFlags holds the ask flags dispatch shares: --overlay, --fallback and the permission flags.
+type RouteFlags struct{ f askFlags }
+
+// RegisterRouteFlags adds those flags to fs through ask's own definitions.
+func RegisterRouteFlags(fs *flag.FlagSet) *RouteFlags {
+	r := &RouteFlags{}
+	registerFallbackFlag(fs, &r.f)
+	registerPermFlags(fs, &r.f)
+	registerOverlayFlag(fs, &r.f)
+	return r
+}
+
+// apply resolves the flags and overlay as ask does and puts them on q: permissions, fallback, env layer, confinement.
+func (r *RouteFlags) apply(q *roles.Request, agentName, format string, background bool) error {
+	f := &r.f
+	perms, err := agent.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+	if err != nil {
+		return err
+	}
+	ov, err := LoadOverlay(f.overlay, "")
+	if err != nil {
+		return err
+	}
+	fallback := cmp.Or(f.fallback, ov.Fallback)
+	if err := validateAskFlags(format, fallback); err != nil {
+		return err
+	}
+	resolved, err := resolveOverlay(ov, nil, nil, background)
+	if err != nil {
+		return err
+	}
+	if err := ApplyCoworker(ov.Confinement(), "", agentName, "", fallback); err != nil {
+		return err
+	}
+	if err := overlayEgress(ov.Remote); err != nil {
+		return err
+	}
+	if err := carryOverlay(ov); err != nil {
+		return err
+	}
+	q.Permissions, q.Fallback, q.Overlay = perms, fallback, resolved
+	return nil
 }
 
 // Dispatch is `agents dispatch`: resolve the role and --output-schema, then run or detach the legs.
@@ -34,6 +81,11 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 	}
 	if q.OutputSchema, err = resolveOutputSchema(o.Schema); err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
+	}
+	if o.Route != nil {
+		if err := o.Route.apply(&q, role.Agent, o.Format, o.Background); err != nil {
+			return helptext.FailUsage("dispatch: %v", err)
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

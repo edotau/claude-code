@@ -200,6 +200,22 @@ func TestLegsCarryRolePermissions(t *testing.T) {
 	}
 }
 
+func TestLegsAddFlagPermissionsAndFallbackToRole(t *testing.T) {
+	role, err := agent.ParsePermissions("plan", nil, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := agent.ParsePermissions("auto", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legs := Legs(Role{Name: "fleet", Agent: "codex", Permissions: role}, Request{Task: "t", Permissions: flags, Fallback: "none"})
+	got := legs[0].Opts
+	if got.Permissions.Mode != "auto" || len(got.Permissions.Deny) != 1 || len(got.Permissions.Allow) != 1 || got.Fallback != "none" {
+		t.Errorf("leg opts %+v: want flag mode, one deduped deny, the added allow and fallback none", got)
+	}
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	hosttest.Cleanup()

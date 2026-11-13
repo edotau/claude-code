@@ -65,7 +65,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	f := &askFlags{}
 	fs.StringVar(&f.name, "agent", "claude", "agent, agents/<name>.md, <agent>:<name>, or an --agents key")
 	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
-	fs.StringVar(&f.fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	registerFallbackFlag(fs, f)
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
 	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the pin (--fallback none pins)")
 	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
@@ -76,10 +76,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.session, "session", "", "resume this session id")
 	fs.BoolVar(&f.tools, "tools", false, "allow tool use where the agent can gate it (default: disabled)")
 	fs.BoolVar(&f.readOnly, "read-only", false, "read-only tools (claude, codex: tools off)")
-	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
-	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
-	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
-	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
+	registerPermFlags(fs, f)
 	fs.BoolVar(&f.noTools, "no-tools", false, "claude only: answer from the profile directly, no tools; not with --tools")
 	fs.BoolVar(&f.noPersist, "no-persist", false, "claude, codex: do not save the session for later resume")
 	fs.BoolVar(&f.safeMode, "safe-mode", false, "claude, codex, opencode: skip hooks, plugins, customizations")
@@ -89,6 +86,22 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	helptext.ListVar(fs, &f.env, "env", "NAME=VALUE", "agent env NAME=VALUE (repeatable); no credentials", false)
 	askRunFlags(fs, f)
 	return fs, f
+}
+
+// registerFallbackFlag, registerPermFlags and registerOverlayFlag are the flag definitions ask and dispatch share.
+func registerFallbackFlag(fs *flag.FlagSet, f *askFlags) {
+	fs.StringVar(&f.fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+}
+
+func registerPermFlags(fs *flag.FlagSet, f *askFlags) {
+	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
+	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
+	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
+	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
+}
+
+func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {
+	fs.StringVar(&f.overlay, "overlay", "", "config: file, JSON or -; else $"+agentconfig.OverlayVar)
 }
 
 func askRunFlags(fs *flag.FlagSet, f *askFlags) {
@@ -123,7 +136,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
 	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
 	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
-	fs.StringVar(&f.overlay, "overlay", "", "config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	registerOverlayFlag(fs, f)
 	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "log child env names + salted hashes, never values")
 }
 
