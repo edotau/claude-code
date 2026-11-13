@@ -113,22 +113,55 @@ func localIP(ip net.IP) bool {
 	return slices.ContainsFunc(nonPublic, func(p netip.Prefix) bool { return p.Contains(addr) })
 }
 
-// stripVia takes a leading /via/<host> off the path and pins that egress host on the request; false after a 400.
+// stripVia pins and strips leading /via/<host> and /d/<id> segments, either order; false after a 400.
 func stripVia(w http.ResponseWriter, req *http.Request) (*http.Request, bool) {
-	tail, ok := strings.CutPrefix(req.URL.Path, gateway.ViaPrefix)
-	if !ok {
-		return req, true
+	for range 2 {
+		prefix := ""
+		for _, p := range []string{gateway.ViaPrefix, gateway.DispatchPrefix} {
+			if strings.HasPrefix(req.URL.Path, p) {
+				prefix = p
+			}
+		}
+		if prefix == "" {
+			break
+		}
+		seg, rest, _ := strings.Cut(req.URL.Path[len(prefix):], "/")
+		ctx, err := pinSegment(req.Context(), prefix, seg)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "proxy: "+prefix+"<"+err.Error())
+			return nil, false
+		}
+		out := req.WithContext(ctx)
+		u := *req.URL
+		u.Path, u.RawPath = "/"+rest, ""
+		out.URL = &u
+		req = out
 	}
-	host, rest, _ := strings.Cut(tail, "/")
-	if err := textutil.ValidHost(host); err != nil {
-		writeError(w, http.StatusBadRequest, "proxy: "+gateway.ViaPrefix+"<host>: "+err.Error())
-		return nil, false
+	return req, true
+}
+
+type dispatchKey struct{}
+
+// pinSegment validates one stripped path segment and returns ctx carrying it: the egress host or the dispatch id.
+func pinSegment(ctx context.Context, prefix, seg string) (context.Context, error) {
+	if prefix == gateway.ViaPrefix {
+		if err := textutil.ValidHost(seg); err != nil {
+			return nil, fmt.Errorf("host>: %w", err)
+		}
+		return egress.WithHost(ctx, seg), nil
 	}
-	out := req.WithContext(egress.WithHost(req.Context(), host))
-	u := *req.URL
-	u.Path, u.RawPath = "/"+rest, ""
-	out.URL = &u
-	return out, true
+	if !gateway.ValidDispatchID(seg) {
+		return nil, fmt.Errorf("id>: invalid dispatch id %q (digits, letters, '.', '-')", seg)
+	}
+	return context.WithValue(ctx, dispatchKey{}, seg), nil
+}
+
+// dispatchDiag is the log line's " dispatch=<id>" for a request that carried its dispatch's /d/<id> prefix.
+func dispatchDiag(req *http.Request) string {
+	if id, _ := req.Context().Value(dispatchKey{}).(string); id != "" {
+		return " dispatch=" + id
+	}
+	return ""
 }
 
 // viaDiag is the log line's " via=<host>" for a request that named an egress host.

@@ -170,16 +170,20 @@ var (
 	MintSession  = gateway.MintScopedToken // mints a router session token for a profile set and pid
 )
 
-// ensureRouter is gateway.Ensure; under --remote it brings the tunnel up here and returns the /via/<host> base.
+// ensureRouter is gateway.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
 func ensureRouter(ctx context.Context) (string, error) {
 	base, err := gateway.Ensure(ctx)
-	if err != nil || egress.Host() == "" {
+	if err != nil {
 		return base, err
 	}
-	if _, err := egress.Ensure(ctx, egress.Host()); err != nil {
-		return "", err
+	if egress.Host() != "" {
+		if _, err := egress.Ensure(ctx, egress.Host()); err != nil {
+			return "", err
+		}
+		base = gateway.ViaBase(base)
 	}
-	return gateway.ViaBase(base), nil
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	return gateway.DispatchBase(base, id), nil
 }
 
 // refuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
@@ -262,6 +266,7 @@ var (
 
 // SessionToken mints the token for profiles (a TokenScope set) once per router, so batch hops never fill the cap.
 func SessionToken(ctx context.Context, routerBase string, profiles ...string) (string, error) {
+	routerBase, _, _ = strings.Cut(routerBase, gateway.DispatchPrefix) // one slot per router, not per dispatch
 	key := routerBase + "|" + strings.Join(profiles, ",")
 	sessionMu.Lock()
 	e := sessionTokens[key]

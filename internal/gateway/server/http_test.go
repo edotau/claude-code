@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +11,7 @@ import (
 	"net/http/httptrace"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -80,6 +83,86 @@ func checkTranslatedLedger(t *testing.T) {
 		Agent: "copilot", Input: 11, Output: 4}
 	if entry != want {
 		t.Fatalf("ledger = %+v, want %+v", entry, want)
+	}
+}
+
+// stream=broken marks only a Responses stream cut before its terminal event, not a drop right after response.completed.
+func TestRelayBrokenMarkerFollowsTerminalEvent(t *testing.T) {
+	delta := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"
+	done := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":3}}}\n\n"
+	for name, tc := range map[string]struct {
+		body   string
+		broken bool
+	}{
+		"drop-after-completed": {delta + done, false},
+		"cut-before-completed": {delta, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				io.WriteString(w, tc.body)
+				w.(http.Flusher).Flush()
+				conn, _, _ := w.(http.Hijacker).Hijack() // closes with no final chunk: the proxy reads an unexpected EOF
+				conn.Close()
+			})
+			t.Setenv("PT_KEY", "prov-cred")
+			logs := &lockedBuf{}
+			srv := setupRouter(t, ptOverlay(up.URL), func(r *Router) { r.log = logs })
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/responses/responses", `{"model":"m","stream":true}`, nil)
+			b, err := io.ReadAll(resp.Body)
+			if !strings.Contains(string(b), "response.output_text.delta") {
+				t.Fatalf("client body = %q (err %v), want the relayed events", b, err)
+			}
+			if got := strings.Contains(logs.String(), " stream=broken:eof\n"); got != tc.broken {
+				t.Errorf("stream=broken:eof = %t, want %t; log %q", got, tc.broken, logs.String())
+			}
+			if (err != nil) != tc.broken {
+				t.Errorf("client read err = %v, want broken=%t", err, tc.broken)
+			}
+		})
+	}
+}
+
+// streamErrClass maps a read error to one short word and never carries the error text.
+func TestStreamErrClass(t *testing.T) {
+	for want, err := range map[string]error{
+		"eof":      fmt.Errorf("read: %w", io.ErrUnexpectedEOF),
+		"reset":    fmt.Errorf("read tcp 10.0.0.1:1->10.0.0.2:2: %w", syscall.ECONNRESET),
+		"canceled": context.Canceled,
+		"timeout":  context.DeadlineExceeded,
+		"other":    errors.New("secret upstream text"),
+	} {
+		if got := streamErrClass(err); got != want {
+			t.Errorf("streamErrClass(%v) = %q, want %q", err, got, want)
+		}
+	}
+	if got := streamErrClass(net.ErrClosed); got != "timeout" {
+		t.Errorf("closed body = %q, want timeout", got)
+	}
+}
+
+// A terminal marker split across two reads is still seen; the same text escaped inside a delta is not.
+func TestTerminalWatchSplitAndEscapedMarkers(t *testing.T) {
+	var split terminalWatch
+	split.see([]byte(`data: {"type":"response.comp`))
+	split.see([]byte(`leted","response":{}}`))
+	if !split.done {
+		t.Error("split response.completed not seen")
+	}
+	var text terminalWatch
+	text.see([]byte(`data: {"delta":"say \"response.completed\" now"}`))
+	if text.done {
+		t.Error("escaped marker inside a delta counted as terminal")
+	}
+}
+
+func BenchmarkTerminalWatchSee(b *testing.B) {
+	chunk := []byte(strings.Repeat("data: {\"delta\":\"xxxxxxxxxxxxxxxx\"}\n\n", 32<<10/40))
+	b.SetBytes(int64(len(chunk)))
+	for b.Loop() {
+		var w terminalWatch
+		w.see(chunk)
 	}
 }
 

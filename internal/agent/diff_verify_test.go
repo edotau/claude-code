@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -61,10 +62,68 @@ func TestVerifyCountsProxyLinesInTheWindow(t *testing.T) {
 	var out strings.Builder
 	renderVerify(&out, v)
 	wantInOutput(t, out.String(), "ran on: codex, workspace prod (databricks:prod), model m1", "fallback: none",
-		"matched by time window", "not by dispatch id", "may include other traffic", "via remote host: 2 (h1)",
+		"no proxy log line carries dispatch=d1", "fell back to the time window", "may include other traffic", "via remote host: 2 (h1)",
 		"stream=broken: 1", "non-200: 429 x1")
 	if v.Mismatch || strings.Contains(out.String(), "MISMATCH") {
 		t.Errorf("a run as requested must not mismatch: %v", v.Mismatches)
+	}
+}
+
+// A dispatch= tag selects its own lines exactly, even from a concurrent dispatch on the same workspace and model.
+func TestVerifyMatchesByDispatchTag(t *testing.T) {
+	logPath := saveVerifyFixture(t, Record{ID: "d3", Agent: "codex", Provider: "prod", Model: "m1"})
+	lines := []string{
+		"2026-11-13T14:49:10-05:00 prod m1 200 1 1s via=h1 dispatch=d3",
+		"2026-11-13T14:49:20-05:00 prod m1 200 1 1s dispatch=d3 stream=broken:reset",
+		"2026-11-13T14:49:25-05:00 prod m1 429 1 1s dispatch=other",
+		"2026-11-13T14:49:30-05:00 prod m1 200 1 1s",
+	}
+	if err := os.WriteFile(logPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := verifyDispatch("d3", logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := v.Proxy
+	got.Note = ""
+	want := ProxyMatch{Match: "dispatch id", Requests: 2, Remote: 1, Hosts: []string{"h1"}, Broken: 1, NonOK: map[string]int{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("proxy = %+v, want %+v", got, want)
+	}
+}
+
+// With no tag for this dispatch the window fallback counts untagged lines only, never another dispatch's.
+func TestVerifyFallbackSkipsOtherDispatchLines(t *testing.T) {
+	logPath := saveVerifyFixture(t, Record{ID: "d4", Agent: "codex", Provider: "prod", Model: "m1"})
+	lines := []string{
+		"2026-11-13T14:49:25-05:00 prod m1 429 1 1s dispatch=other",
+		"2026-11-13T14:49:30-05:00 prod m1 200 1 1s",
+	}
+	if err := os.WriteFile(logPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := verifyDispatch("d4", logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := v.Proxy; p.Match != "time window" || p.Requests != 1 || len(p.NonOK) != 0 {
+		t.Errorf("proxy = %+v, want the one untagged line by time window", p)
+	}
+}
+
+// parseProxyLine reads the dispatch token and both stream=broken forms.
+func TestParseProxyLineTokens(t *testing.T) {
+	for line, want := range map[string]proxyLine{
+		"2026-11-13T14:49:20-05:00 p m 200 1 1s via=h dispatch=d1 stream=broken":   {via: "h", dispatch: "d1", broken: true},
+		"2026-11-13T14:49:20-05:00 p m 200 1 1s dispatch=d1 stream=broken:timeout": {dispatch: "d1", broken: true},
+		"2026-11-13T14:49:20-05:00 p m 200 1 1s stream=brokenish":                  {},
+	} {
+		got, ok := parseProxyLine(line)
+		got.ts, got.profile, got.model, got.status = time.Time{}, "", "", ""
+		if !ok || got != want {
+			t.Errorf("parseProxyLine(%q) = %+v, %t; want %+v", line, got, ok, want)
+		}
 	}
 }
 

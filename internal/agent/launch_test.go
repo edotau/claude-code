@@ -118,6 +118,22 @@ func TestRouterRouteMintFailureAborts(t *testing.T) {
 	}
 }
 
+// A /d/<id> tag on the router base never splits the token slot: two dispatches share one mint.
+func TestSessionTokenIgnoresDispatchTag(t *testing.T) {
+	origMint := MintSession
+	mints := 0
+	MintSession = func(context.Context, []string, int) (string, error) { mints++; return "tok", nil }
+	t.Cleanup(func() { MintSession = origMint; ResetSessionTokens() })
+	for _, base := range []string{"http://router.test-tag", "http://router.test-tag/d/a-1", "http://router.test-tag/d/b-2"} {
+		if _, err := SessionToken(t.Context(), base, "p"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if mints != 1 {
+		t.Errorf("mints = %d, want 1 across dispatch-tagged bases", mints)
+	}
+}
+
 // A cached router token older than sessionTokenMaxAge is re-minted; a fresh one is reused.
 func TestSessionTokenRemintsWhenStale(t *testing.T) {
 	origMint := MintSession
