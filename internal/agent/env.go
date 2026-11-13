@@ -121,8 +121,8 @@ func inheritPermissions(p Permissions) (Permissions, error) {
 	return p, nil
 }
 
-// withPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.
-func withPermissionsEnv(ctx context.Context, p Permissions) context.Context {
+// WithPermissionsEnv makes every child env built under ctx carry p as DispatchPermissionsEnv; a zero p changes nothing.
+func WithPermissionsEnv(ctx context.Context, p Permissions) context.Context {
 	if p.IsZero() {
 		return ctx
 	}

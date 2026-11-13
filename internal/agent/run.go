@@ -286,7 +286,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 		return wire.Result{Agent: r.Name(), Status: wire.StatusError, NotStarted: true}, retry.Fatal(r.Name(), err)
 	}
 	req, dropped, emulated := applyCaps(r.Caps(), req)
-	ctx = withPermissionsEnv(ctx, req.Permissions)
+	ctx = WithPermissionsEnv(ctx, req.Permissions)
 	res := wire.Result{Agent: r.Name(), Status: wire.StatusError, Dropped: dropped, Emulated: emulated}
 	// a no-tools one-shot answers from the provider's API, so it needs no agent binary up front
 	if !req.NoTools {
