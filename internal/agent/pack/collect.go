@@ -31,8 +31,8 @@ var ignoredSegments = map[string]bool{
 	"build": true, "coverage": true, "dist": true, "node_modules": true,
 }
 
-// isTestPath reports whether rel (relative to a walked dir) is test code or fixture data in a common language shape.
-func isTestPath(rel string) bool {
+// IsTestPath reports whether rel (relative to a walked dir) is test code or fixture data in a common language shape.
+func IsTestPath(rel string) bool {
 	segs := strings.Split(rel, "/")
 	for _, seg := range segs[:len(segs)-1] {
 		if seg == "testdata" || seg == "__tests__" {
@@ -298,7 +298,7 @@ func walkSkipReason(d fs.DirEntry, rel, inRoot string, tracked map[string]bool, 
 		return "non-regular-file"
 	case inRepo && !tracked[rel]:
 		return "gitignored"
-	case !withTests && isTestPath(inRoot):
+	case !withTests && IsTestPath(inRoot):
 		return "tests-excluded"
 	}
 	return ""

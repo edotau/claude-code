@@ -428,6 +428,8 @@ root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` a
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` |
+| What an agent changed, in its files, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
+| Merge another machine's memory, mark a replaced entry, try on a copy | `claude-code memory import --host <h>` · `memory revise <old> --with <new>` · `memory sandbox` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |

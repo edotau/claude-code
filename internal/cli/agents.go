@@ -36,6 +36,7 @@ func agentsSpec() *helptext.Node {
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
+		"diff":  {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
 		"list":  {Flags: []helptext.Flag{flag("host"), flag("host-bin"), formatFlag()}},
 		"ask":   {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
@@ -88,6 +89,7 @@ var agentsPage = helptext.Page{
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"reap", "mark dead running dispatches as error; drop stale markers"},
 		{"label", "print a leaf's dispatch description prefix"},
+		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
 		{"status", "show a dispatch's state (any agent): status <id>"},
 		{"result", "print a finished dispatch's answer or envelope: result <id>"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
@@ -109,6 +111,10 @@ var agentsSubPages = map[string][3]string{
 		"--background adds idle and finished work."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and brief."},
+	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
+		"the ones outside every --path, and with --check the Go gates (on the --path files; complexity only for " +
+		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
+		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live) and stream that turn's events; exits on its result. One turn at a time per session."},
 	"dispatch": {"dispatch <role> [flags] <task>", "Run a task by role: explore (copilot, one dispatch per --part), fleet " +
@@ -148,6 +154,7 @@ func cmdAgentsAsk(args []string) int {
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": cmdAgentsSend, "label": cmdAgentsLabel,
+	"diff":   cmdAgentsDiff,
 	"status": func(a []string) int { return cmdAgentsJob("status", a) },
 	"result": func(a []string) int { return cmdAgentsJob("result", a) },
 	"tail":   func(a []string) int { return cmdAgentsJob("tail", a) },
@@ -292,6 +299,36 @@ func cmdAgentsLabel(args []string) int {
 		}
 	}
 	return 0
+}
+
+// cmdAgentsDiff is `agents diff`: changed files, ownership and, with --check, the Go gates.
+func cmdAgentsDiff(args []string) int {
+	fs := agentsFlags("diff")
+	base := fs.String("base", "", "compare the working tree against this ref (default HEAD)")
+	var sel []string
+	fs.Func("path", "a path or glob the change may touch; repeat per path; --check covers only these", func(v string) error {
+		sel = append(sel, v)
+		return nil
+	})
+	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
+	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity and test on the touched packages")
+	format := helptext.FormatFlag(fs)
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents diff", err)
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
+		return 2
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents diff: %v", err)
+	}
+	return agent.Diff(agent.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, JSON: *format == helptext.JSON,
+		Out: os.Stdout, Err: os.Stderr})
 }
 
 // cmdAgentsDispatch is `agents dispatch <role> <task>`.
