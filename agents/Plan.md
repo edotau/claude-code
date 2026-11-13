@@ -77,7 +77,7 @@ means strengthen the plan first.
 ## Report contract
 
 Return a plan in the shape of [`docs/templates/plan.md`](../docs/templates/plan.md), the one copy of the template
-(the `docs-plan-gate` denial pastes the same file).
+(the `docs-plan-gate` denial names the same file).
 
 **The template is a floor, not a form.** Fixed: the four headings the hooks check (`# Plan:`, `## Context`,
 `## Phases`, `## Tasks`), the tags, and the `owns:` task lines. Free: add a section the work needs, drop an optional

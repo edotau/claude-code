@@ -534,19 +534,6 @@ func TemplatePath(configDir string) string {
 	return filepath.Join(configDir, "docs", "templates", "plan.md")
 }
 
-// Skeleton reads the plan template; a file without its "# Plan:" heading is an error, not a template.
-func Skeleton(configDir string) (string, error) {
-	src := TemplatePath(configDir)
-	b, err := os.ReadFile(src)
-	if err != nil {
-		return "", err
-	}
-	if !strings.Contains(string(b), "# Plan:") {
-		return "", fmt.Errorf("plans: %s: no # Plan: heading", src)
-	}
-	return string(b), nil
-}
-
 // CommitFiles lists the files sha changed in the repo at dir.
 func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 	raw, err := proc.RunGitInherit(ctx, dir, "show", "-z", "--name-only", "--format=", sha)
