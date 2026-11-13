@@ -313,9 +313,11 @@ func workflows(root string) []string {
 // recallProbe is the memory-recall text for the probe prompt, read-only: it would consume the hook's seen-state/log.
 func recallProbe(root, prompt string) (string, error) {
 	hits, _, err := memory.SearchRepo(root, false, prompt, probeRecallHits)
-	blocks := make([]string, len(hits))
-	for i, h := range hits {
-		blocks[i] = h.Block
+	var blocks []string
+	for _, h := range hits {
+		if h.Bank != "archive" { // rotated history may name paths that are gone, or another machine's
+			blocks = append(blocks, h.Block)
+		}
 	}
 	return strings.Join(blocks, "\n"), err
 }
