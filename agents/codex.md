@@ -45,8 +45,8 @@ Codex deltas:
 
 - Interactive: `--profile <p>` is the harness profile (codex's own is `-p`); `-f <config.toml>` (keys ride as `-c`
   overrides); `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`).
-- `--tools` edits and runs shell; `--read-only` drops codex's tools (fail closed). `--deny` is enforced by the
-  `permission-gate` hook; `--mode auto|plan`.
+- `--tools` edits and runs shell; no `--tools` keeps a read-only sandbox shell. `--deny` is enforced by the
+  `permission-gate` hook; `--mode auto|plan` (`plan` is refused with `--tools`).
 - `--profile <p>` leads on that profile; `--fallback agents|none` (`none` pins that dispatch); `--provider <x>`
   leads · `--no-persist` keeps no session · `--safe-mode` skips hooks/plugins · `--output-schema <json>` adds
   `.structured` to the envelope.
@@ -110,6 +110,12 @@ Brief: the gate chain of `skills/problem-solving/references/verify.md`, scoped g
 is the main thread's, run once with the owner's approval (`rules/standards/quality.md`). Never report a gate you
 did not run.
 
+- `--tools` runs in the `workspace-write` sandbox, which blocks binding sockets and running `ps`; no `--allow` changes
+  that. Tests that need them: set `HARNESS_CODEX_SANDBOX=danger-full-access` for that one dispatch. It widens what the
+  agent can touch to the whole machine, so use it only for a named package that fails under the default, and the
+  launch note records it. Any other value exits 2. `HARNESS_CODEX_NETWORK=1` opens only network.
+- Under the default sandbox the launch points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp
+  dir unless you set them.
 - Same lint error recurs after 2 fix attempts → skip it, note in the report.
 - A fix introduces MORE errors than it resolves → revert the fix, skip.
 - Never modify migration/schema directories or auto-generated files.

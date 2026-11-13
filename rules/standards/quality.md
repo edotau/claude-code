@@ -13,9 +13,9 @@ Language specifics: `rules/software/<lang>/`.
 
 ## Code Quality Checklist
 
-Functions < 50 lines, files < 800 (200–400 typical; test files < 1000), nesting ≤ 4 (early returns); no hardcoded
-values, secrets, or leftover debug prints. Over the cap, trim first: cut stacked comment blocks to one line that
-names what the code does.
+Functions < 50 lines, files < 1200 (200–400 typical; test files < 1500), ≤ 25 imports per file, nesting ≤ 4 (early
+returns); no hardcoded values, secrets, or leftover debug prints. Over the cap, trim first: cut stacked comment
+blocks to one line that names what the code does.
 
 ## Comments
 

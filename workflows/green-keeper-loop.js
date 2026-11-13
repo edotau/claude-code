@@ -39,7 +39,7 @@ const stepOf = (steps, name, defaults, opt) => {
   const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
-  const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
+  const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
@@ -376,7 +376,7 @@ if (stArgs(a, ARGS)) return { status: 'error', exit: 'error', gate: null, gateSo
 let ST
 try {
   ST = {
-    detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
+    detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low', tools: 'run' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
   }
 } catch (e) { return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['green-keeper-loop: ' + e.message], history: [] } }

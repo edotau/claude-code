@@ -100,7 +100,7 @@ const stepOf = (steps, name, defaults, opt) => {
   const profile = v.profile !== undefined ? v.profile : o.profile || ''
   const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
-  const mode = edit ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
+  const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
@@ -440,7 +440,7 @@ const RAW = a.steps && typeof a.steps === 'object' && !Array.isArray(a.steps) ? 
 let S
 try {
   S = {
-    scope: stepOf(a.steps, 'scope', { model: 'haiku', effort: 'low' }, OPT),
+    scope: stepOf(a.steps, 'scope', { model: 'haiku', effort: 'low', tools: 'run' }, OPT),
     audit: stepOf(a.steps, 'audit', { model: 'sonnet', effort: 'low' }, OPT),
     refute: stepOf(a.steps, 'refute', { model: 'sonnet', effort: 'medium' }, OPT),
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit', agentType: 'claude' }, OPT),

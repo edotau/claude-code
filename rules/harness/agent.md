@@ -26,17 +26,27 @@ paths:
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
-  (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
-  `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini denies `Bash`,
-  `Write` and `Edit` through the agy `permission-gate` hook (reads, search and URL fetches still run; refused when the
-  hook is missing); opencode enforces those denies with read tools on, refusing `--safe-mode`; any other agent drops its
-  tools (fail closed). copilot `--tools` approves every request like the other agents' `--tools`, still subject to the
-  dispatch's permission rules (a Deny returns feedback and the run continues) and the native hooks. claude `--tools` off
-  Anthropic is an allow list (go/git/read commands, Edit/Write under `--workdir`; `--allow` adds, `--deny`/`--ask`
-  refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the old launch, and
-  `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so anything unlisted is denied. It runs
-  gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; redirects refused).
+  (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, claude and opencode get no
+  tools, gemini is only instructed not to use them, and codex keeps a read-only sandbox shell.
+  `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run (plain
+  `git log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `cat`, `go doc|list|env`,
+  read-only `claude-code` verbs; no `-c`, redirect, substitution or `agents diff --check`); every other Bash call and
+  all Write/Edit stay denied, and a `Read(...)` deny also blocks a listed command that may reach that path. copilot
+  enforces it in its SDK handler; gemini (agy hook), opencode (plugin) and claude (gated launch on every route, tools
+  `Read,Glob,Grep,Bash`) use the `permission-gate`; opencode and claude refuse `--safe-mode`, gemini refuses a missing
+  hook; codex drops its tools and keeps its read-only sandbox shell. codex and gemini refuse `--tools` with
+  `--mode plan`. An `--allow` adds but can never reopen a matching deny. copilot file rules are judged as both Edit
+  and Write, in absolute and workdir-relative form. copilot `--tools` approves every request like the other agents'
+  `--tools`, still subject to the dispatch's permission rules (a Deny returns feedback and the run continues) and
+  the native hooks. claude `--tools` off
+  Anthropic is an allow list (go/git/read commands, `sed -n <range>p FILE`, `cd` into `--workdir` or below, env-prefixed
+  and `time` forms of listed commands, the `rtk` spellings the rewrite hook emits, the read-only
+  `claude-code agents find|diff|result|status|tree`, `memory recall|search|show`, `review simplify` and
+  `network websearch` verbs, Edit/Write under `--workdir`; `--allow` adds,
+  `--deny`/`--ask` refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the
+  old launch, and `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so anything unlisted is
+  denied. It runs gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; file redirects refused, `2>&1` allowed).
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
@@ -89,6 +99,9 @@ paths:
 - **gemini** runs on `agy`: its Google sign-in by default, a named Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 
+- **Permission check.** `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through
+  each agent's real launch policy per mode, with no model call; exit 1 on a missed expectation.
+
 ## Skills and instructions parity
 
 - **Skills.** `agents sync` links `skills/<name>/SKILL.md` (symlinked dirs resolving inside `skills/` included) into
@@ -115,20 +128,25 @@ paths:
   session loads too (live, 1.0.105), so no SDK callbacks are registered (they would run each guard twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`
   (no fallback to the real install); real vault pins still route.
-- **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge (opencode Ask = `--auto`). A Deny an
+- **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode Ask =
+  `--auto`; claude on Anthropic uses its auto judge). Elsewhere: gemini renders Ask as Allow, copilot's SDK handler
+  approves it, and claude off Anthropic turns it into Deny. A Deny an
   agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. opencode
-  `--read-only` keeps read tools on, denies `Bash`, `Write` and `Edit`, and runs without `--auto`.
+  `--read-only` keeps read tools and the vetted shell list on, denies other `Bash`, `Write` and `Edit`, and runs
+  without `--auto`; opencode `--safe-mode` refuses any bound tool gate, not only a Bash deny.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the harness plugin's `tool.execute.before` (headless and TUI; refused only under `--safe-mode`, which
-  loads no plugin), codex and agy as a native PreToolUse hook. Hook modes: `hooks.md` → Applicability. A live codex or
-  agy home picks up the hook only after the owner runs `configure --restore --agents --agent codex` (or `gemini`),
+  loads no plugin), codex and agy as a native PreToolUse hook (agy also runs `safety-scan` on `run_command`, where an
+  ask blocks). Hook modes: `hooks.md` → Applicability. A live codex or
+  agy home picks up the hooks only after the owner runs `configure --restore --agents --agent codex` (or `gemini`),
   which re-renders only that agent's config; until then those agents keep refusing a Bash deny.
 - **Memory jobs (claude, gated).** `memory update`/`dream`/catch-up run claude with `RunOptions.Gate`:
   `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
   limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and the `permission-gate` hook merged into the launch's one
   `--settings` (`exit 2` on any failure). Policy: plan mode, Edit/Write allowed under the job's bank dirs (dream: the
-  memory root and `CLAUDE.md`), Bash only dream's `claude-code memory timeline|review|index|promote`; no policy, binary
+  memory root and `CLAUDE.md`), Bash only dream's `claude-code memory timeline|review|index|promote` plus `cd` into a
+  bank directory; file redirects are refused, `2>&1` is not; no policy, binary
   or policy env refuses the launch. A dream whose gate refused calls and
   edited no changed bank file fails and retries in 6 h instead of stamping success.
 
