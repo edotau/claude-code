@@ -21,6 +21,7 @@ type Spec struct {
 	MaxFiles     int      `json:"max_files,omitempty"` // 0 = DefaultMaxFiles; IndexOnly inlines none
 	MaxFileBytes int      `json:"max_file_bytes,omitempty"`
 	IndexOnly    bool     `json:"index_only,omitempty"`
+	WithTests    bool     `json:"with_tests,omitempty"` // inline test files and testdata found under Dirs
 }
 
 // Packed is the built prompt and the lines worth telling the user (coverage, dropped files).
@@ -46,7 +47,7 @@ func Build(ctx context.Context, s Spec, task, cwd string, budget int) (Packed, e
 	if err != nil {
 		return Packed{}, err
 	}
-	collected, err := Collect(ctx, cwd, s.Dirs, files, maxFiles(s), s.MaxFileBytes, budget)
+	collected, err := Collect(ctx, cwd, s.Dirs, files, maxFiles(s), s.MaxFileBytes, budget, s.WithTests)
 	if err != nil {
 		return Packed{}, err
 	}

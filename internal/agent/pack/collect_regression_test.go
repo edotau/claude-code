@@ -22,7 +22,7 @@ func TestCollectRejectsSecretThroughSymlinkedParent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := Collect(t.Context(), dir, nil, []string{"alias/*.txt", "docs/*.txt"}, 40, 100, testBudget)
+	got, err := Collect(t.Context(), dir, nil, []string{"alias/*.txt", "docs/*.txt"}, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestCollectIncludesTrackedSiblingDirectory(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	got, err := Collect(t.Context(), filepath.Join(repo, "app"), []string{filepath.Join(repo, "lib")}, nil, 40, 100, testBudget)
+	got, err := Collect(t.Context(), filepath.Join(repo, "app"), []string{filepath.Join(repo, "lib")}, nil, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestCollectCancellationAfterGitDiscovery(t *testing.T) {
 			if mode == "glob" {
 				dirs, patterns = nil, []string{"a.txt"}
 			}
-			got, err := Collect(ctx, dir, dirs, patterns, 40, 100, testBudget)
+			got, err := Collect(ctx, dir, dirs, patterns, 40, 100, testBudget, true)
 			if _, markerErr := os.Stat(marker); markerErr != nil {
 				t.Fatalf("git discovery did not finish: %v", markerErr)
 			}
@@ -142,7 +142,7 @@ func TestCollectMixedGitAndNonGitRoots(t *testing.T) {
 		{"plain-walk-git-glob", []string{"plain"}, []string{"repo/*.txt"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Collect(t.Context(), dir, tc.dirs, tc.patterns, 40, 100, testBudget)
+			got, err := Collect(t.Context(), dir, tc.dirs, tc.patterns, 40, 100, testBudget, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,7 +175,7 @@ func TestWalkDirsSkipsFIFO(t *testing.T) {
 		err error
 	}, 1)
 	go func() {
-		ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
+		ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget, true)
 		done <- struct {
 			ctx Context
 			err error

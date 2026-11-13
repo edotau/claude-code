@@ -53,7 +53,7 @@ func TestCollect(t *testing.T) {
 	w("bin.bin", "\x00\x01binary")
 	w("big.txt", strings.Repeat("x", 100))
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 10, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 10, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCollectMaxFiles(t *testing.T) {
 	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, n), "x")
 	}
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 2, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 2, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestCollectGlobError(t *testing.T) {
 	write(t, filepath.Join(dir, "a.txt"), "x")
 
 	// "[" is an unterminated character class: filepath.Glob returns ErrBadPattern for it.
-	ctx, err := Collect(t.Context(), dir, nil, []string{"["}, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, nil, []string{"["}, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestCollectWalkError(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(sub, 0o755) }) // let t.TempDir() clean up
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestCollectSkipsSecretLike(t *testing.T) {
 	w("env.d/x.env", "x")
 	w("state/y.txt", "y")
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestCollectHonoursGitIgnore(t *testing.T) {
 		}
 	}
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestCollectFailsClosedOnLsFilesError(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, ".git", "index"), "not a valid index")
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 100, testBudget, true)
 	if err == nil {
 		t.Fatalf("err = nil, want ls-files error; Included = %v", ctx.Included)
 	}
@@ -277,7 +277,7 @@ func TestCollectAbsDir(t *testing.T) {
 	write(t, filepath.Join(target, "a.go"), "package a")
 
 	other := t.TempDir()
-	ctx, err := Collect(t.Context(), other, []string{target}, nil, 40, 100, testBudget)
+	ctx, err := Collect(t.Context(), other, []string{target}, nil, 40, 100, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCollectBoundedRead(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "big.txt"), strings.Repeat("x", 1<<20))
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestCollectByteBudget(t *testing.T) {
 		write(t, filepath.Join(dir, fmt.Sprintf("f%02d.txt", i)), strings.Repeat("x", perFile))
 	}
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1<<20, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1<<20, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestCollectByteBudgetUnderLimit(t *testing.T) {
 		write(t, filepath.Join(dir, n), strings.Repeat("y", 100))
 	}
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 40, 1024, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestCollectOrdersSourceBeforeTests(t *testing.T) {
 	write(t, filepath.Join(dir, "z.go"), body)
 	write(t, filepath.Join(dir, "testdata", "fixture.txt"), body)
 
-	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1024, testBudget)
+	ctx, err := Collect(t.Context(), dir, []string{"."}, nil, 1000, 1024, testBudget, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	for _, dirs := range [][]string{nil, {"."}} {
-		got, err := Collect(ctx, dir, dirs, []string{"*.go"}, 40, 100, testBudget)
+		got, err := Collect(ctx, dir, dirs, []string{"*.go"}, 40, 100, testBudget, true)
 		if !errors.Is(err, context.Canceled) || len(got.Included) != 0 {
 			t.Errorf("Collect(%v) = %+v, %v, want cancellation without files", dirs, got, err)
 		}
@@ -429,7 +429,7 @@ type cancelCase struct {
 }
 
 func collectRun(ctx context.Context, dir string) (Context, error) {
-	return Collect(ctx, dir, []string{"."}, nil, 40, 100, testBudget)
+	return Collect(ctx, dir, []string{"."}, nil, 40, 100, testBudget, true)
 }
 
 func changedRun(ctx context.Context, dir string) (Context, error) {
@@ -565,7 +565,7 @@ func TestCollectGitFailureFailsClosed(t *testing.T) {
 	write(t, filepath.Join(repo, ".git", "HEAD"), "ref: refs/heads/main\n")
 	write(t, filepath.Join(repo, "a.txt"), "hello")
 	fakeGit(t, "1", "boom: index corrupt")
-	got, err := Collect(context.Background(), repo, []string{"."}, nil, -1, 0, testBudget)
+	got, err := Collect(context.Background(), repo, []string{"."}, nil, -1, 0, testBudget, true)
 	if err == nil || len(got.Included) != 0 {
 		t.Fatalf("want error and no files, got err=%v files=%v", err, got.Included)
 	}
@@ -573,7 +573,7 @@ func TestCollectGitFailureFailsClosed(t *testing.T) {
 	plain := t.TempDir()
 	write(t, filepath.Join(plain, "a.txt"), "hello")
 	fakeGit(t, "128", "fatal: not a git repository")
-	got, err = Collect(context.Background(), plain, []string{"."}, nil, -1, 0, testBudget)
+	got, err = Collect(context.Background(), plain, []string{"."}, nil, -1, 0, testBudget, true)
 	if err != nil || len(got.Included) != 1 {
 		t.Fatalf("non-repo: want 1 file and no error, got err=%v files=%v", err, got.Included)
 	}
