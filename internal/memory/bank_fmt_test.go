@@ -61,6 +61,20 @@ func wrapBreakCases() []wrapCase {
 	}
 }
 
+// markerAfterOneTokenCases: one over-long token, a bare list marker, then a word; the marker must not open a line.
+func markerAfterOneTokenCases() []wrapCase {
+	long := strings.Repeat("y", 2*BankFmtMaxLine)
+	var cases []wrapCase
+	for _, m := range []string{"-", "*", "+", "1."} {
+		cases = append(cases, wrapCase{
+			name:  "one oversized token then marker " + m,
+			input: "- " + long + " " + m + " word",
+			want:  "- " + long + " " + m + "\n  word",
+		})
+	}
+	return cases
+}
+
 // untouchedCases are the over-width surfaces formatBankMarkdown must leave byte-identical.
 func untouchedCases() []wrapCase {
 	return []wrapCase{
@@ -108,6 +122,9 @@ func runWrapCases(t *testing.T, cases []wrapCase) {
 			if got != c.want {
 				t.Errorf("formatBankMarkdown(%q)\n got: %q\nwant: %q", c.input, got, c.want)
 			}
+			if again := formatBankMarkdown(got); again != got {
+				t.Errorf("not idempotent\nonce:  %q\ntwice: %q", got, again)
+			}
 		})
 	}
 }
@@ -116,7 +133,7 @@ func runWrapCases(t *testing.T, cases []wrapCase) {
 // each wrap at a word boundary with continuation indented to the item's content column.
 func TestFormatBankMarkdownWrapTable(t *testing.T) {
 	t.Parallel()
-	runWrapCases(t, wrapBreakCases())
+	runWrapCases(t, append(wrapBreakCases(), markerAfterOneTokenCases()...))
 }
 
 // A RULES region opened and closed on one line must not switch wrapping off for the rest of the file.
