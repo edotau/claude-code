@@ -27,17 +27,16 @@ paths:
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
   (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, agents are read-only.
-  `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini denies
-  `Bash`, `Write` and `Edit` through the agy `permission-gate` hook (reads, search and URL fetches still run; refused
-  when the hook is missing); opencode enforces those denies with read tools on, refusing `--safe-mode`;
-  any other agent drops its tools (fail closed).
-  copilot `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's
-  permission rules (a Deny returns feedback and the run continues) and the native hooks.
-  claude `--tools` off Anthropic is an allow list (go/git/read commands, Edit/Write under `--workdir`; `--allow` adds,
-  `--deny`/`--ask` refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the old
-  launch, and `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so
-  anything unlisted is denied. It runs gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies
-  `.claude/` writes; tools `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; redirects refused).
+  `--read-only` (implies `--tools`): copilot approves file reads, URL fetches and read-only git; gemini denies `Bash`,
+  `Write` and `Edit` through the agy `permission-gate` hook (reads, search and URL fetches still run; refused when the
+  hook is missing); opencode enforces those denies with read tools on, refusing `--safe-mode`; any other agent drops its
+  tools (fail closed). copilot `--tools` approves every request like the other agents' `--tools`, still subject to the
+  dispatch's permission rules (a Deny returns feedback and the run continues) and the native hooks. claude `--tools` off
+  Anthropic is an allow list (go/git/read commands, Edit/Write under `--workdir`; `--allow` adds, `--deny`/`--ask`
+  refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the old launch, and
+  `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so anything unlisted is denied. It runs
+  gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; redirects refused).
 - `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the

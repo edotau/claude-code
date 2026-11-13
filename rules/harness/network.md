@@ -37,8 +37,11 @@ the fewest live dispatches (in-flight markers on its account plus running dispat
 the one picked least recently (`state/harness/ask/route-auto.json`), then name order. From there it is the overlay
 `profile: <that workspace>`: the `ran on` line and the dispatch record name it, and with `--host` the pick is made here
 and the concrete route is sent. Never name a profile `auto`: the overlay reads `profile: auto` as the pick, so such a
-row cannot be addressed. When the picked workspace answers 429 before any answer, it is cooled, the pick reruns without it and the same agent retries there, until one answers or none is left; only then the `--fallback` policy applies (so `none` still fails, naming every workspace tried), and a named profile never moves. A `--host` ask that cannot run fails before the task with one line naming what the target
-lacks: the `claude-code` binary, the agent's CLI, the Databricks profile, or the model.
+row cannot be addressed. When the picked workspace answers 429 before any answer, it is cooled, the pick reruns without
+it and the same agent retries there, until one answers or none is left; only then the `--fallback` policy applies (so
+`none` still fails, naming every workspace tried), and a named profile never moves. A `--host` ask that cannot run fails
+before the task with one line naming what the target lacks: the `claude-code` binary, the agent's CLI, the Databricks
+profile, or the model.
 
 `--host <h>` or `--remote <h>` naming this machine (its tailnet DNS name, OS hostname, or either one's first label) runs
 the verb here with no ssh hop and no tunnel, so one command line works on both machines.
