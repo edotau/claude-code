@@ -55,10 +55,11 @@ func Run(args []string) int {
 }
 
 var restartPage = helptext.Page{
-	Usage: "claude-code network restart [--dry-run] [--force] [--format text|json]",
+	Usage: "claude-code network restart [--dry-run] [--force] [--if-changed]",
 	About: "Restart the loopback proxy on the installed binary; a stopped proxy is\n" +
 		"skipped. The memory idle watcher is per-session and exits by itself, so\n" +
 		"it is not restarted.\n" +
+		"--if-changed leaves a proxy already running the installed binary alone.\n" +
 		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
 		"open sessions alone do not block a restart.\n" +
 		"Each --remote ssh tunnel is stopped too, unless the proxy was left busy;\n" +
@@ -66,16 +67,17 @@ var restartPage = helptext.Page{
 }
 
 // restartFlags declares `network restart`'s flags on fs.
-func restartFlags(fs *flag.FlagSet) (dry, force *bool, format *string) {
+func restartFlags(fs *flag.FlagSet) (dry, force, ifChanged *bool, format *string) {
 	dry = fs.Bool("dry-run", false, "report what would restart; change nothing")
 	force = fs.Bool("force", false, "restart the proxy despite requests in flight")
+	ifChanged = fs.Bool("if-changed", false, "restart only a proxy not running the installed binary")
 	format = helptext.FormatFlag(fs)
 	return
 }
 
 func cmdRestart(args []string) int {
 	fs := helptext.NewFlagSet("network restart", restartPage)
-	dry, force, format := restartFlags(fs)
+	dry, force, ifChanged, format := restartFlags(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -84,7 +86,7 @@ func cmdRestart(args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	row := gateway.RestartReport(ctx, *dry, *force)
+	row := gateway.RestartReport(ctx, *dry, *force, *ifChanged)
 	rows := []gateway.RestartRow{row}
 	if busy := row.Status == "skipped" && row.OldPID != 0; !busy {
 		rows = append(rows, stopTunnels(*dry)...)
@@ -125,6 +127,8 @@ func printRestartRow(r gateway.RestartRow) {
 	switch r.Status {
 	case "restarted":
 		fmt.Printf("%-8s restarted  pid %d → %d\n", r.Daemon, r.OldPID, r.NewPID)
+	case "unchanged":
+		fmt.Printf("%-8s unchanged  pid %d\n", r.Daemon, r.OldPID)
 	case "would restart":
 		fmt.Printf("%-8s would restart  pid %d\n", r.Daemon, r.OldPID)
 	case "stopped", "would stop":

@@ -19,7 +19,7 @@ paths:
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` write claude's agent record (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` · foreground: `--serve --port N` |
-| Proxy restart and watchdog | `gateway proxy --restart` gaps only the respawn time (the old daemon drains in the background); a routed session's status line restarts a down proxy within one refresh (claims ≥15s apart) |
+| Proxy restart and watchdog | `gateway proxy --restart` gaps only the respawn time (the old daemon drains in the background); a routed session's status line restarts a down proxy within one refresh (claims ≥15s apart); `make install` runs `network restart --if-changed`: a proxy whose recorded `exe` sha256 (`proxy.json`) matches the installed binary stays (`proxy    unchanged`), an unrecorded one restarts |
 
 - Secrets only in the vault or `auth.command` (CLAUDE.md hard rule 2); `configure provider --list` shows the
   source, never the value.

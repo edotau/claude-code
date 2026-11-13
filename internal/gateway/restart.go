@@ -14,18 +14,25 @@ import (
 // RestartRow is one daemon's outcome in `network restart`.
 type RestartRow struct {
 	Daemon string `json:"daemon"`
-	Status string `json:"status"` // restarted | would restart | stopped | would stop | skipped | failed
+	Status string `json:"status"` // restarted | unchanged | would restart | stopped | would stop | skipped | failed
 	OldPID int    `json:"old_pid,omitempty"`
 	NewPID int    `json:"new_pid,omitempty"`
 	Note   string `json:"note,omitempty"`
 }
 
-// RestartReport restarts the running proxy (unless dry, or busy without force) and reports the outcome.
-func RestartReport(ctx context.Context, dry, force bool) RestartRow {
+// selfHash identifies the installed binary; a test seam.
+var selfHash = ExeHash
+
+// RestartReport restarts the running proxy (unless dry, busy without force, or ifChanged and on this binary).
+func RestartReport(ctx context.Context, dry, force, ifChanged bool) RestartRow {
 	row := RestartRow{Daemon: "proxy"}
 	st, ok := Running(ctx)
 	if !ok {
 		row.Status, row.Note = "skipped", "not running"
+		return row
+	}
+	if ifChanged && st.Exe != "" && st.Exe == selfHash() {
+		row.Status, row.OldPID = "unchanged", st.PID
 		return row
 	}
 	if !force {

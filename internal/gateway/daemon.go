@@ -2,9 +2,12 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -49,6 +52,7 @@ type State struct {
 	PID     int       `json:"pid"`
 	Port    int       `json:"port"`
 	Started time.Time `json:"started"`
+	Exe     string    `json:"exe,omitempty"` // sha256 of the daemon's executable; empty from an older build
 }
 
 func stateFile() string { return filepath.Join(paths.StateDir(), "proxy.json") }
@@ -111,6 +115,24 @@ func Running(ctx context.Context) (State, bool) {
 		return st, false
 	}
 	return st, HolderComm(st.PID) == "claude-code"
+}
+
+// ExeHash is the sha256 of this process's executable, "" when it cannot be read.
+func ExeHash() string {
+	exe, err := paths.SelfBinary()
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(exe)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // healthGet issues GET /healthz on port; the caller closes the body.
