@@ -237,8 +237,8 @@ func planBindingProbes() map[string]bindingProbe {
 func contextBindingProbes() map[string]bindingProbe {
 	return map[string]bindingProbe{
 		"paths-resolve": func(t *testing.T, _ string) (string, func(core.Result) bool) {
-			f := filepath.Join(t.TempDir(), "notes.md")
-			if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+			f := filepath.Join(t.TempDir(), "shot.png") // an image path still reaches the model; a plain .md does not
+			if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			return `{"prompt":"read ` + f + `"}`, func(r core.Result) bool { return strings.Contains(r.Context, f) }
@@ -649,10 +649,9 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 		t.Run(vendor, func(t *testing.T) {
 			vaulttest.Use(t) // hermetic CLAUDE_CONFIG_DIR + vault (harness hook switches)
 			t.Setenv(settings.AgentEnv, vendor)
-			t.Setenv("CLAUDE_RECALL_SEMANTIC", "0") // keep the co-dispatched memory-recall cheap
-			dir := t.TempDir()
-			f := filepath.Join(dir, "notes.md")
-			if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+			t.Setenv("CLAUDE_RECALL_SEMANTIC", "0")     // keep the co-dispatched memory-recall cheap
+			f := filepath.Join(t.TempDir(), "shot.png") // an image path still reaches the model; a plain .md does not
+			if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			payload := `{"prompt":"read ` + f + `"}`

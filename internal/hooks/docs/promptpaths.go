@@ -51,6 +51,7 @@ type pathReport struct {
 	path    string // resolved POSIX path
 	detail  string // "PNG 640×480, 12.3 KB" or "6 B"
 	isImage bool
+	large   bool   // at least largeFile bytes
 	err     string // fetch failure for a client-only path; path is then the client path
 }
 
@@ -92,17 +93,21 @@ func scanPosixTokens(text string) []pathToken {
 	return toks
 }
 
+// largeFile is the size from which the model is told a file's size before reading it.
+const largeFile = 1 << 20
+
 // describe builds the detail string for an existing file: image type+dimensions when decodable,
 // else type/size. ok=false for non-regular files (a bare directory match is noise, not an attachment).
-func describe(p string) (detail string, isImage bool, ok bool) {
+func describe(p string) (detail string, isImage, large, ok bool) {
 	fi, err := os.Stat(p)
 	if err != nil || !fi.Mode().IsRegular() {
-		return "", false, false
+		return "", false, false, false
 	}
+	large = fi.Size() >= largeFile
 	size := strings.ReplaceAll(textutil.HumanBytes(fi.Size()), "iB", "B")
 	kind, isImg := imageExts[strings.ToLower(filepath.Ext(p))]
 	if !isImg {
-		return size, false, true
+		return size, false, large, true
 	}
 	if f, err := os.Open(p); err == nil {
 		cfg, _, derr := image.DecodeConfig(f)
@@ -110,10 +115,10 @@ func describe(p string) (detail string, isImage bool, ok bool) {
 			fmt.Fprintf(os.Stderr, "path-resolver: close %s: %v\n", p, cerr)
 		}
 		if derr == nil {
-			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, size), true, true
+			return fmt.Sprintf("%s %d×%d, %s", kind, cfg.Width, cfg.Height, size), true, large, true
 		}
 	}
-	return fmt.Sprintf("%s, %s", kind, size), true, true
+	return fmt.Sprintf("%s, %s", kind, size), true, large, true
 }
 
 // collectReports resolves every path token to a report through the mount-table resolver. Ordered
@@ -149,13 +154,13 @@ func (c *reportCollector) fetchRemote(client string) {
 		c.reps = append(c.reps, pathReport{path: client, err: err.Error()})
 		return
 	}
-	detail, isImage, ok := describe(local)
+	detail, isImage, large, ok := describe(local)
 	if !ok {
 		c.reps = append(c.reps, pathReport{path: client, err: "fetched copy " + local + " is not a regular file"})
 		return
 	}
 	c.seen[local] = true
-	c.reps = append(c.reps, pathReport{win: client, path: local, detail: detail, isImage: isImage})
+	c.reps = append(c.reps, pathReport{win: client, path: local, detail: detail, isImage: isImage, large: large})
 }
 
 // reportCollector accumulates path reports, skipping paths it has already reported.
@@ -168,7 +173,7 @@ type reportCollector struct {
 // add reports the first token (as written, then punctuation-stripped) that resolves to a describable path.
 func (c *reportCollector) add(orig string, toks ...string) {
 	var p, detail string
-	var isImage, found bool
+	var isImage, large, found bool
 	for _, tok := range toks {
 		rp, ok := c.res.Resolve(tok)
 		if !ok {
@@ -177,8 +182,8 @@ func (c *reportCollector) add(orig string, toks ...string) {
 		if c.seen[rp] {
 			return // the preferred reading is already reported
 		}
-		if d, img, ok := describe(rp); ok {
-			p, detail, isImage, found = rp, d, img, true
+		if d, img, lg, ok := describe(rp); ok {
+			p, detail, isImage, large, found = rp, d, img, lg, true
 			if orig != "" {
 				orig = tok
 			}
@@ -192,7 +197,7 @@ func (c *reportCollector) add(orig string, toks ...string) {
 	if orig != "" && orig == p {
 		orig = ""
 	}
-	c.reps = append(c.reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage})
+	c.reps = append(c.reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage, large: large})
 }
 
 // feedbackMessage is the user-visible body: one line per resolved path, images first so an
@@ -222,26 +227,26 @@ func feedbackMessage(reps []pathReport) string {
 	return b.String()
 }
 
-// modelContext tells the model what resolved and, for an image, that reading the path is how it
-// gets the pixels — a dropped path is never auto-attached.
+// modelContext lists only what the prompt text lacks: a mapped or failed path, an image, a large file's size.
 func modelContext(reps []pathReport) string {
 	var lines, images []string
 	for _, r := range reps {
-		if r.err != "" {
+		switch {
+		case r.err != "":
 			lines = append(lines, fmt.Sprintf("  %s (client-only path, fetch failed: %s)", r.path, r.err))
-			continue
-		}
-		if r.win != "" {
+		case r.win != "":
 			lines = append(lines, fmt.Sprintf("  %s -> %s (%s)", r.win, r.path, r.detail))
-		} else {
+		case r.isImage || r.large:
 			lines = append(lines, fmt.Sprintf("  %s (%s)", r.path, r.detail))
 		}
 		if r.isImage {
 			images = append(images, r.path)
 		}
 	}
-	body := "File paths resolved from the prompt (use these for reads and @-references):\n" +
-		strings.Join(lines, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	body := "Paths:\n" + strings.Join(lines, "\n")
 	if len(images) > 0 {
 		body += "\nImage path(s) referenced but NOT attached — Read the path to view the image: " +
 			strings.Join(images, ", ")
