@@ -34,7 +34,7 @@ type goPkg struct {
 
 // scopedGoGate builds the merge gate: build and vet all, test changed packages and their importers; full = whole suite.
 func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
-	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", base+"...HEAD")
+	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD") // both sides of a move
 	if err != nil {
 		return "", nil, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
 	}
@@ -98,10 +98,15 @@ const fullGoGate = "go build ./... && go vet ./... && go test ./..."
 // filePackages maps a changed file to its package dir; a non-Go file also to packages embedding it or tests naming it.
 func filePackages(list []goPkg, abs, f string, src func(string) (string, bool)) []string {
 	var out []string
-	if p := goPkgOf(abs, filepath.Dir(f)); p != "" {
+	dir, isGo := filepath.Dir(f), strings.HasSuffix(f, ".go")
+	p := goPkgOf(abs, dir)
+	if p == "." && dir != "." && !isGo && !strings.Contains("/"+f, "/testdata/") {
+		p = "" // a subdir's non-Go file is not the root package's unless testdata, embed or a test names it
+	}
+	if p != "" {
 		out = append(out, p)
 	}
-	if strings.HasSuffix(f, ".go") {
+	if isGo {
 		return out
 	}
 	for _, p := range list {
@@ -283,7 +288,7 @@ func hasNPMTestScript(pkgJSON string) bool {
 
 // ScopedVerifyGate renders the gate for dir's toolchain, limited to scope dirs; source "none" when nothing fits.
 func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source string) {
-	dirs := normalizeScope(scope)
+	dirs := normalizeScope(dir, scope)
 	gate, source = toolchainGate(dir, dirs)
 	lint := lintCheck && hasMakeLintCheck(filepath.Join(dir, "Makefile"))
 	switch {
@@ -298,10 +303,10 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
-func normalizeScope(scope []string) []string {
+func normalizeScope(dir string, scope []string) []string {
 	var out []string
 	for _, d := range scope {
-		d = strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(d)), "./"), "/")
+		d = strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(relativeScope(dir, strings.TrimSpace(d))), "./"), "/")
 		if d == "" || d == "." {
 			return nil
 		}
@@ -311,6 +316,23 @@ func normalizeScope(scope []string) []string {
 		out = append(out, d)
 	}
 	return out
+}
+
+// relativeScope makes an absolute scope dir inside dir (symlinks resolved on both) repo-relative; others pass through.
+func relativeScope(dir, d string) string {
+	if !filepath.IsAbs(d) {
+		return d
+	}
+	for _, resolve := range []func(string) string{filepath.Clean, paths.Canon} {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return d
+		}
+		if r, err := filepath.Rel(resolve(abs), resolve(d)); err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			return r
+		}
+	}
+	return d
 }
 
 // toolchainGate returns the scoped gate of the first toolchain file in dir; "" and "" when none or it cannot scope.

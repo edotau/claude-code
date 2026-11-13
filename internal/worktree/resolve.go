@@ -44,9 +44,11 @@ var (
 	sleepFn        = time.Sleep
 	pollInterval   = 2 * time.Second
 	maxResolveWait = 10 * time.Minute
+	// resolveWaitDelay bounds how long a killed agent's orphaned children may hold its output pipes open.
+	resolveWaitDelay = 5 * time.Second
 )
 
-// askEnvelope mirrors the JSON `claude-code agents ask --format json` prints: agent.Result's fields plus "error".
+// askEnvelope is the subset of wire.Envelope (`claude-code agents ask --format json`) that resolve reads.
 type askEnvelope struct {
 	Answer         string `json:"answer"`
 	Fallback       string `json:"fallback,omitempty"`
@@ -67,6 +69,7 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	cmd := exec.CommandContext(runCtx, bin, "agents", "ask", "--agent", agentName, "--workdir", workDir,
 		"--tools", "--fallback", "none", "--timeout", timeout.String(), "--format", "json", "-")
 	cmd.Stdin = strings.NewReader(prompt)
+	cmd.WaitDelay = resolveWaitDelay
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdout, runErr := cmd.Output()
@@ -104,7 +107,7 @@ const (
 	resolutionInvalid
 )
 
-// resolveWithAgent drives one agent resolution under the lease; op == nil runs fresh, else resumes by polling.
+// resolveWithAgent drives one agent resolution, taking no lock (the caller holds the lease); op == nil runs fresh.
 func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentName string, op *Operation) (*Operation, *MergeResult, error) {
 	if op != nil {
 		if !op.AgentExitOK {
@@ -160,10 +163,13 @@ func runAndFinalize(ctx context.Context, op *Operation, plan *MergePlan, prompt 
 			"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", op.Agent, res.Fallback, res.FallbackReason))
 	}
 	op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
-	if err := SaveOperation(op); err != nil {
-		return nil, nil, err
+	// A failed receipt save must not abort: the merge holds the agent's finished edits and the next checkpoint saves again.
+	saveErr := SaveOperation(op)
+	op, merged, err := finalizeAgentResolution(ctx, op, plan.WorktreePath)
+	if saveErr != nil && err != nil {
+		err = errors.Join(fmt.Errorf("resolve: save agent-exit receipt: %w", saveErr), err)
 	}
-	return finalizeAgentResolution(ctx, op, plan.WorktreePath)
+	return op, merged, err
 }
 
 // abortMaterialized undoes a merge whose operation file failed to save (no resume record); returns saveErr.
@@ -209,12 +215,9 @@ func materializeConflict(ctx context.Context, plan *MergePlan) (*MergeResult, er
 // defaultMarkerSize is git's conflict-marker width when a path sets no conflict-marker-size attribute.
 const defaultMarkerSize = 7
 
-// isConflictMarker matches a git marker line of width size: '=' alone, or '<'/'>' alone or followed by a space.
+// isConflictMarker matches a '<'/'>' marker of width size, alone or before a space; a bare '=' run may be a heading.
 func isConflictMarker(line string, size int) bool {
 	line = strings.TrimSuffix(line, "\r")
-	if line == strings.Repeat("=", size) {
-		return true
-	}
 	for _, c := range []string{"<", ">"} {
 		marker := strings.Repeat(c, size)
 		if line == marker || strings.HasPrefix(line, marker+" ") {

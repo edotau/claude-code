@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -168,25 +169,27 @@ func Append(session string, n Notice) error {
 	return paths.AppendLine(inbox(session), line)
 }
 
-// Drain returns and removes session's notices (at most drainMax, newest last); errors yield none.
+// Drain returns and removes session's notices (at most drainMax, newest last); an error yields what was read.
 func Drain(session string) []Notice {
+	out, _ := DrainErr(session)
+	return out
+}
+
+// DrainErr is Drain plus the lock, read or remove error that dropped or may repeat notices; callers should warn.
+func DrainErr(session string) ([]Notice, error) {
 	if session == "" {
-		return nil
+		return nil, nil
 	}
 	file := inbox(session)
 	if _, err := os.Stat(file); err != nil {
-		return nil // the common case: no inbox, no lock taken
-	}
-	var raw []byte
-	err := paths.WithFileLock(file, func() error {
-		var err error
-		if raw, err = os.ReadFile(file); err != nil {
-			return err
+		if os.IsNotExist(err) {
+			return nil, nil // the common case: no inbox, no lock taken
 		}
-		return os.Remove(file)
-	})
-	if err != nil {
-		return nil
+		return nil, fmt.Errorf("drain notices %s: %w", file, err)
+	}
+	raw, ok, err := takeInbox(file)
+	if !ok {
+		return nil, err
 	}
 	var out []Notice
 	for line := range bytes.SplitSeq(raw, []byte("\n")) { // no line-size cap, unlike bufio.Scanner
@@ -195,5 +198,27 @@ func Drain(session string) []Notice {
 			out = append(out, n)
 		}
 	}
-	return out[max(0, len(out)-drainMax):]
+	return out[max(0, len(out)-drainMax):], err
+}
+
+// takeInbox reads and removes file under its lock; ok is false when nothing was read (err says why).
+func takeInbox(file string) (raw []byte, ok bool, err error) {
+	var readErr error
+	err = paths.WithFileLock(file, func() error {
+		if raw, readErr = os.ReadFile(file); readErr != nil {
+			return readErr
+		}
+		ok = true
+		return os.Remove(file)
+	})
+	switch {
+	case err == nil:
+	case !ok && errors.Is(readErr, os.ErrNotExist):
+		return nil, false, nil // another drain took it between the stat and the lock
+	case !ok:
+		return nil, false, fmt.Errorf("drain notices %s: %w", file, err)
+	default:
+		err = fmt.Errorf("drain notices %s: read but not removed, they may repeat: %w", file, err)
+	}
+	return raw, ok, err
 }

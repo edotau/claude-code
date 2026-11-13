@@ -156,7 +156,8 @@ func editedLedger(repo *Repo, top, path string, now time.Time, gitWait time.Dura
 	}
 	cur = string(raw)
 	if ledgerField(cur, "Status") == "closed" {
-		info, err := reopenInfo(repo, top, "", gitWait)
+		last := ledgerField(openSection(cur), "Session") // a hook has no session of its own: keep the last one
+		info, err := reopenInfo(repo, top, last, gitWait)
 		if err != nil {
 			return "", "", err
 		}

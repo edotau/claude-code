@@ -23,7 +23,7 @@ type Operation struct {
 	TargetOID         string
 	OriginalSourceOID string
 	ConflictPaths     []string // paths the agent was handed; finalizeAgentResolution never stages/commits outside these
-	Phase             string   // "resolving" | "resolved" | "failed" | "timeout"
+	Phase             string   // "resolving" | "resolved" | "failed" | "timeout" | "cancelled"
 	StartedAt         time.Time
 	Deadline          time.Time
 	Agent             string // the agent name given to --resolve-agent

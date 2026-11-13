@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,10 +16,12 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CreateOptions controls branch selection and lifecycle diagnostics; nil Log discards diagnostics.
+// CreateOptions controls branch selection and lifecycle diagnostics; nil Log discards diagnostics, a zero Deadline
+// leaves only the add timeout.
 type CreateOptions struct {
 	Branch, Session string
 	Log             io.Writer
+	Deadline        time.Time
 }
 
 // Create makes or resumes name under repo.Root, reusing an existing branch when available.
@@ -31,25 +34,61 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(dest); err == nil {
-		if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
-			fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
-		}
-		return dest, nil // `--worktree <name>` again resumes the checkout; resolveWorktreeBounded verified it's ours
-	}
 	branch, err := createBranchName(name, opt.Branch)
 	if err != nil {
 		return "", err
 	}
+	err = withCreateLock(repo, name, opt.Deadline, func() error {
+		dest, err = createLocked(repo, name, dest, branch, opt, log)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// withCreateLock serializes creators of name; the kernel drops the lock when its holder dies, so a holder is live.
+func withCreateLock(repo *Repo, name string, deadline time.Time, fn func() error) error {
+	lockPath := operationPath(repo.Main, name) + ".create"
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return err
+	}
+	wait := worktreeAddTimeout
+	if !deadline.IsZero() {
+		wait = max(0, min(wait, time.Until(deadline)-addRollbackReserve))
+	}
+	ran, err := paths.TryFileLock(lockPath, wait, fn)
+	if err != nil {
+		return err
+	}
+	if !ran {
+		return fmt.Errorf("worktree %q: another create is still running", name)
+	}
+	return nil
+}
+
+// createLocked resumes or creates dest under the create lock, so an "initializing" marker here is from a dead creator.
+func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log io.Writer) (string, error) {
+	if _, err := os.Stat(dest); err == nil {
+		if !addInterrupted(dest) {
+			if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
+				fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
+			}
+			return dest, nil // `--worktree <name>` again resumes the checkout; resolveWorktreeBounded verified it's ours
+		}
+		fmt.Fprintf(log, "worktree-create: %s is a checkout that never finished; recreating\n", dest)
+		rollbackAdd(repo.Main, dest, branch, false) // the branch may predate the add; the retry reuses it
+	}
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
 		return "", err
 	}
-	args, baseRef := worktreeAddArgs(repo.Main, dest, branch, log)
+	args, baseRef, newBranch := worktreeAddArgs(repo.Main, dest, branch, log)
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	base, baseErr := gitCmd(ctx, "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
-	if out, err := gitCmd(ctx, args...).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
+	if err := addWorktree(repo.Main, dest, branch, args, newBranch, opt.Deadline); err != nil {
+		return "", err
 	}
 	seedWorktree(repo.Main, dest, log)
 	if baseErr != nil {
@@ -62,6 +101,59 @@ func Create(repo *Repo, name string, opt CreateOptions) (string, error) {
 	return dest, nil
 }
 
+// worktreeAddTimeout bounds a checkout, which scales with repo size.
+var worktreeAddTimeout = 45 * time.Second
+
+// addRollbackReserve is the slice of the caller's deadline kept free so rollbackAdd runs before the caller is killed.
+const addRollbackReserve = 10 * time.Second
+
+// addWorktree runs `git worktree add`; a killed checkout is rolled back so a retry never resumes a partial tree.
+func addWorktree(main, dest, branch string, args []string, newBranch bool, deadline time.Time) error {
+	timeout := worktreeAddTimeout
+	if !deadline.IsZero() {
+		left := time.Until(deadline) - addRollbackReserve
+		if left <= 0 {
+			return errors.New("git worktree add: no time left before the hook deadline")
+		}
+		timeout = min(timeout, left)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	out, err := gitCmd(ctx, args...).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		rollbackAdd(main, dest, branch, newBranch)
+	}
+	return fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
+}
+
+// addInterrupted reports whether dest is a checkout `git worktree add` never finished: git holds it locked as
+// "initializing" until the add completes, so a kill before then leaves that marker.
+func addInterrupted(dest string) bool {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	gitDir, _, err := gitDirsOf(ctx, dest)
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(gitDir, "locked"))
+	return err == nil && strings.TrimSpace(string(b)) == "initializing"
+}
+
+// rollbackAdd best-effort removes a worktree whose add was killed, plus the branch that add created.
+func rollbackAdd(main, dest, branch string, newBranch bool) {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	_ = gitCmd(ctx, "-C", main, "worktree", "remove", "--force", "--force", dest).Run() // twice: add leaves it locked
+	_ = os.RemoveAll(dest)
+	_ = gitCmd(ctx, "-C", main, "worktree", "prune").Run()
+	if newBranch {
+		_ = gitCmd(ctx, "-C", main, "branch", "-D", branch).Run()
+	}
+}
+
 // createBranchName is the branch a new worktree name gets: want, else worktree-<name>; it must be a valid ref name.
 func createBranchName(name, want string) (string, error) {
 	branch := want
@@ -71,7 +163,7 @@ func createBranchName(name, want string) (string, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	if err := gitCmd(ctx, "check-ref-format", "--branch", branch).Run(); err != nil {
-		if _, isExit := asExitErr(err); !isExit {
+		if code, isExit := asExitErr(err); !isExit || code < 1 { // exit -1 is a signal kill, e.g. the timeout, not a bad name
 			return "", fmt.Errorf("git check-ref-format %q: %w", branch, err)
 		}
 		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
@@ -79,14 +171,14 @@ func createBranchName(name, want string) (string, error) {
 	return branch, nil
 }
 
-// worktreeAddArgs builds the `git worktree add` arguments for branch and the ref the worktree starts from.
-func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string) {
+// worktreeAddArgs builds the `git worktree add` arguments, the ref the worktree starts from and whether it makes branch.
+func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string, newBranch bool) {
 	args = []string{"-C", main, "worktree", "add", dest}
 	if branchExists(main, branch) {
-		return append(args, branch), branch // reuse an existing branch rather than failing on -b
+		return append(args, branch), branch, false // reuse an existing branch rather than failing on -b
 	}
 	baseRef = createBase(main, log)
-	return append(args, "--no-track", "-b", branch, baseRef), baseRef // no upstream: branch -d checks merged into HEAD
+	return append(args, "--no-track", "-b", branch, baseRef), baseRef, true // no upstream: branch -d checks merged into HEAD
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
@@ -157,7 +249,8 @@ type CleanResult struct {
 	Branch        string
 	Removed       bool
 	BranchDeleted bool
-	Reason        string // populated when Removed is false: why cleanup was refused
+	Reason        string // why cleanup was refused, or a forced clean's branch-delete failure when Removed is true
+	Failed        bool   // CleanAll only: the clean errored (Reason is the error) rather than being refused by policy
 }
 
 // Clean removes name's worktree only after a live recheck (unlocked, clean, merged, owned) under the lease; no force.
@@ -318,8 +411,8 @@ func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 			continue
 		}
 		r, err := Clean(repo, filepath.Base(e.Path), !apply)
-		if err != nil {
-			return results, err
+		if err != nil { // one busy or vanished worktree must not skip the rest
+			r = CleanResult{Path: e.Path, Reason: err.Error(), Failed: true}
 		}
 		results = append(results, r)
 	}

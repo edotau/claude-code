@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // MergeResult reports one terminal transition ("integrate" or "promote"); ResumeHint is set when the caller must retry.
@@ -36,7 +37,11 @@ func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeRe
 	}
 	out, err := runGit(ctx, plan.WorktreePath, nil, "merge", "--no-edit", plan.TargetOID)
 	if err != nil {
-		return nil, fmt.Errorf("git merge inside worktree: %w (%s)", err, firstNonEmpty(gitErrorDetail(err), string(out)))
+		abortHint := ""
+		if pending, _ := hasMergeHead(plan.WorktreePath); pending {
+			abortHint = "; the merge is left half-done for inspection, run `git -C " + textutil.ShellQuote(plan.WorktreePath) + " merge --abort` to undo it"
+		}
+		return nil, fmt.Errorf("git merge inside worktree: %w (%s)%s", err, firstNonEmpty(gitErrorDetail(err), string(out)), abortHint)
 	}
 	after, err := headOfContext(ctx, plan.WorktreePath)
 	if err != nil {
@@ -215,7 +220,7 @@ func applyMerge(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReque
 	return afterPromote(ctx, repo, plan, req, promoted, integrated)
 }
 
-// scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify; other gates pass through.
+// scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify or the whole suite is due.
 func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateSource string) (g, source string, err error) {
 	if gateSource != "Makefile" || req.FullVerify || !paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
 		return gate, gateSource, nil
@@ -225,7 +230,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 		return "", "", fmt.Errorf("scoped gate: %w", err)
 	}
 	if full {
-		return scoped, "go.mod changed, all packages", nil
+		return gate, gateSource, nil // the whole suite is the Makefile gate itself, not a hard-coded go test
 	}
 	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
 }

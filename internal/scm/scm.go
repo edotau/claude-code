@@ -78,6 +78,7 @@ func Detect(remote string) (Repo, error) {
 	shown := redact(remote)
 	lower := strings.ToLower(host)
 	isHTTP := strings.HasPrefix(strings.TrimSpace(remote), "http")
+	isSCP := !strings.Contains(remote, "://")
 	parts := strings.FieldsFunc(strings.TrimSuffix(strings.TrimRight(path, "/"), ".git"), func(r rune) bool { return r == '/' })
 	if lower == "github.com" || strings.HasSuffix(lower, ".github.com") {
 		if len(parts) != 2 {
@@ -85,11 +86,11 @@ func Detect(remote string) (Repo, error) {
 		}
 		return Repo{GitHub, host, parts[0], parts[1]}, nil
 	}
-	return bitbucketRepo(host, parts, isHTTP, shown)
+	return bitbucketRepo(host, parts, isHTTP, isSCP, shown)
 }
 
-// bitbucketRepo reads {project}/{repo} behind /scm/ (https) or an ssh port segment.
-func bitbucketRepo(host string, parts []string, isHTTP bool, remote string) (Repo, error) {
+// bitbucketRepo reads {project}/{repo} behind /scm/ (https) or a leading ssh port segment of an scp-like remote.
+func bitbucketRepo(host string, parts []string, isHTTP, isSCP bool, remote string) (Repo, error) {
 	hasScm := false
 	for i, p := range parts { // a context path (/bitbucket, /stash) may precede scm
 		if strings.EqualFold(p, "scm") {
@@ -97,7 +98,7 @@ func bitbucketRepo(host string, parts []string, isHTTP bool, remote string) (Rep
 			break
 		}
 	}
-	if !hasScm && len(parts) > 0 && textutil.IsDigits(parts[0]) {
+	if !hasScm && isSCP && len(parts) > 0 && textutil.IsDigits(parts[0]) {
 		parts = parts[1:]
 	}
 	if len(parts) != 2 || (isHTTP && !hasScm) {
@@ -141,6 +142,11 @@ func splitRemote(r string) (host, path string, ok bool) {
 func OriginURL(ctx context.Context) (string, error) {
 	out, err := exec.CommandContext(ctx, "git", "remote", "get-url", "origin").Output()
 	if err != nil {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok { // Output captures git's stderr on the ExitError
+			if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
+				return "", fmt.Errorf("git remote get-url origin: %w: %s", err, msg)
+			}
+		}
 		return "", fmt.Errorf("git remote get-url origin: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
@@ -181,10 +187,24 @@ func Open(ctx context.Context) (Host, error) {
 			if u.Scheme != "https" {
 				return nil, errors.New("origin is plain http; the Bitbucket token would travel in clear: set BITBUCKET_URL to opt in")
 			}
-			base = u.Scheme + "://" + u.Host
+			base = u.Scheme + "://" + u.Host + contextPath(u.Path)
 		}
 	}
 	return NewBitbucket(base, repo.Owner, repo.Name, token), nil
+}
+
+// contextPath is the path before the /scm/ segment of an https remote ("/bitbucket"), or "" when there is none.
+func contextPath(path string) string {
+	segs := strings.Split(strings.Trim(path, "/"), "/")
+	for i, p := range segs {
+		if strings.EqualFold(p, "scm") {
+			if i == 0 {
+				return ""
+			}
+			return "/" + strings.Join(segs[:i], "/")
+		}
+	}
+	return ""
 }
 
 // bitbucketURL is the Data Center server root from vault env, then the process env.

@@ -101,7 +101,7 @@ func isGitCommit(toks []string, depth int) bool {
 		return false
 	}
 	aliases, shortCircuit := scanGitOpts(toks[1 : len(toks)-len(args)-1])
-	return !shortCircuit && (verb == "commit" || aliasIsCommit(aliases[verb], depth))
+	return !shortCircuit && (verb == "commit" || aliasIsCommit(aliases[strings.ToLower(verb)], aliases, depth))
 }
 
 // scanGitOpts collects the `-c alias.<name>=<val>` pairs among git's global options and flags a short-circuit option.
@@ -159,20 +159,25 @@ func splitAliasAssign(val string) (name, value string, ok bool) {
 		return "", "", false
 	}
 	const prefix = "alias."
-	if !strings.HasPrefix(n, prefix) {
+	if len(n) < len(prefix) || !strings.EqualFold(n[:len(prefix)], prefix) {
 		return "", "", false
 	}
-	return strings.TrimPrefix(n, prefix), v, true
+	return strings.ToLower(n[len(prefix):]), v, true // git lowercases config section and key names
 }
 
-// aliasIsCommit reports whether an alias's raw value runs a commit: either directly (`commit`) or as a
-// shell alias (`!git commit …`, recursed depth-limited); val == "" means no alias was registered.
-func aliasIsCommit(val string, depth int) bool {
+// aliasIsCommit reports whether an alias's raw value runs a commit: directly (`commit`), through another
+// alias in aliases (depth-limited) or as a shell alias (`!git commit …`); val == "" means no alias was registered.
+func aliasIsCommit(val string, aliases map[string]string, depth int) bool {
 	if val == "" {
 		return false
 	}
-	if f := strings.Fields(val); len(f) > 0 && f[0] == "commit" {
-		return true
+	if f := strings.Fields(val); len(f) > 0 {
+		if f[0] == "commit" {
+			return true
+		}
+		if next, ok := aliases[strings.ToLower(f[0])]; ok && depth < maxShellRecursionDepth {
+			return aliasIsCommit(next, aliases, depth+1)
+		}
 	}
 	if rest, ok := strings.CutPrefix(val, "!"); ok {
 		return depth < maxShellRecursionDepth && gitCommitCommandDepth(rest, depth+1)
@@ -180,8 +185,8 @@ func aliasIsCommit(val string, depth int) bool {
 	return false
 }
 
-// stripHeredocBodies removes the body lines of every `<<WORD`/`<<'WORD'`/`<<-WORD` heredoc (and its
-// terminator line) from cmd, so a commit mentioned only inside a heredoc body never counts as run.
+// stripHeredocBodies removes the body lines of every `<<WORD`/`<<'WORD'`/`<<\WORD`/`<<-WORD` heredoc (several
+// per line allowed, bodies in order) and each terminator line from cmd, so a commit mentioned only in a body never counts.
 func stripHeredocBodies(cmd string) string {
 	if !strings.Contains(cmd, "<<") {
 		return cmd
@@ -190,15 +195,13 @@ func stripHeredocBodies(cmd string) string {
 	out := make([]string, 0, len(lines))
 	for i := 0; i < len(lines); i++ {
 		out = append(out, lines[i])
-		word, stripTabs, ok := heredocWord(lines[i])
-		if !ok {
-			continue
-		}
-		i++
-		for i < len(lines) && !isHeredocEnd(lines[i], word, stripTabs) {
+		for _, h := range heredocs(lines[i]) {
 			i++
+			for i < len(lines) && !isHeredocEnd(lines[i], h.word, h.stripTabs) {
+				i++
+			}
+			// i now sits on the terminator line (or past EOF); either way it is dropped, not re-appended.
 		}
-		// i now sits on the terminator line (or past EOF); either way it is dropped, not re-appended.
 	}
 	return strings.Join(out, "\n")
 }
@@ -213,35 +216,59 @@ func isHeredocEnd(line, word string, stripTabs bool) bool {
 
 var bareHeredocWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
-// heredocWord reports the terminator word of a `<<[-]WORD` (quoted or bare) on line and whether it is `<<-`;
-// ok is false for a here-string (`<<<`) or a line with no heredoc redirect at all.
-func heredocWord(line string) (word string, stripTabs, ok bool) {
-	idx := unquotedHeredocOp(line)
-	if idx < 0 || (idx+2 < len(line) && line[idx+2] == '<') {
-		return "", false, false
-	}
-	stripTabs = strings.HasPrefix(line[idx+2:], "-")
-	rest := strings.TrimLeft(strings.TrimPrefix(line[idx+2:], "-"), " \t")
-	if rest == "" {
-		return "", false, false
-	}
-	if rest[0] == '\'' || rest[0] == '"' {
-		q := rest[0]
-		end := strings.IndexByte(rest[1:], q)
-		if end < 0 {
-			return "", false, false
-		}
-		return rest[1 : 1+end], stripTabs, rest[1:1+end] != ""
-	}
-	end := strings.IndexAny(rest, " \t;|&<>")
-	if end < 0 {
-		end = len(rest)
-	}
-	word = rest[:end]
-	return word, stripTabs, bareHeredocWord.MatchString(word) // rejects `$((1<<4))` and `"a <<b"`
+// heredoc is one `<<[-]WORD` redirect: its terminator word and whether it is `<<-` (leading tabs stripped).
+type heredoc struct {
+	word      string
+	stripTabs bool
 }
 
-// unquotedHeredocOp returns the index of the first `<<` on line outside quotes and backslash escapes, or -1.
+// heredocs lists the heredoc redirects on line in order; a here-string (`<<<`) or `$((1<<4))` is not one.
+func heredocs(line string) []heredoc {
+	var out []heredoc
+	for {
+		idx := unquotedHeredocOp(line)
+		if idx < 0 {
+			return out
+		}
+		if strings.HasPrefix(line[idx:], "<<<") {
+			line = line[idx+3:]
+			continue
+		}
+		h, n, ok := parseHeredoc(line[idx+2:])
+		if ok {
+			out = append(out, h)
+		}
+		line = line[idx+2+n:]
+	}
+}
+
+// parseHeredoc reads the `[-]WORD` after a `<<`: WORD bare, quoted or `\`-escaped; n is how many bytes it consumed.
+func parseHeredoc(rest string) (h heredoc, n int, ok bool) {
+	h.stripTabs = strings.HasPrefix(rest, "-")
+	body := strings.TrimPrefix(rest, "-")
+	trimmed := strings.TrimLeft(body, " \t")
+	n = len(rest) - len(trimmed)
+	if trimmed == "" {
+		return h, n, false
+	}
+	if q := trimmed[0]; q == '\'' || q == '"' {
+		end := strings.IndexByte(trimmed[1:], q)
+		if end < 0 {
+			return h, n, false
+		}
+		h.word = trimmed[1 : 1+end]
+		return h, n + end + 2, h.word != ""
+	}
+	trimmed = strings.TrimPrefix(trimmed, "\\")
+	end := strings.IndexAny(trimmed, " \t;|&<>")
+	if end < 0 {
+		end = len(trimmed)
+	}
+	h.word = trimmed[:end]
+	return h, len(rest) - len(trimmed) + end, bareHeredocWord.MatchString(h.word) // rejects `$((1<<4))` and `"a <<b"`
+}
+
+// unquotedHeredocOp returns the index of the first `<<` on line outside quotes, backslash escapes and comments, or -1.
 func unquotedHeredocOp(line string) int {
 	var quote byte
 	for i := 0; i < len(line); i++ {
@@ -255,9 +282,16 @@ func unquotedHeredocOp(line string) int {
 			}
 		case c == '\'' || c == '"':
 			quote = c
-		case c == '<' && strings.HasPrefix(line[i:], "<<"):
+		case wordLeadingHash(line, i):
+			return -1 // an unquoted word-leading `#` starts a comment: no heredoc operator after it counts
+		case strings.HasPrefix(line[i:], "<<"):
 			return i
 		}
 	}
 	return -1
+}
+
+// wordLeadingHash reports whether line[i] is a `#` that begins a word.
+func wordLeadingHash(line string, i int) bool {
+	return line[i] == '#' && i > 0 && strings.IndexByte(" \t;|&(", line[i-1]) >= 0
 }

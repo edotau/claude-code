@@ -258,6 +258,17 @@ func LastUsage(path string) (Usage, bool) {
 	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
 		return Usage{}, false
 	}
+	if u, ok := usageInTail(buf); ok {
+		return u, true
+	}
+	if off == 0 {
+		return Usage{}, false
+	}
+	return usageFullScan(f)
+}
+
+// usageInTail returns the newest usage record in buf, scanning lines back-to-front.
+func usageInTail(buf []byte) (Usage, bool) {
 	for end := len(buf); end > 0; {
 		start := bytes.LastIndexByte(buf[:end], '\n') + 1
 		if u, ok := usageFromLine(buf[start:end]); ok {
@@ -265,16 +276,20 @@ func LastUsage(path string) (Usage, bool) {
 		}
 		end = start - 1
 	}
-	if off == 0 {
-		return Usage{}, false
-	}
+	return Usage{}, false
+}
+
+// usageFullScan returns the last usage record in f, reading every line.
+func usageFullScan(f *os.File) (Usage, bool) {
 	var last Usage
 	found := false
-	_ = EachLine(f, func(line []byte) {
+	if err := EachLine(f, func(line []byte) {
 		if u, ok := usageFromLine(line); ok {
 			last, found = u, true
 		}
-	})
+	}); err != nil {
+		return Usage{}, false
+	}
 	return last, found
 }
 

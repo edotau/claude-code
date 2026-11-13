@@ -39,7 +39,15 @@ func (h *BitbucketHost) repoPath() string {
 	return "/rest/api/1.0/projects/" + url.PathEscape(h.Project) + "/repos/" + url.PathEscape(h.Repo)
 }
 
-// do sends one request and returns the body; 401/403 name the vault fix without echoing the token.
+// redact masks the token in s; an empty token is left alone so no mask lands between every character.
+func (h *BitbucketHost) redact(s string) string {
+	if h.Token == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, h.Token, "***")
+}
+
+// do sends one request and returns the body; a 401 names the vault fix and a 403 the missing permission, never the token.
 func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Values, body any, accept string) ([]byte, error) {
 	var rd io.Reader
 	if body != nil {
@@ -64,7 +72,7 @@ func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Value
 	}
 	resp, err := h.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("bitbucket %s %s: %s", method, path, strings.ReplaceAll(err.Error(), h.Token, "***"))
+		return nil, fmt.Errorf("bitbucket %s %s: %s", method, path, h.redact(err.Error()))
 	}
 	defer resp.Body.Close()
 	data, rerr := io.ReadAll(resp.Body)
@@ -72,7 +80,7 @@ func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Value
 		return nil, err
 	}
 	if rerr != nil {
-		return nil, fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, strings.ReplaceAll(rerr.Error(), h.Token, "***"))
+		return nil, fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, h.redact(rerr.Error()))
 	}
 	return data, nil
 }
@@ -333,7 +341,10 @@ func (h *BitbucketHost) Comment(ctx context.Context, id, body, replyTo string) e
 		if err := checkDigits("reply-to", replyTo); err != nil {
 			return err
 		}
-		parent, _ := strconv.Atoi(replyTo)
+		parent, err := strconv.Atoi(replyTo)
+		if err != nil {
+			return fmt.Errorf("invalid reply-to %q: %w", replyTo, err)
+		}
 		payload["parent"] = map[string]int{"id": parent}
 	}
 	_, err := h.do(ctx, http.MethodPost, h.repoPath()+"/pull-requests/"+url.PathEscape(id)+"/comments", nil, payload, "application/json")
