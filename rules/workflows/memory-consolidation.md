@@ -1,12 +1,11 @@
 ---
 paths:
   - "internal/memory/**"
-  - "skills/reflection/**"
 ---
 # Memory Consolidation
 
-Gates and scope for `claude-code memory update` and `memory dream`. Precedence, store layout, caps and verbs:
-`memory-bank.md`; the promotion ladder: `skills/reflection/SKILL.md`.
+Gates and scope for `claude-code memory update` and `memory dream`. Precedence, store layout, caps, verbs and the
+promotion ladder: `memory-bank.md`.
 
 | Verb | Does | Edits files? | When |
 | --- | --- | --- | --- |
