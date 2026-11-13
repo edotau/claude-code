@@ -195,7 +195,11 @@ func autoWorkspace(agentName, model string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
-	p, live, skipped, err := pickArm(reg, agentName, model, time.Now())
+	return reportPick(pickArm(reg, agentName, model, time.Now()))
+}
+
+// reportPick prints pickArm's pick and the workspaces it skipped on stderr and returns the pick.
+func reportPick(p string, live int, skipped []agent.Finding, err error) (string, error) {
 	if err == nil {
 		note := ""
 		if len(skipped) > 0 {
@@ -257,12 +261,18 @@ var armPicksFormat = schemas.Register(schemas.Format{
 
 func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
 
-// pickArm picks a workspace passing the preflight (a model none serves is dropped); skipped: one finding per drop.
-func pickArm(reg *providers.Registry, agentName, model string, now time.Time) (name string, live int, skipped []agent.Finding, err error) {
-	usable, skipped := armCandidates(reg, agentName, model, now)
+// usableArms is the workspaces outside tried passing the preflight; a model none serves is dropped, one finding per drop.
+func usableArms(reg *providers.Registry, agentName, model string, now time.Time, tried []string) ([]*providers.Provider, []agent.Finding) {
+	usable, skipped := armCandidates(reg, agentName, model, now, tried)
 	if len(usable) == 0 && model != "" {
-		usable, skipped = armCandidates(reg, agentName, "", now)
+		usable, skipped = armCandidates(reg, agentName, "", now, tried)
 	}
+	return usable, skipped
+}
+
+// pickArm picks a workspace outside tried passing the preflight; skipped: one finding per drop.
+func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tried ...string) (name string, live int, skipped []agent.Finding, err error) {
+	usable, skipped := usableArms(reg, agentName, model, now, tried)
 	if len(usable) == 0 {
 		return "", 0, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
 	}
@@ -287,11 +297,11 @@ func pickArm(reg *providers.Registry, agentName, model string, now time.Time) (n
 	return name, live, skipped, nil
 }
 
-// armCandidates splits reg's Databricks workspaces (no AI Gateway row) into those passing armFindings and the rest.
-func armCandidates(reg *providers.Registry, agentName, model string, now time.Time) (usable []*providers.Provider, skipped []agent.Finding) {
+// armCandidates splits reg's Databricks workspaces (no AI Gateway row, none in tried) into those passing armFindings and the rest.
+func armCandidates(reg *providers.Registry, agentName, model string, now time.Time, tried []string) (usable []*providers.Provider, skipped []agent.Finding) {
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
 		p := reg.Providers[n]
-		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() {
+		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() || slices.Contains(tried, n) {
 			continue
 		}
 		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {
