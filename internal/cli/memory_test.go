@@ -709,17 +709,17 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 	})
 }
 
-// TestSkillVerbsArePublicCLIVerbs checks the skill's verb table against memoryPage and memorySubcommands.
+// TestSkillVerbsArePublicCLIVerbs checks memory-bank.md's verb table against memoryPage and memorySubcommands.
 func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
-	path := filepath.Join("..", "..", "skills", "reflection", "SKILL.md")
+	path := filepath.Join("..", "..", "rules", "workflows", "memory-bank.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	body := string(data)
-	start := strings.Index(body, "| Verb |")
+	start := strings.Index(body, "| Verb | Prints a procedure")
 	if start < 0 {
-		t.Fatal("SKILL.md has no verb table (expected a \"| Verb |\" header row)")
+		t.Fatal("memory-bank.md has no verb table (expected a \"| Verb | Prints a procedure\" header row)")
 	}
 	table := body[start:]
 	if end := strings.Index(table, "\n\n"); end >= 0 {
@@ -740,9 +740,9 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 		verb := m[1]
 		seen[verb] = true
 		if _, ok := subs[verb]; !ok {
-			t.Errorf("SKILL.md names unknown verb %q (not in memorySubcommands)", verb)
+			t.Errorf("memory-bank.md names unknown verb %q (not in memorySubcommands)", verb)
 		} else if !helpPageHasCommand(memoryPage, verb) {
-			t.Errorf("SKILL.md names verb %q that is not listed as public in memoryPage", verb)
+			t.Errorf("memory-bank.md names verb %q that is not listed as public in memoryPage", verb)
 		}
 	}
 	if len(seen) == 0 {
