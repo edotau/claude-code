@@ -72,6 +72,10 @@ type Dispatch struct {
 	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is the agent's own login
 	Task           string `json:"task,omitempty"`    // first line of the prompt
 
+	LastSignal   time.Time `json:"lastSignal,omitzero"`    // running only: newest of the event file, log or start time
+	SignalSource string    `json:"signalSource,omitempty"` // which of events|log|record LastSignal came from
+	Quiet        bool      `json:"quiet,omitempty"`        // LastSignal older than quietAfter
+
 	sessionID string    // dispatch record's session id; matches a duplicate session row
 	cwd       string    // dispatch workdir (repo fallback); matches a duplicate session row
 	started   time.Time // dispatch start; a matching session must be updated at or after it
