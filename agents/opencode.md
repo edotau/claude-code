@@ -47,16 +47,8 @@ Opencode deltas:
 Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `catalog sync --profile P [--apply]`;
 `opencode profile <p>|--clear` pins the profile, `opencode off|on` toggles routing, `opencode setup` checks it.
 
-**What opencode loads** (agents refreshed by `claude-code agents sync`; `opencode setup` checks the projection):
-
-- Instructions: `~/.claude/CLAUDE.md` natively plus the unscoped `rules/standards/*.md` from the launch overlay
-  (`OPENCODE_CONFIG`); sync writes no `AGENTS.md`, which would replace `CLAUDE.md`.
-- Skills: `~/.agents/skills` (and `~/.config/opencode/skills`); agents: `~/.config/opencode/agents/*.md`.
 - Commands: the overlay projects `~/.claude/commands/*.md` that lack `Agent` in `allowed-tools` — today
   `/discover-models`; `/coworker` and the `/<agent>` launchers name `Agent`, so they are not projected.
-- Plugin (`tool.execute.before`, headless and TUI): `safety-scan`, `docs-placement`, `docs-plan-gate`,
-  `worktree-claim-check` block; `permission-gate` applies the dispatch's Bash deny; the other hooks are advisory
-  (`rules/harness/hooks.md` → Applicability).
 
 ## Models and routing
 

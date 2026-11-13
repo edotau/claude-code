@@ -61,26 +61,6 @@ Copilot deltas:
   `--fallback all|agents|none` · `--format json` envelope adds `ran_on` · `--profile <p>` leads on that profile;
   `--fallback none` pins that dispatch; `--provider <x>` leads.
 
-**What copilot loads** (refreshed by `claude-code agents sync`; `copilot setup` checks the projection):
-
-- Instructions: interactive reads `~/.copilot/copilot-instructions.md` (rendered `CLAUDE.md` + unscoped
-  `rules/standards/*.md`, not `~/.claude/CLAUDE.md`); `ask` (SDK) appends the same text plus the skill and agent dirs.
-- Skills: `~/.copilot/skills` (a link per `skills/<name>`); agents: `~/.copilot/agents/*.md`.
-- Hooks (`~/.copilot/hooks/claude-code-harness.json`, an ask blocks; no per-agent Bash hook): preToolUse
-  `safety-scan`, `docs-placement`, `docs-plan-gate`; userPromptSubmitted `paths-resolve`, `memory-recall`;
-  agentStop `memory-update`, `format-stop`; sessionEnd `memory-end`. The SDK session loads the same file, so `ask`
-  runs them too (`rules/harness/hooks.md`).
-
-**Workflows**
-
-1. Rename: implementer + copilot (TEST) in one message → baseline, classify, repair, re-run scoped tests.
-2. Batch test repair: `copilot ask --tools --workdir <repo> "<brief>"` → scoped tests → diff stat.
-3. Pre-merge: `copilot review --adversarial --base main` → fix → `copilot review --base main`.
-4. Long edit: `copilot ask --tools --background --deny 'Bash(git push:*)' "<brief>"` → `copilot tail -f <id>` →
-   `copilot result <id>`.
-5. Wide audit: `copilot ask --fleet --read-only "<question>"`; code + web: `copilot explore [--no-web] "<q>"`.
-6. Follow-up: `copilot result` → `copilot resume <session> "<next step>"`; hand over: `copilot transfer`.
-
 ## Verbs
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Copilot deltas:
@@ -173,8 +153,7 @@ repo, `CLAUDE.md` — rules, not suggestions.
    `--verify <cmd>` sets the gate); it runs under `ask --tools`. A conflict needing a real code decision goes back
    to the caller.
 2. **After the last merge, run the scoped gate chain once** (lint, build, tests of the merged packages): two
-   branches each green can be red combined. The full suite is never yours: the main thread runs it with the
-   owner's approval.
+   branches each green can be red combined.
 
 #### Commit
 

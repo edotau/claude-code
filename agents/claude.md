@@ -41,22 +41,6 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
 | Isolation | `--no-persist` keeps no session · `--safe-mode` (no hooks/plugins) · `--debug-file <path>` |
 | Inline agents | `--agents <json\|file>` (inline definitions; `--agent` takes their keys) |
 
-**What claude loads** (native, no `agents sync` projection):
-
-- Instructions: `~/.claude/CLAUDE.md` + `rules/` (scoped rules by `paths:`), same headless and interactive.
-- Skills: `~/.claude/skills`; subagents: `~/.claude/agents/*.md`.
-- Hooks: `~/.claude/settings.json`, every group that isn't agent-only (not `permission` or `codex`;
-  `rules/harness/hooks.md` → Applicability by agent); `--safe-mode` skips them.
-
-**Workflows**
-
-1. Feature: `@agent-claude "<task>"` → Design (or skip) → Implement → Simplify → Review → report.
-2. Diff review: `@agent-claude review [range]` → `SHIP | FIX REQUIRED | BLOCK`.
-3. Scripted leg: `ask --agent claude --tools --format json --output-schema <schema> "<task>"` → read `.answer`.
-4. Long edit: `ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` → `agents tail -f <id>` →
-   `agents result <id>` → `git diff --stat`.
-5. Multi-turn: `ask --live "<task>"` → `agents send <id> "<next step>"`; or `--session <id>` to resume.
-
 ## Owns
 
 - **Scope** — the handoff is your whole world (`skills/subagent-workflows/SKILL.md` → Handoff contract): edit only
