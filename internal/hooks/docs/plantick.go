@@ -74,7 +74,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return nil
 	}
-	plan, tied := plans.Select(plans.Home(top), worktree, plans.MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
+	plan, tied := plans.Select(plans.Home(top), top, worktree, plans.MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
 	if plan == "" {
 		if len(tied) > 0 {
 			fmt.Fprintf(stderr, "plan-tick: %d plans match %s equally; nothing annotated\n", len(tied), sha)
@@ -85,7 +85,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	ticked, partial, err := plans.Tick(plan, short, files)
+	ticked, partial, err := plans.Tick(top, plan, short, files)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return nil

@@ -212,7 +212,11 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 	if isoErr != nil {
 		return nil, fmt.Errorf("merge-tree dry-run isolation: %w", isoErr)
 	}
-	defer func() { err = errors.Join(err, cleanup()) }()
+	defer func() { // a scratch-dir leak is reported only alongside a failure, never in place of a conflict verdict
+		if cleanErr := cleanup(); err != nil {
+			err = errors.Join(err, cleanErr)
+		}
+	}()
 	out, err := runGit(ctx, repoPath, env, args...)
 	switch code, isExit := asExitErr(err); {
 	case err == nil:

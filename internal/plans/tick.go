@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -31,8 +33,8 @@ type tickResult struct {
 }
 
 // Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
-func Tick(planPath, sha string, files []string) (ticked, partial []string, err error) {
-	results, err := tickCommits(planPath, []Commit{{Sha: sha, Files: files}}, false)
+func Tick(root, planPath, sha string, files []string) (ticked, partial []string, err error) {
+	results, err := tickCommits(root, planPath, []Commit{{Sha: sha, Files: files}}, false)
 	for _, r := range results {
 		ticked, partial = r.Ticked, r.Partial
 	}
@@ -40,14 +42,14 @@ func Tick(planPath, sha string, files []string) (ticked, partial []string, err e
 }
 
 // tickCommits ticks per commit under one lock, a task completing once the range's union covers it; dryRun skips writing.
-func tickCommits(planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
+func tickCommits(root, planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
 		var seen []string
 		for _, c := range commits {
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			seen = append(seen, c.Files...)
-			text, r.Ticked, r.Partial = tickText(planPath, text, r.Sha, c.Files, seen)
+			text, r.Ticked, r.Partial = tickText(root, planPath, text, r.Sha, c.Files, seen)
 			if len(r.Ticked)+len(r.Partial) > 0 {
 				results = append(results, r)
 			}
@@ -61,14 +63,14 @@ func tickCommits(planPath string, commits []Commit, dryRun bool) (results []tick
 }
 
 // tickText is Tick's pure edit: ticks on seen (files so far), notes partials from this commit's files.
-func tickText(planPath, text, sha string, files, seen []string) (out string, ticked, partial []string) {
+func tickText(root, planPath, text, sha string, files, seen []string) (out string, ticked, partial []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if t.Done || len(t.Owns) == 0 {
 			continue
 		}
-		all, _ := covers(t.Owns, seen)
-		_, any := covers(t.Owns, files)
+		all, _ := covers(root, t.Owns, seen)
+		_, any := covers(root, t.Owns, files)
 		switch {
 		case all:
 			lines = removeClaims(lines, t)
@@ -169,6 +171,9 @@ func hasSha(shas []string, sha string) bool {
 	return slices.ContainsFunc(shas, func(s string) bool { return strings.EqualFold(s, sha) })
 }
 
+// ErrClaimed is ClaimFree's error when another claim already holds the task.
+var ErrClaimed = errors.New("already claimed")
+
 // ClaimFree writes <!-- text --> at a task's last line unless it already carries a claim, decided under the lock.
 func ClaimFree(planPath, taskID, text string) error {
 	text = strings.TrimSpace(text)
@@ -181,13 +186,19 @@ func ClaimFree(planPath, taskID, text string) error {
 	if !strings.HasPrefix(strings.ToLower(text), "working:") {
 		return errors.New("plans: claim text must start with \"working:\"")
 	}
-	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+	lost := false
+	err := editTask(planPath, taskID, func(t Task, lines []string) []string {
 		if t.Claim != "" {
+			lost = t.Claim != text
 			return lines
 		}
 		lines[t.End] = appendSuffix(lines[t.End], " <!-- "+text+" -->")
 		return lines
 	})
+	if err == nil && lost {
+		return fmt.Errorf("plans: task %q: %w", taskID, ErrClaimed)
+	}
+	return err
 }
 
 // ClearClaimOwned removes a task's claim only when a non-empty owner appears in its text as whole words, under lock.
@@ -201,6 +212,20 @@ func ClearClaimOwned(planPath, taskID, owner string) error {
 	})
 }
 
+// titleHasPrefix reports whether title starts with prefix at an id boundary, so "3.1" does not match "3.10".
+func titleHasPrefix(title, prefix string) bool {
+	rest, ok := strings.CutPrefix(title, prefix)
+	if !ok || rest == "" {
+		return ok
+	}
+	r, size := utf8.DecodeRuneInString(rest)
+	if r == '.' {
+		next, _ := utf8.DecodeRuneInString(rest[size:])
+		return !unicode.IsLetter(next) && !unicode.IsDigit(next)
+	}
+	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
 // findTask resolves taskID to a task: an exact Task.ID first, then a Title prefix.
 func findTask(p Plan, taskID string) (Task, bool) {
 	for _, t := range p.Tasks {
@@ -209,7 +234,7 @@ func findTask(p Plan, taskID string) (Task, bool) {
 		}
 	}
 	for _, t := range p.Tasks {
-		if taskID != "" && strings.HasPrefix(t.Title, taskID) {
+		if taskID != "" && titleHasPrefix(t.Title, taskID) {
 			return t, true
 		}
 	}
@@ -226,7 +251,7 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil || done {
 		return err
 	}
-	results, err := tickCommits(plan, commits, dryRun)
+	results, err := tickCommits(dir, plan, commits, dryRun)
 	if err != nil {
 		return err
 	}
@@ -249,7 +274,7 @@ func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w i
 		}
 		return plan, false, nil
 	}
-	plan, tied := Select(Home(dir), worktree, drafts, commits)
+	plan, tied := Select(Home(dir), dir, worktree, drafts, commits)
 	if plan != "" {
 		return plan, false, nil
 	}

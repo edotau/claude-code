@@ -36,8 +36,11 @@ func Create(in *core.Input) core.Result {
 		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
 		return core.ExitResult(1, stderr.String())
 	}
+	ctx, cancel := core.HookContext("worktree-create")
+	defer cancel()
+	deadline, _ := ctx.Deadline()
 	dest, err := worktree.Create(repo, name, worktree.CreateOptions{
-		Branch: in.Nested("branch"), Session: in.SessionID, Log: &stderr,
+		Branch: in.Nested("branch"), Session: in.SessionID, Log: &stderr, Deadline: deadline,
 	})
 	if err != nil {
 		fmt.Fprintf(&stderr, "worktree-create: %v\n", err)
@@ -273,12 +276,16 @@ var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
 	var lines []string
-	for _, n := range worktree.Drain(in.SessionID) {
+	notices, drainErr := worktree.DrainErr(in.SessionID)
+	for _, n := range notices {
 		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
+	}
+	if drainErr != nil {
+		warn = fmt.Sprintf("notices: WARNING — could not drain this session's inbox (%v); notices may be missing or repeat", drainErr)
 	}
 	line, err := divergedLine(ctx, in, run)
 	if err != nil {
-		warn = fmt.Sprintf("notices: WARNING — could not check branch divergence (%v); skipped", err)
+		warn = strings.TrimSpace(warn + fmt.Sprintf("\nnotices: WARNING — could not check branch divergence (%v); skipped", err))
 	}
 	if line != "" {
 		lines = append(lines, line)

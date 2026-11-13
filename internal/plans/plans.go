@@ -57,6 +57,7 @@ var (
 	partialRe  = regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`)
 	claimWord  = regexp.MustCompile(`(?i)^(?:working|finished):`)
 	partialKey = regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`)
+	ownsKey    = regexp.MustCompile(`(?i)owns:`)
 	ownNote    = regexp.MustCompile(`\s*\([^)]*\)\s*$`) // "cli.go (verb row only)" owns cli.go
 	ownParen   = regexp.MustCompile(`\([^)]*\)`)
 )
@@ -176,9 +177,8 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 	} else if idLane.MatchString(cleaned) {
 		id = idLane.FindString(cleaned)
 	}
-	lower := strings.ToLower(cleaned)
-	if i := strings.LastIndex(lower, "owns:"); i >= 0 {
-		masked := ownParen.ReplaceAllStringFunc(cleaned[i+len("owns:"):], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
+	if locs := ownsKey.FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
+		masked := ownParen.ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
 		for _, o := range textutil.SplitCSV(masked) { // a comma inside a "(note, more)" does not split
 			owns = append(owns, strings.ReplaceAll(o, "\x00", ","))
 		}
@@ -310,7 +310,7 @@ func isDirOwn(entry string) bool {
 
 // covers reports which of owns a commit's files touch: all entries and/or at least one; a directory entry never
 // completes a task alone, so all needs at least one file entry.
-func covers(owns, files []string) (all, any bool) {
+func covers(root string, owns, files []string) (all, any bool) {
 	if len(owns) == 0 {
 		return false, false
 	}
@@ -318,7 +318,7 @@ func covers(owns, files []string) (all, any bool) {
 	hasFile := false
 	for _, entry := range ownEntries(owns, files) {
 		hasFile = hasFile || !isDirOwn(entry)
-		if touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
+		if touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), files) {
 			any = true
 		} else {
 			all = false
@@ -338,15 +338,22 @@ func ownEntries(owns, files []string) []string {
 	return out
 }
 
-// absCovers reports whether an absolute entry ends in the repo-relative file, or in a directory the file sits under.
-func absCovers(entry, dir, file string) bool {
+// absCovers reports whether an absolute entry names file: under root it is compared by its root-relative path, outside
+// root (another checkout) it must end in the repo-relative file or in any of the file's ancestor directories.
+func absCovers(root, entry, dir, file string) bool {
 	if !path.IsAbs(entry) {
 		return false
+	}
+	if root != "" {
+		if rel, ok := strings.CutPrefix(entry, strings.TrimSuffix(filepath.ToSlash(root), "/")+"/"); ok {
+			rel = strings.TrimSuffix(rel, "/")
+			return file == rel || strings.HasPrefix(file, rel+"/")
+		}
 	}
 	if strings.HasSuffix(entry, "/"+file) {
 		return true
 	}
-	for d := path.Dir(file); d != "."; d = path.Dir(d) {
+	for d := path.Dir(file); d != "." && d != "/"; d = path.Dir(d) {
 		if strings.HasSuffix(dir, "/"+d) {
 			return true
 		}
@@ -355,13 +362,13 @@ func absCovers(entry, dir, file string) bool {
 }
 
 // touchesEntry reports whether any file is entry, lives under dir, or matches entry as a glob.
-func touchesEntry(entry, dir string, files []string) bool {
+func touchesEntry(root, entry, dir string, files []string) bool {
 	for _, f := range files {
 		file := filepath.ToSlash(f)
 		if entry != "" && (file == entry || file == dir || strings.HasPrefix(file, dir+"/")) {
 			return true
 		}
-		if absCovers(entry, dir, file) {
+		if absCovers(root, entry, dir, file) {
 			return true
 		}
 		if ok, err := path.Match(entry, file); err == nil && ok {
@@ -380,17 +387,17 @@ func (s planScore) below(o planScore) bool {
 }
 
 // scorePlan counts open tasks the range's union of files completes (exact) or touches through a file entry.
-func scorePlan(plan Plan, files []string) (s planScore) {
+func scorePlan(root string, plan Plan, files []string) (s planScore) {
 	for _, t := range plan.Tasks {
 		if t.Done || len(t.Owns) == 0 {
 			continue
 		}
-		if all, _ := covers(t.Owns, files); all {
+		if all, _ := covers(root, t.Owns, files); all {
 			s.exact++
 			continue
 		}
 		for _, entry := range ownEntries(t.Owns, files) {
-			if !isDirOwn(entry) && touchesEntry(entry, strings.TrimSuffix(entry, "/"), files) {
+			if !isDirOwn(entry) && touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), files) {
 				s.touched++
 				break
 			}
@@ -400,7 +407,7 @@ func scorePlan(plan Plan, files []string) (s planScore) {
 }
 
 // Select ranks dated plans by newest touched date, then exact then touched score; stale unclaimed plans are skipped.
-func Select(home, worktree string, skip []string, commits []Commit) (plan string, tied []string) {
+func Select(home, root, worktree string, skip []string, commits []Commit) (plan string, tied []string) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
 		return "", nil
@@ -410,7 +417,7 @@ func Select(home, worktree string, skip []string, commits []Commit) (plan string
 		files = append(files, c.Files...)
 	}
 	all, newestOpen := loadDatedPlans(entries, home, skip)
-	cands, claimed := bestCandidates(all, newestOpen, worktree, files)
+	cands, claimed := bestCandidates(root, all, newestOpen, worktree, files)
 	if len(cands) == 1 {
 		return cands[0], nil
 	}
@@ -451,7 +458,7 @@ func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []da
 }
 
 // bestCandidates returns the plans tied on the newest touched date's best score, and which claim worktree.
-func bestCandidates(all []datedPlan, newestOpen, worktree string, files []string) (cands []string, claimed map[string]bool) {
+func bestCandidates(root string, all []datedPlan, newestOpen, worktree string, files []string) (cands []string, claimed map[string]bool) {
 	var best planScore
 	var bestDate string
 	claimed = map[string]bool{}
@@ -460,7 +467,7 @@ func bestCandidates(all []datedPlan, newestOpen, worktree string, files []string
 		if name[:10] != newestOpen && !hasLiveClaim(d.plan) { // a stale plan sharing a file is never ticked
 			continue
 		}
-		s := scorePlan(d.plan, files)
+		s := scorePlan(root, d.plan, files)
 		if s == (planScore{}) || name[:10] < bestDate {
 			continue
 		}

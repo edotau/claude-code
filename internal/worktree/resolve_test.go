@@ -178,7 +178,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 		t.Fatalf("op.Phase = %q, want %q", op.Phase, "resolved")
 	}
 	// The residue itself must be left exactly as the agent's tooling wrote it — never staged, never removed.
-	requireFileText(t, filepath.Join(wt, "hook.cache.json"), `{"residue":true}`) // removed, never written or touched
+	requireFileText(t, filepath.Join(wt, "hook.cache.json"), `{"residue":true}`) // still on disk, never staged or touched
 	staged, err := runGit(context.Background(), wt, nil, "status", "--porcelain", "--", "hook.cache.json")
 	if err != nil {
 		t.Fatal(err)
@@ -194,10 +194,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 // worktree still blocks an ordinary `worktree clean` — the two checks are deliberately different (the
 // resolve controller's commit scope vs. Clean's "is this worktree empty-handed" bar) and this pins
 // that they stay different. Built on a clean fast-forward merge (not a resolve) to isolate Clean's own
-// dirty check from integrateTarget's — see the KNOWN DEFECT noted in this file's package comment: a
-// residue file left behind by a real agent resolution currently makes the production merge's own
-// post-resolution integrateTarget call refuse with issueDirtyWorktree, which this test deliberately
-// does not exercise.
+// dirty check from the post-resolution re-plan, which tolerates the same residue (preflightAfterResolution).
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, _, wt := preflightFixtureSetup(t)
@@ -575,7 +572,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 }
 
 // TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns is the regression test for Appendix A
-// codex-review finding #3's lease half (internal/worktree/resolve.go:134), updated for the lease
+// codex-review finding #3's lease half (WithWorktreeLease in internal/worktree/resolve.go), updated for the lease
 // having moved to the caller's responsibility (resolveWithAgent itself "does no locking of its own"
 // per its own doc comment): a concurrent resolve/resume/merge/clean for the same worktree must never
 // run alongside a still-active one — WithWorktreeLease must refuse outright, and its fn (here wrapping
@@ -721,7 +718,7 @@ func TestConflictMarkersClearHonorsCustomMarkerSize(t *testing.T) {
 		wantPath string
 	}{
 		{"opening", "<<<<<<<<< HEAD\nours\n", "f.txt"},
-		{"separator", "ours\n=========\ntheirs\n", "f.txt"},
+		{"bare separator is a heading underline", "Title\n=========\ntext\n", ""},
 		{"closing", "theirs\n>>>>>>>>> feature\n", "f.txt"},
 		{"resolved", "resolved content\n", ""},
 	} {
@@ -745,5 +742,22 @@ func TestConflictMarkersClearHonorsCustomMarkerSize(t *testing.T) {
 
 // TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge: a failed first SaveOperation must not leave a real merge
 // half-applied (MERGE_HEAD set) with no operation file to resume from.
+func TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge(t *testing.T) {
+	repo, main, wt, plan := resolveFixtureConflictSetup(t)
+	mainBefore := headOf(main)
+	resolveFixtureFakeAgent(t, func(context.Context, string, string, string, time.Duration) (askEnvelope, error) {
+		t.Fatal("the agent must not run when the operation record cannot be saved")
+		return askEnvelope{}, nil
+	})
+	// a non-empty directory at the file path makes AtomicWrite fail
+	if err := os.MkdirAll(filepath.Join(operationPath(repo.Main, filepath.Base(wt)), "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-// a non-empty directory at the file path makes AtomicWrite fail
+	_, _, err := resolveWithAgent(context.Background(), repo, plan, "claude", nil)
+	if err == nil || !strings.Contains(err.Error(), "merge aborted") {
+		t.Fatalf("err = %v, want the save failure reported with the merge aborted", err)
+	}
+	requireMergeHead(t, wt, false, "abortMaterialized must run git merge --abort")
+	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+}
