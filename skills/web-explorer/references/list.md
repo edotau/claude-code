@@ -1,26 +1,24 @@
 # List
 
-Use when the user wants a deduplicated table of matches for a set ("all X", "a list of Y"). The table is what the
-search returned, never every match that exists: do not call it complete or collapse rows into a summary.
-
-For one record or a CSV of known rows use `entity.md`; for a deep report use `research.md`.
+Use for a deduplicated table of matches for a set ("all X", "a list of Y"). The table is what the search returned,
+never every match that exists: do not call it complete. One record or a CSV of known rows: `entity.md`; a deep
+report: `research.md`.
 
 ## Steps
 
-1. Before any search, fix the inclusion rule in one sentence, the columns and a cap. Columns always include name,
-   website or profile, a one-line description and the source URL, plus any the user named. If extra columns or a cap
-   were not given, ask once and wait; for an unbounded set ("every restaurant") the question includes the boundary.
-2. Search from several angles: the category, "list of" roundups, directories, names seen on pages already opened.
-   One query does not cover the set. Pull every name off a page that is itself a list.
+1. Before searching, fix the inclusion rule in one sentence, the columns and a cap. Columns: name, website or
+   profile, one-line description, source URL, plus any the user named. If columns or a cap were not given, ask once
+   and wait (for an unbounded set the question includes the boundary).
+2. Search from several angles: the category, "list of" roundups, directories, names on pages already opened; pull
+   every name off a page that is itself a list.
 3. Give each row an identity: an organization's website host without `www`; a person's profile URL, or name plus
    organization; a product on a shared host, its canonical URL.
 4. Merge rows with the same identity, keep the fuller one and record the folded names. A match with no website gets
    one search; if still none, keep the row with the website blank.
 5. Stop at the cap, or when two new angles in a row add no rows, and say which. Neither means the set is complete.
-6. For more, search again excluding every name and website already kept, append new rows, merge again, and raise the
-   cap by the requested amount.
+6. For more, search again excluding names and websites already kept, append, merge again, and raise the cap.
 
-Use the same columns on every row; leave a cell blank when no page states it.
+Same columns on every row; a cell no page states stays blank.
 
 ## Output
 

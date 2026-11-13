@@ -4,12 +4,10 @@ Modules, code lookup, CI, debugging and runtime signals for Go 1.24+ code.
 
 ## Modules and dependencies
 
-- `go mod verify` re-hashes the module cache against `go.sum` and catches a tampered cache.
-- `go get -u ./...` lifts every direct and indirect dep to its latest minor; `-u=patch` stays within the minor.
-  Prefer naming one module (`go get example.com/m@v1.7.2`) over a blanket `-u` so the diff stays reviewable.
-- Remove with `go get example.com/m@none`, then `go mod tidy`.
-- Never raise the `go` line as a side effect; it gates language features and stdlib APIs for every consumer.
-  `toolchain go1.27.x` only selects the toolchain for local builds; `GOTOOLCHAIN=local` refuses auto-download.
+- `go get -u ./...` lifts every dep to its latest minor; `-u=patch` stays within the minor. Prefer naming one module
+  (`go get example.com/m@v1.7.2`) so the diff stays reviewable.
+- Never raise the `go` line as a side effect: it gates language features and stdlib APIs for every consumer.
+  `toolchain go1.27.x` only selects the local toolchain; `GOTOOLCHAIN=local` refuses auto-download.
 
 | Command | Answers |
 | --- | --- |
@@ -23,8 +21,7 @@ Modules, code lookup, CI, debugging and runtime signals for Go 1.24+ code.
 
 ### Tools in go.mod (Go 1.24+)
 
-The `tool` directive replaces the `tools.go` blank-import file; versions live in the same `require` graph and
-`go.sum`, so linters are pinned like code.
+The `tool` directive replaces the `tools.go` blank-import file; versions share the `require` graph and `go.sum`.
 
 ```bash
 go get -tool golang.org/x/vuln/cmd/govulncheck@v1.1.4   # adds a tool line + require
@@ -33,30 +30,25 @@ go get -u tool                                           # deliberate bump of ev
 go install tool                                          # put them all on GOBIN when needed
 ```
 
-Tool deps share the module graph: a tool that requires a newer `x/sys` raises it for your code too. When that
-hurts, move tools into a separate `tools/go.mod` and run `go tool -modfile=tools/go.mod <name>`.
+A tool requiring a newer `x/sys` raises it for your code too; if that hurts, use a separate `tools/go.mod` and
+`go tool -modfile=tools/go.mod <name>`.
 
 ### replace, exclude, retract, workspaces
 
-- `replace example.com/m => ../m` is for local development or a forked fix; it applies only in the main module,
-  so a library's replace is invisible to its consumers. Never ship a published library with a path replace.
-- `exclude` drops one bad version from MVS; `retract` (in your own go.mod) tells consumers a tag you shipped is
-  broken, and `go list -m -u` surfaces it.
-- Multi-module edits: `go work init ./app ./lib` writes `go.work`, which overrides replaces for every listed
-  module. Keep `go.work` untracked in most repos; `GOWORK=off go build ./...` proves each module builds alone.
-- Vendoring (`go mod vendor`) gives hermetic builds; `-mod=mod` or a stale `vendor/modules.txt` produces
-  "inconsistent vendoring" - rerun `go mod vendor`.
+- `replace example.com/m => ../m` is for local development or a forked fix; it applies only in the main module, so a
+  library's replace is invisible to consumers. Never ship a published library with a path replace.
+- Multi-module edits: `go work init ./app ./lib` writes `go.work`, overriding replaces for every listed module. Keep
+  it untracked in most repos; `GOWORK=off go build ./...` proves each module builds alone.
 
 ### govulncheck
 
-- Reports only vulnerabilities whose affected symbols your code can reach, which keeps the signal high; `-show
-  verbose` adds the module-level (unreached) findings.
-- `govulncheck -mode=binary ./bin/app` audits a built artifact, including its embedded stdlib version.
+- Reports only vulnerabilities whose affected symbols your code can reach; `-show verbose` adds unreached ones.
+- `govulncheck -mode=binary ./bin/app` audits a built artifact, including its stdlib version.
 - A stdlib finding means bump the toolchain (`toolchain` line or CI image), not a module.
 
 ## Code lookup: gopls, go doc, pkg.go.dev
 
-Grep finds text; gopls finds meaning in the build as resolved by your `go.sum` and replaces. Pick by question:
+Grep finds text; gopls finds meaning in the build as resolved by your `go.sum` and replaces.
 
 | Question | Tool |
 | --- | --- |
@@ -76,17 +68,12 @@ gopls check internal/store/store.go                   # diagnostics for one file
 ```
 
 - `gopls mcp` (v0.20+) exposes name- and path-based tools for agents; the CLI is debugging-grade and slow.
-- Results follow the queried file's build config: references from `x_linux.go` miss `y_windows.go`. Re-run with
-  `GOOS`/`-tags` set when platform files matter.
-- Call hierarchy is static only; calls through func values and interface methods need `references` too.
-- pkg.go.dev URLs: `pkg.go.dev/<mod>?tab=versions`, `?tab=importedby`, `?tab=licenses`. The proxy speaks plain
-  HTTP (`proxy.golang.org/<mod>/@v/list`), with uppercase path letters escaped as `!` + lowercase.
-- Before using an API, check the release notes (`go.dev/doc/go1.N`) against the module's `go` line; idiom upgrades:
-  [style.md](style.md) → Modernize.
+- Results follow the queried file's build config: references from `x_linux.go` miss `y_windows.go`; re-run with
+  `GOOS`/`-tags` when platform files matter.
 
 ## CI essentials
 
-Run cheap and deterministic gates first so a syntax or vet failure fails fast.
+Cheap, deterministic gates first so a syntax or vet failure fails fast.
 
 | Step | Command | Why |
 | --- | --- | --- |
@@ -98,13 +85,6 @@ Run cheap and deterministic gates first so a syntax or vet failure fails fast.
 | Test | `go test -race -shuffle=on ./...` | Races and order-dependent tests |
 | Vulns | `go tool govulncheck ./...` | Reachable CVEs in deps and stdlib |
 | Build | `CGO_ENABLED=0 go build -trimpath ./...` | Reproducible, path-free binaries |
-
-- Cache both `go env GOCACHE` and `go env GOMODCACHE`, keyed on `go.sum` and the Go version; `setup-go` does
-  this when given `go-version-file: go.mod`.
-- The test cache keys on inputs, env vars read and files opened; `-count=1` forces a rerun, never use it as a
-  fix for a flaky test.
-- `-race` needs cgo on most targets and slows tests 2-10x; run it on one OS rather than the full matrix.
-- Matrix: the `go` line's version plus `stable` is enough; older versions only for a library promising them.
 
 ## Troubleshooting
 
@@ -127,30 +107,19 @@ dlv attach "$(pgrep app)"                       # live process; pauses it, never
 
 Common compile and link errors:
 
-- `missing go.sum entry` / `updates to go.mod needed` - run `go mod tidy`; CI should catch drift with `-diff`.
 - `go.mod requires go >= 1.27 (running go 1.2x; GOTOOLCHAIN=local)` - install the toolchain or unset `local`.
-- `module declares its path as X but was required as Y` - fork or rename; fix with a `replace` or the import path.
-- `found packages a and b in <dir>` - two package clauses in one directory, often a stray `_test` or generated file.
-- `import cycle not allowed` - move the shared type to a lower package or invert with an interface at the consumer.
-- `use of internal package ... not allowed` - importer is outside the parent of `internal/`.
-- `undefined: X` only on one OS or tag - the definition sits behind a `//go:build` constraint.
-- cgo `C compiler "gcc" not found` / undefined symbols at link - set `CGO_ENABLED=0` or install the toolchain
-  and `pkg-config` deps; cross-compiling with cgo needs a cross C compiler.
+- cgo `C compiler "gcc" not found` / undefined symbols at link - `CGO_ENABLED=0` or install the toolchain and
+  `pkg-config` deps; cross-compiling with cgo needs a cross C compiler.
 
 ## Observability
 
 ### log/slog
 
-- One logger, built in `main`, passed down or set with `slog.SetDefault` (which also routes the `log` package
-  through it). Libraries accept a `*slog.Logger` and never configure output.
-- JSON to stderr in production, text locally; level from a `slog.LevelVar` so it can change at runtime.
-- Constant message, variable data in attributes: `log.Info("job done", "id", id, "took", d)`. Searchable keys
-  beat interpolated strings.
-- Hot paths: `LogAttrs` with typed `slog.Int`/`slog.String` avoids `any` boxing; `Enabled` guards costly attrs.
+- One logger, built in `main`, passed down or set with `slog.SetDefault` (also routes the `log` package through it).
+  Libraries accept a `*slog.Logger` and never configure output.
+- Constant message, variable data in attributes: `log.Info("job done", "id", id, "took", d)`.
+- Two sinks: `slog.NewMultiHandler` (1.26+) before a third-party handler.
 - Redact at the type (`LogValue()`): [security.md](security.md) → Secrets in process.
-- Log an error or return it, not both; the top of the call chain logs once.
-- Fan-out to two sinks: `slog.NewMultiHandler` (Go 1.26+) before a third-party handler; `slog.DiscardHandler`
-  for tests and silenced components.
 
 ```go
 var level slog.LevelVar // zero value is Info; level.Set(slog.LevelDebug) at runtime
@@ -160,7 +129,7 @@ slog.SetDefault(log.With("svc", "gateway", "version", buildVersion))
 
 ### OpenTelemetry tracing
 
-It is a sizable dependency tree; adopt it only when traces leave the process (a collector exists). Minimal wiring:
+A sizable dependency tree; adopt only when traces leave the process (a collector exists). Minimal wiring:
 
 ```go
 exp, err := otlptracehttp.New(ctx) // endpoint from OTEL_EXPORTER_OTLP_ENDPOINT
@@ -174,14 +143,12 @@ otel.SetTextMapPropagator(propagation.TraceContext{})
 handler = otelhttp.NewHandler(mux, "http.server")
 ```
 
-- Spans around I/O boundaries (inbound request, DB call, outbound RPC), not every function.
-- `span.RecordError(err)` plus `span.SetStatus(codes.Error, ...)`; attributes stay low-cardinality.
-- Context is the carrier: a call without `ctx` (`db.Query` vs `QueryContext`) silently breaks the trace.
+- `span.RecordError(err)` plus `span.SetStatus(codes.Error, ...)`; keep attributes low-cardinality.
 
 ### pprof and expvar endpoints
 
-Both `net/http/pprof` and `expvar` register on `http.DefaultServeMux` at import. Serve that mux only on a
-loopback or authenticated admin listener, never the public one:
+`net/http/pprof` and `expvar` register on `http.DefaultServeMux` at import. Serve that mux only on a loopback or
+authenticated admin listener, never the public one:
 
 ```go
 admin := http.NewServeMux()
@@ -200,7 +167,4 @@ go func() { errc <- http.ListenAndServe("127.0.0.1:6060", admin) }()
 | `.../debug/pprof/mutex`, `.../block` | Contention; off until `runtime.SetMutexProfileFraction`/`SetBlockProfileRate` |
 | `curl host:6060/debug/vars` | `expvar` counters plus `memstats` and `cmdline` as JSON |
 
-- `runtime/metrics` is the stable, cheap source for GC, heap and scheduler numbers when exporting to a metrics
-  system; prefer it over parsing `MemStats`.
-- `trace.NewFlightRecorder` (Go 1.25+) keeps the last seconds of execution trace in memory for a post-incident
-  dump without paying for always-on tracing.
+- `trace.NewFlightRecorder` (Go 1.25+) keeps the last seconds of execution trace in memory for a post-incident dump.

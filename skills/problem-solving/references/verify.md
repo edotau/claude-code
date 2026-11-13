@@ -4,8 +4,8 @@ problem-solving Step 5's gate chain: the iron law, the ordered gates, the bounde
 
 ## Iron Law
 
-Before claiming completion, run the verification command, read the output, then claim. Stale
-results from earlier in the session don't count.
+Before claiming completion, run the verification command, read the output, then claim. Stale results from earlier in
+the session don't count.
 
 ```text
 IDENTIFY → RUN → READ output → VERIFY success → CLAIM
@@ -13,9 +13,9 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 
 ## Gate Sequence
 
-Run in order. A failure blocks subsequent gates until fixed. Follow `rules/standards/quality.md` → Verification Order:
-Gates 1-2 per task, Gate 5 (simplify) after them and before review or commit on every code change; only the full
-suite (Gates 3, 4, 6) runs once per change set at wrap-up, with the user's approval, never in a subagent.
+Run in order; a failure blocks later gates. Per `rules/standards/quality.md` → Verification Order: Gates 1-2 per
+task, Gate 5 before review or commit on every code change; the full suite (Gates 3, 4, 6) once per change set at
+wrap-up, with the user's approval, never in a subagent.
 
 ```text
 Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
@@ -30,24 +30,21 @@ This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `
 
 ## Gate Loop (max 5 iterations per change set)
 
-Scripted form: `Workflow green-keeper-loop` (only when the user asks for one; it caps 3 iterations per call;
+Scripted form: `Workflow green-keeper-loop` (only when the user asks; caps 3 iterations per call;
 `../../subagent-workflows/references/saved-workflows.md`).
 
-Each iteration runs Gates 1-2 only — cheap, scoped to the packages the change touched — fixing failures minimally. Once
-an iteration is clean, run Gate 5 (simplify), then Gates 3, 4 and 6 (the full build + full test suite + security scan +
-diff review) exactly ONCE as the final pass. Only a failing final pass sends the loop back to Gate 1; after 5 iterations
-total, stop and escalate to the user with the remaining failures. This matches `rules/standards/quality.md`'s
-Verification Order — the expensive run happens once, never per iteration, and never in a subagent: Gates 3, 4 and 6
-belong to the main thread with the user's approval (a Workflow the user asked for is that opt-in); a subagent stops
-after Gate 2.
+Each iteration runs Gates 1-2 only, fixing failures minimally. Once clean, run Gate 5, then Gates 3, 4 and 6 ONCE as
+the final pass. Only a failing final pass returns to Gate 1; after 5 iterations, escalate with the remaining
+failures. Gates 3, 4 and 6 belong to the main thread with the user's approval (a Workflow the user asked for is that
+opt-in); a subagent stops after Gate 2.
 
-Per-gate fix strategy:
+Per-gate fixes:
 
 - **Format** — auto-fix and re-run.
 - **Lint** — fix only the flagged lines.
 - **Scoped tests** — a failing test is guilty until traced: `rules/standards/testing-guidelines.md` → When a test fails.
-- **Final pass** — if it fails, trace the failure to its package and fix minimally, then re-run
-  from Gate 1; do not re-run the full suite again until the next iteration is clean.
+- **Final pass** — trace the failure to its package, fix minimally, re-run from Gate 1; no second full run until the
+  next iteration is clean.
 
 ## Report Format
 
@@ -67,18 +64,13 @@ Verdict: PASS / FAIL (Gate N)
 
 ## Escalation
 
-- 5 loop iterations exhausted → escalate to user with remaining failures
-- Never skip a failing gate without documenting why
-- Migration needed → stop and ask user to run it manually
+Never skip a failing gate without documenting why. Migration needed → stop and ask the user to run it manually.
 
 ## Claim Discipline
 
-`rules/standards/principles.md` carries the honesty rule; this is its pre-completion form:
-**if you haven't run the verification command in *this* message, you cannot claim it passes.**
-Stale output, "should work now", "I'm confident", "the linter passed", and an agent's own success
-report are all non-evidence — verify a subagent's work from the VCS diff, not its summary.
-
-Claims whose evidence is *not* just the obvious command:
+**If you haven't run the verification command in *this* message, you cannot claim it passes.** Stale output, "should
+work now", "I'm confident", "the linter passed" and an agent's own success report are non-evidence; verify a
+subagent's work from the VCS diff.
 
 | Claim | Requires |
 |-------|----------|
@@ -86,5 +78,5 @@ Claims whose evidence is *not* just the obvious command:
 | Agent completed | VCS diff showing the changes |
 | Requirements met | Line-by-line checklist — tests passing is not it |
 
-**STOP** on "should"/"probably"/"seems to", or on satisfaction voiced before verification
-("Done!", "Perfect!"). Paraphrases and implications count, not just these exact words.
+**STOP** on "should"/"probably"/"seems to", or satisfaction voiced before verification ("Done!", "Perfect!"),
+including paraphrases.

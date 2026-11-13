@@ -1,7 +1,7 @@
 # Composite Workflow Templates
 
-The composites this harness operates from, as fill-in templates. Shapes and why: [patterns.md](patterns.md); args and
-exits: [saved-workflows.md](saved-workflows.md). Run one only when the owner asks; with no specific fit, run (A).
+Fill-in templates for the harness's composites. Shapes: [patterns.md](patterns.md); args and exits:
+[saved-workflows.md](saved-workflows.md). Run one only when the owner asks; with no specific fit, run (A).
 
 Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-workers estimate is
 `6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
@@ -109,13 +109,13 @@ launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -
 Use when a fix touches several packages and merge conflicts cost more than the serial time. After Refute, one
 `depscan` agent per package returns `{files, exported, importers, hotspots}`; a script (no agent) builds a conflict
 graph (shared file, or an exported change imported by the other package), colours it greedily into waves of at most
-`cap` (default 8, never over the 24 dispatch cap), and pulls hotspot files (`HOTSPOTS` plus `args.hotspots`) into one
-final single-owner task. Waves run in sequence, tasks of a wave in parallel; each fixer owns only its listed files.
+`cap` (default 8, never over the dispatch cap, `rules/harness/hooks.md` → (dispatch cap)), and pulls hotspot files
+(`HOTSPOTS` plus `args.hotspots`) into one final single-owner task. Waves run in sequence, tasks of a wave in
+parallel; each fixer owns only its listed files.
 `fix:false, partition:true` returns `partition {waves, hotspotTask, edges}` and a `## Tasks` plan block, no edits.
 
-Why disjoint dirs and waves, not `isolation: 'worktree'`: no worktree without the owner's yes
-(`rules/standards/worktree-git.md`), and conflict-free waves in the shared tree give the same disjointness without a
-setup and merge per writer.
+Waves, not `isolation: 'worktree'`: no worktree without the owner's yes (`rules/standards/worktree-git.md`), and waves
+give the same disjointness with no per-writer setup or merge.
 
 ## New composite: template
 

@@ -1,67 +1,61 @@
 # Sharing One Checkout Without a Worktree
 
-Whenever several sessions share one tree (always `~/.claude`; any repo where you declined a worktree), they and
-their leaves edit the same tree on `main`. Git sees one working copy, so nothing stops two sessions writing the
-same file; collisions surface as a red build or a commit that carries another session's half-done hunks.
+Sessions and leaves sharing one tree (always `~/.claude`; any repo where you declined a worktree) edit it on
+`main`; collisions surface as a red build or a commit carrying another session's half-done hunks.
 
 ## Before planning
 
 - List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
   `plans/*.md`, and `claude-code agents tree` for peers in the same checkout.
-- Check each task's `owns:` files against that list. Registry-shaped files (`internal/schemas/schemas_test.go`,
-  `internal/settings/hookspec.go`, `internal/providers/defaults.json`) are edited by every lane that adds an
-  entry; assume they overlap.
-- Name each overlap in the plan's Risks with the holder and who goes first, or message the peer to agree an
-  order before either edits.
+- Check each task's `owns:` files against that list. Registry-shaped files (see Registry files below) are edited by
+  every lane that adds an entry; assume they overlap.
+- Name each overlap in the plan's Risks with the holder and who goes first.
 
 ## While editing
 
 - Edit only your `owns:` files; a build break in someone else's file is reported to its owner, not fixed.
 - Lint autofixes on save can rewrite your line without its import (`perfsprint` turned `fmt.Errorf` into
-  `errors.New`): rebuild after every edit, not just at the end.
+  `errors.New`): rebuild after every edit.
 
 ## Claims: who has uncommitted edits in a file
 
 Every Write/Edit, and every path a `git add` stages, is recorded per session and leaf; a claim lasts while the file is
 dirty (staged counts), its owner is live and the file has no newer commit. Before you edit a claimed file the hook
 says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf;
-`git add -p` passes. Inspect by hand: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered until
-staged: edits made by Bash (`sed -i`, formatters) and by external agents (codex/copilot/opencode leaves) — check
-`git diff <file>` before staging, as below.
+`git add -p` passes. Inspect: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered until staged:
+edits by Bash (`sed -i`, formatters) and external agents (codex/copilot/opencode) — check `git diff <file>` first.
 Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit` takes whatever a peer staged.
 
 ## Notices: what reaches you without a message
 
-Hooks never message another session. They queue notices in a per-session inbox
-(`~/.claude/state/harness/notices/<session>.jsonl`), drained into context at your next prompt or `git` command:
-a `worktree merge` that stops on a predicted conflict tells the session that opened the worktree (its ledger's
-`Session:`) which files conflict. In a shared checkout (`~/.claude`, or a peer in the tree) whose local branch has
-diverged from its upstream, you get one line per HEAD/upstream pair naming the sides (and, from the claims ledger,
-whose commits they are): do not commit until it is reconciled. A `dirty-target` refusal names the live session or
-leaf claiming each overlapping file.
+Hooks queue notices in a per-session inbox (`~/.claude/state/harness/notices/<session>.jsonl`), drained into
+context at your next prompt or `git` command: a `worktree merge` stopped on a predicted conflict tells the session
+that opened the worktree (ledger `Session:`) which files conflict; a diverged local branch gives one line per
+HEAD/upstream pair naming the sides and whose commits they are: do not commit until reconciled. A `dirty-target`
+refusal names the session or leaf claiming each overlapping file.
 
 ## Registry files: the orchestrator owns them
 
 Files every lane appends to (`internal/schemas/schemas_test.go`, `internal/schemas/testdata/registry.golden`,
-`internal/settings/hookspec.go`, `internal/hooks/dispatch.go`'s handler map, `rules/harness/hooks.md`) are never in a
-leaf's `owns:`. The leaf's report carries its entry as a fenced block (file, anchor line, exact text); main applies
-every lane's entries in one commit after the leaves land. Leaves share the tree by default; one that must compile
-against a new entry before main applies it gets its own linked worktree (`claude-code worktree create <slug>`).
+`internal/settings/hookspec.go`, `internal/providers/defaults.json`, `internal/hooks/dispatch.go`'s handler map,
+`rules/harness/hooks.md`) are never in a leaf's `owns:`. The leaf's report carries its entry as a fenced block
+(file, anchor line, exact text); main applies every lane's entries in one commit after the leaves land. A leaf that
+must compile against a new entry first gets its own linked worktree (`claude-code worktree create <slug>`).
 
 ## Before committing
 
 - `git diff <file>` on every file you commit: commit by path takes the WHOLE file, including a peer's hunks.
-- A peer's hunk in your file: commit without that file and tell the peer, or agree they commit it first.
+- A peer's hunk in your file: commit without that file and tell the peer.
 - Check the commit stands alone: `git archive HEAD | tar -x -C "$(mktemp -d)"`, then in that dir
-  `go test -count=1` for the touched packages. A pass in the live tree can lean on uncommitted files.
+  `go test -count=1` for the touched packages; a pass in the live tree can lean on uncommitted files.
 
 ## Never rewrite shared history
 
-Every session in the checkout shares one HEAD: an amend rewrites *their* commit too. `safety-scan` blocks
-`commit --amend`, `rebase` and `reset <commit>` in a shared tree: `~/.claude`, a tree a peer session works in, or a
-main tree where your session has live leaves (a leaf there is always blocked). Fix a bad commit with a new commit or
-`git revert`; to rewrite history, do it in your own linked worktree (`claude-code worktree create <slug>`), pushed
-or not. Path resets (`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
+Every session shares one HEAD: an amend rewrites *their* commit too. `safety-scan` blocks `commit --amend`,
+`rebase` and `reset <commit>` in a shared tree: `~/.claude`, a tree a peer works in, or a main tree where your
+session has live leaves (a leaf there is always blocked). Fix a bad commit with a new commit or `git revert`; to
+rewrite history, use your own linked worktree (`claude-code worktree create <slug>`), pushed or not. Path resets
+(`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
 
 ## Incident (2026-11-04)
 
@@ -70,7 +64,6 @@ stayed intact, local `main` diverged, and any commit by either session would hav
 
 ## Incident (2026-10-30)
 
-A cleanup lane and the agent refactor both edited `internal/schemas/writers_test.go`
-(now `internal/schemas/schemas_test.go`). A commit by path swept the
-refactor's three unpushed registry keys into `a32139a6`, and `origin/main` went red on `TestWriters` until the
-refactor's commit landed. A clean-archive check without `-count=1` had passed; the same check with it failed.
+A cleanup lane and the agent refactor both edited `internal/schemas/schemas_test.go` (then `writers_test.go`). A
+commit by path swept the refactor's three unpushed registry keys into `a32139a6`, and `origin/main` went red on
+`TestWriters` until the refactor's commit landed. A clean-archive check without `-count=1` passed; with it, failed.

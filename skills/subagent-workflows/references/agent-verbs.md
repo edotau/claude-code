@@ -45,11 +45,7 @@ prints the CLI's help.
 
 1. **Choose once.** Follow `../SKILL.md` → External relay contract. Use a leading `Run:` or select the requested
    verb; check `claude-code <agent> -h` when uncertain. Run `setup` only to diagnose a route/login failure.
-2. **Run once.** Use `--background` for a long job; record its id. Follow it with foreground `tail -f <id>` (600000 ms
-   timeout), repeated until it ends; never `run_in_background`: the Run line's `--background` is the only
-   backgrounding. Then read `result <id>`. These observe the same job; they do not launch another ask.
-3. **Do not verify.** No reads or tests before or after; the manager verifies at fan-in. Return errors to the manager.
-4. **Report.** The agent's answer verbatim under `## Result`, after the `ask: ran on` line and job/session ids.
+2. **Run once, observe, report.** Backgrounding, `tail -f`, no-verify and verbatim `## Result` rules: the same contract.
 
 Dispatch choice and fallback: `cost-routing.md` → Fallback. A saved Workflow named in the brief (`Workflow:`) runs per
 `saved-workflows.md` → Run from a leaf.

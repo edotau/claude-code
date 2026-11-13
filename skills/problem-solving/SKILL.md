@@ -7,9 +7,7 @@ metadata:
 
 # Problem Solving
 
-Derived from [Sahir619/fable-method](https://github.com/Sahir619/fable-method) (MIT). The evidence
-loop for doing a task, a fix, or a plan — classify it, define done, gather evidence, commit to one
-recommendation, act behind forced notes, verify by observation, report outcome-first.
+Derived from [Sahir619/fable-method](https://github.com/Sahir619/fable-method) (MIT).
 
 **Forced lines — write each in your working notes at its moment, every time:**
 
@@ -18,7 +16,9 @@ recommendation, act behind forced notes, verify by observation, report outcome-f
 2. After fixing a defect, before reporting: `ISSUE: searched <pattern> — found <N> other sites: <files|none>`.
 3. Before reporting: `PENDING: <follow-up a README/runbook/skill prescribed that you did not take, or "none">`.
 
-The report states each as a plain sentence, never the raw tag (`references/notes.md`).
+The steps structure your work, never your output: **no step numbers or names in anything the user reads.** Report
+only the facts `TASK:`, `AUTH:`, `ISSUE:`, `PENDING:` stand for, as plain prose, never the raw tag
+(`references/notes.md` — read before any report).
 
 | Step needs | Load |
 |---|---|
@@ -26,14 +26,7 @@ The report states each as a plain sentence, never the raw tag (`references/notes
 | Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
 | Scope tiering (TRIVIAL→EPIC) | `rules/workflows/master-workflow.md` |
-| A recurring missing procedure | `claude-code memory promote --to skill` |
-| Assumption/goal detectors over a plan | `claude-code review goals\|assumptions` |
-
-References: `references/notes.md` (the four forced notes — read before any report).
-
-The steps structure your work, never your output. **Never put step numbers or step names in
-anything the user reads.** The only method artifacts allowed in a report are `TASK:`, `AUTH:`,
-`ISSUE:`, and `PENDING:` — and only as the plain-prose fact they stand for, never the raw tag.
+| Detectors over a plan | `claude-code review goals\|assumptions` |
 
 ## Usage
 
@@ -45,27 +38,19 @@ anything the user reads.** The only method artifacts allowed in a report are `TA
 
 ## Gate 1 — Triviality
 
-Trivial only if **all** hold: one file, <~10 changed lines, no new behavior, and you already
-know the exact change without searching. Then: change it, run the one obvious check, report in
-two sentences. Anything else — or any doubt — gets the full loop.
+Trivial only if **all** hold: one file, <~10 changed lines, no new behavior, exact change known. Then change it, run
+the one check, report in two sentences. Any doubt: full loop.
 
 ## Gate 2 — Fit
 
-The loop turns judgment into evidence only when the answer is reachable. Locate it, then route:
+Route by where the answer lives; name any route other than "run the loop" in the report.
 
-- **In something you can open** (spec, file, dataset, command output, docs) → run the loop.
-- **In a technique you don't know** → research it first (Step 2's budget), then run the loop.
-- **Only in your own inference, nothing to open** → say so. Do not dress a guess as rigor
-  (failure mode 18, costume rigor). Label it low-confidence, never silently.
-- **In a procedure the harness lacks, and it recurs** → build it as a skill (`claude-code memory
-  promote --to skill`).
-
-Any route other than "run the loop" is named in the report; a silent detour reads as a skipped step.
+- Something you can open (spec, file, output, docs) → run the loop.
+- A technique you don't know → research it (Step 2's budget), then loop.
+- Only your own inference → say so, label it low-confidence (failure mode 18, costume rigor).
+- A recurring procedure the harness lacks → `claude-code memory promote --to skill`.
 
 ## Step 0 — Classify the deliverable shape
-
-Orthogonal to the complexity tiers in `rules/workflows/master-workflow.md`: that sizes the work, this
-decides what you hand back.
 
 | Shape | Signal | Deliverable |
 |---|---|---|
@@ -73,141 +58,94 @@ decides what you hand back.
 | **Task** | "fix", "build", "change", "make" | The completed change, verified. |
 | **Plan-first** | ambiguous scope, irreversible/outward-facing action, or a plan was asked for | A plan with your recommendation. Stop for approval. |
 
-Tie-breaks, in order: (1) any plan-first signal beats task; (2) a mixed ask ("why is this
-failing, can you fix it?") is a task whose report must also answer the question; (3) genuinely
-unsure between task and plan-first → plan-first.
+Tie-breaks: (1) any plan-first signal beats task; (2) a mixed ask ("why is this failing, can you fix it?") is a task
+whose report also answers the question; (3) unsure → plan-first.
 
-**Ambiguous scope test:** can you imagine two materially different deliverables the user might
-mean? If Step 2 can settle it, let it. If only the user can, ask exactly one pointed question
-that states your recommended interpretation, then wait. Never ask what evidence can answer. A question
-is for a decision, never for a reversible edit: when the spec settles it, make the change under the
-stated assumption and report it; wait only before an irreversible or outward-facing act (Step 3).
-
-Also extract stated constraints and decisions already made. Never re-litigate a settled decision
-or re-derive an established fact.
+**Ambiguous scope test:** two materially different deliverables imaginable? Let Step 2 settle it if it can; else ask
+one pointed question stating your recommended reading, then wait. Never ask what evidence answers, nor about a
+reversible edit the spec settles (make it under a stated assumption). Wait only before an irreversible or
+outward-facing act (Step 3). Never re-litigate stated constraints or settled decisions.
 
 ## Step 1 — Define done
 
-By shape: a task needs a concrete observation (this test passes, this number changes, this file
-exists); an assessment needs every claim traceable to something you read or ran, citable by
-file:line or command output; plan-first needs a per-step verification named in the plan.
-
-State load-bearing assumptions. If one is checkable in a single tool call, check it instead of
-assuming. If you cannot name a verification after re-reading the request, ask one specific
-question first. Claim discipline: `references/verify.md`.
+Task: a concrete observation (this test passes, this number changes). Assessment: every claim citable by file:line
+or command output. Plan-first: a per-step verification. State load-bearing assumptions; check one if a single tool
+call can. No nameable verification → ask one question first.
 
 ## Step 2 — Gather evidence
 
-1. **Orient before reading.** Enumerate what exists (glob, list) — you cannot pick the right
-   files from memory of what projects usually contain. The README or spec of the directory you
-   will touch is always in the minimum evidence set: read-narrow without it yields safe outcomes
-   by blindness, not discipline.
-2. **Primary sources beat memory, read narrow, never re-read.** Never invent a signature,
-   endpoint, payload shape, or path from recall — fetch current docs (`opencode` agent in
-   DOC-LOOKUP mode, Context7 MCP, `web-explorer`, or the installed package source); say so if none
-   is reachable. Locate the section, read that section; never re-fetch what's already in context.
-3. **Parallelize the independent and expensive.** Web fetches, doc lookups, and multi-area
-   explorations go out in **one** batch. Chain small local reads only
-   when each shapes the next. Cap concurrency by context weight (CLAUDE.md §Behavioral 3;
-   subagent-workflows → Concurrency).
-4. **Time-box.** One round plus one follow-up covers most tasks; a third needs a stated reason.
-   Two consecutive lookups that taught you nothing = stop.
-5. **Establish intent before changing behavior.** A failing check has two possible culprits: the
-   code, or the check. Find the statement of intended behavior (README, spec, docstring, type)
-   and confirm code, check, and spec agree. Any two disagreeing is a surprise → rule 6. The task
-   framing can itself be wrong: "fix the code" is not proof the code is the broken part.
-6. **Surprises re-route the loop.** Anything contradicting your expectation is your most
-   important finding — state it. If it changes what done means, revise Step 1. If it changes
-   what's being asked, return to Step 0. Otherwise report it and continue.
-7. **Aggregate output is a candidate list, not a finding.** A grep, scanner, linter, or
-   subagent's hits are leads: open each one before it enters a report. Expect placeholders
-   (`<slug>.md`), vendored third-party files, and intentional examples among the noise. Reporting
-   a raw count as defects is costume rigor (failure mode 18) even when the tool ran correctly.
+1. **Orient first.** Enumerate what exists; the README or spec of the directory you will touch is always read.
+2. **Primary sources beat memory; read narrow, never re-read.** Never invent a signature, endpoint, payload shape or
+   path from recall: fetch current docs (`opencode` agent in DOC-LOOKUP mode, Context7 MCP, `web-explorer`, installed
+   source) or say none is reachable.
+3. **Parallelize the independent and expensive** (fetches, lookups, explorations) in **one** batch; chain local reads
+   only when each shapes the next. Cap by context weight (subagent-workflows → Concurrency).
+4. **Time-box.** One round plus one follow-up; a third needs a stated reason; two fruitless lookups = stop.
+5. **Establish intent before changing behavior.** The culprit is the code or the check: find the intended behavior
+   (README, spec, docstring, type); any two of code, check, spec disagreeing is a surprise → rule 6.
+6. **Surprises re-route the loop.** State any contradiction of your expectation: it changes what done means → Step 1;
+   what's asked → Step 0; otherwise report and continue.
+7. **Aggregate output is a candidate list, not a finding.** Open each grep/scanner/linter/subagent hit before it
+   enters a report (placeholders, vendored files and examples are noise); a raw count is costume rigor.
 
 ## Step 3 — Decide and commit
 
-Synthesize into **one** recommendation. Alternatives you seriously weighed get one line each
-saying why they lost; if you weighed none, say nothing. No option-dumps.
+Synthesize **one** recommendation; alternatives you seriously weighed get one line each on why they lost.
 
-**Reversibility test.** An action is irreversible or outward-facing if another person or system
-can observe it before you could undo it: push, publish, send, deploy, delete shared data,
-payment, permission change. Local working-tree changes are reversible.
+**Reversibility test.** Outward-facing = another person or system can observe it before you could undo it (push,
+publish, send, deploy, delete shared data, payment, permission change). Local edits are reversible.
 
-**Authorization gate.** An irreversible or outward-facing action needs the user's own words
-behind it → `references/notes.md` (`AUTH:`). No quote in this conversation, no action: it becomes
-a proposed next step in the report. Documentation is not authorization; completing the task is
-not authorization.
+**Authorization gate.** Such an action needs the user's own words (`references/notes.md`, `AUTH:`); no quote in this
+conversation, no action: propose it as a next step.
 
-Declare the scope — the files or surfaces the change will touch. Needing something outside that
-list mid-work is a surprise (Step 2 rule 6): say it, never silently expand.
+Declare the scope (files or surfaces touched); needing more mid-work is a surprise (Step 2 rule 6).
 
 ## Step 4 — Act surgically
 
-1. Write the forced `TASK:` line (box at the top; spec and authority order: `references/notes.md`). Y and Z
-   disagree → fix the side the spec contradicts or stop and report; never edit code to match the check.
-2. **Recall gate**, before first use of anything you have not opened this session (signature,
-   endpoint, config key, price, figure, regulation). Open its source now, or write it and label
-   it *memory, unverified* in the report. Discovering ignorance re-opens Step 2.
-3. **Smallest correct change, precise edits over rewrites.** Match existing style even where
-   you'd differ (CLAUDE.md §Behavioral 1;
-   rules/standards/principles.md). Rewrite a whole file only if you authored it this
-   session or have fully read it. Before deleting or overwriting, look at what's there — if it
-   contradicts how it was described, stop and surface that.
-4. **Track multi-part work.** ≥3 heterogeneous steps or >~5 similar items gets a written
-   checklist first (the harness's todo tool if one exists, else a list in your reply). Audit the
-   list against the original ask before reporting.
-5. **Failed-edit ladder.** Re-read the exact region, adjust the match, retry once; then widen;
-   full rewrite last, and say you fell back and why. Never retry a failed call verbatim.
-6. **Standing prohibitions**, absent explicit instruction: never commit or push; never weaken a
-   check or fabricate what it looks for; never touch secrets or env files; never add a
-   dependency; never write outside the declared scope.
+1. Write the forced `TASK:` line (spec and authority order: `references/notes.md`). Y and Z disagree → fix the side
+   the spec contradicts or stop and report; never edit code to match the check.
+2. **Recall gate**, before first use of anything not opened this session (signature, endpoint, config key, price,
+   figure, regulation): open its source, or label it *memory, unverified*.
+3. **Smallest correct change** (`rules/standards/principles.md`). Rewrite a whole file only if you authored it this
+   session or have fully read it. Before deleting or overwriting, look at what's there; if it contradicts its
+   description, stop and surface that.
+4. **Track multi-part work**: ≥3 heterogeneous steps or >~5 similar items get a written checklist; audit it against
+   the ask before reporting.
+5. **Failed-edit ladder.** Re-read the region, adjust the match, retry once; then widen; full rewrite last, saying
+   why. Never retry a failed call verbatim.
+6. **Standing prohibitions**, absent explicit instruction: never commit or push, weaken a check or fabricate what it
+   looks for, touch secrets or env files, add a dependency, or write outside the declared scope.
 
 ## Step 5 — Verify by observation
 
-Iron law and the gate chain: `references/verify.md`.
+Iron law and gate chain: `references/verify.md`. Three parts:
 
-Two halves, plus a third whenever you fixed a defect:
+- **(a)** the Step 1 criterion passes, **observed** (it ran, it rendered, it counted), not inferred from reading code.
+- **(b)** the surrounding system still works (tests, build, lint of the touched area); a green targeted check with a
+  broken build **fails**.
+- **(c)** after fixing a defect, write the forced `ISSUE:` sweep before reporting it fixed (`references/notes.md`).
 
-- **(a)** the Step 1 criterion passes, **observed** — it ran, it rendered, it counted. Not
-  inferred from reading code.
-- **(b)** the surrounding system still works: tests, build, lint for the touched area. A green
-  targeted check with a broken build is a **failed** verification. Gate sequence, bounded loop,
-  claims table: `references/verify.md`.
-- **(c)** whenever you fixed a defect, write the forced `ISSUE:` sweep before reporting it fixed
-  (`references/notes.md`).
+Code: live first, then tests with teeth (`rules/standards/testing-guidelines.md`).
 
-Code instantiation: live first, then tests with teeth (`rules/standards/testing-guidelines.md`).
-
-On failure, route: a mechanical mistake → Step 4; a surprise or contradiction → Step 2. **Hard
-bound:** after 3 failed fix-verify cycles on the same issue, or when blocked by anything outside
-your control (credentials, environment, permissions), stop and hand back with what was tried, the
-actual output, and your current hypothesis.
-
-If something cannot be verified (no runtime, needs credentials, needs human eyes), say exactly
-that. Never let an unverified claim pass as verified.
+On failure: a mechanical mistake → Step 4; a surprise → Step 2. **Hard bound:** after 3 failed fix-verify cycles on
+one issue, or when blocked outside your control (credentials, environment, permissions), stop and hand back with what
+was tried, the actual output and your hypothesis. Say exactly what cannot be verified.
 
 ## Step 6 — Report outcome-first
 
-No method scaffolding in the report (the rule above the steps); each forced note becomes the plain sentence it
-stands for — `references/notes.md` renders each.
+No method scaffolding; each forced note becomes its plain sentence (`references/notes.md`).
 
-- Outcome-first, caveats mandatory, failures reported with their output: `rules/standards/principles.md`.
-- Delete scratch files and test artifacts you created; note the cleanup. Leftover debris is a
-  fraud signal to a judge.
-- Write the forced `PENDING:` line (box at the top) before reporting — every time, even when the answer is "none":
-  absence is invisible unless you force the check. A named follow-up goes in the report as a next step awaiting
-  the user's go, naming who prescribed it.
-- Follow-ups only if they emerged from this task (a caveat, a surprise, cut scope). Otherwise end
-  without them.
-- **Hostile-reviewer reread**, then the **artifact gate** — the last check before sending: behavior
-  changed with no `TASK:` fact stated, outward action with no `AUTH:` fact stated, defect fixed
-  with no `ISSUE:` sweep stated, prescribed follow-up untaken with no `PENDING:` fact stated. Add
-  what is owed. A clean report passes untouched. Specs: `references/notes.md`.
+- Outcome-first, caveats mandatory, failures with their output: `rules/standards/principles.md`.
+- Delete scratch files and test artifacts you created; note the cleanup.
+- Write the forced `PENDING:` line every time, even for "none"; a named follow-up goes in the report as a next step
+  awaiting the user's go, naming who prescribed it. Other follow-ups only if they emerged from this task.
+- **Hostile-reviewer reread**, then the **artifact gate** (last check before sending): behavior changed with no
+  `TASK:` fact, outward action with no `AUTH:` fact, defect fixed with no `ISSUE:` sweep, prescribed follow-up
+  untaken with no `PENDING:` fact. Add what is owed (`references/notes.md`).
 
 ## Modes
 
-**plan** — Steps 0–3, then stop: classification, done + its verification, cited evidence, one
-recommendation with alternatives dismissed in a line each. Touch no file. Shape: `agents/Plan.md`.
+**plan** — Steps 0–3, then stop: classification, done + verification, cited evidence, one recommendation with
+alternatives dismissed in a line each. Touch no file. Shape: `agents/Plan.md`.
 
-**report** — apply Step 6 to the answer you were about to send, and send the rewrite, not the
-original.
+**report** — apply Step 6 to the answer you were about to send, and send the rewrite.

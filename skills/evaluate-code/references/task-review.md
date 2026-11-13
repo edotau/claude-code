@@ -1,24 +1,20 @@
 # Task-brief review — vet a request before implementation
 
-A skeptical, read-only pass that refines a request so the implementer has clear orders; it never implements. Any
-reviewer runs it (the main session, `Plan`, or `claude-code codex ask`): `rules/workflows/master-workflow.md` Phase 1
-for a request, Phase 4 for a plan (below). Verdict **READY | NEEDS CLARIFICATION** (`../SKILL.md` → Verdicts).
+A skeptical, read-only pass that refines a request into clear orders; never implements. Run by the main session,
+`Plan`, or `claude-code codex ask`: `rules/workflows/master-workflow.md` Phase 1 (request), Phase 4 (plan, below).
+Verdict **READY | NEEDS CLARIFICATION** (`../SKILL.md` → Verdicts).
 
 Input: the request and CLAUDE.md, with `git status --short` and `git diff --stat` for scope.
 
 ## Evaluation checklist
 
-1. **Scope clarity** — target files/modules identified? Boundary clear (what NOT to
-   touch)? One task or several bundled?
-2. **Acceptance criteria** — how do we know it's done? Measurable quality bar?
-3. **Constraint awareness** — read CLAUDE.md's hard rules + behavioral guidelines; flag any
-   violations.
-4. **Security surface** — auth/tokens, user input, filesystem, external APIs? If yes,
-   say so in the brief.
-5. **Testing expectations** — what runnable surface proves it live? Which spanning test and regression tests
-   (logic, not a coverage number: `rules/standards/testing-guidelines.md`)? Existing fixtures?
-6. **Missing context** — what does the implementer need that isn't in the request? Prior
-   art to reuse?
+1. **Scope clarity** — target files identified? What NOT to touch? One task or several bundled?
+2. **Acceptance criteria** — how do we know it's done? Measurable bar?
+3. **Constraints** — flag violations of CLAUDE.md's hard rules and behavioral guidelines.
+4. **Security surface** — auth/tokens, user input, filesystem, external APIs? Say so in the brief.
+5. **Testing** — what runnable surface proves it live? Which spanning and regression tests (logic, not coverage:
+   `rules/standards/testing-guidelines.md`)? Existing fixtures?
+6. **Missing context** — what does the implementer lack? Prior art to reuse?
 
 ## Output format
 
@@ -51,8 +47,7 @@ A well-scoped request is READY at once (don't invent problems); a TRIVIAL one ge
 
 ## Plan review
 
-Before a written plan runs, check it against `agents/Plan.md` → Plan rules and Phase rules, plus what only a reviewer
-can:
+Check a written plan against `agents/Plan.md` → Plan rules and Phase rules, plus:
 
 1. **Evidence holds** — rerun two or three Target-shape rows' commands; a row that no longer reproduces, or a
    `Snapshot:` far behind HEAD in the files the plan touches, is an issue.
@@ -61,8 +56,7 @@ can:
 3. **Phase 0 can catch a regression** — its baseline covers the commands the later phases change.
 4. **Tasks tick** — every task's `owns:` names real paths the phase edits, so `docs-plan-tick` can close it; a
    `codex`/`copilot`/`gemini`/`opencode` task names a `claude` fallback.
-5. **A cold start works** — could an engineer follow it without getting stuck: spec covered without scope creep,
-   placeholder-free, each code change carries its code.
+5. **A cold start works** — spec covered without scope creep, placeholder-free, each code change carries its code.
 
 Flag only what would break implementation; wording, nice-to-haves and extra sections are not issues. Output the
 verdict, then issues as `[Phase X.Y]: issue — why it matters`.

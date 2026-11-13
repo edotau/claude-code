@@ -1,35 +1,29 @@
 # Entity
 
-Use to resolve one company, person or organization and return a CRM record, or to enrich a CSV or pasted list of
-known names. The name is not the identity. Every value comes from a page you read; an empty field stays empty.
-
-To discover new matches use `list.md`; for a deep report use `research.md`.
+Use to resolve one company, person or organization into a CRM record, or enrich a CSV or pasted list of known names.
+Every value comes from a page you read; an empty field stays empty. New matches: `list.md`; deep report:
+`research.md`.
 
 ## Identify first
 
-People and companies share names, and a record mixing two is worse than an empty one.
-
 1. Take the type and every identifier the user gave: domain, city, employer, title, product.
-2. Search the name and look for other entities using it. A common name, or one that is also a product or place, is a
-   collision until proven otherwise.
-3. You have the right entity only when two identifiers agree: for a company, the name plus its own domain; for a
-   person, the name plus an employer, location or a profile they control whose organization matches. One page that
-   mentions the name is not identification.
-4. If more than one entity still fits, stop and return the candidates. Do not pick the one with more results or copy
-   a field across candidates.
-5. Put a stable identifier (domain or employer) into every later search, not the bare name.
+2. Search the name for other entities using it; a common name, or one that is also a product or place, is a collision
+   until proven otherwise.
+3. The entity is right only when two identifiers agree: company = name plus its own domain; person = name plus an
+   employer, location or a profile they control. One page mentioning the name is not identification.
+4. More than one entity still fits: stop and return the candidates; never pick by result count or copy a field
+   across candidates.
+5. Put a stable identifier (domain or employer) in every later search, not the bare name.
 
 ## Read authoritative sources
 
-- Extract the page that owns the fact; a snippet is not enough for a number. Extract the pages for all needed fields
-  in one call.
-- The entity's own site, an official profile, a filing or a registry come first. For a person, the employer's team
-  page or a profile they control comes before a people-search site.
-- A directory, data broker or roundup is a lead to the owning page. Use it as the source only when no authoritative
-  page states the fact, and say so in the source note.
-- Two authoritative pages disagreeing on a number: keep the more direct one and note the other. Do not average.
-- Include an email or phone only when a page shows it.
-- Search recent news, with the domain or employer in the query, only when the user wants recent signals.
+- Extract the page that owns the fact (all needed pages in one call); a snippet is not enough for a number.
+- Own site, official profile, filing or registry first; for a person, the employer's team page or a profile they
+  control before a people-search site.
+- A directory, data broker or roundup is a lead; use it as the source only when no authoritative page states the
+  fact, and say so in the source note.
+- Two authoritative pages disagreeing on a number: keep the more direct one, note the other; never average.
+- Email or phone only when a page shows it. Search recent news (with domain or employer) only when asked for signals.
 
 ## A CSV of known rows
 
@@ -72,9 +66,9 @@ as_of: {YYYY-MM-DD}
 - {field}: {what you tried}
 ```
 
-- For a person the fields are title, organization, location and profile URL; add a People table
-  (name, title, source) only when related people were asked for. Drop rows that do not apply to the type.
-- A field that applies but could not be filled stays in the table, blank, with a line under Unknown.
-- Description is one or two sentences grounded in the about page or profile. Recent signals: at most five dated
-  items (funding, launch, leadership change, hiring); omit empty sections.
+- A person's fields: title, organization, location, profile URL; add a People table (name, title, source) only when
+  related people were asked for. Drop rows that do not apply to the type.
+- A field that applies but is unfilled stays blank in the table, with a line under Unknown.
+- Description: one or two sentences from the about page or profile. Recent signals: at most five dated items; omit
+  empty sections.
 - When no single entity can be picked, return a table of `Name | Website | What separates it from the others`.

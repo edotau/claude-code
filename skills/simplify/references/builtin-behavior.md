@@ -3,115 +3,35 @@ Reconstructed notes on the stock built-in /simplify skill; reference only, not i
 
 # Built-in /simplify
 
-> **Type**:
->
-> **Invocation**: `/simplify` or `/simplify focus on [area]`
->
-> The `/simplify` command is a built-in skill that performs an automated, multi-agent code review and cleanup pass on
-> recently changed files. It is designed to be run after implementing a feature or fixing a bug, before opening a pull
-> request.
-
-## Availability
-
-This is a **bundled skill**, meaning it ships inside the Claude Code binary and does not require installation. Unlike
-custom skills placed in `.claude/skills/`, this skill is maintained by Anthropic and updated with Claude Code releases.
-The exact `SKILL.md` source is compiled into the binary and not publicly accessible.
-
-The following documentation is reconstructed from public documentation, community sources, and behavioral analysis.
+A bundled skill (compiled into the Claude Code binary, source not public): `/simplify` or `/simplify focus on [area]`
+runs an automated multi-agent review and cleanup of recently changed files, after a feature or fix and before a PR.
+Reconstructed from public docs, community sources and behavioral analysis.
 
 ## Workflow
 
-### Phase 1: Change Detection
+1. **Change detection**: `git diff` (or `git diff HEAD` for staged changes); outside git, the most recently
+   modified files. The diff is the review scope.
+2. **Three parallel sub-agents**, each given the full diff:
+   - **Code Reuse**: duplicated logic to extract, existing helpers that should replace new code, repeated patterns.
+   - **Code Quality**: naming, decomposition, control flow, `CLAUDE.md` compliance, smells (leaky abstractions,
+     stringly-typed code, nesting), over-engineering and premature optimization.
+   - **Efficiency**: needless allocations and recomputation, batchable loops, N+1 queries, inefficient file or
+     network access, missed concurrency, unnecessary frontend re-renders.
+3. **Aggregation**: findings deduplicated, false positives skipped, fixes applied directly, summary reported.
 
-The skill identifies the scope of review by inspecting recent changes:
-
-- If inside a Git repository, runs `git diff` (or `git diff HEAD` for staged changes) to determine what was modified
-- If no Git repository is detected, reviews the most recently modified files
-- The diff output defines the exact scope of the review
-
-### Phase 2: Three-Agent Parallel Review
-
-Three specialized sub-agents are spawned in parallel, each receiving the full diff for context:
-
-#### Code Reuse Agent
-
-Reviews changes to identify:
-
-- Duplicated logic that could be extracted into shared functions
-- Existing utility functions or helpers that should be used instead of new code
-- Redundant code blocks and repeated patterns
-- Opportunities to refactor into reusable components or modules
-
-#### Code Quality Agent
-
-Evaluates code structure and style:
-
-- Naming consistency and readability
-- Function decomposition and control flow clarity
-- Compliance with coding standards defined in `CLAUDE.md`
-- Code smells such as leaky abstractions, stringly-typed code, unnecessary nesting
-- Over-engineering, unnecessary abstractions, or premature optimization ("gold-plating")
-
-#### Efficiency Agent
-
-Analyzes performance and resource usage:
-
-- Unnecessary allocations and redundant computations
-- Loops that could be batched or optimized
-- N+1 query patterns and inefficient file or network access
-- Missed concurrency opportunities
-- Unnecessary re-renders (in frontend code)
-
-### Phase 3: Aggregation and Fix Application
-
-Once all three agents complete their reviews:
-
-1. Findings are aggregated and deduplicated
-2. False positives or findings not worth addressing are skipped
-3. Fixes are applied directly to the codebase
-4. A summary of what was changed is reported to the user
-
-## Usage
-
-```text
-/simplify                              # Review all recent changes
-/simplify focus on memory efficiency   # Focus on specific concern
-/simplify focus on performance         # Target performance issues
-```
-
-## Integration with CLAUDE.md
-
-The effectiveness of `/simplify` depends heavily on the project's `CLAUDE.md` file. The quality agent uses coding
-standards and preferences defined there to align its suggestions with the team's conventions. Projects with well-defined
-`CLAUDE.md` files get significantly better results.
-
-## Design Characteristics
+## Characteristics
 
 | Property | Detail |
 |----------|--------|
 | **Agent count** | 3 parallel sub-agents |
-| **Scope** | Recent changes only (via `git diff`) |
-| **Execution** | Agents run in parallel for efficiency |
-| **Fix mode** | Automatic application with summary |
+| **Scope** | Recent changes only (`git diff`) |
+| **Fix mode** | Automatic, with summary |
 | **False positives** | Skipped rather than argued |
-| **Customization** | Accepts focus areas as arguments |
-| **Dependency** | Reads `CLAUDE.md` for project-specific standards |
+| **Customization** | Focus areas as arguments (`focus on performance`) |
+| **Dependency** | Reads `CLAUDE.md` for project standards; well-defined ones give better results |
 
-## Position in Workflow
+Recommended flow: build feature → run tests → `/simplify` → review diffs → commit. A post-implementation pass that
+tightens verbose AI-generated code; not a replacement for human review.
 
-The recommended workflow is:
-
-```text
-Build feature → Run tests → /simplify → Review diffs → Commit
-```
-
-This positions `/simplify` as a post-implementation cleanup pass that tightens AI-generated code, which tends toward
-verbosity. It is not a replacement for human code review but automates the mechanical cleanup portion.
-
-## Related Commands
-
-| Command | Relationship |
-|---------|-------------|
-| `/init` | Sets up `CLAUDE.md` that `/simplify` reads for standards |
-| `/diff` | Preview changes before running `/simplify` |
-| `/batch` | For large-scale refactors across entire codebases (alternative to `/simplify` which targets recent changes only) |
+Related: `/init` (creates the `CLAUDE.md` it reads), `/diff` (preview first), `/batch` (large-scale refactors across a
+codebase, vs. `/simplify`'s recent changes).
