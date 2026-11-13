@@ -86,6 +86,9 @@ type chatToolCall struct {
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
+// billingHeaderPrefix starts Claude Code's per-session billing block, which defeats upstream prefix caches.
+const billingHeaderPrefix = "x-anthropic-billing-header:"
+
 // SkipThoughtSignature is Gemini's documented validator bypass for tool calls replayed without their signature.
 const SkipThoughtSignature = "skip_thought_signature_validator"
 
@@ -236,6 +239,7 @@ func chatMessages(in messagesRequest, wireModel string) ([]chatMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("translate: system: %w", err)
 	}
+	sys = slices.DeleteFunc(sys, func(b block) bool { return strings.HasPrefix(b.Text, billingHeaderPrefix) })
 	if text := joinText(sys, "\n\n"); text != "" {
 		msgs = append(msgs, chatMessage{Role: "system", Content: text})
 	}
