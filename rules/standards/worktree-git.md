@@ -31,5 +31,8 @@ yes; no answer means keep working in place.
 - Never `git stash` in any worktree (the stash list is shared); rewrite history only in your own
   linked worktree (CLAUDE.md hard rule 4; `safety-scan` blocks).
   Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
+- **A change you did not make is the owner's.** An uncommitted edit, new file or deletion you find in the tree and
+  did not make in this task is the owner's hand edit (or a peer's): never revert, overwrite, reformat or "clean up"
+  it, even when it fails a gate or looks unrelated; build on it, and report what blocks you instead of undoing it.
 - A `notice (…)` or `local <branch> diverged` context line is from a peer or a merge: act on it before committing.
 - Verbs, flags, refusals and the install/proxy gotchas: `skills/using-git-worktrees/SKILL.md`.
