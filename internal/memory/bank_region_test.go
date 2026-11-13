@@ -49,8 +49,8 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	if len(region) >= bankRegionMaxBytes {
 		t.Errorf("region is %d bytes, want < %d", len(region), bankRegionMaxBytes)
 	}
-	assertPointers(t, region, []string{"[activeContext](activeContext.md)", "[progress](progress.md)"},
-		[]string{"(projectContext.md)", "(conventions.md)", "(sessionHistory.md)"})
+	assertPointers(t, region, []string{"Bank: activeContext, progress, decisionLog (.md)"},
+		[]string{"projectContext", "conventions", "sessionHistory"})
 	if !strings.Contains(region, "more entries (memory search)") {
 		t.Errorf("region missing the overflow marker for 50 decisions:\n%s", region)
 	}
@@ -247,5 +247,44 @@ func TestScanBankRegionDistinguishesAbsentFromMalformed(t *testing.T) {
 		if !errors.Is(err, errBankRegion) {
 			t.Errorf("%s: err = %v, want errBankRegion", name, err)
 		}
+	}
+}
+
+// TestBuildBankRegionKeepsFiveIDedEntriesAndOnePointer: 12 entries leave 5 with ids, a count of the rest, one pointer.
+func TestBuildBankRegionKeepsFiveIDedEntriesAndOnePointer(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range bankFiles {
+		write(t, filepath.Join(dir, name), "# "+name+"\n")
+	}
+	const total = 12
+	var b strings.Builder
+	for i := 1; i <= total; i++ {
+		fmt.Fprintf(&b, "## 2026-02-%02d — decision %d <!-- id:%08x -->\n\n", i, i, i)
+	}
+	write(t, filepath.Join(dir, "decisionLog.md"), b.String())
+
+	region, err := buildBankRegion(dir, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(region, "\n- decisionLog: "); n != bankRegionMaxEntries {
+		t.Errorf("%d entry lines, want %d:\n%s", n, bankRegionMaxEntries, region)
+	}
+	for i := 1; i <= bankRegionMaxEntries; i++ {
+		if id := fmt.Sprintf("[%08x]", i); !strings.Contains(region, id) {
+			t.Errorf("entry %d lost its %s:\n%s", i, id, region)
+		}
+	}
+	if want := fmt.Sprintf("… %d more entries (memory search)", total-bankRegionMaxEntries); !strings.Contains(region, want) {
+		t.Errorf("region missing %q:\n%s", want, region)
+	}
+	names := make([]string, len(bankFiles))
+	for i, f := range bankFiles {
+		names[i] = strings.TrimSuffix(f, ".md")
+	}
+	pointer := "\nBank: " + strings.Join(names, ", ") + " (.md)"
+	if got := [2]int{strings.Count(region, "Bank: "), strings.Count(region, pointer)}; got != [2]int{1, 1} {
+		t.Errorf("want one pointer listing %v in order:\n%s", names, region)
 	}
 }
