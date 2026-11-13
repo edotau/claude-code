@@ -9,7 +9,7 @@ paths:
 | --- | --- |
 | Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explorer/SKILL.md`) |
 | Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
-| Sweep accumulated state (caches, run dirs, backups) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
+| Sweep accumulated state (caches, run dirs, backups, leftover `memory sandbox` dirs) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Restart the proxy only when its binary changed (what `make install` runs) | `claude-code network restart --if-changed` (`rules/harness/providers.md`) |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port so the sign-in happens in your local browser, or `--host-browser` opens the host's (`rules/harness/providers.md` → Headless login) |
 | Run an ask here on the least busy Databricks workspace, requests through the other machine | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"` (what `/coworker` sends: `rules/workflows/agents.md` → Slash commands); `--host auto` instead runs the whole ask on that machine |
@@ -18,7 +18,9 @@ paths:
 `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST` for the verb and its children.
 Requests to `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5
 tunnel per host (record in `state/harness/ssh/`); agents reach the proxy at `/via/<host>/…`, so the daemon tunnels
-per request and logs `via=<host>`. A tunnel that cannot start or has died fails the request with
+per request and logs `via=<host>`. A dispatched agent's base also carries `/d/<id>/` (either order with `/via/`; id of
+digits, letters, `.`, `-`, else 400), logged as `dispatch=<id>`; a stream cut mid-body logs `stream=broken:<class>`
+(`eof`, `reset`, `timeout`, `canceled`, `other`). A tunnel that cannot start or has died fails the request with
 `egress host <host>: <cause>`, never a direct connection. `--direct` is refused under `--remote`; a credential minted
 by a provider's `auth.command` is that command's own traffic and is not tunnelled.
 
@@ -35,7 +37,7 @@ the fewest live dispatches (in-flight markers on its account plus running dispat
 the one picked least recently (`state/harness/ask/route-auto.json`), then name order. From there it is the overlay
 `profile: <that workspace>`: the `ran on` line and the dispatch record name it, and with `--host` the pick is made here
 and the concrete route is sent. Never name a profile `auto`: the overlay reads `profile: auto` as the pick, so such a
-row cannot be addressed. A `--host` ask that cannot run fails before the task with one line naming what the target
+row cannot be addressed. When the picked workspace answers 429 before any answer, it is cooled, the pick reruns without it and the same agent retries there, until one answers or none is left; only then the `--fallback` policy applies (so `none` still fails, naming every workspace tried), and a named profile never moves. A `--host` ask that cannot run fails before the task with one line naming what the target
 lacks: the `claude-code` binary, the agent's CLI, the Databricks profile, or the model.
 
 `--host <h>` or `--remote <h>` naming this machine (its tailnet DNS name, OS hostname, or either one's first label) runs

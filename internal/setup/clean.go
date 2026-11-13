@@ -111,6 +111,10 @@ func stateTargets() []target {
 				}
 			},
 		},
+		{
+			name: "memory-sandboxes", doc: "leftover `memory sandbox` dirs in the temp dir (seed-commit verified)",
+			globs: sandboxGlobs, keep: keepNonSandbox,
+		},
 	}
 }
 
