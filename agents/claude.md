@@ -30,7 +30,7 @@ picks the mode (`review` default, `simplify`, or a build task); the rest is the 
 for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
 `claude-code agents ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
 
-**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); read-only unless `--tools`. Flags:
+**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); no tools unless `--tools`. Flags:
 `skills/subagent-workflows/references/agent-verbs.md` → Headless `ask` flags. Beyond that table:
 
 | Need | Flags |

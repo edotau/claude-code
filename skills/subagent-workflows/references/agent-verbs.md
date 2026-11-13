@@ -26,13 +26,14 @@ keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; this is 
 
 ## Headless `ask` flags
 
-`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; read-only unless `--tools`. Agent files list only
-what differs; the full list is `claude-code agents ask -h`.
+`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; without `--tools` claude and opencode get no tools
+and gemini is only instructed not to use any. Agent files list only what differs; the full list is
+`claude-code agents ask -h`.
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (per agent: claude, codex tools off; gemini, opencode deny Bash/Write/Edit; copilot also read-only git) |
-| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` (hook-enforced per agent) |
+| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (per agent: claude tools off; codex a read-only sandbox that keeps its shell; gemini, opencode deny Bash/Write/Edit; copilot also read-only git, no other shell) |
+| Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` (hook-enforced per agent); an `--allow` adds but never reopens a deny; codex and gemini refuse `--tools` with `--mode plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `<agent> status [--all]` · `<agent> tail -f <id>` · `<agent> result <id>` · `<agent> cancel` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
 | Input | task arg or stdin (`-`) · `--attach <file>` · `--diff` / `--dirs <d,…>` / `--files <glob,…>` (inline context) · `--rubric <file>` · `--system-prompt`/`--append-system-prompt` |

@@ -30,12 +30,14 @@ commands.
 
 - The EXISTING tests a change breaks or makes stale, AND the NEW coverage written after the live check
   (`claude-code copilot ask --tools --workdir <repo>`).
-- Merge + conventional commit after gates are green (LAST-MILE).
+- Merge + conventional commit after gates are green (LAST-MILE); a file another live leaf has claimed needs that
+  leaf's hand-back first.
 - Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot resume <id>`).
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
   `skills/subagent-workflows/references/cost-routing.md`.
 - `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
-  branch --list); any chained, redirected or other shell command is rejected.
+  branch --list); any chained, redirected or other shell command is rejected, so use its native read and search
+  tools there.
 - `ask --tools` approves every request, still subject to the dispatch Deny rules and native hooks. LAST-MILE merges
   (`claude-code worktree merge`) run under it.
 
@@ -56,7 +58,8 @@ Shared flags (interactive launch and the headless `ask` table): `skills/subagent
 Copilot deltas:
 
 - `copilot --docs` prints copilot's own help; `copilot -- <native args>` forces passthrough.
-- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`.
+- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`. File writes match
+  `Edit(...)` rules, so a `Write(...)` allow needs the `Edit(...)` spelling too.
 - `--fleet` (parallel subagents; verify with the diff stat) · `--enable-memory` (session memory) ·
   `--fallback all|agents|none` · `--format json` envelope adds `ran_on` · `--profile <p>` leads on that profile;
   `--fallback none` pins that dispatch; `--provider <x>` leads.

@@ -19,8 +19,10 @@ paths:
 Requests to `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5
 tunnel per host (record in `state/harness/ssh/`); agents reach the proxy at `/via/<host>/…`, so the daemon tunnels
 per request and logs `via=<host>`. A dispatched agent's base also carries `/d/<id>/` (either order with `/via/`; id of
-digits, letters, `.`, `-`, else 400), logged as `dispatch=<id>`; a stream cut mid-body logs `stream=broken:<class>`
-(`eof`, `reset`, `timeout`, `canceled`, `other`). A tunnel that cannot start or has died fails the request with
+digits, letters, `.`, `-`, else 400; each prefix once, a repeat is 400; added only when `/healthz` advertises
+`X-Claude-Code-Proxy-Dispatch-Tag`), logged as `dispatch=<id>`; a stream cut mid-body logs `stream=broken:<class>`
+(`eof`, `reset`, `timeout`, `canceled`, `other`). An upstream error message is the last token, `msg="<quoted>"`;
+`agents diff --verify` reads no metadata after it. A tunnel that cannot start or has died fails the request with
 `egress host <host>: <cause>`, never a direct connection. `--direct` is refused under `--remote`; a credential minted
 by a provider's `auth.command` is that command's own traffic and is not tunnelled.
 

@@ -37,7 +37,7 @@ harness runs the module around a headless `opencode run`), `plugin` (opencode in
 | claude · native | every group that isn't agent-only (so not `permission` or `codex`) | **block** (`safety` also asks); post/prompt hooks inject context |
 | codex · native | `safety-scan`, `permission-gate`, `docs-*` gates, `paths-resolve`, `memory-recall`, `codex-*`; Stop `memory-update`; SessionEnd `memory-end` (codex caps it at 3s) | **block** (an ask blocks); `memory-end` advisory |
 | copilot · native | `safety-scan`, `docs-*` gates, `paths-resolve`, `memory-recall`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** (an ask blocks); the rest advisory |
-| gemini (agy) · native | `permission-gate` only | **block** |
+| gemini (agy) · native | `safety-scan`, `permission-gate` | **block** (an ask blocks) |
 | opencode · hosted | `Hosted` specs (docs, memory, format, review; no worktree notices) | all **advisory** (`--pure` loads no plugin, so it is refused while any PreToolUse gate is bound); Stop and SessionEnd run only after a watched tool call |
 | opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `docs-plan-gate`, `worktree-claim-check` | **block** (throws in `tool.execute.before`, headless and TUI; the host then skips these) |
 

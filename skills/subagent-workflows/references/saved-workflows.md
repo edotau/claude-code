@@ -67,7 +67,9 @@ model decision; agents work in the shared tree.
 
 ## Run from a leaf
 
-A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it:
+A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it.
+Off Anthropic that child's gated tool set has no `Workflow` tool (`internal/claude/claude.go` `gateTools`), so run
+it on Anthropic or from the main session:
 
 ```bash
 claude-code agents ask --agent claude --tools --timeout 20m \

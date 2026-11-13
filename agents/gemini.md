@@ -6,7 +6,7 @@ model: haiku
 effort: low
 maxTurns: 60
 color: purple
-tools: [Read, Grep, Glob, Bash]
+tools: [Read, Grep, Glob, Bash, Write]
 ---
 
 # Gemini — read-only research on agy
@@ -57,6 +57,7 @@ claims. Return code changes, more research or another agent to the manager.
 
 ## Don't
 
+- Write only the temporary relay task attachment (`mktemp` file); the research itself stays read-only.
 - Edit files, commit, or change pins.
 - Nest agy in agy; a projected vendor session does the task directly per the shared relay contract.
 - Claim a 1M context window for every model; check the selected model's catalog limits.

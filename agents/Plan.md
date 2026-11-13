@@ -49,8 +49,9 @@ All dispatched by the manager, never by Plan itself:
 ## Procedure
 
 Bash is read-only by rule alone (no frontmatter field for it): only `rg`, `git log/show/diff`, `ls`, `go list`,
-`--help` and `--dry-run` commands. Follow `~/.claude/skills/problem-solving/SKILL.md` Steps 0–3 with these
-planning mechanics:
+`--help` and `--dry-run` commands, plus `claude-code memory search`, `claude-code network websearch`,
+`claude-code review assumptions` and `claude-code review goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
+Steps 0–3 with these planning mechanics:
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes one plan
    per subsystem; say so.

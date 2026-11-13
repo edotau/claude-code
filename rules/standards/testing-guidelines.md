@@ -35,10 +35,13 @@ corner cases you found or split it by behavior — never raise the limit.
 
 ## A test must guard
 
-- **Call the code under test** (`got := vaultdoc.Text(doc, …)`), never an inline copy of its logic — that
-  passes with the fix reverted.
-- **Build the defect's worst case**; derive expected values from the fixture and drive parsers with real bytes.
-  Equivalence tests assert the fast path actually ran (a call count, a cache key) against a deterministic oracle.
+- **Teeth, proven** — call the code under test (`got := vaultdoc.Text(doc, …)`), never an inline copy of its logic.
+  A new test must fail with the guarded behavior removed: flip it, watch the test fail, restore the source exactly,
+  and report that you did. A test that still passes is deleted, not kept.
+- **Shapes and edges, not values** — build the defect's worst case (empty, one element, the boundary, malformed,
+  concurrent, present-but-empty); derive expected values from the fixture and drive parsers with real bytes. Never
+  pin a config value, a help string or a generated file's bytes. Equivalence tests assert the fast path actually
+  ran (a call count, a cache key) against a deterministic oracle.
 - **Mock only real boundaries** (network, model calls, clock, external CLIs, process scans), at the consumer; run
   everything else against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two mocks is a
   missing seam. In Go the seam is a package var, swapped and restored:
@@ -51,12 +54,12 @@ corner cases you found or split it by behavior — never raise the limit.
   t.Cleanup(func() { peerAgents = orig })
   ```
 
-- **Fast first** — a new test runs in milliseconds: no sleep, real network, vault, daemon or spawned binary; shrink
-  timeouts through package vars and seed fixtures directly.
+- **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
+  after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
+  `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
   feature. Every other test is proposed in the final report with its reason (the case, what it guards, its runtime);
   the owner decides from that report. Judging a proposal, speed weighs most, then teeth, then no overlap.
-- **Never spawn the test binary** — `os.Executable()` is `go test`'s; stub every daemon-spawn seam.
 - **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash
   or 500 on bad input is a finding.
 - **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB
