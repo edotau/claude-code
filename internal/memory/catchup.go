@@ -39,15 +39,38 @@ func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done")
 func transcriptInteractive(path string) (interactive bool) {
 	scanTranscriptHead(path, catchupScan, func(line []byte) bool {
 		var rec struct {
+			Type       string `json:"type"`
 			Entrypoint string `json:"entrypoint"`
+			Message    struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
 		}
-		if json.Unmarshal(line, &rec) != nil || rec.Entrypoint == "" {
+		if json.Unmarshal(line, &rec) != nil {
 			return false
 		}
-		interactive = !strings.HasPrefix(rec.Entrypoint, "sdk-")
+		if rec.Entrypoint != "" {
+			interactive = !strings.HasPrefix(rec.Entrypoint, "sdk-")
+		}
+		if rec.Type != "user" { // read on to the first prompt: a memory job inherits its parent's entrypoint
+			return false
+		}
+		var prompt string
+		if json.Unmarshal(rec.Message.Content, &prompt) == nil && memoryJobPrompt(prompt) {
+			interactive = false
+		}
 		return true
 	})
 	return interactive
+}
+
+// The openings of the update and dream job prompts; a transcript that starts with one is a worker, never a session.
+const (
+	updatePromptOpen = "Background update of a finished session."
+	dreamPromptOpen  = "Background daily consolidation of the memory bank."
+)
+
+func memoryJobPrompt(s string) bool {
+	return strings.HasPrefix(s, updatePromptOpen) || strings.HasPrefix(s, dreamPromptOpen)
 }
 
 // sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.

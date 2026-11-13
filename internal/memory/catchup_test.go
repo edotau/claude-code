@@ -51,3 +51,19 @@ func TestTranscriptInteractiveByEntrypoint(t *testing.T) {
 		}
 	}
 }
+
+// A memory job launched from an IDE session inherits its entrypoint; its own prompt marks it a worker.
+func TestTranscriptInteractiveSkipsMemoryJobs(t *testing.T) {
+	dir := t.TempDir()
+	head := `{"type":"queue-operation"}` + "\n" + `{"type":"attachment","entrypoint":"claude-vscode"}` + "\n"
+	for prompt, want := range map[string]bool{
+		updatePromptOpen + " The bank directory is /b": false, dreamPromptOpen + " The local bank is /b": false,
+		"fix the login bug": true,
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(prompt[:12], " ", "-")+".jsonl")
+		write(t, path, head+`{"type":"user","entrypoint":"claude-vscode","message":{"content":"`+prompt+`"}}`+"\n")
+		if got := transcriptInteractive(path); got != want {
+			t.Errorf("prompt %q interactive = %v, want %v", prompt, got, want)
+		}
+	}
+}
