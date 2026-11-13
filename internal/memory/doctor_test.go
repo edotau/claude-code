@@ -272,7 +272,7 @@ func (x *e2eRun) recallHook(t *testing.T) {
 		"hook_event_name": "UserPromptSubmit"})
 	out := x.e.mustRun(t, string(b), "hook", "UserPromptSubmit", "--memory-recall")
 	ctx := hookContext(t, out)
-	if !strings.Contains(ctx, "<!-- memory-recall:") || !strings.Contains(ctx, "zebrafish kestrel") {
+	if !strings.Contains(ctx, "<!-- memory-recall;") || !strings.Contains(ctx, "zebrafish kestrel") {
 		t.Errorf("recall hook injected no matching block:\n%q", out)
 	}
 }
