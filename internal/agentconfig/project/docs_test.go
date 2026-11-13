@@ -68,3 +68,24 @@ func TestPortableCoreMissingFileNamesIt(t *testing.T) {
 		t.Fatalf("want error naming a.md, got %v", err)
 	}
 }
+
+func TestExternalDropsMatchRealFiles(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	for _, d := range externalDrops {
+		p := filepath.Join(root, d.file)
+		if d.file != "CLAUDE.md" {
+			p = filepath.Join(root, "rules", "standards", d.file)
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := d.heading + "\n"
+		if d.linePrefix != "" {
+			want = d.linePrefix
+		}
+		if !strings.Contains("\n"+string(raw), "\n"+want) {
+			t.Errorf("%s: %q not found; update externalDrops", d.file, strings.TrimSpace(want))
+		}
+	}
+}

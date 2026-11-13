@@ -53,6 +53,95 @@ func PortableCore(root string) ([]string, error) {
 	return paths, nil
 }
 
+// externalDrop is a Claude-Code-only `##` section (or intro line prefix) left out of the docs rendered for other CLIs.
+type externalDrop struct{ file, heading, linePrefix string }
+
+// externalDrops lists what renderDocs strips; TestExternalDropsMatchRealFiles pins each entry against the real files.
+var externalDrops = []externalDrop{
+	{file: "CLAUDE.md", heading: "## Where things live"},
+	{file: "CLAUDE.md", linePrefix: "3. **Dispatch with the Agent tool.**"},
+	{file: "CLAUDE.md", linePrefix: "4. **Tag notable moments**"},
+	{file: "CLAUDE.md", heading: "## How-to — by area"},
+	{file: "CLAUDE.md", linePrefix: "Injected into **every** session"},
+	{file: "CLAUDE.md", linePrefix: "Depth lives elsewhere:"},
+	{file: "quality.md", heading: "## Simplify — the gate behind `skills/simplify`"},
+	{file: "worktree-git.md", heading: "## Worktrees"},
+}
+
+// dropForExternal removes the externalDrops entries for the file at path from body; absent entries are skipped.
+func dropForExternal(path, body string) string {
+	base := filepath.Base(path)
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	fence, skipLevel, inItem := "", 0, false
+	for _, l := range lines {
+		t := strings.TrimRight(l, " \t")
+		if m := fenceMarker(t); fence == "" {
+			fence = m
+		} else if m == fence {
+			fence = ""
+		}
+		if fence == "" {
+			skipLevel = skipAfter(base, t, skipLevel)
+		}
+		// a dropped list item takes its indented continuation lines with it
+		if inItem && strings.HasPrefix(l, "   ") {
+			continue
+		}
+		inItem = droppedLine(base, t)
+		if skipLevel > 0 || inItem {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
+// fenceMarker returns the code-fence marker l opens or closes, or "" when l is not a fence line.
+func fenceMarker(l string) string {
+	for _, m := range []string{"```", "~~~"} {
+		if strings.HasPrefix(l, m) {
+			return m
+		}
+	}
+	return ""
+}
+
+// skipAfter returns the heading level being skipped after l: a drop heading starts it, an equal or higher one ends it.
+func skipAfter(base, l string, skip int) int {
+	lvl := headingLevel(l)
+	if lvl == 0 {
+		return skip
+	}
+	if skip > 0 && lvl <= skip {
+		skip = 0
+	}
+	for _, d := range externalDrops {
+		if d.file == base && d.heading == l {
+			skip = lvl
+		}
+	}
+	return skip
+}
+
+func droppedLine(base, l string) bool {
+	for _, d := range externalDrops {
+		if d.file == base && d.linePrefix != "" && strings.HasPrefix(l, d.linePrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// headingLevel returns the ATX heading level of l, or 0 when l is not a heading.
+func headingLevel(l string) int {
+	n := len(l) - len(strings.TrimLeft(l, "#"))
+	if n == 0 || n > 6 || len(l) == n || l[n] != ' ' {
+		return 0
+	}
+	return n
+}
+
 type standard struct{ path, body string }
 
 // unscopedStandards reads rules/standards/*.md without `paths:` frontmatter, sorted; a read failure names the file.
@@ -85,7 +174,7 @@ func standardsSection(root string) (string, error) {
 	var b strings.Builder
 	for _, s := range standards {
 		b.WriteByte('\n')
-		b.WriteString(demoteH1(strings.Trim(s.body, "\n")))
+		b.WriteString(demoteH1(strings.Trim(dropForExternal(s.path, s.body), "\n")))
 		b.WriteByte('\n')
 	}
 	return "\n## Standards\n" + b.String(), nil
@@ -105,7 +194,7 @@ func demoteH1(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderDocs renders banner + CLAUDE.md verbatim + the always-on standards + a sorted `## Agents` index at root.
+// renderDocs renders the banner, CLAUDE.md and always-on standards minus externalDrops, then a sorted agents index.
 func renderDocs(root string, agents []Source) (content string, ok bool, err error) {
 	src, err := instructionSource(root)
 	if err != nil {
@@ -119,6 +208,7 @@ func renderDocs(root string, agents []Source) (content string, ok bool, err erro
 	if err != nil {
 		return "", false, err
 	}
+	conventions = []byte(dropForExternal(src, string(conventions)))
 	var b strings.Builder
 	b.WriteString(docsBanner + "\n\n" + docsPathsNote + "\n\n")
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
