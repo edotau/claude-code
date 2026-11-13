@@ -211,6 +211,7 @@ func dreamSettle(o dreamOptions) error {
 		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 		return settleErr
 	}
+	refreshNotice(o.Out, "memory dream", o.CWD)
 	return nil
 }
 

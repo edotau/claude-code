@@ -3,6 +3,7 @@ package memory
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -72,9 +73,14 @@ func doctorNotice(root string) string {
 	return " memory review: " + textutil.TruncateRunes(notice, 200) + "."
 }
 
-// writeDoctorNotice caches root's first problem and a count (hot hints excluded); an empty file means checked and healthy.
+// writeDoctorNotice runs the doctor and caches its notice for root.
 func writeDoctorNotice(root string, staleDays int, now time.Time) error {
-	problems := slices.DeleteFunc(doctor(root, staleDays, now), func(p string) bool {
+	return cacheDoctorNotice(root, doctor(root, staleDays, now))
+}
+
+// cacheDoctorNotice caches problems' first line and a count (hot hints excluded); empty means checked and healthy.
+func cacheDoctorNotice(root string, problems []string) error {
+	problems = slices.DeleteFunc(slices.Clone(problems), func(p string) bool {
 		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
 	})
 	line := ""
@@ -85,6 +91,13 @@ func writeDoctorNotice(root string, staleDays int, now time.Time) error {
 		}
 	}
 	return paths.AtomicWrite(doctorNoticePath(root), []byte(line), 0o600)
+}
+
+// refreshNotice re-caches root's session-start notice once its bank is settled; a failure is a note on w, never fatal.
+func refreshNotice(w io.Writer, verb, root string) {
+	if err := writeDoctorNotice(root, DefaultStaleDays, time.Now()); err != nil {
+		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
+	}
 }
 
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.

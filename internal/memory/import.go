@@ -60,6 +60,9 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		res = p.result(opt)
 		return p.apply(opt)
 	})
+	if root, rerr := ResolveRepo(opt.Repo); err == nil && rerr == nil {
+		refreshNotice(os.Stderr, "memory import", root)
+	}
 	return res, err
 }
 

@@ -52,7 +52,7 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
 	prior, hadPrior := readUpdateResult(sessionID)
 	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(StateDir(), logName)})
-	if spawnSelf(args, cwd, logName) {
+	if spawnSelf(args, cwd, logName, DetachedEnv+"=1") {
 		return true
 	}
 	if hadPrior {
@@ -74,7 +74,7 @@ func spawnDream(cwd string) bool {
 
 func spawnCatchup(cwd, sessionID string) bool {
 	args := []string{"memory", "catchup", "--skip", sessionID}
-	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log")
+	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
 }
 
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.

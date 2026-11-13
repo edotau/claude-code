@@ -55,11 +55,25 @@ const (
 	updateFailed  = "failed"
 )
 
-// updateGrace must exceed the worker's home-lock wait plus its own timeout, or a healthy queued update reads as lost.
-var updateGrace = homeLockWait + updateTimeout + time.Minute
+// updateGrace must exceed the worker's lock waits plus its own timeout, or a healthy queued update reads as lost.
+var updateGrace = detachedLockWait + homeLockWait + updateTimeout + time.Minute
 
-// updateLockWait is how long an update waits for a peer's .postupdate lock before giving up as busy; a var for tests.
+// updateLockWait is a foreground update's wait for a peer's .postupdate lock before giving up as busy; a var for tests.
 var updateLockWait = 5 * time.Second
+
+// detachedLockWait outlasts a dream (updateTimeout) so a detached session-end save is queued, not lost; a var for tests.
+var detachedLockWait = updateTimeout + time.Minute
+
+// DetachedEnv marks a worker the hooks or sweep spawned (no one is waiting on it), so its update may queue for the lock.
+const DetachedEnv = "CLAUDE_MEMORY_DETACHED"
+
+// lockWait is detachedLockWait for a worker spawned detached, else updateLockWait.
+func lockWait() time.Duration {
+	if v := os.Getenv(DetachedEnv); v != "" && v != "0" {
+		return detachedLockWait
+	}
+	return updateLockWait
+}
 
 // homeLockWait is how long a worker queues for the home bank's lock behind another repo's run; a var for tests.
 var homeLockWait = 15 * time.Minute
@@ -314,11 +328,11 @@ func update(o updateOptions) error {
 	}
 	dir := Dir(o.CWD)
 	var run updateRun
-	// Bounded wait: a peer update/dream may hold this lock for minutes, and a Stop hook must not block on it.
-	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", updateLockWait, func() error { return run.lockedWithHome(o, dir) })
+	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
+	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", lockWait(), func() error { return run.lockedWithHome(o, dir) })
 	if !ran || run.homeBusy { // lock never taken: nothing ran, and settling unlocked would race the holder
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
-		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock"))), record(updateFailed, false))
+		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
 	}
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
@@ -375,9 +389,7 @@ func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
-	if err := writeDoctorNotice(o.CWD, DefaultStaleDays, time.Now()); err != nil {
-		fmt.Fprintln(o.Out, "memory update: doctor notice:", err)
-	}
+	refreshNotice(o.Out, "memory update", o.CWD)
 	return updated, nil
 }
 

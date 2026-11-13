@@ -132,6 +132,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
 	}
 	fmt.Fprintln(out)
+	refreshNotice(errw, "memory index", root)
 	embedIndex(out, errw, root, profile, o.Reembed)
 	return nil
 }
@@ -297,6 +298,9 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 		return writeDoctorNotice(root, o.StaleDays, time.Now())
 	}
 	problems := doctor(root, o.StaleDays, time.Now())
+	if err := cacheDoctorNotice(root, problems); err != nil {
+		fmt.Fprintln(w, "memory review: doctor notice:", err)
+	}
 	switch {
 	case len(problems) == 0:
 		fmt.Fprintln(w, "memory doctor: no problems found")
