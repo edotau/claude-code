@@ -725,3 +725,29 @@ func TestCountTokensMalformedContent(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// The per-session billing-header system block must not reach the chat system message, or prefix caches miss.
+func TestToChatRequestDropsBillingHeader(t *testing.T) {
+	const real = "You are Claude Code, an interactive agent."
+	sysOf := func(suffix string) string {
+		body := `{"model":"x","max_tokens":8,"system":[` +
+			`{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.323.` + suffix + `; cc_entrypoint=cli;"},` +
+			`{"type":"text","text":"` + real + `","cache_control":{"type":"ephemeral"}}],` +
+			`"messages":[{"role":"user","content":"hi"}]}`
+		out, _, err := ToChatRequest([]byte(body), "gpt-5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.Unmarshal(out, &req); err != nil {
+			t.Fatal(err)
+		}
+		return req.Messages[0].Content.(string)
+	}
+	a, b := sysOf("c04"), sysOf("88a")
+	if a != b || !strings.HasPrefix(a, real) {
+		t.Errorf("system messages differ or lead with the billing line:\n%q\n%q", a, b)
+	}
+}
