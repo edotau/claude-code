@@ -339,11 +339,14 @@ func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 	if err != nil {
 		return helptext.Fail("worktree clean-all: %v", err)
 	}
-	removed := 0
+	removed, failed := 0, 0
 	for _, r := range results {
 		printCleanResult(r, !apply)
 		if r.Removed {
 			removed++
+		}
+		if r.Failed {
+			failed++
 		}
 	}
 	if apply {
@@ -351,11 +354,16 @@ func cmdWorktreeCleanAll(repo *worktree.Repo, args []string) int {
 	} else {
 		fmt.Printf("%d eligible, %d refused — preview only, pass --yes to remove\n", removed, len(results)-removed)
 	}
+	if failed > 0 {
+		return helptext.Fail("worktree clean-all: %d worktrees could not be checked", failed)
+	}
 	return 0
 }
 
 func printCleanResult(r worktree.CleanResult, dryRun bool) {
 	switch {
+	case r.Failed:
+		fmt.Printf("error:    %s (%s)\n", r.Path, r.Reason)
 	case !r.Removed:
 		fmt.Printf("refused:  %s (%s)\n", r.Path, r.Reason)
 	case dryRun:

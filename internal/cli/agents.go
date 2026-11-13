@@ -104,9 +104,9 @@ var agentsPage = helptext.Page{
 
 // agentsSubPages are the `agents <verb> -h` pages: usage tail, blurb and hint.
 var agentsSubPages = map[string][3]string{
-	"find": {"find <pattern> [flags]", "Search tracked and new unignored files in path and line order; skip binary files and files over 1 MiB. " +
-		"Callers are name-based, not type-resolved. Stops at budget + 1; more is a lower bound.",
-		"Exit 0 matches, 1 none, 2 error."},
+	"find": {"find <pattern> [flags]", "Search tracked and new unignored files in path and line order; skip binary and >1 MiB files. " +
+		"An unreadable or unparseable file is skipped and named on stderr. Callers are name-based. More than budget is a lower bound.",
+		"Exit 0 match, 1 no match, 2 usage."},
 	"list": {"list [flags]", "List each agent, whether it is available and which request fields (model, profile, effort, …) it honors."},
 	"reap": {"reap [flags]", "Mark dispatch records still \"running\" whose process is gone as error, and drop stale " +
 		"agent-inflight markers."},
