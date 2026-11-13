@@ -51,25 +51,6 @@ Codex deltas:
   leads · `--no-persist` keeps no session · `--safe-mode` skips hooks/plugins · `--output-schema <json>` adds
   `.structured` to the envelope.
 
-**What codex loads** (refreshed by `claude-code agents sync`; `codex setup` checks the projection):
-
-- Instructions: `~/.codex/AGENTS.md` = `CLAUDE.md` + unscoped `rules/standards/*.md`, same headless and interactive.
-- Skills: `~/.agents/skills` (every `skills/<name>`, never `skills/synced/`); agents: `~/.codex/agents/*.toml`.
-- Hooks (`~/.codex/hooks.json`, an ask blocks): PreToolUse `safety-scan`, `docs-placement`, `docs-plan-gate`,
-  `permission-gate`; UserPromptSubmit `memory-recall`, `paths-resolve`; Stop `memory-update`; SessionEnd `memory-end`;
-  `codex-*` child routing. A hook change reaches codex only after the owner's `configure --restore --agents --agent
-  codex` (`rules/harness/agent.md`).
-
-**Workflows**
-
-1. Pre-merge: `codex review --adversarial --base main` → fix → `codex review --base main` until `SHIP`.
-2. Plan vet: `codex ask --attach <plan.md> "<task-review.md checklist>"` → `READY | NEEDS CLARIFICATION`.
-3. Delegated edit: `codex ask --tools --background --workdir <repo> --deny 'Bash(git push:*)' "<brief>"` →
-   `codex tail -f <id>` → `codex result <id>` → `git diff --stat`.
-4. Scripted leg: `ask --agent codex --format json --output-schema <schema> "<task>"` → `.answer` / `.structured`.
-5. Follow-up: `codex result` → `codex resume <session> "<next step>"`.
-6. Code + web: `codex explore [--no-web] "<question>"`; hand off this session: `codex transfer --wait "<note>"`.
-
 ## Verbs
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Codex deltas:

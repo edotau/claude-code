@@ -131,18 +131,12 @@ Every phase is:
 
 ### Harness guidelines every plan must respect
 
-- **Rules:** `CLAUDE.md` hard rules apply (`settings.json` is the owner's; secrets only in the vault/`auth.command`;
-  propose look/behavior changes first); the repo is public — nothing company-specific; CLI/TUI text <=80 columns.
-- **Dispatch shape:** `skills/subagent-workflows/SKILL.md` (caps, fan-out) — disjoint-package code steps run in
-  parallel; every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a feature or bug
-  fix (→ Test agent). Many leaf-sized tasks across disjoint packages: weigh a lane plan
-  (`skills/subagent-workflows/references/lane-orchestrator.md`, one lane per package set, dispatched by the
-  manager) against a saved workflow, and say which and why.
-- **Cost routing:** spread steps across agents per `~/.claude/skills/subagent-workflows/references/cost-routing.md`;
-  Claude keeps judgement, integration and verification.
-- **Gates:** `go vet` + gofmt every edit; scoped tests while developing; the full suite once with owner approval;
-  commit by area with explicitly named files.
-- **Docs:** where new documentation goes — `~/.claude/rules/harness/docs-placement.md`.
+Respect CLAUDE.md hard rules and `rules/harness/docs-placement.md`; dispatch shape and cost
+routing: `skills/subagent-workflows/SKILL.md`; the repo is public, CLI/TUI text ≤80 columns.
+
+Every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a feature or bug fix.
+Many leaf-sized tasks across disjoint packages: weigh a lane plan
+(`skills/subagent-workflows/references/lane-orchestrator.md`) against a saved workflow, and say which and why.
 
 ## Don't
 
