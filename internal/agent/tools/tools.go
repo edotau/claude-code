@@ -74,10 +74,7 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOn
 	}
 	var errs []error
 	for _, t := range sel {
-		old := directInstall(t)
-		if old == "" && t.Binary != "" {
-			old, _ = paths.LookPathReal(t.Binary)
-		}
+		old := installedBin(t)
 		if missingOnly && (t.Binary == "" || old != "") {
 			continue
 		}
@@ -161,6 +158,31 @@ func directInstall(t tool) string {
 	}
 	p := filepath.Join(paths.BinDir(), bin)
 	if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+		return p
+	}
+	return ""
+}
+
+// installedBin is the tool's existing install: a direct bin/ copy, else on PATH, else its own ~/.local/bin target.
+func installedBin(t tool) string {
+	if old := directInstall(t); old != "" {
+		return old
+	}
+	if t.Binary != "" {
+		if old, err := paths.LookPathReal(t.Binary); err == nil {
+			return old
+		}
+	}
+	return localOwnTarget(t)
+}
+
+// localOwnTarget is ~/.local/bin/<bin> when an OwnTarget tool installed there (possibly off PATH), else "".
+func localOwnTarget(t tool) string {
+	if !t.OwnTarget || t.Binary == "" || localBinDir() == "" {
+		return ""
+	}
+	p := filepath.Join(localBinDir(), t.Binary)
+	if fi, err := os.Lstat(p); err == nil && !fi.IsDir() {
 		return p
 	}
 	return ""
