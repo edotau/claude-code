@@ -393,24 +393,11 @@ func gateDraft(path, content string, stderr io.Writer) int {
 			continue
 		}
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
-			"Write the full template from %s before filing a draft:\n%s",
-			filepath.Base(path), want.label, plans.TemplatePath(paths.ConfigDir()), skeletonOrHeadings())
+			"Write the full template from %s before filing a draft; required headings:\n%s",
+			filepath.Base(path), want.label, plans.TemplatePath(paths.ConfigDir()), strings.Join(PlanTemplateHeadings(), "\n")+"\n")
 		return core.ExitBlock
 	}
 	return core.ExitProceed
-}
-
-// skeletonOrHeadings is the plan template, or the required-heading list when it is unreadable.
-func skeletonOrHeadings() string {
-	if sk, err := plans.Skeleton(paths.ConfigDir()); err == nil {
-		return sk
-	}
-	var b strings.Builder
-	for _, h := range planTemplateHeadings {
-		b.WriteString(h.label)
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 // Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.

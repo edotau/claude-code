@@ -298,31 +298,14 @@ func TestActive(t *testing.T) {
 	}
 }
 
-// TestSkeleton reads docs/templates/plan.md whole and refuses a file that lost its "# Plan:" heading.
-func TestSkeleton(t *testing.T) {
-	const tmpl = "# Plan: <title>\n\n## Tasks\n\n- [ ] 1.1 Do it — owns: x/y.go\n"
-	dir := t.TempDir()
-	writeFile(t, TemplatePath(dir), tmpl)
-	if got, err := Skeleton(dir); err != nil || got != tmpl {
-		t.Fatalf("skeleton = %q, %v", got, err)
-	}
-	writeFile(t, TemplatePath(dir), "# Notes\n")
-	if _, err := Skeleton(dir); err == nil || !strings.Contains(err.Error(), "no # Plan: heading") {
-		t.Fatalf("err = %v, want the missing-heading error", err)
-	}
-	if _, err := Skeleton(t.TempDir()); err == nil {
-		t.Fatal("want an error for a missing template")
-	}
-}
-
 // TestRepoPlanTemplate guards the real docs/templates/plan.md: it must keep the "# Plan:" heading and "## Tasks" checklist section.
 func TestRepoPlanTemplate(t *testing.T) {
-	body, err := Skeleton(filepath.Join("..", ".."))
+	body, err := os.ReadFile(TemplatePath(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"# Plan:", "## Tasks"} {
-		if !strings.Contains(body, want) {
+		if !strings.Contains(string(body), want) {
 			t.Fatalf("repo template missing %q", want)
 		}
 	}

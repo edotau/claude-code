@@ -326,7 +326,7 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	var gateErr bytes.Buffer
 	code := Gate(core.ParseInput(hookJSON(t, payload)), &gateErr)
 	if code != core.ExitBlock || !strings.Contains(gateErr.String(), "plan-template: BLOCKED") ||
-		!strings.Contains(gateErr.String(), "skeleton-body-line") {
+		!strings.Contains(gateErr.String(), "## Tasks") {
 		t.Fatalf("code=%d err=%q, want a block with the skeleton", code, &gateErr)
 	}
 	var e bytes.Buffer
