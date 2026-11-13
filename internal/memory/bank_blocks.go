@@ -223,6 +223,9 @@ func blockID(line string) string {
 
 // ownerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
 func ownerID(block string) string {
+	if !strings.Contains(block, "```") && !strings.Contains(block, "~~~") { // no fence: the last marker is the owner
+		return lastIDMarker(block)
+	}
 	lines := strings.Split(block, "\n")
 	line, span, total := lastMarker(lines, fencedLines(lines))
 	if total == 0 {
@@ -231,39 +234,73 @@ func ownerID(block string) string {
 	return blockID(lines[line][span[0]:span[1]])
 }
 
+// lastIDMarker is the id of the last `<!-- id:xxxxxxxx -->` in text, "" when there is none (no regexp scan).
+func lastIDMarker(text string) string {
+	for end := len(text); ; {
+		i := strings.LastIndex(text[:end], "<!-- id:")
+		if i < 0 {
+			return ""
+		}
+		if rest := text[i+len("<!-- id:"):]; len(rest) >= 12 && rest[8:12] == " -->" && isLowerHex(rest[:8]) {
+			return rest[:8]
+		}
+		end = i
+	}
+}
+
+// isLowerHex reports whether s is only 0-9a-f.
+func isLowerHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < '0' || c > '9' && c < 'a' || c > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
 // stripID removes the ID marker for display.
 func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
 // assignIDs stamps unmarked blocks and collapses stacked markers to the oldest; blocks are judged whole.
 func assignIDs(dir string, now time.Time) (int, error) {
-	n := 0
-	for name, prefix := range idFiles {
-		stamped, err := assignFileIDs(dir, name, prefix, now)
-		n += stamped
-		if err != nil {
-			return n, err
-		}
-	}
-	return n, nil
+	n, _, err := assignIDTexts(dir, now)
+	return n, err
 }
 
-// assignFileIDs is assignIDs for one typed file; a missing file is skipped.
-func assignFileIDs(dir, name, prefix string, now time.Time) (int, error) {
+// assignIDTexts is assignIDs that also returns each present id file's settled text, keyed by file name.
+func assignIDTexts(dir string, now time.Time) (int, map[string]string, error) {
+	n := 0
+	texts := map[string]string{}
+	for name, prefix := range idFiles {
+		stamped, text, err := assignFileIDs(dir, name, prefix, now)
+		n += stamped
+		if err != nil {
+			return n, texts, err
+		}
+		if text != "" {
+			texts[name] = text
+		}
+	}
+	return n, texts, nil
+}
+
+// assignFileIDs is assignIDs for one typed file, returning its settled text; a missing file is skipped ("" text).
+func assignFileIDs(dir, name, prefix string, now time.Time) (int, string, error) {
 	path := filepath.Join(dir, name)
 	data, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil
+		return 0, "", nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	res, n := stampIDs(dir, name, prefix, string(data), now)
 	if res != string(data) {
 		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
-			return n, err
+			return n, res, err
 		}
 	}
-	return n, nil
+	return n, res, nil
 }
 
 // stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.

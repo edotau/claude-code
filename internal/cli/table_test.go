@@ -101,7 +101,7 @@ func TestCompletionExact(t *testing.T) {
 	}{
 		{"prefix filter", []string{"me"}, []string{"memory"}},
 		{"vault subcommand", []string{"vault", "s"}, []string{"set"}},
-		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
+		{"memory subcommand", []string{"memory", "rev"}, []string{"review", "revise"}},
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
 		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
@@ -489,7 +489,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"vault":   {"ls", "set", "get", "delete", "import", "export", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report"},
+			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise"},
 		"gateway":  {"proxy"},
 		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "send", "status", "result", "tail", "cancel"},
 		"workflow": {"skeleton", "lint"},

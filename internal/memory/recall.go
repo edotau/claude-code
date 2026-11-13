@@ -36,6 +36,7 @@ func recallPicks(root, session, query string, semantic, explain bool) ([]recallP
 	ready := startSemantic(q, semantic)
 	seen := seenBlocks(session)
 	ranked, files, segs := searchBanksTerms(root, q, terms, 0)
+	ranked = followReplaced(ranked, files, segs)
 	var sem *Semantic
 	semSeen := false
 	if semantic {
@@ -371,7 +372,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	var cands []SearchHit
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		if (h.Bank == "archive") != archived || isSupersededTitle(textutil.FirstLine(h.Block)) {
+		if (h.Bank == "archive") != archived || isSupersededBlock(h.Block) {
 			continue
 		}
 		if topAny == 0 {

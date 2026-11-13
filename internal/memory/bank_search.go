@@ -111,6 +111,9 @@ func isSupersededTitle(first string) bool {
 	return strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED")
 }
 
+// ReplacedBy is the id of the entry that replaced h's block, "" when it is live or struck without a pointer.
+func (h SearchHit) ReplacedBy() string { return replacedBy(h.Block) }
+
 // entryFromHit lifts a search hit to an Entry; a block without a persisted id gets its contentRef.
 func entryFromHit(h SearchHit) Entry {
 	id := blockRef(h.Block, h.ID)
@@ -126,7 +129,7 @@ func entryFromHit(h SearchHit) Entry {
 	return Entry{
 		ID: id, Date: entryDate.FindString(title), Type: typ, Title: truncateLine(title),
 		Body: strings.TrimSpace(anyIDMark.ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,
-		Archived: h.Bank == "archive", Superseded: isSupersededTitle(title),
+		Archived: h.Bank == "archive", Superseded: isSupersededBlock(h.Block),
 	}
 }
 

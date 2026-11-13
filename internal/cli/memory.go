@@ -40,7 +40,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, alias, import — dispatchable, off the menu above\n" +
+		"          catchup, timeline, alias, import, revise — dispatchable, off the menu\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -63,6 +63,7 @@ var memoryPlumbing = map[string][2]string{
 	"digest":   {"", "write the bank digest"},
 	"fmt":      {"", "wrap the bank files"},
 	"timeline": {"", "recent bank entries and sessionHistory"},
+	"revise":   {"<old-id> --with <new-id>", "mark an entry replaced by a newer one"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -78,7 +79,7 @@ func memorySubPage(sub string) helptext.Page {
 
 // memorySynopsis is `claude-code memory <sub> [flags] <args>`, the usage line of sub's page and its errors.
 func memorySynopsis(sub, args string) string {
-	if strings.HasPrefix(args, "<id> --to") { // promote: the id and --to target lead
+	if strings.HasPrefix(args, "<id> --to") || strings.HasPrefix(args, "<old-id> --with") { // the ids lead
 		return "claude-code memory " + sub + " " + args + " [flags]"
 	}
 	return strings.TrimSpace("claude-code memory " + sub + " [flags] " + args)
@@ -210,6 +211,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"timeline": cmdMemoryTimeline,
 		"alias":    cmdMemoryAlias,
 		"import":   cmdMemoryImport,
+		"revise":   cmdMemoryRevise,
 	}
 }
 
@@ -252,6 +254,7 @@ func memorySpec() *helptext.Node {
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
 		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
+		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.RepoKeys),
 			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
@@ -363,8 +366,37 @@ func printMemorySearchHits(hits []memory.SearchHit) {
 		if h.ID != "" {
 			id = " [" + h.ID + "]"
 		}
+		if by := h.ReplacedBy(); by != "" {
+			id += " replaced by " + by
+		}
 		fmt.Printf("%5.2f  %-7s %-18s %s%s\n", h.Score, h.Bank, h.File, h.Title(), id)
 	}
+}
+
+func cmdMemoryRevise(args []string) int {
+	fs, repo := memoryRepoFlagSet("revise")
+	with := fs.String("with", "", "id of the newer entry that replaces <old-id>")
+	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
+	ids, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(ids) != 1 || *with == "" {
+		return helptext.FailUsage("memory revise: give <old-id> --with <new-id> (usage: %s)", memorySubPage("revise").Usage)
+	}
+	root, err := memory.ResolveRepo(*repo)
+	if err != nil {
+		return helptext.FailUsage("memory revise: %v", err)
+	}
+	out, err := memory.ReviseEntry(root, ids[0], *with, *dryRun)
+	if errors.Is(err, memory.ErrReviseInput) {
+		return helptext.FailUsage("%v", err)
+	}
+	if err != nil {
+		return helptext.Fail("memory revise: %v", err)
+	}
+	fmt.Print(out)
+	return 0
 }
 
 func cmdMemoryShow(args []string) int {
@@ -672,7 +704,7 @@ func cmdMemoryRecall(args []string) int {
 	if *explain {
 		return memoryRecallExplain(*q.repo, q.terms, *q.all || q.json() || *load != 0)
 	}
-	hits, _, err := memory.SearchRepo(*q.repo, *q.all, q.terms, *q.k)
+	hits, _, err := memory.RecallRepo(*q.repo, *q.all, q.terms, *q.k)
 	if err != nil {
 		return helptext.FailUsage("memory recall: %v", err)
 	}

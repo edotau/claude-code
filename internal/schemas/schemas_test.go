@@ -197,6 +197,7 @@ var writers = map[string]string{
 	"internal/memory/bank_commit.go:writeIfAbsent":             unversioned("memory-bank: memory repo seed files"),
 	"internal/memory/update.go:writeUpdateResult":              unversioned("text: update result text"),
 	"internal/memory/bank_blocks.go:assignFileIDs":             unversioned("memory-bank: bank id comments"),
+	"internal/memory/revise.go:writeDirtyDocs":                 unversioned("memory-bank: replaced-entry pointers"),
 	"internal/memory/promote.go:archiveFile":                   unversioned("memory-bank: bank overflow archive"),
 	"internal/memory/catchup.go:runSweep":                      unversioned("text: catch-up sweep done count"),
 	"internal/memory/catchup.go:noteBlocked":                   unversioned("text: one quiet blocked-update note line"),

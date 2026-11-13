@@ -28,8 +28,8 @@ items into What Works; drop shipped items from What's Next. File every BUG tag u
 ## Step 4: Decisions → `decisionLog.md`
 
 For each architectural/process decision made this session (every DECISION tag is one): add a dated entry
-at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: strike the old
-entry's title line and point at the new one.
+at the top (`## YYYY-MM-DD — <decision>` + 1–3 lines of rationale). Supersede, never delete: write
+`Supersedes <old id>` in the new entry; the harness strikes the old one.
 
 ## Step 5: Patterns → `conventions.md`
 
