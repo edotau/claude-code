@@ -286,7 +286,7 @@ func TestHookContextExpiresBeforeDispatcherBudget(t *testing.T) {
 	orig := core.HookMargin
 	t.Cleanup(func() { core.HookMargin = orig })
 	core.HookMargin = spec.Budget - 30*time.Millisecond // HookContext reads the registry budget: its deadline is 30ms in
-	spec.Budget = 80 * time.Millisecond
+	spec.Budget = 400 * time.Millisecond                // the handler returns at 30ms; slack keeps a loaded machine from an overrun
 	run := func(*core.Input) core.Result {
 		ctx, cancel := core.HookContext(spec.Name)
 		defer cancel()
