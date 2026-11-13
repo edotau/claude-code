@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // Seams for tests: model discovery, the running router and the router's session tokens.
@@ -406,15 +405,12 @@ func copilotChoice(requested []string, profileModel string) modelChoice {
 // copilotRegistryBanner is the one-line launch notice; GitHub models are unreachable by construction in this mode.
 const copilotRegistryBanner = "copilot: GitHub models are unavailable in this mode"
 
-// copilotRegistryEligible: a keyed Databricks row the router mints for (no direct/login/none/cli), not armed on macOS.
+// copilotRegistryEligible: a keyed Databricks row the router mints for (no direct/login/none/cli), never on macOS.
 func copilotRegistryEligible(direct bool, t providers.Target) bool {
 	p := t.Provider
 	return p != nil && !direct && p.Preset == providers.PresetDatabricks && p.Auth.Login == "" &&
-		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI && !armedOnMacOS()
+		p.Auth.Method() != providers.AuthNone && p.Auth.Method() != providers.AuthCLI && copilotGOOS != "darwin"
 }
-
-// armedOnMacOS is an overlay databricks:<p> run on macOS, where the registry is refused (home.go).
-func armedOnMacOS() bool { return copilotGOOS == "darwin" && router.ArmProfile() != "" }
 
 // usesCopilotRegistry reports whether t is a Databricks row whose copilot launch runs on the registry.
 func usesCopilotRegistry(ctx context.Context, t providers.Target) bool {
@@ -425,9 +421,6 @@ func usesCopilotRegistry(ctx context.Context, t providers.Target) bool {
 func configureCopilotRegistry(
 	ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool,
 ) (agent.RegistryLaunch, error) {
-	if err := checkCopilotRegistryOS(); err != nil { // before discovery or minting
-		return agent.RegistryLaunch{}, err
-	}
 	p := t.Provider
 	requested, rest := splitModelFlags(args)
 	r, ref, err := registrySelection(ctx, reg, t, requested, dry)

@@ -149,10 +149,15 @@ func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, r
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
 	applyCopilotToken(opts, env)
-	if route == nil && t.Provider.Auth.Login == "" && router.ArmProfile() != "" {
+	if route == nil && t.Provider.Auth.Login == "" && (router.ArmProfile() != "" || macOSDatabricks(t)) {
 		armBYOK(opts)
 	}
 	return nil
+}
+
+// macOSDatabricks is a Databricks row on macOS, which skips the registry and so runs routed BYOK.
+func macOSDatabricks(t providers.Target) bool {
+	return copilotGOOS == "darwin" && t.Provider.Preset == providers.PresetDatabricks
 }
 
 // armBYOK keeps the GitHub login off an armed BYOK hop's model traffic; the CLI can still read its Keychain login.

@@ -132,14 +132,14 @@ func stubSettingsRegistry(t *testing.T) {
 	mintSession = func(context.Context, []string, int) (string, error) { return "fixture-session", nil }
 }
 
-// A keyed Databricks row runs on the registry except inside a databricks:<p> route on macOS, which takes routed BYOK.
+// A keyed Databricks row runs on the registry except on macOS, which takes routed BYOK.
 func TestArmRegistryEligibility(t *testing.T) {
 	dbx := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: "key", Env: "DBX_CLI_TOKEN"}}}
 	for _, c := range []struct {
 		goos, route string
 		want        bool
-	}{{"darwin", "databricks:dbx", false}, {"darwin", "", true}, {"linux", "databricks:dbx", true}} {
+	}{{"darwin", "databricks:dbx", false}, {"darwin", "", false}, {"linux", "databricks:dbx", true}} {
 		setGOOS(t, c.goos)
 		overlay := ""
 		if c.route != "" {

@@ -2,9 +2,7 @@ package copilot
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,10 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -175,28 +171,6 @@ func setGOOS(t *testing.T, goos string) {
 	t.Cleanup(func() { copilotGOOS = orig })
 }
 
-// macOS is refused before any home is seeded and before the registry launch discovers models.
-func TestRegistryRefusedOnMacOS(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	setGOOS(t, "darwin")
-	if _, err := prepareCopilotHome(false); !errors.Is(err, errCopilotRegistryDarwin) {
-		t.Errorf("prepareCopilotHome err = %v, want the macOS refusal", err)
-	}
-	if _, err := os.Stat(copilotRegistryHome()); !os.IsNotExist(err) {
-		t.Errorf("registry home was created on macOS: %v", err)
-	}
-	orig := discoverModels
-	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
-		t.Fatal("discovery ran on macOS")
-		return nil, nil
-	}
-	t.Cleanup(func() { discoverModels = orig })
-	_, err := configureCopilotRegistry(context.Background(), nil, providers.Target{Provider: &providers.Provider{Name: "dev"}}, nil, true)
-	if !errors.Is(err, errCopilotRegistryDarwin) {
-		t.Errorf("configureCopilotRegistry err = %v, want the macOS refusal", err)
-	}
-}
-
 // The prepared home is 0700, carries settings.json (0600, no model) and skills, never the source's GitHub login.
 func TestPrepareCopilotHomeSeedsLoginFree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -276,15 +250,6 @@ func TestCopilotSettingsReadsRecordExtras(t *testing.T) {
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil || got["defaultPermissionMode"] != "plan" {
 		t.Errorf("settings.json = %s (%v), want defaultPermissionMode plan", raw, err)
-	}
-}
-
-// The macOS refusal survives the fallback notice's cap with its --direct hint intact, once the dispatch wraps it.
-func TestRegistryRefusalKeepsDirectHintInFallbackReason(t *testing.T) {
-	setGOOS(t, "darwin")
-	wrapped := &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Err: checkCopilotRegistryOS()}
-	if got := agent.FallbackReason(wrapped); !strings.HasSuffix(got, "use --direct") {
-		t.Errorf("FallbackReason = %q, want it to end with the --direct hint", got)
 	}
 }
 
