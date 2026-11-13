@@ -46,6 +46,7 @@ type Subagent struct {
 	Updated     time.Time  `json:"updated"`
 	Activity    *Activity  `json:"activity,omitempty"`   // newest tool/text signal; nil when none seen yet
 	Dispatches  []Dispatch `json:"dispatches,omitempty"` // agent dispatches this relay agent launched via `ask`
+	Phase       string     `json:"-"`                    // workflowPhase from the sidecar meta, for run grouping
 }
 
 // Activity is the newest tool_use and assistant text in a subagent transcript tail; At stamps whichever set last.
@@ -160,9 +161,11 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 	if opts.Session == "" { // live sessions stay listed past --days, under --background too
 		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
+	scans := loadScanCache()
+	defer saveScanCache(scans)
 	tree := &Tree{}
 	for _, f := range sessionFiles {
-		s := buildSession(f, now)
+		s := buildSession(f, now, scans)
 		if e, ok := reg[s.ID]; ok {
 			s = applyRegistry(s, e)
 		}
@@ -276,7 +279,7 @@ func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) ([
 }
 
 // buildSession reads one session's main transcript, its subagents dir and its workflow runs.
-func buildSession(transcriptPath string, now time.Time) Session {
+func buildSession(transcriptPath string, now time.Time, scans *scanCache) Session {
 	id := sessionIDFromPath(transcriptPath)
 	sessionDir := sessionDirFromPath(transcriptPath)
 	project := filepath.Base(filepath.Dir(transcriptPath))
@@ -299,13 +302,13 @@ func buildSession(transcriptPath string, now time.Time) Session {
 	}
 
 	for _, agentFile := range transcript.WorkflowAgentFiles(filepath.Join(sessionDir, "subagents")) {
-		sub := buildSubagent(agentFile, now, s.Cwd)
+		sub := buildSubagent(agentFile, now, s.Cwd, scans)
 		s.Tokens.add(sub.Tokens)
 		s.Subagents = append(s.Subagents, sub)
 	}
 	slices.SortStableFunc(s.Subagents, func(a, b Subagent) int { return b.Updated.Compare(a.Updated) })
 
-	s.Workflows = buildWorkflowRuns(sessionDir, now, s.Cwd)
+	s.Workflows = buildWorkflowRuns(sessionDir, now, s.Cwd, scans)
 	for _, run := range s.Workflows {
 		forEachRunAgent(run, func(sub Subagent) { s.Tokens.add(sub.Tokens) })
 	}
@@ -329,8 +332,7 @@ func plainSessionGlob(claudeDir, id string) ([]string, error) {
 }
 
 // buildSubagent reads sidecar meta, tail and mtime; tokens and historical dispatch IDs share one full scan.
-func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
-	meta := readSubagentMeta(transcriptPath)
+func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scanCache) Subagent {
 	id := subagentIDFromPath(transcriptPath)
 
 	var updated time.Time
@@ -338,33 +340,20 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string) Subagent {
 		updated = info.ModTime()
 	}
 
-	var tok Tokens
-	var dispatchIDs []string
-	if f, err := os.Open(transcriptPath); err == nil {
-		var responses transcript.ResponseAccumulator
-		seen := map[string]bool{}
-		readErr := transcript.EachLine(f, func(line []byte) {
-			responses.Add(line)
-			dispatchIDs = transcript.AppendDispatchIDs(dispatchIDs, seen, line)
-		})
-		_ = f.Close() // read-only handle: a close error loses nothing
-		if readErr == nil {
-			t := transcript.SummarizeResponses(responses.Responses).Totals()
-			tok = Tokens{In: t.InputTokens + t.CacheCreationTokens, Out: t.OutputTokens, CacheRead: t.CacheReadTokens}
-		}
-	}
-
-	act := lastActivity(transcriptPath, cwd)
+	e := scans.scan(transcriptPath)
+	meta, phase := scans.meta(e, transcriptPath)
+	act := scans.activity(e, transcriptPath, cwd)
 	sub := Subagent{
 		ID:          id,
 		Type:        meta.AgentType,
 		Description: meta.Description,
 		Status:      subagentStatus(meta.Finished, updated, now),
 		Depth:       meta.SpawnDepth,
-		Tokens:      tok,
+		Tokens:      e.totals(),
+		Phase:       phase,
 		LastTool:    act.Tool,
 		Updated:     updated,
-		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, dispatchIDs),
+		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, e.IDs),
 	}
 	if act.Tool != "" || act.Text != "" {
 		sub.Activity = &act

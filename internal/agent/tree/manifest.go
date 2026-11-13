@@ -3,7 +3,6 @@ package tree
 import (
 	"cmp"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,15 +23,32 @@ type subagentMeta struct {
 
 // readSubagentMeta reads the sidecar .meta.json beside transcriptPath; a missing or bad one yields a zero meta.
 func readSubagentMeta(transcriptPath string) subagentMeta {
-	raw, err := os.ReadFile(strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json")
+	raw, err := os.ReadFile(metaPath(transcriptPath))
 	if err != nil {
 		return subagentMeta{}
 	}
+	m, _ := parseMeta(raw)
+	return m
+}
+
+// metaPath is the sidecar .meta.json beside transcriptPath.
+func metaPath(transcriptPath string) string {
+	return strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json"
+}
+
+// parseMeta decodes the rendered meta fields and the workflowPhase; each is zero when its own decode fails.
+func parseMeta(raw []byte) (subagentMeta, string) {
 	var m subagentMeta
 	if json.Unmarshal(raw, &m) != nil { // a partial decode would keep fields set before the bad one
-		return subagentMeta{}
+		m = subagentMeta{}
 	}
-	return m
+	var p struct {
+		WorkflowPhase string `json:"workflowPhase"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return m, ""
+	}
+	return m, p.WorkflowPhase
 }
 
 // workflowManifest is a workflows/wf_<id>.json run record; Result stays RawMessage (string, object or null).
@@ -136,7 +152,7 @@ func readJournal(runDir string) map[string]journalEntry {
 }
 
 // buildWorkflowRuns folds wf_*.json manifests and their subagents/workflows/<runId> transcripts by workflowPhase.
-func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowRun {
+func buildWorkflowRuns(sessionDir string, now time.Time, cwd string, scans *scanCache) []WorkflowRun {
 	manifests := workflowManifests(sessionDir)
 	runDirs := transcript.WorkflowRunDirs(sessionDir)
 	seen := map[string]bool{}
@@ -147,7 +163,7 @@ func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowR
 			return
 		}
 		seen[runID] = true
-		runs = append(runs, buildOneWorkflowRun(sessionDir, runID, manifests[runID], now, cwd))
+		runs = append(runs, buildOneWorkflowRun(sessionDir, runID, manifests[runID], now, cwd, scans))
 	}
 	for id := range manifests {
 		addRun(id)
@@ -165,7 +181,7 @@ func buildWorkflowRuns(sessionDir string, now time.Time, cwd string) []WorkflowR
 }
 
 // buildOneWorkflowRun folds a run manifest (maybe absent) with its transcripts by phase; the journal sets status.
-func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time, cwd string) WorkflowRun {
+func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time.Time, cwd string, scans *scanCache) WorkflowRun {
 	run := WorkflowRun{ID: runID, Name: runID}
 	if m != nil {
 		run.Name = cmp.Or(m.name(), runID)
@@ -178,9 +194,9 @@ func buildOneWorkflowRun(sessionDir, runID string, m *workflowManifest, now time
 	byPhase := map[string]*WorkflowPhase{}
 	var order []string
 	for _, f := range files {
-		sub := buildSubagent(f, now, cwd)
+		sub := buildSubagent(f, now, cwd, scans)
 		sub = applyJournalEntry(sub, journal[sub.ID])
-		phaseName := cmp.Or(transcript.WorkflowPhaseFromMeta(f, io.Discard), "(none)")
+		phaseName := cmp.Or(sub.Phase, "(none)")
 		phase := byPhase[phaseName]
 		if phase == nil {
 			phase = &WorkflowPhase{Name: phaseName}

@@ -1,5 +1,6 @@
 # Reviewable registry: name | kind | version | glob (relative to the config dir) | owner | clean:<target>|keep
 # A change here is a change to the on-disk contract; regenerate with: go test ./internal/cli -run Golden -update
+# legacy-layout: agents-tree-scan
 # legacy-layout: agentversion
 # legacy-layout: audit
 # legacy-layout: claims
@@ -28,6 +29,7 @@
 # legacy-layout: vault
 # legacy-layout: vendor-baseline
 # legacy-layout: worktree-merge-op
+agents-tree-scan | cache | 1 | state/harness/cache/agents-tree-scan.json | internal/agent/tree | keep
 agentversion | cache | 1 | state/harness/agentversion.json | internal/agent/tools | keep
 ask-envelope | wire | 1 | - | internal/agent/wire | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
