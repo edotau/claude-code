@@ -239,12 +239,12 @@ func storeHookFile(path string) string {
 	return filepath.Base(path)
 }
 
-// The generated MEMORY.md region: its pointer lines are never counted or moved; reserved 40 lines / 4 KB with markers.
+// The generated MEMORY.md region: its pointer lines are never counted or moved; reserved 20 lines / 2 KB with markers.
 const (
 	bankRegionBegin    = "<!-- bank:begin"
 	bankRegionEnd      = "<!-- bank:end -->"
-	bankRegionMaxLines = 40
-	bankRegionMaxBytes = 4 * 1024
+	bankRegionMaxLines = 20
+	bankRegionMaxBytes = 2 * 1024
 )
 
 // errBankRegion marks a MEMORY.md whose generated region cannot be located safely: a diagnostic, never a guess.
