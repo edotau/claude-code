@@ -90,7 +90,7 @@ func (s *fallbackState) attach(res wire.Result) wire.Result {
 
 // chainOutcome folds every failed hop into err and marks res a fallback when another step than the requested answered.
 func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
-	if err != nil && !stopped && len(reasons) > 0 && (hopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
+	if err != nil && !stopped && len(reasons) > 0 && (HopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.leadFallsBack() { // a different agent, route or the pin is a fallback
@@ -288,7 +288,7 @@ func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if errors.As(err, &ae) && (ae.AuthReason != "" || ae.Terminal) && res.Answer == "" {
 		return true
 	}
-	return fallsThrough(r) && hopFailed(res, err)
+	return fallsThrough(r) && HopFailed(res, err)
 }
 
 // fallsThrough: an external agent's failed hop moves on; claude's only inside overlay databricks:<p> (else never).
@@ -297,8 +297,8 @@ func fallsThrough(r Engine) bool {
 	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfile() != "")
 }
 
-// hopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
-func hopFailed(res wire.Result, err error) bool {
+// HopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
+func HopFailed(res wire.Result, err error) bool {
 	if err == nil || res.Answer != "" || requestFault(err) {
 		return false
 	}

@@ -78,6 +78,7 @@ type askRun struct {
 	state       *askState
 	perms       agent.Permissions
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
+	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
 }
 
 // Run is `agents ask`; resume makes the first positional the session id, verb names the `<verb> ask` page -h prints.
@@ -232,14 +233,14 @@ func (r *askRun) checkArm() (int, bool) {
 	if err != nil {
 		return r.fail(err, 2)
 	}
-	batchLines := f.batchSrc != "" && r.ov.Provider != router.RouteDatabricks // confineLine does each line's agent
-	agentName := r.ag
-	if batchLines {
-		agentName = ""
-	}
+	agentName, batchLines := confineAgent(r.ov, f, r.ag)
+	picks := armAutoPick(value)
 	// exported here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the env
 	if err := ApplyCoworker(value, f.provider, agentName, f.model, f.fallback); err != nil {
 		return r.fail(err, ApplyCode(err))
+	}
+	if picks {
+		r.auto = router.ArmProfile()
 	}
 	if err := cmp.Or(checkNative(f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
@@ -248,6 +249,14 @@ func (r *askRun) checkArm() (int, bool) {
 		r.confined = confineLead(r.ag, f) || r.confined
 	}
 	return 0, false
+}
+
+// confineAgent is the agent the confinement is applied for ("" when each batch line confines its own), and that flag.
+func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool) {
+	if f.batchSrc != "" && ov.Provider != router.RouteDatabricks { // confineLine does each line's agent
+		return "", true
+	}
+	return ag, false
 }
 
 // ApplyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
@@ -473,7 +482,11 @@ func (r *askRun) execute() int {
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
-	return askPrepareAndRun(ctx, r.fs, r.request(prompt), r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native)
+	req, run := r.request(prompt), askRunner(nil)
+	if a := r.armRun(); a != nil {
+		req, run = a.probe(req), a.run
+	}
+	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native, run)
 }
 
 // readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
@@ -494,9 +507,9 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	return o
 }
 
-// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it and reports.
+// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it (run, else once) and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, name string, background, native bool) int {
+	env, keepEnv []string, as, format, name string, background, native bool, run askRunner) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
@@ -508,21 +521,30 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
-	for _, l := range prepared.Chain.Preflight.Lines() {
-		fmt.Fprintln(os.Stderr, "preflight:", l)
-	}
-	cl.Notify = quietPrinted(cl.Notify, prepared.Chain.Preflight)
-	saveErr := prepared.Record.Save()
-	if saveErr != nil && !background {
-		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", saveErr)
-	}
+	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		if saveErr != nil { // the --job child loads this record: without it the job could never start
 			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
 		}
 		return askSpawn(fs, prepared, native, format, name)
 	}
+	if run != nil {
+		return run(ctx, cl, prepared, req)
+	}
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format)
+}
+
+// startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.
+func startPrepared(cl *agent.Client, p *agent.Prepared, background bool) error {
+	for _, l := range p.Chain.Preflight.Lines() {
+		fmt.Fprintln(os.Stderr, "preflight:", l)
+	}
+	cl.Notify = quietPrinted(cl.Notify, p.Chain.Preflight)
+	err := p.Record.Save()
+	if err != nil && !background {
+		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", err)
+	}
+	return err
 }
 
 // quietPrinted drops the skip entries notify would repeat after pf's preflight: lines; other messages pass.
@@ -617,38 +639,6 @@ func absDebugFile(p string) string {
 	return p
 }
 
-// runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, isJob bool, format string) int {
-	opts := agent.RunRecordedOpts{Job: isJob}
-	if isJob && format == helptext.Text {
-		opts.AnswerTo = os.Stdout // a --job child's stdout is the log: the full answer lands once at the end
-	}
-	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
-	writeErr := reportAskResult(format, res, err)
-	refused := p.Chain.Preflight != nil && len(p.Chain.Preflight.Failed) > 0
-	for _, line := range askTrailer(format, res, refused) {
-		if line != "" {
-			fmt.Fprintln(os.Stderr, "ask:", line)
-		}
-	}
-	if err := cmp.Or(err, writeErr); err != nil {
-		return helptext.Fail("ask: %v", err)
-	}
-	return 0
-}
-
-// askTrailer is the stderr lines after a dispatch; the json envelope already carries ran_on and dispatch_id.
-func askTrailer(format string, res wire.Result, refused bool) []string {
-	lines := []string{wire.RanOn(res), "", "dispatch " + res.DispatchID}
-	if format == helptext.JSON {
-		lines[0], lines[2] = "", ""
-	}
-	if !refused { // a refusal's preflight: line named the reason
-		lines[1] = wire.DidNotRun(res)
-	}
-	return lines
-}
-
 // stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func stdoutSink(format, dispatchID string) wire.Sink {
 	switch format {
@@ -721,27 +711,6 @@ func printAskFailure(format, agentName string, err error) {
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
 	}
-}
-
-// reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
-func reportAskResult(format string, res wire.Result, err error) error {
-	for _, d := range res.Dropped {
-		if d == "--read-only (tools off)" {
-			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "ask: %s has no channel on the %s agent — dropped\n", d, res.Agent)
-	}
-	if format == helptext.JSON {
-		return agent.WriteJSONLine(os.Stdout, wire.NewEnvelope(res, err, res.DispatchID))
-	}
-	if format == agent.FormatStreamJSON {
-		return nil // the result event already carried the envelope
-	}
-	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
-		fmt.Println()
-	}
-	return nil
 }
 
 // The terminal and sign-in UI the agent package calls but does not import.

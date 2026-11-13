@@ -115,6 +115,50 @@ func TestPickArm(t *testing.T) {
 	}
 }
 
+// pickArm outside tried never returns a tried workspace, and none left is an error.
+func TestPickArmExcludesTried(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	for _, n := range []string{"dev", "prod", "qa"} {
+		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	origFindings, origCooling, origLive := armFindings, armCooling, armLive
+	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
+	armFindings = noCredential(nil)
+	armCooling = func(*providers.Provider, time.Time) bool { return false }
+	armLive = func([]*providers.Provider) map[string]int { return nil }
+	var tried []string
+	for _, want := range []string{"dev", "prod", "qa"} {
+		got, _, _, err := pickArm(reg, "", "", time.Now(), tried...)
+		if err != nil || got != want {
+			t.Fatalf("pickArm outside %v = %q, %v; want %q", tried, got, err, want)
+		}
+		tried = append(tried, got)
+	}
+	if got, _, _, err := pickArm(reg, "", "", time.Now(), tried...); err == nil {
+		t.Fatalf("pickArm with every workspace tried = %q, want an error", got)
+	}
+}
+
+// BenchmarkPickArmExcluding is the hot path a 429 adds: one pick outside the workspaces already tried.
+func BenchmarkPickArmExcluding(b *testing.B) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	for _, n := range []string{"dev", "prod", "qa"} {
+		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
+	}
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	origFindings, origCooling, origLive := armFindings, armCooling, armLive
+	b.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
+	armFindings = noCredential(nil)
+	armCooling = func(*providers.Provider, time.Time) bool { return false }
+	armLive = func([]*providers.Provider) map[string]int { return nil }
+	for b.Loop() {
+		if _, _, _, err := pickArm(reg, "", "", time.Now(), "dev"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // noCredential is an armFindings stub failing the credential check of each workspace in unusable.
 func noCredential(unusable []string) func(*providers.Provider, string, string, time.Time) []agent.Finding {
 	return func(p *providers.Provider, _, _ string, _ time.Time) []agent.Finding {
