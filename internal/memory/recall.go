@@ -162,11 +162,16 @@ func searchBanksTerms(root, query string, terms []string, k int) ([]SearchHit, [
 	corpus := corpusFiles(root)
 	files := append(corpus, routedFiles(root, query)...)
 	segs := loadSegments(files, true)
-	return rankFiles(terms, k, files, segs), files[:len(corpus)], segs[:len(corpus)]
+	return rankFiles(terms, k, files, segs), files, segs
 }
 
 // searchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
 func searchAll(query string, k int) []SearchHit {
+	files := allCorpusFiles()
+	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
+}
+
+func allCorpusFiles() []corpusFile {
 	files := corpusFiles(paths.ConfigDir())
 	if entries, err := RepoDirs(); err == nil {
 		for _, e := range entries {
@@ -175,7 +180,7 @@ func searchAll(query string, k int) []SearchHit {
 			}
 		}
 	}
-	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
+	return files
 }
 
 // SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
@@ -372,7 +377,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	var cands []SearchHit
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		if (h.Bank == "archive") != archived || isSupersededBlock(h.Block) {
+		if (h.Bank == "archive") != archived || (isSupersededBlock(h.Block) && !h.UnresolvedReplacement) {
 			continue
 		}
 		if topAny == 0 {

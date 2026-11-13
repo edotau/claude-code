@@ -93,3 +93,16 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 		t.Errorf("cached notice after the fix and an index = %q, want it cleared", notice)
 	}
 }
+
+// TestIndexSaysWhenThereIsNoStore: a repo without a bank dir gets a plain "no store" line, not "indexed <dir>".
+func TestIndexSaysWhenThereIsNoStore(t *testing.T) {
+	tempConfig(t)
+	root := gitRepo(t, canonTemp(t, t.TempDir()), "bare")
+	var out bytes.Buffer
+	if err := Index(&out, &bytes.Buffer{}, IndexOptions{Repo: root}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); strings.Contains(got, "indexed ") || !strings.Contains(got, "no store") || !strings.Contains(got, "memory init") {
+		t.Fatalf("index output = %q; want a no-store line naming `memory init`", got)
+	}
+}

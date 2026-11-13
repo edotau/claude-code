@@ -36,13 +36,14 @@ var stopwords = map[string]bool{
 
 // SearchHit is one matching bank block.
 type SearchHit struct {
-	Score   float64 `json:"score"`
-	Matched int     `json:"matched"` // distinct query terms the block contains
-	Bank    string  `json:"bank"`    // local | home | archive | native
-	File    string  `json:"file"`
-	Block   string  `json:"block"`
-	ID      string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
-	Dir     string  `json:"-"`
+	UnresolvedReplacement bool    `json:"unresolvedReplacement,omitempty"`
+	Score                 float64 `json:"score"`
+	Matched               int     `json:"matched"` // distinct query terms the block contains
+	Bank                  string  `json:"bank"`    // local | home | archive | native
+	File                  string  `json:"file"`
+	Block                 string  `json:"block"`
+	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
+	Dir                   string  `json:"-"`
 }
 
 // Title is the hit's first line, marker-stripped and truncated.
@@ -106,9 +107,12 @@ var (
 	}
 )
 
-// isSupersededTitle reports a struck-out or SUPERSEDED title line.
+// isSupersededTitle reports a fully struck-out or SUPERSEDED title line; a partly struck one is still live.
 func isSupersededTitle(first string) bool {
-	return strings.Contains(first, "~~") || strings.Contains(first, "SUPERSEDED")
+	if strings.Contains(first, "SUPERSEDED") {
+		return true
+	}
+	return strings.Contains(first, "~~") && !partlyStruck(first)
 }
 
 // ReplacedBy is the id of the entry that replaced h's block, "" when it is live or struck without a pointer.
