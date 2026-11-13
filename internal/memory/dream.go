@@ -236,9 +236,16 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	defer cancel()
 	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
 	start := time.Now()
+	var blocks int
+	ctx = context.WithValue(ctx, gateBlocksKey{}, &blocks)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory dream: ran on", who)
 	if err == nil && len(changed) > 0 && len(dreamChanged(o.CWD, start)) == 0 {
+		if blocks > 0 { // refused, not idle: fail so the stamp backdates and the dream retries
+			err = fmt.Errorf("the gate refused %d call(s) and no bank file was edited; the dream will retry", blocks)
+			fmt.Fprintln(o.Out, "memory dream:", err)
+			return err, archiveErr
+		}
 		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
 	}
 	return err, archiveErr

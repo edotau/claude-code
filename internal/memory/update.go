@@ -446,6 +446,15 @@ func ChildEnv(ctx context.Context) []string {
 	return env
 }
 
+type gateBlocksKey struct{}
+
+// NoteGateBlocks reports to the job how many tool calls the gate refused; a no-op when the job did not ask.
+func NoteGateBlocks(ctx context.Context, n int) {
+	if p, ok := ctx.Value(gateBlocksKey{}).(*int); ok {
+		*p = n
+	}
+}
+
 // BankScope is what the job's agent may write (path globs) and run (Bash patterns); dream also edits every repo store.
 func BankScope(ctx context.Context, workdir string) (write, bash []string) {
 	if slices.Contains(ChildEnv(ctx), dreamChildEnv+"=1") {

@@ -784,6 +784,7 @@ func MemoryRunner() memory.AgentFunc {
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback
 		}
+		memory.NoteGateBlocks(ctx, res.GateBlocks)
 		return who, err
 	}
 }

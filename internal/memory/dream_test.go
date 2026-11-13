@@ -49,6 +49,50 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	}
 }
 
+// A dream whose every tool call the gate refused, with changed files left unedited, is a failed run that retries.
+func TestDreamGateRefusalsWithoutEditsStampForRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		blocks       int
+		edit, failed bool
+	}{
+		{"blocked and nothing edited", 2, false, true},
+		{"blocked then edited", 2, true, false},
+		{"nothing to merge", 0, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolatedConfig(t)
+			t.Setenv(UpdateChildEnv, "")
+			t.Setenv(dreamChildEnv, "")
+			root := repoRoot(t, "proj")
+			if _, err := Init(root); err != nil {
+				t.Fatal(err)
+			}
+			old := time.Now().Add(-48 * time.Hour)
+			if err := os.Chtimes(filepath.Join(Dir(root), "conventions.md"), old, old); err != nil {
+				t.Fatal(err)
+			}
+			run := func(ctx context.Context, _, _ string) (string, error) {
+				NoteGateBlocks(ctx, tc.blocks)
+				if tc.edit {
+					write(t, filepath.Join(Dir(root), "conventions.md"), templates()["conventions.md"]+"\n- merged\n")
+				}
+				return "stub", nil
+			}
+			err := dream(dreamOptions{CWD: root, Run: run})
+			if (err != nil) != tc.failed {
+				t.Fatalf("dream error = %v, want failure %v", err, tc.failed)
+			}
+			if _, failed, ok := dreamStamp(root); !ok || failed != tc.failed {
+				t.Errorf("stamp failed = %v (present %v), want %v", failed, ok, tc.failed)
+			}
+			if due := dreamDue(root, time.Now().Add(dreamRetry+time.Minute)); due != tc.failed {
+				t.Errorf("dreamDue after the retry wait = %v, want %v", due, tc.failed)
+			}
+		})
+	}
+}
+
 // TestPreviewDreamReadsEachBankFileOnce: the cap, archive and rotation previews share one read per typed file.
 func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 	isolatedConfig(t)
