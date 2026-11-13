@@ -904,16 +904,21 @@ func TestCrossCallerAgreeEnvWinsButGetPrefersVault(t *testing.T) {
 func TestRunAuthCommandTimeoutKillsDescendants(t *testing.T) {
 	skipOffUnix(t)
 	old := authCommandTimeout
-	authCommandTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { authCommandTimeout = old })
 	pidfile := filepath.Join(t.TempDir(), "child.pid")
-	_, err := runAuthCommand(context.Background(), &Provider{Name: "slow"}, "sleep 60 & echo $! > "+pidfile+"; sleep 60")
-	if err == nil {
-		t.Fatal("a command that outlives the timeout must fail")
+	var raw []byte
+	var err error
+	// A slow start can eat a short timeout before the pidfile exists: retry with a 3x longer one.
+	for timeout := 300 * time.Millisecond; len(raw) == 0 && timeout < 5*time.Second; timeout *= 3 {
+		authCommandTimeout = timeout
+		_, err = runAuthCommand(context.Background(), &Provider{Name: "slow"}, "sleep 60 & echo $! > "+pidfile+"; sleep 60")
+		if err == nil {
+			t.Fatal("a command that outlives the timeout must fail")
+		}
+		raw, _ = os.ReadFile(pidfile)
 	}
-	raw, rerr := os.ReadFile(pidfile)
-	if rerr != nil {
-		t.Fatalf("the descendant never started: %v", rerr)
+	if len(raw) == 0 {
+		t.Fatal("the descendant never started")
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { killPID(pid) })

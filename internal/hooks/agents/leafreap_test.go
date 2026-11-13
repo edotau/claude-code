@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// sleeper starts `sh -c 'sleep 30'` in its own process group writing to out; done closes once it is reaped.
+// sleeper starts `sh -c 'exec sleep 30'` in its own process group writing to out; done closes once it is reaped.
 func sleeper(t *testing.T, out string) <-chan struct{} {
 	t.Helper()
 	f, err := os.Create(out)
@@ -27,7 +27,7 @@ func sleeper(t *testing.T, out string) <-chan struct{} {
 	}
 	t.Cleanup(func() { f.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "sh", "-c", "sleep 30")
+	cmd := exec.CommandContext(ctx, "sh", "-c", "exec sleep 30")
 	cmd.Stdout, cmd.Stderr = f, f
 	proc.OwnGroup(cmd) // cancel kills the whole group
 	if err := cmd.Start(); err != nil {
@@ -66,7 +66,6 @@ func reapFixture(t *testing.T, extra ...string) (stop string, a, b <-chan struct
 	result := "Command running in background with ID: bAAA. Output is being written to: " + outA + ". You will be notified"
 	tx := leafEnv(t, append([]string{result}, extra...)...)
 	a, b = sleeper(t, outA), sleeper(t, filepath.Join(dir, "bBBB.output"))
-	time.Sleep(200 * time.Millisecond) // let sh exec before the fd scan
 	return fmt.Sprintf(`{"agent_id":"a1","transcript_path":%q,"agent_transcript_path":%q}`, tx, tx), a, b
 }
 

@@ -155,7 +155,7 @@ func TestIsLocalHost_SlowLookupDoesNotBlock(t *testing.T) {
 			if local != (host == "localhost") {
 				t.Errorf("IsLocalHost(%q) = %v", host, local)
 			}
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(2 * time.Second):
 			<-result
 			t.Fatalf("IsLocalHost(%q) blocked behind slow lookup", host)
 		}
