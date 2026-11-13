@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -50,7 +50,7 @@ func ApplyCoworker(value, profile, agentName, model, fallback string) error {
 
 // exportConfinement sets $COWORKER_OVERLAY to provider[:p] alone: the router and nested dispatches read it there.
 func exportConfinement(provider, p string) error {
-	return os.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, p))
+	return proc.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, p))
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -142,7 +142,7 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 	if err := exportConfinement(router.RouteDatabricks, p); err != nil {
 		return err
 	}
-	return os.Setenv(providers.EnvSessionProfile, p)
+	return proc.Setenv(providers.EnvSessionProfile, p)
 }
 
 // armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.
@@ -297,22 +297,6 @@ func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tr
 	return name, live, skipped, nil
 }
 
-// armCandidates splits reg's Databricks workspaces (no AI Gateway row, none in tried) into those passing armFindings and the rest.
-func armCandidates(reg *providers.Registry, agentName, model string, now time.Time, tried []string) (usable []*providers.Provider, skipped []agent.Finding) {
-	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
-		p := reg.Providers[n]
-		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() || slices.Contains(tried, n) {
-			continue
-		}
-		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {
-			skipped = append(skipped, fs[0])
-			continue
-		}
-		usable = append(usable, p)
-	}
-	return usable, skipped
-}
-
 // rank orders false before true.
 func rank(b bool) int {
 	if b {
@@ -451,7 +435,7 @@ func overlayEgress(h string) error {
 	if cur := egress.Host(); cur != "" && cur != h {
 		return fmt.Errorf("overlay remote %s: requests already leave through %s", h, cur)
 	}
-	return os.Setenv(egress.EnvHost, h)
+	return proc.Setenv(egress.EnvHost, h)
 }
 
 // carryOverlay re-exports the loaded document for --job relaunches as JSON, its remote and confinement resolved.
@@ -468,5 +452,5 @@ func carryOverlay(ov agentconfig.Overlay) error {
 	if err != nil {
 		return err
 	}
-	return os.Setenv(agentconfig.OverlayVar, string(doc))
+	return proc.Setenv(agentconfig.OverlayVar, string(doc))
 }

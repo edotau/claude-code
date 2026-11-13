@@ -125,6 +125,9 @@ func Scan(in *core.Input) core.Result {
 	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg)}
 }
 
+// Verdict is safety-scan's decision for in with no audit entry or warning, for the doctor permissions report.
+func Verdict(in *core.Input) core.Decision { d, _, _ := safetyVerdict(in); return d }
+
 // safetyVerdict checks all block patterns before considering any ask pattern.
 func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {

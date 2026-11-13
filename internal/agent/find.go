@@ -46,7 +46,7 @@ type FindReport struct {
 	More    int         `json:"more"`
 }
 
-// Find returns 0 for matches, 1 for no matches, and 2 for invalid input or search errors.
+// Find returns 0 for matches, 1 for none, 2 for usage errors; unparseable .go files are skipped and listed on Err.
 func Find(o FindOptions) int {
 	rep, err := findReport(o)
 	if err == nil {
@@ -110,6 +110,10 @@ func findReport(o FindOptions) (FindReport, error) {
 		batch := files[start:min(start+findWorkers, len(files))]
 		rows, errs := findBatch(root, batch, o, re)
 		for i, matches := range rows {
+			if skip, ok := errors.AsType[*findSkip](errs[i]); ok {
+				fmt.Fprintf(o.Err, "find: skipped %s: %v\n", batch[i], skip.error)
+				continue
+			}
 			if errs[i] != nil {
 				return rep, fmt.Errorf("%s: %w", batch[i], errs[i])
 			}
@@ -192,26 +196,26 @@ func findContent(p string, data []byte, o FindOptions, re *regexp.Regexp) []Find
 	return matches
 }
 
+// readFindTracked reads p through os.Root, so a symlinked parent leaving the repo is skipped like a missing file.
 func readFindTracked(root, p string) ([]byte, error) {
-	full := filepath.Join(root, filepath.FromSlash(p))
-	st, err := os.Lstat(full)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	r, err := os.OpenRoot(root)
 	if err != nil {
 		return nil, err
 	}
-	if !st.Mode().IsRegular() || st.Size() > findFileLimit {
+	defer r.Close()
+	rel := filepath.FromSlash(p)
+	st, err := r.Lstat(rel)
+	if err != nil || !st.Mode().IsRegular() || st.Size() > findFileLimit {
 		return nil, nil
 	}
-	return readFindFile(full)
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, nil
+	}
+	return readFindFile(f)
 }
 
-func readFindFile(full string) ([]byte, error) {
-	f, err := os.Open(full)
-	if err != nil {
-		return nil, err
-	}
+func readFindFile(f *os.File) ([]byte, error) {
 	data, readErr := io.ReadAll(io.LimitReader(f, findFileLimit+1))
 	closeErr := f.Close()
 	if readErr != nil {

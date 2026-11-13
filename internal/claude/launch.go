@@ -168,7 +168,7 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
-	base := strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))
+	base := gateway.UntaggedBase(strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
 	inherited := inheritedBase(base, own)
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -13,23 +14,24 @@ import (
 )
 
 // runAskAndReport executes one prepared foreground dispatch and reports its outcome.
-func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, isJob bool, format string) int {
-	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), jobOpts(isJob, format))
-	return reportAsk(format, p, res, err)
+func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepared, isJob bool, format string,
+	out io.Writer) int {
+	res, err := client.Exec(ctx, p, sinkTo(out, format, p.Record.ID), jobOpts(isJob, format, out))
+	return reportAsk(out, format, p, res, err)
 }
 
 // jobOpts is the recorded-run options of a foreground ask; a --job child's stdout is the log, so the answer lands once.
-func jobOpts(isJob bool, format string) agent.RunRecordedOpts {
+func jobOpts(isJob bool, format string, out io.Writer) agent.RunRecordedOpts {
 	opts := agent.RunRecordedOpts{Job: isJob}
 	if isJob && format == helptext.Text {
-		opts.AnswerTo = os.Stdout
+		opts.AnswerTo = out
 	}
 	return opts
 }
 
 // reportAsk prints one finished dispatch: its answer or envelope, then the stderr trailer; the exit code.
-func reportAsk(format string, p *agent.Prepared, res wire.Result, err error) int {
-	writeErr := reportAskResult(format, res, err)
+func reportAsk(out io.Writer, format string, p *agent.Prepared, res wire.Result, err error) int {
+	writeErr := reportAskResult(out, format, res, err)
 	refused := p.Chain.Preflight != nil && len(p.Chain.Preflight.Failed) > 0
 	for _, line := range askTrailer(format, res, refused) {
 		if line != "" {
@@ -55,7 +57,7 @@ func askTrailer(format string, res wire.Result, refused bool) []string {
 }
 
 // reportAskResult prints the outcome; it returns the stdout write error of the json envelope, else nil.
-func reportAskResult(format string, res wire.Result, err error) error {
+func reportAskResult(out io.Writer, format string, res wire.Result, err error) error {
 	for _, d := range res.Dropped {
 		if d == "--read-only (tools off)" {
 			fmt.Fprintf(os.Stderr, "ask: the %s agent runs with tools off (read-only sandbox where it has one)\n", res.Agent)
@@ -66,13 +68,14 @@ func reportAskResult(format string, res wire.Result, err error) error {
 	if format == helptext.JSON {
 		env := wire.NewEnvelope(res, err, res.DispatchID)
 		env.RanOn = ranOn(res)
-		return agent.WriteJSONLine(os.Stdout, env)
+		return agent.WriteJSONLine(out, env)
 	}
 	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
-		fmt.Println()
+		_, werr := fmt.Fprintln(out)
+		return werr
 	}
 	return nil
 }

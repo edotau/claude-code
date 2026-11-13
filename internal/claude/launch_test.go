@@ -402,6 +402,17 @@ func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 	}
 }
 
+// TestKeepShellEndpointDispatchTaggedBase: a launch under a /d/<id>-tagged parent base keeps its proxy credential.
+func TestKeepShellEndpointDispatchTaggedBase(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/d/20261113T222949.044-claude/p/dev")
+	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
+		Argv: []string{"--settings", "/tmp/ov.json"}}
+	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	if plan.ForeignBase || len(plan.Files) == 0 || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
+		t.Errorf("tagged parent base read as foreign: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
+	}
+}
+
 // TestKeepShellEndpointOtherPortProxyBase: a loopback /p/ base on another port is the user's override, not inherited.
 func TestKeepShellEndpointOtherPortProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9999/p/prod")

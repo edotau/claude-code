@@ -1,8 +1,12 @@
 package ask
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +20,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // armRateFixture is armChildEnvFixture with a codex fake that answers 429 for each workspace in limited, 402 for
@@ -242,5 +249,180 @@ func TestAutoProbeFailureAppliesFallbackPolicyOnSameWorkspace(t *testing.T) {
 		if w == "qa" {
 			t.Errorf("launches %v: a 402 moved to qa", launchedOn(t, dump))
 		}
+	}
+}
+
+// With stream JSON a moved ask emits ONE result event, the final success, never a failed attempt's.
+func TestAutoRateLimitStreamJSONEmitsOneResult(t *testing.T) {
+	armRateFixture(t, []string{"dev"}, nil)
+	ov := `{"provider":"databricks","profile":"auto","fallback":"none"}`
+	_, out, stderr := runCLI(t, "ask", "--agent", "codex", "--overlay", ov, "--format", "stream-json", "go")
+	var results []wire.Event
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var ev wire.Event
+		if json.Unmarshal([]byte(line), &ev) == nil && ev.Type == wire.EventResult {
+			results = append(results, ev)
+		}
+	}
+	if len(results) != 1 || results[0].Status != wire.StatusOK || !strings.Contains(results[0].Envelope.RanOn, "tried dev → qa") {
+		t.Errorf("result events %+v, want one ok result naming dev → qa\n%s\n%s", results, out, stderr)
+	}
+}
+
+// A --job run that moves workspaces keeps ONE record: the published id ends ok with every attempt as a hop.
+func TestJobRetryKeepsOneRecord(t *testing.T) {
+	armRateFixture(t, []string{"dev"}, nil)
+	cl := newClient()
+	a := &armRetry{agentName: "codex", fallback: router.FallbackNone, format: helptext.Text, out: &bytes.Buffer{}, job: true,
+		tried: []string{"dev"}}
+	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+	p, err := a.prepare(t.Context(), cl, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Record.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if code := a.run(t.Context(), cl, p, req); code != 0 {
+		t.Fatalf("run exit %d, want 0", code)
+	}
+	rec, err := agent.LoadRecord(p.Record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := rec.ResultEnvelope(&bytes.Buffer{})
+	var hops []string
+	for _, h := range env.Hops {
+		hops = append(hops, h.Profile)
+	}
+	if rec.Status != "ok" || env.Status != wire.StatusOK || strings.Join(hops, ",") != "dev,qa" {
+		t.Errorf("published record %s status %q, result %q, hops %v; want ok, ok, dev,qa", rec.ID, rec.Status, env.Status, hops)
+	}
+	if n := len(agent.RecentRecords(agent.AllRecords)); n != 1 {
+		t.Errorf("%d dispatch records, want the one published id", n)
+	}
+}
+
+// holdArm runs an attempt on arm that stays inside the gate until the returned release (also run at cleanup).
+func holdArm(t *testing.T, arm string) (release func()) {
+	t.Helper()
+	started, done := make(chan struct{}), make(chan struct{})
+	go (&armRetry{tried: []string{arm}}).exec(t.Context(), nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
+		close(started)
+		<-done
+		return wire.Result{}, nil
+	})
+	<-started
+	var once sync.Once
+	release = func() { once.Do(func() { close(done) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// A leg waiting at the gate for another workspace leaves with ctx's error instead of waiting for the holder.
+func TestArmGateCancelledWaiterLeaves(t *testing.T) {
+	armRateFixture(t, nil, nil)
+	holdArm(t, "dev")
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	var ran bool // written before the res send, read after the receive
+	res := make(chan error, 1)
+	go func() {
+		_, err := (&armRetry{tried: []string{"qa"}}).exec(ctx, nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
+			ran = true
+			return wire.Result{}, nil
+		})
+		res <- err
+	}()
+	select {
+	case err := <-res:
+		if !errors.Is(err, context.DeadlineExceeded) || ran {
+			t.Errorf("waiter err %v ran %v, want the deadline error and no run", err, ran)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled waiter still blocked at the gate")
+	}
+}
+
+// The gate's edges: no legs, one leg, a leg re-entering its own workspace, and a context cancelled before it joins.
+func TestArmGateEdges(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	t.Setenv(agentconfig.OverlayVar, "")
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	live, stop := context.WithTimeout(t.Context(), 2*time.Second) // a deadlocked entry fails here instead of hanging
+	defer stop()
+	for _, c := range []struct {
+		name    string
+		ctx     context.Context
+		arms    []string
+		wantN   int
+		wantArm string
+		wantErr bool
+	}{
+		{"no legs", live, nil, 0, "", false},
+		{"one leg", live, []string{"dev"}, 1, "dev", false},
+		{"re-entering its own workspace", live, []string{"dev", "dev"}, 2, "dev", false},
+		{"cancelled before joining", cancelled, []string{"dev"}, 0, "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(providers.EnvSessionProfile, "")
+			var err error
+			for _, arm := range c.arms {
+				if err = enterArm(c.ctx, arm); err != nil {
+					break
+				}
+			}
+			n, queued := gateState()
+			arm := os.Getenv(providers.EnvSessionProfile)
+			for range n {
+				leaveArm()
+			}
+			if got := fmt.Sprint(n, queued, arm, err != nil); got != fmt.Sprint(c.wantN, 0, c.wantArm, c.wantErr) {
+				t.Errorf("entered/queued/arm/failed = %s, want %d 0 %q %v (err %v)", got, c.wantN, c.wantArm, c.wantErr, err)
+			}
+		})
+	}
+	if n, queued := gateState(); n != 0 || queued != 0 {
+		t.Errorf("gate left at n=%d queue=%d, want idle", n, queued)
+	}
+}
+
+// gateState is how many legs the arm gate holds and how many wait at it.
+func gateState() (n, queued int) {
+	armGate.cond.L.Lock()
+	defer armGate.cond.L.Unlock()
+	return armGate.n, len(armGate.queue)
+}
+
+// Once another workspace waits, a new same-workspace leg queues behind it instead of joining the holders.
+func TestArmGateWaitingWorkspaceIsNotStarved(t *testing.T) {
+	armRateFixture(t, nil, nil)
+	release := holdArm(t, "dev")
+	var mu sync.Mutex
+	var order []string
+	var wg sync.WaitGroup
+	enter := func(arm string) {
+		wg.Go(func() {
+			_, _ = (&armRetry{tried: []string{arm}}).exec(t.Context(), nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
+				mu.Lock()
+				order = append(order, arm)
+				mu.Unlock()
+				return wire.Result{}, nil
+			})
+		})
+		time.Sleep(50 * time.Millisecond) // let it reach the gate before the next one starts
+	}
+	enter("qa")
+	enter("dev")
+	mu.Lock()
+	early := slices.Clone(order)
+	mu.Unlock()
+	release()
+	wg.Wait()
+	if len(early) != 0 || !slices.Equal(order, []string{"qa", "dev"}) {
+		t.Errorf("ran %v before release, %v overall; want none, then qa before dev", early, order)
 	}
 }

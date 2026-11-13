@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -36,8 +39,9 @@ func armAutoPick(value string) bool {
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.
 type armRetry struct {
 	agentName, model, fallback, format string
-	job                                bool     // a --job child: the answer also lands on stdout, the log
-	tried                              []string // the workspaces asked so far, in order
+	out                                io.Writer // where the answer and envelope go
+	job                                bool      // a --job child: the answer also lands on stdout, the log
+	tried                              []string  // the workspaces asked so far, in order
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -49,7 +53,7 @@ func (r *askRun) armRun() *armRetry {
 	if r.auto == "" || f.host != "" || f.background || f.live || f.session != "" {
 		return nil
 	}
-	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, job: r.jobRec != nil,
+	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, out: r.out, job: r.jobRec != nil,
 		tried: []string{r.auto}}
 }
 
@@ -63,14 +67,57 @@ func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 
 // run executes p, and while its failure is a 429 with another workspace left, re-runs req on the next pick.
 func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int {
-	opts := jobOpts(a.job, a.format)
+	opts := jobOpts(a.job, a.format, a.out)
+	attempt := opts
+	attempt.Hold = a.job // a job keeps one record: only the last attempt concludes it
+	var held *resultHold
 	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
-		return cl.Exec(ctx, p, stdoutSink(a.format, p.Record.ID), opts)
+		sink := sinkTo(a.out, a.format, p.Record.ID)
+		if a.format == agent.FormatStreamJSON {
+			held = &resultHold{Sink: sink}
+			sink = held
+		}
+		return cl.Exec(ctx, p, sink, attempt)
 	})
+	if a.job {
+		opts.Notify = cl.Notify
+		p.Record.Conclude(res, err, opts)
+	}
 	if prep, ok := errors.AsType[*prepareFailure](err); ok {
 		return failAskCode(a.format, a.agentName, prep.err, prepareExitCode(prep.err))
 	}
-	return reportAsk(a.format, p, res, err)
+	if held != nil {
+		a.emitFinal(held, p, res, err)
+	}
+	return reportAsk(a.out, a.format, p, res, err)
+}
+
+// resultHold keeps an attempt's result event back so only the last attempt's reaches the stream.
+type resultHold struct {
+	wire.Sink
+	ev *wire.Event
+}
+
+func (h *resultHold) Emit(ev wire.Event) error {
+	if ev.Type != wire.EventResult {
+		return h.Sink.Emit(ev)
+	}
+	h.ev = &ev
+	return nil
+}
+
+// emitFinal sends the one result event of a stream: the last attempt's own, or the aggregate once the run moved.
+func (a *armRetry) emitFinal(h *resultHold, p *agent.Prepared, res wire.Result, err error) {
+	ev := h.ev
+	if len(a.tried) > 1 || ev == nil {
+		env := wire.NewEnvelope(res, err, p.Record.ID)
+		env.RanOn = ranOn(res)
+		e := wire.ResultEvent(env)
+		ev = &e
+	}
+	if werr := h.Sink.Emit(*ev); werr != nil {
+		fmt.Fprintf(os.Stderr, "ask: result event not written to stdout: %v\n", werr)
+	}
 }
 
 // prepareFailure marks a Prepare error of a retry attempt, so the caller exits with Prepare's code.
@@ -95,11 +142,21 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 			return p, res, err
 		}
 		req = next
-		if p, err = a.prepare(ctx, cl, req); err != nil {
-			return p, res, &prepareFailure{err}
+		np, perr := a.prepare(ctx, cl, req, a.claimOf(p))
+		if perr != nil {
+			return p, res, &prepareFailure{perr}
 		}
+		p = np
 		_ = startPrepared(cl, p, false) // a failed save is warned about
 	}
+}
+
+// claimOf is the record the next attempt continues: a --job run keeps its one published record, the rest start anew.
+func (a *armRetry) claimOf(p *agent.Prepared) *agent.Record {
+	if !a.job {
+		return nil
+	}
+	return &p.Record
 }
 
 // next is the request for the attempt after a failed one (next workspace on a 429, else the skipped policy); false: final.
@@ -108,7 +165,7 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 		return req, false
 	}
 	if e, ok := errors.AsType[*retry.Error](err); ok && e.Kind == retry.KindRateLimit {
-		if moved, ok := a.move(req, e.RetryAfter); ok {
+		if moved, ok := a.move(ctx, req, e.RetryAfter); ok {
 			return moved, true
 		}
 	}
@@ -120,14 +177,14 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 }
 
 // move cools the workspace that answered 429 and exports the next pick; false when none is left.
-func (a *armRetry) move(req agent.RunOptions, retryAfter time.Duration) (agent.RunOptions, bool) {
+func (a *armRetry) move(ctx context.Context, req agent.RunOptions, retryAfter time.Duration) (agent.RunOptions, bool) {
 	cur := a.tried[len(a.tried)-1]
 	coolArm(cur, retryAfter)
-	if enterArm(cur) != nil { // the pick reads the process arm: hold it on this run's own workspace
+	if enterArm(ctx, cur) != nil { // the pick reads the process arm: hold it on this run's own workspace
 		return req, false
 	}
+	defer leaveArm()
 	name, more, err := nextArm(a.agentName, a.model, a.tried)
-	leaveArm()
 	if err != nil {
 		return req, false
 	}
@@ -176,19 +233,73 @@ func armsLeft(agentName, model string, tried []string) bool {
 	return len(usable) > 0
 }
 
-// armGate holds the process-wide arm steady: runs on one workspace share it, runs on another wait their turn.
+// armCandidates splits reg's Databricks workspaces (no gateway row, none in tried) by armFindings: usable, skipped.
+func armCandidates(reg *providers.Registry, agentName, model string, now time.Time, tried []string) (usable []*providers.Provider, skipped []agent.Finding) {
+	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
+		p := reg.Providers[n]
+		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() || slices.Contains(tried, n) {
+			continue
+		}
+		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {
+			skipped = append(skipped, fs[0])
+			continue
+		}
+		usable = append(usable, p)
+	}
+	return usable, skipped
+}
+
+// armGate holds the process-wide arm steady: runs on one workspace share it, runs on another wait their turn in order.
 var armGate = struct {
-	cond *sync.Cond
-	cur  string
-	n    int
+	cond  *sync.Cond
+	cur   string
+	n     int
+	queue []*armTicket // the entrants not yet in, oldest first
 }{cond: sync.NewCond(new(sync.Mutex))}
 
-// enterArm blocks until the process arm may be workspace arm, sets it and counts the caller in; pair with leaveArm.
-func enterArm(arm string) error {
+// armTicket is one waiting enterArm.
+type armTicket struct{ arm string }
+
+// canEnter reports whether t may join: the gate is idle or on its workspace, and no older waiter wants another one.
+func canEnter(t *armTicket) bool {
 	g := &armGate
+	if g.n > 0 && g.cur != t.arm {
+		return false
+	}
+	for _, w := range g.queue {
+		if w == t {
+			return true
+		}
+		if w.arm != t.arm {
+			return false
+		}
+	}
+	return true
+}
+
+// enterArm waits until the process arm may be arm (or ctx ends: ctx.Err()), sets it and counts in; pair with leaveArm.
+func enterArm(ctx context.Context, arm string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	g := &armGate
+	defer context.AfterFunc(ctx, func() {
+		g.cond.L.Lock()
+		g.cond.Broadcast()
+		g.cond.L.Unlock()
+	})()
 	g.cond.L.Lock()
 	defer g.cond.L.Unlock()
-	for g.n > 0 && g.cur != arm {
+	t := &armTicket{arm: arm}
+	g.queue = append(g.queue, t)
+	defer func() {
+		g.queue = slices.DeleteFunc(g.queue, func(w *armTicket) bool { return w == t })
+		g.cond.Broadcast()
+	}()
+	for !canEnter(t) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		g.cond.Wait()
 	}
 	if g.n == 0 {
@@ -214,18 +325,19 @@ func leaveArm() {
 func (a *armRetry) current() string { return a.tried[len(a.tried)-1] }
 
 // prepare is cl.Prepare with the process arm held on this run's current workspace.
-func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions) (*agent.Prepared, error) {
-	if err := enterArm(a.current()); err != nil {
+func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions,
+	claim *agent.Record) (*agent.Prepared, error) {
+	if err := enterArm(ctx, a.current()); err != nil {
 		return nil, err
 	}
 	defer leaveArm()
-	return cl.Prepare(ctx, req, nil)
+	return cl.Prepare(ctx, req, claim)
 }
 
 // exec is one attempt with the process arm held on this run's current workspace.
 func (a *armRetry) exec(ctx context.Context, p *agent.Prepared,
 	run func(context.Context, *agent.Prepared) (wire.Result, error)) (wire.Result, error) {
-	if err := enterArm(a.current()); err != nil {
+	if err := enterArm(ctx, a.current()); err != nil {
 		return wire.Result{Agent: a.agentName, Status: wire.StatusError}, err
 	}
 	defer leaveArm()
@@ -237,7 +349,7 @@ func setArm(name string) error {
 	if err := exportConfinement(router.RouteDatabricks, name); err != nil {
 		return err
 	}
-	return os.Setenv(providers.EnvSessionProfile, name)
+	return proc.Setenv(providers.EnvSessionProfile, name)
 }
 
 // ranOn is wire.RanOn plus " · tried a → b" when a run moved across Databricks workspaces.

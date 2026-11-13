@@ -516,7 +516,10 @@ func renderedMatch(t *testing.T, agent string, s settings.EventSpec, tool string
 	m := s.Matcher
 	switch agent {
 	case core.AgentGemini:
-		m = "run_command|read_file|write_file|edit_file" // gemini/hooks.go agyGateMatcher (unexported)
+		m = "run_command|read_file|write_file|edit_file" // gemini/settings.go agyGateMatcher (unexported)
+		if s.Matcher == "Bash" {
+			m = "run_command" // agyShellMatcher
+		}
 	case core.AgentCopilot:
 		m = renderedMatcher(t, copilot.CopilotJSON, s.Name)
 	case core.AgentCodex:

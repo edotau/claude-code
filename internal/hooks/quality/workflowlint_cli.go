@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -221,17 +222,8 @@ var pinKeys = []string{"model", "effort"}
 
 // pinAllowed is the allow-list per pin key; an unknown value silently falls back to the session tier, so it is a hit.
 var pinAllowed = map[string]map[string]bool{
-	"model":  setOf(stepClaudeModels),
-	"effort": setOf(agentid.EffortNames()),
-}
-
-// setOf is the list as a set.
-func setOf(list []string) map[string]bool {
-	set := map[string]bool{}
-	for _, e := range list {
-		set[e] = true
-	}
-	return set
+	"model":  textutil.SetOf(stepClaudeModels...),
+	"effort": textutil.SetOf(agentid.EffortNames()...),
 }
 
 var quotedLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`'([^']*)'|"([^"]*)"`) })

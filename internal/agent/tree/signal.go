@@ -29,6 +29,10 @@ func applySignal(d Dispatch, rec agent.Record, now time.Time) Dispatch {
 	if rec.Status != statusRunning {
 		return d
 	}
+	if !rec.Alive() {
+		d.Status = "lost"
+		return d
+	}
 	d.LastSignal, d.SignalSource = lastSignal(rec)
 	d.Quiet = now.Sub(d.LastSignal) > quietAfter
 	return d
@@ -42,5 +46,5 @@ func signalText(d Dispatch, now time.Time) string {
 	if d.Quiet {
 		return "⚠ quiet " + age(d.LastSignal, now)
 	}
-	return fmt.Sprintf("last=%s", now.Sub(d.LastSignal).Round(time.Second))
+	return fmt.Sprintf("last=%s", max(now.Sub(d.LastSignal), 0).Round(time.Second))
 }

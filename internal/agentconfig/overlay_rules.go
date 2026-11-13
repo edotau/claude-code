@@ -54,6 +54,11 @@ var keepRules = slices.Concat(nameRules, []rule{
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") || credentialName(c.up) },
 		refuse(errors.New("a credential name cannot be kept: the scrub withholds it from every agent child"))}})
 
+// SensitiveEnvName reports a name an overlay refuses to keep (route, proxy, TLS, config, HARNESS_*, credential).
+func SensitiveEnvName(name string) bool {
+	return nameRule(keepRules, name) != nil || envReserved(name, strings.ToUpper(name))
+}
+
 // unsetRules refuse dropping a name the launch itself sets for its route: a lost endpoint would keep the credential.
 var unsetRules = slices.Concat(nameRules, []rule{
 	{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, "HARNESS_") },

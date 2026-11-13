@@ -38,6 +38,29 @@ func TestEnvironPassesMemoryOrigin(t *testing.T) {
 	}
 }
 
+// Given a scrubbed name inherited and the same name set by the launch, Then the child gets the launch's value only.
+func TestEnvironLaunchSetSurvivesScrub(t *testing.T) {
+	const name = "AGY_LLM_GATEWAY_URL"
+	t.Setenv(name, "http://inherited.invalid")
+	count := func(env []string, prefix string) int {
+		return len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return !strings.HasPrefix(e, prefix) }))
+	}
+	inherited := EnvSpec{Mode: EnvAgent}.Environ(context.Background())
+	if n := count(inherited, name+"="); n != 0 {
+		t.Errorf("inherited %s reached the child %d times, want scrubbed", name, n)
+	}
+	set := EnvSpec{Mode: EnvAgent, Set: []string{name + "=http://launch.invalid"}}.Environ(context.Background())
+	if n := count(set, name+"="); n != 1 || !slices.Contains(set, name+"=http://launch.invalid") {
+		t.Errorf("launch-set %s: want exactly the launch value, got %d entries", name, n)
+	}
+	// negative control: a prescrubbed base keeps the name, so only the dropper can stop a stale duplicate
+	pre := EnvSpec{Mode: EnvPrescrubbed, Base: []string{name + "=http://stale.invalid"}, Set: []string{name + "=http://launch.invalid"}}.
+		Environ(context.Background())
+	if n := count(pre, name+"="); n != 1 || !slices.Contains(pre, name+"=http://launch.invalid") {
+		t.Errorf("prescrubbed base + Set %s: want only the launch value, got %d entries", name, n)
+	}
+}
+
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}]}`)

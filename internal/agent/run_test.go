@@ -368,6 +368,24 @@ func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
 	}
 }
 
+// A gated read-only launch gets GIT_OPTIONAL_LOCKS=0 last (after --env); a tools run does not.
+func TestCheckRunReadOnlyDisablesGitOptionalLocks(t *testing.T) {
+	g, err := Lookup("gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := checkRun(g, RunOptions{Tools: true, ReadOnly: true, Env: []string{"GIT_OPTIONAL_LOCKS=1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(got.Env); n != 2 || got.Env[n-1] != "GIT_OPTIONAL_LOCKS=0" {
+		t.Errorf("read-only env = %q; want the caller's entry then GIT_OPTIONAL_LOCKS=0 last", got.Env)
+	}
+	if got, err = checkRun(g, RunOptions{Tools: true}); err != nil || slices.Contains(got.Env, "GIT_OPTIONAL_LOCKS=0") {
+		t.Errorf("tools run env = %q (err %v); want no GIT_OPTIONAL_LOCKS", got.Env, err)
+	}
+}
+
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
 	t.Helper()

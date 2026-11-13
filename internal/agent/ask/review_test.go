@@ -2,10 +2,11 @@ package ask
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -125,29 +126,24 @@ func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	}
 }
 
-func TestCaptureAnswerClosesPipe(t *testing.T) {
-	before, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		t.Skip("requires /proc/self/fd")
-	}
-	gc := debug.SetGCPercent(-1)
-	defer debug.SetGCPercent(gc)
-	want := strings.Repeat("review answer\n", 8192)
-	for range 16 {
-		got, code := captureAnswer(func() int {
-			fmt.Fprint(os.Stdout, want)
-			return 7
+func TestCaptureAnswerSharesNoState(t *testing.T) {
+	stdout := os.Stdout
+	var wg sync.WaitGroup
+	for i := range 8 {
+		want := strings.Repeat(fmt.Sprintf("answer %d\n", i), 4096)
+		wg.Go(func() {
+			got, code := captureAnswer(func(out io.Writer) int {
+				fmt.Fprint(out, want)
+				return i
+			})
+			if got != want || code != i {
+				t.Errorf("capture %d: bytes=%d, code=%d; want bytes=%d, code=%d", i, len(got), code, len(want), i)
+			}
 		})
-		if got != want || code != 7 {
-			t.Fatalf("capture: bytes=%d, code=%d; want bytes=%d, code=7", len(got), code, len(want))
-		}
 	}
-	after, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after) > len(before) {
-		t.Fatalf("capture leaked descriptors: before=%d after=%d", len(before), len(after))
+	wg.Wait()
+	if os.Stdout != stdout {
+		t.Fatal("captureAnswer replaced os.Stdout")
 	}
 }
 

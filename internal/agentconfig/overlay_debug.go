@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
@@ -49,11 +51,11 @@ func EnableOverlayDebug(path string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.Setenv(overlayDebugSaltVar, salt); err != nil {
+		if err := proc.Setenv(overlayDebugSaltVar, salt); err != nil {
 			return err
 		}
 	}
-	return os.Setenv(overlayDebugVar, abs)
+	return proc.Setenv(overlayDebugVar, abs)
 }
 
 // overlayDebugSalt reads the salt beside the log, or links a full one into place (a racing loser reads the winner's).

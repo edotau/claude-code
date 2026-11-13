@@ -193,14 +193,17 @@ func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
 
 // TestPermissionGateRedirectDenialSaysHowToRetry: a memory job's `2>&1` is refused with the redirect-free retry, not "report it".
 func TestPermissionGateRedirectDenialSaysHowToRetry(t *testing.T) {
-	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"claude-code memory review *"}],"deny":[{"Tool":"Bash","Arg":"*>*"}]}`)
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"claude-code memory review *"}],"deny":[{"Tool":"Bash","Arg":"`+agent.RedirectFileArg+`"}]}`)
 	bash := func(cmd string) core.Result {
 		return PermissionGate(core.ParseInput(strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"` + cmd + `"}}`)))
 	}
 	if res := bash("claude-code memory review"); res.Decision == core.Block {
 		t.Fatalf("the bare command must pass, got %q", res.Reason)
 	}
-	res := bash("claude-code memory review 2>&1")
+	if res := bash("claude-code memory review 2>&1"); res.Decision == core.Block {
+		t.Fatalf("descriptor duplication must pass, got %q", res.Reason)
+	}
+	res := bash("claude-code memory review > out.md")
 	if res.Decision != core.Block || !strings.Contains(res.Reason, "again without them") || strings.Contains(res.Reason, "Report it") {
 		t.Errorf("decision %v reason %q, want a block telling the model to retry without redirects", res.Decision, res.Reason)
 	}

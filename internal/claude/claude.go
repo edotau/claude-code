@@ -46,6 +46,9 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 	if err := refuseUnmappedDeny(req.Permissions); err != nil {
 		return wire.Result{}, err
 	}
+	if req.ReadOnly && req.SafeMode { // --safe-mode loads no hooks, so nothing would limit Bash to the read-only list
+		return wire.Result{}, retry.Fatal("claude", errors.New("--read-only cannot run under --safe-mode: the shell gate is a hook"))
+	}
 	prompt, err := claudeAttach(req.Prompt, req.Attach, req.Tools)
 	if err != nil {
 		return wire.Result{}, err
@@ -118,20 +121,6 @@ func toolArgs(req agent.RunOptions) []string {
 // planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, unlike bare plan mode.
 var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
-// gatewayAllow is a --tools leaf's base allow list off Anthropic, where dontAsk denies whatever no rule matches.
-var gatewayAllow = func() []agent.Rule {
-	rules := []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
-	rewritten := []string{"go build *", "go vet *", "go test *", "git diff *", "git status *", "git log *", "git show *",
-		"jq *", "ls *", "wc *", "rg *", "grep *"}
-	for _, c := range slices.Concat(rewritten, []string{"gofmt *", "go run *", "cat *", "head *", "tail *"}) {
-		rules = append(rules, agent.Rule{Tool: "Bash", Arg: c})
-	}
-	for _, c := range append(rewritten, "read *") { // the rtk-rewrite hook's spelling, which is what claude matches
-		rules = append(rules, agent.Rule{Tool: "Bash", Arg: "rtk " + c})
-	}
-	return rules
-}()
-
 // RenderSettings adds --effort and, headless, the permission flags after the base launch env/args.
 func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
 	env, argv, emulated, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
@@ -171,7 +160,7 @@ func claudeEffort(e string) (string, error) {
 func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []string {
 	switch {
 	case tools && !anthropic && p.Mode != "plan" && (!autonomous || !p.IsZero()): // dontAsk: the request's rules only add
-		p.Allow = slices.Concat(gatewayAllow, p.Allow)
+		p.Allow = slices.Concat(gatewayAllow(), p.Allow)
 	case p.IsZero():
 		return nil
 	}
@@ -251,7 +240,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	}
 	args = append(args, toolArgs(req)...)
 	if req.Gate {
-		args = append(args, gateArgs()...)
+		args = append(args, gateArgs(req)...)
 	}
 	if err := refuseUngatedBypass(args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
@@ -285,8 +274,16 @@ var gateExe = os.Executable
 // gateTools is the only built-in tool set a gated child gets: the permission-gate judges exactly these.
 const gateTools = "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"
 
-// gateArgs are the launch flags of a gated child: no MCP and only gateTools, which the gate judges.
-func gateArgs() []string { return []string{"--strict-mcp-config", "--tools", gateTools} }
+// readOnlyGateTools is the read-only gated child's tool set: reads plus Bash, which the gate limits to the shared list.
+const readOnlyGateTools = "Read,Glob,Grep,Bash"
+
+// gateArgs are the launch flags of a gated child: no MCP and only the tools the gate judges.
+func gateArgs(req agent.RunOptions) []string {
+	if req.ReadOnly {
+		return []string{"--strict-mcp-config", "--tools", readOnlyGateTools}
+	}
+	return []string{"--strict-mcp-config", "--tools", gateTools}
+}
 
 // injectGate merges the permission-gate hook into the launch's one --settings (a second flag would replace it).
 func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
@@ -620,7 +617,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
-		Permissions: agent.Native},
+		Permissions: agent.Native, ReadOnly: agent.Emulated},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventRetry, wire.EventResult, wire.EventError},
 	Cost:   true, ConfigureHint: "run `claude-code configure agents`", LoginArgv: []string{"claude", "auth", "login"},
 }}

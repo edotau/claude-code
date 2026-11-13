@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/safety"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 const dbxProfiles = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
@@ -117,21 +119,41 @@ func gateCall(t *testing.T, policy agent.Permissions, cwd, tool string, input ma
 	return safety.PermissionGate(core.ParseInput(strings.NewReader(string(payload))))
 }
 
-// The built policy through the gate's Decide path: the workdir is writable, everything unlisted is refused, deny wins.
-func TestGatePolicyDecisions(t *testing.T) {
+type gateRow struct {
+	name        string
+	user        agent.Permissions
+	tool        string
+	input       map[string]any
+	block       bool
+	reason, not string
+}
+
+func gateRule(s string) agent.Rule { r, _ := agent.ParseRule(s); return r }
+
+func gateWrite(path string) map[string]any { return map[string]any{"file_path": path, "content": "ok"} }
+
+func gateBash(cmd string) map[string]any { return map[string]any{"command": cmd} }
+
+// runGateRows runs each row through the real gate under the policy gatePolicy builds from the row's user rules.
+func runGateRows(t *testing.T, wd string, cases []gateRow) {
+	t.Helper()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := gateCall(t, gatePolicy(c.user, wd), wd, c.tool, c.input)
+			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) ||
+				c.not != "" && strings.Contains(res.Reason, c.not) {
+				t.Fatalf("decision %v reason %q, want block=%v naming %q and not %q", res.Decision, res.Reason, c.block,
+					c.reason, c.not)
+			}
+		})
+	}
+}
+
+// The built policy's file rules through the gate: the workdir is writable, everything else is refused, deny wins.
+func TestGatePolicyFileDecisions(t *testing.T) {
 	wd := t.TempDir()
-	rule := func(s string) agent.Rule { r, _ := agent.ParseRule(s); return r }
-	write := func(path string) map[string]any { return map[string]any{"file_path": path, "content": "ok"} }
-	bash := func(cmd string) map[string]any { return map[string]any{"command": cmd} }
-	const miss = "continue with an allowed call"
-	cases := []struct {
-		name        string
-		user        agent.Permissions
-		tool        string
-		input       map[string]any
-		block       bool
-		reason, not string
-	}{
+	rule, write := gateRule, gateWrite
+	runGateRows(t, wd, []gateRow{
 		{"write inside the workdir", agent.Permissions{}, "Write", write(filepath.Join(wd, "a.txt")), false, "", ""},
 		{"write outside the workdir", agent.Permissions{}, "Write", write("/tmp/outside-probe.txt"), true,
 			"--allow 'Edit(/tmp/outside-probe.txt)'", ""},
@@ -145,6 +167,15 @@ func TestGatePolicyDecisions(t *testing.T) {
 			"Write", write(filepath.Join(wd, "state", "p.txt")), true, "deny: Write(", "re-dispatch"},
 		{"user --ask has no judge, so it refuses", agent.Permissions{Ask: []agent.Rule{rule("Edit(" + wd + "/ask/**)")}},
 			"Edit", write(filepath.Join(wd, "ask", "p.txt")), true, "deny: Edit(", ""},
+	})
+}
+
+// The built policy's shell rules through the gate: listed commands run, redirects and unlisted commands are refused.
+func TestGatePolicyShellDecisions(t *testing.T) {
+	wd := t.TempDir()
+	rule, bash := gateRule, gateBash
+	const miss = "continue with an allowed call"
+	runGateRows(t, wd, []gateRow{
 		{"unlisted bash", agent.Permissions{}, "Bash", bash("curl --version"), true, miss + "; do not retry", ""},
 		{"unlisted bash names the rule to add", agent.Permissions{}, "Bash", bash("curl --version"), true,
 			"--allow 'Bash(curl --version)'", ""},
@@ -154,16 +185,80 @@ func TestGatePolicyDecisions(t *testing.T) {
 		{"redirect out of a listed command", agent.Permissions{}, "Bash", bash("ls > /tmp/x"), true, "without them", ""},
 		{"user --deny beats a listed command", agent.Permissions{Deny: []agent.Rule{rule("Bash(go vet *)")}}, "Bash",
 			bash("go vet ./..."), true, "deny: Bash(go vet *)", "re-dispatch"},
+		{"stream merge is not a file write", agent.Permissions{}, "Bash", bash("go test ./x 2>&1 | tail -5"), false, "", ""},
+		{"descriptor duplication", agent.Permissions{}, "Bash", bash("go vet ./... >&2"), false, "", ""},
+		{"quoted > is an argument", agent.Permissions{}, "Bash", bash(`grep "a > b" x.go`), false, "", ""},
+		{"file redirect names the refusal", agent.Permissions{}, "Bash", bash("go test ./x > o"), true, "File redirects", ""},
+		{"append redirect", agent.Permissions{}, "Bash", bash("go test ./x 2>> o"), true, "File redirects", ""},
+	})
+}
+
+// The built policy's command forms through the gate: cd scope, env and time prefixes, sed print, websearch.
+func TestGatePolicyCommandForms(t *testing.T) {
+	wd := t.TempDir()
+	bash := gateBash
+	runGateRows(t, wd, []gateRow{
+		{"cd into the workdir", agent.Permissions{}, "Bash", bash("cd " + wd + " && go test ./..."), false, "", ""},
+		{"cd below the workdir", agent.Permissions{}, "Bash", bash("cd " + wd + "/sub"), false, "", ""},
+		{"cd elsewhere stays denied", agent.Permissions{}, "Bash", bash("cd /tmp && go test ./..."), true, "deny: ", ""},
+		{"cd out through ..", agent.Permissions{}, "Bash", bash("cd " + wd + "/../x"), true, "deny: ", ""},
+		{"env-prefixed go test", agent.Permissions{}, "Bash", bash("GOOS=linux go build ./..."), false, "", ""},
+		{"time go test", agent.Permissions{}, "Bash", bash("time go test ./..."), false, "", ""},
+		{"env prefix with a route name", agent.Permissions{}, "Bash", bash("NODE_OPTIONS=--x go test ./..."), true, "deny: ", ""},
+		{"env prefix on an unlisted command", agent.Permissions{}, "Bash", bash("FOO=1 curl --version"), true, "deny: ", ""},
+		{"sed -n print", agent.Permissions{}, "Bash", bash("sed -n 5,9p x.go"), false, "", ""},
+		{"sed -i", agent.Permissions{}, "Bash", bash("sed -i s/a/b/ x.go"), true, "deny: ", ""},
+		{"sed -n -i", agent.Permissions{}, "Bash", bash("sed -n -i 5p x.go"), true, "deny: ", ""},
+		{"sed -n with a write command", agent.Permissions{}, "Bash", bash("sed -n 'w out' x.go"), true, "deny: ", ""},
+		{"network websearch", agent.Permissions{}, "Bash", bash(`claude-code network websearch --query "x"`), false, "", ""},
+		{"curl stays unlisted", agent.Permissions{}, "Bash", bash("curl https://example.com"), true, "deny: ", ""},
+	})
+}
+
+// A --read-only claude run's gate policy: reads and the shared shell list run; builds, writes and redirects do not.
+func TestReadOnlyGatePolicy(t *testing.T) {
+	wd := t.TempDir()
+	user := agent.Permissions{Allow: []agent.Rule{agent.ReadOnlyAllow}, Deny: agent.ReadOnlyDeny}
+	read := map[string]any{"file_path": filepath.Join(wd, "a.go")}
+	row := func(name, tool string, in map[string]any, block bool) gateRow {
+		return gateRow{name: name, user: user, tool: tool, input: in, block: block}
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			res := gateCall(t, gatePolicy(c.user, wd), wd, c.tool, c.input)
-			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) ||
-				c.not != "" && strings.Contains(res.Reason, c.not) {
-				t.Fatalf("decision %v reason %q, want block=%v naming %q and not %q", res.Decision, res.Reason, c.block,
-					c.reason, c.not)
-			}
-		})
+	runGateRows(t, wd, []gateRow{
+		row("Read", "Read", read, false),
+		row("git log", "Bash", gateBash("git log -1"), false),
+		row("git diff piped", "Bash", gateBash("git diff | head -5"), false),
+		row("go test", "Bash", gateBash("go test ./..."), true),
+		row("Edit", "Edit", gateWrite(filepath.Join(wd, "a.go")), true),
+		row("Write", "Write", gateWrite(filepath.Join(wd, "b.go")), true),
+		row("file redirect", "Bash", gateBash("git log -1 > out"), true),
+		row("substitution", "Bash", gateBash("cat $(ls)"), true),
+	})
+	if got := gateArgs(agent.RunOptions{ReadOnly: true}); !slices.Contains(got, readOnlyGateTools) || slices.Contains(got, gateTools) {
+		t.Errorf("read-only gate tools = %v, want %s", got, readOnlyGateTools)
+	}
+}
+
+// The allow list matches every spelling the rtk rewrite hook can give its command word, and no other rtk.
+func TestGatePolicyAllowsRtkSpellings(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin", "rtk")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv(paths.RTKBinaryEnv, bin)
+	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	for cmd, want := range map[string]agent.Decision{
+		"rtk go test ./x": agent.Allow, `"$HOME/bin/rtk" go test ./x`: agent.Allow, bin + " git status": agent.Allow,
+		`"$HOME/bin/rtk" read x.go`: agent.Allow, `"$HOME/other/rtk" go test ./x`: agent.Deny, "/tmp/evil/rtk go test": agent.Deny,
+		`"$HOME/bin/rtk" curl x`: agent.Deny,
+	} {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("%q: got %v, want %v", cmd, got, want)
+		}
 	}
 }
 

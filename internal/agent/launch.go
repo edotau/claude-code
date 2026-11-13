@@ -183,7 +183,10 @@ func ensureRouter(ctx context.Context) (string, error) {
 		base = gateway.ViaBase(base)
 	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
-	return gateway.DispatchBase(base, id), nil
+	if id == "" {
+		return base, nil
+	}
+	return gateway.TaggedBase(ctx, base, id), nil
 }
 
 // refuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.

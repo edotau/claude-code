@@ -123,6 +123,7 @@ func withDispatchFixture(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		raw = bytes.ReplaceAll(raw, []byte(`"status": "running"`), fmt.Appendf(nil, `"status": "running", "pid": %d`, os.Getpid()))
 		if err := os.WriteFile(filepath.Join(dst, e.Name()), raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
