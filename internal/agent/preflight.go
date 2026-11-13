@@ -192,7 +192,7 @@ func preflightEndpoint(p *providers.Provider, wire string, now time.Time) (note,
 	listed, ready, fresh := router.ServedListed(p, wire, now)
 	switch {
 	case !fresh:
-		return "served listing for " + p.Name + " is missing or older than 24h: endpoint check skipped (claude-code doctor --refresh)", ""
+		return "no fresh listing for " + p.Name + ": endpoint check skipped", ""
 	case !listed:
 		return "", p.Name + " lists no endpoint " + wire
 	case !ready:
