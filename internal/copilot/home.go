@@ -30,18 +30,6 @@ func StubGOOS(goos string) (restore func()) {
 	return func() { copilotGOOS = orig }
 }
 
-// errCopilotRegistryDarwin refuses the registry on macOS (Keychain login unhidden); fits FallbackReason's 200 runes.
-var errCopilotRegistryDarwin = errors.New(
-	"copilot: the Databricks model registry is unsupported on macOS (copilot's Keychain GitHub login is not hidden); " +
-		"use --direct")
-
-func checkCopilotRegistryOS() error {
-	if copilotGOOS == "darwin" {
-		return errCopilotRegistryDarwin
-	}
-	return nil
-}
-
 // copilotStripEnv is the inherited GitHub login/routing env a registry child must not see.
 var copilotStripEnv = []string{
 	"GH_TOKEN", "GITHUB_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_ENTERPRISE_TOKEN", "COPILOT_GITHUB_TOKEN",
@@ -58,9 +46,6 @@ type copilotPrivateHome struct {
 
 // prepareCopilotHome seeds the private home (not when dry), guards logins, returns its env; launch and ask share it.
 func prepareCopilotHome(dry bool) (copilotPrivateHome, error) {
-	if err := checkCopilotRegistryOS(); err != nil {
-		return copilotPrivateHome{}, err
-	}
 	home, xdg := copilotRegistryHome(), copilotRegistryXDG()
 	out := copilotPrivateHome{
 		Env: []string{

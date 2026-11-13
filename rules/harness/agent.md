@@ -78,8 +78,9 @@ paths:
   (`models.PromptTokens`).
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a session token, so no secret sits on disk. An
-  unregistered model fails closed; `--direct` keeps the single-model route; macOS is refused until the Keychain check
-  lands. `ask --agent copilot` uses the same registry via the SDK.
+  unregistered model fails closed; `--direct` keeps the single-model route; macOS skips the registry (Keychain
+  GitHub login still readable).
+  `ask --agent copilot` uses the same registry via the SDK.
 - **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the agent record's
   profile and treat it like the record (copilot's credit gate applies); `<agent> profile` or `configure` record
   changes clear it.

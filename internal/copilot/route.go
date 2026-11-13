@@ -54,9 +54,6 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 	for _, name := range fallbackProfiles(reg) {
 		if p := reg.Providers[name]; p.DatabricksUsable() {
 			reason := "copilot: " + detail + " — using databricks profile " + p.Name
-			if copilotRegistryEligible(false, providers.Target{Provider: p}) && checkCopilotRegistryOS() != nil {
-				reason += " (macOS: launches only with --direct)" // the registry launch refuses here; the gate has no ctx
-			}
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: tierModel(p, models.Opus),
 				Reason: reason, OK: true}
 		}
