@@ -44,6 +44,14 @@ one of these; the rest point to it, and on a disagreement the earlier one wins.
 | `watch`, `catchup` | The idle watcher and the missed-session sweep that the hooks spawn |
 | `timeline` | Recent bank entries and sessionHistory |
 | `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
+| `import --from <dir>\|--host <h>` | Merge another machine's or a backup's bank into this one |
+
+`import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo). By default it
+takes logs only: `decisionLog.md`, `conventions.md`, `sessionHistory.md` and the monthly archives **merge** (missing
+blocks only). `--topics` adds everything else: `MEMORY.md` pointer lines merge, files only the source has are
+**copied**, and `activeContext.md`, `progress.md`, `projectContext.md` are **kept local**, as is any other differing
+file (reported as a conflict); it cannot tell a new file from one this machine deleted on purpose. Never imported:
+the catalog, lock files, `.git/`, symlinks, files over 4 MiB, and stores with no local counterpart.
 
 A verb needing judgment prints its embedded procedure for the live session (or the headless `memory update`) to
 apply; all others print none:
