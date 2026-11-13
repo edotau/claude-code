@@ -43,6 +43,7 @@ one of these; the rest point to it, and on a disagreement the earlier one wins.
 | `fmt` | Wrap the bank files; `--check` reports only |
 | `watch`, `catchup` | The idle watcher and the missed-session sweep that the hooks spawn |
 | `timeline` | Recent bank entries and sessionHistory |
+| `sandbox [--repo R] [--all] [--empty]` | Create a disposable config with copied banks and an origin-only vault |
 | `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
 | `import --from <dir>\|--host <h>` | Merge another machine's or a backup's bank into this one |
 | `revise <old-id> --with <new-id>` | Mark an entry replaced by a newer one (`--dry-run` previews) |
@@ -89,7 +90,7 @@ Only `home` writes; every other target prints the block, its target and the proc
 | `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
 | `sessionHistory.md` | Newest-first summaries | Append at top; past the entry cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
-Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…
+Typed files carry no frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…
 `<!-- bank:end -->` region; lines outside it are Claude's own and never rewritten.
 
 ## Replaced entries
@@ -101,6 +102,13 @@ old entry's title, keeps its date and id, and adds `Replaced by <new id> (<date>
 id or a two-entry cycle unmarked (`memory review` reports both). Recall skips a replaced entry and serves the entry
 that replaced it instead, following the chain up to 8 hops; `memory search` still lists it, and `memory show` prints
 the pointer. `memory revise <old-id> --with <new-id>` does the same by hand in one commit.
+A partly struck title (`A; ~~B~~`) stays live: no pointer at settle (its own is removed), `memory revise` exits 2.
+References start a body line or sentence, optionally after a list marker, and are case-insensitive; the id may be
+in backticks (as the home bank writes it). Fenced code, inline-code examples and quoted declarations do not count.
+Only a pointer directly under the title (including wrapped or indented lines) marks an entry replaced. A home entry
+may be replaced only by another home entry (`memory revise` otherwise exits 2). Recall follows replacements in
+routed and `--all` results before limiting them; an unresolved target or a chain over 8 hops returns the original
+entry flagged as unavailable instead of silently dropping it.
 
 ## Caps
 

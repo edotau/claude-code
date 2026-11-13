@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -40,7 +41,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, alias, import, revise — dispatchable, off the menu\n" +
+		"          catchup, timeline, alias, import, revise, sandbox (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -63,6 +64,7 @@ var memoryPlumbing = map[string][2]string{
 	"digest":   {"", "write the bank digest"},
 	"fmt":      {"", "wrap the bank files"},
 	"timeline": {"", "recent bank entries and sessionHistory"},
+	"sandbox":  {"", "create a disposable memory config"},
 	"revise":   {"<old-id> --with <new-id>", "mark an entry replaced by a newer one"},
 }
 
@@ -212,6 +214,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"alias":    cmdMemoryAlias,
 		"import":   cmdMemoryImport,
 		"revise":   cmdMemoryRevise,
+		"sandbox":  cmdMemorySandbox,
 	}
 }
 
@@ -253,6 +256,7 @@ func memorySpec() *helptext.Node {
 		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
+		"sandbox":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
 		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.RepoKeys),
@@ -717,5 +721,46 @@ func memoryRecallEmit(hits []memory.SearchHit, format string, load int) int {
 		return helptext.WriteJSONOrFail("memory recall", hits)
 	}
 	memory.RecallReport(os.Stdout, os.Stderr, hits, load)
+	return 0
+}
+
+func cmdMemorySandbox(args []string) int {
+	fs, repo := memoryRepoFlagSet("sandbox")
+	all := fs.Bool("all", false, "copy every store")
+	empty := fs.Bool("empty", false, "seed empty stores instead of copying content")
+	format := fs.String("format", "text", "output format: text|json")
+	if code, done := memoryParseNoArgs(fs, "sandbox", args); done {
+		return code
+	}
+	if *format != "text" && *format != "json" {
+		return helptext.FailUsage("memory sandbox: format must be text or json")
+	}
+	res, err := memory.Sandbox(memory.SandboxOptions{Repo: *repo, All: *all, Empty: *empty})
+	if err != nil {
+		if _, ok := errors.AsType[*memory.ImportInputError](err); ok {
+			return helptext.FailUsage("memory sandbox: %v", err)
+		}
+		return helptext.Fail("memory sandbox: %v", err)
+	}
+	return printMemorySandbox(res, *format)
+}
+
+func printMemorySandbox(res memory.SandboxResult, format string) int {
+	fmt.Fprintln(os.Stderr, "memory sandbox: vault holds origin metadata only; embeddings off (no profiles or cache)")
+	if format == "json" {
+		if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {
+			return helptext.Fail("memory sandbox: %v", err)
+		}
+		return 0
+	}
+	var stores []string
+	for _, s := range res.Stores {
+		stores = append(stores, fmt.Sprintf("%s (%d files)", s.Key, s.Files))
+	}
+	_, err := fmt.Fprintf(os.Stdout, "sandbox  %s\nexport   CLAUDE_CONFIG_DIR=%s\nstores   %s\nremove with: rm -rf %s\n",
+		res.Dir, res.Dir, strings.Join(stores, ", "), res.Dir)
+	if err != nil {
+		return helptext.Fail("memory sandbox: %v", err)
+	}
 	return 0
 }

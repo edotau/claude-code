@@ -922,3 +922,49 @@ func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores
 		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
 	}
 }
+
+func TestMemorySandboxCLI(t *testing.T) {
+	memCfg(t)
+	repo := t.TempDir()
+	hosttest.In(t, repo, "init", "--quiet")
+	memInit(t, repo)
+	checkSandboxUnknownRepo(t)
+	out := memCLIOK(t, "sandbox", "--repo", repo, "--empty", "--format", "json")
+	var res memory.SandboxResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(res.Dir); err != nil {
+			t.Error(err)
+		}
+	})
+	if res.Dir == "" || res.Env["CLAUDE_CONFIG_DIR"] != res.Dir || len(res.Stores) != 2 {
+		t.Fatalf("sandbox JSON: %+v", res)
+	}
+	for _, s := range res.Stores {
+		if s.Files != 6 {
+			t.Errorf("empty store: %+v", s)
+		}
+	}
+	checkSandboxCompletion(t)
+}
+
+func checkSandboxCompletion(t *testing.T) {
+	t.Helper()
+	engine := memEngine()
+	got := engine.Candidates([]string{"memory", "sandbox", "--"})
+	for _, flag := range []string{"--repo", "--all", "--empty", "--format"} {
+		if !slices.Contains(got, flag) {
+			t.Errorf("completion lacks %s: %v", flag, got)
+		}
+	}
+}
+
+func checkSandboxUnknownRepo(t *testing.T) {
+	t.Helper()
+	code, out, stderr := memCLI(t, "sandbox", "--repo", "unknown-sandbox-store")
+	if code != 2 || out != "" || !strings.Contains(stderr, "known stores:") {
+		t.Fatalf("unknown repo: %d %q %q", code, out, stderr)
+	}
+}
