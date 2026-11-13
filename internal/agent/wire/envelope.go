@@ -259,6 +259,7 @@ type Result struct {
 	Structured      json.RawMessage `json:"-"`                         // the answer as JSON satisfying RunOptions.OutputSchema
 	Recovered       []*retry.Error  `json:"-"`                         // attempts that failed before the successful one, for the hop's errors
 	NotStarted      bool            `json:"-"`                         // refused before any child process or request started
+	GateBlocks      int             `json:"-"`                         // tool calls the permission-gate hook refused
 }
 
 // Hop is one dispatch runWithFallback tried; ErrorKind is the envelope error token, empty when the dispatch answered.

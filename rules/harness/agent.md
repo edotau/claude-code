@@ -127,7 +127,8 @@ paths:
   limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and the `permission-gate` hook merged into the launch's one
   `--settings` (`exit 2` on any failure). Policy: plan mode, Edit/Write allowed under the job's bank dirs (dream: the
   memory root and `CLAUDE.md`), Bash only dream's `claude-code memory timeline|review|index|promote`; no policy, binary
-  or policy env refuses the launch.
+  or policy env refuses the launch. A dream whose gate refused calls and
+  edited no changed bank file fails and retries in 6 h instead of stamping success.
 
 ## Codex child routing
 

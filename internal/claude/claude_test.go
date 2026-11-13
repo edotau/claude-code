@@ -168,6 +168,23 @@ func TestParseClaudeStreamStringMessage(t *testing.T) {
 	}
 }
 
+// TestParseClaudeStreamCountsGateBlocks counts is_error tool_results carrying the gate's prefix (not a live capture).
+func TestParseClaudeStreamCountsGateBlocks(t *testing.T) {
+	user := func(parent, results string) string {
+		return `{"type":"user","parent_tool_use_id":` + parent + `,"message":{"role":"user","content":[` + results + `]}}` + "\n"
+	}
+	str := `{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"permission-gate: BLOCKED — Edit denied"}`
+	parts := `{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":[{"type":"text","text":"permission-gate: BLOCKED — x"}]}`
+	plain := `{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"File not found"}`
+	okGate := `{"type":"tool_result","tool_use_id":"t4","is_error":false,"content":"permission-gate: BLOCKED quoted by a file"}`
+	stream := user("null", str+","+parts+","+plain+","+okGate) + user(`"toolu_9"`, str) +
+		`{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s"}` + "\n"
+	res, err := parseClaudeStream(newBR(stream), wire.NewTextSink(io.Discard))
+	if err != nil || res.GateBlocks != 2 {
+		t.Fatalf("GateBlocks = %d, err = %v, want 2 (string + parts; plain error, non-error and subagent ignored)", res.GateBlocks, err)
+	}
+}
+
 // TestParseClaudeStreamErrorEventText surfaces an "error"-type event's string message as the returned error.
 func TestParseClaudeStreamErrorEventText(t *testing.T) {
 	stream := `{"type":"error","message":"fatal: connection reset","session_id":"sess-3"}` + "\n"

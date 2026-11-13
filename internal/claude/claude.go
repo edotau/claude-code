@@ -449,6 +449,8 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 		}
 		s.log.Emit("result", ev.Result)
 		return untilResult, nil
+	case "user":
+		s.res.GateBlocks += ev.gateBlocks()
 	case "error":
 		if t := ev.text(); t != "" {
 			_ = wire.EmitError(s.log, s.sink, t)
@@ -456,6 +458,49 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 		}
 	}
 	return false, nil
+}
+
+// gateBlockPrefix starts every Reason the permission-gate hook blocks with (internal/hooks/safety/permission.go).
+const gateBlockPrefix = "permission-gate: BLOCKED"
+
+// gateBlocks counts a top-level user event's is_error tool_results whose text (string or text parts) is a gate block.
+func (ev claudeEvent) gateBlocks() (n int) {
+	if ev.ParentToolUseID != "" {
+		return 0
+	}
+	var m struct {
+		Content []struct {
+			Type    string          `json:"type"`
+			IsError bool            `json:"is_error"`
+			Content json.RawMessage `json:"content"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(ev.Message, &m) != nil { // a string or odd message carries no blocks
+		return 0
+	}
+	for _, b := range m.Content {
+		if b.Type == "tool_result" && b.IsError && strings.Contains(toolResultText(b.Content), gateBlockPrefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// toolResultText flattens a tool_result's content, a string or an array of text parts.
+func toolResultText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	_ = json.Unmarshal(raw, &parts) // best-effort: an odd shape counts as no text
+	var sb strings.Builder
+	for _, p := range parts {
+		sb.WriteString(p.Text)
+	}
+	return sb.String()
 }
 
 var errNoResult = errors.New("claude: stream ended without a result event")
