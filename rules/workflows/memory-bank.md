@@ -121,11 +121,16 @@ everything the native loader reads. Past a `fileCaps` limit `memory dream` archi
   minutes (a crash fires no SessionEnd). `memory-compact` does the same before compaction. A detached worker
   (`CLAUDE_MEMORY_DETACHED`) queues up to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground
   `memory update` waits `updateLockWait` (5 s) and says so.
+  When the permission gate refused writes and no bank file changed, the update runs once more; a second miss records
+  status `blocked` (no retry, no Stop block) and shows one quiet line: dim on stderr, or at the next SessionStart.
 - `memory dream` — archives durable-file overflow and consolidates; it never moves entries to home. `memory promote`
   is the only route to home.
 - `memory index` — regenerates the `MEMORY.md` bank region and `memory/index.md`, rotates sessionHistory, commits the
   store. **Never hand-edit generated regions.** `index`, `dream`, `update`, `import` and plain `review` also
   refresh the cached session-start notice (`state/harness/memory/doctor-notice-<store>`); session start only reads it.
+- The embedding cache (`state/harness/memory/embeddings.db`) is one cache per embedding model, shared by every
+  Databricks workspace: the profile only picks the endpoint (a failing one pauses a minute, the next serves). A model
+  change re-embeds; a damaged or truncated file is set aside as `.damaged` and rebuilt empty.
 - `memory review` — caps, staleness, hot/cold. `memory promote <id> --to home|rules|skill|claude-md` — `home`
   moves the block (no link back); `rules` and `skill` print the block, target and procedure and edit nothing;
   `claude-md` does the same only inside `memory dream`'s own run and is refused anywhere else (`promoteJudgment`).

@@ -199,6 +199,7 @@ var writers = map[string]string{
 	"internal/memory/bank_blocks.go:assignFileIDs":             unversioned("memory-bank: bank id comments"),
 	"internal/memory/promote.go:archiveFile":                   unversioned("memory-bank: bank overflow archive"),
 	"internal/memory/catchup.go:runSweep":                      unversioned("text: catch-up sweep done count"),
+	"internal/memory/catchup.go:noteBlocked":                   unversioned("text: one quiet blocked-update note line"),
 	"internal/memory/promote.go:removeBlock":                   unversioned("memory-bank: bank block removal"),
 	"internal/memory/recall_index.go:writeRecallIndex":         unversioned("text: recall index, rebuilt on a miss"),
 	"internal/memory/bank_region.go:writeBankRegion":           unversioned("memory-bank: bank generated region"),
