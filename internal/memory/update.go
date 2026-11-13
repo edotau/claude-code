@@ -53,6 +53,7 @@ const (
 	updatePending = "pending"
 	updateOK      = "ok"
 	updateFailed  = "failed"
+	updateBlocked = "blocked" // the gate refused every write, twice: honest, not a failure, never retried again
 )
 
 // updateGrace must exceed the worker's lock waits plus its own timeout, or a healthy queued update reads as lost.
@@ -337,7 +338,16 @@ func update(o updateOptions) error {
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
-	return record(updateOK, run.updated)
+	return record(run.okStatus(prior.Log), run.updated)
+}
+
+// okStatus is ok, or blocked (with its quiet note) when the gate refused writes and no bank file changed.
+func (r *updateRun) okStatus(log string) string {
+	if r.blocks > 0 && !r.updated {
+		noteBlocked(log, r.blocks)
+		return updateBlocked
+	}
+	return updateOK
 }
 
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
@@ -378,19 +388,36 @@ type updateRun struct {
 	before, beforeHome time.Time
 	runErr, settleErr  error
 	updated            bool
+	blocks             int  // gate refusals counted on the last agent attempt
 	homeBusy           bool // the home bank's lock was never granted: nothing ran
 }
 
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
 func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated = newestMtime(dir).After(r.before) || newestMtime(HomeBankDir()).After(r.beforeHome)
+	updated = r.touched(dir)
 	if _, err := settleBank(o.CWD, time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
 	refreshNotice(o.Out, "memory update", o.CWD)
 	return updated, nil
+}
+
+// touched reports whether either bank tier changed since the run began.
+func (r *updateRun) touched(dir string) bool {
+	return newestMtime(dir).After(r.before) || newestMtime(HomeBankDir()).After(r.beforeHome)
+}
+
+// runAgent runs the agent, once more when the gate refused calls and no bank file changed.
+func (r *updateRun) runAgent(ctx context.Context, o updateOptions, dir string) {
+	for range 2 {
+		r.blocks = 0
+		r.runErr = runAgentUpdate(context.WithValue(ctx, gateBlocksKey{}, &r.blocks), o)
+		if r.runErr != nil || r.blocks == 0 || r.touched(dir) {
+			return
+		}
+	}
 }
 
 // withHomeLock runs fn under the home bank's lock, taken after the repo lock (the fixed order); ran=false = busy.
@@ -417,7 +444,7 @@ func (r *updateRun) locked(o updateOptions, dir string) error {
 	r.before, r.beforeHome = newestMtime(dir), newestMtime(HomeBankDir())
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
-	r.runErr = runAgentUpdate(ctx, o)
+	r.runAgent(ctx, o, dir)
 	r.updated, r.settleErr = r.finish(o, dir)
 	return nil
 }

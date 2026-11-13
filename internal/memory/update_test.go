@@ -744,3 +744,53 @@ func TestMergeFileListsUnquotesPorcelain(t *testing.T) {
 		t.Fatalf("mergeFileLists = %q, want %q", got, want)
 	}
 }
+
+func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
+	cases := []struct {
+		name       string
+		blocks     []int // gate refusals each attempt reports
+		writeOn    int   // attempt (1-based) that writes a bank file; 0 = never
+		wantRuns   int
+		wantStatus string
+		wantNote   bool
+	}{
+		{"blocked twice", []int{2, 2}, 0, 2, updateBlocked, true},
+		{"blocked then written", []int{2, 0}, 2, 2, updateOK, false},
+		{"idle, no blocks", []int{0, 0}, 0, 1, updateOK, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearChildEnv(t)
+			tempConfig(t)
+			t.Setenv(DetachedEnv, "1")
+			root := repoRoot(t, "proj")
+			dir, _ := Init(root)
+			runs := 0
+			agent := func(ctx context.Context, _, _ string) (string, error) {
+				runs++
+				NoteGateBlocks(ctx, tc.blocks[runs-1])
+				if runs == tc.writeOn {
+					f := filepath.Join(dir, "sessionHistory.md")
+					future := time.Now().Add(time.Hour)
+					if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
+						return "fake", err
+					}
+				}
+				return "fake", nil
+			}
+			const sid = "22222222-2222-2222-2222-222222222222"
+			if err := update(updateOptions{Run: agent, CWD: root, Session: sid}); err != nil {
+				t.Fatal(err)
+			}
+			r, _ := readUpdateResult(sid)
+			if runs != tc.wantRuns || r.Status != tc.wantStatus || r.needsAttention(time.Now()) {
+				t.Errorf("runs=%d result=%+v, want %d runs, status %s", runs, r, tc.wantRuns, tc.wantStatus)
+			}
+			note := ConsumeCatchupNote()
+			if (note != "") != tc.wantNote || ConsumeCatchupNote() != "" {
+				t.Errorf("note %q, want present=%v and consumed once", note, tc.wantNote)
+			}
+			t.Logf("runs=%d status=%s bank_updated=%v note=%q", runs, r.Status, r.BankUpdated, note)
+		})
+	}
+}

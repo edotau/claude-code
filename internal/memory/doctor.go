@@ -184,6 +184,7 @@ type bankStats struct {
 	Updates     int // receipt files parsed
 	OK          int
 	Failed      int
+	Blocked     int // the gate refused every write, twice
 	Pending     int
 	BankUpdated int // ok updates that changed the bank
 	Oldest      time.Time
@@ -196,17 +197,7 @@ func collectBankStats() bankStats {
 	for _, rc := range readReceipts() {
 		r := rc.r
 		s.Updates++
-		switch r.Status {
-		case updateOK:
-			s.OK++
-			if r.BankUpdated {
-				s.BankUpdated++
-			}
-		case updateFailed:
-			s.Failed++
-		case updatePending:
-			s.Pending++
-		}
+		s.tally(r)
 		if !r.Time.IsZero() {
 			if s.Oldest.IsZero() || r.Time.Before(s.Oldest) {
 				s.Oldest = r.Time
@@ -217,6 +208,23 @@ func collectBankStats() bankStats {
 		}
 	}
 	return s
+}
+
+// tally counts one receipt by status.
+func (s *bankStats) tally(r UpdateResult) {
+	switch r.Status {
+	case updateOK:
+		s.OK++
+		if r.BankUpdated {
+			s.BankUpdated++
+		}
+	case updateFailed:
+		s.Failed++
+	case updateBlocked:
+		s.Blocked++
+	case updatePending:
+		s.Pending++
+	}
 }
 
 // Report renders the aggregate as the human `memory stats` block.
@@ -232,11 +240,14 @@ func (s bankStats) Report() string {
 		fmt.Fprintf(&b, "  %s → %s", s.Oldest.Format("2006-01-02"), s.Newest.Format("2006-01-02"))
 	}
 	b.WriteByte('\n')
-	if terminal := s.OK + s.Failed; terminal > 0 {
+	if terminal := s.OK + s.Failed + s.Blocked; terminal > 0 {
 		fmt.Fprintf(&b, "  success rate: %d/%d ok (%.0f%%)\n", s.OK, terminal, 100*float64(s.OK)/float64(terminal))
 	}
 	if s.OK > 0 {
 		fmt.Fprintf(&b, "  bank updated: %d/%d ok updates (%.0f%%)\n", s.BankUpdated, s.OK, 100*float64(s.BankUpdated)/float64(s.OK))
+	}
+	if s.Blocked > 0 {
+		fmt.Fprintf(&b, "  not saved:    %d blocked by the permission gate\n", s.Blocked)
 	}
 	if s.Pending > 0 {
 		fmt.Fprintf(&b, "  unreported:   %d pending\n", s.Pending)
