@@ -42,7 +42,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
-	want := "ctx ━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
+	want := "ctx ▬▬▬▬▬▬▬▬▬─────────── 47% · 94.4k/200k · 7d ▬▬──────── 18%"
 	if rows[1] != want {
 		t.Errorf("row 2 = %q, want %q", rows[1], want)
 	}
@@ -57,7 +57,7 @@ func TestTwolineCornerCases(t *testing.T) {
 	if strings.Contains(rows[1], "7d") || strings.Contains(rows[0], "u2m:") || strings.HasPrefix(rows[1], " ·") {
 		t.Errorf("rows = %q, want no 7d, no auth, no leading separator", rows)
 	}
-	if !strings.HasPrefix(rows[1], "ctx ━") {
+	if !strings.HasPrefix(rows[1], "ctx ▬") {
 		t.Errorf("row 2 should open with the context bar: %q", rows[1])
 	}
 }

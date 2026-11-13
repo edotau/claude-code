@@ -160,7 +160,7 @@ func dreamChanged(cwd string, since time.Time) []string {
 }
 
 // agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
-func agentDreamPrompt(changed []string) (string, error) {
+func agentDreamPrompt(cwd string, changed []string) (string, error) {
 	ref, err := Reference("dream")
 	if err != nil {
 		return "", err
@@ -169,8 +169,8 @@ func agentDreamPrompt(changed []string) (string, error) {
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return "Background daily consolidation of the memory bank. Resolve the local bank with `claude-code memory path`; " +
-		"the home bank is the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
+	return "Background daily consolidation of the memory bank. The local bank is " + Dir(cwd) + "; the memory root " + StoreDir() + " holds the home bank and every repo store. " +
+		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 
 // dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
@@ -226,7 +226,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 		return nil, archiveErr
 	}
 	since, _, _ := effectiveStamp(o.CWD, time.Now()) // no stamp: the zero time lists every file
-	prompt, err := agentDreamPrompt(dreamChanged(o.CWD, since))
+	prompt, err := agentDreamPrompt(o.CWD, dreamChanged(o.CWD, since))
 	if err != nil {
 		return err, archiveErr
 	}

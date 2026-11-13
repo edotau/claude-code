@@ -52,10 +52,10 @@ func (d *twoData) fillContext(in input) {
 	}
 }
 
-// twoBar is w cells of ━ (filled) then ─ for pct percent, rounded (p*w+50)/100.
+// twoBar is w cells of ▬ (filled) then ─ for pct percent, rounded (p*w+50)/100.
 func twoBar(pct float64, w int) string {
 	n := (clampPct(int(pct+0.5))*w + 50) / 100
-	return strings.Repeat("━", n) + strings.Repeat("─", w-n)
+	return strings.Repeat("▬", n) + strings.Repeat("─", w-n)
 }
 
 const twoSep = " · "

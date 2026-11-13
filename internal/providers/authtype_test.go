@@ -567,7 +567,10 @@ func resolveCell(t *testing.T, ctx context.Context, name, identity string, c idC
 	t.Helper()
 	p := identityRow(t, name, identity, c)
 	var notes strings.Builder
-	got, err := Credential(WithNotes(ctx, func(s string) { notes.WriteString(s + "\n") }), p)
+	got, err := Credential(WithNotes(ctx, func(s string) {
+		notes.WriteString(s)
+		notes.WriteByte('\n')
+	}), p)
 	if err != nil {
 		got = ""
 	}

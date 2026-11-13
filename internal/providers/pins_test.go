@@ -332,7 +332,11 @@ func orderDoc(names ...string) []byte {
 		if i > 0 {
 			rows.WriteString(",")
 		}
-		rows.WriteString(`"` + n + `":{"preset":"databricks","host":"https://` + n + `.cloud.databricks.com"}`)
+		rows.WriteString(`"`)
+		rows.WriteString(n)
+		rows.WriteString(`":{"preset":"databricks","host":"https://`)
+		rows.WriteString(n)
+		rows.WriteString(`.cloud.databricks.com"}`)
 	}
 	return []byte(`{"providers":{"databricks":{` + rows.String() + `}}}`)
 }

@@ -1672,8 +1672,8 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 }
 
 func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
-	o := memoryRunOptions("p", "/w")
-	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
+	o := memoryRunOptions(context.Background(), "p", "/w")
+	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || !o.Gate || o.WorkDir != "/w" {
 		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
 	}
 }

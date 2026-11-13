@@ -127,7 +127,7 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return "Background update of a finished session. Resolve the bank directory with `claude-code memory path`. " +
+	return "Background update of a finished session. The bank directory is " + Dir(cwd) + " and the shared home bank is " + HomeBankDir() + "; write only there. " +
 		"Follow this procedure, the COMPLETE pass:\n\n" + ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
@@ -416,6 +416,17 @@ func withChildEnv(ctx context.Context, env ...string) context.Context {
 func ChildEnv(ctx context.Context) []string {
 	env, _ := ctx.Value(childEnvKey{}).([]string)
 	return env
+}
+
+// BankScope is what the job's agent may write (path globs) and run (Bash patterns); dream also edits every repo store.
+func BankScope(ctx context.Context, workdir string) (write, bash []string) {
+	if slices.Contains(ChildEnv(ctx), dreamChildEnv+"=1") {
+		// dream alone may promote a gated hard rule, which it then writes into CLAUDE.md by hand
+		return []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")},
+			[]string{"claude-code memory timeline *", "claude-code memory review *", "claude-code memory index *",
+				"claude-code memory promote *"}
+	}
+	return []string{Dir(workdir) + "/**", HomeBankDir() + "/**"}, nil
 }
 
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.

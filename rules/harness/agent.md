@@ -122,6 +122,12 @@ paths:
   loads no plugin), codex and agy as a native PreToolUse hook. Hook modes: `hooks.md` → Applicability. A live codex or
   agy home picks up the hook only after the owner runs `configure --restore --agents --agent codex` (or `gemini`),
   which re-renders only that agent's config; until then those agents keep refusing a Bash deny.
+- **Memory jobs (claude, gated).** `memory update`/`dream`/catch-up run claude with `RunOptions.Gate`:
+  `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
+  limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and the `permission-gate` hook merged into the launch's one
+  `--settings` (`exit 2` on any failure). Policy: plan mode, Edit/Write allowed under the job's bank dirs (dream: the
+  memory root and `CLAUDE.md`), Bash only dream's `claude-code memory timeline|review|index|promote`; no policy, binary
+  or policy env refuses the launch.
 
 ## Codex child routing
 
