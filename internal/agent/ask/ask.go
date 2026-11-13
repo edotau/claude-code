@@ -625,23 +625,28 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	}
 	res, err := client.Exec(ctx, p, stdoutSink(format, p.Record.ID), opts)
 	writeErr := reportAskResult(format, res, err)
-	lines := []string{wire.RanOn(res)}
-	if p.Chain.Preflight == nil || len(p.Chain.Preflight.Failed) == 0 { // a refusal's preflight: line named the reason
-		lines = append(lines, wire.DidNotRun(res))
-	}
-	for _, line := range lines {
+	refused := p.Chain.Preflight != nil && len(p.Chain.Preflight.Failed) > 0
+	for _, line := range askTrailer(format, res, refused) {
 		if line != "" {
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
-	fmt.Fprintln(os.Stderr, "ask: dispatch", res.DispatchID, "(agents result <id> reprints it; agents ask --retry <id> replays it)")
-	if err == nil {
-		err = writeErr
-	}
-	if err != nil {
+	if err := cmp.Or(err, writeErr); err != nil {
 		return helptext.Fail("ask: %v", err)
 	}
 	return 0
+}
+
+// askTrailer is the stderr lines after a dispatch; the json envelope already carries ran_on and dispatch_id.
+func askTrailer(format string, res wire.Result, refused bool) []string {
+	lines := []string{wire.RanOn(res), "", "dispatch " + res.DispatchID}
+	if format == helptext.JSON {
+		lines[0], lines[2] = "", ""
+	}
+	if !refused { // a refusal's preflight: line named the reason
+		lines[1] = wire.DidNotRun(res)
+	}
+	return lines
 }
 
 // stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
