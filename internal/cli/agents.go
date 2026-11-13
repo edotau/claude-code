@@ -43,7 +43,7 @@ func agentsSpec() *helptext.Node {
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
-			flag("output-schema")}},
+			flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{formatFlag()}},
 		"result": {Flags: []helptext.Flag{formatFlag()}},
@@ -381,6 +381,7 @@ func cmdAgentsDispatch(args []string) int {
 	format := helptext.FormatFlag(fs)
 	background := fs.Bool("background", false, "detach each dispatch, print its id; no merged report")
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) each answer must satisfy")
+	route := ask.RegisterRouteFlags(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -398,7 +399,7 @@ func cmdAgentsDispatch(args []string) int {
 	}
 	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: textutil.SplitCSV(*models),
 		Web: !*noWeb, Timeout: *timeout}
-	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background})
+	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background, Route: route})
 }
 
 // cmdAgentsJob is `agents status|result|tail|cancel <id>`: the agent comes from the dispatch record.

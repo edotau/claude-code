@@ -4,10 +4,12 @@ package roles
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -146,6 +149,31 @@ type Request struct {
 	Web           bool
 	Timeout       time.Duration
 	OutputSchema  string
+	Fallback      string               // --fallback, else the overlay's
+	Permissions   agent.Permissions    // --allow/--ask/--deny/--mode, added over the role's own
+	Overlay       agentconfig.Resolved // the overlay's env layer
+}
+
+// layer is base plus add: rules union, add's mode wins when set.
+func layer(base, add agent.Permissions) agent.Permissions {
+	out := agent.Permissions{Mode: cmp.Or(add.Mode, base.Mode), Allow: slices.Clone(base.Allow), Ask: slices.Clone(base.Ask),
+		Deny: slices.Clone(base.Deny)}
+	for _, r := range add.Allow {
+		if !slices.Contains(out.Allow, r) {
+			out.Allow = append(out.Allow, r)
+		}
+	}
+	for _, r := range add.Ask {
+		if !slices.Contains(out.Ask, r) {
+			out.Ask = append(out.Ask, r)
+		}
+	}
+	for _, r := range add.Deny {
+		if !slices.Contains(out.Deny, r) {
+			out.Deny = append(out.Deny, r)
+		}
+	}
+	return out
 }
 
 // Leg is one dispatch of a role; a non-empty Err means it failed before dispatch.
@@ -158,7 +186,7 @@ type Leg struct {
 // Legs builds r's legs for q; the shape follows the role name, the agent comes from the table.
 func Legs(r Role, q Request) []Leg {
 	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
-		Permissions: r.Permissions}
+		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback}.ApplyOverlay(q.Overlay)
 	switch r.Name {
 	case "explore":
 		return exploreLegs(base, q)
