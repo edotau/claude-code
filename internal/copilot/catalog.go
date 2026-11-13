@@ -120,8 +120,7 @@ func saveCatalogSnapshot(s catalogSnapshot) error {
 		return errors.New("cannot encode catalog snapshot")
 	}
 	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutRecord(catalogRecord, vault.Record{Sealed: key.Seal(catalogRecord, string(data)), Kid: key.Kid,
-			Len: len(data), Label: "github/copilot", SetAt: s.DiscoveredAt})
+		return tx.PutSealed(key, catalogRecord, string(data), "github/copilot", s.DiscoveredAt)
 	})
 }
 

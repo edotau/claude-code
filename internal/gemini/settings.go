@@ -220,8 +220,8 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, o
 func appendAgyRules(dst []string, rules []agent.Rule, cwd string) ([]string, []agent.Rule) {
 	var unmapped []agent.Rule
 	for _, r := range rules {
-		if s, ok := agyRule(r, cwd); ok {
-			dst = append(dst, s)
+		if s := agyRules(r, cwd); len(s) > 0 {
+			dst = append(dst, s...)
 		} else {
 			unmapped = append(unmapped, r)
 		}
@@ -229,26 +229,27 @@ func appendAgyRules(dst []string, rules []agent.Rule, cwd string) ([]string, []a
 	return dst, unmapped
 }
 
-// agyRule maps an exact Bash command or a glob-free Read/Write/Edit path; agy's `*` did not match live, so no patterns.
-func agyRule(r agent.Rule, cwd string) (string, bool) {
+// agyRules maps an exact Bash command or glob-free path; Write and Edit give write_file and edit_file; nil if no map.
+func agyRules(r agent.Rule, cwd string) []string {
 	if r.Arg == "" || strings.ContainsAny(r.Arg, "*?[") {
-		return "", false
+		return nil
 	}
 	if r.Tool == "Bash" {
-		return "command(" + strings.TrimSpace(r.Arg) + ")", true
+		return []string{"command(" + strings.TrimSpace(r.Arg) + ")"}
 	}
-	fn := map[string]string{"Read": "read_file", "Write": "write_file", "Edit": "write_file"}[r.Tool]
-	if fn == "" {
-		return "", false
-	}
+	fns := map[string][]string{"Read": {"read_file"}, "Write": {"write_file", "edit_file"}, "Edit": {"write_file", "edit_file"}}[r.Tool]
 	p := r.Arg
 	if !filepath.IsAbs(p) {
 		if cwd == "" {
-			return "", false
+			return nil
 		}
 		p = filepath.Join(cwd, p)
 	}
-	return fn + "(" + filepath.Clean(p) + ")", true
+	var out []string
+	for _, fn := range fns {
+		out = append(out, fn+"("+filepath.Clean(p)+")")
+	}
+	return out
 }
 
 // agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the permission gate.
@@ -291,6 +292,7 @@ func agyPreToolGroups(path string) []settings.MatcherGroup {
 		return nil
 	}
 	var sets map[string]struct {
+		Enabled    *bool                   `json:"enabled"` // a set with enabled false does not run; a non-boolean fails the decode
 		PreToolUse []settings.MatcherGroup `json:"PreToolUse"`
 	}
 	if json.Unmarshal(b, &sets) != nil {
@@ -298,6 +300,9 @@ func agyPreToolGroups(path string) []settings.MatcherGroup {
 	}
 	var groups []settings.MatcherGroup
 	for _, set := range sets {
+		if set.Enabled != nil && !*set.Enabled {
+			continue
+		}
 		groups = append(groups, set.PreToolUse...)
 	}
 	return groups
@@ -314,17 +319,24 @@ const agyHookName = "claude-code"
 // agyGateMatcher is the agy tool names the permission gate judges (run_command, read_file, write_file, edit_file).
 const agyGateMatcher = "run_command|read_file|write_file|edit_file"
 
+// agyShellMatcher is agy's shell tool name, the only call safety-scan judges.
+const agyShellMatcher = "run_command"
+
 // renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping every other hook.
 func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	var hooks []any
+	var groups []any
 	for _, s := range settings.SpecsFor("gemini", "native") {
-		hooks = append(hooks, map[string]any{
+		matcher := agyGateMatcher
+		if s.Matcher == "Bash" { // a shell-only spec runs on run_command alone
+			matcher = agyShellMatcher
+		}
+		groups = append(groups, map[string]any{"matcher": matcher, "hooks": []any{map[string]any{
 			"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds(),
-		})
+		}}})
 	}
 	path := agyHooksPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "gemini-hooks", func(obj map[string]any, _ bool) bool {
-		obj[agyHookName] = map[string]any{"PreToolUse": []any{map[string]any{"matcher": agyGateMatcher, "hooks": hooks}}}
+		obj[agyHookName] = map[string]any{"PreToolUse": groups}
 		return true
 	})
 }

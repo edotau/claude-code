@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -248,6 +249,37 @@ func renderCodexHeadless(t *testing.T, tg providers.Target, req agent.RunOptions
 	}
 	t.Cleanup(cleanup)
 	return env, argv, emulated
+}
+
+// A bad HARNESS_CODEX_SANDBOX is refused by RenderSettings before the rules CODEX_HOME or the Go cache dir exists.
+func TestCodexRenderSettingsRefusesBadSandboxFirst(t *testing.T) {
+	cfg, tmp := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("TMPDIR", tmp)
+	s := agent.Settings{Agent: "codex", Headless: true, Tools: true,
+		Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "git status:*"}}}}
+	env := []string{codexKeyEnv + "=k"}
+	scratch := func() int { // rules homes under the state dir plus Go cache dirs under TMPDIR
+		homes, _ := filepath.Glob(filepath.Join(paths.StateDir(), "codex", "home-*"))
+		caches, _ := filepath.Glob(filepath.Join(tmp, "codex-go-*"))
+		return len(homes) + len(caches)
+	}
+	render := func() error {
+		_, _, _, cleanup, err := agent.SchemaFor("codex").Eng().RenderSettings(context.Background(), s, env, []string{"exec"})
+		t.Cleanup(cleanup)
+		return err
+	}
+	t.Setenv(codexSandboxEnv, "")
+	if err := render(); err != nil || scratch() == 0 {
+		t.Fatalf("control: err %v, scratch dirs %d; want a launch that creates its dirs", err, scratch())
+	}
+	before := scratch()
+	t.Setenv(codexSandboxEnv, "read-only")
+	var usage *agent.UsageError
+	if err := render(); !errors.As(err, &usage) || scratch() != before {
+		t.Errorf("bad sandbox: err %v, scratch dirs %d -> %d; want a usage error and no new dir", err, before, scratch())
+	}
 }
 
 // putCodexRecord stores rec as the codex agent record.

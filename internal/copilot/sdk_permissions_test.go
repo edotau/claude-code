@@ -141,12 +141,14 @@ func TestReadOnlyGitShell(t *testing.T) {
 		"git diff --no-ext-diff --no-textconv HEAD~1 -- internal/x.go": true,
 		"git show --no-ext-diff --no-textconv --stat HEAD":             true, "git blame --no-textconv -L 1,5 f.go": true,
 		"git rev-parse HEAD": true, "git branch --list": true, "git log --no-ext-diff --no-textconv --format=%h": true,
-		"git log -3 --oneline": false, "git diff HEAD~1": false, "git blame f.go": false, "git status -v": false,
+		"git log -3 --oneline": true, "git diff HEAD~1": true, "git blame f.go": true, "git status -v": true,
 		"git status; rm -rf x": false, "git diff ~root": false, "git log > f": false, "git -c core.pager=sh log": false,
 		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
 		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
-		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false,
-		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "ls": false, "": false,
+		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": true, "GIT_EXTERNAL_DIFF=x git diff": false,
+		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "": false,
+		"ls": true, "rg foo internal | head -5": true, "claude-code agents find x": true, "go doc fmt": true,
+		"rm x": false, "ls | tee x": false, "rg --pre cat x": false, "cat f > g": false, "cat $(ls)": false,
 	} {
 		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
 		if err != nil {
@@ -301,6 +303,61 @@ func TestPlanModeWebSearchMCP(t *testing.T) {
 		}
 		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
 			t.Errorf("%s: approved = %v, want %v (decision %T)", tc.name, ok, tc.want, d)
+		}
+	}
+}
+
+// A write is judged as Edit and Write, a path as absolute and workdir-relative; a Deny on any form wins.
+func TestWriteAndAbsolutePathRules(t *testing.T) {
+	wd := t.TempDir()
+	abs := filepath.Join(wd, "src", "a.go")
+	rule := func(tool, arg string) []agent.Rule { return []agent.Rule{{Tool: tool, Arg: arg}} }
+	for _, tc := range []struct {
+		name  string
+		perms agent.Permissions
+		want  bool
+	}{
+		{"plan allow Write rel", agent.Permissions{Mode: "plan", Allow: rule("Write", "src/**")}, true},
+		{"plan allow Edit rel", agent.Permissions{Mode: "plan", Allow: rule("Edit", "src/**")}, true},
+		{"plan allow abs", agent.Permissions{Mode: "plan", Allow: rule("Edit", wd+"/src/**")}, true},
+		{"plan unmatched", agent.Permissions{Mode: "plan", Allow: rule("Write", "other/**")}, false},
+		{"deny Write", agent.Permissions{Deny: rule("Write", "src/**")}, false},
+		{"deny Edit", agent.Permissions{Deny: rule("Edit", "src/**")}, false},
+		{"deny abs", agent.Permissions{Deny: rule("Edit", wd+"/src/**")}, false},
+		{"deny wins over allow", agent.Permissions{Allow: rule("Write", "src/**"), Deny: rule("Edit", wd+"/src/**")}, false},
+	} {
+		h := buildSessionConfig(sdkOptions{AllowAllTools: true, Permissions: tc.perms, WorkingDirectory: wd}).OnPermissionRequest
+		d, err := h(writeReq(abs), copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := d.(*rpc.PermissionDecisionApproveOnce); ok != tc.want {
+			t.Errorf("%s: approved = %v, want %v (decision %T)", tc.name, ok, tc.want, d)
+		}
+	}
+}
+
+// The read-only tier approves one unchained `claude-code review simplify` over file paths and nothing looser.
+func TestReadOnlySimplifyDetector(t *testing.T) {
+	h := buildSessionConfig(sdkOptions{AllowAllTools: true, ReadOnlyTools: true}).OnPermissionRequest
+	for cmd, want := range map[string]bool{
+		"claude-code review simplify internal/a.go": true, "claude-code review simplify internal/a.go internal/b.go": true,
+		"claude-code review simplify": true, "claude-code review simplify --json internal/a.go": true,
+		"claude-code review simplify --threshold strict internal/a.go": true, "claude-code review simplify --base main": true,
+		"claude-code review simplify a.go; rm x": false, "claude-code review simplify a.go && id": false,
+		"claude-code review simplify a.go | sh": false, "claude-code review simplify a.go > f": false,
+		"claude-code review simplify $(id)": false, "claude-code review simplify --evil a.go": false,
+		"claude-code review simplify ../../etc/passwd": false, "claude-code review simplify /etc/passwd": false,
+		"claude-code review other a.go": false, "claude-code review simplify --threshold": false,
+		"claude-code review simplify --threshold bogus a.go": false, "claude-code agents ask x": false,
+		"claude-code review simplify -a.go": false, "claude-code review simplify --base main --base -x": false,
+	} {
+		d, err := h(rpc.PermissionRequestShell{FullCommandText: cmd}, copilot.PermissionInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, approved := d.(*rpc.PermissionDecisionApproveOnce); approved != want {
+			t.Errorf("%q: approved = %v, want %v", cmd, approved, want)
 		}
 	}
 }

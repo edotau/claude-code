@@ -58,6 +58,30 @@ func TestAgyPermissionSettings(t *testing.T) {
 	}
 }
 
+// Write and Edit each map to both native write tools; a path is absolute as given or joined to cwd, never to an empty cwd.
+func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
+	both := func(p string) []string { return []string{"write_file(" + p + ")", "edit_file(" + p + ")"} }
+	for _, c := range []struct {
+		name string
+		rule agent.Rule
+		cwd  string
+		want []string
+	}{
+		{"write relative", agent.Rule{Tool: "Write", Arg: "a.txt"}, "/w", both("/w/a.txt")},
+		{"edit relative", agent.Rule{Tool: "Edit", Arg: "a.txt"}, "/w", both("/w/a.txt")},
+		{"absolute ignores cwd", agent.Rule{Tool: "Edit", Arg: "/abs/a.txt"}, "/w", both("/abs/a.txt")},
+		{"absolute without cwd", agent.Rule{Tool: "Write", Arg: "/abs/a.txt"}, "", both("/abs/a.txt")},
+		{"relative without cwd", agent.Rule{Tool: "Write", Arg: "a.txt"}, "", nil},
+		{"read stays read_file", agent.Rule{Tool: "Read", Arg: "a.txt"}, "/w", []string{"read_file(/w/a.txt)"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := agyRules(c.rule, c.cwd); !slices.Equal(got, c.want) {
+				t.Errorf("agyRules(%s, %q) = %q, want %q", c.rule, c.cwd, got, c.want)
+			}
+		})
+	}
+}
+
 // A Deny agy can't hold (a Bash deny with no gate hook installed, a glob path, a bare tool) or a failed guard load refuses the dispatch.
 func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -196,6 +220,18 @@ func TestAgyGateCoversIgnoresWorkspaceFileForEmptyCwd(t *testing.T) {
 	}
 }
 
+// hookSets is a hooks.json with one disabled set holding off and one enabled set holding on.
+func hookSets(t *testing.T, off, on []settings.MatcherGroup) []byte {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"off": map[string]any{"enabled": false, "PreToolUse": off}, "on": map[string]any{"PreToolUse": on},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // A malformed or unreadable hooks.json grants the gate on no tool; only a valid covering file does.
 func TestAgyGateCoversFailsClosedOnBadHooksFile(t *testing.T) {
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
@@ -213,6 +249,8 @@ func TestAgyGateCoversFailsClosedOnBadHooksFile(t *testing.T) {
 		{"malformed", []byte("{not json"), 0o600, false},
 		{"unreadable", valid, 0o000, false},
 		{"valid", valid, 0o600, true},
+		{"gate only in the disabled set", hookSets(t, []settings.MatcherGroup{group}, nil), 0o600, false},
+		{"disabled set does not hide an enabled one", hookSets(t, []settings.MatcherGroup{group}, []settings.MatcherGroup{group}), 0o600, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.name == "unreadable" && (runtime.GOOS == "windows" || os.Geteuid() == 0) {
@@ -231,6 +269,49 @@ func TestAgyGateCoversFailsClosedOnBadHooksFile(t *testing.T) {
 				if got := agyGateCovers("", tool); got != c.want {
 					t.Errorf("agyGateCovers(%q) = %v, want %v", tool, got, c.want)
 				}
+			}
+		})
+	}
+}
+
+// A hook set with "enabled": false is not enforcement; absent or true still is.
+func TestAgyGateCoversIgnoresDisabledSet(t *testing.T) {
+	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
+	group := settings.MatcherGroup{Hooks: []settings.Hook{{Type: "command", Command: command}}}
+	for _, c := range []struct {
+		name    string
+		enabled any
+		want    bool
+	}{
+		{"disabled", false, false},
+		{"enabled", true, true},
+		{"absent", nil, true},
+		{"non-boolean", "no", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			set := map[string]any{"PreToolUse": []settings.MatcherGroup{group}}
+			if c.enabled != nil {
+				set["enabled"] = c.enabled
+			}
+			b, err := json.Marshal(map[string]any{"harness": set})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := agyHooksPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := agyGateCovers("", "run_command"); got != c.want {
+				t.Errorf("agyGateCovers = %v, want %v", got, c.want)
+			}
+			_, _, err = agyPermissionSettings(agent.Permissions{Deny: agent.ReadOnlyDeny}, true, true, "/w", io.Discard)
+			if (err == nil) != c.want {
+				t.Errorf("read-only deny err = %v, want accepted = %v", err, c.want)
 			}
 		})
 	}
@@ -562,7 +643,7 @@ func TestRenderGeminiHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	for _, want := range []string{`"mine"`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/claude-code hook PreToolUse --permission-gate`, `"matcher": "run_command|read_file|write_file|edit_file"`} {
+	for _, want := range []string{`"mine"`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/claude-code hook PreToolUse --safety-scan`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/claude-code hook PreToolUse --permission-gate`, `"matcher": "run_command|read_file|write_file|edit_file"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("hooks.json lacks %s:\n%s", want, b)
 		}
@@ -577,4 +658,32 @@ func stagedHooks(home string) (bool, error) {
 		return changed, err
 	}
 	return changed, plan.Apply()
+}
+
+// Edit and Write path rules render both native write entries, in Deny and Allow alike.
+func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
+	p := agent.Permissions{
+		Deny:  []agent.Rule{{Tool: "Edit", Arg: "d.txt"}, {Tool: "Write", Arg: "w.txt"}},
+		Allow: []agent.Rule{{Tool: "Edit", Arg: "/abs/a.txt"}},
+	}
+	got, _, err := agyPermissionSettings(p, false, true, "/w", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Permissions struct{ Allow, Deny []string }
+	}
+	if err := json.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"write_file(/w/d.txt)", "edit_file(/w/d.txt)", "write_file(/w/w.txt)", "edit_file(/w/w.txt)"} {
+		if !slices.Contains(doc.Permissions.Deny, want) {
+			t.Errorf("deny %v lacks %q", doc.Permissions.Deny, want)
+		}
+	}
+	for _, want := range []string{"write_file(/abs/a.txt)", "edit_file(/abs/a.txt)"} {
+		if !slices.Contains(doc.Permissions.Allow, want) {
+			t.Errorf("allow %v lacks %q", doc.Permissions.Allow, want)
+		}
+	}
 }

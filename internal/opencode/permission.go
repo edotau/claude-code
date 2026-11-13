@@ -38,11 +38,11 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	}{{p.Allow, "allow"}, {p.Ask, "ask"}, {p.Deny, "deny"}}
 	for _, set := range sets {
 		for _, r := range set.rules {
-			key, pats, err := opencodeRule(r, set.action)
+			key, pats, err := opencodeRuleOrList(r, set.action)
 			if err != nil {
 				return nil, err
 			}
-			if p.Mode == "plan" && set.action != "deny" && planDenied[key] {
+			if reopensPlanWrite(p.Mode, set.action, key, r) {
 				continue // plan mode is read-only: an allow or ask never reopens a write tool
 			}
 			for _, pat := range pats {
@@ -51,6 +51,11 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 		}
 	}
 	return renderOpencodePermission(base, byKey), nil
+}
+
+// reopensPlanWrite reports a non-deny rule that would open a write tool plan mode keeps closed.
+func reopensPlanWrite(mode, action, key string, r agent.Rule) bool {
+	return mode == "plan" && action != "deny" && planDenied[key] && r != agent.ReadOnlyAllow
 }
 
 func renderOpencodePermission(base string, byKey map[string][]opencodeEntry) json.RawMessage {
@@ -76,7 +81,7 @@ func planEntries(mode string) map[string][]opencodeEntry {
 	if mode != "plan" {
 		return byKey
 	}
-	for _, k := range []string{"read", "glob", "grep", "list", "webfetch"} {
+	for _, k := range []string{"read", "glob", "grep", "list", "webfetch", "websearch"} {
 		byKey[k] = []opencodeEntry{{"*", "allow"}}
 	}
 	for k := range planDenied {
@@ -152,6 +157,26 @@ func opencodePaths(arg, action string) []string {
 	return []string{arg}
 }
 
+// opencodeRuleOrList is opencodeRule, but the read-only shell rules become the list's heads (the plugin judges exactly).
+func opencodeRuleOrList(r agent.Rule, action string) (string, []string, error) {
+	switch {
+	case r == agent.ReadOnlyAllow:
+		return "bash", readOnlyPatterns(), nil
+	case r.Tool == "Bash" && r.Arg == agent.NotReadOnlyShellArg:
+		return "bash", nil, nil
+	}
+	return opencodeRule(r, action)
+}
+
+// readOnlyPatterns are the native bash patterns of the shared read-only list.
+func readOnlyPatterns() []string {
+	var out []string
+	for _, h := range agent.ReadOnlyBashHeads() {
+		out = append(out, h, h+" *")
+	}
+	return out
+}
+
 // opencodeCommand turns Claude's "git log:*" prefix form into opencode's "git log *".
 func opencodeCommand(arg string) string {
 	if prefix, ok := strings.CutSuffix(arg, ":*"); ok {
@@ -175,6 +200,7 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 				req.Permissions.Deny = append(req.Permissions.Deny, r)
 			}
 		}
+		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
 	}
 	if req.Permissions.IsZero() {
 		return env, nil
@@ -233,6 +259,14 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 		}
 	}
 	return true
+}
+
+// GatePolicy is the policy the plugin's permission-gate judges for req, plan mode included when read-only.
+func GatePolicy(req agent.RunOptions) agent.Permissions {
+	if opencodeReadOnly(req) {
+		req.Permissions.Mode = "plan"
+	}
+	return req.Permissions
 }
 
 // opencodePolicyArgv keeps read-only off --auto; other policies send "ask" to opencode's auto judge.
