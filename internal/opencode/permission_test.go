@@ -46,9 +46,11 @@ func TestOpencodePermissionGolden(t *testing.T) {
 		{"ask stays ask", agent.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"ask"}}`},
 		{"default mode asks", agent.Permissions{Deny: rules(t, "Read(.env)")}, `{"*":"ask","read":{".env":"deny","*/.env":"deny"}}`},
 		{"plan mode is read-only", agent.Permissions{Mode: "plan"},
-			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow"}`},
+			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow","websearch":"allow"}`},
 		{"plan mode keeps a read deny and ignores a write allow", agent.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
-			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow"}`},
+			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow","websearch":"allow"}`},
+		{"plan mode ignores an allow or ask on bash, write and task", agent.Permissions{Mode: "plan", Allow: rules(t, "Bash(go test:*)", "Write"), Ask: rules(t, "Agent")},
+			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow","websearch":"allow"}`},
 		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
 		{"read relative deny", agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
 		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
@@ -105,6 +107,18 @@ func TestOpencodePermissionRefusesWhatItCannotExpress(t *testing.T) {
 	}
 	if _, err := opencodePermission(agent.Permissions{Allow: rules(t, "Read(src/*.go)")}); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
 		t.Error("an allow whose * would cross directories must refuse")
+	}
+}
+
+// A tool opencode has no permission for is refused in every set: plan mode never swallows it as a skipped rule.
+func TestOpencodePermissionRefusesUnknownToolInPlan(t *testing.T) {
+	r := rules(t, "NotebookEdit")
+	for name, p := range map[string]agent.Permissions{
+		"allow": {Mode: "plan", Allow: r}, "ask": {Mode: "plan", Ask: r}, "deny": {Mode: "plan", Deny: r},
+	} {
+		if _, err := opencodePermission(p); err == nil || !strings.Contains(err.Error(), "NotebookEdit") {
+			t.Errorf("plan %s NotebookEdit: err = %v, want a refusal naming the tool", name, err)
+		}
 	}
 }
 
@@ -202,14 +216,23 @@ func assertReadOnlyLaunch(t *testing.T, seen string) {
 	if len(argv) < 2 || slices.Contains(flagsOnly(argv), "--auto") || !slices.Equal(argv[len(argv)-2:], []string{"--", "--auto"}) {
 		t.Fatalf("read-only argv must remove --auto flags but preserve the prompt: %q", argv)
 	}
-	perm := `{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow"}`
-	if values["PERM"] != perm || !strings.Contains(values["CFG"], `"permission":`+perm) {
-		t.Fatalf("read-only must keep reads on and writes denied in env/config: %v", values)
-	}
+	assertReadOnlyPerm(t, values["PERM"], values["CFG"])
 	if !strings.Contains(values["CFG"], "harness-hooks-") {
 		t.Fatal("read-only launch lacks the permission-gate plugin")
 	}
 	assertReadOnlyDispatch(t, values["DISPATCH"])
+}
+
+func assertReadOnlyPerm(t *testing.T, perm, cfg string) {
+	t.Helper()
+	for _, want := range []string{`"edit":"deny"`, `"websearch":"allow"`, `"bash":{"*":"deny"`, `"git log *":"allow"`} {
+		if !strings.Contains(perm, want) || !strings.Contains(cfg, want) {
+			t.Fatalf("read-only must keep reads on, writes denied and bash on the list only (%s): %s", want, perm)
+		}
+	}
+	if strings.Contains(perm, `"rm`) || strings.Contains(perm, `"bash":"allow"`) {
+		t.Fatalf("read-only bash must not allow more than the list: %s", perm)
+	}
 }
 
 func assertReadOnlyDispatch(t *testing.T, raw string) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -103,6 +104,51 @@ func (codexEngine) RouteDetail() (string, bool) {
 	model, source := providers.CodexModel()
 	effort, _ := providers.CodexEffort()
 	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default")), true
+}
+
+// codexSandboxEnv names the per-dispatch opt-in to a wider tools sandbox; unset keeps workspace-write.
+const codexSandboxEnv = "HARNESS_CODEX_SANDBOX"
+
+// codexSandbox is the exec sandbox: read-only without tools, else $HARNESS_CODEX_SANDBOX or workspace-write.
+func codexSandbox(tools bool) (string, error) {
+	v := os.Getenv(codexSandboxEnv)
+	if v != "" && v != "workspace-write" && v != "danger-full-access" {
+		return "read-only", &agent.UsageError{Msg: fmt.Sprintf("codex: %s=%q is not a sandbox; accepted values: "+
+			"workspace-write, danger-full-access", codexSandboxEnv, v)}
+	}
+	if !tools {
+		return "read-only", nil
+	}
+	return cmp.Or(v, "workspace-write"), nil
+}
+
+// codexCaches are the Go cache variables a workspace-write run needs writable, with their dirs under the temp dir.
+var codexCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOLANGCI_LINT_CACHE", "lint"}, {"GOMODCACHE", "gomod"}}
+
+// codexToolsEnv adds the sandbox launch note and, under workspace-write, temp-dir Go caches the caller left unset.
+func codexToolsEnv(env []string, tools bool, sandbox string) (out, notes []string, remove func(), err error) {
+	remove = func() {}
+	if !tools {
+		return env, nil, remove, nil
+	}
+	if os.Getenv(codexSandboxEnv) != "" {
+		notes = append(notes, fmt.Sprintf("codex: sandbox %s (%s)", sandbox, codexSandboxEnv))
+	}
+	if sandbox != "workspace-write" {
+		return env, notes, remove, nil
+	}
+	dir, err := os.MkdirTemp("", "codex-go-")
+	if err != nil {
+		return env, notes, remove, fmt.Errorf("codex: go cache dir: %w", err)
+	}
+	out = slices.Clone(env)
+	for _, c := range codexCaches {
+		_, inProcess := os.LookupEnv(c[0])
+		if !inProcess && !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, c[0]+"=") }) {
+			out = append(out, c[0]+"="+filepath.Join(dir, c[1]))
+		}
+	}
+	return out, notes, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.

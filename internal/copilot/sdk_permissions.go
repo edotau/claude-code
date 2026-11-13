@@ -54,37 +54,67 @@ func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.P
 	}
 }
 
-// ruleDecision rejects when o.Permissions denies any of calls; handled is false when next should decide.
-func ruleDecision(o sdkOptions, req copilot.PermissionRequest, calls []agent.Rule) (rpc.PermissionDecision, bool) {
-	if len(calls) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
+// ruleDecision rejects when o.Permissions refuses any group of calls; handled is false when next should decide.
+func ruleDecision(o sdkOptions, req copilot.PermissionRequest, groups [][]agent.Rule) (rpc.PermissionDecision, bool) {
+	if len(groups) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
 		feedback := "Plan mode allows only reads, URL fetches and web search: report it instead."
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 	}
-	for _, call := range calls {
-		if o.Permissions.Decide(call.Tool, call.Arg) != agent.Deny || planReadThrough(o.Permissions, req, call) {
-			continue
+	for _, group := range groups {
+		if call, refused := refusedCall(o.Permissions, req, group); refused {
+			feedback := "Refused by permission rule for " + call.String() + ": report it instead."
+			return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 		}
-		feedback := "Refused by permission rule for " + call.String() + ": report it instead."
-		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 	}
 	return nil, false
 }
 
-// ruleCalls are the Claude-style Tool(arg) names a request is judged as; none for kinds no rule names (memory).
-func ruleCalls(req copilot.PermissionRequest, workDir string) []agent.Rule {
+// refusedCall is the call a Deny names in group, else group[0] when none is allowed (plan passes reads unless denied).
+func refusedCall(p agent.Permissions, req copilot.PermissionRequest, group []agent.Rule) (agent.Rule, bool) {
+	for _, call := range group {
+		if (agent.Permissions{Deny: p.Deny}).Decide(call.Tool, call.Arg) == agent.Deny {
+			return call, true
+		}
+	}
+	if slices.ContainsFunc(group, func(c agent.Rule) bool { return p.Decide(c.Tool, c.Arg) != agent.Deny }) {
+		return agent.Rule{}, false
+	}
+	if p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) {
+		return agent.Rule{}, false
+	}
+	return group[0], true
+}
+
+// ruleCalls are the Tool(arg) names a request is judged as, grouped by spelling: Deny on any refuses, Allow on any grants.
+func ruleCalls(req copilot.PermissionRequest, workDir string) [][]agent.Rule {
 	switch r := requestValue(req).(type) {
 	case rpc.PermissionRequestShell:
-		return []agent.Rule{{Tool: "Bash", Arg: r.FullCommandText}}
+		return [][]agent.Rule{{{Tool: "Bash", Arg: r.FullCommandText}}}
 	case rpc.PermissionRequestWrite:
-		return []agent.Rule{{Tool: "Edit", Arg: relToWorkDir(workDir, r.FileName)}}
+		return [][]agent.Rule{pathCalls([]string{"Edit", "Write"}, workDir, r.FileName)}
 	case rpc.PermissionRequestRead:
-		return []agent.Rule{{Tool: "Read", Arg: relToWorkDir(workDir, r.Path)}}
+		return [][]agent.Rule{pathCalls([]string{"Read"}, workDir, r.Path)}
 	case rpc.PermissionRequestURL:
-		return []agent.Rule{{Tool: "WebFetch", Arg: r.URL}}
+		return [][]agent.Rule{{{Tool: "WebFetch", Arg: r.URL}}}
 	case rpc.PermissionRequestMCP:
 		return mcpCalls(r.ServerName, r.ToolName)
 	}
 	return nil
+}
+
+// pathCalls is path under each tool name, as given and (when inside workDir) workdir-relative.
+func pathCalls(tools []string, workDir, path string) []agent.Rule {
+	args := []string{path}
+	if rel := relToWorkDir(workDir, path); rel != path {
+		args = append(args, rel)
+	}
+	var calls []agent.Rule
+	for _, tool := range tools {
+		for _, arg := range args {
+			calls = append(calls, agent.Rule{Tool: tool, Arg: arg})
+		}
+	}
+	return calls
 }
 
 // requestValue is req with a pointer to one of ruleCalls' kinds dereferenced, so each kind is matched once.
@@ -105,8 +135,8 @@ func requestValue(req copilot.PermissionRequest) any {
 }
 
 // mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
-func mcpCalls(server, tool string) []agent.Rule {
-	return []agent.Rule{{Tool: "mcp__" + server + "__" + tool}, {Tool: "mcp__" + server}}
+func mcpCalls(server, tool string) [][]agent.Rule {
+	return [][]agent.Rule{{{Tool: "mcp__" + server + "__" + tool}}, {{Tool: "mcp__" + server}}}
 }
 
 // relToWorkDir is p relative to workDir when inside it, else p unchanged.
@@ -117,12 +147,6 @@ func relToWorkDir(workDir, p string) string {
 	return p
 }
 
-// planReadThrough is a read, URL fetch or harness web search that plan mode denied only by its fallback.
-func planReadThrough(p agent.Permissions, req copilot.PermissionRequest, call agent.Rule) bool {
-	return p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) &&
-		agent.Permissions{Deny: p.Deny}.Decide(call.Tool, call.Arg) != agent.Deny
-}
-
 func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	feedback := denyFeedback
 	return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
@@ -131,7 +155,7 @@ func denyAllTools(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (
 // readOnlyKinds are the requests a read-only run approves: file reads and URL fetches, never write or memory.
 var readOnlyKinds = map[rpc.PermissionRequestKind]bool{rpc.PermissionRequestKindRead: true, rpc.PermissionRequestKindURL: true}
 
-const readOnlyFeedback = "This run is read-only: only file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse, branch --list) are allowed. git diff, log and show must start with --no-ext-diff --no-textconv, git blame with --no-textconv (git log --no-ext-diff --no-textconv -p). Report instead of changing anything."
+const readOnlyFeedback = "This run is read-only: only file reads, URL fetches, read-only git (status, diff, log, show, blame, rev-parse, branch --list) and the shared read-only shell list (rg, grep, ls, wc, head, tail, cat, go doc|list|env|version, claude-code agents find and similar) are allowed. git diff, log and show must start with --no-ext-diff --no-textconv, git blame with --no-textconv (git log --no-ext-diff --no-textconv -p). Report instead of changing anything."
 
 // readOnlyGitEnv replaces all inherited GIT_*; GIT_PAGER beats pager.<verb>, command-scope config beats repo files.
 var readOnlyGitEnv = slices.Concat([]string{
@@ -169,11 +193,16 @@ func isWebSearchMCP(req copilot.PermissionRequest) bool {
 
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
-	if !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) && (!ok || !shell.ReadOnlyGit(cmd)) {
+	if !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) && (!ok || !readOnlyCommand(cmd)) {
 		feedback := readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
 	return approveToolOnce(req, inv)
+}
+
+// readOnlyCommand reports a shell command the read-only tier may run: a read-only git or a vetted shell command.
+func readOnlyCommand(cmd string) bool {
+	return shell.ReadOnlyGit(cmd) || agent.ReadOnlyShell(cmd)
 }
 
 // approveToolOnce is the explicit opt-in; managed org settings still win.
@@ -182,6 +211,27 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 		return &rpc.PermissionDecisionNoResult{}, nil
 	}
 	return &rpc.PermissionDecisionApproveOnce{}, nil
+}
+
+// DecideCall is the SDK handler's verdict (allow, deny or ask) for one Tool(arg) call, for the doctor report.
+func DecideCall(p agent.Permissions, readOnly bool, workDir, tool, arg string) string {
+	var req copilot.PermissionRequest
+	switch tool {
+	case "Bash":
+		req = &rpc.PermissionRequestShell{FullCommandText: arg, HasWriteFileRedirection: strings.Contains(arg, " > ")}
+	case "Edit", "Write":
+		req = &rpc.PermissionRequestWrite{FileName: arg}
+	default:
+		req = &rpc.PermissionRequestRead{Path: arg}
+	}
+	d, _ := baseHandler(sdkOptions{AllowAllTools: true, ReadOnlyTools: readOnly, Permissions: p, WorkingDirectory: workDir})(req, copilot.PermissionInvocation{})
+	switch d.(type) {
+	case *rpc.PermissionDecisionApproveOnce:
+		return "allow"
+	case *rpc.PermissionDecisionReject:
+		return "deny"
+	}
+	return "ask"
 }
 
 // webSearchServer is the harness Tavily MCP server (`network websearch`), the one the read-only tier may call.

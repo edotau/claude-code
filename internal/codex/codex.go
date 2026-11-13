@@ -93,9 +93,17 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if emulated = append(emulated, base...); err != nil || !s.Headless {
 		return env, argv, emulated, cleanup, err
 	}
+	sandbox, err := codexSandbox(s.Tools)
+	if err != nil {
+		return env, argv, emulated, cleanup, err
+	}
 	req := agent.RunOptions{Permissions: s.Permissions, Tools: s.Tools, SafeMode: s.SafeMode}
 	argv, env, remove, err := codexApplyPermissions(req, argv, env)
-	return env, argv, emulated, func() { remove(); cleanup() }, err
+	if err != nil {
+		return env, argv, emulated, func() { remove(); cleanup() }, err
+	}
+	env, notes, rmCache, err := codexToolsEnv(env, s.Tools, sandbox)
+	return env, argv, append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
 }
 
 // codexEffortArgv adds s.Effort, in codex's spelling, before exec's own flags; a plain launch has no route to tune.
@@ -492,12 +500,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	if h == nil {
 		return argv
 	}
-	sandbox := "read-only"
-	if h.Tools {
-		sandbox = "workspace-write"
-	}
+	sandbox, _ := codexSandbox(h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
-	if h.Tools && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
+	if sandbox == "workspace-write" && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	argv = append(argv, codexLeafArgs...)

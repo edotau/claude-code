@@ -275,6 +275,7 @@ func TestSpecsFor(t *testing.T) {
 		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route", nil},
 		{"copilot", "native", -1, "safety-scan", "rtk-rewrite", nil},
 		{"copilot", "native", -1, "format-stop", "memory-start", nil},
+		{"gemini", "native", 2, "safety-scan", "docs-placement", []string{"permission-gate", "safety-scan"}},
 		{"copilot", "native", -1, "memory-end", "memory-start", nil},
 		{"opencode", "hosted", 13, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan-gate", "docs-plan-mirror", "docs-plan-reminder",

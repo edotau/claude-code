@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,6 +37,68 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	}
 	if got := codexHeadless(nil, &agent.Headless{}); slices.Contains(got, net) {
 		t.Fatalf("read-only run must stay sealed even when opted in: %q", got)
+	}
+}
+
+// HARNESS_CODEX_SANDBOX: default unchanged, an accepted value applied and noted, a bad one refused with a usage error.
+func TestCodexSandboxOptIn(t *testing.T) {
+	t.Setenv(codexSandboxEnv, "")
+	if got := codexHeadless(nil, &agent.Headless{Tools: true}); !slices.Contains(got, "workspace-write") {
+		t.Fatalf("default tools run lost workspace-write: %q", got)
+	}
+	t.Setenv(codexSandboxEnv, "danger-full-access")
+	got := codexHeadless(nil, &agent.Headless{Tools: true})
+	if !slices.Contains(got, "danger-full-access") || slices.Contains(got, "workspace-write") {
+		t.Fatalf("opted-in tools run: %q", got)
+	}
+	if got := codexHeadless(nil, &agent.Headless{}); !slices.Contains(got, "read-only") {
+		t.Fatalf("a tools-off run must stay read-only: %q", got)
+	}
+	_, notes, remove, err := codexToolsEnv(nil, true, "danger-full-access")
+	defer remove()
+	if err != nil || len(notes) != 1 || !strings.Contains(notes[0], "danger-full-access") {
+		t.Fatalf("launch note = %q, err %v; want one note naming the sandbox", notes, err)
+	}
+	t.Setenv(codexSandboxEnv, "read-only")
+	_, err = codexSandbox(true)
+	var usage *agent.UsageError
+	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "workspace-write, danger-full-access") {
+		t.Fatalf("bad value err = %v; want a usage error naming the accepted values", err)
+	}
+}
+
+// Go caches land under a temp dir only where the caller set none, and only under workspace-write.
+func TestCodexToolsEnvCaches(t *testing.T) {
+	t.Setenv(codexSandboxEnv, "")
+	for _, k := range []string{"GOCACHE", "GOMODCACHE", "GOLANGCI_LINT_CACHE"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	env, notes, remove, err := codexToolsEnv([]string{"GOMODCACHE=/mine"}, true, "workspace-write")
+	if err != nil || len(notes) != 0 {
+		t.Fatalf("default run: notes %q err %v; want no note", notes, err)
+	}
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "GOCACHE=") || !strings.Contains(joined, "GOLANGCI_LINT_CACHE=") || strings.Count(joined, "GOMODCACHE=") != 1 {
+		t.Fatalf("caches: want GOCACHE and lint added, caller's GOMODCACHE kept alone:\n%s", joined)
+	}
+	dir := filepath.Dir(strings.TrimPrefix(env[1], "GOCACHE="))
+	remove()
+	if _, err := os.Stat(dir); err == nil {
+		t.Errorf("cleanup left %s", dir)
+	}
+}
+
+func TestCodexToolsEnvKeepsCallerCaches(t *testing.T) {
+	t.Setenv(codexSandboxEnv, "")
+	t.Setenv("GOCACHE", "/process")
+	env, _, remove, _ := codexToolsEnv(nil, true, "workspace-write")
+	defer remove()
+	if strings.Contains(strings.Join(env, "\n"), "GOCACHE=") {
+		t.Errorf("a process-set GOCACHE was overridden: %q", env)
+	}
+	if env, _, _, _ := codexToolsEnv(nil, true, "danger-full-access"); len(env) != 0 {
+		t.Errorf("full access gets no cache env: %q", env)
 	}
 }
 
