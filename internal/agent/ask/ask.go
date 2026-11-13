@@ -239,7 +239,7 @@ func (r *askRun) checkArm() (int, bool) {
 	if err := ApplyCoworker(value, f.provider, agentName, f.model, f.fallback); err != nil {
 		return r.fail(err, ApplyCode(err))
 	}
-	if picks {
+	if picks || r.jobAutoArm() {
 		r.auto = router.ArmProfile()
 	}
 	if err := cmp.Or(checkNative(f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
@@ -504,6 +504,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
 	o.Persona, o.Fallback, o.Native, o.Host, o.RemoteBin, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.remoteBin, f.rubric, f.background
+	o.AutoArm = r.auto != ""
 	return o
 }
 
