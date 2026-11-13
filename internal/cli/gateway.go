@@ -527,7 +527,7 @@ func cmdGatewayToken(args []string) int {
 // mintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
 func mintProxyToken(profile, cfgDir string) (string, int) {
 	if cfgDir != "" {
-		if err := os.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
+		if err := proc.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
 			return "", helptext.Fail("gateway token: %v", err)
 		}
 	}

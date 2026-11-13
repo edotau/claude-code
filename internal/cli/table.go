@@ -9,14 +9,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
-	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -315,7 +314,7 @@ func runVia(argv []string) int {
 	if err := egress.Valid(host); err != nil {
 		return helptext.FailUsage("%s: %v", egressFlag, err)
 	}
-	if err := os.Setenv(egress.EnvHost, host); err != nil {
+	if err := proc.Setenv(egress.EnvHost, host); err != nil {
 		return helptext.Fail("%s: %v", egressFlag, err)
 	}
 	return Run(append(argv[:1:1], rest...))
@@ -339,27 +338,6 @@ func cmdVersion(args []string) int {
 	}
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
-}
-
-// hookSpec is the completion node for the hook verb.
-func hookSpec() *helptext.Node { return &helptext.Node{Args: []func() []string{settings.HookEvents}} }
-
-// hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
-func hookPage() helptext.Page {
-	return helptext.Page{
-		Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
-		About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
-		Hint: settings.HookModules() + "\n" + settings.HookHelp("events:  ", settings.HookEvents()) +
-			"\n<Event> alone runs the dispatcher; --<module> one module; --all every module",
-	}
-}
-
-// cmdHook runs one lifecycle hook.
-func cmdHook(args []string) int {
-	if code, ok := helpOrBare(hookPage(), args); ok {
-		return code
-	}
-	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
 // cmdTest dispatches `test <sub>`: test tooling.
