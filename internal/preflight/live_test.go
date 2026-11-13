@@ -164,7 +164,7 @@ func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
 	stubListing(t)
 	pinAll(t)
 	old := Budget
-	Budget = 200 * time.Millisecond
+	Budget = 300 * time.Millisecond // 150ms on each side of the fake pong
 	t.Cleanup(func() { Budget = old })
 	runAsk = func(ctx context.Context, _, a, _ string) (wire.Envelope, error) {
 		select {
