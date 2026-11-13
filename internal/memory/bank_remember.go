@@ -65,7 +65,7 @@ func stampAndSettle(root, dir, file string, now time.Time) error {
 		if name == file { // already stamped in memory before its one write
 			continue
 		}
-		if _, err := assignFileIDs(dir, name, prefix, now); err != nil {
+		if _, _, err := assignFileIDs(dir, name, prefix, now); err != nil {
 			return err
 		}
 	}

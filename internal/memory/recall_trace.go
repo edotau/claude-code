@@ -143,7 +143,7 @@ func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *Semantic) {
 
 func recallTracePick(h SearchHit) recallPick {
 	entry := Entry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
-		Superseded: isSupersededTitle(textutil.FirstLine(h.Block))}
+		Superseded: isSupersededBlock(h.Block)}
 	return recallPick{Entry: entry, Hit: h}
 }
 

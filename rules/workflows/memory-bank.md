@@ -45,6 +45,7 @@ one of these; the rest point to it, and on a disagreement the earlier one wins.
 | `timeline` | Recent bank entries and sessionHistory |
 | `alias --repo <checkout> --into <key>` | Fold a second checkout's store into another |
 | `import --from <dir>\|--host <h>` | Merge another machine's or a backup's bank into this one |
+| `revise <old-id> --with <new-id>` | Mark an entry replaced by a newer one (`--dry-run` previews) |
 
 `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo). By default it
 takes logs only: `decisionLog.md`, `conventions.md`, `sessionHistory.md` and the monthly archives **merge** (missing
@@ -84,12 +85,22 @@ Only `home` writes; every other target prints the block, its target and the proc
 | `projectContext.md` | Orientation + do-not-regress invariants | Replace, sparingly |
 | `activeContext.md` | Focus, open questions, blockers, next steps, parked | **Replace** each session end |
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
-| `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede (strike + pointer), never delete** |
+| `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** (see Replaced entries) |
 | `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
 | `sessionHistory.md` | Newest-first summaries | Append at top; past the entry cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
 Typed files carry `harness_kind: bank` frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…
 `<!-- bank:end -->` region; lines outside it are Claude's own and never rewritten.
+
+## Replaced entries
+
+A decision or convention that reverses an older one says `Supersedes <old id>` in its own body (the quoted form
+`Supersedes "<title>" (<old id>)` also parses). Every settle (`update`, `dream`, `index`, `import`) then strikes the
+old entry's title, keeps its date and id, and adds `Replaced by <new id> (<date>).` under it, in `decisionLog.md`,
+`conventions.md` and their `archive/` files; it is idempotent, never moves or deletes a block, and leaves an unknown
+id or a two-entry cycle unmarked (`memory review` reports both). Recall skips a replaced entry and serves the entry
+that replaced it instead, following the chain up to 8 hops; `memory search` still lists it, and `memory show` prints
+the pointer. `memory revise <old-id> --with <new-id>` does the same by hand in one commit.
 
 ## Caps
 

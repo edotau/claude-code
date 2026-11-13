@@ -106,14 +106,7 @@ func settleBank(root string, now time.Time) (rotated int, err error) {
 
 // settleBankLocked is settleBank for a caller already holding the bank lock.
 func settleBankLocked(root string, now time.Time) (rotated int, err error) {
-	var dirs []string
-	own := Dir(root)
-	if _, err := os.Stat(own); err == nil { // an unscaffolded repo gets its store from Init (with its origin), never here
-		dirs = append(dirs, own)
-	}
-	if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
-		dirs = append(dirs, g)
-	}
+	dirs := bankDirs(root) // an unscaffolded repo gets its store from Init (with its origin), never here
 	for _, d := range dirs {
 		n, err := settleDir(d, now)
 		rotated += n
@@ -201,9 +194,13 @@ func newestMtime(dir string) time.Time {
 	return newest
 }
 
-// settleDir stamps block IDs, rotates sessionHistory, regenerates dir's MEMORY.md region and wraps its files.
+// settleDir stamps IDs, strikes revised entries, rotates sessionHistory, writes the MEMORY.md region, wraps files.
 func settleDir(d string, now time.Time) (rotated int, err error) {
-	if _, err := assignIDs(d, now); err != nil {
+	_, texts, err := assignIDTexts(d, now)
+	if err != nil {
+		return 0, err
+	}
+	if err := reviseDir(d, texts); err != nil {
 		return 0, err
 	}
 	rotated, err = rotateSessionHistory(d, now)

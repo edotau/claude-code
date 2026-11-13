@@ -81,8 +81,8 @@ End with a short plain summary: files changed, promotion candidates, anything sk
   touch `rules/**` unattended — list promotion candidates in the report instead of writing them.
 - **Keep every `<!-- id:... -->` marker.** Archiving or rewriting an entry must carry its marker
   forward; a dropped id breaks every cross-reference to it.
-- **Archive superseded decisions, never delete them** — strike the title line, point at the
-  replacement, move the body to `archive/` only once the active file is over cap.
+- **Archive superseded decisions, never delete them** — write `Supersedes <old id>` in the
+  replacing entry (the harness strikes the old one), move the body to `archive/` only once the active file is over cap.
 - **Respect the caps** — `rules/workflows/memory-bank.md`; Go enforces them on settle, but a
   judgment edit must not write past one either.
 - **The RULES region is untouchable** — `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` in any native

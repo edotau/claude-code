@@ -521,7 +521,7 @@ type scoredHit struct {
 
 // hitFor builds the hit for block of file f and its cosine; false for a struck-out block or one with no embedding at floor.
 func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
-	if isSupersededTitle(textutil.FirstLine(block)) {
+	if isSupersededBlock(block) {
 		return SearchHit{}, 0, false
 	}
 	h := SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block}

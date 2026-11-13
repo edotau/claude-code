@@ -299,6 +299,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	if err := cacheDoctorNotice(root, problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}
+	problems = append(problems, reviseProblems(root)...)
 	switch {
 	case len(problems) == 0:
 		fmt.Fprintln(w, "memory doctor: no problems found")
