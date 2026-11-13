@@ -15,6 +15,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -28,6 +30,19 @@ type DispatchOptions struct {
 
 // RouteFlags holds the ask flags dispatch shares: --overlay, --fallback and the permission flags.
 type RouteFlags struct{ f askFlags }
+
+// unsupportedKey names an overlay key dispatch cannot honour per leg ("" when none is set).
+func unsupportedKey(ov agentconfig.Overlay) string {
+	switch {
+	case ov.Model != "":
+		return "model"
+	case ov.Effort != "":
+		return "effort"
+	case ov.Host != "":
+		return "host"
+	}
+	return ""
+}
 
 // RegisterRouteFlags adds those flags to fs through ask's own definitions.
 func RegisterRouteFlags(fs *flag.FlagSet) *RouteFlags {
@@ -49,6 +64,9 @@ func (r *RouteFlags) apply(q *roles.Request, agentName, format string, backgroun
 	if err != nil {
 		return err
 	}
+	if key := unsupportedKey(ov); key != "" {
+		return fmt.Errorf("overlay key %q is not supported by dispatch (use ask)", key)
+	}
 	fallback := cmp.Or(f.fallback, ov.Fallback)
 	if err := validateAskFlags(format, fallback); err != nil {
 		return err
@@ -57,7 +75,7 @@ func (r *RouteFlags) apply(q *roles.Request, agentName, format string, backgroun
 	if err != nil {
 		return err
 	}
-	if err := ApplyCoworker(ov.Confinement(), "", agentName, "", fallback); err != nil {
+	if err := r.confine(q, ov, agentName, fallback); err != nil {
 		return err
 	}
 	if err := overlayEgress(ov.Remote); err != nil {
@@ -68,6 +86,23 @@ func (r *RouteFlags) apply(q *roles.Request, agentName, format string, backgroun
 	}
 	q.Permissions, q.Fallback, q.Overlay = perms, fallback, resolved
 	return nil
+}
+
+// confine applies the overlay's confinement and puts the auto pick and the narrowed lead on q, as ask's checkArm does.
+func (r *RouteFlags) confine(q *roles.Request, ov agentconfig.Overlay, agentName, fallback string) error {
+	f := &r.f
+	picks := armAutoPick(ov.Confinement())
+	if err := ApplyCoworker(ov.Confinement(), "", agentName, "", fallback); err != nil {
+		return err
+	}
+	if picks {
+		q.Auto = router.ArmProfile()
+	}
+	typed := f.fallback != ""
+	f.fallback = fallback
+	lead, err := narrowLead(agentName, f, confineLead(agentName, f) || typed)
+	q.Lead, q.Profile = lead, f.provider
+	return err
 }
 
 // Dispatch is `agents dispatch`: resolve the role and --output-schema, then run or detach the legs.
@@ -109,7 +144,7 @@ func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int
 	if format == helptext.JSON {
 		progress = nil
 	}
-	rep := roles.Run(ctx, cl, role, legs, max(1, jobs), progress)
+	rep := roles.RunWith(ctx, role, legs, max(1, jobs), progress, legStream(cl, q.Auto, q.Fallback))
 	if err := writeReport(rep, format); err != nil {
 		return helptext.Fail("dispatch: write report: %v", err)
 	}
@@ -186,3 +221,55 @@ func printLegID(label string, rec agent.Record, format string) error {
 	}
 	return reportBackgroundStart(helptext.Text, rec)
 }
+
+// legStream is Client.Stream for a dispatch leg; with an auto-picked workspace a 429 moves to the next one, as in ask.
+func legStream(cl *agent.Client, auto, fallback string) roles.Runner {
+	return func(ctx context.Context, o agent.RunOptions) <-chan wire.Event {
+		if auto == "" {
+			return cl.Stream(ctx, o)
+		}
+		ch := make(chan wire.Event, 64)
+		go func() {
+			defer close(ch)
+			a := &armRetry{agentName: cmp.Or(o.Agent, "claude"), model: o.Model, fallback: fallback, tried: []string{auto}}
+			ch <- wire.ResultEvent(a.streamLeg(ctx, cl, o, ch))
+		}()
+		return ch
+	}
+}
+
+// streamLeg runs o through the workspace retry, sending its events (not results) to ch; the final envelope.
+func (a *armRetry) streamLeg(ctx context.Context, cl *agent.Client, o agent.RunOptions, ch chan<- wire.Event) (env wire.Envelope) {
+	defer func() {
+		if r := recover(); r != nil {
+			env = wire.FailureEnvelope(a.agentName, fmt.Errorf("panic: %v", r))
+		}
+	}()
+	o.AutoArm = true
+	req := a.probe(o)
+	p, err := a.prepare(ctx, cl, req)
+	if err != nil {
+		return wire.FailureEnvelope(a.agentName, err)
+	}
+	_ = startPrepared(cl, p, false)
+	st := wire.NewStamper()
+	sink := sinkFunc(func(ev wire.Event) error {
+		if ev.Type != wire.EventResult && ev.Type != wire.EventProgress {
+			st.Stamp(&ev)
+			ch <- ev
+		}
+		return nil
+	})
+	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
+		return cl.Exec(ctx, p, sink, agent.RunRecordedOpts{})
+	})
+	if pf, ok := errors.AsType[*prepareFailure](err); ok {
+		return wire.FailureEnvelope(a.agentName, pf.err)
+	}
+	return wire.NewEnvelope(res, err, p.Record.ID)
+}
+
+// sinkFunc adapts a function to wire.Sink.
+type sinkFunc func(wire.Event) error
+
+func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }

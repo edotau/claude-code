@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -29,6 +30,14 @@ func TestDispatchDetachSpawnFailureFinishesRecord(t *testing.T) {
 	recs := agent.RecentRecords(5)
 	if len(recs) != 1 || recs[0].Status != "error" || recs[0].Error == "" {
 		t.Errorf("records = %+v, want one errored record with the cause", recs)
+	}
+}
+
+func TestUnsupportedKeyNamesTheKeyDispatchCannotHonour(t *testing.T) {
+	for key, ov := range map[string]agentconfig.Overlay{"model": {Model: "m"}, "effort": {Effort: "high"}, "host": {Host: "h"}, "": {Profile: "dev"}} {
+		if got := unsupportedKey(ov); got != key {
+			t.Errorf("unsupportedKey(%+v) = %q, want %q", ov, got, key)
+		}
 	}
 }
 

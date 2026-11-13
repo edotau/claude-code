@@ -3,12 +3,15 @@ package ask
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -102,6 +105,35 @@ func TestAutoRateLimitMovesToNextWorkspace(t *testing.T) {
 	}
 	if until := router.LoadState().CoolingUntil(router.AccountOf(reg.Providers["dev"])); !until.After(time.Now()) {
 		t.Errorf("dev cooling until %v, want a hold after the 429", until)
+	}
+}
+
+// Parallel legs that move workspaces together each report only their own workspaces (run with -race).
+func TestParallelLegsKeepTheirOwnWorkspaces(t *testing.T) {
+	armRateFixture(t, []string{"dev"}, nil)
+	cl := newClient()
+	hops, answered := make([][]string, 2), make([]string, 2)
+	var wg sync.WaitGroup
+	for i, start := range []string{"dev", "qa"} {
+		wg.Go(func() {
+			a := &armRetry{agentName: "codex", fallback: router.FallbackNone, tried: []string{start}}
+			o := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+			env := a.streamLeg(t.Context(), cl, o, make(chan wire.Event, 256))
+			answered[i] = env.Provider
+			if env.Error != nil {
+				t.Logf("leg %d error: %s", i, env.Error.Message)
+			}
+			for _, h := range env.Hops {
+				hops[i] = append(hops[i], h.Profile)
+			}
+		})
+	}
+	wg.Wait()
+	if got := strings.Join(hops[0], ","); got != "dev,qa" {
+		t.Errorf("leg starting on dev hops %q, want dev,qa", got)
+	}
+	if slices.Contains(hops[1], "dev") || !strings.Contains(answered[1], "qa") {
+		t.Errorf("leg starting on qa: hops %v answered by %q, want qa and never dev", hops[1], answered[1])
 	}
 }
 

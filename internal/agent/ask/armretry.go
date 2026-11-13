@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -15,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // A 429 with no Retry-After keeps its workspace out of the pick this long; a longer one is capped at armCoolMax.
@@ -63,13 +63,28 @@ func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 
 // run executes p, and while its failure is a 429 with another workspace left, re-runs req on the next pick.
 func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int {
-	var hops []wire.Hop
-	opts := agent.RunRecordedOpts{Job: a.job}
-	if a.job && a.format == helptext.Text {
-		opts.AnswerTo = os.Stdout
+	opts := jobOpts(a.job, a.format)
+	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
+		return cl.Exec(ctx, p, stdoutSink(a.format, p.Record.ID), opts)
+	})
+	if prep, ok := errors.AsType[*prepareFailure](err); ok {
+		return failAskCode(a.format, a.agentName, prep.err, prepareExitCode(prep.err))
 	}
+	return reportAsk(a.format, p, res, err)
+}
+
+// prepareFailure marks a Prepare error of a retry attempt, so the caller exits with Prepare's code.
+type prepareFailure struct{ err error }
+
+func (e *prepareFailure) Error() string { return e.err.Error() }
+func (e *prepareFailure) Unwrap() error { return e.err }
+
+// attempts is the askRun-free workspace retry: exec runs one attempt, a 429 re-prepares req on the next pick.
+func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions,
+	exec func(context.Context, *agent.Prepared) (wire.Result, error)) (*agent.Prepared, wire.Result, error) {
+	var hops []wire.Hop
 	for {
-		res, err := cl.Exec(ctx, p, stdoutSink(a.format, p.Record.ID), opts)
+		res, err := a.exec(ctx, p, exec)
 		hops = append(hops, res.Hops...)
 		res.Hops = slices.Clone(hops)
 		next, again := a.next(ctx, res, err, req)
@@ -77,11 +92,11 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 			if len(a.tried) > 1 && err != nil {
 				err = fmt.Errorf("databricks:auto: tried %s: %w", strings.Join(a.tried, ", "), err)
 			}
-			return reportAsk(a.format, p, res, err)
+			return p, res, err
 		}
 		req = next
-		if p, err = cl.Prepare(ctx, req, nil); err != nil {
-			return failAskCode(a.format, a.agentName, err, prepareExitCode(err))
+		if p, err = a.prepare(ctx, cl, req); err != nil {
+			return p, res, &prepareFailure{err}
 		}
 		_ = startPrepared(cl, p, false) // a failed save is warned about
 	}
@@ -108,8 +123,12 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 func (a *armRetry) move(req agent.RunOptions, retryAfter time.Duration) (agent.RunOptions, bool) {
 	cur := a.tried[len(a.tried)-1]
 	coolArm(cur, retryAfter)
+	if enterArm(cur) != nil { // the pick reads the process arm: hold it on this run's own workspace
+		return req, false
+	}
 	name, more, err := nextArm(a.agentName, a.model, a.tried)
-	if err != nil || setArm(name) != nil {
+	leaveArm()
+	if err != nil {
 		return req, false
 	}
 	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s rate limited, trying %s\n", cur, name)
@@ -155,6 +174,62 @@ func armsLeft(agentName, model string, tried []string) bool {
 	}
 	usable, _ := usableArms(reg, agentName, model, time.Now(), tried)
 	return len(usable) > 0
+}
+
+// armGate holds the process-wide arm steady: runs on one workspace share it, runs on another wait their turn.
+var armGate = struct {
+	cond *sync.Cond
+	cur  string
+	n    int
+}{cond: sync.NewCond(new(sync.Mutex))}
+
+// enterArm blocks until the process arm may be workspace arm, sets it and counts the caller in; pair with leaveArm.
+func enterArm(arm string) error {
+	g := &armGate
+	g.cond.L.Lock()
+	defer g.cond.L.Unlock()
+	for g.n > 0 && g.cur != arm {
+		g.cond.Wait()
+	}
+	if g.n == 0 {
+		if err := setArm(arm); err != nil {
+			return err
+		}
+		g.cur = arm
+	}
+	g.n++
+	return nil
+}
+
+// leaveArm releases one enterArm.
+func leaveArm() {
+	g := &armGate
+	g.cond.L.Lock()
+	g.n--
+	g.cond.L.Unlock()
+	g.cond.Broadcast()
+}
+
+// current is the workspace this run is on.
+func (a *armRetry) current() string { return a.tried[len(a.tried)-1] }
+
+// prepare is cl.Prepare with the process arm held on this run's current workspace.
+func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions) (*agent.Prepared, error) {
+	if err := enterArm(a.current()); err != nil {
+		return nil, err
+	}
+	defer leaveArm()
+	return cl.Prepare(ctx, req, nil)
+}
+
+// exec is one attempt with the process arm held on this run's current workspace.
+func (a *armRetry) exec(ctx context.Context, p *agent.Prepared,
+	run func(context.Context, *agent.Prepared) (wire.Result, error)) (wire.Result, error) {
+	if err := enterArm(a.current()); err != nil {
+		return wire.Result{Agent: a.agentName, Status: wire.StatusError}, err
+	}
+	defer leaveArm()
+	return run(ctx, p)
 }
 
 // setArm moves this process's confinement to workspace name, as applyArm exports it.

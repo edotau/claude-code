@@ -118,7 +118,7 @@ var agentsSubPages = map[string][3]string{
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and brief."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
-		"the ones outside every --path, and with --check the Go gates (on the --path files; complexity only for " +
+		"the ones outside every --path, and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
 		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
@@ -318,7 +318,7 @@ func cmdAgentsDiff(args []string) int {
 		return nil
 	})
 	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
-	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity and test on the touched packages")
+	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity, test and docs on the touched packages")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code

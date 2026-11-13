@@ -45,13 +45,23 @@ type LegResult struct {
 
 // Run dispatches legs concurrently, host-isolated under min(jobs, 12), tagging progress lines with the label.
 func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, progress io.Writer) Report {
+	return RunWith(ctx, r, legs, jobs, progress, func(ctx context.Context, o agent.RunOptions) <-chan wire.Event {
+		return streamLeg(c, ctx, o)
+	})
+}
+
+// Runner streams one leg's events, ending with its result event; the caller injects retry policy through it.
+type Runner func(context.Context, agent.RunOptions) <-chan wire.Event
+
+// RunWith is Run with the per-leg runner injected.
+func RunWith(ctx context.Context, r Role, legs []Leg, jobs int, progress io.Writer, stream Runner) Report {
 	ctx = agent.WithBatchRun(ctx, retry.NewBatchLimiter(min(jobs, MaxParts)))
 	rep := Report{Schema: reportSchema, Role: r.Name, Agent: r.Agent, Legs: make([]LegResult, len(legs))}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for i, leg := range legs {
 		wg.Go(func() {
-			rep.Legs[i] = runLeg(ctx, c, leg, progress, &mu)
+			rep.Legs[i] = runLeg(ctx, leg, progress, &mu, stream)
 		})
 	}
 	wg.Wait()
@@ -59,7 +69,7 @@ func Run(ctx context.Context, c *agent.Client, r Role, legs []Leg, jobs int, pro
 	return rep
 }
 
-func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, mu *sync.Mutex) LegResult {
+func runLeg(ctx context.Context, leg Leg, progress io.Writer, mu *sync.Mutex, stream Runner) LegResult {
 	if leg.Err != "" {
 		return LegResult{Label: leg.Label, Envelope: failed(leg, leg.Err)}
 	}
@@ -70,7 +80,7 @@ func runLeg(ctx context.Context, c *agent.Client, leg Leg, progress io.Writer, m
 		_, _ = fmt.Fprintf(progress, "[%s] %s\n", leg.Label, b)
 		mu.Unlock()
 	}
-	for ev := range streamLeg(c, ctx, leg.Opts) {
+	for ev := range stream(ctx, leg.Opts) {
 		switch {
 		case ev.Type == wire.EventText && progress != nil:
 			line = progressLines(line, ev, flush)
@@ -152,6 +162,8 @@ type Request struct {
 	Fallback      string               // --fallback, else the overlay's
 	Permissions   agent.Permissions    // --allow/--ask/--deny/--mode, added over the role's own
 	Overlay       agentconfig.Resolved // the overlay's env layer
+	Lead, Profile string               // the narrowed lead and --provider (ask's resolveLead), applied to every leg
+	Auto          string               // the auto-picked Databricks workspace (profile auto), else ""
 }
 
 // layer is base plus add: rules union, add's mode wins when set.
@@ -186,7 +198,7 @@ type Leg struct {
 // Legs builds r's legs for q; the shape follows the role name, the agent comes from the table.
 func Legs(r Role, q Request) []Leg {
 	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
-		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback}.ApplyOverlay(q.Overlay)
+		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback, Lead: q.Lead, Provider: q.Profile}.ApplyOverlay(q.Overlay)
 	switch r.Name {
 	case "explore":
 		return exploreLegs(base, q)

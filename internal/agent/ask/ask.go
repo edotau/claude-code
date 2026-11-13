@@ -590,21 +590,30 @@ func (r *askRun) routesItself() bool {
 
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
-	f := r.f
-	if r.routesItself() {
-		return 0, false
+	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	r.lead = cmp.Or(lead, r.lead)
+	return 0, false
+}
+
+// narrowLead routes f's --provider/--profile into a lead and f.provider when routed; "" and no change otherwise.
+func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
+	if !routed {
+		return "", nil
 	}
 	fallback := f.fallback
 	if f.session != "" { // a resumed session runs one hop
 		fallback = router.FallbackNone
 	}
-	q := agent.RouteReq{Agent: r.ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
-	lead, provider, err := routedLead(q, r.ag == "claude" || f.live)
+	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
+	lead, provider, err := routedLead(q, ag == "claude" || f.live)
 	if err != nil {
-		return r.fail(err, 2)
+		return "", err
 	}
-	r.lead, f.provider = cmp.Or(lead, r.lead), provider
-	return 0, false
+	f.provider = provider
+	return lead, nil
 }
 
 // prepareExitCode is the code a Prepare error names, else 1.
