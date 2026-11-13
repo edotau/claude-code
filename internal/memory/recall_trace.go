@@ -113,7 +113,7 @@ func (t *recallTrace) selected(picks []recallPick) {
 	if t == nil {
 		return
 	}
-	context, _, _ := recallContext(picks)
+	context, _ := recallContext(picks)
 	for i, p := range picks {
 		outcome := "over cap"
 		line := "- " + p.Entry.pointer()

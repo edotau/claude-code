@@ -149,7 +149,7 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 	cwd := t.TempDir()
 
 	got := PromptRecall("s1", cwd, "zebra quota limiter fallback", io.Discard)
-	if !strings.HasPrefix(got, "<!-- memory-recall:") {
+	if !strings.HasPrefix(got, "<!-- memory-recall;") {
 		t.Fatalf("header missing: %q", got)
 	}
 	for _, absent := range []string{"struck", "archived choice"} {

@@ -116,24 +116,23 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
 }
 
-// recallContext renders the prompt recall and returns the body and pointer hits for bookkeeping.
-func recallContext(picks []recallPick) (string, []SearchHit, []SearchHit) {
+// recallContext renders the prompt recall and returns the delivered hits for bookkeeping.
+func recallContext(picks []recallPick) (string, []SearchHit) {
 	if len(picks) == 0 {
-		return "", nil, nil
+		return "", nil
 	}
 	var b strings.Builder
-	b.WriteString("<!-- memory-recall: matching bank entries; expand a pointer: claude-code memory search <id> -->")
-	var bodies, hits []SearchHit
+	b.WriteString("<!-- memory-recall; expand: claude-code memory search <id> -->")
+	var hits []SearchHit
 	for i, p := range picks {
 		if i < recallBodies {
 			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
-			bodies = append(bodies, p.Hit)
 		} else {
 			fmt.Fprintf(&b, "\n- %s", p.Entry.pointer())
 		}
 		hits = append(hits, p.Hit)
 	}
-	return capChars(b.String(), recallTotalCapChars), bodies, hits
+	return capChars(b.String(), recallTotalCapChars), hits
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
@@ -143,12 +142,12 @@ func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
-	context, bodies, hits := recallContext(picks)
+	context, hits := recallContext(picks)
 	if context == "" {
 		return ""
 	}
 	logHits(recallRoot(root), hits, accessRecall, time.Now())
-	markSeen(sessionID, bodies) // only the bodies delivered count as seen
+	markSeen(sessionID, hits) // bodies mark the key, pointers "p:"+key
 	return context
 }
 
@@ -357,7 +356,7 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	orderRecall(survivors)
 	var out []recallPick
 	for _, c := range survivors {
-		if key := blockKey(c.Hit.Block); seen[key] {
+		if key := blockKey(c.Hit.Block); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
 			trace.outcome(key, "seen")
 			continue
 		}
@@ -509,8 +508,12 @@ func markSeen(sessionID string, hits []SearchHit) {
 		return
 	}
 	defer f.Close()
-	for _, h := range hits {
-		_, _ = f.WriteString(blockKey(h.Block) + "\n")
+	for i, h := range hits {
+		key := blockKey(h.Block)
+		if i >= recallBodies { // pointers ride after the bodies; "p:" keeps them promotable to a body later
+			key = "p:" + key
+		}
+		_, _ = f.WriteString(key + "\n")
 	}
 }
 
