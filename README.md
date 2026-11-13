@@ -415,8 +415,8 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 `internal/schemas` registry; `doctor` reports `formats`, `make install` runs
 pending migrations), `state/harness/backups/` (every plaintext backup, via `paths.Backup`); `docs/templates/` indexes
 every embedded (`//go:embed`) template.
-`docker/` holds the Ubuntu harness image (`make image|image-audit|image-shell`); `mods/slash-usage/` is a TypeScript
-plugin, built with `tsc -p mods/<name>`.
+`container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`);
+`mods/slash-usage/` is a TypeScript plugin, built with `tsc -p mods/<name>`.
 
 ## Command reference
 

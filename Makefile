@@ -345,13 +345,13 @@ TARGET ?= nested-podman
 IMAGE ?= claude-code-harness:$(TARGET)
 .PHONY: image image-audit image-shell
 image:  ## Ubuntu image of non-ignored files (TARGET=base|nested-podman)
-	TARGET=$(TARGET) IMAGE=$(IMAGE) docker/image.sh build
+	TARGET=$(TARGET) IMAGE=$(IMAGE) container/image.sh build
 
 image-audit: image  ## Run make audit inside a fresh Ubuntu container
-	TARGET=$(TARGET) IMAGE=$(IMAGE) docker/image.sh run make audit
+	TARGET=$(TARGET) IMAGE=$(IMAGE) container/image.sh run make audit
 
 image-shell:  ## Open a shell in the built image (no rebuild)
-	TARGET=$(TARGET) IMAGE=$(IMAGE) docker/image.sh run bash
+	TARGET=$(TARGET) IMAGE=$(IMAGE) container/image.sh run bash
 
 ##@ Diagnostics
 .PHONY: doctor

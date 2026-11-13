@@ -36,6 +36,6 @@
     "titleBar.activeBackground": "#2C0D24"
   },
   "editor.fontSize": 12.5,
-  "terminal.integrated.fontSize": 13.5,
+  "terminal.integrated.fontSize": 12.5,
   "terminal.integrated.cursorBlinking": true
 }
