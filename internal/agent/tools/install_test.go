@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -582,8 +584,9 @@ func transactionResult(t *testing.T, done <-chan error) error {
 
 func TestInstallTailscaleDryRunPerOS(t *testing.T) {
 	setupToolsTestEnv(t)
-	old := goosOverride
-	t.Cleanup(func() { goosOverride = old })
+	old, oldRoot := goosOverride, tailscaleNoRoot
+	tailscaleNoRoot = func() string { return "" }
+	t.Cleanup(func() { goosOverride, tailscaleNoRoot = old, oldRoot })
 	for goos, want := range map[string]string{
 		"darwin": "brew install --cask tailscale-app",
 		"linux":  tailscaleInstallScript,
@@ -600,6 +603,114 @@ func TestInstallTailscaleDryRunPerOS(t *testing.T) {
 	goosOverride = "windows"
 	if err := installTailscale(context.Background(), &bytes.Buffer{}, "", true); err == nil || !strings.Contains(err.Error(), "tailscale.com/download") {
 		t.Errorf("windows err = %v, want download URL", err)
+	}
+}
+
+// tarGz builds a .tar.gz from name→(type, body) entries in order.
+func tarGz(t *testing.T, entries [][3]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, e := range entries {
+		hdr := &tar.Header{Name: e[0], Typeflag: e[1][0], Mode: 0o644, Size: int64(len(e[2]))}
+		if hdr.Typeflag == tar.TypeSymlink {
+			hdr.Linkname, hdr.Size = "/etc/passwd", 0
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Size > 0 {
+			_, _ = tw.Write([]byte(e[2]))
+		}
+	}
+	if err := errors.Join(tw.Close(), gz.Close()); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// stubTailscaleStatic serves an index, tarball and checksum (read through the pointer) as linux/arm64; returns the URL.
+func stubTailscaleStatic(t *testing.T, tgz []byte, checksum *string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.RawQuery == "mode=json":
+			_, _ = w.Write([]byte(`{"Tarballs":{"amd64":"ts_1_amd64.tgz","arm64":"ts_1_arm64.tgz"}}`))
+		case strings.HasSuffix(r.URL.Path, ".sha256"):
+			_, _ = w.Write([]byte(*checksum))
+		default:
+			_, _ = w.Write(tgz)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	oldURL, oldOS, oldArch, oldRoot := tailscaleStaticURL, goosOverride, goarchOverride, tailscaleNoRoot
+	tailscaleStaticURL, goosOverride, goarchOverride = srv.URL+"/stable/", "linux", "arm64"
+	tailscaleNoRoot = func() string { return "sudo and doas not found" }
+	t.Cleanup(func() {
+		tailscaleStaticURL, goosOverride, goarchOverride, tailscaleNoRoot = oldURL, oldOS, oldArch, oldRoot
+	})
+	return srv.URL
+}
+
+// staticFixture stubs the static install with a hostile archive and returns the bin dir, base URL and checksum body.
+func staticFixture(t *testing.T) (bin, base string, checksum *string) {
+	t.Helper()
+	env := setupToolsTestEnv(t)
+	tgz := tarGz(t, [][3]string{
+		{"../tailscaled", "0", "evil"}, {"ts_1/tailscale", "0", "CLI"}, {"ts_1/tailscaled", "0", "DAEMON"},
+		{"ts_1/evil", "0", "x"}, {"ts_1/systemd/tailscaled.service", "0", "unit"}, {"ts_1/link", "2", ""},
+	})
+	sum := sha256.Sum256(tgz)
+	good := hex.EncodeToString(sum[:]) + "\n"
+	return filepath.Join(env.home, ".local", "bin"), stubTailscaleStatic(t, tgz, &good), &good
+}
+
+// Without root the static tarball installs only tailscale + tailscaled once the sha256 matches.
+func TestInstallTailscaleStaticWritesTwoBinaries(t *testing.T) {
+	bin, base, _ := staticFixture(t)
+	var buf bytes.Buffer
+	if err := installTailscale(context.Background(), &buf, "", false); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"tailscale": "CLI", "tailscaled": "DAEMON"} {
+		got, err := os.ReadFile(filepath.Join(bin, name))
+		fi, _ := os.Stat(filepath.Join(bin, name))
+		if err != nil || string(got) != want || fi.Mode().Perm() != 0o755 {
+			t.Errorf("%s = %q, %v, want %q at 0755", name, got, err, want)
+		}
+	}
+	for _, extra := range []string{"evil", "link", "systemd", "tailscaled.service"} {
+		if _, err := os.Lstat(filepath.Join(bin, extra)); err == nil {
+			t.Errorf("%s written from the archive", extra)
+		}
+	}
+	if want := "static   " + base + "/stable/ts_1_arm64.tgz (no root: sudo and doas not found)"; !strings.Contains(buf.String(), want) {
+		t.Errorf("output = %q, want %q", buf.String(), want)
+	}
+}
+
+func TestInstallTailscaleStaticChecksumMismatchWritesNothing(t *testing.T) {
+	bin, _, checksum := staticFixture(t)
+	*checksum = strings.Repeat("0", 64)
+	err := installTailscale(context.Background(), &bytes.Buffer{}, "", false)
+	if err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Fatalf("err = %v, want sha256 mismatch", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(bin, "tailscale")); statErr == nil {
+		t.Error("tailscale written despite checksum mismatch")
+	}
+}
+
+func TestInstallTailscaleRootKeepsOfficialScript(t *testing.T) {
+	staticFixture(t)
+	tailscaleNoRoot = func() string { return "" }
+	var buf bytes.Buffer
+	if err := installTailscale(context.Background(), &buf, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), tailscaleInstallScript) || strings.Contains(buf.String(), "static") {
+		t.Errorf("output = %q, want the script path", buf.String())
 	}
 }
 

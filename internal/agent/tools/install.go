@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -31,6 +34,7 @@ var (
 	codexReleaseURL          = "https://api.github.com/repos/openai/codex/releases/latest"
 	agyInstallScriptURL      = "https://antigravity.google/cli/install.sh"
 	tailscaleInstallScript   = "https://tailscale.com/install.sh"
+	tailscaleStaticURL       = "https://pkgs.tailscale.com/stable/"
 )
 
 // installCmdTimeout bounds each installer subprocess so a hung prompt or network never blocks the command forever.
@@ -363,7 +367,7 @@ func installBinaries(w io.Writer, dir string, all []stagedBinary) error {
 		for _, s := range all {
 			data, err := os.ReadFile(filepath.Join(dir, s.name))
 			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("codex: snapshot %s: %w", s.name, err)
+				return fmt.Errorf("snapshot %s: %w", s.name, err)
 			}
 			prior = append(prior, priorFile{s.name, data, err == nil})
 		}
@@ -462,10 +466,145 @@ func linkTailscaleCLI(w io.Writer, dryRun bool) error {
 	return installBinaryLocked(w, local, "tailscale", []byte("#!/bin/sh\nexec \""+tailscaleAppBin+"\" \"$@\"\n"))
 }
 
-// installTailscale is a system install, not into dir: brew cask on macOS, the official script (sudo inside) on Linux.
+// tailscaleNoRoot says why the official script cannot run (not uid 0, no sudo or doas), or "" when it can; a test seam.
+var tailscaleNoRoot = func() string {
+	if os.Geteuid() == 0 {
+		return ""
+	}
+	for _, c := range []string{"sudo", "doas"} {
+		if _, err := exec.LookPath(c); err == nil {
+			return ""
+		}
+	}
+	return "sudo and doas not found"
+}
+
+// tailscaleStaticBins are the only archive members the no-root install keeps, in write order.
+var tailscaleStaticBins = []string{"tailscale", "tailscaled"}
+
+// tarWanted is hdr's base name when it is a regular file in want, local to the archive, at most one directory deep.
+func tarWanted(hdr *tar.Header, want []string) (string, bool) {
+	clean := path.Clean(hdr.Name)
+	local := !path.IsAbs(clean) && clean != ".." && !strings.HasPrefix(clean, "../")
+	base := path.Base(clean)
+	return base, hdr.Typeflag == tar.TypeReg && local && strings.Count(clean, "/") <= 1 && slices.Contains(want, base)
+}
+
+// extractTarGzFiles returns the regular files named in want at the archive top level or one directory down.
+func extractTarGzFiles(data []byte, want []string) (map[string][]byte, error) {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	tr, got := tar.NewReader(gz), map[string][]byte{}
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return got, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		base, ok := tarWanted(hdr, want)
+		if !ok {
+			continue
+		}
+		bin, err := io.ReadAll(io.LimitReader(tr, maxDownload+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(bin)) > maxDownload {
+			return nil, fmt.Errorf("archive entry %s exceeds %d bytes", hdr.Name, maxDownload)
+		}
+		got[base] = bin
+	}
+}
+
+// fetchTailscaleStatic downloads the tarball, verifies its .sha256 and returns tailscale and tailscaled.
+func fetchTailscaleStatic(ctx context.Context, url string) ([]stagedBinary, error) {
+	tgz, err := httpGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	sumFile, err := httpGet(ctx, url+".sha256")
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(tgz)
+	if f := strings.Fields(string(sumFile)); len(f) == 0 || !strings.EqualFold(f[0], hex.EncodeToString(sum[:])) {
+		return nil, fmt.Errorf("tailscale: %s sha256 does not match %s.sha256; nothing written", url, url)
+	}
+	files, err := extractTarGzFiles(tgz, tailscaleStaticBins)
+	if err != nil {
+		return nil, fmt.Errorf("tailscale: %w", err)
+	}
+	out := make([]stagedBinary, 0, len(tailscaleStaticBins))
+	for _, name := range tailscaleStaticBins {
+		bin, ok := files[name]
+		if !ok {
+			return nil, fmt.Errorf("tailscale: %s not found in %s", name, url)
+		}
+		out = append(out, stagedBinary{name, bin})
+	}
+	return out, nil
+}
+
+// tailscaleStaticAsset is the static tarball URL for goarchOverride from Tailscale's package index.
+func tailscaleStaticAsset(ctx context.Context) (string, error) {
+	if goarchOverride != "amd64" && goarchOverride != "arm64" {
+		return "", fmt.Errorf("tailscale: no static build mapped for %s", goarchOverride)
+	}
+	raw, err := httpGet(ctx, tailscaleStaticURL+"?mode=json")
+	if err != nil {
+		return "", err
+	}
+	var index struct{ Tarballs map[string]string }
+	if err := json.Unmarshal(raw, &index); err != nil {
+		return "", fmt.Errorf("tailscale: package index %w", err)
+	}
+	name := index.Tarballs[goarchOverride]
+	if name == "" || path.Base(name) != name {
+		return "", fmt.Errorf("tailscale: no usable %s tarball in the package index", goarchOverride)
+	}
+	return tailscaleStaticURL + name, nil
+}
+
+// installTailscaleStatic puts the static tarball's binaries in ~/.local/bin; reason is why there is no root.
+func installTailscaleStatic(ctx context.Context, w io.Writer, dryRun bool, reason string) error {
+	local := localBinDir()
+	if local == "" {
+		return errors.New("tailscale: no home directory for ~/.local/bin")
+	}
+	url, err := tailscaleStaticAsset(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "  static   %s (no root: %s)\n", url, reason)
+	if dryRun {
+		fmt.Fprintf(w, "  (dry-run: would verify the sha256 and write %s into %s)\n", strings.Join(tailscaleStaticBins, ", "), local)
+		return nil
+	}
+	bins, err := fetchTailscaleStatic(ctx, url)
+	if err != nil {
+		return err
+	}
+	if err := installBinaries(w, local, bins); err != nil {
+		return err
+	}
+	dir := filepath.Join(paths.StateDir(), "tailscale")
+	fmt.Fprintf(w, "  note     tailscaled is not started; as this user run: tailscaled --tun=userspace-networking"+
+		" --state=%[1]s/tailscaled.state --socket=%[1]s/tailscaled.sock, then tailscale --socket=%[1]s/tailscaled.sock up\n", dir)
+	return nil
+}
+
+// installTailscale is a system install, not into dir: brew cask on macOS; Linux the script, or static without root.
 func installTailscale(ctx context.Context, w io.Writer, _ string, dryRun bool) error {
 	switch goosOverride {
 	case "linux":
+		if reason := tailscaleNoRoot(); reason != "" {
+			return installTailscaleStatic(ctx, w, dryRun, reason)
+		}
 		return runInstallScript(ctx, w, dryRun, tailscaleInstallScript, nil, nil)
 	case "darwin":
 		if err := installTailscaleCask(ctx, w, dryRun); err != nil {
