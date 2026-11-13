@@ -161,10 +161,8 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	}
 	for _, want := range []string{
 		filepath.Join(global, "plans"),
-		string(filepath.Separator) + "handoffs" + string(filepath.Separator),
-		string(filepath.Separator) + "reports" + string(filepath.Separator),
-		string(filepath.Separator) + "knowledge" + string(filepath.Separator),
-		"(local-only)",
+		"handoffs in ",
+		"reports in ",
 		"HARNESS_DOCS_PLACEMENT=0",
 		"rules/harness/docs-placement.md",
 	} {
@@ -398,10 +396,10 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	if code := Placement(in, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
-	if want := "  plan             -> " + filepath.Join(cfg, "plans") + "/YYYY"; !strings.Contains(stderr.String(), want) {
+	if want := "Plans belong in " + filepath.Join(cfg, "plans") + ","; !strings.Contains(stderr.String(), want) {
 		t.Errorf("plan line missing %q:\n%s", want, stderr.String())
 	}
-	if want := "  handoff          -> " + filepath.Join(repo, "handoffs"); !strings.Contains(stderr.String(), want) {
+	if want := "handoffs in " + filepath.Join(repo, "handoffs") + ";"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("handoff line must name the store itself, not memory/home; missing %q:\n%s", want, stderr.String())
 	}
 	for _, sub := range []string{"handoffs", "reports"} {

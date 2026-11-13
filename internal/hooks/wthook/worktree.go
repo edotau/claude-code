@@ -101,23 +101,12 @@ const worktreeModeEnv = "HARNESS_WORKTREE"
 // PeerAgents is the process scan; a var seam so tests never see the host's live sessions.
 var PeerAgents = worktree.PeerAgents
 
-const worktreeAskLine = "Worktree: before starting a change, ask the user whether to work in a linked worktree " +
-	"(`claude-code worktree create <slug>` / EnterWorktree); without a yes, keep working in the checkout."
-
 func worktreeModeOff() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(worktreeModeEnv))) {
 	case "off", "false", "0":
 		return true
 	}
 	return false
-}
-
-// Mode runs on SessionStart: the ask line on a fresh start only (not resume/clear/compact), unless the mode is off.
-func Mode(in *core.Input) core.Result {
-	if worktreeModeOff() || (in.Source != "" && in.Source != "startup") {
-		return core.Result{}
-	}
-	return core.Result{Context: worktreeAskLine}
 }
 
 // Busy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
@@ -193,8 +182,8 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 	if !first || len(peers) == 0 {
 		return "", err
 	}
-	return fmt.Sprintf("Another session (%s pid %d) is working in this checkout on %s; before editing, "+
-		"ask the user whether to work in a linked worktree; without a yes, keep working here.", peers[0].Comm, peers[0].PID, branch), err
+	return fmt.Sprintf("Peer session (%s pid %d) is editing this checkout (%s); ask about a linked worktree before editing.",
+		peers[0].Comm, peers[0].PID, branch), err
 }
 
 // notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.
@@ -306,6 +295,9 @@ type divergence struct {
 
 // divergedLine names a shared checkout's local/upstream divergence once per (HEAD, upstream) pair; "" otherwise.
 func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, error) {
+	if !divergedCheckDue(in.SessionID) {
+		return "", nil
+	}
 	d, err := divergedAt(ctx, run.dir)
 	if d == nil || err != nil {
 		return "", err
@@ -323,6 +315,22 @@ func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, er
 	}
 	return fmt.Sprintf("local %s diverged from %s (ahead %d, behind %d): %s", d.branch, d.upName, d.ahead, d.behind,
 		why), nil
+}
+
+// divergedCheckDue rate-limits the divergence git call to once per busyScanTTL per session, via an empty stamp file.
+func divergedCheckDue(session string) bool {
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", sessionSlug(session))
+	st, err := os.Stat(stamp)
+	if err == nil && time.Since(st.ModTime()) < busyScanTTL {
+		return false
+	}
+	if os.MkdirAll(filepath.Dir(stamp), 0o700) == nil {
+		if err != nil {
+			pruneSeen(filepath.Dir(stamp))
+		}
+		_ = os.WriteFile(stamp, nil, 0o600)
+	}
+	return true
 }
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.

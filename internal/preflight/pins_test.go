@@ -52,7 +52,7 @@ func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	if got := Check(reg, now); len(got) != 1 || got[0].Agent != "gemini" || got[0].Status != StatusOK {
 		t.Fatalf("with no profile every external agent but gemini (Google pin) is off, got %+v", got)
 	}
-	if line := StaticLine(reg, now); line != "" {
+	if line := StaticLine(reg, Check(reg, now)); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
 	}
 }
@@ -121,7 +121,7 @@ func TestCheckUnservedAndMissingProfile(t *testing.T) {
 	if c := byAgent(Check(reg, now))["opencode"]; c.Status != statusStale {
 		t.Fatalf("opencode on a missing profile = %+v, want stale", c)
 	}
-	if line := StaticLine(reg, now); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy not running") {
+	if line := StaticLine(reg, Check(reg, now)); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy down") {
 		t.Fatalf("static line %q must flag opencode and the proxy", line)
 	}
 }
@@ -151,7 +151,7 @@ func TestUnreadableRecordsSurfaceInPreflight(t *testing.T) {
 	if !strings.Contains(out.String(), "vault error: agent pins: vault: agent-records is corrupt") {
 		t.Fatalf("install output = %q", out.String())
 	}
-	if got := StaticLine(reg, now); !strings.Contains(got, "agent-records is corrupt") {
+	if got := StaticLine(reg, ps); !strings.Contains(got, "agent-records is corrupt") {
 		t.Fatalf("StaticLine = %q", got)
 	}
 }

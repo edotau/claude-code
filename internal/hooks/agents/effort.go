@@ -109,7 +109,6 @@ func agentEffortResult(in *core.Input) core.Result {
 	if deny := e.label(task, auto); deny != nil {
 		return *deny
 	}
-	e.discovery(in, task, auto)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
 }
@@ -419,13 +418,6 @@ func (e *effortPlan) label(task string, auto bool) *core.Result {
 		"dispatch runs on. Resend this dispatch with description %q (or print the prefix with `claude-code agents label <type>`).", probe["description"])}
 }
 
-// discovery appends the bring-your-own-key hint; outside auto mode it counts as a change.
-func (e *effortPlan) discovery(in *core.Input, task string, auto bool) {
-	if hint := discoveryHint(in.Nested("tool_input", "subagent_type"), task); hint != "" {
-		e.note, e.changed = strings.TrimSpace(e.note+"\n"+hint), e.changed || !auto
-	}
-}
-
 func (e *effortPlan) result() core.Result {
 	switch {
 	case e.changed:
@@ -732,25 +724,6 @@ func tableCellModel(run *dispatchRun, agent, alias string, pin router.PinSpec) s
 	}
 	m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)
 	return m
-}
-
-// discoveryPoolSize is the curated Discovery pool's model count (a var so tests can pin it).
-var discoveryPoolSize = func() int { return len(router.DiscoveryPool()) }
-
-// discoveryHint is the `--model discovery` reminder for a copilot/opencode spawn or Agent: line; "" with --model.
-func discoveryHint(st, task string) string {
-	if strings.Contains(task, "--model") {
-		return ""
-	}
-	hit := st == "copilot" || st == "opencode"
-	for _, w := range briefAgents(task) {
-		hit = hit || w == "copilot" || w == "opencode"
-	}
-	if !hit {
-		return ""
-	}
-	return fmt.Sprintf("discovery: run copilot/opencode with --model discovery — "+
-		"the router picks from the curated Databricks pool (%d models)", discoveryPoolSize())
 }
 
 // briefAgents are the agents the `Agent:` line names, claude when the line is absent; nil for in-context.

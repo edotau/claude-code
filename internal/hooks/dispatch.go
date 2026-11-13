@@ -261,7 +261,6 @@ var native = map[string]core.Runner{
 	"memory-compact":       memhook.Compact,
 	"worktree-create":      wthook.Create,
 	"worktree-remove":      viaStderr(wthook.Remove),
-	"worktree-mode":        wthook.Mode,
 	"worktree-busy":        wthook.Busy,
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": wthook.ClaimCheck,
