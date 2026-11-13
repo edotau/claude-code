@@ -8,13 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -350,7 +348,6 @@ func tavilySearch(ctx context.Context, query string, maxResults int) (string, er
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return "", fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
-	enrichResults(ctx, payload.Results) // the Tavily deadline is spent; each fetch has its own bound
 	return formatResults(payload.Answer, payload.Results), nil
 }
 
@@ -564,33 +561,11 @@ func extractURLs(ctx context.Context, urls []string) int {
 	return 0
 }
 
-// Enrichment bounds: a per-fetch timeout, a read byte cap, and a char cap keeping five hits under ~10KB.
-const (
-	enrichMaxBody  = 256 << 10
-	searchMaxBody  = 16 << 20 // the Tavily search reply, sized like the extract reply
-	enrichMaxChars = 1800
-)
+// searchMaxBody caps the Tavily search reply, sized like the extract reply.
+const searchMaxBody = 16 << 20
 
-// enrichTimeout is a var so tests can shorten it.
-var enrichTimeout = 5 * time.Second
-
-// enrichResults appends each page's text after its snippet, fetched concurrently; any failure keeps the snippet.
-func enrichResults(ctx context.Context, results []tavilyResult) {
-	var wg sync.WaitGroup
-	for i := range results {
-		r := &results[i]
-		wg.Go(func() {
-			if text := fetchPageText(ctx, r.URL); text != "" && text != r.Content {
-				if r.Content == "" {
-					r.Content = text
-				} else {
-					r.Content += "\n\n" + text
-				}
-			}
-		})
-	}
-	wg.Wait()
-}
+// robotsTimeout bounds each robots.txt fetch; a var so tests can shorten it.
+var robotsTimeout = 5 * time.Second
 
 // pageClient refuses loopback/private/link-local targets at dial time (covers redirects and DNS) and caps 5 hops.
 var pageClient = &http.Client{
@@ -635,71 +610,6 @@ func publicIP(ip net.IP) bool {
 // reservedV4 is true for an IPv4 in 0.0.0.0/8 or CGNAT 100.64.0.0/10; nil (not IPv4) is false.
 func reservedV4(v4 net.IP) bool {
 	return v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64))
-}
-
-// fetchPageText GETs one http(s) result URL as plain text; "" keeps the snippet; other schemes are refused.
-func fetchPageText(ctx context.Context, pageURL string) string {
-	if !strings.HasPrefix(pageURL, "https://") && !strings.HasPrefix(pageURL, "http://") {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
-	if err != nil {
-		return ""
-	}
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5")
-	req.Header.Set("User-Agent", userAgent)
-	if !robotsAllowed(ctx, req.URL, nil) {
-		return ""
-	}
-	client := *pageClient
-	client.CheckRedirect = robotsRedirectCheck
-	resp, err := client.Do(req)
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-	return pageBodyText(resp)
-}
-
-// textual reports whether a Content-Type is absent or names html/text.
-func textual(ct string) bool {
-	return ct == "" || strings.Contains(ct, "html") || strings.Contains(ct, "text")
-}
-
-// pageBodyText reduces a 200 text/HTML response to capped plain text; "" keeps the snippet.
-func pageBodyText(resp *http.Response) string {
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-	if !textual(resp.Header.Get("Content-Type")) {
-		return "" // a PDF/image/binary hit keeps its snippet — no text to extract
-	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, enrichMaxBody))
-	if err != nil {
-		return "" // a body cut off mid-read keeps the snippet rather than appending a fragment
-	}
-	text := htmlToText(string(raw))
-	if runes := []rune(text); len(runes) > enrichMaxChars {
-		text = string(runes[:enrichMaxChars]) + "…"
-	}
-	return text
-}
-
-// htmlRes lazily compiles htmlToText's strippers: drop script/style/head, tags to spaces, collapse whitespace.
-var htmlRes = sync.OnceValue(func() (r struct{ drop, tag, spaceRun *regexp.Regexp }) {
-	r.drop = regexp.MustCompile(`(?is)<(script|style|head)\b.*?</(script|style|head)>`)
-	r.tag = regexp.MustCompile(`(?s)<[^>]*>`)
-	r.spaceRun = regexp.MustCompile(`\s+`)
-	return
-})
-
-func htmlToText(page string) string {
-	page = htmlRes().drop.ReplaceAllString(page, " ")
-	page = htmlRes().tag.ReplaceAllString(page, " ")
-	page = html.UnescapeString(page)
-	return strings.TrimSpace(htmlRes().spaceRun.ReplaceAllString(page, " "))
 }
 
 // formatResults renders a Tavily response as a readable text block (answer first, then results).

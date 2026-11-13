@@ -132,7 +132,8 @@ func TestRobotsCacheHitWithinTTL(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 	for _, p := range []string{"/a", "/b", "/private/x"} {
-		fetchPageText(ctx, srv.URL+p)
+		u, _ := url.Parse(srv.URL + p)
+		robotsAllowed(ctx, u, nil)
 	}
 	if n := robotsHits.Load(); n != 1 {
 		t.Fatalf("robots.txt fetched %d times within the TTL, want 1", n)
@@ -151,8 +152,8 @@ func TestPageClientTransportBounds(t *testing.T) {
 	}
 	for name, d := range map[string]time.Duration{"client": pageClient.Timeout, "tls": tr.TLSHandshakeTimeout,
 		"header": tr.ResponseHeaderTimeout} {
-		if d < enrichTimeout {
-			t.Errorf("%s timeout %v undercuts the %v per-fetch ctx bound", name, d, enrichTimeout)
+		if d < robotsTimeout {
+			t.Errorf("%s timeout %v undercuts the %v per-fetch ctx bound", name, d, robotsTimeout)
 		}
 	}
 	if tr.IdleConnTimeout == 0 || tr.MaxIdleConnsPerHost < 2 {

@@ -3,7 +3,6 @@ package websearch
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -164,7 +163,7 @@ func cachedRobotsRules(ctx context.Context, origin string) ([]robotsRule, bool) 
 
 // fetchRobots returns the origin's robots.txt body ("" when missing); ok is false when it could not be read.
 func fetchRobots(ctx context.Context, origin string) (string, bool) {
-	ctx, cancel := context.WithTimeout(ctx, enrichTimeout)
+	ctx, cancel := context.WithTimeout(ctx, robotsTimeout)
 	defer cancel()
 	status, raw, _, err := httpx.Do(ctx, httpx.Call{Client: pageClient, URL: origin + "/robots.txt", Limit: 512 << 10,
 		Header: http.Header{"User-Agent": {userAgent}}})
@@ -178,15 +177,4 @@ func fetchRobots(ctx context.Context, origin string) (string, bool) {
 		return "", false
 	}
 	return string(raw), true
-}
-
-// robotsRedirectCheck caps redirects and re-applies robots.txt at every hop.
-func robotsRedirectCheck(next *http.Request, via []*http.Request) error {
-	if err := capRedirects(next, via); err != nil {
-		return err
-	}
-	if !robotsAllowed(next.Context(), next.URL, nil) {
-		return fmt.Errorf("robots.txt disallows redirect to %s", next.URL)
-	}
-	return nil
 }
