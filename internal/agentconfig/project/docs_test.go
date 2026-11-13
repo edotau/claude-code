@@ -43,7 +43,7 @@ func TestPortableCoreExcludesScopedIncludesStandardOnce(t *testing.T) {
 			t.Errorf("got[%d]=%s, want %s", i, got[i], w)
 		}
 	}
-	out, _, err := renderDocs(root, nil)
+	out, _, err := renderDocs(root)
 	if err != nil {
 		t.Fatal(err)
 	}

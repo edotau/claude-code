@@ -1,7 +1,6 @@
 package project
 
 import (
-	"cmp"
 	"fmt"
 	"io/fs"
 	"os"
@@ -61,6 +60,7 @@ var externalDrops = []externalDrop{
 	{file: "CLAUDE.md", heading: "## Where things live"},
 	{file: "CLAUDE.md", linePrefix: "3. **Dispatch with the Agent tool.**"},
 	{file: "CLAUDE.md", linePrefix: "4. **Tag notable moments**"},
+	{file: "CLAUDE.md", linePrefix: "5. **Finish at the requested boundary.**"},
 	{file: "CLAUDE.md", heading: "## How-to — by area"},
 	{file: "CLAUDE.md", linePrefix: "Injected into **every** session"},
 	{file: "CLAUDE.md", linePrefix: "Depth lives elsewhere:"},
@@ -194,8 +194,8 @@ func demoteH1(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderDocs renders the banner, CLAUDE.md and always-on standards minus externalDrops, then a sorted agents index.
-func renderDocs(root string, agents []Source) (content string, ok bool, err error) {
+// renderDocs renders the banner, CLAUDE.md and always-on standards minus externalDrops.
+func renderDocs(root string) (content string, ok bool, err error) {
 	src, err := instructionSource(root)
 	if err != nil {
 		return "", false, nil
@@ -214,14 +214,5 @@ func renderDocs(root string, agents []Source) (content string, ok bool, err erro
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
 	b.WriteByte('\n')
 	b.WriteString(standards)
-	b.WriteString("\n## Agents\n\n")
-	for _, a := range agents {
-		fmt.Fprintf(&b, "- **%s** (`%s`)", a.Name(), cmp.Or(toString(a.frontmatter["model"]), "inherit"))
-		if desc := firstSentence(cleanDescription(toString(a.frontmatter["description"]))); desc != "" {
-			b.WriteString(" — ")
-			b.WriteString(desc)
-		}
-		b.WriteString("\n")
-	}
 	return b.String(), true, nil
 }

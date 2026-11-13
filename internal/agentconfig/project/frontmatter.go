@@ -10,15 +10,6 @@ import (
 // exampleRe lazily compiles the example-block regex: every claude-code process links crossgen via the cli table.
 var exampleRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<example>.*?</example>`) })
 
-// firstSentence collapses a multi-line description to its first sentence.
-func firstSentence(description string) string {
-	text := strings.Join(strings.Fields(description), " ")
-	if before, _, ok := strings.Cut(text, ". "); ok {
-		return before + "."
-	}
-	return text
-}
-
 // cleanDescription strips <example>...</example> blocks and collapses whitespace.
 func cleanDescription(raw string) string {
 	return strings.Join(strings.Fields(exampleRe().ReplaceAllString(raw, "")), " ")
