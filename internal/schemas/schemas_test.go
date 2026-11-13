@@ -164,7 +164,7 @@ var writers = map[string]string{
 	"internal/worktree/sessions.go:Append":                     "notices",
 	"internal/hooks/wthook/claimcheck.go:appendIfNew":          unversioned("marker: per-session worktree notice dedupe lines"),
 	"internal/inflight/limiter.go:writeMarker":                 unversioned("marker: in-flight dispatch marker (account key)"),
-	"internal/hooks/safety/rtk.go:rtkFirstShadowNotice":        unversioned("marker: per-session rtk-shadow notice stamp"),
+	"internal/hooks/safety/rtk.go:rtkFirstInSession":           unversioned("marker: per-session rtk note and rtk-shadow notice stamps"),
 	"internal/memory/session_start.go:writeSessionRoot":        unversioned("text: per-session launch repository root"),
 	"internal/memory/session_start.go:writeChain":              unversioned("text: last-session chain stamp"),
 	"internal/memory/agent_input.go:writeSynthTranscript":      unversioned("text: Claude-shaped transcript synthesized from an agent session"),

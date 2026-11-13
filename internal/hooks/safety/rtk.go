@@ -4,6 +4,7 @@ package safety
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,11 +66,21 @@ func RTKRewrite(in *core.Input) core.Result {
 	}
 	updated["command"] = rtkAbsolute(rewritten, word)
 
-	note := fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word)
-	if !onPath && rtkFirstShadowNotice(in.SessionID) {
-		note += "\n" + rtkShadowNotice(found, bin)
+	return core.Result{Context: rtkNotes(in.SessionID, word, found, bin, onPath), UpdatedInput: updated}
+}
+
+// rtkNotes is the once-per-session context: the bypass hint, plus the shadow notice when PATH lacks the pinned rtk.
+func rtkNotes(sessionID, word, found, bin string, onPath bool) string {
+	var notes []string
+	if first, err := rtkFirstInSession("rtk-note", sessionID); sessionID == "" || err != nil || first {
+		notes = append(notes, fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word))
 	}
-	return core.Result{Context: note, UpdatedInput: updated}
+	if !onPath {
+		if first, err := rtkFirstInSession("rtk-shadow", sessionID); err == nil && first {
+			notes = append(notes, rtkShadowNotice(found, bin))
+		}
+	}
+	return strings.Join(notes, "\n")
 }
 
 // rtkShadowNotice names PATH's rtk (untrusted: by path, never executed) and the fix; found "" means PATH has none.
@@ -80,17 +91,20 @@ func rtkShadowNotice(found, bin string) string {
 	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
 }
 
-// rtkFirstShadowNotice claims the session's one shadow notice: true only for the first caller (an O_EXCL marker).
-func rtkFirstShadowNotice(session string) bool {
-	dir := filepath.Join(paths.StateDir(), "hooks", "rtk-shadow")
+// rtkFirstInSession claims the session's one note of a kind: true only for the first caller (an O_EXCL marker).
+func rtkFirstInSession(kind, session string) (bool, error) {
+	dir := filepath.Join(paths.StateDir(), "hooks", kind)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return false
+		return false, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, paths.Slug(session, "", 80, "session")), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return false
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
 	}
-	return f.Close() == nil
+	if err != nil {
+		return false, err
+	}
+	return true, f.Close()
 }
 
 // rtkRewritten is `rtk rewrite`'s replacement for cmd (exit 0 or 3, changed stdout); anything else is "" (unchanged).
