@@ -12,8 +12,9 @@ is the undo path.
 
 ## Phase 2: Audit all memory layers
 
-Read every memory file and build an inventory: bank files (lines, last updated), each touched
-project's `MEMORY.md` + topic files (lines, duplicates, staleness).
+Read only the files in the prompt's "Changed since the last dream" list, plus any file a phase needs to judge
+them (the over-cap file being archived, the entry a change supersedes). Never read the whole bank; an empty
+list means skip to Phase 5.
 
 ## Phase 3: Review recent sessions
 
@@ -31,7 +32,7 @@ For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
 3. **Remove stale entries**: Items referencing files, APIs, or patterns that no longer exist
 4. **Merge related items**: Fold overlapping topic files together; keep TOC entries coherent
-5. **Keep `MEMORY.md` a lean index**: it is capped at 200 lines / 25 KB and its generated bank region at 40
+5. **Keep `MEMORY.md` a lean index**: it is capped at 200 lines / 25 KB and its generated bank region at 20
    lines (`rules/workflows/memory-bank.md` → Caps), so detail lives in topic files — trim the index to one-line TOC
    entries, prioritizing:
    - Keep: Gotchas, active conventions, recent patterns
@@ -46,10 +47,9 @@ Run `claude-code memory review` for cap/staleness findings, then:
 2. **Next Steps**: remove completed items, keep active ones
 3. **`sessionHistory.md`**: if over 30 entries, `claude-code memory index` rotates overflow into `archive/`
 
-## Phase 6: Cross-pollinate (via subagent)
+## Phase 6: Cross-pollinate
 
-Hand a subagent every touched `~/.claude/memory/<repo>/MEMORY.md` (+
-topic files). Ask it to:
+Using the changed `~/.claude/memory/<repo>/MEMORY.md` files already read (no subagent, no re-read):
 
 1. Detect rules that recur across **3+ project memories** and are hard prohibitions.
 2. Only those rules qualify for promotion to `CLAUDE.md` → Hard rules (always-on tier) — and only if visible
@@ -66,24 +66,7 @@ Never move entries to the home bank: list candidates in the report (`claude-code
 
 ## Phase 7: Report
 
-```text
-Reflection & Dream Consolidation Report
-════════════════════════════════════════
-
-Native Project Memory:
-  MEMORY.md  89 -> 71 lines  (-18 merged related items)
-  [unchanged]    other topic files
-
-Bank:
-  activeContext.md: [updated/unchanged]
-  sessionHistory.md: N entries (archived: N)
-
-Cross-Pollination:
-  1 pattern promoted to CLAUDE.md: "<rule>"
-  Removed from: native project memory
-
-Total changes: N files modified, N files unchanged
-```
+End with a short plain summary: files changed, promotion candidates, anything skipped.
 
 ## Background run
 

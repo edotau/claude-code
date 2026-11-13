@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -110,12 +111,17 @@ func dreamStamp(root string) (t time.Time, failed, ok bool) {
 	return t, rest == "failed", err == nil
 }
 
+// effectiveStamp is dreamStamp, but a future stamp (clock moved back) reads as none: it would hide every changed file.
+func effectiveStamp(root string, now time.Time) (t time.Time, failed, ok bool) {
+	if t, failed, ok = dreamStamp(root); ok && t.After(now) {
+		return time.Time{}, false, false
+	}
+	return t, failed, ok
+}
+
 // dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
 func dreamDue(cwd string, now time.Time) bool {
-	stamp, failed, ok := dreamStamp(cwd)
-	if ok && stamp.After(now) { // a future stamp (clock moved back) would block dreaming until it passes
-		stamp, failed, ok = time.Time{}, false, false
-	}
+	stamp, failed, ok := effectiveStamp(cwd, now)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
@@ -133,14 +139,38 @@ type dreamOptions struct {
 	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
+// dreamChanged lists the top-level .md files in the home, local and repo stores modified after since (all when zero).
+func dreamChanged(cwd string, since time.Time) []string {
+	dirs := []string{HomeBankDir(), Dir(cwd)}
+	if repos, err := RepoDirs(); err == nil {
+		for _, e := range repos {
+			dirs = append(dirs, e.Dir)
+		}
+	}
+	var out []string
+	for _, d := range dirs {
+		for _, f := range globIn(d, "*.md") {
+			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
+				out = append(out, f)
+			}
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
-func agentDreamPrompt() (string, error) {
+func agentDreamPrompt(changed []string) (string, error) {
 	ref, err := Reference("dream")
 	if err != nil {
 		return "", err
 	}
+	list := "none — nothing changed since the last dream"
+	if len(changed) > 0 {
+		list = "\n- " + strings.Join(changed, "\n- ")
+	}
 	return "Background daily consolidation of the memory bank. Resolve the local bank with `claude-code memory path`; " +
-		"the home bank is the memory root. Be surgical.\n\n" + ref, nil
+		"the home bank is the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 
 // dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
@@ -195,7 +225,8 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	if o.Run == nil {
 		return nil, archiveErr
 	}
-	prompt, err := agentDreamPrompt()
+	since, _, _ := effectiveStamp(o.CWD, time.Now()) // no stamp: the zero time lists every file
+	prompt, err := agentDreamPrompt(dreamChanged(o.CWD, since))
 	if err != nil {
 		return err, archiveErr
 	}

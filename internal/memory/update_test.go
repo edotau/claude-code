@@ -28,14 +28,14 @@ func writeTranscript(t *testing.T, lines ...string) string {
 func TestTagBlock_EmptyTranscriptNoBlock(t *testing.T) {
 	t.Parallel()
 	path := writeTranscript(t, "")
-	if got := tagBlock(path); got != "" {
+	if got := tagBlock(path, false); got != "" {
 		t.Fatalf("tagBlock on an empty transcript = %q, want empty", got)
 	}
 }
 
 func TestTagBlock_MissingTranscriptNoBlock(t *testing.T) {
 	t.Parallel()
-	if got := tagBlock(filepath.Join(t.TempDir(), "does-not-exist.jsonl")); got != "" {
+	if got := tagBlock(filepath.Join(t.TempDir(), "does-not-exist.jsonl"), false); got != "" {
 		t.Fatalf("tagBlock on a missing transcript = %q, want empty", got)
 	}
 }
@@ -431,7 +431,7 @@ func TestReferenceEmptyVerbErrors(t *testing.T) {
 
 // TestAgentDreamPrompt_UsesReference: the embedded dream procedure lands in the built prompt.
 func TestAgentDreamPrompt_UsesReference(t *testing.T) {
-	got, err := agentDreamPrompt()
+	got, err := agentDreamPrompt([]string{"/m/a.md"})
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
@@ -441,6 +441,9 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	}
 	if !strings.Contains(got, ref) {
 		t.Errorf("prompt missing the embedded dream reference:\n%s", got)
+	}
+	if !strings.Contains(got, "- /m/a.md") {
+		t.Errorf("prompt missing the changed-file list:\n%s", got)
 	}
 }
 
