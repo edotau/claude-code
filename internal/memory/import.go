@@ -282,6 +282,9 @@ func (p *importPlan) importFile(pr importPair, root *os.Root, rel string) {
 		p.skipFile(pr, rel, err.Error())
 		return
 	}
+	if appendOnly[rel] {
+		data = unarchived(pr.tgt, rel, data)
+	}
 	dst := filepath.Join(pr.tgt, filepath.FromSlash(rel))
 	cur, err := os.ReadFile(dst)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -289,6 +292,23 @@ func (p *importPlan) importFile(pr importPair, root *os.Root, rel string) {
 		return
 	}
 	p.record(pr, rel, decideImport(rel, cur, data, err == nil))
+}
+
+// unarchived drops the source blocks the target's archives already hold, so a rotated entry is not imported again.
+func unarchived(tgt, rel string, data []byte) []byte {
+	archives, _ := filepath.Glob(filepath.Join(tgt, "archive", strings.TrimSuffix(rel, ".md")+"-*.md"))
+	var known []string
+	for _, a := range archives {
+		if b, err := os.ReadFile(a); err == nil {
+			_, blocks := entryBlocks(rel, string(b))
+			known = append(known, blocks...)
+		}
+	}
+	if len(known) == 0 {
+		return data
+	}
+	hdr, blocks := entryBlocks(rel, string(data))
+	return []byte(rejoin(hdr, blocksMissingFrom(known, blocks)))
 }
 
 type importKind int
