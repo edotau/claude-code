@@ -102,3 +102,25 @@ func TestImportBankMergesOnceAndNeverOverwrites(t *testing.T) {
 		t.Fatalf("second run: %v %v", err, again)
 	}
 }
+
+// TestImportBankSkipsEntriesAlreadyArchived: an entry the local store rotated into its archive is not imported again.
+func TestImportBankSkipsEntriesAlreadyArchived(t *testing.T) {
+	e := newAliasEnv(t)
+	const hdr, block = "# Decision Log\n\n", "## 2026-11-02 — T <!-- id:33333333 -->\nrotated\n\n"
+	src := filepath.Join(t.TempDir(), e.ka)
+	for path, body := range map[string]string{
+		filepath.Join(e.da, "decisionLog.md"): hdr, filepath.Join(e.da, "archive", "decisionLog-2026-11.md"): hdr + block,
+		filepath.Join(src, "decisionLog.md"): hdr + block,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := ImportBank(ImportOptions{From: src, Repo: e.a, DryRun: true})
+	if err != nil || !strings.HasPrefix(res.Summary, "nothing to import") {
+		t.Fatalf("an archived entry was planned again: %v %v", err, res)
+	}
+}
