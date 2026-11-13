@@ -243,6 +243,7 @@ var writers = map[string]string{
 	"internal/agentconfig/vendorfile.go:restore":               unversioned("foreign: agent config restored after a failed staged render"),
 	"internal/ui/theme/theme.go:replaceIfUnchanged":            unversioned("foreign: theme file and backup in a vendor home"),
 	"internal/agent/tools/version.go:writeVersionCache":        "agentversion",
+	"internal/agent/tree/cache.go:saveScanCache":               "agents-tree-scan",
 	"internal/agent/tools/install.go:runInstallScript":         unversioned("foreign: temp installer script"),
 	"internal/agent/tools/tools.go:installBinary":              unversioned("foreign: installed binary"),
 	"internal/agent/tools/science.go:installScienceApp":        unversioned("foreign: downloaded DMG temp file"),

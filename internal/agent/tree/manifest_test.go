@@ -54,7 +54,7 @@ func TestBuildWorkflowRunsTieBreaksByID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runs := buildWorkflowRuns(sessionDir, now, "")
+	runs := buildWorkflowRuns(sessionDir, now, "", nil)
 	if len(runs) != 2 {
 		t.Fatalf("got %d workflow runs, want 2", len(runs))
 	}
