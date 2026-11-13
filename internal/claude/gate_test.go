@@ -74,14 +74,30 @@ func TestGateOffAnthropicSkipsAnthropic(t *testing.T) {
 	}
 }
 
-// Plan mode, --safe-mode, a bare --autonomous and no tools keep their launches; bypassPermissions never goes ungated.
+// A bare --autonomous off Anthropic is the gated launch, never bare bypassPermissions; --safe-mode is refused.
+func TestGateOffAnthropicGatesBareAutonomous(t *testing.T) {
+	hermetic(t, dbxProfiles)
+	req, args, env := launchOf(t, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", WorkDir: t.TempDir()})
+	if joined := strings.Join(args, " "); !req.Gate || !strings.Contains(joined, "--permission-gate || exit 2") ||
+		!strings.Contains(joined, "--tools "+gateTools) || envPolicy(t, env).Mode != "plan" {
+		t.Errorf("bare autonomous off Anthropic: gate=%v args %q, want the gated launch", req.Gate, args)
+	}
+	bare := []string{"--permission-mode", "bypassPermissions"}
+	if err := refuseUngatedBypass(bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", SafeMode: true}); err == nil {
+		t.Error("ungated bypassPermissions off Anthropic must be refused")
+	}
+	if err := refuseUngatedBypass(bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
+		t.Errorf("bare autonomous on Anthropic keeps its launch, got %v", err)
+	}
+}
+
+// Plan mode, --safe-mode and no tools keep their launches; bypassPermissions never goes ungated.
 func TestGateOffAnthropicKeepsOtherLaunches(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	for name, req := range map[string]agent.RunOptions{
-		"plan mode":  {Tools: true, Provider: "qa", Permissions: agent.Permissions{Mode: "plan"}},
-		"safe mode":  {Tools: true, Provider: "qa", SafeMode: true},
-		"autonomous": {Tools: true, Provider: "qa", Autonomous: true},
-		"no tools":   {Provider: "qa"},
+		"plan mode": {Tools: true, Provider: "qa", Permissions: agent.Permissions{Mode: "plan"}},
+		"safe mode": {Tools: true, Provider: "qa", SafeMode: true},
+		"no tools":  {Provider: "qa"},
 	} {
 		if got, _, _ := launchOf(t, req); got.Gate {
 			t.Errorf("%s: must not take the gated launch", name)
@@ -121,6 +137,8 @@ func TestGatePolicyDecisions(t *testing.T) {
 			"--allow 'Edit(/tmp/outside-probe.txt)'", ""},
 		{"write in a sibling of the workdir", agent.Permissions{}, "Write", write(filepath.Join(filepath.Dir(wd), "sib.txt")),
 			true, "deny: ", ""},
+		{"the hinted --allow Edit opens a Write", agent.Permissions{Allow: []agent.Rule{rule("Edit(/tmp/open/**)")}},
+			"Write", write("/tmp/open/x.txt"), false, "", ""},
 		{"user --allow Write alone opens a path", agent.Permissions{Allow: []agent.Rule{rule("Write(/tmp/open/**)")}},
 			"Write", write("/tmp/open/x.txt"), false, "", ""},
 		{"user --deny beats the workdir allow", agent.Permissions{Deny: []agent.Rule{rule("Write(" + wd + "/state/**)")}},
