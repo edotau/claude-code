@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -87,25 +86,19 @@ func (t *recallTrace) scores(c recallPick, boost float64) {
 // recallCacheInfo is diagnostic I/O, never used by the hook's normal path.
 func recallCacheInfo(t *recallTrace) {
 	t.CacheAge = "missing"
-	for name := range embedProfiles(context.Background()) {
-		if !safeProfile.MatchString(name) {
-			continue
-		}
-		cache, err := readProfileCache(name)
-		if err != nil {
-			t.CacheAge = "unreadable"
-			continue
-		}
-		if cache.Model == "" || len(cache.Rows) == 0 {
-			continue
-		}
-		t.CacheRows = len(cache.Rows)
-		if cache.MintedAt > 0 {
-			t.CacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
-		} else {
-			t.CacheAge = "unminted"
-		}
+	cache, err := readEmbedCache()
+	if err != nil {
+		t.CacheAge = "unreadable"
 		return
+	}
+	if cache.Model == "" || len(cache.Rows) == 0 {
+		return
+	}
+	t.CacheRows = len(cache.Rows)
+	if cache.MintedAt > 0 {
+		t.CacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
+	} else {
+		t.CacheAge = "unminted"
 	}
 }
 

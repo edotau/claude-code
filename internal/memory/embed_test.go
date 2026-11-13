@@ -43,7 +43,7 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(srv.Close)
-	return &EmbedClient{Profile: "fake", Model: "fake-gte", Namespace: "fake|h|fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Model: "fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }
@@ -51,9 +51,9 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 // expireEmbed ends the validity lease of profile "fake" so the next embedChanged may mint again.
 func expireEmbed(t *testing.T) {
 	t.Helper()
-	f := loadEmbedCache("fake")
+	f := loadEmbedCache()
 	f.MintedAt = 0
-	if err := saveEmbedCache("fake", f); err != nil {
+	if err := saveEmbedCache(f); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -165,13 +165,13 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
 			nested = true
 			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
 			cur := freshEmbedCache(inner)
 			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
-			if err := saveEmbedCache("fake", cur); err != nil {
+			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -180,7 +180,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	rows := loadEmbedCache("fake").Rows
+	rows := loadEmbedCache().Rows
 	if _, a := rows["aaaa0001"]; !a {
 		t.Error("run A's row missing")
 	}
@@ -189,8 +189,8 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	}
 }
 
-// A cache from another workspace or dimension is never compared: the namespace re-embeds, the dimension refuses.
-func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
+// A cache of another model or dimension is never compared: the model re-embeds, the dimension refuses.
+func TestEmbedCacheModelAndDimension(t *testing.T) {
 	isolatedConfig1(t)
 	root := t.TempDir()
 	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
@@ -199,49 +199,27 @@ func TestEmbedCacheNamespaceAndDimension(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, c); err != nil || calls != 1 {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
-	other := &EmbedClient{Profile: "fake", Model: c.Model, Namespace: "other|https://w2|fake-gte", EmbedFunc: c.EmbedFunc}
-	expireEmbed(t)
+	other := &EmbedClient{Model: c.Model + "-2", EmbedFunc: c.EmbedFunc}
 	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 1 {
-		t.Errorf("same model name on another workspace must re-EmbedFunc: n=%d err=%v", n, err)
+		t.Errorf("another model name must re-embed inside the lease: n=%d err=%v", n, err)
 	}
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
-	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // namespace fake, cache is "other"
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // model fake-gte, cache is the other model
 	before := calls
 	if _, err := embedQuery("q"); err == nil {
-		t.Error("a client from a different namespace must not score the cache")
+		t.Error("a client of a different model must not score the cache")
 	}
 	if calls != before {
-		t.Errorf("the prompt reached the endpoint (%d texts) despite the namespace mismatch", calls-before)
+		t.Errorf("the prompt reached the endpoint (%d texts) despite the model mismatch", calls-before)
 	}
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
-		return &EmbedClient{Profile: "fake", Model: other.Model, Namespace: other.Namespace, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{Model: other.Model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
 	}
 	if _, err := embedQuery("q"); err == nil {
 		t.Error("a 4-dim query against 3-dim cached vectors must be refused")
-	}
-}
-
-// The profile argument picks the workspace, ahead of the pinned default.
-func TestOpenEmbedClientUsesGivenProfile(t *testing.T) {
-	isolatedConfig1(t)
-	_, _, err := providers.UpdateOverlayDoc(true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		top["providers"] = json.RawMessage(`{"dev": {"provider":"databricks","preset":"databricks","host":"https://dev.example.com"},` +
-			`"qa": {"provider":"databricks","preset":"databricks","host":"https://qa.example.com"}}`)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CLAUDE_PROFILE", "qa")
-	c, err := openDatabricksEmbed(context.Background(), "qa", "databricks-gte-large-en")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(c.Namespace, "qa|") {
-		t.Errorf("namespace %q does not follow the session profile", c.Namespace)
 	}
 }
 
@@ -252,17 +230,17 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
-	f := vectorRecord{Namespace: c.Namespace, Model: c.Model, Rows: map[string]vectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
+	f := vectorRecord{Model: c.Model, Rows: map[string]vectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
-	if err := saveEmbedCache("fake", f); err != nil {
+	if err := saveEmbedCache(f); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 		t.Fatal(err)
 	}
-	rows := loadEmbedCache("fake").Rows
+	rows := loadEmbedCache().Rows
 	if _, ok := rows["other-live"]; !ok {
 		t.Error("another root's vector was pruned")
 	}
@@ -285,13 +263,13 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // the entry changes mid-run and a newer run embeds the new content first
 			nested = true
 			write(t, bankFile, v2)
 			cur := freshEmbedCache(inner)
 			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
-			if err := saveEmbedCache("fake", cur); err != nil {
+			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -301,7 +279,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := mustEntryHashes(t, root)["aaaa0001"]
-	if got := loadEmbedCache("fake").Rows["aaaa0001"].Hash; got != want {
+	if got := loadEmbedCache().Rows["aaaa0001"].Hash; got != want {
 		t.Errorf("cache holds the older run's vector: hash %s, current content %s", got, want)
 	}
 }
@@ -387,39 +365,37 @@ func TestEmbedFallsBackToDirectWhenRouterFails(t *testing.T) {
 	}
 }
 
-// The session profile's own cache wins; a miss falls back to the pinned profile's cache and opens its client there.
-func TestNewSemanticPerProfileCacheFallsBackToPin(t *testing.T) {
+// One cache serves every workspace: A's vectors are reused under B, recall reads them, and a model change re-embeds.
+func TestSharedEmbedCacheAcrossWorkspaces(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	vaulttest.SetRecord(t, "claude", "profile", "dev")
-	t.Setenv("CLAUDE_PROFILE", "qa")
-	seed := func(profile string) {
-		row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
-		f := vectorRecord{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}
-		if err := saveEmbedCache(profile, f); err != nil {
-			t.Fatal(err)
-		}
-	}
+	root := t.TempDir()
+	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), lease3Bank)
+	var calls int
+	c := fakeEmbedServer(t, &calls)
 	var opened []string
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
-	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
+	openEmbedClient = func(_ context.Context, profile, _ string) (*EmbedClient, error) {
 		opened = append(opened, profile)
-		return &EmbedClient{Profile: profile, Model: model, Namespace: profile + "|h|gte", EmbedFunc: func(context.Context, []string) ([][]float32, error) {
-			return [][]float32{{1, 0, 0}}, nil
-		}}, nil
+		return c, nil
 	}
-	seed("dev")
-	if _, err := embedQuery("q"); err != nil || len(opened) != 1 || opened[0] != "dev" {
-		t.Fatalf("qa cache miss: opened %v err %v, want the pinned dev profile", opened, err)
+	t.Setenv("CLAUDE_PROFILE", "wsa")
+	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 3 {
+		t.Fatalf("index under A: n=%d err=%v", n, err)
 	}
-	seed("qa")
-	opened = nil
-	if _, err := embedQuery("q"); err != nil || len(opened) != 1 || opened[0] != "qa" {
-		t.Fatalf("qa cache present: opened %v err %v, want the session's own qa profile", opened, err)
+	expireEmbed(t) // past the lease, so only the shared rows can spare the second workspace the work
+	t.Setenv("CLAUDE_PROFILE", "wsb")
+	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 0 || calls != 3 {
+		t.Fatalf("index under B: n=%d texts sent=%d err=%v, want A's vectors reused", n, calls, err)
 	}
-	if saveEmbedCache("../escape", vectorRecord{}) == nil {
-		t.Error("an unsafe profile name must not be stored")
+	sem, err := embedQuery("gamma")
+	if err != nil || len(sem.rows) != 3 || len(opened) != 1 || opened[0] != "wsb" {
+		t.Fatalf("recall under B: err=%v rows=%d opened=%v, want A's 3 rows through wsb", err, len(sem.rows), opened)
+	}
+	other := &EmbedClient{Model: c.Model + "-2", EmbedFunc: c.EmbedFunc}
+	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 3 || loadEmbedCache().Model != other.Model {
+		t.Fatalf("model change: n=%d model=%q err=%v, want all rows re-embedded", n, loadEmbedCache().Model, err)
 	}
 }
 
@@ -431,8 +407,8 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { embedRecallWait = prevWait })
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "fake")
-	f := vectorRecord{Namespace: "fake|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
-	if err := saveEmbedCache("fake", f); err != nil {
+	f := vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache(f); err != nil {
 		t.Fatal(err)
 	}
 	var opens atomic.Int32 // the abandoned embed goroutine still runs when the test reads it
@@ -440,7 +416,7 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opens.Add(1)
-		return &EmbedClient{Profile: profile, Model: model, Namespace: "fake|h|gte", EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
+		return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}}, nil
@@ -458,28 +434,22 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 }
 
 // loadEmbedCache is readEmbedCache with every failure folded into an empty record.
-func loadEmbedCache(profile string) vectorRecord {
-	if !safeProfile.MatchString(profile) {
-		return vectorRecord{}
-	}
-	f, err := readEmbedCache(profile)
+func loadEmbedCache() vectorRecord {
+	f, err := readEmbedCache()
 	if err != nil {
 		return vectorRecord{}
 	}
 	return f
 }
 
-// saveEmbedCache stores f as profile's record unconditionally; the mint path merges through vectorStore.Put.
-func saveEmbedCache(profile string, f vectorRecord) error {
-	if !safeProfile.MatchString(profile) {
-		return fmt.Errorf("embeddings: unsafe profile name %q", profile)
-	}
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, profile, f) })
+// saveEmbedCache stores f as the shared record unconditionally; the mint path merges through vectorStore.Put.
+func saveEmbedCache(f vectorRecord) error {
+	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, f) })
 }
 
 // dimEmbedClient answers every text with a dim-wide unit vector, calling hook (if any) before each batch.
 func dimEmbedClient(dim int, hook func()) *EmbedClient {
-	return &EmbedClient{Profile: "fake", Model: "m", Namespace: "ns", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{Model: "m", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
 		if hook != nil {
 			hook()
 		}
@@ -533,14 +503,14 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 		for id, h := range mustEntryHashes(t, root) {
 			cur.Rows[id] = vectorRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
 		}
-		if err := saveEmbedCache("fake", cur); err != nil {
+		if err := saveEmbedCache(cur); err != nil {
 			t.Error(err)
 		}
 	})
 	if _, _, err := embedChanged(context.Background(), root, old); err != nil {
 		t.Fatal(err)
 	}
-	c := loadEmbedCache("fake")
+	c := loadEmbedCache()
 	if cacheDimOf(c) != 2 {
 		t.Fatalf("stale run reset the dimension to %d", cacheDimOf(c))
 	}
@@ -561,21 +531,21 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	write(t, bankFile, "# D\n\n"+e1)
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
-	f := vectorRecord{Namespace: inner.Namespace, Model: inner.Model, Rows: map[string]vectorRow{}}
+	f := vectorRecord{Model: inner.Model, Rows: map[string]vectorRow{}}
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
-	if err := saveEmbedCache("fake", f); err != nil {
+	if err := saveEmbedCache(f); err != nil {
 		t.Fatal(err)
 	}
 	nested := false
-	outer := &EmbedClient{Profile: "fake", Model: inner.Model, Namespace: inner.Namespace, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // a concurrent run adds an entry and commits its vector before this run merges
 			nested = true
 			write(t, bankFile, "# D\n\n"+e1+e2)
-			cur := loadEmbedCache("fake")
+			cur := loadEmbedCache()
 			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
-			if err := saveEmbedCache("fake", cur); err != nil {
+			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}
 		}
@@ -584,7 +554,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := loadEmbedCache("fake").Rows["aaaa0002"]; !ok {
+	if _, ok := loadEmbedCache().Rows["aaaa0002"]; !ok {
 		t.Error("the prune deleted a vector a concurrent run committed")
 	}
 }
@@ -611,12 +581,12 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 3 {
 		t.Fatalf("first index: n=%d err=%v", n, err)
 	}
-	cache := loadEmbedCache("fake")
+	cache := loadEmbedCache()
 	r := cache.Rows["aaaa0002"]
 	r.Vec = encodeVec([]float32{1, 0, 0, 0, 0})
 	cache.Rows["aaaa0002"] = r
 	cache.MintedAt = 0 // lease over
-	if err := saveEmbedCache("fake", cache); err != nil {
+	if err := saveEmbedCache(cache); err != nil {
 		t.Fatal(err)
 	}
 	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 1 {
@@ -624,42 +594,32 @@ func TestMixedDimensionsAreDeterministicAndReindexed(t *testing.T) {
 	}
 }
 
-// seedProfileCache stores a one-row cache for profile; paused also writes its fresh backoff marker.
-func seedProfileCache(t *testing.T, profile string, paused bool) {
+// pauseProfile writes profile's fresh backoff marker.
+func pauseProfile(t *testing.T, profile string) {
 	t.Helper()
-	row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
-	f := vectorRecord{Namespace: profile + "|h|gte", Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}
-	if err := saveEmbedCache(profile, f); err != nil {
+	if err := paths.AtomicWrite(embedBackoffPath(profile), nil, 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if paused {
-		if err := paths.AtomicWrite(embedBackoffPath(profile), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 
-// Given the session profile is paused, When semanticCache runs, Then the claude record's profile serves, A is never read.
+// Given the session profile is paused, When semanticCache runs, Then the claude record's profile embeds the query.
 func TestSemanticCachePausedProfileFallsThrough(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_PROFILE", "pa")
 	vaulttest.SetRecord(t, "claude", "profile", "pb")
-	seedProfileCache(t, "pa", true)
-	seedProfileCache(t, "pb", false)
-	var reads []string
-	prev := readProfileCache
-	t.Cleanup(func() { readProfileCache = prev })
-	readProfileCache = func(p string) (vectorRecord, error) { reads = append(reads, p); return prev(p) }
+	row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
+	if err := saveEmbedCache(vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}); err != nil {
+		t.Fatal(err)
+	}
+	pauseProfile(t, "pa")
 	name, cache, err := semanticCache(context.Background())
-	if err != nil || name != "pb" || cache.Namespace != "pb|h|gte" {
-		t.Fatalf("got %q %q err %v, want pb's cache", name, cache.Namespace, err)
+	if err != nil || name != "pb" || cache.Model != "gte" {
+		t.Fatalf("got %q %q err %v, want pb through the shared cache", name, cache.Model, err)
 	}
-	if len(reads) != 1 || reads[0] != "pb" {
-		t.Errorf("vectors read for %v, want only pb", reads)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "pc") // pc has no cache: the pause error must beat "no embedding cache"
+	pauseProfile(t, "pb")
+	vaulttest.SetRecord(t, "claude", "profile", "pb") // every candidate paused: the pause error must beat "no embedding cache"
 	if _, _, err := semanticCache(context.Background()); err == nil || !strings.Contains(err.Error(), "paused") {
-		t.Errorf("pa paused, pc empty: err %v, want the pause error", err)
+		t.Errorf("pa and pb paused: err %v, want the pause error", err)
 	}
 }
 
@@ -667,6 +627,7 @@ func TestSemanticCachePausedProfileFallsThrough(t *testing.T) {
 func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_PROFILE", "pa")
+	pauseProfile(t, "pa") // the walk reaches the blocked vault read only past a paused session profile
 	release, exited := make(chan struct{}), make(chan struct{})
 	prev := claudeRecord
 	t.Cleanup(func() { claudeRecord = prev })

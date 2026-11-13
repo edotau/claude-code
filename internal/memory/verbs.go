@@ -113,9 +113,10 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
-	profile := cmp.Or(embedProfile(), providers.SessionProfile())
+	profile, _ := embedEndpoint(context.Background()) // none usable: the session's profile, else the default
+	profile = cmp.Or(profile, providers.SessionProfile())
 	if o.Reembed {
-		if err := reembedGate(profile, time.Now()); err != nil {
+		if err := reembedGate(time.Now()); err != nil {
 			return err
 		}
 	}
@@ -138,11 +139,8 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 }
 
 // reembedGate refuses --reembed before the override window opens.
-func reembedGate(profile string, now time.Time) error {
-	if profile == "" {
-		return nil
-	}
-	at, open, err := reembedWindow(profile, now)
+func reembedGate(now time.Time) error {
+	at, open, err := reembedWindow(now)
 	if err != nil {
 		return fmt.Errorf("memory index --reembed: %w", err)
 	}
