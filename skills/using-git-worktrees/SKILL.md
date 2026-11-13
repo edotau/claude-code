@@ -59,7 +59,9 @@ here is `merge` and `clean-all`.
 and the new branch ignores the path (a seeding failure only warns). The full procedure, the fast-forward-only merge rule
 and conflict handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1.
 In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
-but `make install` and `claude-code` verbs run from it still target the live `~/.claude`.
+but `make install` and `claude-code` verbs run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR`
+points at it (`rules/harness/settings-management.md` → Worktree render). Never run a worktree-built binary as the
+proxy.
 
 ## Manual control / non-harness repos
 

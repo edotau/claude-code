@@ -468,6 +468,7 @@ type RunOptions struct {
 	RemoteBin                                           string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
+	Gate                                                bool               `json:"-"` // claude: bypass its prompts, Permissions enforced by the injected permission-gate
 }
 
 // StatusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.

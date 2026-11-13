@@ -94,7 +94,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
 		{req.OutputSchema != "", []string{"--json-schema", req.OutputSchema}},
 		{req.SessionID != "", []string{"--resume", req.SessionID}},
-		{req.Autonomous && req.Tools && req.Permissions.IsZero(), []string{"--permission-mode", "bypassPermissions"}},
+		{req.Tools && (req.Gate || req.Autonomous && req.Permissions.IsZero()), []string{"--permission-mode", "bypassPermissions"}},
 	} {
 		if f.on {
 			args = append(args, f.flag...)
@@ -145,6 +145,9 @@ func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 		argv = append(argv, "--effort", effort)
 	}
 	if !s.Headless { // an interactive launch keeps the user's own permission settings
+		return env, argv, emulated, cleanup, nil
+	}
+	if s.Gate { // bypassPermissions plus the gate hook (gateArgs) replace claude's own rules
 		return env, argv, emulated, cleanup, nil
 	}
 	if err := refuseUnmappedDeny(s.Permissions); err != nil {
@@ -247,10 +250,18 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
 	args = append(args, toolArgs(req)...)
+	if req.Gate {
+		args = append(args, gateArgs()...)
+	}
 	o := agent.ClaudeOptions{Provider: launchProvider(req), Model: req.Model, KeepEnv: req.KeepEnv}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
+	}
+	if req.Gate {
+		if cl.Argv, err = injectGate(cl.Argv, req); err != nil {
+			return nil, nil, cl, err
+		}
 	}
 	if err := agent.CheckRouteNames(launcherSet(cl.Set), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
@@ -259,7 +270,62 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
 	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), launcherSet(cl.Set))
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: set, Extra: req.Env}.Environ(ctx) // --env last, so it wins
+	if req.Gate && !slices.ContainsFunc(cmd.Env, func(e string) bool { return strings.HasPrefix(e, agent.DispatchPermissionsEnv+"=") }) {
+		return nil, nil, cl, retry.Fatal("claude", errors.New("gated launch refused: the child env carries no "+agent.DispatchPermissionsEnv))
+	}
 	return cmd, tail, cl, nil
+}
+
+// gateExe is the binary the injected gate runs; a var so tests pin it.
+var gateExe = os.Executable
+
+// gateTools is the only built-in tool set a gated child gets: the permission-gate judges exactly these.
+const gateTools = "Read,Glob,Grep,Edit,Write,MultiEdit,Bash"
+
+// gateArgs are the launch flags of a gated child: no MCP and only gateTools, which the gate judges.
+func gateArgs() []string { return []string{"--strict-mcp-config", "--tools", gateTools} }
+
+// injectGate merges the permission-gate hook into the launch's one --settings (a second flag would replace it).
+func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
+	// the hook exits 2 on any failure, so a gate that cannot run blocks the call; no policy or binary refuses the launch
+	refuse := func(err error) ([]string, error) {
+		return nil, retry.Fatal("claude", fmt.Errorf("gated launch refused: %w", err))
+	}
+	if req.Permissions.IsZero() {
+		return refuse(errors.New("no permission policy to enforce"))
+	}
+	exe, err := gateExe()
+	if err == nil {
+		_, err = os.Stat(exe)
+	}
+	if err != nil {
+		return refuse(fmt.Errorf("permission-gate binary: %w", err))
+	}
+	doc := map[string]any{}
+	at := slices.Index(argv, "--settings")
+	if at >= 0 && at+1 < len(argv) {
+		raw := []byte(argv[at+1])
+		if !strings.HasPrefix(strings.TrimSpace(argv[at+1]), "{") {
+			if raw, err = os.ReadFile(argv[at+1]); err != nil {
+				return refuse(fmt.Errorf("launch settings: %w", err))
+			}
+		}
+		if err = json.Unmarshal(raw, &doc); err != nil {
+			return refuse(fmt.Errorf("launch settings: %w", err))
+		}
+	}
+	doc["hooks"] = map[string]any{"PreToolUse": []any{map[string]any{"hooks": []any{map[string]any{
+		"type": "command", "timeout": 5, "command": textutil.ShellQuote(exe) + " hook PreToolUse --permission-gate || exit 2"}}}}}
+	merged, err := json.Marshal(doc)
+	if err != nil {
+		return refuse(fmt.Errorf("gate settings: %w", err))
+	}
+	if at < 0 {
+		return append(slices.Clone(argv), "--settings", string(merged)), nil
+	}
+	out := slices.Clone(argv)
+	out[at+1] = string(merged)
+	return out, nil
 }
 
 // claudeEvent is the union of stream-json fields the agent reads.

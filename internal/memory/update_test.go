@@ -431,7 +431,7 @@ func TestReferenceEmptyVerbErrors(t *testing.T) {
 
 // TestAgentDreamPrompt_UsesReference: the embedded dream procedure lands in the built prompt.
 func TestAgentDreamPrompt_UsesReference(t *testing.T) {
-	got, err := agentDreamPrompt([]string{"/m/a.md"})
+	got, err := agentDreamPrompt("/w", []string{"/m/a.md"})
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}

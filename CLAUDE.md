@@ -14,7 +14,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 
 | Path | Holds |
 | --- | --- |
-| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; external SDKs boxed one package each. Each verb area owns its package and `internal/cli` is the command table, menu and dispatcher importing only their `Run`/`Spec`. **CLI adapters use one `internal/cli/<verb>.go` (+ tests) or a table entry into the area package**: flags and output only, its logic in the area's package (table-wired: `databricks`, `doctor`, `network`, `usage`, `setup`); engines live below; a package more than one area imports stays top-level (`router`, `tokenledger`), one area's helper nests under it (`agent/tools`), and a provider's own code stays under that provider (`databricks/oauth`) |
+| `cmd/claude-code/`, `internal/` | The binary, stdlib-first; `internal/cli` is the command table and dispatcher, logic lives in each area's package (`rules/harness/go.md` → Layout) |
 | `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls`, edited in `configure`), sealed secrets (`vault set\|get`) |
@@ -24,7 +24,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; scoping contract → `rules/README.md` |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
 | `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
-| `memory/` | The one memory store, a local-only git repo. `memory/index.md` = generated catalog (never hand-edit); `memory/<repo>/` = native auto-memory + six typed bank files (harness = `memory/claude-code/`, home = `memory/home/`); `projects/<slug>/memory` symlinks into it. Engine, store location and locking `internal/memory` |
+| `memory/` | The one memory store, a local-only git repo: `memory/<repo>/` per repo (harness `memory/claude-code/`, home `memory/home/`); `index.md` is generated, never hand-edit (`rules/workflows/memory-bank.md`) |
 | `docker/` · `mods/` | Ubuntu harness image (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees |
 

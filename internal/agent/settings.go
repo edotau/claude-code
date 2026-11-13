@@ -23,6 +23,7 @@ type Settings struct {
 	Target      providers.Target  // the resolved profile row and model; Provider nil on the agent's own login
 
 	Tools, Autonomous, SafeMode bool
+	Gate                        bool // claude: the permission-gate hook enforces Permissions, so no permission flags render
 	Headless                    bool // false for an interactive launch
 	WorkDir                     string
 }
@@ -48,7 +49,7 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	def, _ := policyPermissions(rec.Permissions)
 	perms, _ := resolvePermissions(def, req.Permissions)
 	return Settings{Agent: agentName, Record: rec, Effort: cmp.Or(req.Effort, rec.Effort), Permissions: perms,
-		Target: t, Tools: req.Tools, Autonomous: req.Autonomous, SafeMode: req.SafeMode,
+		Target: t, Tools: req.Tools, Autonomous: req.Autonomous, SafeMode: req.SafeMode, Gate: req.Gate,
 		Headless: headless, WorkDir: req.WorkDir}
 }
 

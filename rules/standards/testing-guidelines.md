@@ -1,3 +1,14 @@
+---
+paths:
+  - "**/*_test.go"
+  - "**/test_*.py"
+  - "**/*_test.py"
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/tests/**"
+  - "**/testdata/**"
+---
+
 # Testing Guidelines
 
 Order, always: **run it live → pin what you observed.** Gate order: `quality.md` →

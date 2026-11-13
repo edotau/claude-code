@@ -13,7 +13,8 @@ skill; `standards/` still holds.
 
 - `cmd/claude-code/main.go` wires and exits; all logic lives under `internal/<area>/`.
 - `internal/cli` is the command table, menu and dispatcher. A verb is one `internal/cli/<verb>.go` (+ `_test.go`) or a
-  table entry into the area package; the CLI file holds flags and output only, the logic lives in the area.
+  table entry into the area package; the CLI file holds flags and output only, the logic lives in the area
+  (table-wired: `databricks`, `doctor`, `network`, `usage`, `setup`).
 - Placement by importer count: a package more than one area imports stays top-level (`internal/router`,
   `internal/tokenledger`); one area's helper nests under it (`internal/agent/tools`); a provider's code stays under
   that provider (`internal/databricks/oauth`). External SDKs are boxed one package each.

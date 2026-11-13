@@ -28,16 +28,8 @@ current branch with no asks; any other value, including unset, means ask the use
 whether to use a linked worktree, plus when another session joins the checkout. Never create one without the user's
 yes; no answer means keep working in place.
 
-- Verbs (`create`, `list`, `merge`, `clean`, `clean-all`) and their flags: `skills/using-git-worktrees/SKILL.md`.
-- Never `stash`/`checkout`/`reset`/`restore` the live checkout (CLAUDE.md hard rule 4); in a worktree, branch freely,
-  but never `git stash` anywhere — the stash list is shared by every worktree.
-- **Never rewrite shared history** — no `commit --amend`, `rebase`, `reset <commit>` in a tree another session or
-  your leaves share (always `~/.claude`): commit anew or `git revert`; rewrite only in your own linked worktree
-  (`safety-scan` blocks). Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
+- Never `git stash` in any worktree (the stash list is shared); rewrite history only in your own
+  linked worktree (CLAUDE.md hard rule 4; `safety-scan` blocks).
+  Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
 - A `notice (…)` or `local <branch> diverged` context line is from a peer or a merge: act on it before committing.
-- Never run a worktree-built binary as the proxy.
-- `make install` and `claude-code` verbs still write to `~/.claude` from a worktree unless `CLAUDE_CONFIG_DIR` points
-  at it (`rules/harness/settings-management.md` → Worktree render).
-- `merge` refuses when `main` moved mid-verify — re-run it; `clean` refuses while a process has its cwd inside —
-  `cd` out (or `ExitWorktree`) first.
-- Conflicts, the verify gate and manual worktrees: `skills/using-git-worktrees/references/manual-worktrees.md`.
+- Verbs, flags, refusals and the install/proxy gotchas: `skills/using-git-worktrees/SKILL.md`.

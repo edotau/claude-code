@@ -20,7 +20,7 @@ paths:
 
 | Tier | What it is | Loaded |
 |------|-----------|--------|
-| `standards/` | Coding doctrine — principles · quality · testing-guidelines · worktree-git · security · documentation | always-on (keep short), except the scoped `documentation.md` |
+| `standards/` | Coding doctrine — principles · quality · testing-guidelines · worktree-git · security · documentation | always-on (keep short), except the scoped `documentation.md` and `testing-guidelines.md` (test files) |
 | `workflows/` | Process — master-workflow · agents · memory-bank · memory-consolidation | scoped to commands/agents/workflows/memory |
 | `harness/` | This repo's machinery — hooks · settings-management · providers · network · agent · go · docs-placement · change-protocol | scoped to `internal/**` and the files each governs; docs-placement is scoped to `**/*.md` |
 | `software/<lang>/` | Language overlays that extend `standards/`; `go/` is only a pointer to the `golang` skill | scoped to that language's files |
