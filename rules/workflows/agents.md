@@ -22,6 +22,7 @@ Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
 | Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
 | What a leaf changed, stayed inside its files, passes the gates | `claude-code agents diff [--base <ref>] [--path <path>]... [--check] [--verify <id>] [--format json]` (exit 1 gate failed or MISMATCH, 3 outside `--path`) |
+| Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
 
 ## Slash commands
 
