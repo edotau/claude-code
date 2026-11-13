@@ -549,17 +549,39 @@ func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []strin
 	return embedded, embedErr
 }
 
-// embedProfiles yields the session profile, then the claude record's when it differs; the record loads only if reached.
+// embedProfiles yields the session profile, the claude record's, then every Databricks workspace, each only if reached.
 func embedProfiles(ctx context.Context) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		name := providers.SessionProfile()
 		if name != "" && !yield(name) {
 			return
 		}
-		if other := claudeRecordProfile(ctx); other != "" && other != name {
-			yield(other)
+		other := claudeRecordProfile(ctx)
+		if other != "" && other != name && !yield(other) {
+			return
+		}
+		for _, db := range databricksProfiles() { // neither can embed: any workspace serves the same embedding model
+			if db != name && db != other && !yield(db) {
+				return
+			}
 		}
 	}
+}
+
+// databricksProfiles lists the registry's Databricks workspaces in name order.
+func databricksProfiles() []string {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for name, p := range reg.Providers {
+		if p != nil && p.Preset == providers.PresetDatabricks {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // claudeRecord looks up the claude record's profile; a var so tests can block it.
