@@ -198,7 +198,7 @@ func NewEnv() Env {
 		Now:        time.Now,
 		GOOS:       envGOOS,
 		WSL:        envGOOS == "linux" && onWSL(),
-		WinRoot:    winRoot(),
+		WinRoot:    paths.WinRootFrom(paths.Default()),
 		Probe:      probeCDP,
 		Sleep:      time.Sleep,
 		ClaudeBin:  realClaude(),
@@ -241,7 +241,7 @@ func runCommand(timeout time.Duration, name string, args ...string) (string, err
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if name == "powershell.exe" && !onPath(name) { // interop left Windows off PATH (VS Code Remote-WSL terminals)
-		name = filepath.Join(winRoot(), "Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+		name = paths.WinPowerShell()
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = time.Second
@@ -253,17 +253,6 @@ func runCommand(timeout time.Duration, name string, args ...string) (string, err
 func realClaude() string {
 	p, _ := paths.AgentBin("claude")
 	return p
-}
-
-// winRoot is where WSL mounts C: (the mount table honors a custom /etc/wsl.conf automount root), else /mnt/c.
-func winRoot() string { return winRootFrom(paths.Default()) }
-
-// winRootFrom is winRoot over an explicit resolver.
-func winRootFrom(r *paths.Resolver) string {
-	if p, ok := r.Resolve(`C:\`); ok && p != "/" {
-		return p
-	}
-	return "/mnt/c"
 }
 
 // onPath reports whether name resolves on PATH.

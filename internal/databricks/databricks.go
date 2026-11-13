@@ -374,8 +374,8 @@ var checkAllPage = helptext.Page{
 		"fails for any reason other than a budget denial.",
 }
 
-// probeClient is the HTTP client for probes.
-var probeClient = &http.Client{Timeout: probeTimeout}
+// probeClient is the HTTP client for probes; serving.ProbeOnce bounds each request.
+var probeClient = &http.Client{}
 
 // checkWires maps --wire to the wires probed and their column headers.
 func checkWires(wire string) ([]string, []string, error) {

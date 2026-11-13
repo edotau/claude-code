@@ -143,7 +143,7 @@ func dispatchStart(ctx context.Context, host, dir, agentName, name, task string,
 		return helptext.Fail("network remote: %v", err)
 	}
 	local := tailscale.IsLocalHost(ctx, host)
-	argv, err := execArgs(host, remoteCmd, local, false)
+	argv, err := execArgs(host, remoteCmd, local)
 	if err != nil {
 		return helptext.Fail("network remote: %v", err)
 	}

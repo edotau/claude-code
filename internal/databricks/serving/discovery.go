@@ -253,8 +253,7 @@ func currentSubject(ctx context.Context, p *providers.Provider, refresh bool) (s
 func rememberValidated(p *providers.Provider, name string, v validated) {
 	b, _ := json.Marshal(v) // only strings and a time
 	_ = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(b)), Kid: key.Kid, Len: len(b),
-			Label: "databricks/" + p.Name, SetAt: v.At})
+		return tx.PutSealed(key, name, string(b), "databricks/"+p.Name, v.At)
 	})
 }
 
@@ -294,7 +293,7 @@ func readValidated(name string) (validated, bool) {
 func SanitizeChecks(checks []CheckResult) []CheckResult {
 	var out []CheckResult
 	for _, c := range checks {
-		if c.Status != "ok" && c.Status != "fail" && c.Status != "missing" && c.Status != StatusTransient {
+		if c.Status != StatusOK && c.Status != StatusFail && c.Status != StatusMissing && c.Status != StatusTransient {
 			continue
 		}
 		tools := ""
@@ -334,12 +333,10 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 	}
 	label := "databricks/" + scope.Profile
 	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutRecord(subjectName, vault.Record{Sealed: key.Seal(subjectName, scope.SubjectID), Kid: key.Kid,
-			Len: len(scope.SubjectID), Label: label, SetAt: time.Now().UTC()}); err != nil {
+		if err := tx.PutSealed(key, subjectName, scope.SubjectID, label, time.Now().UTC()); err != nil {
 			return err
 		}
-		return tx.PutRecord(name, vault.Record{Sealed: key.Seal(name, string(data)), Kid: key.Kid, Len: len(data),
-			Label: label, SetAt: snapshot.DiscoveredAt})
+		return tx.PutSealed(key, name, string(data), label, snapshot.DiscoveredAt)
 	}); err != nil {
 		return errors.New("cannot seal discovery cache; check vault access")
 	}

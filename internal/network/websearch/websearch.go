@@ -604,24 +604,10 @@ func rejectInternal(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	if !publicIP(net.ParseIP(host)) {
+	if textutil.IsNonPublicIP(net.ParseIP(host), true) {
 		return fmt.Errorf("refusing to fetch internal address %s", host)
 	}
 	return nil
-}
-
-// publicIP is false for nil, loopback, private, CGNAT (100.64/10), 0.0.0.0/8, link-local, multicast, unspecified.
-func publicIP(ip net.IP) bool {
-	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() ||
-		ip.IsUnspecified() {
-		return false
-	}
-	return !reservedV4(ip.To4())
-}
-
-// reservedV4 is true for an IPv4 in 0.0.0.0/8 or CGNAT 100.64.0.0/10; nil (not IPv4) is false.
-func reservedV4(v4 net.IP) bool {
-	return v4 != nil && (v4[0] == 0 || (v4[0] == 100 && v4[1]&0xC0 == 64))
 }
 
 // formatResults renders a Tavily response as a readable text block (answer first, then results).

@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // fakeBin writes an executable shell script named name into dir and returns its path.
@@ -132,18 +134,14 @@ func TestConnectRunsUpWithAuthKeyAsFileNeverArgv(t *testing.T) {
 	keyContentFile := filepath.Join(dir, "key-content")
 	script := catScript(t, "status_stopped.json") +
 		"\nif [ \"$1\" = up ]; then\n" +
-		"  printf '%s\\n' \"$@\" > " + shQuote(argvFile) + "\n" +
+		"  printf '%s\\n' \"$@\" > " + textutil.ShellQuote(argvFile) + "\n" +
 		"  for a in \"$@\"; do\n" +
 		"    case \"$a\" in\n" +
-		"      --auth-key=file:*) cat \"${a#--auth-key=file:}\" > " + shQuote(keyContentFile) + " ;;\n" +
+		"      --auth-key=file:*) cat \"${a#--auth-key=file:}\" > " + textutil.ShellQuote(keyContentFile) + " ;;\n" +
 		"    esac\n" +
 		"  done\n" +
 		"fi"
-	bin := fakeBin(t, dir, "tailscale", script)
-	prevLook, prevExec := lookPathReal, execCommandContext
-	lookPathReal = func(string) (string, error) { return bin, nil }
-	execCommandContext = exec.CommandContext
-	t.Cleanup(func() { lookPathReal, execCommandContext = prevLook, prevExec })
+	stubCLI(t, script)
 
 	if err := connect(context.Background(), "tskey-auth-secretvalue", true); err != nil {
 		t.Fatalf("Connect() err = %v", err)
@@ -187,12 +185,8 @@ func TestAdvertiseExitNodeFlags(t *testing.T) {
 		{true, "set\n--advertise-exit-node\n"},
 		{false, "set\n--advertise-exit-node=false\n"},
 	} {
-		dir := t.TempDir()
-		argvFile := filepath.Join(dir, "argv")
-		bin := fakeBin(t, dir, "tailscale", "printf '%s\\n' \"$@\" > "+shQuote(argvFile))
-		prevLook, prevExec := lookPathReal, execCommandContext
-		lookPathReal = func(string) (string, error) { return bin, nil }
-		execCommandContext = exec.CommandContext
+		argvFile := filepath.Join(t.TempDir(), "argv")
+		stubCLI(t, "printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile))
 		if err := advertiseExitNode(context.Background(), tc.on); err != nil {
 			t.Fatalf("AdvertiseExitNode(%v) err = %v", tc.on, err)
 		}
@@ -200,7 +194,6 @@ func TestAdvertiseExitNodeFlags(t *testing.T) {
 		if string(b) != tc.want {
 			t.Errorf("AdvertiseExitNode(%v) argv = %q, want %q", tc.on, string(b), tc.want)
 		}
-		lookPathReal, execCommandContext = prevLook, prevExec
 	}
 }
 
@@ -231,12 +224,8 @@ func TestUseExitNodeFlags(t *testing.T) {
 		{"peer-node", "set\n--exit-node=peer-node\n--exit-node-allow-lan-access=true\n"},
 		{"", "set\n--exit-node=\n"},
 	} {
-		dir := t.TempDir()
-		argvFile := filepath.Join(dir, "argv")
-		bin := fakeBin(t, dir, "tailscale", "printf '%s\\n' \"$@\" > "+shQuote(argvFile))
-		prevLook, prevExec := lookPathReal, execCommandContext
-		lookPathReal = func(string) (string, error) { return bin, nil }
-		execCommandContext = exec.CommandContext
+		argvFile := filepath.Join(t.TempDir(), "argv")
+		stubCLI(t, "printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile))
 		if err := useExitNode(context.Background(), tc.peer); err != nil {
 			t.Fatalf("UseExitNode(%q) err = %v", tc.peer, err)
 		}
@@ -244,13 +233,7 @@ func TestUseExitNodeFlags(t *testing.T) {
 		if string(b) != tc.want {
 			t.Errorf("UseExitNode(%q) argv = %q, want %q", tc.peer, string(b), tc.want)
 		}
-		lookPathReal, execCommandContext = prevLook, prevExec
 	}
-}
-
-// shQuote single-quotes s for a shell script literal.
-func shQuote(s string) string {
-	return "'" + s + "'"
 }
 
 func TestAdvertiseRoutesFlags(t *testing.T) {
@@ -261,12 +244,8 @@ func TestAdvertiseRoutesFlags(t *testing.T) {
 		{[]string{"192.168.1.0/24", "10.9.0.0/16"}, "set\n--advertise-routes=192.168.1.0/24,10.9.0.0/16\n"},
 		{nil, "set\n--advertise-routes=\n"},
 	} {
-		dir := t.TempDir()
-		argvFile := filepath.Join(dir, "argv")
-		bin := fakeBin(t, dir, "tailscale", "printf '%s\\n' \"$@\" > "+shQuote(argvFile))
-		prevLook, prevExec := lookPathReal, execCommandContext
-		lookPathReal = func(string) (string, error) { return bin, nil }
-		execCommandContext = exec.CommandContext
+		argvFile := filepath.Join(t.TempDir(), "argv")
+		stubCLI(t, "printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile))
 		if err := advertiseRoutes(context.Background(), tc.routes); err != nil {
 			t.Fatalf("AdvertiseRoutes(%v) err = %v", tc.routes, err)
 		}
@@ -274,7 +253,6 @@ func TestAdvertiseRoutesFlags(t *testing.T) {
 		if string(b) != tc.want {
 			t.Errorf("AdvertiseRoutes(%v) argv = %q, want %q", tc.routes, string(b), tc.want)
 		}
-		lookPathReal, execCommandContext = prevLook, prevExec
 	}
 }
 
@@ -295,10 +273,7 @@ func TestStatusSubnetRoutes(t *testing.T) {
 
 // `tailscale up` registers a node and needs longer than the quick-call defaultExecTimeout.
 func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
-	dir := t.TempDir()
-	bin := fakeBin(t, dir, "tailscale", catScript(t, "status_stopped.json"))
-	prevLook, prevExec := lookPathReal, execCommandContext
-	lookPathReal = func(string) (string, error) { return bin, nil }
+	stubCLI(t, catScript(t, "status_stopped.json"))
 	var upBudget time.Duration
 	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		if len(args) > 0 && args[0] == "up" {
@@ -308,7 +283,6 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 		}
 		return exec.CommandContext(ctx, name, args...)
 	}
-	t.Cleanup(func() { lookPathReal, execCommandContext = prevLook, prevExec })
 
 	if err := connect(context.Background(), "tskey-auth-x", false); err != nil {
 		t.Fatalf("Connect() err = %v", err)
@@ -380,7 +354,7 @@ func TestMachinesFetchesDevicesAndStatusConcurrently(t *testing.T) {
 	dir := t.TempDir()
 	statusMark, devicesMark := filepath.Join(dir, "status"), filepath.Join(dir, "devices")
 	// status starts, then waits up to 2s for the devices call; without it, it fails and Online stays false.
-	stubCLI(t, ": > "+shQuote(statusMark)+"\ni=0\nwhile [ ! -e "+shQuote(devicesMark)+" ]; do\n"+
+	stubCLI(t, ": > "+textutil.ShellQuote(statusMark)+"\ni=0\nwhile [ ! -e "+textutil.ShellQuote(devicesMark)+" ]; do\n"+
 		"  i=$((i+1)); [ $i -gt 200 ] && exit 1; /bin/sleep 0.01\ndone\n"+catScript(t, "status_running.json"))
 	var sawStatus atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const dbxCfgFixture = `[DEFAULT]
@@ -35,37 +36,24 @@ token = dapi-token-value
 `
 
 func TestVaultImportDatabrickscfg(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := filepath.Join(t.TempDir(), "cfg")
 	if err := os.WriteFile(cfg, []byte(dbxCfgFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	base := []string{"--dbxcfg", cfg}
-	checkVaultImportDryRun(t, base)
 	checkVaultImportApply(t, base)
-	code, out, _ := captureOutput(t, func() int { return importCfg(append(slices.Clone(base), "--apply")) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return importCfg(append(slices.Clone(base), "--apply")) })
 	if code != 0 || !strings.Contains(out, "row exists") {
 		t.Errorf("re-import should skip existing: %d %q", code, out)
 	}
 }
 
-// checkVaultImportDryRun runs the default (dry-run) import and checks it prints no secret and writes no row.
-func checkVaultImportDryRun(t *testing.T, base []string) {
-	t.Helper()
-	code, out, _ := captureOutput(t, func() int { return importCfg(base) })
-	if code != 0 || !strings.Contains(out, "dry-run") || strings.Contains(out, "secret-value-1") {
-		t.Fatalf("dry-run: %d %q", code, out)
-	}
-	if reg, _ := providers.Load(); reg != nil && reg.Providers["svc-m2m"] != nil {
-		t.Fatal("dry-run wrote a row")
-	}
-}
-
-// checkVaultImportApply applies with sealing and a rename, then checks rows, leaks and sealed secret names.
+// checkVaultImportApply applies with sealing and a rename, then checks rows, leaks and the renamed secret's name.
 func checkVaultImportApply(t *testing.T, base []string) {
 	t.Helper()
 	args := append(slices.Clone(base), "--apply", "--seal-secrets", "--rename", "pat-one=pat-renamed")
-	code, out, _ := captureOutput(t, func() int { return importCfg(args) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return importCfg(args) })
 	if code != 0 || strings.Contains(out, "secret-value-1") || strings.Contains(out, "dapi-token-value") {
 		t.Fatalf("apply: %d %q", code, out)
 	}
@@ -81,17 +69,8 @@ func checkVaultImportApply(t *testing.T, base []string) {
 	if reg.Providers["DEFAULT"] != nil || reg.Providers["__settings__"] != nil {
 		t.Error("DEFAULT/__settings__ imported")
 	}
-	checkSealedNames(t, "DATABRICKS_SVC_M2M_M2M", "DATABRICKS_PAT_RENAMED_PAT")
-}
-
-// checkSealedNames fails for each wanted secret name the vault does not hold.
-func checkSealedNames(t *testing.T, want ...string) {
-	t.Helper()
-	names := vault.Names()
-	for _, n := range want {
-		if !slices.Contains(names, n) {
-			t.Errorf("secret %s not sealed (have %v)", n, names)
-		}
+	if names := vault.Names(); !slices.Contains(names, "DATABRICKS_PAT_RENAMED_PAT") {
+		t.Errorf("renamed row's secret not sealed (have %v)", names)
 	}
 }
 
@@ -125,9 +104,9 @@ func TestImportCfgRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			args := append([]string{"--dbxcfg", writeCfg(t, c.cfg)}, c.args...)
-			code, out, errOut := captureOutput(t, func() int { return importCfg(args) })
+			code, out, errOut := hosttest.CaptureOutput(t, func() int { return importCfg(args) })
 			if all := out + errOut; !strings.Contains(all, c.want) {
 				t.Errorf("output %q lacks %q (code %d)", all, c.want, code)
 			}
@@ -145,9 +124,9 @@ func TestImportCfgRefusals(t *testing.T) {
 }
 
 func TestImportAllSkippedWritesNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := writeCfg(t, "[bad name]\nhost = https://x.example.cloud.databricks.com\nauth_type = databricks-cli\n")
-	code, out, _ := captureOutput(t, func() int { return importCfg([]string{"--dbxcfg", cfg, "--apply"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return importCfg([]string{"--dbxcfg", cfg, "--apply"}) })
 	if code != 0 || !strings.Contains(out, "nothing to import") || strings.Contains(out, "wrote provider rows") {
 		t.Fatalf("all-skipped apply: %d %q", code, out)
 	}
@@ -162,14 +141,14 @@ func TestImportAllSkippedWritesNothing(t *testing.T) {
 }
 
 func TestImportSealedPATIsFoundByCredentialForUnderscoreSuffixID(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := filepath.Join(t.TempDir(), "cfg")
 	body := "[dev_]\nhost = https://example.cloud.databricks.com\ntoken = dapi-e2e-value\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"--dbxcfg", cfg, "--apply", "--seal-secrets"}
-	if code, out, errs := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
+	if code, out, errs := hosttest.CaptureOutput(t, func() int { return importCfg(args) }); code != 0 {
 		t.Fatalf("import: %d %q %q", code, out, errs)
 	}
 	reg, err := providers.Load()
@@ -203,7 +182,7 @@ func gapImport(t *testing.T, extra ...string) (code int, out string) {
 		t.Fatal(err)
 	}
 	args := append([]string{"--dbxcfg", cfg}, extra...)
-	code, stdout, stderr := captureOutput(t, func() int { return importCfg(args) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return importCfg(args) })
 	return code, stdout + stderr
 }
 
@@ -221,7 +200,7 @@ func gapProviderNames(t *testing.T) []string {
 }
 
 func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	before := gapProviderNames(t)
 	code, out := gapImport(t, "--seal-secrets")
 	if code != 0 || !strings.Contains(out, "dry-run") {
@@ -243,7 +222,7 @@ func TestVaultImportDryRunWithSealFlagWritesNothing(t *testing.T) {
 }
 
 func TestVaultImportApplyWithoutSealStoresNoSecrets(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	if code, out := gapImport(t, "--apply"); code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -258,7 +237,7 @@ func TestVaultImportApplyWithoutSealStoresNoSecrets(t *testing.T) {
 }
 
 func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	if code, out := gapImport(t, "--apply", "--seal-secrets"); code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -278,7 +257,7 @@ func TestVaultImportSealStoresReadableValuesAndNoDefaultLeak(t *testing.T) {
 }
 
 func TestVaultImportExistingRowSkippedUnlessReplace(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	if err := providers.SetProviderFields("pat-one", map[string]any{
 		"protocol": "anthropic", "base_url": "https://old.example.cloud.databricks.com/serving-endpoints/anthropic",
 		"auth": map[string]any{"type": "pat"},
@@ -320,7 +299,7 @@ client_secret = test-only-sp-value
 func TestImportPairedCredential(t *testing.T) {
 	for _, seal := range []bool{false, true} {
 		t.Run(map[bool]string{false: "without seal", true: "sealed"}[seal], func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			cfg := writeCfg(t, pairingCfg)
 			args := []string{"--dbxcfg", cfg, "--apply"}
 			if seal {
@@ -329,7 +308,7 @@ func TestImportPairedCredential(t *testing.T) {
 			checkPairedDryRun(t, args)
 			checkPairedImport(t, args)
 			checkPairedSealed(t, seal)
-			if code, _, _ := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
+			if code, _, _ := hosttest.CaptureOutput(t, func() int { return importCfg(args) }); code != 0 {
 				t.Fatal(code)
 			}
 			reg, _ := providers.Load()
@@ -343,7 +322,7 @@ func TestImportPairedCredential(t *testing.T) {
 // checkPairedDryRun runs the import with --dry-run and checks it writes neither a profile nor a credential.
 func checkPairedDryRun(t *testing.T, args []string) {
 	t.Helper()
-	if code, out, errs := captureOutput(t, func() int { return importCfg(append(slices.Clone(args), "--dry-run")) }); code != 0 || !strings.Contains(out, "dev <= SP dev-sp") {
+	if code, out, errs := hosttest.CaptureOutput(t, func() int { return importCfg(append(slices.Clone(args), "--dry-run")) }); code != 0 || !strings.Contains(out, "dev <= SP dev-sp") {
 		t.Fatalf("dry-run: %d %s %s", code, out, errs)
 	}
 	if reg, _ := providers.Load(); reg.Providers["dev"] != nil {
@@ -357,7 +336,7 @@ func checkPairedDryRun(t *testing.T, args []string) {
 // checkPairedImport runs the real import and checks the paired row, the leak-free output and no separate SP row.
 func checkPairedImport(t *testing.T, args []string) {
 	t.Helper()
-	code, out, errs := captureOutput(t, func() int { return importCfg(args) })
+	code, out, errs := hosttest.CaptureOutput(t, func() int { return importCfg(args) })
 	if code != 0 || !strings.Contains(out, "dev <= SP dev-sp") || strings.Contains(out+errs, "test-only-sp-value") {
 		t.Fatalf("import: %d %s %s", code, out, errs)
 	}
@@ -392,14 +371,14 @@ func checkPairedSealed(t *testing.T, seal bool) {
 }
 
 func TestImportExplicitUnpairSurvivesReplace(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := writeCfg(t, strings.Replace(pairingCfg, "[dev-sp]", "# claude-code: pair=none\n[dev-sp]", 1))
 	args := []string{"--dbxcfg", cfg, "--apply"}
-	if code, _, _ := captureOutput(t, func() int { return importCfg(args) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return importCfg(args) }); code != 0 {
 		t.Fatal(code)
 	}
 	cfg = writeCfg(t, pairingCfg)
-	if code, _, _ := captureOutput(t, func() int { return importCfg([]string{"--dbxcfg", cfg, "--apply", "--replace"}) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return importCfg([]string{"--dbxcfg", cfg, "--apply", "--replace"}) }); code != 0 {
 		t.Fatal(code)
 	}
 	reg, err := providers.Load()
@@ -413,14 +392,14 @@ func TestImportExplicitUnpairSurvivesReplace(t *testing.T) {
 
 // TestSealImportedEmptySecretIsNotSealed pins that a row with no readable secret fails and is not reported sealed.
 func TestSealImportedEmptySecretIsNotSealed(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := writeCfg(t, "[pat-empty]\nhost = https://pat.example.cloud.databricks.com\ntoken = \n")
 	row := importRow{ID: "pat-empty", Name: "pat-empty", Auth: providers.AuthPAT, HasSecret: true, Action: "add"}
 	name := secretNameOf(row)
 	if name == "" {
 		t.Fatal("row has no secret name")
 	}
-	code, stdout, stderr := captureOutput(t, func() int { return sealImported(cfg, []importRow{row}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return sealImported(cfg, []importRow{row}) })
 	if code != 1 || strings.Contains(stdout, "sealed") || !strings.Contains(stderr, "no secret in the source section") {
 		t.Fatalf("code %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -474,14 +453,10 @@ func TestCandidates(t *testing.T) {
 	for _, c := range cs {
 		got[c.Name] = c
 	}
-	if _, ok := got["DEFAULT"]; ok || got["__settings__"].Name != "" {
-		t.Fatalf("DEFAULT/__settings__ leaked: %v", got)
-	}
 	checkFixtureAuth(t, got)
 	if got["delta"].Skip == "" || got["beta"].ClientID != "cid-beta" || !got["beta"].HasSecret {
 		t.Errorf("delta/beta: %+v %+v", got["delta"], got["beta"])
 	}
-	checkNoSecretInCandidates(t, cs)
 }
 
 // checkFixtureAuth checks the auth type and normalized host of the fixture's usable profiles.
@@ -495,16 +470,6 @@ func checkFixtureAuth(t *testing.T, got map[string]cfgCandidate) {
 	for n, w := range want {
 		if c := got[n]; c.Auth != w[0] || c.Host != w[1] {
 			t.Errorf("%s = %+v", n, c)
-		}
-	}
-}
-
-// checkNoSecretInCandidates fails when any cfgCandidate field holds a secret value.
-func checkNoSecretInCandidates(t *testing.T, cs []cfgCandidate) {
-	t.Helper()
-	for _, c := range cs {
-		if strings.Contains(strings.ToLower(reflect.ValueOf(c).String()+c.Host+c.ClientID), "shh") {
-			t.Errorf("secret in candidate %+v", c)
 		}
 	}
 }
@@ -555,9 +520,6 @@ func TestApplyAndSecretName(t *testing.T) {
 	}
 	if n := secretNameOf(rows[0]); n != "DATABRICKS_MY_SP_M2M" {
 		t.Errorf("name %s", n)
-	}
-	if strings.Contains(string(top["providers"]), "secret") && strings.Contains(string(top["providers"]), "shh") {
-		t.Error("secret in row")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -100,8 +101,8 @@ type tool struct {
 	clear       []string // nil = write empty stdin
 }
 
-// wslPowerShell is where WSL has Windows PowerShell when interop leaves it off PATH.
-var wslPowerShell = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+// wslPowerShell is where WSL has Windows PowerShell when interop leaves it off PATH; a var so tests can pin it.
+var wslPowerShell = paths.WinPowerShell
 
 // SetWSLForTest pins WSL detection for other packages' tests and returns the restore.
 func SetWSLForTest(on bool) func() {
@@ -130,7 +131,7 @@ func pick() (tool, error) {
 	has := func(n string) bool { _, err := exec.LookPath(n); return err == nil }
 	ps := powerShellPath(has)
 	switch {
-	case onWSL() && (has(ps) || ps == wslPowerShell):
+	case onWSL() && (has(ps) || ps == wslPowerShell()):
 		return tool{ps, psCmd(psWrite), psCmd(psRead), psCmd(psClear)}, nil
 	case has("pbcopy"):
 		return tool{"pbcopy", nil, nil, nil}, nil
@@ -147,8 +148,9 @@ func powerShellPath(has func(string) bool) string {
 	if has(ps) {
 		return ps
 	}
-	if _, err := os.Stat(wslPowerShell); err == nil {
-		return wslPowerShell
+	p := wslPowerShell()
+	if _, err := os.Stat(p); err == nil {
+		return p
 	}
 	return ps
 }

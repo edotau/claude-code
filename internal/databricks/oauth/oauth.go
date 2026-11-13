@@ -120,7 +120,7 @@ func checkHostURL(host string, u *url.URL) error {
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(host, "?#") {
 		return errors.New(hostHint)
 	}
-	if u.Scheme == "http" && !textutil.IsLoopbackHost(u.Hostname()) {
+	if textutil.IsPlainHTTPOffLoopback(u) {
 		return fmt.Errorf("oauth: host %s uses scheme http; credentials need https (loopback excepted)", u.Hostname())
 	}
 	return nil

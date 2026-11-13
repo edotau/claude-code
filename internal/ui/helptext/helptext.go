@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -329,9 +328,6 @@ func wrapRow(label, desc string, labelWidth, width int) []string {
 // DocsFlag is the flag every wrapped-CLI verb takes to print the wrapped binary's own help.
 const DocsFlag = "--docs"
 
-// docsDeny is what `bin --help` never inherits: launch credentials and every credential-shaped name (no registry).
-var docsDeny = append(slices.Clone(proc.ScrubDeny), "*_KEY", "*_TOKEN", "*_SECRET", "*_PASSWORD", "*_CREDENTIALS")
-
 // WrappedDocs runs `bin --help` with the terminal attached, so a wrapped CLI's own documentation is one flag away;
 // the exit code is the binary's.
 func WrappedDocs(bin string) int {
@@ -341,7 +337,7 @@ func WrappedDocs(bin string) int {
 		return 1
 	}
 	cmd := exec.Command(path, "--help") //nolint:noctx // interactive help; nothing to cancel
-	cmd.Env = proc.Drop(os.Environ(), proc.EnvKeepSet(nil), docsDeny)
+	cmd.Env = proc.Drop(os.Environ(), proc.EnvKeepSet(nil), proc.ScrubDenyCredentials)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	var ee *exec.ExitError
 	if err := cmd.Run(); errors.As(err, &ee) {

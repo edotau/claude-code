@@ -35,13 +35,9 @@ func Bin(flagValue string) string { return cmp.Or(flagValue, os.Getenv(BinEnv), 
 
 // HomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
 func HomePath(p string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || p == "" {
-		return p
-	}
-	rel, err := filepath.Rel(home, p)
-	if err == nil && filepath.IsAbs(p) && rel != ".." && !strings.HasPrefix(rel, "../") {
-		return filepath.Join("~", rel)
+	c := filepath.Clean(p)
+	if s := paths.ShortHome(c); s != c {
+		return s
 	}
 	return p
 }

@@ -3,10 +3,11 @@ package source
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const maxCommentLineChars = 120
@@ -150,7 +151,7 @@ func blockSmells(b commentBlock, lang string) []Smell {
 }
 
 func commentExempt(first string) bool {
-	return hasAnyPrefix(strings.ToLower(first), commentExemptStarts)
+	return textutil.HasAnyPrefix(strings.ToLower(first), commentExemptStarts...)
 }
 
 // proseLines returns the block's prose text, dropping blanks, directives, tags, underlines and section bodies.
@@ -158,14 +159,14 @@ func proseLines(b commentBlock, lang string) []string {
 	var prose []string
 	for _, line := range b.lines {
 		t := strings.TrimSpace(line)
-		if hasAnyPrefix(t, commentDirectives) {
+		if textutil.HasAnyPrefix(t, commentDirectives...) {
 			continue
 		}
 		text := commentText(t, lang)
 		if commentSectionHeader().MatchString(text) {
 			break
 		}
-		if text == "" || strings.Trim(text, "-=") == "" || hasAnyPrefix(text, commentTags) {
+		if text == "" || strings.Trim(text, "-=") == "" || textutil.HasAnyPrefix(text, commentTags...) {
 			continue
 		}
 		prose = append(prose, text)
@@ -187,8 +188,4 @@ func commentText(t, lang string) string {
 	t = strings.TrimSuffix(t, "*/")
 	t = strings.TrimPrefix(strings.TrimSpace(t), "*")
 	return strings.TrimSpace(t)
-}
-
-func hasAnyPrefix(s string, prefixes []string) bool {
-	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(s, p) })
 }

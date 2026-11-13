@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +14,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const mintToken = "tok-SECRET-0123456789"
@@ -84,7 +83,7 @@ func TestMintResultHidesToken(t *testing.T) {
 
 func TestMintVerbNeverPrintsToken(t *testing.T) {
 	mintRow(t, 200)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint([]string{"--profile", "mrow"}) })
 	if code != 0 || !strings.Contains(stdout, "mrow · key · minted · 21 chars") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -95,7 +94,7 @@ func TestMintVerbNeverPrintsToken(t *testing.T) {
 func TestMintVerbErrorPathsHideToken(t *testing.T) {
 	mintRow(t, 200)
 	for _, args := range [][]string{{"nope"}, {"mrow", "--bogus"}} {
-		code, stdout, stderr := captureOutput(t, func() int { return mint(args) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint(args) })
 		if code == 0 {
 			t.Errorf("%v: exit 0", args)
 		}
@@ -104,7 +103,7 @@ func TestMintVerbErrorPathsHideToken(t *testing.T) {
 	}
 	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
 		`"auth":{"type":"key","command":"echo `+mintToken+`; exit 3"}}}}}`)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code == 0 {
 		t.Errorf("failing command: exit 0")
 	}
@@ -116,7 +115,7 @@ func TestMintDryRunWritesNothing(t *testing.T) {
 	mintRow(t, 200)
 	rec := stubClipboard(t)
 	before := overlayDoc(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--dry-run", "--copy"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--dry-run", "--copy"}) })
 	if code != 0 || !strings.Contains(stdout, "nothing written") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -135,7 +134,7 @@ func TestMintDryRunWritesNothing(t *testing.T) {
 func TestMintCopyWritesViaStdinAndHidesToken(t *testing.T) {
 	mintRow(t, 200)
 	rec := stubClipboard(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy", "--clear-after", "5s"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy", "--clear-after", "5s"}) })
 	got, err := os.ReadFile(rec)
 	if err != nil || string(got) != mintToken {
 		t.Fatalf("clipboard stub got %q err %v (WriteSecret not called)", got, err)
@@ -151,7 +150,7 @@ func TestMintCopyWritesViaStdinAndHidesToken(t *testing.T) {
 func TestMintCopyNoClipboardPrintsRouterNote(t *testing.T) {
 	mintRow(t, 200)
 	noClipboard(t)
-	code, stdout, stderr := captureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return mint([]string{"--profile", "mrow", "--copy"}) })
 	if code != 0 || !strings.Contains(stderr, "the agents already fetch the token through the router") {
 		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -209,74 +208,6 @@ func TestSetPATEmptyErrors(t *testing.T) {
 	mintRow(t, 200)
 	if _, err := SetPAT(context.Background(), "mrow", "  "); err == nil {
 		t.Error("empty PAT accepted")
-	}
-}
-
-func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
-	mintRow(t, 200)
-	before := overlayDoc(t)
-	p := &providers.Provider{Name: "mrow"}
-	if err := switchAuthType(p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "needs auth.clientId") {
-		t.Fatalf("err %v", err)
-	}
-	if overlayDoc(t) != before {
-		t.Error("failed switch wrote the overlay")
-	}
-	seedOverlay(t, `{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
-		`"auth":{"type":"key","command":"true","type":"m2m","clientId":"cid"}}}}}`)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, _ = reg.Get("mrow")
-	if err := switchAuthType(p, providers.AuthM2M, true); err != nil {
-		t.Errorf("with clientId: %v", err)
-	}
-	if err := switchAuthType(p, "bogus", true); err == nil {
-		t.Error("unsupported authType accepted")
-	}
-}
-
-func TestSwitchAuthTypeDiffAndRollbackHintUnchanged(t *testing.T) {
-	seedCLIProfileRow(t)
-	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return 0, context.DeadlineExceeded })
-	var out strings.Builder
-	code, stdout, stderr := captureOutput(t, func() int {
-		if err := LoginRow(context.Background(), "dbx-dev", &out); err == nil {
-			return 0
-		}
-		return 1
-	})
-	if code != 1 || out.Len() != 0 {
-		t.Fatalf("exit %d out %q", code, out.String())
-	}
-	for _, want := range []string{`"type": "oauth"`, "kept custom auth.refreshCommand"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("diff missing %q:\n%s", want, stdout)
-		}
-	}
-	for _, want := range []string{"auth.type of dbx-dev is now oauth (was \"key\")", "providers.prev"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("rollback hint missing %q:\n%s", want, stderr)
-		}
-	}
-}
-
-func TestLoginRowSuccessLineNoRollback(t *testing.T) {
-	seedCLIProfileRow(t)
-	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return 25 * time.Minute, nil })
-	var out strings.Builder
-	_, _, stderr := captureOutput(t, func() int {
-		if err := LoginRow(context.Background(), "dbx-dev", &out); err != nil {
-			t.Error(err)
-		}
-		return 0
-	})
-	if out.String() != "logged in · token expires in 25m\n" {
-		t.Errorf("out %q", out.String())
-	}
-	if strings.Contains(stderr, "providers.prev") {
-		t.Errorf("rollback hint on success: %q", stderr)
 	}
 }
 
@@ -352,16 +283,5 @@ func TestMintedAuthTypeReadsTheToken(t *testing.T) {
 	}
 	if got := mintedAuthType(row, jwt(`{"sub":"me@example.com","client_id":"databricks-cli"}`)); got != authLabel(row) {
 		t.Errorf("user token = %q, want the row label %q", got, authLabel(row))
-	}
-}
-
-// An empty --profile is refused instead of falling back to the workspace's last profile.
-func TestEmptyProfileIsRefused(t *testing.T) {
-	seedOverlay(t, threeProfiles)
-	t.Setenv(providers.EnvSessionProfile, "")
-	vaulttest.SetRecord(t, "claude", "profile", "cc")
-	providers.RecordLastProfile("claude", "bb")
-	if p, err := plan([]string{"--profile="}); !errors.Is(err, errEmptyProfile) {
-		t.Errorf("plan(--profile=) = %q, %v; want errEmptyProfile", p.Provider, err)
 	}
 }

@@ -50,22 +50,6 @@ func pythonLines(masked string) []pyLine {
 	return out
 }
 
-// leadingWidth counts indentation columns (a tab advances to the next multiple of 8, Python's tab rule).
-func leadingWidth(s string) int {
-	n := 0
-	for _, r := range s {
-		switch r {
-		case ' ':
-			n++
-		case '\t':
-			n += 8 - (n % 8)
-		default:
-			return n
-		}
-	}
-	return n
-}
-
 type pyFuncSpan struct {
 	name               string
 	startLine, endLine int
@@ -236,92 +220,68 @@ func pyHasABCMarker(text string) bool {
 	return false
 }
 
-// pyMaskState is the byte state machine used by maskPythonSource.
-type pyMaskState int
-
-const (
-	pyNormal pyMaskState = iota
-	pyComment
-	pySingle
-	pyDouble
-	pyTripleSingle
-	pyTripleDouble
-)
-
 // maskPythonSource blanks string/comment interiors, keeping indent, newlines and brackets so line tracking holds.
 func maskPythonSource(src string) string {
-	b := []byte(src)
-	out := make([]byte, len(b))
-	copy(out, b)
-	state := pyNormal
-	for i := 0; i < len(b); {
-		switch state {
-		case pyNormal:
-			i, state = pyMaskNormal(b, out, i, &state)
-		case pyComment:
-			if b[i] == '\n' {
-				state = pyNormal
-			} else {
-				maskByte(out, i)
-			}
+	out := []byte(src)
+	for i := 0; i < len(src); {
+		c := src[i]
+		if c != '#' && c != '\'' && c != '"' {
 			i++
-		default:
-			i = pyMaskInString(b, out, i, &state)
+			continue
 		}
+		end, closed := pyLiteralEnd(src, i)
+		lo, hi := i, end
+		if c != '#' && !tripleAt(src, i, c) { // a single-quoted string keeps its own quote characters
+			lo = i + 1
+			if closed {
+				hi = end - 1
+			}
+		}
+		for k := lo; k < hi; k++ {
+			maskByte(out, k)
+		}
+		i = end
 	}
 	return string(out)
 }
 
-// pyMaskNormal handles one byte outside any string/comment; may switch state and/or skip ahead.
-func pyMaskNormal(b, out []byte, i int, state *pyMaskState) (int, pyMaskState) {
-	c := b[i]
-	switch {
-	case c == '#':
-		*state = pyComment
-		out[i] = ' '
-		return i + 1, *state
-	case (c == '\'' || c == '"') && tripleAt(b, i, c):
-		*state = tripleState(c)
-		blankN(out, i, 3)
-		return i + 3, *state
-	case c == '\'':
-		*state = pySingle
-	case c == '"':
-		*state = pyDouble
+// pyLiteralEnd scans the comment or string opened at s[i]; it returns the index past it and whether a quote closed it.
+// A comment and an unclosed single-quoted string stop before the newline; a backslash escapes the next byte.
+func pyLiteralEnd(s string, i int) (end int, closed bool) {
+	q := s[i]
+	if q == '#' {
+		return pyCommentEnd(s, i), true
 	}
-	return i + 1, *state
+	return pyStringEnd(s, i, q)
 }
 
-// pyMaskInString handles one byte inside a (possibly triple) quoted string, honoring backslash escapes.
-func pyMaskInString(b, out []byte, i int, state *pyMaskState) int {
-	c := b[i]
-	triple := *state == pyTripleSingle || *state == pyTripleDouble
-	quote := pyStateQuote(*state)
-	if c == '\\' {
-		maskByte(out, i)
-		if i+1 < len(b) {
-			maskByte(out, i+1)
+// pyStringEnd scans the single- or triple-quoted string opened at s[i] with quote q.
+func pyStringEnd(s string, i int, q byte) (end int, closed bool) {
+	n := 1
+	if tripleAt(s, i, q) {
+		n = 3
+	}
+	for j := i + n; j < len(s); j++ {
+		switch {
+		case s[j] == '\\':
+			j++
+		case n == 3 && tripleAt(s, j, q):
+			return j + 3, true
+		case n == 1 && s[j] == q:
+			return j + 1, true
+		case n == 1 && s[j] == '\n':
+			return j, false
 		}
-		return i + 2
 	}
-	if triple && tripleAt(b, i, quote) {
-		*state = pyNormal
-		blankN(out, i, 3)
-		return i + 3
-	}
-	if !triple && (c == quote || c == '\n') {
-		*state = pyNormal
-		return i + 1
-	}
-	maskByte(out, i)
-	return i + 1
+	return len(s), false
 }
 
-func pyStateQuote(state pyMaskState) byte {
-	if state == pyDouble || state == pyTripleDouble {
-		return '"'
+// pyCommentEnd returns the index of the newline ending the comment opened at s[i], or len(s).
+func pyCommentEnd(s string, i int) int {
+	if nl := strings.IndexByte(s[i:], '\n'); nl >= 0 {
+		return i + nl
 	}
-	return '\''
+	return len(s)
 }
 
 // maskByte blanks one byte, but a newline is structure (line numbers), never string/comment content.
@@ -331,23 +291,7 @@ func maskByte(out []byte, i int) {
 	}
 }
 
-func tripleState(q byte) pyMaskState {
-	if q == '\'' {
-		return pyTripleSingle
-	}
-	return pyTripleDouble
-}
-
-// tripleAt reports whether b[i:i+3] is q,q,q (a triple-quote delimiter).
-func tripleAt(b []byte, i int, q byte) bool {
-	return i+2 < len(b) && b[i] == q && b[i+1] == q && b[i+2] == q
-}
-
-// blankN overwrites n bytes starting at i with spaces, preserving any embedded newline.
-func blankN(out []byte, i, n int) {
-	for k := 0; k < n && i+k < len(out); k++ {
-		if out[i+k] != '\n' {
-			out[i+k] = ' '
-		}
-	}
+// tripleAt reports whether s[i:i+3] is q,q,q (a triple-quote delimiter).
+func tripleAt(s string, i int, q byte) bool {
+	return i+2 < len(s) && s[i] == q && s[i+1] == q && s[i+2] == q
 }

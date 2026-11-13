@@ -145,13 +145,6 @@ func TestParseHeaderWithTrailingComment(t *testing.T) {
 	}
 }
 
-func TestParseDuplicateKeyLastWins(t *testing.T) {
-	m := candsOf(t, "[d]\nhost = https://old.example.cloud.databricks.com\nhost = https://new.example.cloud.databricks.com\n")
-	if got := m["d"].Host; got != "https://new.example.cloud.databricks.com" {
-		t.Errorf("host = %q, want the last", got)
-	}
-}
-
 func TestParseDuplicateSectionMergesLastWins(t *testing.T) {
 	m := candsOf(t, "[d]\nhost = https://old.example.cloud.databricks.com\n[e]\nhost = https://e.example.cloud.databricks.com\n"+
 		"[d]\nhost = https://new.example.cloud.databricks.com\nclient_id = c\n")

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -123,12 +124,11 @@ func qualityReportFor(target string, isDir bool, language string, warn io.Writer
 }
 
 func emitQualityJSON(report any, output string, stdout io.Writer) error {
+	if output == "" {
+		return WritePyJSON(stdout, report)
+	}
 	b, err := PyMarshalIndent(report)
 	if err != nil {
-		return err
-	}
-	if output == "" {
-		_, err := fmt.Fprintln(stdout, string(b))
 		return err
 	}
 	// AtomicWrite would create a missing parent directory; fail as the plain write did.
@@ -200,8 +200,8 @@ func printDirQuality(d directoryReport, w io.Writer) {
 
 // FormatPyFloat mimics Python's str(float): "3.2" not "3.200000", "0.0" not "0".
 func FormatPyFloat(f float64) string {
-	s := fmt.Sprintf("%g", f)
-	if !strings.Contains(s, ".") && !strings.Contains(s, "e") {
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
 		s += ".0"
 	}
 	return s

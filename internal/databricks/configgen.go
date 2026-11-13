@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -154,10 +155,10 @@ func (o renderOptions) checkClaudeWire(isClaude bool) error {
 	return nil
 }
 
-// tmpl loads an embedded template with its placeholder host swapped for host.
-func tmpl(name, host string) (string, error) {
+// tmpl loads an embedded template; its placeholder host never survives, every URL is re-set from the provider row.
+func tmpl(name string) (string, error) {
 	b, err := tmplFS.ReadFile("templates/" + name)
-	return strings.ReplaceAll(string(b), placeholderHost, host), err
+	return string(b), err
 }
 
 // cliTokenCmd is the Databricks CLI token command a rendered config runs for host.
@@ -206,7 +207,7 @@ func checkProviderEnv(e map[string]string) error {
 }
 
 func renderClaude(o renderOptions) (renderResult, error) {
-	raw, err := tmpl("claude.json", o.Host)
+	raw, err := tmpl("claude.json")
 	if err != nil {
 		return renderResult{}, err
 	}
@@ -218,9 +219,7 @@ func renderClaude(o renderOptions) (renderResult, error) {
 	if env == nil {
 		return renderResult{}, errors.New("claude template has no env block")
 	}
-	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_GATEWAY"} {
-		delete(env, k)
-	}
+	delete(env, "ANTHROPIC_MODEL") // the template's model is dropped; claudeProviderEnv sets one only for --model
 	if err := claudeProviderEnv(env, o); err != nil {
 		return renderResult{}, err
 	}
@@ -286,27 +285,7 @@ func tomlValue(v string) string {
 	if tomlNumberRE.MatchString(v) || v == "true" || v == "false" {
 		return v
 	}
-	return tomlQuote(v)
-}
-
-// tomlEscapes are the TOML basic-string short escapes.
-var tomlEscapes = map[rune]string{'"': `\"`, '\\': `\\`, '\n': `\n`, '\t': `\t`, '\r': `\r`, '\b': `\b`, '\f': `\f`}
-
-// tomlQuote renders v as a TOML basic string; strconv.Quote's \a, \v and \xNN escapes are not valid TOML.
-func tomlQuote(v string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for _, r := range strings.ToValidUTF8(v, "\uFFFD") {
-		if e, ok := tomlEscapes[r]; ok {
-			b.WriteString(e)
-		} else if r < 0x20 || r == 0x7f {
-			fmt.Fprintf(&b, `\u%04X`, r)
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
+	return agentconfig.TOMLQuoteRaw(v)
 }
 
 // replaceLine rewrites the first `key = ...` line of head to key = val.
@@ -314,7 +293,7 @@ func replaceLine(head, key, val string) string {
 	lines := strings.Split(head, "\n")
 	for i, l := range lines {
 		if strings.Contains(l, "=") && keyOf(l) == key {
-			lines[i] = key + " = " + tomlQuote(val)
+			lines[i] = key + " = " + agentconfig.TOMLQuoteRaw(val)
 			break
 		}
 	}
@@ -340,7 +319,7 @@ func bareModel(id string) string {
 }
 
 func renderCodex(o renderOptions) (renderResult, error) {
-	raw, err := tmpl("codex.toml", o.Host)
+	raw, err := tmpl("codex.toml")
 	if err != nil {
 		return renderResult{}, err
 	}
@@ -355,9 +334,9 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	if p.Options.Wire == providers.WireAIGateway {
 		head = replaceLine(head, "name", "Databricks AI Gateway")
 	}
-	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", tomlQuote(cliTokenCmd(o.Host)))
+	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", agentconfig.TOMLQuoteRaw(cliTokenCmd(o.Host)))
 	if o.Auth == authHarness {
-		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", tomlQuote(o.Self), tomlQuote(p.Name))
+		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", agentconfig.TOMLQuoteRaw(o.Self), agentconfig.TOMLQuoteRaw(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth

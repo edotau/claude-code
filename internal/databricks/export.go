@@ -6,7 +6,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -96,7 +95,7 @@ func writeExport(rows []exportRow, out string, merge, force bool) ([]exportRow, 
 			return nil, fail("export: %v", err)
 		}
 	}
-	out, err := resolveLink(out)
+	out, err := paths.ResolveLink(out, true)
 	if err != nil {
 		return nil, fail("export: %v", err)
 	}
@@ -143,7 +142,7 @@ func pickExport(rows []exportRow) ([]exportRow, error) {
 
 // writeFile0600 writes text to path atomically with mode 0600; an existing path needs force.
 func writeFile0600(path, text string, force bool) error {
-	path, err := resolveLink(path)
+	path, err := paths.ResolveLink(path, true)
 	if err != nil {
 		return err
 	}
@@ -157,28 +156,6 @@ func writeFile0600(path, text string, force bool) error {
 		}
 		return paths.AtomicWrite(path, []byte(text), 0o600)
 	})
-}
-
-// resolveLink follows symlinks (dangling ones too) so a write lands on the real file and keeps the link.
-func resolveLink(path string) (string, error) {
-	p, err := filepath.EvalSymlinks(path)
-	if err == nil {
-		return p, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-		t, rerr := os.Readlink(path)
-		if rerr != nil {
-			return "", rerr
-		}
-		if !filepath.IsAbs(t) {
-			t = filepath.Join(filepath.Dir(path), t)
-		}
-		return resolveLink(t)
-	}
-	return path, nil
 }
 
 // exportRow is one vault row rendered as a .databrickscfg section; it carries identifiers only, never a secret.
@@ -334,18 +311,17 @@ func renderExport(rows []exportRow) string {
 	return strings.Join(parts, "\n")
 }
 
+// rowHintEnv is the env var the CLI reads each secret-backed auth kind's credential from.
+var rowHintEnv = map[string]string{providers.AuthM2M: "DATABRICKS_CLIENT_SECRET", providers.AuthPAT: "DATABRICKS_TOKEN"}
+
 // rowHint is the use-time line for a row: how the CLI gets the credential the file deliberately lacks.
 func rowHint(r exportRow) string {
 	if r.SecretID != "" {
 		r.ID = r.SecretID
 	}
-	switch r.Auth {
-	case providers.AuthM2M:
-		return fmt.Sprintf("[%s] DATABRICKS_CLIENT_SECRET=$(claude-code vault get %s) databricks -p %s ...",
-			r.Section, secretName(r.ID, r.Auth), r.Section)
-	case providers.AuthPAT:
-		return fmt.Sprintf("[%s] DATABRICKS_TOKEN=$(claude-code vault get %s) databricks -p %s ...",
-			r.Section, secretName(r.ID, r.Auth), r.Section)
+	if env, ok := rowHintEnv[r.Auth]; ok {
+		return fmt.Sprintf("[%s] %s=$(claude-code vault get %s) databricks -p %s ...",
+			r.Section, env, secretName(r.ID, r.Auth), r.Section)
 	}
 	return fmt.Sprintf("[%s] databricks auth login -p %s (the CLI keeps its own login)", r.Section, r.Section)
 }

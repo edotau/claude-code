@@ -69,33 +69,15 @@ func ResolveAuto(host string) (string, error) {
 	}
 }
 
-// selfNames is this machine's tailnet DNS name and OS hostname; a seam so tests name the machine.
-var selfNames = func() []string {
-	names := []string{}
-	if h, err := os.Hostname(); err == nil {
-		names = append(names, h)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), autoProbeTimeout)
-	defer cancel()
-	if st, err := tailscale.Status(ctx); err == nil {
-		names = append(names, strings.TrimSuffix(st.DNSName, "."))
-	}
-	return names
-}
-
-// IsSelf reports whether host names this machine: its tailnet DNS name, OS hostname, or either one's first label.
+// IsSelf reports whether host names this machine (tailscale.IsLocalHost); `auto` and a blank host never do.
 func IsSelf(host string) bool {
-	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	host = strings.TrimSpace(host)
 	if host == "" || host == Auto {
 		return false
 	}
-	for _, n := range selfNames() {
-		n = strings.ToLower(n)
-		if label, _, _ := strings.Cut(n, "."); n != "" && (host == n || host == label) {
-			return true
-		}
-	}
-	return false
+	ctx, cancel := context.WithTimeout(context.Background(), autoProbeTimeout)
+	defer cancel()
+	return tailscale.IsLocalHost(ctx, host)
 }
 
 // LocalArgs is the verb after `flag <host>` when host names this machine, so the caller runs it here with no hop.

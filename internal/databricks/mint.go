@@ -163,25 +163,40 @@ func overlayAuth(name string) (json.RawMessage, error) {
 	return raw, err
 }
 
+// editOverlayRow runs edit on name's overlay row in top and writes the providers back; loadCtx prefixes a decode error.
+func editOverlayRow(top map[string]json.RawMessage, name, loadCtx string, missing error,
+	edit func(entry map[string]json.RawMessage) error,
+) error {
+	provs, err := overlayProviders(top)
+	if err != nil {
+		if loadCtx != "" {
+			return fmt.Errorf("%s: %w", loadCtx, err)
+		}
+		return err
+	}
+	entry := provs[name]
+	if entry == nil {
+		return missing
+	}
+	if err := edit(entry); err != nil {
+		return err
+	}
+	b, err := json.Marshal(provs)
+	top["providers"] = b
+	return err
+}
+
 // restoreOverlayAuth writes raw back as name's overlay auth block, or removes the block when raw is nil.
 func restoreOverlayAuth(name string, raw json.RawMessage) error {
 	_, _, err := providers.UpdateOverlayDocForce(true, true, func(top map[string]json.RawMessage, _ *vault.Tx) error {
-		provs, err := overlayProviders(top)
-		if err != nil {
-			return err
-		}
-		entry := provs[name]
-		if entry == nil {
-			return fmt.Errorf("%s is not an overlay row", name)
-		}
-		if raw == nil {
-			delete(entry, "auth")
-		} else {
-			entry["auth"] = raw
-		}
-		b, err := json.Marshal(provs)
-		top["providers"] = b
-		return err
+		return editOverlayRow(top, name, "", fmt.Errorf("%s is not an overlay row", name), func(entry map[string]json.RawMessage) error {
+			if raw == nil {
+				delete(entry, "auth")
+			} else {
+				entry["auth"] = raw
+			}
+			return nil
+		})
 	})
 	return err
 }
@@ -224,7 +239,7 @@ func authIdentity(p *providers.Provider, auth, as string) (string, error) {
 	if err := kindServed(p, auth); err != nil {
 		return "", err
 	}
-	if p.Auth.Type != providers.AuthOAuth {
+	if p.Auth.Method() != providers.AuthOAuth {
 		return "", nil // an m2m or pat row has one credential: nothing to choose
 	}
 	return identity, nil
@@ -232,12 +247,13 @@ func authIdentity(p *providers.Provider, auth, as string) (string, error) {
 
 // kindServed is why p has no credential of kind auth, or nil when it has one.
 func kindServed(p *providers.Provider, auth string) error {
+	have := p.Auth.Method()
 	switch {
-	case auth == providers.AuthPAT && p.Auth.Type != providers.AuthPAT:
+	case auth == providers.AuthPAT && have != providers.AuthPAT:
 		return fmt.Errorf("%s has no PAT (its auth type is %s)", p.Name, authLabel(p))
-	case auth == providers.AuthOAuth && p.Auth.Type != providers.AuthOAuth:
+	case auth == providers.AuthOAuth && have != providers.AuthOAuth:
 		return fmt.Errorf("%s has no user login (its auth type is %s)", p.Name, authLabel(p))
-	case auth == providers.AuthM2M && p.Auth.Type != providers.AuthM2M && !providers.SPPresent(p):
+	case auth == providers.AuthM2M && have != providers.AuthM2M && !providers.SPPresent(p):
 		return fmt.Errorf("%s has no service principal (pair one in `claude-code configure databricks` → Identity)", p.Name)
 	}
 	return nil

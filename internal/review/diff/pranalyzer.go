@@ -116,6 +116,21 @@ type PRRisks struct {
 	Low      []PRRisk `json:"low"`
 }
 
+// bucket returns the list for sev, or nil when sev is not in severityOrder.
+func (r *PRRisks) bucket(sev string) *[]PRRisk {
+	switch sev {
+	case "critical":
+		return &r.Critical
+	case "high":
+		return &r.High
+	case "medium":
+		return &r.Medium
+	case "low":
+		return &r.Low
+	}
+	return nil
+}
+
 // PRReport is the full pr_analyzer.py output shape (analyzed or no_changes).
 type PRReport struct {
 	Status       string           `json:"status"`
@@ -127,11 +142,16 @@ type PRReport struct {
 	ReviewOrder  []string         `json:"review_order,omitempty"`
 }
 
-// gitInherit runs git in repo under a 30s timeout; no output here starts a line with whitespace (proc trims right).
-func gitInherit(repo string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// gitCtx is the 30s deadline every git call in this package runs under.
+func gitCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+// gitRaw is source.GitInherit with the sanitized git env and stdout kept byte-for-byte (file contents).
+func gitRaw(repo string, args ...string) (string, error) {
+	ctx, cancel := gitCtx()
 	defer cancel()
-	return proc.RunGitInherit(ctx, repo, args...)
+	return proc.RunGitRaw(ctx, repo, args...)
 }
 
 // refDiff runs `git diff <opts> base...head [-- paths]`, retrying two-dot only when the merge-base form errors.
@@ -141,7 +161,7 @@ func refDiff(repo, base, head string, opts []string, paths ...string) (string, e
 		if len(paths) > 0 {
 			args = append(append(args, "--"), paths...)
 		}
-		return gitInherit(repo, args...)
+		return source.GitInherit(repo, args...)
 	}
 	out, err := run(base + "..." + head)
 	if err != nil {
@@ -306,7 +326,7 @@ func tierPoints(n, top, mid, low int) int {
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
 	// A custom format, not --oneline: log.decorate and color.ui would put "(HEAD -> main)" or escapes before the subject.
-	out, err := gitInherit(repo, "log", "--format=%h %s", base+".."+head)
+	out, err := source.GitInherit(repo, "log", "--format=%h %s", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil {
 		return 0, nil, err
@@ -432,15 +452,8 @@ func sortFilesByPriority(files []PRFileAnalysis) {
 func groupRisks(allRisks []PRRisk) PRRisks {
 	g := PRRisks{Critical: []PRRisk{}, High: []PRRisk{}, Medium: []PRRisk{}, Low: []PRRisk{}}
 	for _, r := range allRisks {
-		switch r.Severity {
-		case "critical":
-			g.Critical = append(g.Critical, r)
-		case "high":
-			g.High = append(g.High, r)
-		case "medium":
-			g.Medium = append(g.Medium, r)
-		case "low":
-			g.Low = append(g.Low, r)
+		if b := g.bucket(r.Severity); b != nil {
+			*b = append(*b, r)
 		}
 	}
 	return g
@@ -539,13 +552,10 @@ func RunPR(args []string, stdout, stderr io.Writer) int {
 
 	var buf strings.Builder
 	if *jsonOut {
-		js, jsErr := source.PyMarshalIndent(report)
-		if jsErr != nil {
-			fmt.Fprintf(stderr, "Error: %v\n", jsErr)
+		if err := source.WritePyJSON(&buf, report); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
 			return 1
 		}
-		buf.Write(js)
-		buf.WriteString("\n")
 	} else {
 		printPRReport(&buf, report)
 	}
@@ -572,7 +582,7 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	top, err := gitInherit(repoPath, "rev-parse", "--show-toplevel")
+	top, err := source.GitInherit(repoPath, "rev-parse", "--show-toplevel")
 	if err != nil {
 		if strings.Contains(err.Error(), "not a git repository (or any ") {
 			fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)

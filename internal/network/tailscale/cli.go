@@ -214,7 +214,7 @@ func connect(ctx context.Context, authKey string, exitNode bool) error {
 	if err != nil {
 		return err
 	}
-	if st, err := Status(ctx); err == nil && st.BackendState == "Running" && (!exitNode || st.ExitNodeApproved) {
+	if st, ok := connected(ctx); ok && (!exitNode || st.ExitNodeApproved) {
 		return nil
 	}
 	keyFile, err := writeAuthKeyFile(authKey)
@@ -246,7 +246,7 @@ func Login(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
 	defer cancel()
 	cmd := execCommandContext(ctx, bin, "login")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
-	if err := cmd.Run(); err != nil {
+	if err := execErr(ctx, "login", cmd.Run()); err != nil {
 		return err
 	}
 	auditConnect(ctx)
@@ -296,6 +296,9 @@ func useExitNode(ctx context.Context, peer string) error {
 	}
 	return set(ctx, flags...)
 }
+
+// running reports whether the backend is Running.
+func (l Local) running() bool { return l.BackendState == "Running" }
 
 // Machine is one tailnet node, merged from the admin API and/or the local CLI status.
 type Machine struct {
@@ -358,13 +361,20 @@ func liveMachines(ctx context.Context) ([]Machine, error) {
 			ExitNodeApproved: hasDefaultRoutes(d.EnabledRoutes)}
 		for _, a := range d.Addresses {
 			if p, ok := byAddr[a]; ok {
-				m.Online, m.ExitNodeAdvertised = p.Online, p.ExitNodeOption || p.ExitNode
+				pm := machineFromPeer(p)
+				m.Online, m.ExitNodeAdvertised = pm.Online, pm.ExitNodeAdvertised // LastSeen stays the device's
 				break
 			}
 		}
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// machineFromPeer maps a CLI status peer to a Machine; an exit node in use counts as advertised.
+func machineFromPeer(p peer) Machine {
+	return Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen,
+		ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"}
 }
 
 // peersByAddr indexes the status peers (and this node) by tailnet address.
@@ -377,7 +387,7 @@ func peersByAddr(st Local) map[string]peer {
 	}
 	// This node is never in its own peer list: Running is its online state.
 	for _, a := range st.IPs {
-		byAddr[a] = peer{Online: st.BackendState == "Running", ExitNodeOption: st.ExitNodeOption}
+		byAddr[a] = peer{Online: st.running(), ExitNodeOption: st.ExitNodeOption}
 	}
 	return byAddr
 }
@@ -388,11 +398,10 @@ func machinesFromStatus(ctx context.Context) ([]Machine, error) {
 	if err != nil && !errors.Is(err, errNotRunning) {
 		return nil, err
 	}
-	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.BackendState == "Running",
+	out := []Machine{{Name: st.DNSName, Addresses: st.IPs, Online: st.running(),
 		ExitNodeAdvertised: st.ExitNodeOption, ExitNodeApproved: st.ExitNodeApproved, Source: "cli"}}
 	for _, p := range st.Peers {
-		out = append(out, Machine{Name: p.DNSName, Addresses: p.IPs, OS: p.OS, Online: p.Online, LastSeen: p.LastSeen,
-			ExitNodeAdvertised: p.ExitNodeOption || p.ExitNode, Source: "cli"})
+		out = append(out, machineFromPeer(p))
 	}
 	return out, nil
 }

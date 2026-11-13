@@ -30,27 +30,25 @@ Disallow: /fix$
 	cases := []struct {
 		path    string
 		blocked bool
-		rule    string
 	}{
-		{"/", false, ""},                       // claude-code group beats the blanket * Disallow: /
-		{"/star-private", false, ""},           // * group rules are ignored entirely
-		{"/private", true, "/private"},         // prefix
-		{"/private/x", true, "/private"},       // prefix covers children
-		{"/private/public/a", false, ""},       // longer Allow beats shorter Disallow
-		{"/data/x.json", true, "/*.json$"},     // wildcard + anchor
-		{"/data/x.json?a=1", false, ""},        // $ anchors the end, query defeats it
-		{"/data/x.jsonl", false, ""},           // $ again
-		{"/search?q=cats", true, "/search?q="}, // query is part of the match path
-		{"/tie", false, ""},                    // equal length: Allow wins
-		{"/fix", true, "/fix$"},                // exact via $
-		{"/fixed", false, ""},                  // $ blocks prefix-extension
-		{"/other", false, ""},
+		{"/", false},                 // claude-code group beats the blanket * Disallow: /
+		{"/star-private", false},     // * group rules are ignored entirely
+		{"/private", true},           // prefix
+		{"/private/x", true},         // prefix covers children
+		{"/private/public/a", false}, // longer Allow beats shorter Disallow
+		{"/data/x.json", true},       // wildcard + anchor
+		{"/data/x.json?a=1", false},  // $ anchors the end, query defeats it
+		{"/data/x.jsonl", false},     // $ again
+		{"/search?q=cats", true},     // query is part of the match path
+		{"/tie", false},              // equal length: Allow wins
+		{"/fix", true},               // exact via $
+		{"/fixed", false},            // $ blocks prefix-extension
+		{"/other", false},
 	}
 	rules := parseRobots(txt)
 	for _, tc := range cases {
-		r, blocked := robotsDisallows(rules, tc.path)
-		if blocked != tc.blocked || (blocked && r.pattern != tc.rule) {
-			t.Errorf("%s: blocked=%v rule=%q, want %v %q", tc.path, blocked, r.pattern, tc.blocked, tc.rule)
+		if blocked := robotsDisallows(rules, tc.path); blocked != tc.blocked {
+			t.Errorf("%s: blocked=%v, want %v", tc.path, blocked, tc.blocked)
 		}
 	}
 }
@@ -67,7 +65,7 @@ func TestParseRobotsEmptyDisallowIsAllowAllGroup(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, blocked := robotsDisallows(parseRobots(c.txt), "/x/page")
+			blocked := robotsDisallows(parseRobots(c.txt), "/x/page")
 			if blocked != c.blocked {
 				t.Errorf("blocked = %v, want %v", blocked, c.blocked)
 			}
@@ -97,7 +95,7 @@ func TestRobotsMatchMultiWildcardIsBounded(t *testing.T) {
 }
 
 func TestParseRobotsStripsLeadingBOM(t *testing.T) {
-	_, blocked := robotsDisallows(parseRobots("\ufeffUser-agent: *\nDisallow: /\n"), "/x/page")
+	blocked := robotsDisallows(parseRobots("\ufeffUser-agent: *\nDisallow: /\n"), "/x/page")
 	if !blocked {
 		t.Error("BOM-prefixed first group was ignored; want Disallow / to apply")
 	}

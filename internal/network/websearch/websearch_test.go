@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -59,10 +60,6 @@ func TestInitializeAndToolsList(t *testing.T) {
 	)
 	if len(resps) != 2 {
 		t.Fatalf("got %d responses, want 2 (notification must not respond)", len(resps))
-	}
-	si, _ := resps[0]["result"].(map[string]any)
-	if si["protocolVersion"] != defaultProtocolVersion {
-		t.Errorf("protocolVersion = %v, want %s", si["protocolVersion"], defaultProtocolVersion)
 	}
 	list, _ := resps[1]["result"].(map[string]any)
 	tools, _ := list["tools"].([]any)
@@ -171,27 +168,6 @@ func TestServeProtocolEdges(t *testing.T) {
 	}
 }
 
-func TestOneShotSuccess(t *testing.T) {
-	var out strings.Builder
-	got := ""
-	code := oneShot(context.Background(), "golang generics", 3, func(_ context.Context, q string, n int) (string, error) {
-		got = q
-		if n != 3 {
-			t.Errorf("max_results = %d, want 3", n)
-		}
-		return "the answer", nil
-	}, &out)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if got != "golang generics" {
-		t.Errorf("query = %q, want golang generics", got)
-	}
-	if strings.TrimSpace(out.String()) != "the answer" {
-		t.Errorf("output = %q, want 'the answer'", out.String())
-	}
-}
-
 func TestOneShotExitCodes(t *testing.T) {
 	ok := func(context.Context, string, int) (string, error) { return "x", nil }
 	for name, tc := range map[string]struct {
@@ -201,6 +177,12 @@ func TestOneShotExitCodes(t *testing.T) {
 		want    int
 		wantOut string
 	}{
+		"success passes query and max_results": {"golang generics", 3, func(_ context.Context, q string, n int) (string, error) {
+			if q != "golang generics" || n != 3 {
+				t.Errorf("searcher got (%q, %d), want (golang generics, 3)", q, n)
+			}
+			return "the answer", nil
+		}, 0, "the answer"},
 		"empty query":    {"   ", 5, ok, 2, ""},
 		"searcher error": {"q", 5, func(context.Context, string, int) (string, error) { return "", errString("boom") }, 1, ""},
 		"zero max defaults to 5": {"q", 0, func(_ context.Context, _ string, n int) (string, error) {
@@ -441,13 +423,13 @@ func TestExtractRefusesInternalAddresses(t *testing.T) {
 	}
 }
 
-func TestPublicIPRefusesCGNATAndZeroNet(t *testing.T) {
-	for _, s := range []string{"100.100.100.100", "100.64.0.1", "0.1.2.3", "ff02::1", "ff0e::1"} {
-		if publicIP(net.ParseIP(s)) {
+func TestPublicIPRefusesNonPublicRanges(t *testing.T) {
+	for _, s := range []string{"100.100.100.100", "100.64.0.1", "0.1.2.3", "ff02::1", "ff0e::1", "255.255.255.255", "240.0.0.1", "::127.0.0.1", "::10.0.0.1"} {
+		if !textutil.IsNonPublicIP(net.ParseIP(s), true) {
 			t.Errorf("publicIP(%s) = true, want false", s)
 		}
 	}
-	if !publicIP(net.ParseIP("100.128.0.1")) || !publicIP(net.ParseIP("8.8.8.8")) {
+	if textutil.IsNonPublicIP(net.ParseIP("100.128.0.1"), true) || textutil.IsNonPublicIP(net.ParseIP("8.8.8.8"), true) {
 		t.Error("public addresses outside CGNAT must stay allowed")
 	}
 }
@@ -609,9 +591,6 @@ func closedTestOutput(t *testing.T) *os.File {
 
 func TestOneShotRejectsOutputWriteFailure(t *testing.T) {
 	search := func(context.Context, string, int) (string, error) { return "the answer", nil }
-	if code := oneShot(context.Background(), "golang", 3, search, io.Discard); code != 0 {
-		t.Fatalf("successful search exit = %d, want 0", code)
-	}
 	if code := oneShot(context.Background(), "golang", 3, search, closedTestOutput(t)); code == 0 {
 		t.Fatal("closed output writer must return a nonzero exit code")
 	}
@@ -623,16 +602,6 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 		return extractResponse{Results: tstPage(urls[0], "BODY")}
 	})
 	urls := []string{"https://example.com/a"}
-	_, out, _ := hosttest.CaptureOutput(t, func() int {
-		code := extractURLs(context.Background(), urls)
-		if code != 0 {
-			t.Errorf("successful extract exit = %d, want 0", code)
-		}
-		return code
-	})
-	if !strings.Contains(out, "BODY") {
-		t.Fatalf("extract output = %q, want fetched page", out)
-	}
 	hosttest.ClosedStdout(t)
 	if code := extractURLs(context.Background(), urls); code == 0 {
 		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")

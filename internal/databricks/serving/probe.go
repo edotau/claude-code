@@ -50,13 +50,14 @@ type CheckOptions struct {
 
 const probePrompt = "Reply with OK."
 
+var pingSchema = map[string]any{"type": "object", "properties": map[string]any{}}
+
 var checkChatTool = map[string]any{"type": "function", "function": map[string]any{
-	"name": "ping", "description": "Return pong.",
-	"parameters": map[string]any{"type": "object", "properties": map[string]any{}},
+	"name": "ping", "description": "Return pong.", "parameters": pingSchema,
 }}
 
 var checkResponsesTool = map[string]any{"type": "function", "name": "ping", "description": "Return pong.",
-	"parameters": map[string]any{"type": "object", "properties": map[string]any{}}}
+	"parameters": pingSchema}
 
 // Probe sends one tiny request per target (bounded concurrency) and returns results in target order.
 func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o CheckOptions) ([]CheckResult, error) {
@@ -68,20 +69,18 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	if respBase == "" {
 		respBase = chatBase
 	}
-	o.Client = cmp.Or(o.Client, http.DefaultClient)
 	if o.ClientRoutes {
 		if err := checkClientRoutes(p, targets); err != nil {
 			return nil, err
 		}
 	}
 	o.Concurrency = max(cmp.Or(o.Concurrency, 4), 1)
-	o.Timeout = cmp.Or(o.Timeout, 30*time.Second)
 	out := make([]CheckResult, len(targets))
 	sem := make(chan struct{}, o.Concurrency)
 	var wg sync.WaitGroup
 	for i, t := range targets {
 		if t.Missing {
-			out[i] = CheckResult{ID: t.ID, Status: "missing"}
+			out[i] = CheckResult{ID: t.ID, Status: StatusMissing}
 			continue
 		}
 		wg.Add(1)
@@ -108,8 +107,9 @@ func checkClientRoutes(p *providers.Provider, targets []CheckTarget) error {
 	return nil
 }
 
-// StatusTransient marks a probe lost to a passing condition (timeout, 429, 5xx, mint error), not a model verdict.
+// Probe statuses: transient marks a probe lost to a passing condition (timeout, 429, 5xx, mint error), not a verdict.
 const StatusTransient = "transient"
+const StatusOK, StatusFail, StatusMissing = "ok", "fail", "missing"
 
 // TransientHTTP reports a status that is a passing condition rather than a verdict on the model.
 func TransientHTTP(code int) bool {
@@ -120,7 +120,7 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 	r := CheckResult{ID: t.ID}
 	url, body, anthropic, err := probeTarget(p, o, t, chatBase, respBase)
 	if err != nil {
-		return CheckResult{ID: t.ID, Status: "fail", Error: "client route unavailable"}
+		return CheckResult{ID: t.ID, Status: StatusFail, Error: "client route unavailable"}
 	}
 	rep, err := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(true), Anthropic: anthropic})
 	r.HTTP, r.LatencyMS = rep.HTTP, rep.LatencyMS
@@ -128,9 +128,9 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 	case err != nil:
 		r.Status, r.Error = StatusTransient, err.Error()
 	case rep.HTTP/100 == 2:
-		r.Status, r.Tools = "ok", "yes"
+		r.Status, r.Tools = StatusOK, "yes"
 	default:
-		r.Status, r.Error = "fail", fmt.Sprintf("HTTP %d: %s", rep.HTTP, TruncateMsg([]byte(rep.Body)))
+		r.Status, r.Error = StatusFail, fmt.Sprintf("HTTP %d: %s", rep.HTTP, TruncateMsg([]byte(rep.Body)))
 		if TransientHTTP(rep.HTTP) {
 			r.Status = StatusTransient
 			return r
@@ -161,7 +161,7 @@ func retryToolsLess(ctx context.Context, p *providers.Provider, o CheckOptions, 
 	rep2, err2 := probeBudget(ctx, p, o, c)
 	switch {
 	case err2 == nil && rep2.HTTP/100 == 2:
-		r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = "ok", rep2.HTTP, rep2.LatencyMS, "no", ""
+		r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = StatusOK, rep2.HTTP, rep2.LatencyMS, "no", ""
 	case err2 != nil:
 		r.Status, r.Error = StatusTransient, "tools-less retry: "+err2.Error()
 	case TransientHTTP(rep2.HTTP):
@@ -200,7 +200,7 @@ func clientProbeBody(model, dialect string, tools bool) map[string]any {
 		b["max_tokens"] = 32
 		if tools {
 			b["tools"] = []any{map[string]any{"name": "ping", "description": "Return pong.",
-				"input_schema": map[string]any{"type": "object", "properties": map[string]any{}}}}
+				"input_schema": pingSchema}}
 			b["tool_choice"] = map[string]any{"type": "auto"}
 		}
 	} else if tools {
@@ -249,13 +249,12 @@ type ProbeReply struct {
 
 // ProbeOnce sends c (resent once with a larger budget when a reasoning model ran out); zero options as in Probe.
 func ProbeOnce(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
-	o.Client = cmp.Or(o.Client, http.DefaultClient)
-	o.Timeout = cmp.Or(o.Timeout, 30*time.Second)
 	return probeBudget(ctx, p, o, c)
 }
 
 // probeBudget is probeRequest, resent once with budgetRetryTokens when the tiny budget ran out (a reasoning model).
 func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
+	o.Client, o.Timeout = cmp.Or(o.Client, http.DefaultClient), cmp.Or(o.Timeout, 30*time.Second)
 	r, err := probeRequest(ctx, p, o, c)
 	if err != nil || r.HTTP != http.StatusBadRequest || !strings.Contains(r.Body, budgetExhausted) {
 		return r, err

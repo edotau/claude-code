@@ -178,10 +178,13 @@ func normalize(v any) []string {
 	return strings.Split(string(raw), "\n")
 }
 
+// blank reports a document that is empty or only whitespace.
+func blank(doc []byte) bool { return strings.TrimSpace(string(doc)) == "" }
+
 // parseDoc decodes an overlay document; ok is false for empty or non-JSON input.
 func parseDoc(doc []byte) (any, bool) {
 	var v any
-	if strings.TrimSpace(string(doc)) == "" || json.Unmarshal(doc, &v) != nil {
+	if blank(doc) || json.Unmarshal(doc, &v) != nil {
 		return nil, false
 	}
 	return v, true
@@ -191,21 +194,23 @@ func parseDoc(doc []byte) (any, bool) {
 func diffInputs(oldDoc, newDoc []byte) ([]string, []string) {
 	ov, ook := parseDoc(oldDoc)
 	nv, nok := parseDoc(newDoc)
-	if (ook || strings.TrimSpace(string(oldDoc)) == "") && (nok || strings.TrimSpace(string(newDoc)) == "") {
+	if (ook || blank(oldDoc)) && (nok || blank(newDoc)) {
 		ov, nv = maskPair(ov, nv, false, "")
 		return normalize(ov), normalize(nv)
 	}
-	raw := func(doc []byte) []string {
-		if v, ok := parseDoc(doc); ok {
-			v, _ = maskPair(v, nil, false, "")
-			return normalize(v)
-		}
-		if strings.TrimSpace(string(doc)) == "" {
-			return nil
-		}
-		return strings.Split(textutil.RedactSecrets(string(doc)), "\n")
+	return rawLines(ov, ook, oldDoc), rawLines(nv, nok, newDoc)
+}
+
+// rawLines masks one document alone: its parsed value v when ok, else its text with secrets redacted.
+func rawLines(v any, ok bool, doc []byte) []string {
+	switch {
+	case ok:
+		v, _ = maskPair(v, nil, false, "")
+		return normalize(v)
+	case blank(doc):
+		return nil
 	}
-	return raw(oldDoc), raw(newDoc)
+	return strings.Split(textutil.RedactSecrets(string(doc)), "\n")
 }
 
 type edit struct {

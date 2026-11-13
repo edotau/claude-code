@@ -33,7 +33,8 @@ func env(t *testing.T, wsl bool, wayland, display string, bins ...string) *[]cal
 	t.Setenv("DISPLAY", display)
 	oldWSL, oldRun, oldPS := onWSL, run, wslPowerShell
 	onWSL = func() bool { return wsl }
-	wslPowerShell = filepath.Join(t.TempDir(), "absent-powershell.exe") // keep the host's real Windows PowerShell out
+	absent := filepath.Join(t.TempDir(), "absent-powershell.exe") // keep the host's real Windows PowerShell out
+	wslPowerShell = func() string { return absent }
 	t.Cleanup(func() { onWSL, run, wslPowerShell = oldWSL, oldRun, oldPS })
 	var calls []call
 	run = func(_ context.Context, stdin []byte, name string, args ...string) ([]byte, error) {

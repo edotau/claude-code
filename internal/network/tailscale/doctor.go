@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -86,7 +85,7 @@ func oauthNote(ctx context.Context) (note string, ok bool) {
 	if err := textutil.ValidCredential(oauthSecretName, secVal); err != nil {
 		return fmt.Sprintf("; TAILSCALE_OAUTH_CLIENT_SECRET malformed: %v", err), false
 	}
-	if _, err := oauthToken(apiBaseURL, idVal, secVal, http.DefaultClient)(ctx); err != nil {
+	if _, err := newOAuthClient(idVal, secVal).token(ctx); err != nil {
 		reason := strings.TrimPrefix(err.Error(), "tailscale: oauth token mint: ")
 		return fmt.Sprintf("; api credential TAILSCALE_OAUTH_CLIENT_ID+SECRET rejected (%s)", reason), false
 	}

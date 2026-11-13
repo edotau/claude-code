@@ -190,7 +190,7 @@ func countingCLI(t *testing.T) func() int {
 	t.Helper()
 	hermeticSecrets(t)
 	calls := filepath.Join(t.TempDir(), "calls")
-	stubCLI(t, "echo x >> "+shQuote(calls)+"\n"+catScript(t, "status_running.json"))
+	stubCLI(t, "echo x >> "+textutil.ShellQuote(calls)+"\n"+catScript(t, "status_running.json"))
 	return func() int {
 		b, _ := os.ReadFile(calls)
 		return strings.Count(string(b), "x")

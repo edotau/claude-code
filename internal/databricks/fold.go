@@ -175,7 +175,7 @@ func foldTarget(rows map[string]providers.Provider, id string) (string, string) 
 // foldVeto names what keeps id from folding: a non-M2M secret or a reference fold cannot re-point; "" when none.
 func foldVeto(top map[string]json.RawMessage, tx *vault.Tx, settings, id string) string {
 	for _, m := range []string{providers.AuthOAuth, providers.AuthPAT} {
-		if _, ok := tx.Get(vault.Secrets, secretName(id, m)); ok {
+		if hasSecret(tx, secretName(id, m)) {
 			return "holds " + secretName(id, m) + "; move or delete it first"
 		}
 	}
@@ -295,7 +295,7 @@ func foldSecret(tx *vault.Tx, key *vault.Key, m foldMove) error {
 		return vault.ErrWrongKey
 	}
 	src, dst := secretName(m.From, providers.AuthM2M), secretName(m.To, providers.AuthM2M)
-	if _, ok := tx.Get(vault.Secrets, dst); !ok {
+	if !hasSecret(tx, dst) {
 		return moveLegacySecret(tx, key, src, dst)
 	}
 	a, err := openSecret(tx, key, src)

@@ -127,24 +127,9 @@ func readBase(dest, label string, into any) ([]byte, error) {
 	return rawBase, nil
 }
 
-// resolveLink follows dest through symlinks so a merge rewrites the link's target; a dangling link is refused.
-func resolveLink(dest string) (string, error) {
-	real, err := filepath.EvalSymlinks(dest)
-	if err == nil {
-		return real, nil
-	}
-	if _, lerr := os.Lstat(dest); lerr == nil {
-		return "", fmt.Errorf("%s is a symlink to a missing file: create its target or remove the link", dest)
-	}
-	if os.IsNotExist(err) {
-		return dest, nil
-	}
-	return "", err
-}
-
 // writeGuarded backs dest up and atomically replaces it with body, but only while rawBase is still on disk.
 func writeGuarded(dest, label string, rawBase, body []byte) (mergeResult, error) {
-	dest, err := resolveLink(dest)
+	dest, err := paths.ResolveLink(dest, false)
 	if err != nil {
 		return mergeResult{}, err
 	}

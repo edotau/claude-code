@@ -299,7 +299,7 @@ func TestWorkflowNameForRunScriptPathFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	name := workflowNameForRun(runDir, runID)
+	name := workflowNameForRun(runDir, runID, workflowNameScans{})
 	if name != "implement-and-verify" {
 		t.Errorf("workflowNameForRun scriptPath fallback = %q, want %q", name, "implement-and-verify")
 	}
@@ -330,7 +330,7 @@ func TestWorkflowNameForRunNoFallbackMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	name := workflowNameForRun(runDir, runID)
+	name := workflowNameForRun(runDir, runID, workflowNameScans{})
 	if name != runID {
 		t.Errorf("workflowNameForRun with no match = %q, want runID %q", name, runID)
 	}

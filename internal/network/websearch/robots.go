@@ -64,8 +64,8 @@ func addRobotsRule(groups map[string][]robotsRule, agents []string, allow bool, 
 	}
 }
 
-// robotsDisallows applies longest-match semantics (Allow wins ties) and returns the deciding Disallow rule.
-func robotsDisallows(rules []robotsRule, path string) (robotsRule, bool) {
+// robotsDisallows applies longest-match semantics (Allow wins ties) and reports whether the deciding rule is a Disallow.
+func robotsDisallows(rules []robotsRule, path string) bool {
 	var best robotsRule
 	found := false
 	for _, r := range rules {
@@ -76,7 +76,7 @@ func robotsDisallows(rules []robotsRule, path string) (robotsRule, bool) {
 			best, found = r, true
 		}
 	}
-	return best, found && !best.allow
+	return found && !best.allow
 }
 
 // robotsMatch matches a prefix pattern with * wildcards and an optional trailing $ anchor, in linear time.
@@ -131,8 +131,7 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	if !ok && dead != nil {
 		dead[origin] = true
 	}
-	_, blocked := robotsDisallows(rules, u.RequestURI())
-	return ok && !blocked
+	return ok && !robotsDisallows(rules, u.RequestURI())
 }
 
 // cachedRobotsRules is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched, parsed and cached.

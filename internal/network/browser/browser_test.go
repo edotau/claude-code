@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestMain(m *testing.M) {
@@ -44,26 +43,6 @@ func TestRunCommandBoundsWait(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("hung command took %s", elapsed)
-	}
-}
-
-func TestWinRoot(t *testing.T) {
-	drvfs := func(point string) []paths.Mount {
-		return []paths.Mount{{Point: point, Kind: paths.KindDrvFS, Drive: "C"}}
-	}
-	for _, tc := range []struct {
-		name   string
-		mounts []paths.Mount
-		want   string
-	}{
-		{"custom mount", drvfs("/custom/c"), "/custom/c"},
-		{"no drvfs mount", nil, "/mnt/c"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := winRootFrom(paths.NewResolver(tc.mounts)); got != tc.want {
-				t.Errorf("winRoot = %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
 

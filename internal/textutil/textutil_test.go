@@ -1,6 +1,7 @@
 package textutil
 
 import (
+	"net"
 	"os"
 	"slices"
 	"strings"
@@ -195,5 +196,20 @@ func TestScanRawLines(t *testing.T) {
 				t.Errorf("got %q, %d, %v; want %q, %d", got, n, err, c.want, c.wantN)
 			}
 		})
+	}
+}
+
+func TestIsNonPublicIPCGNATFlag(t *testing.T) {
+	cgnat := net.ParseIP("100.100.100.100")
+	if IsNonPublicIP(cgnat, false) || !IsNonPublicIP(cgnat, true) {
+		t.Errorf("CGNAT must follow blockCGNAT: false=%v true=%v", IsNonPublicIP(cgnat, false), IsNonPublicIP(cgnat, true))
+	}
+	for _, s := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "ff02::1", "0.1.2.3", "240.0.0.1", "::127.0.0.1", "::ffff:10.0.0.1"} {
+		if !IsNonPublicIP(net.ParseIP(s), false) {
+			t.Errorf("IsNonPublicIP(%s) = false, want true", s)
+		}
+	}
+	if !IsNonPublicIP(nil, false) || IsNonPublicIP(net.ParseIP("8.8.8.8"), true) {
+		t.Error("nil is non-public and 8.8.8.8 public")
 	}
 }

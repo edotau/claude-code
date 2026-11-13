@@ -94,7 +94,7 @@ func merged(profile string, results []serving.CheckResult) []serving.CheckResult
 		byID = map[string]serving.CheckResult{}
 	}
 	for _, r := range results {
-		if r.Status == serving.StatusTransient && byID[r.ID].Status == "ok" {
+		if r.Status == serving.StatusTransient && byID[r.ID].Status == serving.StatusOK {
 			continue
 		}
 		byID[r.ID] = r
@@ -120,7 +120,7 @@ func WriteCheck(w io.Writer, results []serving.CheckResult, format string) error
 			lat = fmt.Sprintf("%dms", r.LatencyMS)
 		}
 		fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, cmp.Or(r.Tools, "-"))
-		if (r.Status == "fail" || r.Status == serving.StatusTransient) && r.Error != "" {
+		if (r.Status == serving.StatusFail || r.Status == serving.StatusTransient) && r.Error != "" {
 			fmt.Fprint(w, "  "+r.Error)
 		}
 		fmt.Fprintln(w)
@@ -145,11 +145,11 @@ func checkCell(cache map[string]serving.CheckResult, id string) string {
 	}
 	cell := r.Status
 	switch {
-	case r.Status == "ok" && r.Tools == "no":
+	case r.Status == serving.StatusOK && r.Tools == "no":
 		cell = "ok no-tools"
-	case r.Status == "ok":
+	case r.Status == serving.StatusOK:
 		cell = "ok tools"
-	case (r.Status == "fail" || r.Status == serving.StatusTransient) && r.HTTP > 0:
+	case (r.Status == serving.StatusFail || r.Status == serving.StatusTransient) && r.HTTP > 0:
 		cell = fmt.Sprintf("%s %d", r.Status, r.HTTP)
 	}
 	if age := checkNow().Sub(r.CheckedAt); !r.CheckedAt.IsZero() && age > checkAgeAfter {
@@ -182,10 +182,10 @@ func sortCheckResults(rs []serving.CheckResult) {
 			return c
 		}
 		la, lb := a.LatencyMS, b.LatencyMS
-		if a.Status != "ok" {
+		if a.Status != serving.StatusOK {
 			la = 1 << 60
 		}
-		if b.Status != "ok" {
+		if b.Status != serving.StatusOK {
 			lb = 1 << 60
 		}
 		return cmp.Or(cmp.Compare(la, lb), cmp.Compare(a.ID, b.ID))

@@ -49,21 +49,21 @@ func Valid(host string) error {
 // workspaceSuffixes are the Databricks workspace domains on AWS, Azure and GCP.
 var workspaceSuffixes = []string{".cloud.databricks.com", ".azuredatabricks.net", ".gcp.databricks.com"}
 
-// IsDatabricksHost reports a Databricks workspace hostname.
-func IsDatabricksHost(hostname string) bool {
+// isDatabricksHost reports a Databricks workspace hostname.
+func isDatabricksHost(hostname string) bool {
 	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
 	return slices.ContainsFunc(workspaceSuffixes, func(s string) bool { return strings.HasSuffix(hostname, s) })
 }
 
 // Seams: tests swap the workspace predicate and the ssh spawn, and shrink the start deadline.
 var (
-	isWorkspace = IsDatabricksHost
+	isWorkspace = isDatabricksHost
 	spawn       = spawnSSH
 	startWait   = 15 * time.Second
 )
 
-// ProxyFor sends workspace requests through host's tunnel, or fails them; other requests keep the env proxy.
-func ProxyFor(host string) func(*http.Request) (*url.URL, error) {
+// proxyFor sends workspace requests through host's tunnel, or fails them; other requests keep the env proxy.
+func proxyFor(host string) func(*http.Request) (*url.URL, error) {
 	return func(req *http.Request) (*url.URL, error) {
 		if host == "" || !isWorkspace(req.URL.Hostname()) {
 			return http.ProxyFromEnvironment(req)
@@ -76,9 +76,9 @@ func ProxyFor(host string) func(*http.Request) (*url.URL, error) {
 	}
 }
 
-// Proxy is ProxyFor the host pinned on the request's context, else the environment's.
+// Proxy is proxyFor the host pinned on the request's context, else the environment's.
 func Proxy(req *http.Request) (*url.URL, error) {
-	return ProxyFor(cmp.Or(PinnedHost(req.Context()), Host()))(req)
+	return proxyFor(cmp.Or(PinnedHost(req.Context()), Host()))(req)
 }
 
 var install sync.Once
