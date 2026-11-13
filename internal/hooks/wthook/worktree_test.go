@@ -227,8 +227,8 @@ func canonHome(t *testing.T, home string) string {
 	return c
 }
 
-// TestWorktreeModeAndBusy: off|false|0 is silent even with a peer; unset asks at start and reports a changed peer set once.
-func TestWorktreeModeAndBusy(t *testing.T) {
+// TestWorktreeBusyMode: off|false|0 is silent even with a peer; unset reports a changed peer set once.
+func TestWorktreeBusyMode(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()
 	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
@@ -244,14 +244,11 @@ func TestWorktreeModeAndBusy(t *testing.T) {
 
 	for _, v := range []string{"off", "false", "0", "OFF"} {
 		t.Setenv(worktreeModeEnv, v)
-		if got := Mode(in).Context + Busy(in).Context; got != "" {
+		if got := Busy(in).Context; got != "" {
 			t.Fatalf("%s must be silent with a peer present, got %q", v, got)
 		}
 	}
 	t.Setenv(worktreeModeEnv, "")
-	if got := Mode(in).Context; got != worktreeAskLine {
-		t.Fatalf("unset start: %q", got)
-	}
 	if got := Busy(in).Context; !strings.Contains(got, "claude pid 4242") {
 		t.Fatalf("unset busy: %q", got)
 	}
@@ -494,5 +491,24 @@ func TestBusyReportsScanAndStateErrors(t *testing.T) {
 				t.Fatalf("diagnostic must fail open and preserve the peer notice: %+v", got)
 			}
 		})
+	}
+}
+
+// TestDivergedCheckDueRateLimitsPerSession: one check per session per busyScanTTL; a stale stamp is due again.
+func TestDivergedCheckDueRateLimitsPerSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if !divergedCheckDue("s1") || divergedCheckDue("s1") {
+		t.Fatal("first call must be due and the second inside busyScanTTL must not")
+	}
+	if !divergedCheckDue("s2") {
+		t.Fatal("a different session has its own stamp")
+	}
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", sessionSlug("s1"))
+	old := time.Now().Add(-busyScanTTL - time.Second)
+	if err := os.Chtimes(stamp, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if !divergedCheckDue("s1") {
+		t.Fatal("a stamp older than busyScanTTL must be due again")
 	}
 }

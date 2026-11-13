@@ -163,6 +163,7 @@ var writers = map[string]string{
 	"internal/hooks/wthook/claims.go:appendClaims":             "claims",
 	"internal/worktree/sessions.go:Append":                     "notices",
 	"internal/hooks/wthook/claimcheck.go:appendIfNew":          unversioned("marker: per-session worktree notice dedupe lines"),
+	"internal/hooks/wthook/worktree.go:divergedCheckDue":       unversioned("marker: empty per-session stamp, its mtime gates the divergence check"),
 	"internal/inflight/limiter.go:writeMarker":                 unversioned("marker: in-flight dispatch marker (account key)"),
 	"internal/hooks/safety/rtk.go:rtkFirstInSession":           unversioned("marker: per-session rtk note and rtk-shadow notice stamps"),
 	"internal/memory/session_start.go:writeSessionRoot":        unversioned("text: per-session launch repository root"),

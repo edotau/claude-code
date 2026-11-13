@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
@@ -83,7 +84,7 @@ func TestSessionStartRelistsServedOnlyForStaleSessionProfile(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			calls := servedSession(t, c.on, c.fetched, c.updateChild)
 			reg, _ := providers.Load()
-			refreshServed(reg, t.TempDir(), now)
+			refreshServed(reg, preflight.Check(reg, now), t.TempDir(), now)
 			if got := calls.Load(); got != c.want {
 				t.Fatalf("spawnServed calls = %d, want %d", got, c.want)
 			}
@@ -96,8 +97,8 @@ func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 	now := time.Now()
 	calls := servedSession(t, true, time.Time{}, "")
 	reg, _ := providers.Load()
-	refreshServed(reg, t.TempDir(), now)
-	refreshServed(reg, t.TempDir(), now.Add(time.Minute))
+	refreshServed(reg, preflight.Check(reg, now), t.TempDir(), now)
+	refreshServed(reg, preflight.Check(reg, now), t.TempDir(), now.Add(time.Minute))
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("spawnServed calls = %d, want 1", got)
 	}

@@ -248,8 +248,8 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 }
 
 // Stale reports whether a Databricks profile in use has no fresh listing.
-func Stale(reg *providers.Registry, now time.Time) bool {
-	return slices.ContainsFunc(profiles(reg, Check(reg, now)), func(p *providers.Provider) bool {
+func Stale(reg *providers.Registry, ps []Pin, now time.Time) bool {
+	return slices.ContainsFunc(profiles(reg, ps), func(p *providers.Provider) bool {
 		return !listingFresh(p.Name, now)
 	})
 }
@@ -261,8 +261,9 @@ func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), profileTimeout)
 	defer cancel()
-	printRefreshErrors(w, RefreshStale(ctx, reg, Check(reg, now), now, false))
-	printFixRows(w, Check(reg, now))
+	ps := Check(reg, now)
+	printRefreshErrors(w, RefreshStale(ctx, reg, ps, now, false))
+	printFixRows(w, ps)
 }
 
 // RefreshPinned force re-lists every pinned Databricks profile's endpoints; returns the load or listing errors.
@@ -295,11 +296,10 @@ func anyCredential(reg *providers.Registry, ps []Pin) bool {
 }
 
 // StaticLine is the session-start line for a down proxy or a bad pin, from cached listings only; "" when all is well.
-func StaticLine(reg *providers.Registry, now time.Time) string {
+func StaticLine(reg *providers.Registry, ps []Pin) string {
 	if reg == nil {
 		return ""
 	}
-	ps := Check(reg, now)
 	if len(ps) == 1 && ps[0].Agent == "vault" { // Check's unreadable-vault diagnostic
 		return "Preflight: " + fieldsLine(ps[0].Detail)
 	}
@@ -325,12 +325,12 @@ func staticProblems(ps []Pin, dbx bool) string {
 		parts = append(parts, fmt.Sprintf("%s %s (%s)", p.Agent, p.Status, cmp.Or(p.Detail, p.Profile)))
 	}
 	if dbx && !proxyUp() {
-		parts = append([]string{"proxy not running"}, parts...)
+		parts = append([]string{"proxy down"}, parts...)
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return "Preflight: " + strings.Join(parts, "; ") + " (claude-code doctor)"
+	return "Preflight: " + strings.Join(parts, "; ")
 }
 
 // proxyUp reads the proxy state file and checks its pid is alive.

@@ -173,28 +173,16 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	plansDir := filepath.Join(paths.ConfigDir(), "plans")
 	store := memory.Dir(root)
 	if paths.Within(core.CanonPath(root), core.CanonPath(memory.StoreDir())) {
 		store = root // a repo inside the memory store is its own bank, not the home one
 	}
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"Harness-authored markdown belongs under %s (plans) or the memory store (session artifacts):\n"+
-		"  plan             -> %s/YYYY-MM-DD-<slug>.md\n"+
-		"  report/review    -> %s/YYYY-MM-DD-%s\n"+
-		"  handoff          -> %s/YYYY-MM-DD-<topic>.md\n"+
-		"  promoted knowledge -> %s/knowledge/<topic>.md (local-only)\n"+
-		"Re-issue the write at one of those paths. A genuine repo doc the user asked for: create it with\n"+
-		"`git add -N <file>` first — tracked files pass, even inside an ignored dir. Or disable the gate\n"+
-		"by setting %s=0.\n"+
+		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user asked\n"+
+		"for: `git add -N <file>` first (tracked files pass). Or disable the gate by setting %s=0.\n"+
 		"-> rules/harness/docs-placement.md\n",
-		base, where, plansDir,
-		plansHome,
-		memory.ReportsDir(store), base,
-		memory.HandoffsDir(store),
-		store,
-		docsPlacementDisableEnv)
+		base, where, plansHome, memory.ReportsDir(store), memory.HandoffsDir(store), docsPlacementDisableEnv)
 	return core.ExitBlock
 }
 

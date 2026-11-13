@@ -103,5 +103,5 @@ func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 	if pattern != "" {
 		msg += "  pattern: " + pattern + "\n"
 	}
-	return msg + "  command: " + in.ToolCommand() + "\n" + hint + "\n"
+	return msg + "  command: " + textutil.CapRunes(in.ToolCommand(), 160, "…") + "\n" + hint + "\n"
 }

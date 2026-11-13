@@ -20,8 +20,9 @@ func Start(in *core.Input) core.Result {
 	if err != nil {
 		reg = nil
 	}
-	refreshServed(reg, cwd, now)
-	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, now))}
+	pins := pinsOf(reg, now)
+	refreshServed(reg, pins, cwd, now)
+	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins))}
 	if !memory.IsUpdateChild() {
 		res.SystemMessage = memory.ConsumeCatchupNote()
 	}
@@ -41,7 +42,7 @@ func StartText(in *core.Input) core.Result {
 	if err != nil {
 		reg = nil
 	}
-	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, now))}
+	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, pinsOf(reg, now)))}
 }
 
 // cwdOf is the hook payload's cwd, else the process's.
@@ -54,26 +55,34 @@ func cwdOf(in *core.Input) string {
 }
 
 // preflightNotice is the static pin check (cached listings only): one short line when something needs a fix.
-func preflightNotice(reg *providers.Registry, now time.Time) string {
+func preflightNotice(reg *providers.Registry, pins []preflight.Pin) string {
 	if reg == nil {
 		return ""
 	}
-	return preflight.StaticLine(reg, now)
+	return preflight.StaticLine(reg, pins)
+}
+
+// pinsOf runs the pin check once per start; nil without a registry.
+func pinsOf(reg *providers.Registry, now time.Time) []preflight.Pin {
+	if reg == nil {
+		return nil
+	}
+	return preflight.Check(reg, now)
 }
 
 // refreshServed re-lists a stale served-endpoint cache detached; needs no memory bank, never from an update child.
-func refreshServed(reg *providers.Registry, cwd string, now time.Time) {
-	if !memory.IsUpdateChild() && servedRefreshDue(reg, now) {
+func refreshServed(reg *providers.Registry, pins []preflight.Pin, cwd string, now time.Time) {
+	if !memory.IsUpdateChild() && servedRefreshDue(reg, pins, now) {
 		spawnServed(cwd)
 	}
 }
 
 // servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
-func servedRefreshDue(reg *providers.Registry, now time.Time) bool {
+func servedRefreshDue(reg *providers.Registry, pins []preflight.Pin, now time.Time) bool {
 	if !providers.ServedRoutingOn() {
 		return false
 	}
-	return reg != nil && preflight.Stale(reg, now) && preflight.Claim(now)
+	return reg != nil && preflight.Stale(reg, pins, now) && preflight.Claim(now)
 }
 
 // loadProviders reads the provider registry (vault included); tests count it.

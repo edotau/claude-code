@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestCanonPathResolvesThroughMissingNestedDirs(t *testing.T) {
@@ -38,5 +40,21 @@ func TestGitScrubsInheritedGitDir(t *testing.T) {
 	}
 	if got, want := CanonPath(lines[0]), CanonPath(repo); got != want {
 		t.Fatalf("toplevel = %q, want %q", got, want)
+	}
+}
+
+// TestSafetyMessageCapsCommandOnRuneBoundary: 300 multibyte runes echo as 160 runes plus "…"; a short one stays whole.
+func TestSafetyMessageCapsCommandOnRuneBoundary(t *testing.T) {
+	msg := func(cmd string) string {
+		in := ParseInputFor(strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"`+cmd+`"}}`), AgentClaude)
+		return SafetyMessage(in, Block, "what", "", "hint")
+	}
+	long := msg(strings.Repeat("é", 300))
+	if want := "  command: " + strings.Repeat("é", 160) + "…\n"; !strings.Contains(long, want) || !utf8.ValidString(long) {
+		t.Fatalf("long command not capped at 160 runes on a rune boundary: %q", long)
+	}
+	short := msg("ls -l")
+	if !strings.Contains(short, "  command: ls -l\n") || strings.Contains(short, "…") {
+		t.Fatalf("short command must appear whole: %q", short)
 	}
 }

@@ -18,7 +18,6 @@ const (
 	simplicityMaxFile  = 1 << 20
 	simplicityMaxLines = 8
 	simplicityMaxChars = 1000
-	simplicityFixHint  = "Fix per rules/standards/quality.md → Comments, Simplify (built-in /simplify)"
 )
 
 // ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
@@ -123,6 +122,5 @@ func simplicityText(rel string, found []string) string {
 		}
 		b.WriteString(line)
 	}
-	b.WriteString("\n" + simplicityFixHint)
 	return b.String()
 }

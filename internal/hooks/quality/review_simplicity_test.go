@@ -47,8 +47,7 @@ func TestReviewSimplicityEdit(t *testing.T) {
 	p := rsWrite(t, "a.go", after)
 
 	out := rsRun(t, "Edit", p, "", block)
-	if !strings.Contains(out, "long_comment") || !strings.Contains(out, "1 new finding") ||
-		!strings.HasSuffix(out, simplicityFixHint) {
+	if !strings.Contains(out, "long_comment") || !strings.Contains(out, "1 new finding") {
 		t.Errorf("context = %q, want one long_comment finding", out)
 	}
 

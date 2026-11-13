@@ -250,9 +250,6 @@ func contextBindingProbes() map[string]bindingProbe {
 			}
 			return writeProbe(filepath.Dir(p), p, ""), func(r core.Result) bool { return strings.Contains(r.Context, "long_comment") }
 		},
-		"worktree-mode": func(*testing.T, string) (string, func(core.Result) bool) {
-			return `{"source":"startup"}`, func(r core.Result) bool { return strings.HasPrefix(r.Context, "Worktree: before") }
-		},
 		"worktree-create": func(t *testing.T, _ string) (string, func(core.Result) bool) {
 			return `{"cwd":"` + t.TempDir() + `","name":"x"}`,
 				func(r core.Result) bool { return r.ExitCode == 1 && strings.HasPrefix(r.Stderr, "worktree-create:") }
