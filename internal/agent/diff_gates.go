@@ -1,4 +1,4 @@
-// Go gates for `agents diff --check`: gofmt, build, vet, lint, complexity and test on the touched packages.
+// Go gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test and docs on the touched packages.
 
 package agent
 
@@ -40,6 +40,7 @@ var (
 type gateInput struct {
 	root, base          string
 	pkgs, goFiles, srcs []string
+	mds                 []string          // changed Markdown files still present
 	old                 map[string]string // checked path -> its path at base; absent for a file new since base
 }
 
@@ -65,6 +66,7 @@ func newGateInput(root, base string, files []DiffFile) gateInput {
 	in.pkgs = slices.Sorted(maps.Keys(pkgSet))
 	sort.Strings(in.goFiles)
 	sort.Strings(in.srcs)
+	sort.Strings(in.mds)
 	return in
 }
 
@@ -83,6 +85,9 @@ func addGateFile(in *gateInput, pkgSet map[string]bool, p string, gone bool) {
 	}
 	if gone {
 		return
+	}
+	if strings.HasSuffix(p, ".md") {
+		in.mds = append(in.mds, p)
 	}
 	if isGo {
 		in.goFiles = append(in.goFiles, p)
@@ -108,7 +113,7 @@ func runGates(ctx context.Context, root, base string, files []DiffFile) []GateRe
 		if len(in.srcs) > 0 {
 			out = append(out, runGate(ctx, defs[complexityIdx], in))
 		}
-		return out
+		return appendDocs(ctx, out, in)
 	}
 	res := make([]GateResult, len(defs))
 	for i, d := range defs {
@@ -118,7 +123,15 @@ func runGates(ctx context.Context, root, base string, files []DiffFile) []GateRe
 		}
 		res[i] = runGate(ctx, d, in)
 	}
-	return res
+	return appendDocs(ctx, res, in)
+}
+
+// appendDocs adds the docs gate after the others, only when the change set holds Markdown.
+func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResult {
+	if len(in.mds) == 0 {
+		return res
+	}
+	return append(res, runGate(ctx, gateDef{name: "docs", fn: docsGate}, in))
 }
 
 // Indexes into gateDefs.
@@ -219,6 +232,19 @@ func lintGate(ctx context.Context, in gateInput) (string, string, error) {
 		return "", "not installed", nil
 	}
 	return pkgGate("golangci-lint", "run")(ctx, in)
+}
+
+// docsGate runs the repo's mdsmith (the `make lint-docs` check, same .mdsmith.yml) on the changed Markdown only.
+func docsGate(ctx context.Context, in gateInput) (string, string, error) {
+	bin := filepath.Join(in.root, "bin", "mdsmith")
+	if _, err := gateLookPath(bin); err != nil {
+		bin = "mdsmith"
+		if _, err := gateLookPath(bin); err != nil {
+			return "", "mdsmith not installed", nil
+		}
+	}
+	out, err := gateRun(ctx, in.root, bin, append([]string{"check", "--no-color"}, in.mds...)...)
+	return out, "", err
 }
 
 // complexityGate runs the `review simplify` engine in-process; only MEDIUM+ findings the change introduced fail it.

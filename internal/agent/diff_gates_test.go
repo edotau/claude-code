@@ -175,9 +175,27 @@ func TestGitBlobsReadsBaseInOneCall(t *testing.T) {
 
 func TestGatesDocsOnlySkipGoGates(t *testing.T) {
 	dir, _ := gateRepo(t)
-	(&fakeGates{}).install(t)
+	(&fakeGates{lint: true}).install(t)
 	docs := runGates(context.Background(), dir, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}})
-	if len(docs) != 1 || docs[0].Name != "go gates" || docs[0].Status != "skip" || !strings.Contains(docs[0].Reason, "make lint") {
+	if got := gateStatuses(docs); got != "skip go gates, ok docs" || !strings.Contains(docs[0].Reason, "make lint") {
 		t.Errorf("docs-only change: %+v", docs)
+	}
+}
+
+func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
+	dir, files := gateRepo(t)
+	f := &fakeGates{lint: true, fail: map[string]string{dir + "/bin/mdsmith check": "a.md:3:121 MDS001 line too long\n"}}
+	f.install(t)
+	md := []DiffFile{{Path: "a.md", Status: "M"}, {Path: "gone.md", Status: "D"}}
+	rs := runGates(context.Background(), dir, "HEAD", append(files, md...))
+	if last := rs[len(rs)-1]; last.Name != "docs" || last.Status != "FAIL" || !strings.Contains(last.OutputHead, "MDS001") {
+		t.Errorf("docs gate = %+v; want a FAIL carrying the mdsmith line", last)
+	}
+	if rs = runGates(context.Background(), dir, "HEAD", files); strings.Contains(gateStatuses(rs), "docs") {
+		t.Errorf("a Go-only change ran the docs gate: %s", gateStatuses(rs))
+	}
+	(&fakeGates{}).install(t)
+	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-1].Reason != "mdsmith not installed" {
+		t.Errorf("missing mdsmith: %+v", rs)
 	}
 }
