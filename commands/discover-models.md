@@ -7,10 +7,9 @@ allowed-tools: Bash(claude-code models discover *)
 
 # /discover-models
 
-Thin launcher only. Run `claude-code models discover` with the user's `$ARGUMENTS`.
-Pass `--apply` by default; if `--dry-run` is present, do not add `--apply`.
-If the user already supplied `--apply`, do not duplicate it. Pass arguments as literal
-CLI arguments, never evaluate shell syntax or interpolate command substitutions.
+Launcher only. Run `claude-code models discover` with the user's `$ARGUMENTS`.
+Add `--apply` unless `--dry-run` is present or `--apply` was already supplied. Pass arguments as literal
+CLI arguments; never evaluate shell syntax or command substitutions.
 Do not run other commands, switch accounts, alter pins/routes, or edit catalogs yourself.
 
 Report each provider/profile's status, source, discovered count, additions, destinations,
