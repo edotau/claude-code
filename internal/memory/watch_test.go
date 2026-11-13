@@ -227,7 +227,7 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	done := make(chan int, 1)
 	go func() {
 		done <- IdleUpdateWatch(WatchOptions{Session: "fresh", Transcript: tr, CWD: filepath.Dir(tr),
-			Idle: 200 * time.Millisecond, Stderr: io.Discard})
+			Idle: 5 * time.Second, Stderr: io.Discard}) // far past the test: a stalled goroutine must not read as idle
 	}()
 	time.Sleep(60 * time.Millisecond) // several polls, well inside the 200ms idle window
 	if n := calls.Load(); n != 0 {
