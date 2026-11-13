@@ -385,8 +385,8 @@ const (
 
 // Session-surface budgets: this repo's focus and the home bank's essentials, reserved so neither starves the other.
 const (
-	focusCapChars     = 2000
-	homeFocusCapChars = 800
+	focusCapChars     = 1200
+	homeFocusCapChars = 500
 )
 
 // sessionSurface is the capped session preload: root's and home's focus sections plus a pointer to other repos.
