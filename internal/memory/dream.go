@@ -226,15 +226,20 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 		return nil, archiveErr
 	}
 	since, _, _ := effectiveStamp(o.CWD, time.Now()) // no stamp: the zero time lists every file
-	prompt, err := agentDreamPrompt(o.CWD, dreamChanged(o.CWD, since))
+	changed := dreamChanged(o.CWD, since)
+	prompt, err := agentDreamPrompt(o.CWD, changed)
 	if err != nil {
 		return err, archiveErr
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
+	start := time.Now()
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory dream: ran on", who)
+	if err == nil && len(changed) > 0 && len(dreamChanged(o.CWD, start)) == 0 {
+		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
+	}
 	return err, archiveErr
 }
 

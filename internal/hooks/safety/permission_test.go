@@ -190,3 +190,40 @@ func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// TestPermissionGateRedirectDenialSaysHowToRetry: a memory job's `2>&1` is refused with the redirect-free retry, not "report it".
+func TestPermissionGateRedirectDenialSaysHowToRetry(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"claude-code memory review *"}],"deny":[{"Tool":"Bash","Arg":"*>*"}]}`)
+	bash := func(cmd string) core.Result {
+		return PermissionGate(core.ParseInput(strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"` + cmd + `"}}`)))
+	}
+	if res := bash("claude-code memory review"); res.Decision == core.Block {
+		t.Fatalf("the bare command must pass, got %q", res.Reason)
+	}
+	res := bash("claude-code memory review 2>&1")
+	if res.Decision != core.Block || !strings.Contains(res.Reason, "again without them") || strings.Contains(res.Reason, "Report it") {
+		t.Errorf("decision %v reason %q, want a block telling the model to retry without redirects", res.Decision, res.Reason)
+	}
+	res = bash("wc -l x.md")
+	if res.Decision != core.Block || !strings.Contains(res.Reason, "allow: Bash(claude-code memory review *)") || strings.Contains(res.Reason, "Report it") {
+		t.Errorf("decision %v reason %q, want a block naming the allow list and telling the model to continue", res.Decision, res.Reason)
+	}
+}
+
+// TestPermissionGatePlanAllowsAbsoluteGlobUnderCWD: a bank file below the cwd meets an absolute allow glob; outside it is refused.
+func TestPermissionGatePlanAllowsAbsoluteGlobUnderCWD(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Edit","Arg":"/repo/memory/**"},{"Tool":"Write","Arg":"/repo/memory/**"}],`+
+		`"deny":[{"Tool":"Edit","Arg":"/repo/memory/.git/**"},{"Tool":"Write","Arg":"/repo/memory/.git/**"}]}`)
+	edit := func(path string) core.Decision {
+		return PermissionGate(core.ParseInput(strings.NewReader(
+			`{"tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"` + path + `"}}`))).Decision
+	}
+	for path, block := range map[string]bool{
+		"/repo/memory/bank/progress.md": false, "memory/bank/progress.md": false,
+		"/repo/main.go": true, "/repo/memory/.git/config": true, "memory/.git/config": true,
+	} {
+		if got := edit(path) == core.Block; got != block {
+			t.Errorf("Edit(%s) blocked = %v, want %v", path, got, block)
+		}
+	}
+}

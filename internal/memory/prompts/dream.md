@@ -5,6 +5,10 @@ stale fact a newer one contradicts, a pattern that recurs across 3+ memories and
 prohibition. That's this reference. (`memory dream --dry-run` is the separate, deterministic
 preview — no model call, see its own output.)
 
+Tools: Read, Grep and Glob to inspect; Edit and Write under the memory root (allowed, despite the gate's
+`mode: plan`); Bash only for the `claude-code memory` commands this file names, exactly as written (no `2>&1`,
+redirects, pipes, `cd`, `wc` or `git`). A refused call is not a reason to stop: continue with the allowed tools.
+
 ## Phase 1: Baseline
 
 No file backup: `~/.claude/memory/` is a local git repo, so `git -C ~/.claude/memory diff` / `log`
