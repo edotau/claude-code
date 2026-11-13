@@ -145,6 +145,25 @@ func TestWSLDetect(t *testing.T) {
 }
 
 // TestWSLDetectChromeTagNeedsPortOwner: Brave, Vivaldi and Chrome all report "Chrome/", so the listener decides.
+func TestWSLDetectChromeTagNeedsPortOwner(t *testing.T) {
+	for _, name := range []string{"chrome", "brave", "vivaldi"} {
+		for _, listener := range []string{"chrome", "brave", "vivaldi"} {
+			t.Run(name+"_listened_by_"+listener, func(t *testing.T) {
+				env := newWSLTestEnv(t, &fakeRun{})
+				writeWSLExe(t, env, name)
+				env.Probe = func() string { return "Chrome/120" }
+				env.cdpListen = func() string { return listener }
+				want := stateAvailable
+				if name == listener {
+					want = stateReady
+				}
+				if got := detectOne(env, specMust(t, name)).Paths.CDP; got != want {
+					t.Errorf("Paths.CDP = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
 
 func TestWSLDetectMissingWindowsExe(t *testing.T) {
 	for _, s := range knownBrowsers {

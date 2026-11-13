@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -24,10 +25,10 @@ import (
 const scopeBytesPerLine = 80
 
 // scopeExts are the source extensions the --paths listing keeps.
-var scopeExts = setOf(".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".rs", ".java")
+var scopeExts = textutil.SetOf(".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".rs", ".java")
 
 // scopeSkipDirs are directories the --paths listing never lists, even when a path names one.
-var scopeSkipDirs = setOf("node_modules", ".venv", "vendor", "testdata")
+var scopeSkipDirs = textutil.SetOf("node_modules", ".venv", "vendor", "testdata")
 
 // scopeFile is one listed file with its size in bytes.
 type scopeFile struct {
@@ -134,7 +135,7 @@ func rangeFiles(repo, diffRange string, paths []string) ([]scopeFile, error) {
 		paths = []string{"."}
 	}
 	args := append([]string{"diff", "--numstat", "-z", diffRange, "--"}, paths...)
-	out, err := gitInherit(repo, args...)
+	out, err := source.GitInherit(repo, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -93,7 +95,7 @@ func TestWorkspaceRequestsLeaveThroughTheTunnelOrFail(t *testing.T) {
 		socks = startSocks(t, port)
 		return 0, nil, nil
 	}
-	tr := &http.Transport{Proxy: ProxyFor("box"), DisableKeepAlives: true}
+	tr := &http.Transport{Proxy: proxyFor("box"), DisableKeepAlives: true}
 	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 
 	resp, err := client.Get(workspace.URL)
@@ -114,5 +116,62 @@ func TestWorkspaceRequestsLeaveThroughTheTunnelOrFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "egress host box: ssh is gone") || hits.Load() != 1 {
 		t.Fatalf("err = %v, workspace hits = %d; want the egress host error and no direct request", err, hits.Load())
+	}
+}
+
+func TestValidRejectsPathSeparators(t *testing.T) {
+	if err := Valid("box.example"); err != nil {
+		t.Fatalf("Valid(box.example) = %v", err)
+	}
+	for _, h := range []string{"", "a/b", `a\b`} {
+		if Valid(h) == nil {
+			t.Errorf("Valid(%q) accepted", h)
+		}
+	}
+}
+
+func TestSSHArgsBindLoopbackAndEndWithHost(t *testing.T) {
+	got := strings.Join(sshArgs("box", 4242, "/tmp/x.log"), " ")
+	for _, want := range []string{"-D 127.0.0.1:4242", "-E /tmp/x.log", "BatchMode=yes", "ControlPath=none", "-- box"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sshArgs missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestSSHCauseIsTheLastLogLine(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "x.log")
+	if err := os.WriteFile(log, []byte("first\nPermission denied\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := sshCause(log); got != "Permission denied" {
+		t.Errorf("sshCause = %q", got)
+	}
+	if got := sshCause(filepath.Join(t.TempDir(), "none.log")); !strings.Contains(got, "exited before") {
+		t.Errorf("sshCause of a missing log = %q", got)
+	}
+}
+
+// Stop drops the record but never kills a live pid that is not the tunnel's ssh (a recycled pid).
+func TestStopDropsRecordAndSparesRecycledPid(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := Tunnel{Host: "box", Port: 4242, PID: os.Getpid()}
+	if err := writeRecord(recordPath("box"), rec); err != nil {
+		t.Fatal(err)
+	}
+	if got := Tunnels(); len(got) != 1 || got[0] != rec {
+		t.Fatalf("Tunnels = %v, want [%v]", got, rec)
+	}
+	if err := Stop("box"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if got := Tunnels(); len(got) != 0 {
+		t.Fatalf("Tunnels after Stop = %v", got)
+	}
+	if err := Stop("box"); err != nil {
+		t.Fatalf("Stop without a record: %v", err)
 	}
 }

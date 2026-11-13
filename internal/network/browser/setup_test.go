@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,11 @@ func TestSetup_DryRunOpensStoreNeverTouchesManifests(t *testing.T) {
 	touchFile(t, hostBin)
 	writeHostManifest(t, supportDir, hostBin, validOrigin())
 	writeProfile(t, supportDir, "Default", false, false) // extension absent -> install-extension action
+	manifestPath := filepath.Join(supportDir, "NativeMessagingHosts", hostManifestName)
+	before, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	actions, err := Setup(env, "chrome")
 	if err != nil {
@@ -36,7 +42,16 @@ func TestSetup_DryRunOpensStoreNeverTouchesManifests(t *testing.T) {
 	if len(a.Command) == 0 || a.Command[0] != "open" {
 		t.Fatalf("Command = %v, want an open invocation", a.Command)
 	}
-	// Detection always runs read-only probes; DryRun only gates the install action's mutating "open" call.
+	checkOnlyProbeCalls(t, f, s)
+	// the host manifest on disk must be byte-identical to what writeHostManifest wrote: Setup never rewrites it.
+	if after, err := os.ReadFile(manifestPath); err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("host manifest %s changed: err=%v before=%q after=%q", manifestPath, err, before, after)
+	}
+}
+
+// checkOnlyProbeCalls: detection runs read-only probes; DryRun only gates the install action's mutating "open" call.
+func checkOnlyProbeCalls(t *testing.T, f *fakeRun, s spec) {
+	t.Helper()
 	allowed := map[string]bool{
 		"mdfind kMDItemCFBundleIdentifier == '" + s.darwinBundleID + "'": true,
 		guiProbeKey: true,
@@ -45,11 +60,6 @@ func TestSetup_DryRunOpensStoreNeverTouchesManifests(t *testing.T) {
 		if !allowed[c] {
 			t.Fatalf("DryRun must not call Run beyond the install-state probes; got %q", c)
 		}
-	}
-	// the host manifest on disk must be byte-identical to what writeHostManifest wrote: Setup never rewrites it.
-	manifestPath := filepath.Join(supportDir, "NativeMessagingHosts", hostManifestName)
-	if !dirExistsOrFile(manifestPath) {
-		t.Fatalf("host manifest %s vanished", manifestPath)
 	}
 }
 

@@ -410,23 +410,15 @@ func baseImportRow(c cfgCandidate, existing map[string]json.RawMessage, o import
 		r.ID = n
 	}
 	raw, exists := existing[r.ID]
-	ek = existingAuthType(raw)
+	row := readExisting(raw)
 	r.existed, r.previousHost = exists, existingHost(raw)
-	if ek == providers.AuthOAuth {
-		var p struct {
-			Auth     map[string]json.RawMessage `json:"auth"`
-			Identity string                     `json:"identity"`
-		}
-		if json.Unmarshal(raw, &p) != nil {
+	if row.Kind == providers.AuthOAuth {
+		if !row.Readable {
 			return r, "" // a malformed row reads as unreadable, so the import skips it
 		}
-		value, set := p.Auth["spClientId"]
-		if set && json.Unmarshal(value, &r.SPClientID) != nil {
-			return r, ""
-		}
-		r.PairingSet, r.identity = set, p.Identity
+		r.SPClientID, r.PairingSet, r.identity = row.SPClientID, row.PairingSet, row.Identity
 	}
-	return r, ek
+	return r, row.Kind
 }
 
 // skipReason is why row r is not imported ("" = importable); the checks run in a fixed order.
@@ -468,11 +460,14 @@ func existingSkipReason(r importRow, c cfgCandidate, ek string, o importOptions)
 }
 
 // secretNameOf is the vault name of a planned row's sealed credential, derived by providers.
-func secretNameOf(r importRow) string {
-	if r.Auth == providers.AuthOAuth && r.SPClientID != "" {
-		return secretName(r.ID, providers.AuthM2M)
+func secretNameOf(r importRow) string { return sealedName(r.ID, r.Auth, r.SPClientID) }
+
+// sealedName is the vault name of the credential row id seals under auth; a paired oauth row seals its service principal's.
+func sealedName(id, auth, spClientID string) string {
+	if auth == providers.AuthOAuth && spClientID != "" {
+		auth = providers.AuthM2M
 	}
-	return secretName(r.ID, r.Auth)
+	return secretName(id, auth)
 }
 
 // secretName is the vault name of a databricks profile's sealed secret for an auth type.
@@ -480,22 +475,15 @@ func secretName(id, authType string) string {
 	return providers.SecretName(providers.GroupDatabricks, id, authType)
 }
 
-// sealedNames maps each existing row's derived sealed-secret name to its id.
+// sealedNames maps each existing row's derived sealed-secret names to its id.
 func sealedNames(existing map[string]json.RawMessage) map[string]string {
 	out := map[string]string{}
 	for id, raw := range existing {
-		var p struct {
-			Auth struct {
-				SPClientID string `json:"spClientId"`
-			} `json:"auth"`
-		}
-		_ = json.Unmarshal(raw, &p) // an unrelated bad field must not hide the row's sealed secret
-		auth := existingAuthType(raw)
-		if auth == providers.AuthOAuth && p.Auth.SPClientID != "" {
-			out[secretName(id, providers.AuthM2M)] = id
-		}
-		if n := secretName(id, auth); n != "" {
-			out[n] = id
+		row := readExisting(raw)
+		for _, n := range []string{sealedName(id, row.Kind, row.SPClientID), secretName(id, row.Kind)} {
+			if n != "" {
+				out[n] = id
+			}
 		}
 	}
 	return out
@@ -508,20 +496,33 @@ func collides(names map[string]string, r importRow) bool {
 	return n != "" && ok && o != r.ID
 }
 
-// existingAuthType is an existing row's sealed auth.type (oauth, m2m, pat); "" for any other row.
-func existingAuthType(raw json.RawMessage) string {
+// existingRow is what import reads from one raw provider row; a field that does not decode reads as empty.
+type existingRow struct {
+	Kind       string // sealed auth.type (oauth, m2m, pat); "" for any other row
+	SPClientID string
+	Identity   string
+	PairingSet bool // auth.spClientId is present, even as null or empty
+	Readable   bool // every field above decoded without error
+}
+
+// readExisting decodes raw once into the facts import needs.
+func readExisting(raw json.RawMessage) existingRow {
 	var p struct {
-		Auth struct {
-			Type string `json:"type"`
+		Identity string `json:"identity"`
+		Auth     struct {
+			Type       string          `json:"type"`
+			SPClientID json.RawMessage `json:"spClientId"`
 		} `json:"auth"`
 	}
-	if json.Unmarshal(raw, &p) != nil {
-		return ""
+	err := json.Unmarshal(raw, &p)
+	row := existingRow{Identity: p.Identity, PairingSet: len(p.Auth.SPClientID) > 0, Readable: err == nil}
+	if slices.Contains([]string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT}, p.Auth.Type) {
+		row.Kind = p.Auth.Type
 	}
-	if !slices.Contains([]string{providers.AuthOAuth, providers.AuthM2M, providers.AuthPAT}, p.Auth.Type) {
-		return ""
+	if row.PairingSet && json.Unmarshal(p.Auth.SPClientID, &row.SPClientID) != nil {
+		row.SPClientID, row.Readable = "", false
 	}
-	return p.Auth.Type
+	return row
 }
 
 // rowJSON renders the vault row for a planned candidate, merged onto prev (the existing row, nil for an add).

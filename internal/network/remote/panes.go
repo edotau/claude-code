@@ -3,7 +3,6 @@ package remote
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"slices"
 	"strconv"
@@ -192,9 +191,8 @@ const (
 )
 
 const (
-	paneCaptureLines = 50               // trailing lines tmux captures per pane
-	maxPanes         = 64               // bounds how many panes one call parses
-	captureTimeout   = 20 * time.Second // bounds one host's whole list+capture round trip
+	paneCaptureLines = 50 // trailing lines tmux captures per pane
+	maxPanes         = 64 // bounds how many panes one call parses
 )
 
 // captureCommand lists cc-* panes and captures each, control-byte framed; fieldSep is "|" since tmux mangles tabs.
@@ -219,22 +217,20 @@ type paneCapture struct {
 // paneRunner runs an execArgs argv and returns its output; tests swap in a fake with no ssh or tmux.
 type paneRunner func(ctx context.Context, argv []string) ([]byte, error)
 
-// execRunner is the production paneRunner.
+// execRunner is the production paneRunner: argv under sshTimeout, stdout capped.
 func execRunner(ctx context.Context, argv []string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = proc.ExecWaitDelay
+	cmd, cancel := sshCommand(ctx, argv)
+	defer cancel()
 	return proc.OutputCapped(cmd)
 }
 
-// capturePanes captures every cc-* pane on host via run; over captureTimeout, proc.MaxCaptureBytes or maxPanes errors.
-func capturePanes(ctx context.Context, host string, local, batch bool, run paneRunner) ([]paneCapture, error) {
-	cctx, cancel := context.WithTimeout(ctx, captureTimeout)
-	defer cancel()
-	argv, err := execArgs(host, captureCommand, local, batch)
+// capturePanes captures every cc-* pane on host via run; over proc.MaxCaptureBytes or maxPanes errors.
+func capturePanes(ctx context.Context, host string, local bool, run paneRunner) ([]paneCapture, error) {
+	argv, err := execArgs(host, captureCommand, local)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}
-	out, err := run(cctx, argv)
+	out, err := run(ctx, argv)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}

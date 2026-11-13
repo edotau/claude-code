@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const (
@@ -48,7 +50,7 @@ const foldCfg = "[dev]\nhost = " + foldDevHost + "\n"
 func foldImport(t *testing.T, flags ...string) (int, string, string) {
 	t.Helper()
 	cfg := writeCfg(t, foldCfg)
-	return captureOutput(t, func() int { return importCfg(append([]string{"--dbxcfg", cfg}, flags...)) })
+	return hosttest.CaptureOutput(t, func() int { return importCfg(append([]string{"--dbxcfg", cfg}, flags...)) })
 }
 
 func mustFold(t *testing.T, flags ...string) string {
@@ -70,7 +72,7 @@ func rowPresent(t *testing.T, id string) bool {
 }
 
 func TestImportFoldIsExplicitAndDryRun(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	seedLegacyRows(t)
 	for _, flags := range [][]string{{"--apply"}, {"--fold-legacy", "--dry-run", "--apply"}} {
 		out := mustFold(t, flags...)
@@ -111,7 +113,7 @@ func TestFoldMatchesHostAndClientID(t *testing.T) {
 		{"not m2m", "", foldProfile(foldDevHost, ""), false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			setRow(t, "dev", foldProfile(foldDevHost, "sp-dev"))
 			if c.extra {
 				setRow(t, "dev2", foldProfile(foldDevHost, "sp-dev"))
@@ -163,7 +165,7 @@ func TestImportFoldReferenceVeto(t *testing.T) {
 		folded bool
 	}{{"agent", true}, {"pin", true}, {"alias", false}, {"overlay", false}, {"settings", false}} {
 		t.Run(c.kind, func(t *testing.T) {
-			dir := useVaultTest(t)
+			dir := vaulttest.UseFreshKey(t)
 			seedLegacyRows(t)
 			seedFoldReference(t, dir, c.kind)
 			out := mustFold(t, "--fold-legacy", "--apply")
@@ -231,7 +233,7 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 	}{{"none", "", false, true}, {"equal", "test-only-src", false, true}, {"differ", "test-only-other", false, false},
 		{"oauth-held", "", true, false}} {
 		t.Run(c.name, func(t *testing.T) {
-			useVaultTest(t)
+			vaulttest.UseFreshKey(t)
 			seedLegacyRows(t)
 			seedFoldSecrets(t, c.oauthHeld, c.dst)
 			before := foldSecretSnapshot(t)
@@ -256,7 +258,7 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 		})
 	}
 	t.Run("no credentials needs no key", func(t *testing.T) {
-		useVaultTest(t)
+		vaulttest.UseFreshKey(t)
 		seedLegacyRows(t)
 		t.Setenv("HARNESS_VAULT_KEY", "invalid-key-must-not-be-read")
 		mustFold(t, "--fold-legacy", "--apply")
@@ -331,7 +333,7 @@ func planFor(t *testing.T) foldPlan {
 }
 
 func TestFoldVetoesEnvValueEmbeddingID(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	seedLegacyRows(t)
 	if err := vault.Update(func(tx *vault.Tx) error {
 		return tx.Put(vault.Env, "LAUNCH", "databricks auth --profile acme-sp-dev")
@@ -345,7 +347,7 @@ func TestFoldVetoesEnvValueEmbeddingID(t *testing.T) {
 }
 
 func TestFoldPlanFlagsSharedDestinationAsDup(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	setRow(t, "dev", foldProfile(foldDevHost, "sp-dev"))
 	setRow(t, "a-sp", foldSource(foldDevHost, "sp-dev"))
 	setRow(t, "b-sp", foldSource(foldDevHost, "sp-dev"))
@@ -361,7 +363,7 @@ func TestFoldPlanFlagsSharedDestinationAsDup(t *testing.T) {
 }
 
 func TestFoldPlanKeepsHashCachesWithoutMoves(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	setRow(t, "orphan", foldSource(foldDevHost, "sp-none"))
 	if err := vault.Store(foldHashCache, "test-only-hash"); err != nil {
 		t.Fatal(err)
@@ -372,7 +374,7 @@ func TestFoldPlanKeepsHashCachesWithoutMoves(t *testing.T) {
 }
 
 func TestFoldKeepsRowWithNonVaultCredential(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	setRow(t, "dev", foldProfile(foldDevHost, "sp-dev"))
 	src := foldSource(foldDevHost, "sp-dev")
 	src["auth"].(map[string]any)["command"] = "get-secret"
@@ -384,7 +386,7 @@ func TestFoldKeepsRowWithNonVaultCredential(t *testing.T) {
 }
 
 func TestFoldLeavesAgentRecordsAloneWhenNoneNameRow(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	setRow(t, "dev", foldProfile(foldDevHost, "sp-dev"))
 	setRow(t, "acme-sp-dev", foldSource(foldDevHost, "sp-dev"))
 	const raw = `{"claude": {"profile": "other"}}`
@@ -400,7 +402,7 @@ func TestFoldLeavesAgentRecordsAloneWhenNoneNameRow(t *testing.T) {
 }
 
 func TestFoldEnvVetoMatchesWholeIDOnly(t *testing.T) {
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	setRow(t, "prof", foldProfile(foldDevHost, "sp-dev"))
 	setRow(t, "dev", foldSource(foldDevHost, "sp-dev"))
 	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Env, "MODE", "development") }); err != nil {

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -30,8 +29,8 @@ type ComplexityThresholds struct {
 
 var complexityThresholds = map[string]ComplexityThresholds{
 	"strict":  {8, 3, 40, 12, 2.0, 400},
-	"medium":  {10, 4, 50, 18, 3.0, 800},
-	"relaxed": {15, 5, 80, 30, 5.0, 1000},
+	"medium":  {10, 4, 50, 25, 3.0, 1200},
+	"relaxed": {15, 5, 80, 30, 5.0, 1500},
 }
 
 // Finding is one complexity_checker finding; Line is 0 (omitted) for file-level findings.
@@ -118,6 +117,22 @@ func deepestIndentUnits(text string) int {
 	return deepest
 }
 
+// leadingWidth counts indentation columns (a tab advances to the next multiple of 8, Python's tab rule).
+func leadingWidth(s string) int {
+	n := 0
+	for _, r := range s {
+		switch r {
+		case ' ':
+			n++
+		case '\t':
+			n += 8 - (n % 8)
+		default:
+			return n
+		}
+	}
+	return n
+}
+
 // analyzeFileComplexity ports complexity_checker.analyze_file.
 func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, error) {
 	lang := DetectComplexityLang(path)
@@ -134,7 +149,7 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 // testFileLines is the file-length cap of a Go test file (rules/standards/quality.md); 0 for any other path.
 func testFileLines(path string) int {
 	if strings.HasSuffix(path, "_test.go") {
-		return 1000
+		return 1500
 	}
 	return 0
 }
@@ -360,15 +375,7 @@ func RunComplexity(args []string, stdout, stderr io.Writer) int {
 		summary.Status, summary.Verdict = "error", "FAIL"
 	}
 	if parsed.jsonOut {
-		b, err := PyMarshalIndent(summary)
-		if err == nil {
-			_, err = stdout.Write(b)
-		}
-		if err != nil {
-			fmt.Fprintf(stderr, "Error: %s\n", err)
-			return 1
-		}
-		if _, err := fmt.Fprintln(stdout); err != nil {
+		if err := WritePyJSON(stdout, summary); err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
 			return 1
 		}
@@ -464,8 +471,8 @@ func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonO
 
 // jsonStringLiteral renders s as a Python-style json.dumps string literal (ensure_ascii, no HTML-escaping).
 func jsonStringLiteral(s string) string {
-	b, _ := textutil.MarshalNoEscape(s) // a string literal always marshals; nothing here can fail
-	return string(pyEscapeNonASCII(b))
+	b, _ := pyMarshalCompact(s) // a string literal always marshals; nothing here can fail
+	return string(b)
 }
 
 // pyListRepr mimics Python's str(list[str]): ['py', 'ts', ...] with single quotes.

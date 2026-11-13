@@ -414,7 +414,7 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	var err error
 	if jsonOut {
-		_, err = fmt.Fprintln(stdout, string(goalsJSON(a)))
+		err = reviewsource.WritePyJSON(stdout, goalsResult(a))
 	} else {
 		err = printGoals(stdout, a)
 	}
@@ -425,22 +425,19 @@ func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func goalsJSON(a analysis) []byte {
-	var b []byte
+func goalsResult(a analysis) any {
 	if a.noPlan {
-		b, _ = reviewsource.PyMarshalIndent(noStepsResult{
+		return noStepsResult{
 			Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
 			Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
 			OversizedTasks: a.oversizedTasks,
-		})
-		return b
+		}
 	}
-	b, _ = reviewsource.PyMarshalIndent(stepsResult{
+	return stepsResult{
 		Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
 		Percentage: reviewsource.PyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
 		StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
-	})
-	return b
+	}
 }
 
 func printGoals(dst io.Writer, a analysis) error {

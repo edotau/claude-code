@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Finding is one assumption-linter hit; field order matches the Python dict literal for JSON parity.
-type Finding struct {
+// finding is one assumption-linter hit; field order matches the Python dict literal for JSON parity.
+type finding struct {
 	Line     int    `json:"line"`
 	Category string `json:"category"`
 	Matched  string `json:"matched"`
@@ -49,14 +49,14 @@ func (o orderedCounts) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// AssumptionResult mirrors the Python result dict's key order exactly.
-type AssumptionResult struct {
+// assumptionResult mirrors the Python result dict's key order exactly.
+type assumptionResult struct {
 	Status        string        `json:"status"`
 	Source        string        `json:"source"`
 	TotalFindings int           `json:"total_findings"`
 	ByCategory    orderedCounts `json:"by_category"`
 	Verdict       string        `json:"verdict"`
-	Findings      []Finding     `json:"findings"`
+	Findings      []finding     `json:"findings"`
 }
 
 type signalDef struct {
@@ -156,8 +156,8 @@ var (
 	})
 )
 
-func lintText(text string) []Finding {
-	findings := []Finding{}
+func lintText(text string) []finding {
+	findings := []finding{}
 	for i, line := range splitLines(text) {
 		stripped := strings.TrimSpace(line)
 		if stripped == "" || strings.HasPrefix(stripped, "#") {
@@ -165,7 +165,7 @@ func lintText(text string) []Finding {
 		}
 		for _, sig := range signals() {
 			if matched, ok := sig.match(stripped); ok {
-				findings = append(findings, Finding{
+				findings = append(findings, finding{
 					Line:     i + 1,
 					Category: sig.category,
 					Matched:  matched,
@@ -182,7 +182,7 @@ func lintText(text string) []Finding {
 			continue
 		}
 		trimmed := strings.ReplaceAll(strings.TrimSpace(block), "\n", " ")
-		findings = append(findings, Finding{
+		findings = append(findings, finding{
 			Line:     0,
 			Category: "missing-verification",
 			Matched:  textutil.TruncateRunes(trimmed, 80),
@@ -195,12 +195,12 @@ func lintText(text string) []Finding {
 
 type categoryGroup struct {
 	name  string
-	items []Finding
+	items []finding
 }
 
-func groupByCategory(findings []Finding) []categoryGroup {
+func groupByCategory(findings []finding) []categoryGroup {
 	order := []string{}
-	byName := map[string][]Finding{}
+	byName := map[string][]finding{}
 	for _, f := range findings {
 		if _, seen := byName[f.Category]; !seen {
 			order = append(order, f.Category)
@@ -236,21 +236,16 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 
 	verdict := assumptionVerdict(len(findings))
 
-	result := AssumptionResult{
-		Status:        "ok",
-		Source:        source,
-		TotalFindings: len(findings),
-		ByCategory:    counts,
-		Verdict:       verdict,
-		Findings:      findings,
-	}
-
 	var err error
 	if jsonOut {
-		var b []byte
-		if b, err = reviewsource.PyMarshalIndent(result); err == nil {
-			_, err = fmt.Fprintln(stdout, string(b))
-		}
+		err = reviewsource.WritePyJSON(stdout, assumptionResult{
+			Status:        "ok",
+			Source:        source,
+			TotalFindings: len(findings),
+			ByCategory:    counts,
+			Verdict:       verdict,
+			Findings:      findings,
+		})
 	} else {
 		err = printAssumptions(stdout, source, findings, groups, verdict)
 	}
@@ -271,7 +266,7 @@ func assumptionVerdict(n int) string {
 	return "CLARIFY"
 }
 
-func printAssumptions(dst io.Writer, source string, findings []Finding, groups []categoryGroup, verdict string) error {
+func printAssumptions(dst io.Writer, source string, findings []finding, groups []categoryGroup, verdict string) error {
 	stdout := &strings.Builder{}
 	fmt.Fprintf(stdout, "Assumption Linter — %s\n", source)
 	fmt.Fprintf(stdout, "Findings: %d   Verdict: %s\n", len(findings), verdict)

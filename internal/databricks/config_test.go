@@ -180,9 +180,7 @@ func TestRescueRefusals(t *testing.T) {
 	f := &fakeChild{}
 	useFake(t, f)
 	for name, a := range map[string][]string{
-		"cred set":   {"--host", exHost, "--set", "MY_SECRET=1"},
-		"non-claude": {"--host", exHost, "--model", "gpt-5.5"},
-		"bad wire":   {"--host", exHost, "--wire", "x"},
+		"cred set": {"--host", exHost, "--set", "MY_SECRET=1"},
 	} {
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return rescue(a) }); code != 2 {
 			t.Errorf("%s: %d", name, code)

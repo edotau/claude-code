@@ -37,8 +37,8 @@ func routeDefaultClientTo(t *testing.T, ts *httptest.Server) {
 	})}
 }
 
-// fakeTailscaleOnPATH puts a `tailscale` script on PATH answering `status --json` per state.
-func fakeTailscaleOnPATH(t *testing.T, backendState string) {
+// fakeTailscale puts a `tailscale` script on PATH answering `status --json` per backendState, then running tail.
+func fakeTailscale(t *testing.T, backendState, tail string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("requires a POSIX shell")
@@ -46,25 +46,7 @@ func fakeTailscaleOnPATH(t *testing.T, backendState string) {
 	dir := t.TempDir()
 	script := "#!/bin/sh\nif [ \"$1\" = status ]; then /bin/cat <<EOF\n" +
 		`{"BackendState":"` + backendState + `","Self":{"DNSName":"test-mac.tailxxxxx.ts.net.","AllowedIPs":[]},"Peer":{}}` +
-		"\nEOF\nfi\n"
-	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-}
-
-// fakeTailscaleUpOnPATH answers `status --json` as Stopped and records `up`'s argv to prove the key is never on it.
-func fakeTailscaleUpOnPATH(t *testing.T, argvFile string) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
-	dir := t.TempDir()
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = status ]; then /bin/cat <<EOF\n" +
-		`{"BackendState":"Stopped","Self":{"DNSName":"test-mac.tailxxxxx.ts.net.","AllowedIPs":[]},"Peer":{}}` +
-		"\nEOF\nfi\n" +
-		"if [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > " + textutil.ShellQuote(argvFile) + "; fi\n"
+		"\nEOF\nfi\n" + tail
 	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +75,7 @@ func TestTailscaleStatusNoCLI(t *testing.T) {
 
 func TestTailscaleStatusRunningTextAndJSON(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
+	fakeTailscale(t, "Running", "")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return Cmd(nil) })
 	if code != 0 {
 		t.Fatalf("status exit %d", code)
@@ -110,7 +92,7 @@ func TestTailscaleStatusRunningTextAndJSON(t *testing.T) {
 
 func TestTailscaleConnectWithoutKeyAlreadyRunningExitsZero(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
+	fakeTailscale(t, "Running", "")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--connect"}) })
 	if code != 0 {
 		t.Errorf("connect (already running, no key) exit %d, want 0", code)
@@ -122,7 +104,7 @@ func TestTailscaleConnectWithoutKeyAlreadyRunningExitsZero(t *testing.T) {
 
 func TestTailscaleConnectWithoutKeyNotRunningExitsTwo(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Stopped")
+	fakeTailscale(t, "Stopped", "")
 	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--connect"}) })
 	if code != 2 {
 		t.Errorf("connect (not running, no key) exit %d, want 2; stderr=%q", code, stderr)
@@ -134,7 +116,7 @@ func TestTailscaleConnectWithoutKeyNotRunningExitsTwo(t *testing.T) {
 
 func TestTailscaleConnectUsesVaultAuthKey(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Stopped")
+	fakeTailscale(t, "Stopped", "")
 	if err := vault.Store("TAILSCALE_AUTHKEY", "tskey-auth-fake"); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +131,8 @@ func TestTailscaleConnectAuthKeyDashReadsStdin(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	dir := t.TempDir()
 	argvFile := filepath.Join(dir, "argv")
-	fakeTailscaleUpOnPATH(t, argvFile)
+	fakeTailscale(t, "Stopped",
+		"if [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile)+"; fi\n")
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -187,7 +170,8 @@ func TestTailscaleConnectLiteralAuthKeyWarns(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	dir := t.TempDir()
 	argvFile := filepath.Join(dir, "argv")
-	fakeTailscaleUpOnPATH(t, argvFile)
+	fakeTailscale(t, "Stopped",
+		"if [ \"$1\" = up ]; then printf '%s\\n' \"$@\" > "+textutil.ShellQuote(argvFile)+"; fi\n")
 
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		return Cmd([]string{"--connect", "--auth-key", "tskey-auth-literal"})
@@ -305,7 +289,7 @@ func TestTailscaleKeyTrimsTags(t *testing.T) {
 
 func TestTailscaleKeyWithoutCredentialFails(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
+	fakeTailscale(t, "Running", "")
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--key"}) })
 	if code == 0 {
 		t.Fatalf("key with no admin credential: exit 0, want nonzero; stdout=%q", out)
@@ -320,7 +304,7 @@ func TestTailscaleKeyWithoutCredentialFails(t *testing.T) {
 
 func TestTailscaleExitNodeApproveWithoutCredentialPrintsAdminURL(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
+	fakeTailscale(t, "Running", "")
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return Cmd([]string{"--exit-node",
 			"approve"})
@@ -352,7 +336,7 @@ func TestNetworkTailscaleModeParsing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
+			fakeTailscale(t, "Running", "")
 			code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(tc.args) })
 			if code != 2 {
 				t.Errorf("exit %d, want 2; stderr=%q", code, stderr)
@@ -367,7 +351,7 @@ func TestNetworkTailscaleModeParsing(t *testing.T) {
 func TestNetworkTailscaleRouteRejectsBadValueExitsTwo(t *testing.T) {
 	for _, value := range []string{"", "-invalid"} {
 		hermeticTailscaleSecrets(t)
-		fakeTailscaleOnPATH(t, "Running")
+		fakeTailscale(t, "Running", "")
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--route", value}) })
 		if code != 2 || !strings.Contains(stderr, "requires a peer name") {
 			t.Errorf("--route %q: exit %d stderr %q, want 2 and a message about requiring a peer name", value, code, stderr)
@@ -388,7 +372,7 @@ func TestNetworkTailscaleRouteMutualExclusivity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
+			fakeTailscale(t, "Running", "")
 			code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(tc.args) })
 			if code != 2 {
 				t.Errorf("exit %d, want 2; stderr=%q", code, stderr)
@@ -404,7 +388,7 @@ func TestNetworkTailscaleRouteRunsAndReports(t *testing.T) {
 	for args, want := range map[string]string{"off": "exit node cleared", "my-peer": "routing via my-peer"} {
 		t.Run(args, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
+			fakeTailscale(t, "Running", "")
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Cmd([]string{"--route",
 					args})
@@ -431,7 +415,7 @@ func TestNetworkTailscaleSubnetParsing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
+			fakeTailscale(t, "Running", "")
 			code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(tc.args) })
 			if code != 2 || !strings.Contains(stderr, tc.want) {
 				t.Errorf("exit %d stderr %q, want 2 and %q", code, stderr, tc.want)
@@ -442,7 +426,7 @@ func TestNetworkTailscaleSubnetParsing(t *testing.T) {
 
 func TestNetworkTailscaleSubnetApproveWithoutCredentialPrintsAdminURL(t *testing.T) {
 	hermeticTailscaleSecrets(t)
-	fakeTailscaleOnPATH(t, "Running")
+	fakeTailscale(t, "Running", "")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--subnet", "approve"}) })
 	if code != 2 || !strings.Contains(out, "login.tailscale.com/admin/machines") {
 		t.Errorf("--subnet approve (no credential): exit %d stdout %q, want 2 and the admin URL", code, out)
@@ -456,7 +440,7 @@ func TestNetworkTailscaleSubnetAdvertiseAndOffReport(t *testing.T) {
 	} {
 		t.Run(args, func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			fakeTailscaleOnPATH(t, "Running")
+			fakeTailscale(t, "Running", "")
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Cmd([]string{"--subnet",
 					args})
@@ -468,28 +452,13 @@ func TestNetworkTailscaleSubnetAdvertiseAndOffReport(t *testing.T) {
 	}
 }
 
-func fakeAdvertiseCLI(t *testing.T, exitCode int) string {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("requires a POSIX shell")
-	}
-	dir := t.TempDir()
-	argv := filepath.Join(dir, "argv")
-	script := "#!/bin/sh\nif [ \"$1\" = status ]; then\n" +
-		"printf '%s\\n' '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"test-node.ts.net.\"}}'\nexit 0\nfi\n" +
-		"printf '%s\\n' \"$@\" > " + textutil.ShellQuote(argv) + "\n" + fmt.Sprintf("exit %d\n", exitCode)
-	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir)
-	return argv
-}
-
 func TestTailscaleKeylessConnectAppliesAdvertise(t *testing.T) {
 	for _, exitCode := range []int{0, 1} {
 		t.Run(fmt.Sprintf("set_exit_%d", exitCode), func(t *testing.T) {
 			hermeticTailscaleSecrets(t)
-			argv := fakeAdvertiseCLI(t, exitCode)
+			argv := filepath.Join(t.TempDir(), "argv")
+			fakeTailscale(t, "Running", "if [ \"$1\" = set ]; then printf '%s\\n' \"$@\" > "+
+				textutil.ShellQuote(argv)+fmt.Sprintf("; exit %d; fi\n", exitCode))
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Cmd([]string{"--connect", "--advertise-exit"})
 			})

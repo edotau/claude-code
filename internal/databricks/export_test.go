@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const exportSeedCfg = `[DEFAULT]
@@ -34,12 +36,12 @@ var sentinels = []string{"CLIENT-SECRET-SENTINEL", "PAT-SENTINEL", "dapi-DEFAULT
 // seedExportVault imports exportSeedCfg with sealed secrets plus a sealed refresh token for alice.
 func seedExportVault(t *testing.T) {
 	t.Helper()
-	useVaultTest(t)
+	vaulttest.UseFreshKey(t)
 	cfg := filepath.Join(t.TempDir(), "src.cfg")
 	if err := os.WriteFile(cfg, []byte(exportSeedCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, errs := captureOutput(t, func() int {
+	if code, out, errs := hosttest.CaptureOutput(t, func() int {
 		return importCfg([]string{"--dbxcfg", cfg, "--apply", "--seal-secrets"})
 	}); code != 0 {
 		t.Fatalf("seed import: %d %s %s", code, out, errs)
@@ -65,7 +67,7 @@ func noSentinel(t *testing.T, what, s string) {
 
 func TestExportNeverContainsASecretValue(t *testing.T) {
 	seedExportVault(t)
-	code, out, errs := captureOutput(t, func() int { return export(nil) })
+	code, out, errs := hosttest.CaptureOutput(t, func() int { return export(nil) })
 	if code != 0 || !strings.Contains(out, "[svc]") {
 		t.Fatalf("export: %d %q %q", code, out, errs)
 	}
@@ -75,7 +77,7 @@ func TestExportNeverContainsASecretValue(t *testing.T) {
 		t.Errorf("secret-bearing key written:\n%s", out)
 	}
 	file := filepath.Join(t.TempDir(), "out.cfg")
-	if code, _, errs := captureOutput(t, func() int { return export([]string{"--out", file}) }); code != 0 {
+	if code, _, errs := hosttest.CaptureOutput(t, func() int { return export([]string{"--out", file}) }); code != 0 {
 		t.Fatalf("export --out: %d %s", code, errs)
 	} else {
 		noSentinel(t, "--out stderr", errs)
@@ -99,7 +101,7 @@ func TestExportMergeNeverWritesDefaultOrOverwritesU2M(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"--merge", "--out", file}, {"--merge", "--force", "--out", file}} {
-		if code, _, errs := captureOutput(t, func() int { return export(args) }); code != 0 {
+		if code, _, errs := hosttest.CaptureOutput(t, func() int { return export(args) }); code != 0 {
 			t.Fatalf("%v: %d %s", args, code, errs)
 		}
 	}
@@ -124,7 +126,7 @@ func TestExportRefusesToOverwriteWithoutForce(t *testing.T) {
 	if err := os.WriteFile(file, []byte("keep\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := captureOutput(t, func() int { return export([]string{"--out", file}) }); code == 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return export([]string{"--out", file}) }); code == 0 {
 		t.Error("overwrote an existing --out without --force")
 	}
 	if b, _ := os.ReadFile(file); string(b) != "keep\n" {
@@ -154,11 +156,11 @@ func TestExportImportRoundTripYieldsIdenticalRows(t *testing.T) {
 	seedExportVault(t)
 	before := rowsJSON(t)
 	file := filepath.Join(t.TempDir(), "rt.cfg")
-	if code, _, errs := captureOutput(t, func() int { return export([]string{"--out", file}) }); code != 0 {
+	if code, _, errs := hosttest.CaptureOutput(t, func() int { return export([]string{"--out", file}) }); code != 0 {
 		t.Fatalf("export: %d %s", code, errs)
 	}
-	useVaultTest(t) // a fresh vault: the rows must come back from the file alone
-	if code, out, errs := captureOutput(t, func() int { return importCfg([]string{"--dbxcfg", file, "--apply"}) }); code != 0 {
+	vaulttest.UseFreshKey(t) // a fresh vault: the rows must come back from the file alone
+	if code, out, errs := hosttest.CaptureOutput(t, func() int { return importCfg([]string{"--dbxcfg", file, "--apply"}) }); code != 0 {
 		t.Fatalf("import: %d %s %s", code, out, errs)
 	}
 	after := rowsJSON(t)
@@ -179,7 +181,7 @@ func TestExportStdoutWriteErrorExitsNonzero(t *testing.T) {
 	orig := os.Stdout
 	os.Stdout = f
 	t.Cleanup(func() { os.Stdout = orig })
-	if code, _, _ := captureOutput(t, func() int { os.Stdout = f; return export(nil) }); code == 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { os.Stdout = f; return export(nil) }); code == 0 {
 		t.Error("export exited 0 although the stdout write failed")
 	}
 }

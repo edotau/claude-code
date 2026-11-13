@@ -338,6 +338,15 @@ func TestDispatchListJSONWriteError(t *testing.T) {
 }
 
 // TestDispatchRejectsFlagFromAnotherMode: --dry-run belongs to start mode, so --list refuses it.
+func TestDispatchRejectsFlagFromAnotherMode(t *testing.T) {
+	hermeticDispatch(t)
+	emptyPATH(t)
+	args := []string{"--host", "myhost", "--list", "--dry-run"}
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
+	if want := "--dry-run applies to --start mode only, not --list"; code == 0 || !strings.Contains(stderr, want) {
+		t.Fatalf("exit %d, stderr %q; want a refusal containing %q", code, stderr, want)
+	}
+}
 
 func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {

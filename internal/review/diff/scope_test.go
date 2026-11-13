@@ -32,6 +32,7 @@ func buildScopeRepo(t *testing.T) string {
 }
 
 func TestRunScopeEndToEnd(t *testing.T) {
+	t.Setenv("GOWORK", "off")
 	dir := buildScopeRepo(t)
 	var stdout, stderr bytes.Buffer
 	code := RunScope([]string{"--repo", dir, "--range", "HEAD~1..HEAD", "--importers", "--format", "json"}, &stdout, &stderr)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -50,18 +51,10 @@ type diffSurgeonResult struct {
 
 // Comment leaders by file extension; an unlisted or missing extension has none (conservative: not a comment).
 var (
-	hashExts   = setOf(".sh", ".bash", ".zsh", ".py", ".rb", ".yaml", ".yml", ".toml", ".pl", ".r", ".mk", ".conf", ".cfg", ".ini")
-	slashExts  = setOf(".go", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".js", ".jsx", ".ts", ".tsx", ".rs", ".swift", ".kt", ".cs", ".php", ".scala", ".css")
-	markupExts = setOf(".html", ".htm", ".xml", ".md", ".svg", ".vue")
+	hashExts   = textutil.SetOf(".sh", ".bash", ".zsh", ".py", ".rb", ".yaml", ".yml", ".toml", ".pl", ".r", ".mk", ".conf", ".cfg", ".ini")
+	slashExts  = textutil.SetOf(".go", ".c", ".h", ".cc", ".cpp", ".hpp", ".java", ".js", ".jsx", ".ts", ".tsx", ".rs", ".swift", ".kt", ".cs", ".php", ".scala", ".css")
+	markupExts = textutil.SetOf(".html", ".htm", ".xml", ".md", ".svg", ".vue")
 )
-
-func setOf(items ...string) map[string]bool {
-	m := make(map[string]bool, len(items))
-	for _, it := range items {
-		m[it] = true
-	}
-	return m
-}
 
 type diffFileEntry struct {
 	file    string
@@ -79,7 +72,7 @@ func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 		rev = diffRange
 	}
 	args := []string{"diff", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", rev}
-	out, err := gitInherit(repo, args...)
+	out, err := source.GitInherit(repo, args...)
 	if err != nil {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false
@@ -260,7 +253,7 @@ func buildDiffResult(files []*diffFileEntry) diffSurgeonResult {
 	}
 	ratio := 0.0
 	if totalChanges > 0 {
-		ratio = roundTo(float64(totalNoise)/float64(totalChanges), 2)
+		ratio = math.Round(float64(totalNoise)/float64(totalChanges)*100) / 100
 	}
 	verdict := "CLEAN"
 	if ratio >= 0.3 {
@@ -358,12 +351,7 @@ func runDiffIn(repo string, args []string, stdout, stderr io.Writer) int {
 
 // printJSON writes v as indented JSON; an encode or stdout write failure goes to stderr with exit 1.
 func printJSON(stdout, stderr io.Writer, v any) int {
-	js, err := source.PyMarshalIndent(v)
-	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
-		return 1
-	}
-	if _, err := fmt.Fprintln(stdout, string(js)); err != nil {
+	if err := source.WritePyJSON(stdout, v); err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}

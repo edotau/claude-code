@@ -66,8 +66,9 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 	var runs []*workflowRun
 	scanned := 0
 	turns := transcript.OpenSummaryCache(transcript.SummaryCachePath())
+	scans := workflowNameScans{}
 	for _, dir := range runDirs {
-		run, files := loadWorkflowRun(dir, errw, cutoff, turns)
+		run, files := loadWorkflowRun(dir, errw, cutoff, turns, scans)
 		if run == nil {
 			continue
 		}
@@ -126,14 +127,15 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 
 // loadWorkflowRun folds the in-window responses of every agent transcript in one run dir into phase rows,
 // returning the run and the number of transcripts that contributed (nil when none did).
-func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time, turns *transcript.SummaryCache) (*workflowRun, int) {
+func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time, turns *transcript.SummaryCache,
+	scans workflowNameScans) (*workflowRun, int) {
 	files := transcript.WorkflowAgentFiles(runDir)
 	if len(files) == 0 {
 		return nil, 0
 	}
 	run := &workflowRun{id: filepath.Base(runDir)}
-	run.name = workflowNameForRun(runDir, run.id)
-	warnWorkflowNames(runDir, errw)
+	run.name = workflowNameForRun(runDir, run.id, scans)
+	scans.warn(runDir, errw)
 	run.total.phase = "TOTAL"
 	run.total.models = map[string]*modelStats{}
 	if info, err := os.Stat(runDir); err == nil {
@@ -331,7 +333,7 @@ func sessionDirOf(runDir string) string {
 // <name>-<runId>.js; the run id itself carries hyphens, so the exact suffix is stripped, never split.
 // That glob only matches inline/by-name runs, so a {scriptPath} run falls back to scanning the
 // session's own main transcript for the tool_use that launched it.
-func workflowNameForRun(runDir, runID string) string {
+func workflowNameForRun(runDir, runID string, scans workflowNameScans) string {
 	sessionDir := sessionDirOf(runDir)
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "workflows", "scripts", "*-"+runID+".js"))
 	if err == nil && len(matches) > 0 {
@@ -340,7 +342,7 @@ func workflowNameForRun(runDir, runID string) string {
 			return name
 		}
 	}
-	if name := workflowNamesFromTranscript(sessionDir + ".jsonl")[runID]; name != "" {
+	if name := scans.namesFromTranscript(sessionDir + ".jsonl")[runID]; name != "" {
 		return name
 	}
 	return runID
@@ -376,25 +378,25 @@ type workflowNameEntry struct {
 	reported bool
 }
 
-// workflowNameCache caches the scan per session transcript path so runs of one session don't rescan it.
-var workflowNameCache = map[string]*workflowNameEntry{}
+// workflowNameScans caches the scan per session transcript path for one invocation (not safe for concurrent use).
+type workflowNameScans map[string]*workflowNameEntry
 
-// workflowNamesFromTranscript returns runID -> workflow name for every Workflow launch found in the
-// session's main transcript, scanning it at most once per process.
-func workflowNamesFromTranscript(sessionTranscript string) map[string]string {
-	e, ok := workflowNameCache[sessionTranscript]
+// namesFromTranscript returns runID -> workflow name for every Workflow launch found in the
+// session's main transcript, scanning it at most once per invocation.
+func (c workflowNameScans) namesFromTranscript(sessionTranscript string) map[string]string {
+	e, ok := c[sessionTranscript]
 	if !ok {
 		names, err := scanWorkflowNames(sessionTranscript)
 		e = &workflowNameEntry{names: names, err: err}
-		workflowNameCache[sessionTranscript] = e
+		c[sessionTranscript] = e
 	}
 	return e.names
 }
 
-// warnWorkflowNames reports once, on errw, a failed name scan of the session that owns runDir.
-func warnWorkflowNames(runDir string, errw io.Writer) {
+// warn reports once, on errw, a failed name scan of the session that owns runDir.
+func (c workflowNameScans) warn(runDir string, errw io.Writer) {
 	path := sessionDirOf(runDir) + ".jsonl"
-	if e := workflowNameCache[path]; e != nil && e.err != nil && !e.reported && !errors.Is(e.err, fs.ErrNotExist) {
+	if e := c[path]; e != nil && e.err != nil && !e.reported && !errors.Is(e.err, fs.ErrNotExist) {
 		e.reported = true
 		fmt.Fprintf(errw, "usage: warning: workflow names from %s incomplete: %v\n", path, e.err)
 	}

@@ -50,7 +50,7 @@ func resolveAuthKey(authKey, keyEnv string, stdin io.Reader) (string, error) {
 // connected reports the local status when the backend is already Running.
 func connected(ctx context.Context) (Local, bool) {
 	st, err := Status(ctx)
-	return st, err == nil && st.BackendState == "Running"
+	return st, err == nil && st.running()
 }
 
 // approveSelfExitNode approves this box's exit-node routes and returns its DNS name.
@@ -96,26 +96,6 @@ func parseSubnets(value string) (routes []string, ok bool) {
 	return routes, !bad
 }
 
-// mintKey parses expiry, mints an auth key through the admin API and hints at the usual 404 cause.
-func mintKey(ctx context.Context, expiry string, opts keyOpts) (AuthKey, error) {
-	exp, err := parseKeyExpiry(expiry)
-	if err != nil {
-		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
-	}
-	client, err := NewClient()
-	if err != nil {
-		return AuthKey{}, err
-	}
-	opts.Expiry = exp
-	key, err := client.CreateAuthKey(ctx, opts)
-	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
-		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
-		return AuthKey{}, fmt.Errorf("%w\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
-			"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
-	}
-	return key, err
-}
-
 // connectAudited joins the tailnet with key and audits the connect under this node's name.
 func connectAudited(ctx context.Context, key string, advertise bool) error {
 	if err := connect(ctx, key, advertise); err != nil {
@@ -150,11 +130,24 @@ type KeyOptions struct {
 	Reusable, Ephemeral, Preauthorized bool
 }
 
-// MintKey mints an auth key through the admin API (mintKey) and audits the mint with its tags.
+// MintKey parses the expiry, mints an auth key through the admin API and audits the mint with its tags.
 func MintKey(ctx context.Context, o KeyOptions) (AuthKey, error) {
+	exp, err := parseKeyExpiry(o.Expiry)
+	if err != nil {
+		return AuthKey{}, fmt.Errorf("--expiry: %w", err)
+	}
+	client, err := NewClient()
+	if err != nil {
+		return AuthKey{}, err
+	}
 	opts := keyOpts{Ephemeral: o.Ephemeral, Preauthorized: o.Preauthorized, Reusable: o.Reusable,
-		Tags: textutil.SplitCSV(o.Tags), Description: o.Description}
-	key, err := mintKey(ctx, o.Expiry, opts)
+		Tags: textutil.SplitCSV(o.Tags), Description: o.Description, Expiry: exp}
+	key, err := client.CreateAuthKey(ctx, opts)
+	if err != nil && strings.Contains(err.Error(), "HTTP 404") {
+		// The admin API answers 404, not 403, when an OAuth client lacks the auth_keys scope.
+		return AuthKey{}, fmt.Errorf("%w\nhint: the OAuth client likely lacks Keys → Auth Keys: write, "+
+			"and OAuth-minted keys need --tags tag:<x> (a tag in tagOwners); or use TAILSCALE_API_KEY", err)
+	}
 	if err != nil {
 		return AuthKey{}, err
 	}

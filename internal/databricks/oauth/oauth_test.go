@@ -417,13 +417,25 @@ func TestPostTokenDoesNotRetry400(t *testing.T) {
 	}
 }
 
+// normHost accepts https and loopback http, and refuses plain http off loopback, userinfo, a query or a fragment.
 func TestNormHost(t *testing.T) {
 	if h, err := normHost(" https://example.cloud.databricks.com/ "); err != nil || h != "https://example.cloud.databricks.com" {
 		t.Errorf("%q %v", h, err)
 	}
-	for _, bad := range []string{"", "example.cloud.databricks.com", "ftp://x"} {
-		if _, err := normHost(bad); err == nil {
-			t.Errorf("normHost(%q) accepted", bad)
+	ok := []string{"https://example.cloud.databricks.com", "http://127.0.0.1:8080", "http://localhost:9", "http://[::1]:7"}
+	bad := []string{
+		"", "example.cloud.databricks.com", "ftp://x",
+		"http://example.cloud.databricks.com", "http://10.0.0.5", "http://example.cloud.databricks.com:8080/",
+		"https://u:secret@h.example.com", "https://h.example.com?o=1", "https://h.example.com#x",
+	}
+	for _, h := range ok {
+		if _, err := normHost(h); err != nil {
+			t.Errorf("normHost(%q) = %v", h, err)
+		}
+	}
+	for _, h := range bad {
+		if _, err := normHost(h); err == nil {
+			t.Errorf("normHost(%q) accepted", h)
 		}
 	}
 }
@@ -514,25 +526,6 @@ func TestClientCredentialsRetriedAfterDrop(t *testing.T) {
 	}
 }
 
-func TestListenLoopbackBindsLoopbackOnly(t *testing.T) {
-	p := freePort(t)
-	ln, port, err := listenPorts(p, p+PortSpan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	c, err := net.Dial("tcp4", net.JoinHostPort("127.0.0.1", itoa(port)))
-	if err != nil {
-		t.Fatalf("127.0.0.1 not served: %v", err)
-	}
-	c.Close()
-	if c6, err := net.Dial("tcp6", net.JoinHostPort("::1", itoa(port))); err == nil {
-		c6.Close() // IPv6 loopback present: it must be served too
-	}
-}
-
-func itoa(n int) string { return strconv.Itoa(n) }
-
 // refusedDial counts dial attempts and refuses each one like a closed port, so no request is ever written.
 func refusedDial(n *atomic.Int32) func(context.Context, string, string) (net.Conn, error) {
 	return func(_ context.Context, network, addr string) (net.Conn, error) {
@@ -552,21 +545,6 @@ func TestRefreshRetriesWhenNothingWasWritten(t *testing.T) {
 	}
 	if n := dials.Load(); n != maxAttempts {
 		t.Fatalf("unwritten one-shot grant attempted %d times, want %d", n, maxAttempts)
-	}
-}
-
-func TestNormHostHTTPOnlyOnLoopback(t *testing.T) {
-	ok := []string{"https://example.cloud.databricks.com", "http://127.0.0.1:8080", "http://localhost:9", "http://[::1]:7"}
-	bad := []string{"http://example.cloud.databricks.com", "http://10.0.0.5", "http://example.cloud.databricks.com:8080/"}
-	for _, h := range ok {
-		if _, err := normHost(h); err != nil {
-			t.Errorf("normHost(%q) = %v", h, err)
-		}
-	}
-	for _, h := range bad {
-		if _, err := normHost(h); err == nil {
-			t.Errorf("normHost(%q) accepted plain http non-loopback", h)
-		}
 	}
 }
 
@@ -611,15 +589,6 @@ func TestNonJSONErrorBodyIsKept(t *testing.T) {
 	_, err := RefreshU2M(context.Background(), srv.URL, "r")
 	if err == nil || !strings.Contains(err.Error(), "Captive portal login") {
 		t.Errorf("err = %v, want the body snippet", err)
-	}
-}
-
-// A host carrying userinfo, a query or a fragment is refused, so no secret reaches an error or URL.
-func TestNormHostRejectsUserinfoQueryFragment(t *testing.T) {
-	for _, h := range []string{"https://u:secret@h.example.com", "https://h.example.com?o=1", "https://h.example.com#x"} {
-		if _, err := normHost(h); err == nil {
-			t.Errorf("normHost(%q) accepted", h)
-		}
 	}
 }
 

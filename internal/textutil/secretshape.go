@@ -71,8 +71,8 @@ func notCredentialShaped(val string) bool {
 		strings.Contains(head, "PLACEHOLDER") || strings.Contains(head, "YOUR_") || strings.Contains(head, "xxx")
 }
 
-// hasAnyPrefix reports whether v starts with any of prefixes.
-func hasAnyPrefix(v string, prefixes ...string) bool {
+// HasAnyPrefix reports whether v starts with any of prefixes.
+func HasAnyPrefix(v string, prefixes ...string) bool {
 	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(v, p) })
 }
 
@@ -81,7 +81,7 @@ var gitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pa
 
 // HasGitHubPrefix reports a value starting with any GitHub token prefix.
 func HasGitHubPrefix(v string) bool {
-	return hasAnyPrefix(v, gitHubPrefixes...)
+	return HasAnyPrefix(v, gitHubPrefixes...)
 }
 
 // GitHubPattern is a regex alternation matching any GitHub token with at least minLen body characters.

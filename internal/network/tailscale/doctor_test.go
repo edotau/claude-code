@@ -23,11 +23,7 @@ func stubOAuthMint(t *testing.T) {
 
 func TestDoctorNoCLI(t *testing.T) {
 	noCLI(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "")
-	t.Setenv("TAILSCALE_API_KEY", "")
+	hermeticSecrets(t)
 	ok, detail := Doctor(context.Background())
 	if ok {
 		t.Error("Doctor() ok = true, want false (no CLI)")
@@ -40,8 +36,7 @@ func TestDoctorNoCLI(t *testing.T) {
 func TestDoctorRunningAndApproved(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
 	stubOAuthMint(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+	hermeticSecrets(t)
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-set")
 	ok, detail := Doctor(context.Background())
@@ -59,8 +54,7 @@ func TestDoctorRunningAndApproved(t *testing.T) {
 // A half-set OAuth pair plus an API key falls back to the API-key note, as NewClient does.
 func TestDoctorHalfOAuthPlusAPIKeyFallsBackToAPIKeyNote(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+	hermeticSecrets(t)
 	t.Setenv("TAILSCALE_OAUTH_CLIENT_ID", "kJaxHLLXzN11CNTRL")
 	t.Setenv("TAILSCALE_API_KEY", "tskey-api-set")
 	_, detail := Doctor(context.Background())
@@ -77,8 +71,7 @@ func TestDoctorHalfOAuthWithoutAPIKeyStillIncomplete(t *testing.T) {
 	for _, env := range []string{"TAILSCALE_OAUTH_CLIENT_ID", "TAILSCALE_OAUTH_CLIENT_SECRET"} {
 		t.Run(env, func(t *testing.T) {
 			stubCLI(t, catScript(t, "status_running.json"))
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+			hermeticSecrets(t)
 			t.Setenv(env, "set")
 			_, detail := Doctor(context.Background())
 			if !strings.Contains(detail, "api credential incomplete") {
@@ -91,8 +84,7 @@ func TestDoctorHalfOAuthWithoutAPIKeyStillIncomplete(t *testing.T) {
 // A well-formed OAuth pair that the API itself refuses (401) is reported "rejected", not present.
 func TestDoctorOAuthPairRejectedByAPI(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+	hermeticSecrets(t)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -114,8 +106,7 @@ func TestDoctorOAuthPairRejectedByAPI(t *testing.T) {
 // A malformed OAuth secret never reaches the network — the shape check short-circuits before any mint.
 func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
 	stubCLI(t, catScript(t, "status_running.json"))
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+	hermeticSecrets(t)
 	var hits int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
@@ -145,8 +136,7 @@ func TestDoctorWithoutOAuthPairNeverCallsNetwork(t *testing.T) {
 	for name, key := range map[string]string{"api key only": apiKey, "no credential": ""} {
 		t.Run(name, func(t *testing.T) {
 			stubCLI(t, catScript(t, "status_running.json"))
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv("PATH", t.TempDir()) // no `security`: the real Keychain must not answer
+			hermeticSecrets(t)
 			var hits int
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
 			defer ts.Close()

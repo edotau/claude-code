@@ -19,17 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// multi is a repeatable string flag.
-type multi []string
-
-func (m *multi) String() string     { return strings.Join(*m, ",") }
-func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
-
 // cfgFlags are the flags `config` and `rescue` share.
 type cfgFlags struct {
 	profile, host, wire, auth, out, model string
 	force                                 bool
-	set, unset                            multi
+	set, unset                            []string
 }
 
 var configPage = helptext.Page{
@@ -51,8 +45,8 @@ func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 	fs.StringVar(&f.wire, "wire", "", "ai-gateway or serving (default: the row's, else serving)")
 	fs.StringVar(&f.model, "model", "", "model override, canonical or wire id")
 	fs.StringVar(&f.auth, "auth", authDef, "harness (token helper) or cli (databricks CLI)")
-	fs.Var(&f.set, "set", "K=V env key to add or change (repeatable)")
-	fs.Var(&f.unset, "unset", "K env key to remove (repeatable)")
+	helptext.ListVar(fs, &f.set, "set", "value", "K=V env key to add or change (repeatable)", false)
+	helptext.ListVar(fs, &f.unset, "unset", "value", "K env key to remove (repeatable)", false)
 	if withOut {
 		fs.StringVar(&f.out, "out", "", "write to FILE (0600) instead of stdout")
 		fs.BoolVar(&f.force, "force", false, "overwrite an existing --out file")
@@ -209,26 +203,12 @@ func findClaude() (string, error) {
 	return exec.LookPath("claude")
 }
 
-// scrubPrefixes and scrubNames are the inherited vars rescue drops so only the scratch settings steer claude.
-var (
-	scrubPrefixes = []string{"HARNESS_", "ANTHROPIC_", "CLAUDE_CODE_USE_", "DATABRICKS_"}
-	scrubNames    = []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
-)
+// rescueDeny is what rescue drops beyond proc.ScrubDeny, so only the scratch settings steer claude.
+var rescueDeny = []string{"HARNESS_*", "ANTHROPIC_*", "CLAUDE_CODE_USE_*", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 
-// scrubbed drops proc.ScrubDeny plus every inherited var matching scrubPrefixes or scrubNames.
+// scrubbed drops proc.ScrubDeny plus every inherited var matching rescueDeny.
 func scrubbed(environ []string) []string {
-	environ, _ = proc.Scrub(environ, nil)
-	var out []string
-	for _, kv := range environ {
-		name, _, _ := strings.Cut(kv, "=")
-		if slices.Contains(scrubNames, name) || slices.ContainsFunc(scrubPrefixes, func(p string) bool {
-			return strings.HasPrefix(name, p)
-		}) {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
+	return proc.Drop(environ, nil, slices.Concat(proc.ScrubDeny, rescueDeny))
 }
 
 // rescue is `databricks rescue`: scratch settings file, then claude --settings, no router and no overlay.

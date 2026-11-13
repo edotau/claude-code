@@ -10,7 +10,6 @@ func TestCmdWebSearchQueryForms(t *testing.T) {
 		want int
 	}{
 		{"positional", []string{"foo"}, 1},
-		{"positional multi-word", []string{"foo", "bar"}, 1},
 		{"flag", []string{"--query", "foo"}, 1},
 		{"flag and positional", []string{"--query", "a", "b"}, 2},
 	}

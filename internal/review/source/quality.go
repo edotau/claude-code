@@ -33,7 +33,6 @@ var functionPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 		"python":     regexp.MustCompile(`def\s+(\w+)\s*\(([^)]*)\)`),
 		"typescript": regexp.MustCompile(jsFunctionPattern),
 		"javascript": regexp.MustCompile(jsFunctionPattern),
-		"go":         regexp.MustCompile(`func\s+(?:\([^)]+\)\s+)?(\w+)\s*(?:\[[^\]]*\])?\s*\(([^)]*)\)`),
 		"swift":      regexp.MustCompile(`func\s+(\w+)\s*\(([^)]*)\)`),
 		"kotlin":     regexp.MustCompile(`fun\s+(\w+)\s*\(([^)]*)\)`),
 	}
@@ -55,7 +54,6 @@ var methodPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
 		"python":     regexp.MustCompile(`def\s+\w+\s*\(`),
 		"typescript": regexp.MustCompile(`(?:public|private|protected)?\s*\w+\s*\([^)]*\)\s*[:{]`),
 		"javascript": regexp.MustCompile(`\w+\s*\([^)]*\)\s*\{`),
-		"go":         regexp.MustCompile(`func\s+\(`),
 		"swift":      regexp.MustCompile(`func\s+\w+`),
 		"kotlin":     regexp.MustCompile(`fun\s+\w+`),
 	}
@@ -168,11 +166,15 @@ func goFunctions(content string) ([]FunctionInfo, error) {
 		}
 		bodyStart := fset.Position(fn.Type.Params.Closing).Offset + 1
 		body := content[bodyStart:fset.Position(fn.End()).Offset]
+		cyclo := 1 // a bodiless declaration branches nowhere
+		if fn.Body != nil {
+			cyclo = goCyclomatic(fn.Body)
+		}
 		out = append(out, FunctionInfo{
 			Name:       fn.Name.Name,
 			Parameters: goParamCount(fn.Type.Params),
 			Lines:      len(strings.Split(body, "\n")),
-			Complexity: calcCyclomaticComplexity(body),
+			Complexity: cyclo,
 		})
 	}
 	return out, nil
@@ -264,11 +266,8 @@ func pythonHeaderEnd(content string, from int) int {
 		case ')':
 			depth--
 		case '#', '\'', '"':
-			next, ok := skipPythonLiteral(content, i)
-			if !ok {
-				return -1
-			}
-			i = next
+			end, _ := pyLiteralEnd(content, i)
+			i = end - 1
 		case ':':
 			if depth == 0 {
 				return i + 1
@@ -280,41 +279,6 @@ func pythonHeaderEnd(content string, from int) int {
 		}
 	}
 	return -1
-}
-
-// skipPythonLiteral returns the last index of the comment or string at i; false for an unterminated comment.
-func skipPythonLiteral(content string, i int) (int, bool) {
-	if content[i] != '#' {
-		return pythonStringEnd(content, i), true
-	}
-	nl := strings.IndexByte(content[i:], '\n')
-	if nl < 0 {
-		return 0, false
-	}
-	return i + nl - 1, true
-}
-
-// pythonStringEnd returns the index of the quote closing the string opened at i (len(content) if unclosed).
-func pythonStringEnd(content string, i int) int {
-	q := content[i]
-	if triple := strings.Repeat(string(q), 3); strings.HasPrefix(content[i:], triple) {
-		end := strings.Index(content[i+3:], triple)
-		if end < 0 {
-			return len(content)
-		}
-		return i + 3 + end + 2
-	}
-	for j := i + 1; j < len(content); j++ {
-		switch content[j] {
-		case '\\':
-			j++
-		case q:
-			return j
-		case '\n': // single-line string: stop before the newline so the header scan sees it
-			return j - 1
-		}
-	}
-	return len(content)
 }
 
 // pythonMethodCount counts method defs in a class body, skipping the bodies of nested classes.
@@ -377,12 +341,14 @@ func findClasses(content, language string) []ClassInfo {
 	for _, m := range pattern.FindAllStringSubmatchIndex(content, -1) {
 		name := content[m[2]:m[3]]
 		body := classBody(content, m, pattern, language)
-		methods := len(methodPattern.FindAllString(body, -1))
+		var methods int
 		switch language {
 		case "go":
 			methods = goMethods[name]
 		case "python":
 			methods = pythonMethodCount(body, methodPattern)
+		default:
+			methods = len(methodPattern.FindAllString(body, -1))
 		}
 		out = append(out, ClassInfo{
 			Name:    name,

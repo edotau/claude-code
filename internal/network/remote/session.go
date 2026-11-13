@@ -14,15 +14,15 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// sshTimeout bounds one ssh round trip (start or list); attach replaces the process and has no deadline.
+// sshTimeout bounds one ssh round trip (start, list or pane capture); attach replaces the process and has no deadline.
 const sshTimeout = 20 * time.Second
 
-// execArgs runs script under sh locally when local (host is this machine), else over ssh; batch forbids ssh prompts.
-func execArgs(host, script string, local, batch bool) ([]string, error) {
+// execArgs runs script under sh locally when local (host is this machine), else over ssh.
+func execArgs(host, script string, local bool) ([]string, error) {
 	if local {
 		return []string{"sh", "-c", script}, nil
 	}
-	return sshArgv(host, false, batch, script)
+	return sshArgv(host, false, false, script)
 }
 
 // attachArgs is the argv attaching to a tmux session on host; it replaces the caller's process so tmux owns the TTY.
@@ -58,13 +58,11 @@ func runAgent(ctx context.Context, argv []string) ([]byte, error) {
 
 // listSessions lists the cc-* tmux sessions on host.
 func listSessions(ctx context.Context, host string, local bool) ([]Session, error) {
-	argv, err := execArgs(host, listCommand, local, false)
+	argv, err := execArgs(host, listCommand, local)
 	if err != nil {
 		return nil, err
 	}
-	cmd, cancel := sshCommand(ctx, argv)
-	defer cancel()
-	out, err := proc.OutputCapped(cmd)
+	out, err := execRunner(ctx, argv)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 		return nil, fmt.Errorf("list tmux sessions on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)
@@ -83,7 +81,7 @@ func pollPaneStatus(
 	defer stop()
 	var prev []paneStatus
 	for {
-		caps, capErr := capturePanes(sigCtx, host, local, false, execRunner)
+		caps, capErr := capturePanes(sigCtx, host, local, execRunner)
 		prev = observePanes(prev, caps, capErr, time.Now())
 		if capErr != nil && len(prev) == 0 {
 			return capErr

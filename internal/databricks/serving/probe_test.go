@@ -42,26 +42,33 @@ var clientRouteCases = []clientRouteCase{
 		`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
 }
 
+// probeEnv is a sealed test vault, a client-route token and a TLS workspace served by h, with a serving provider for it.
+func probeEnv(t *testing.T, name string, h http.HandlerFunc) (*providers.Provider, *httptest.Server) {
+	t.Helper()
+	vaulttest.Use(t)
+	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
+	srv := httptest.NewTLSServer(h)
+	t.Cleanup(srv.Close)
+	return &providers.Provider{Name: name, Preset: providers.PresetDatabricks, Host: srv.URL,
+		Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}, srv
+}
+
 func TestProbeClientRouteParity(t *testing.T) {
 	for _, tc := range clientRouteCases {
 		t.Run(tc.name, func(t *testing.T) {
-			vaulttest.Use(t)
-			t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
 			requests := make(chan seenProbe, 4)
-			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, srv := probeEnv(t, "client-routes", func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Errorf("probe body: %v", err)
 				}
 				requests <- seenProbe{r.Method, r.URL.RequestURI(), r.Header.Clone(), body}
 				_, _ = w.Write([]byte(`{"ok":true}`))
-			}))
-			t.Cleanup(srv.Close)
+			})
 			// Exercise both the primary BaseURL and relative/absolute p.Route overrides.
-			p := &providers.Provider{Name: "client-routes", Preset: providers.PresetDatabricks, Host: srv.URL,
-				Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL + "/serving-endpoints/custom",
-				Routes: map[string]string{providers.ProtocolOpenAI: "chat", providers.ProtocolResponses: srv.URL + "/serving-endpoints/custom-responses"},
-				Auth:   providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+			p.Protocol, p.BaseURL = providers.ProtocolAnthropic, srv.URL+"/serving-endpoints/custom"
+			p.Routes = map[string]string{providers.ProtocolOpenAI: "chat", providers.ProtocolResponses: srv.URL + "/serving-endpoints/custom-responses"}
 			target := CheckTarget{ID: tc.id, Wire: "databricks-" + tc.id, Responses: tc.responses}
 			got, err := Probe(context.Background(), p, []CheckTarget{target}, CheckOptions{Client: srv.Client(), ClientRoutes: true})
 			if err != nil || len(got) != 1 || got[0].Status != "ok" || got[0].HTTP != 200 || got[0].Tools != "yes" {
@@ -99,10 +106,8 @@ func checkProbeRequest(t *testing.T, r seenProbe, tc clientRouteCase, wire strin
 }
 
 func TestProbeClientRoutesRejectUnsafeDestinations(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
 	var calls, redirected atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	pp, srv := probeEnv(t, "safe-routes", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.URL.Path == "/redirected" {
 			redirected.Add(1)
@@ -110,11 +115,8 @@ func TestProbeClientRoutesRejectUnsafeDestinations(t *testing.T) {
 			return
 		}
 		http.Redirect(w, r, "/redirected", http.StatusTemporaryRedirect)
-	}))
-	t.Cleanup(srv.Close)
-	p := providers.Provider{Name: "safe-routes", Preset: providers.PresetDatabricks, Host: srv.URL,
-		Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
-		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+	})
+	p := *pp
 	targets := []CheckTarget{{ID: "glm-5-2", Wire: "databricks-glm-5-2"}}
 	for _, tc := range []struct {
 		name string
@@ -144,10 +146,8 @@ func TestProbeClientRoutesRejectUnsafeDestinations(t *testing.T) {
 }
 
 func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
 	var calls atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p, srv := probeEnv(t, "transient", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -156,11 +156,7 @@ func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	t.Cleanup(srv.Close)
-	p := &providers.Provider{Name: "transient", Preset: providers.PresetDatabricks, Host: srv.URL,
-		Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
-		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+	})
 	targets := []CheckTarget{{ID: "glm-5-2", Wire: "databricks-glm-5-2"}}
 	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client(), ClientRoutes: true})
 	if err != nil || len(got) != 1 || got[0].Status != StatusTransient || got[0].Tools != "" || got[0].HTTP != 429 || calls.Load() != 1 {
@@ -171,10 +167,8 @@ func TestProbeTransientWithToolsSkipsNoToolsRetry(t *testing.T) {
 func TestProbeToolsLessRetryTransient(t *testing.T) {
 	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			vaulttest.Use(t)
-			t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
 			var calls atomic.Int32
-			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, srv := probeEnv(t, "retry-transient", func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				var body map[string]any
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -186,11 +180,7 @@ func TestProbeToolsLessRetryTransient(t *testing.T) {
 					return
 				}
 				http.Error(w, "retry later", status)
-			}))
-			t.Cleanup(srv.Close)
-			p := &providers.Provider{Name: "retry-transient", Preset: providers.PresetDatabricks, Host: srv.URL,
-				Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL + "/serving-endpoints",
-				Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+			})
 			targets := []CheckTarget{{ID: "glm-5-2", Wire: "databricks-glm-5-2"}}
 			got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client(), ClientRoutes: true})
 			if err != nil || len(got) != 1 {
@@ -280,10 +270,8 @@ func TestReadBodyDeadlineReportsTimeout(t *testing.T) {
 
 // A reasoning model spends a tiny probe budget before its first output token; a healthy endpoint must not read as failed.
 func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv("CLIENT_ROUTE_TOKEN", "synthetic-route-token")
 	var calls atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p, srv := probeEnv(t, "budget", func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -292,10 +280,7 @@ func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	t.Cleanup(srv.Close)
-	p := &providers.Provider{Name: "budget", Preset: providers.PresetDatabricks, Host: srv.URL,
-		Auth: providers.Auth{Type: providers.AuthKey, Env: "CLIENT_ROUTE_TOKEN"}}
+	})
 	targets := []CheckTarget{{ID: "gpt-5-1", Wire: "databricks-gpt-5-1"}}
 	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client()})
 	if err != nil || len(got) != 1 || got[0].Status != "ok" || got[0].Tools != "yes" || got[0].HTTP != 200 {

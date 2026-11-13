@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,24 +140,16 @@ func generateActionItems(findings []Finding) []ActionItem {
 
 // priorityFor maps a severity to P0 (critical), P1 (high) or P2.
 func priorityFor(sev string) string {
-	switch sev {
-	case "critical":
-		return "P0"
-	case "high":
-		return "P1"
-	}
-	return "P2"
+	return "P" + strconv.Itoa(2-sevRank(sev))
 }
 
-// sevRank orders severities critical > high > anything else.
+// sevRank orders severities critical > high > anything else (medium and low tie at 0).
 func sevRank(sev string) int {
-	switch sev {
-	case "critical":
-		return 2
-	case "high":
-		return 1
+	i := slices.Index(severityOrder, sev)
+	if i < 0 {
+		return 0
 	}
-	return 0
+	return max(2-i, 0)
 }
 
 // loadPRAnalysis returns the override when given, else runs the PR analysis.
@@ -174,15 +167,8 @@ func loadPRAnalysis(repoPath, base, head string, override *prInput) (*prInput, e
 func countSeverities(findings []Finding) ReportIssueCounts {
 	counts := ReportIssueCounts{}
 	for _, f := range findings {
-		switch f.Severity {
-		case "critical":
-			counts.Critical++
-		case "high":
-			counts.High++
-		case "medium":
-			counts.Medium++
-		case "low":
-			counts.Low++
+		if n := counts.bucket(f.Severity); n != nil {
+			*n++
 		}
 	}
 	return counts

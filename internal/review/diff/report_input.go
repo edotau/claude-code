@@ -50,10 +50,8 @@ func prInputOf(r PRReport) *prInput {
 		in.Complexity = r.Summary.ComplexityScore
 	}
 	if r.Risks != nil {
-		for sev, risks := range map[string][]PRRisk{
-			"critical": r.Risks.Critical, "high": r.Risks.High, "medium": r.Risks.Medium, "low": r.Risks.Low,
-		} {
-			for _, k := range risks {
+		for _, sev := range severityOrder {
+			for _, k := range *r.Risks.bucket(sev) {
 				in.Risks[sev] = append(in.Risks[sev], riskItem{k.Name, k.Message, k.File, k.Count})
 			}
 		}
@@ -72,7 +70,7 @@ func qualityInputOf(reports []source.QualityReport) *qualityInput {
 		violations += len(r.SolidViolations)
 	}
 	if len(reports) > 0 {
-		avg = roundTo(sum/float64(len(reports)), 1)
+		avg = source.Round1(sum / float64(len(reports)))
 	}
 	q.Summary = &QualitySummary{len(reports), source.PyFloat(avg), smells, violations}
 	return q

@@ -1,22 +1,13 @@
 package diff
 
 import (
-	"context"
 	"fmt"
-	"math"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-func roundTo(x float64, places int) float64 {
-	mult := math.Pow(10, float64(places))
-	return math.Round(x*mult) / mult
-}
 
 func pyPercent(x float64) string {
 	return fmt.Sprintf("%.0f%%", x*100)
@@ -90,6 +81,21 @@ type ReportMetadata struct {
 	Version     string `json:"version"`
 }
 
+// bucket returns the counter for sev, or nil when sev is not in severityOrder.
+func (c *ReportIssueCounts) bucket(sev string) *int {
+	switch sev {
+	case "critical":
+		return &c.Critical
+	case "high":
+		return &c.High
+	case "medium":
+		return &c.Medium
+	case "low":
+		return &c.Low
+	}
+	return nil
+}
+
 // QualitySummary re-derives files_analyzed/average_score/etc. in a fixed key order.
 type QualitySummary struct {
 	FilesAnalyzed        int            `json:"files_analyzed"`
@@ -133,9 +139,7 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 
 // headContent returns the bytes of the file name (relative to repo) at rev, so a score matches the reviewed commit.
 func headContent(repo, rev, name string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return proc.RunGitRaw(ctx, repo, "show", rev+":./"+name)
+	return gitRaw(repo, "show", rev+":./"+name)
 }
 
 // runQualityChecker ports run_quality_checker: source.QualityContent over each changed file as of the head commit.
@@ -183,7 +187,7 @@ func formatMarkdownReport(r Report) string {
 	fmt.Fprintln(&b, "| Severity | Count |")
 	fmt.Fprintln(&b, "|----------|-------|")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "| %s | %d |\n", textutil.Title(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "| %s | %d |\n", textutil.Title(sev), *r.Summary.IssueCounts.bucket(sev))
 	}
 	fmt.Fprintln(&b)
 
@@ -270,19 +274,6 @@ func renderMarkdownFindings(b *strings.Builder, title string, findings []Finding
 	fmt.Fprintln(b)
 }
 
-func severityCount(c ReportIssueCounts, sev string) int {
-	switch sev {
-	case "critical":
-		return c.Critical
-	case "high":
-		return c.High
-	case "medium":
-		return c.Medium
-	default:
-		return c.Low
-	}
-}
-
 func filterFindings(findings []Finding, sev string) []Finding {
 	var out []Finding
 	for _, f := range findings {
@@ -309,7 +300,7 @@ func formatTextReport(r Report) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "--- ISSUE SUMMARY ---")
 	for _, sev := range severityOrder {
-		fmt.Fprintf(&b, "  %s: %d\n", textutil.Title(sev), severityCount(r.Summary.IssueCounts, sev))
+		fmt.Fprintf(&b, "  %s: %d\n", textutil.Title(sev), *r.Summary.IssueCounts.bucket(sev))
 	}
 	fmt.Fprintln(&b)
 

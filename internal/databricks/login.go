@@ -419,31 +419,27 @@ func checkAuthType(p *providers.Provider, authType string) error {
 
 // setOverlayAuthType writes auth.type into p's overlay row in top and returns the custom auth keys it kept.
 func setOverlayAuthType(top map[string]json.RawMessage, p *providers.Provider, authType string) ([]string, error) {
-	provs, err := overlayProviders(top)
-	if err != nil {
-		return nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
-	}
-	entry := provs[p.Name]
-	if entry == nil {
-		return nil, fmt.Errorf("%s is not an overlay row; add it with `claude-code databricks import --apply` first", p.Name)
-	}
-	auth := map[string]json.RawMessage{}
-	if b, ok := entry["auth"]; ok {
-		if err := json.Unmarshal(b, &auth); err != nil {
-			return nil, fmt.Errorf("%s: auth: %w", p.Name, err)
+	var kept []string
+	missing := fmt.Errorf("%s is not an overlay row; add it with `claude-code databricks import --apply` first", p.Name)
+	err := editOverlayRow(top, p.Name, "vault overlay/providers: providers", missing, func(entry map[string]json.RawMessage) error {
+		auth := map[string]json.RawMessage{}
+		if b, ok := entry["auth"]; ok {
+			if err := json.Unmarshal(b, &auth); err != nil {
+				return fmt.Errorf("%s: auth: %w", p.Name, err)
+			}
 		}
-	}
-	if auth == nil { // a JSON null auth value decodes to a nil map
-		auth = map[string]json.RawMessage{}
-	}
-	auth["type"] = json.RawMessage(`"` + authType + `"`)
-	kept := dropDerivedCommands(p, auth)
-	b, err := json.Marshal(auth)
-	if err != nil {
-		return kept, err
-	}
-	entry["auth"] = b
-	top["providers"], err = json.Marshal(provs)
+		if auth == nil { // a JSON null auth value decodes to a nil map
+			auth = map[string]json.RawMessage{}
+		}
+		auth["type"] = json.RawMessage(`"` + authType + `"`)
+		kept = dropDerivedCommands(p, auth)
+		b, err := json.Marshal(auth)
+		if err != nil {
+			return err
+		}
+		entry["auth"] = b
+		return nil
+	})
 	return kept, err
 }
 
@@ -541,9 +537,7 @@ func restoreSecret(name, wrote, prev string, hadPrev bool) error {
 			return tx.Put(vault.Secrets, name, "")
 		}
 		restored = true
-		return tx.PutRecord(name, vault.Record{
-			Sealed: key.Seal(name, prev), Kid: key.Kid, Prefix: vault.MetaPrefix(prev), Len: len(prev), SetAt: time.Now(),
-		})
+		return tx.PutStored(key, name, prev)
 	})
 	if err == nil && restored {
 		audit.Log(audit.SecretSet, name, "vault") // vault.Store's audit line, which this write bypasses

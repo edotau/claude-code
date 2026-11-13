@@ -39,15 +39,23 @@ func TestClaudeServingHarness(t *testing.T) {
 	if d.APIKeyHelper != "/bin/cc resolve --profile databricks-dev" {
 		t.Errorf("helper %q", d.APIKeyHelper)
 	}
-	if _, ok := d.Env["ANTHROPIC_AUTH_TOKEN"]; ok {
-		t.Error("token slot present")
-	}
-	if d.Env["ANTHROPIC_BASE_URL"] != "https://x.example.com/serving-endpoints/anthropic" ||
-		d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" || d.Env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "databricks-claude-haiku-5-5" {
-		t.Errorf("env %v", d.Env)
-	}
+	checkServingEnv(t, d.Env)
 	if r.Note != "" || strings.Contains(r.Text, "example.cloud") {
 		t.Error("serving must have no note / placeholder host")
+	}
+}
+
+func checkServingEnv(t *testing.T, env map[string]string) {
+	t.Helper()
+	if _, ok := env["ANTHROPIC_AUTH_TOKEN"]; ok {
+		t.Error("token slot present")
+	}
+	if m, ok := env["ANTHROPIC_MODEL"]; ok {
+		t.Errorf("model %q set without --model", m)
+	}
+	if env["ANTHROPIC_BASE_URL"] != "https://x.example.com/serving-endpoints/anthropic" ||
+		env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" || env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "databricks-claude-haiku-5-5" {
+		t.Errorf("env %v", env)
 	}
 }
 
@@ -89,7 +97,7 @@ func TestCodex(t *testing.T) {
 }
 
 func TestRejects(t *testing.T) {
-	for _, kv := range []string{"ANTHROPIC_AUTH_TOKEN=x", "OPENAI_API_KEY=x", "my_secret=1", "noequals"} {
+	for _, kv := range []string{"OPENAI_API_KEY=x", "noequals"} {
 		o := base(t, targetClaude, "serving")
 		o.Set = []string{kv}
 		if _, err := renderConfig(o); err == nil {

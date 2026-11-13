@@ -43,6 +43,14 @@ func TestNetworkBrowserSetupOnlyFlags(t *testing.T) {
 }
 
 // TestNetworkBrowserRejectsPositional: `--setup chrome` (forgotten --browser) must not silently set up the default.
+func TestNetworkBrowserRejectsPositional(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	args := []string{"--setup", "--dry-run", "chrome"}
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(args) })
+	if code != 2 || !strings.Contains(stderr, `unexpected argument "chrome"`) || stdout != "" {
+		t.Errorf("code=%d stdout=%q stderr=%q, want 2, no output, unexpected argument", code, stdout, stderr)
+	}
+}
 
 func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 	r := Report{

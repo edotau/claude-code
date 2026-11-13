@@ -109,18 +109,27 @@ type Client struct {
 // apiTimeout bounds one admin-API round trip so a stalled server cannot hang a verb.
 const apiTimeout = 30 * time.Second
 
+// newClient is a Client on apiBaseURL with the admin-API timeout; DefaultClient's transport stays the test seam.
+func newClient() *Client {
+	return &Client{BaseURL: apiBaseURL, HTTP: &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}}
+}
+
+// newOAuthClient is newClient authenticated by an OAuth client_credentials pair.
+func newOAuthClient(clientID, clientSecret string) *Client {
+	c := newClient()
+	c.token = oauthToken(c.BaseURL, clientID, clientSecret, c.HTTP)
+	return c
+}
+
 // NewClient resolves credentials via vault.Get: TAILSCALE_OAUTH_CLIENT_ID/_SECRET, else TAILSCALE_API_KEY.
 func NewClient() (*Client, error) {
-	// DefaultClient's transport stays the seam tests swap; only the timeout is added.
-	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
-	c := &Client{BaseURL: apiBaseURL, HTTP: hc}
 	if id, _, ok := vault.Get(oauthIDName); ok {
 		if secret, _, ok2 := vault.Get(oauthSecretName); ok2 {
-			c.token = oauthToken(c.BaseURL, id, secret, c.HTTP)
-			return c, nil
+			return newOAuthClient(id, secret), nil
 		}
 	}
 	if key, _, ok := vault.Get(apiKeyName); ok {
+		c := newClient()
 		c.token = func(context.Context) (string, error) { return key, nil }
 		return c, nil
 	}
@@ -139,10 +148,7 @@ func CheckAdmin(ctx context.Context) error {
 
 // ValidateCreds proves an OAuth client id and secret work: it mints a token with them and lists devices.
 func ValidateCreds(ctx context.Context, clientID, clientSecret string) error {
-	hc := &http.Client{Transport: http.DefaultClient.Transport, Timeout: apiTimeout}
-	c := &Client{BaseURL: apiBaseURL, HTTP: hc}
-	c.token = oauthToken(c.BaseURL, clientID, clientSecret, c.HTTP)
-	_, err := c.Devices(ctx)
+	_, err := newOAuthClient(clientID, clientSecret).Devices(ctx)
 	return err
 }
 

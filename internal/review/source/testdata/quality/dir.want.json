@@ -1,7 +1,7 @@
 {
   "directory": "@TESTDATA@/quality",
-  "files_analyzed": 2,
-  "average_score": 99.0,
+  "files_analyzed": 3,
+  "average_score": 99.3,
   "overall_grade": "A",
   "total_code_smells": 1,
   "total_solid_violations": 0,
@@ -32,6 +32,40 @@
       ],
       "solid_violations": [],
       "function_details": [],
+      "class_details": []
+    },
+    {
+      "file": "@TESTDATA@/quality/lock_unix.go",
+      "language": "go",
+      "metrics": {
+        "lines": {
+          "total": 13,
+          "code": 7,
+          "blank": 5,
+          "comment": 1
+        },
+        "functions": 2,
+        "classes": 0,
+        "avg_complexity": 1.0
+      },
+      "quality_score": 100,
+      "grade": "A",
+      "smells": [],
+      "solid_violations": [],
+      "function_details": [
+        {
+          "name": "lock",
+          "parameters": 1,
+          "lines": 1,
+          "complexity": 1
+        },
+        {
+          "name": "unlock",
+          "parameters": 1,
+          "lines": 1,
+          "complexity": 1
+        }
+      ],
       "class_details": []
     },
     {

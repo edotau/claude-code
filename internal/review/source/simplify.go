@@ -74,11 +74,16 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut}, 0, false
 }
 
-// gitLines runs git with list args in dir and returns its non-empty output lines.
-func gitLines(dir string, args ...string) ([]string, error) {
+// GitInherit runs git in repo with the caller's env under a 30s timeout; proc trims the output's trailing newlines.
+func GitInherit(repo string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := proc.RunGitInherit(ctx, dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
+	return proc.RunGitInherit(ctx, repo, args...)
+}
+
+// gitLines runs git with list args in dir and returns its non-empty output lines.
+func gitLines(dir string, args ...string) ([]string, error) {
+	out, err := GitInherit(dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -266,15 +271,10 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)
 	if parsed.jsonOut {
-		b, err := PyMarshalIndent(report)
-		if err == nil {
-			_, err = stdout.Write(b)
-		}
-		if err != nil {
+		if err := WritePyJSON(stdout, report); err != nil {
 			fmt.Fprintf(stderr, "Error: %s\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout)
 		return simplifyExit(report)
 	}
 	if report.Summary.Files == 0 && len(report.Failed) == 0 {

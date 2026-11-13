@@ -2,8 +2,6 @@ package databricks
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -374,13 +372,13 @@ func TestRunRemovedFlagsExit2NoLaunch(t *testing.T) {
 }
 
 func TestCheckHelpShowsCheckPageNotTopLevel(t *testing.T) {
-	code, out, errs := captureOutput(t, func() int { return Run([]string{"check", "--help"}) })
+	code, out, errs := hosttest.CaptureOutput(t, func() int { return Run([]string{"check", "--help"}) })
 	all := out + errs
 	if code != 0 || !strings.Contains(all, "databricks check [MODEL]") {
 		t.Fatalf("check --help: exit %d, want check's own page:\n%s", code, all)
 	}
 	// Negative control: the plain page is the launcher's.
-	_, out, errs = captureOutput(t, func() int { return Run([]string{"--help"}) })
+	_, out, errs = hosttest.CaptureOutput(t, func() int { return Run([]string{"--help"}) })
 	if strings.Contains(out+errs, "databricks check [MODEL]") {
 		t.Errorf("top-level help shows check's usage:\n%s", out+errs)
 	}
@@ -424,8 +422,7 @@ const dbxHost = `"host":"https://adb-1.azuredatabricks.net"`
 // seedOverlay isolates the vault in a temp config dir and writes doc as the providers overlay ("" = none).
 func seedOverlay(t *testing.T, doc string) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	vaulttest.Use(t)
 	if doc == "" {
 		return
 	}
@@ -471,24 +468,6 @@ func TestLaunchBetaInjectionFollowsProvider(t *testing.T) {
 	if slices.Contains(f.calls[0].env, betaOff) {
 		t.Error("preset provider owns the opt-out: launch must not inject it")
 	}
-}
-
-// useVaultTest isolates the vault in a temp config dir with a fresh master key.
-func useVaultTest(t *testing.T) string {
-	t.Helper()
-	dir := vaulttest.Use(t)
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(key))
-	return dir
-}
-
-// captureOutput runs fn with stdout/stderr captured.
-func captureOutput(t *testing.T, fn func() int) (code int, stdout, stderr string) {
-	t.Helper()
-	return hosttest.CaptureOutput(t, fn)
 }
 
 // TestPlanFailsClosedOnProviderLoadError pins that an unreadable registry is an error, not a skipped profile check.

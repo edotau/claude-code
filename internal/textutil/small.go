@@ -21,6 +21,15 @@ func (e *ErrWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// SetOf is items as a set.
+func SetOf(items ...string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, it := range items {
+		m[it] = true
+	}
+	return m
+}
+
 // LastLine returns the last non-empty line of s, trimmed.
 func LastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, " \t\r\n"), "\n")

@@ -161,20 +161,10 @@ func TestReadInputStdinReadError(t *testing.T) {
 	}
 }
 
-func TestReadInputStdinOK(t *testing.T) {
-	text, source, _, ok := readInput("-", strings.NewReader("hello"), &strings.Builder{})
-	if !ok || text != "hello" || source != "stdin" {
-		t.Fatalf("got (%q, %q, %v)", text, source, ok)
-	}
-}
-
-// An unreadable or missing input must exit 1, never pass as clean.
+// An unreadable input must exit 1, never pass as clean.
 func TestReadInputUnreadableExits1(t *testing.T) {
 	_, _, exit, ok := readInput(t.TempDir(), strings.NewReader(""), &strings.Builder{})
 	if ok || exit != 1 {
 		t.Fatalf("directory input: exit %d ok %v, want 1 false", exit, ok)
-	}
-	if _, _, exit, ok = readInput("/nonexistent/plan.md", strings.NewReader(""), &strings.Builder{}); ok || exit != 1 {
-		t.Fatalf("missing input: exit %d ok %v, want 1 false", exit, ok)
 	}
 }

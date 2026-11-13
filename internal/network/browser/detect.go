@@ -14,10 +14,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+// memoizeProbes shares one System Events probe and one PowerShell listener probe across every browser checked.
+func memoizeProbes(env Env) Env {
+	env.gui = sync.OnceValue(func() string { return guiState(env) })
+	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
+	return env
+}
+
 // Detect probes every known browser plus the system default and returns one report.
 func Detect(env Env) Report {
-	env.gui = sync.OnceValue(func() string { return guiState(env) }) // one System Events probe per Detect
-	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
+	env = memoizeProbes(env)
 	browsers := make([]browser, 0, len(knownBrowsers))
 	for _, s := range knownBrowsers {
 		browsers = append(browsers, detectOne(env, s))
@@ -37,8 +43,7 @@ func Detect(env Env) Report {
 
 // DetectDefault reports only the system default browser; the error is a failed detection, not an unsupported default.
 func DetectDefault(env Env) (Report, error) {
-	env.gui = sync.OnceValue(func() string { return guiState(env) })
-	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
+	env = memoizeProbes(env)
 	def, err := Default(env) // errDefaultUnsupported still carries the resolved (non-Chromium) name
 	if def.Name == "" {
 		if failedDefault(env, err) {
