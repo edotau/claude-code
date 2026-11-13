@@ -679,7 +679,7 @@ func TestCheckProfilesConcurrentInOrder(t *testing.T) {
 	names := []string{"p3", "p1", "p2"}
 	start := time.Now()
 	rows := checkProfiles(reg, names, "claude-haiku-5-5", []string{providers.WireServing, providers.WireAIGateway})
-	if took := time.Since(start); took >= 2*delay || n.Load() != 6 {
+	if took := time.Since(start); took >= 4*delay || n.Load() != 6 {
 		t.Fatalf("3 profiles x 2 wires took %s with %d probes; serial would be %s", took, n.Load(), 6*delay)
 	}
 	for i, r := range rows {

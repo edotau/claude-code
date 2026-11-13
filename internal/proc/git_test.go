@@ -147,10 +147,10 @@ func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
 		t.Skip("git's ! alias needs a POSIX sh with sleep and job control")
 	}
 	orig := ExecWaitDelay
-	ExecWaitDelay = 300 * time.Millisecond
+	ExecWaitDelay = 100 * time.Millisecond
 	t.Cleanup(func() { ExecWaitDelay = orig })
 	dir := t.TempDir()
-	const deadline = 500 * time.Millisecond
+	const deadline = 700 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	// The bounded child retains captured stdout after the context kills git.

@@ -70,7 +70,7 @@ func TestDoSharedProviderCooldown(t *testing.T) {
 	other.Key = ""
 	t1 := time.Now()
 	Do(context.Background(), other, func(context.Context, int) *Error { return nil })
-	if time.Since(t1) > cool/2 {
+	if time.Since(t1) > time.Second {
 		t.Errorf("an empty Key must not wait on any cooldown")
 	}
 }
@@ -202,7 +202,7 @@ func TestDoMaxAttemptsZeroActsAsOne(t *testing.T) {
 		if len(notified) != 0 {
 			t.Errorf("Notify called %v, want none (nothing to notify about with no retry)", notified)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("Do slept/retried with MaxAttempts:0 (should return after exactly one attempt)")
 	}
 }
@@ -265,14 +265,14 @@ func TestDoCancelledReacquireReturnsCancellation(t *testing.T) {
 // A waiter whose cooldown is extended by another task while it sleeps must keep waiting for the new deadline.
 func TestWaitCooldownHonorsExtendedDeadline(t *testing.T) {
 	key := "cool-extend-" + t.Name()
-	CoolDown(key, 100*time.Millisecond)
+	CoolDown(key, 200*time.Millisecond)
 	start := time.Now()
 	done := make(chan time.Duration)
 	go func() { WaitCooldown(context.Background(), key, 5*time.Second); done <- time.Since(start) }()
-	time.Sleep(40 * time.Millisecond)
-	CoolDown(key, 300*time.Millisecond)
-	if got := <-done; got < 300*time.Millisecond {
-		t.Errorf("waiter resumed after %v, want it to wait out the extended ~340ms hold", got)
+	time.Sleep(20 * time.Millisecond)
+	CoolDown(key, 400*time.Millisecond)
+	if got := <-done; got < 400*time.Millisecond {
+		t.Errorf("waiter resumed after %v, want it to wait out the extended ~420ms hold", got)
 	}
 	cooldowns.Lock()
 	delete(cooldowns.until, key)

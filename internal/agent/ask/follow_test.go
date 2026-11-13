@@ -186,10 +186,10 @@ func TestFollowerIdleClosesChannel(t *testing.T) {
 }
 
 func TestFollowerIdleResetsOnNewLine(t *testing.T) {
-	const idle = 500 * time.Millisecond
+	const idle = 600 * time.Millisecond
 	w, p := startFollower(t, "", idle)
 	ch := w.run(t.Context(), ids)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	appendFile(t, p, `{"id":"a","prompt":"p"}`+"\n")
 	got, closed, took := drain(ch, 5*time.Second)
 	if !closed || strings.Join(got, ",") != "a" || took < idle {
