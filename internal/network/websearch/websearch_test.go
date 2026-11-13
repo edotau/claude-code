@@ -321,72 +321,6 @@ func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 	}
 }
 
-// enrichTestPage serves a good HTML page, a binary one, a hanging one (until slow closes) and 404s otherwise.
-func enrichTestPage(slow chan struct{}) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/good":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><head><style>p{}</style></head><body><h1>Real &amp; Deep</h1>`+
-				`<script>x()</script><p>page body text</p></body></html>`)
-		case "/binary":
-			w.Header().Set("Content-Type", "application/pdf")
-			fmt.Fprint(w, "%PDF-1.7")
-		case "/slow":
-			<-slow
-		default:
-			http.NotFound(w, r)
-		}
-	}
-}
-
-// TestEnrichResults: page text is appended after the snippet, fetched concurrently; a failed fetch keeps it.
-func TestEnrichResults(t *testing.T) {
-	allowLoopbackFetch(t)
-	slow := make(chan struct{})
-	page := httptest.NewServer(enrichTestPage(slow))
-	defer page.Close()
-	defer close(slow)
-
-	results := []tavilyResult{
-		{Title: "good", URL: page.URL + "/good", Content: "snippet g"},
-		{Title: "binary", URL: page.URL + "/binary", Content: "snippet b"},
-		{Title: "missing", URL: page.URL + "/404", Content: "snippet m"},
-		{Title: "no-url", Content: "snippet n"},
-	}
-	enrichResults(context.Background(), results)
-	if want := "snippet g\n\nReal & Deep page body text"; results[0].Content != want {
-		t.Errorf("good page content = %q, want %q (snippet kept, page text appended)", results[0].Content, want)
-	}
-	for _, r := range results[1:] {
-		if !strings.HasPrefix(r.Content, "snippet") {
-			t.Errorf("%s: failed enrichment must keep the snippet, got %q", r.Title, r.Content)
-		}
-	}
-	checkEnrichSlowBounded(t, page.URL+"/slow")
-}
-
-// checkEnrichSlowBounded: a hung fetch is bounded by ctx, not waited on serially, and keeps its snippet.
-func checkEnrichSlowBounded(t *testing.T, slowURL string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	slowres := []tavilyResult{
-		{URL: slowURL, Content: "snippet s1"},
-		{URL: slowURL, Content: "snippet s2"},
-	}
-	enrichResults(ctx, slowres)
-	if e := time.Since(start); e > 2*time.Second {
-		t.Fatalf("two hung fetches took %v — they must share one bounded wait, not queue", e)
-	}
-	for _, r := range slowres {
-		if !strings.HasPrefix(r.Content, "snippet") {
-			t.Errorf("timed-out fetch must keep the snippet, got %q", r.Content)
-		}
-	}
-}
-
 // allowLoopbackFetch swaps the SSRF-guarded pageClient for a plain one so httptest servers on 127.0.0.1 can be fetched.
 func allowLoopbackFetch(t *testing.T) {
 	t.Helper()
@@ -396,35 +330,12 @@ func allowLoopbackFetch(t *testing.T) {
 	t.Cleanup(func() { pageClient = orig })
 }
 
-// TestFetchPageTextRefusesInternalAddresses: a loopback target, or a redirect to one, keeps the snippet.
-func TestFetchPageTextRefusesInternalAddresses(t *testing.T) {
-	var hits atomic.Int32
-	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits.Add(1)
-		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, "secret metadata")
-	}))
-	defer internal.Close()
-	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, internal.URL+"/x", http.StatusFound)
-	}))
-	defer redir.Close()
-	for _, u := range []string{internal.URL + "/x", redir.URL + "/r"} {
-		if got := fetchPageText(context.Background(), u); got != "" {
-			t.Errorf("fetchPageText(%s) = %q, want refusal", u, got)
-		}
-	}
-	if n := hits.Load(); n != 0 {
-		t.Errorf("internal server was reached %d times, want 0", n)
-	}
-}
-
 // TestFetchRobotsTimesOutOnSilentHost: a host that accepts and never answers cannot block a deadline-less ctx.
 func TestFetchRobotsTimesOutOnSilentHost(t *testing.T) {
 	allowLoopbackFetch(t)
-	orig := enrichTimeout
-	enrichTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { enrichTimeout = orig })
+	orig := robotsTimeout
+	robotsTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { robotsTimeout = orig })
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
 	defer srv.Close()
@@ -441,46 +352,6 @@ func TestFetchRobotsTimesOutOnSilentHost(t *testing.T) {
 	}
 }
 
-// TestFetchPageTextHonorsRobots: a Disallow for * keeps the snippet and the page is never requested.
-func TestFetchPageTextHonorsRobots(t *testing.T) {
-	allowLoopbackFetch(t)
-	var pageHits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/robots.txt" {
-			fmt.Fprint(w, "User-agent: *\nDisallow: /private\n")
-			return
-		}
-		pageHits.Add(1)
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<p>body</p>")
-	}))
-	defer srv.Close()
-	if got := fetchPageText(context.Background(), srv.URL+"/private/a"); got != "" || pageHits.Load() != 0 {
-		t.Errorf("disallowed page: got %q, hits %d, want empty and 0", got, pageHits.Load())
-	}
-	if got := fetchPageText(context.Background(), srv.URL+"/open"); got != "body" {
-		t.Errorf("allowed page = %q, want body", got)
-	}
-}
-
-// TestFetchPageTextTruncatedBodyKeepsSnippet: a body cut off mid-read yields "" rather than a fragment.
-func TestFetchPageTextTruncatedBodyKeepsSnippet(t *testing.T) {
-	allowLoopbackFetch(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/robots.txt" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html")
-		w.Header().Set("Content-Length", "1000")
-		fmt.Fprint(w, "<p>partial")
-	}))
-	defer srv.Close()
-	if got := fetchPageText(context.Background(), srv.URL+"/p"); got != "" {
-		t.Errorf("truncated body gave %q, want empty", got)
-	}
-}
-
 // TestRobotsAllowedSeveralUserAgentsShareGroup: consecutive User-agent lines form one group, so the Disallow binds "*".
 func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	allowLoopbackFetch(t)
@@ -491,52 +362,6 @@ func TestRobotsAllowedSeveralUserAgentsShareGroup(t *testing.T) {
 	u, _ := url.Parse(srv.URL + "/page")
 	if robotsAllowed(context.Background(), u, nil) {
 		t.Error("robotsAllowed = true, want false: Disallow / applies to the * group")
-	}
-}
-
-// TestFetchPageTextRechecksRobotsOnRedirect: a redirect to a disallowed path or origin is refused.
-func TestFetchPageTextRechecksRobotsOnRedirect(t *testing.T) {
-	allowLoopbackFetch(t)
-	var bHits, blockedHits atomic.Int32
-	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/robots.txt" {
-			fmt.Fprint(w, "User-agent: *\nDisallow: /\n")
-			return
-		}
-		bHits.Add(1)
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, "<p>b</p>")
-	}))
-	defer b.Close()
-	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/robots.txt":
-			fmt.Fprint(w, "User-agent: *\nDisallow: /blocked\n")
-		case "/start":
-			http.Redirect(w, r, "/blocked", http.StatusFound)
-		case "/cross":
-			http.Redirect(w, r, b.URL+"/page", http.StatusFound)
-		case "/hop":
-			http.Redirect(w, r, "/ok", http.StatusFound)
-		default:
-			if r.URL.Path == "/blocked" {
-				blockedHits.Add(1)
-			}
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, "<p>a</p>")
-		}
-	}))
-	defer a.Close()
-	for _, p := range []string{"/start", "/cross"} {
-		if got := fetchPageText(context.Background(), a.URL+p); got != "" {
-			t.Errorf("fetchPageText(%s) = %q, want refusal", p, got)
-		}
-	}
-	if bHits.Load() != 0 || blockedHits.Load() != 0 {
-		t.Errorf("disallowed targets requested: b=%d blocked=%d, want 0", bHits.Load(), blockedHits.Load())
-	}
-	if got := fetchPageText(context.Background(), a.URL+"/hop"); got != "a" {
-		t.Errorf("allowed redirect = %q, want a", got)
 	}
 }
 
@@ -815,3 +640,37 @@ func TestExtractRejectsOutputWriteFailure(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// swapTransport is a RoundTripper that answers api.tavily.com from reply and sends every other host to next.
+type swapTransport struct {
+	reply string
+	next  http.RoundTripper
+}
+
+func (s swapTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != "api.tavily.com" {
+		return s.next.RoundTrip(r)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(s.reply)), Request: r}, nil
+}
+
+// TestTavilySearchIsSnippetOnly: the result's origin gets no request (no page, no robots.txt); the snippet is kept.
+func TestTavilySearchIsSnippetOnly(t *testing.T) {
+	allowLoopbackFetch(t) // loopback is fetchable, so a zero count proves no fetch was attempted
+	t.Setenv(keyName, "test-key")
+	var hits atomic.Int32
+	origin := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(origin.Close)
+	reply, _ := json.Marshal(map[string]any{"results": []tavilyResult{{Title: "T", URL: origin.URL + "/page", Content: "the snippet"}}})
+	orig := http.DefaultTransport
+	http.DefaultTransport = swapTransport{reply: string(reply), next: orig}
+	t.Cleanup(func() { http.DefaultTransport = orig })
+
+	out, err := tavilySearch(context.Background(), "q", 1)
+	if err != nil || !strings.Contains(out, "the snippet") || !strings.Contains(out, origin.URL+"/page") {
+		t.Fatalf("out = %q err = %v, want the provider snippet and URL", out, err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("origin received %d requests, want 0 (search must not fetch pages)", n)
+	}
+}
