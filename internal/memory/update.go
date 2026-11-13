@@ -142,7 +142,7 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return "Background update of a finished session. The bank directory is " + Dir(cwd) + " and the shared home bank is " + HomeBankDir() + "; write only there. " +
+	return updatePromptOpen + " The bank directory is " + Dir(cwd) + " and the shared home bank is " + HomeBankDir() + "; write only there. " +
 		"Follow this procedure, the COMPLETE pass:\n\n" + ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
