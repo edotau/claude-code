@@ -101,7 +101,7 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	want := docsBanner + "\n\n" + docsPathsNote + "\n\n# CLAUDE.md\n\nBody.\n\n## Agents\n\n- **demo-agent** (`sonnet`) — demo agent for the docs test.\n"
+	want := docsBanner + "\n\n" + docsPathsNote + "\n\n# CLAUDE.md\n\nBody.\n"
 	for vendor, tg := range targets {
 		rel := tg.docs
 		if rel == "" {
@@ -551,7 +551,7 @@ func TestSyncRendersAlwaysOnStandardsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(raw)
-	if !strings.Contains(got, "\n## Standards\n\n## Ay\n\nay rule\n\n## Bee\n\nbee rule\n\n```\n# keep\n```\n\n## Agents") {
+	if !strings.Contains(got, "\n## Standards\n\n## Ay\n\nay rule\n\n## Bee\n\nbee rule\n\n```\n# keep\n```\n") {
 		t.Errorf("standards section wrong:\n%s", got)
 	}
 	if strings.Contains(got, "scoped rule") {

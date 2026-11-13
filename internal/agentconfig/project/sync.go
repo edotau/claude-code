@@ -89,7 +89,7 @@ func runSync(opts Options) int {
 		fmt.Fprintln(os.Stderr, "sync: "+emptySourceNote(in.skillsDir)+"; refusing to prune")
 	}
 
-	docs, hasDocs, err := renderDocs(in.root, in.agents)
+	docs, hasDocs, err := renderDocs(in.root)
 	if err != nil {
 		return syncFail(err)
 	}
