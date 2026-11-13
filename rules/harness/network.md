@@ -40,9 +40,9 @@ and the concrete route is sent. Never name a profile `auto`: the overlay reads `
 row cannot be addressed. When the picked workspace answers 429 before any answer, it is cooled, the pick reruns without
 it and the same agent retries there, until one answers or none is left; only then the `--fallback` policy applies (so
 `none` still fails, naming every workspace tried), and a named profile never moves. The retry serves a foreground ask
-and a `--job` or `--background` run alike; `--session`, `--live` and `--host` never move. A `--host` ask that cannot run fails
-before the task with one line naming what the target lacks: the `claude-code` binary, the agent's CLI, the Databricks
-profile, or the model.
+and a `--job` or `--background` run alike; `--session`, `--live` and `--host` never move. A `--host` ask that cannot run
+fails before the task with one line naming what the target lacks: the `claude-code` binary, the agent's CLI, the
+Databricks profile, or the model.
 
 `--host <h>` or `--remote <h>` naming this machine (its tailnet DNS name, OS hostname, or either one's first label) runs
 the verb here with no ssh hop and no tunnel, so one command line works on both machines.
