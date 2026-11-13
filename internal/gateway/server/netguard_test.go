@@ -155,6 +155,43 @@ func TestGuardedClientHeaderStallTimesOut(t *testing.T) {
 	}
 }
 
+// /d/<id>/ composes with /via/<host>/ in either order, logs dispatch=<id>, and a bad id is a 400 that never routes.
+func TestDispatchPrefixLogsDispatchID(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"default":"up1","providers":{"anthropic":{"up1":`+anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	var log bytes.Buffer
+	r := newRouter(secret)
+	r.log = &log
+	srv := httptest.NewServer(r)
+	t.Cleanup(func() { srv.Close(); r.bg.Wait() })
+
+	for _, prefix := range []string{"/d/20261113T144909.123-codex", "/via/box/d/a.b-1T", "/d/a.b-1T/via/box"} {
+		if resp := post(t, srv.URL+prefix+"/p/up1/v1/messages", `{"model":"m1"}`, nil); resp.StatusCode != 200 {
+			t.Fatalf("%s: status %d", prefix, resp.StatusCode)
+		}
+	}
+	for _, bad := range []string{"/d//p/up1/v1/messages", "/d/a%20b/p/up1/v1/messages", "/d/a_b/p/up1/v1/messages", "/d/" + strings.Repeat("a", 129) + "/p/up1/v1/messages"} {
+		if resp := post(t, srv.URL+bad, `{"model":"m1"}`, nil); resp.StatusCode != 400 {
+			t.Errorf("%s: status %d, want 400", bad, resp.StatusCode)
+		}
+	}
+	if up.hits.Load() != 3 {
+		t.Errorf("upstream hits = %d, want 3 (a bad id never routes)", up.hits.Load())
+	}
+	srv.Close() // handlers are done: the log is safe to read
+	for _, want := range []string{" dispatch=20261113T144909.123-codex", " via=box dispatch=a.b-1T\n"} {
+		if strings.Count(log.String(), want) < 1 {
+			t.Errorf("log lacks %q: %q", want, log.String())
+		}
+	}
+	if n := strings.Count(log.String(), " via=box dispatch=a.b-1T"); n != 2 {
+		t.Errorf("both compose orders should log via=box dispatch=a.b-1T, got %d: %q", n, log.String())
+	}
+}
+
 // A /via/<host>/… request is authenticated, routed as the bare path, and its upstream request carries the host.
 func TestViaPrefixPinsEgressHost(t *testing.T) {
 	up := newUpstream(t, ok)

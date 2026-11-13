@@ -52,8 +52,8 @@ func (r *Router) passthrough(w http.ResponseWriter, in *http.Request, provider, 
 	attempts := 0
 	in = in.WithContext(context.WithValue(in.Context(), attemptsKey{}, &attempts))
 	defer func() {
-		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
-			attempts, time.Since(start).Round(time.Millisecond), viaDiag(in), extra)
+		fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s\n", start.Format(time.RFC3339), provider, cmp.Or(model, "-"), sw.status,
+			attempts, time.Since(start).Round(time.Millisecond), viaDiag(in), dispatchDiag(in), extra)
 	}()
 	model, extra = r.forwardPassthrough(sw, in, provider, dialect, rest)
 	extra += brokenDiag(sw)

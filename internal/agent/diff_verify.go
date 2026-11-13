@@ -144,12 +144,12 @@ func logTokens(logPath string) *VerifyTokens {
 }
 
 type proxyLine struct {
-	ts                               time.Time
-	profile, model, status, via, req string
-	broken                           bool
+	ts                                         time.Time
+	profile, model, status, via, req, dispatch string
+	broken                                     bool
 }
 
-// parseProxyLine reads `<RFC3339> <profile> <model> <status> <attempt> <dur> [via=] [req=] [bytes=] [stream=broken]`.
+// parseProxyLine reads a proxy log line: fixed fields, then via=, dispatch=, req=, stream=broken[:class] tokens.
 func parseProxyLine(line string) (proxyLine, bool) {
 	f := strings.Fields(line)
 	if len(f) < 4 {
@@ -164,9 +164,11 @@ func parseProxyLine(line string) (proxyLine, bool) {
 		switch {
 		case strings.HasPrefix(kv, "via="):
 			pl.via = kv[4:]
+		case strings.HasPrefix(kv, "dispatch="):
+			pl.dispatch = kv[9:]
 		case strings.HasPrefix(kv, "req="):
 			pl.req = kv[4:]
-		case kv == "stream=broken":
+		case kv == "stream=broken" || strings.HasPrefix(kv, "stream=broken:"):
 			pl.broken = true
 		}
 	}
@@ -204,15 +206,20 @@ func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
 		pm.Note = "the record names no provider or model, so it has no proxy profile to match"
 		return pm
 	}
-	hits, err := windowLines(logPath, rec, start, end)
+	tagged, hits, err := windowLines(logPath, rec, start, end)
 	if err != nil {
 		pm.Note = "proxy log unreadable: " + err.Error()
 		return pm
 	}
+	if len(tagged) > 0 {
+		pm.Match, pm.Note = "dispatch id", "matched by dispatch= tags on the proxy log lines: exact"
+		tally(&pm, tagged)
+		return pm
+	}
 	pm.Match = "time window"
-	pm.Note = fmt.Sprintf("matched by time window (%s %s, %s..%s), not by dispatch id: counts may include other "+
-		"traffic on the same workspace and model in that window", rec.Provider, rec.Model, start.Local().Format("15:04:05"),
-		end.Local().Format("15:04:05"))
+	pm.Note = fmt.Sprintf("no proxy log line carries dispatch=%s; fell back to the time window over untagged lines "+
+		"(%s %s, %s..%s): counts may include other traffic on the same workspace and model", rec.ID, rec.Provider,
+		rec.Model, start.Local().Format("15:04:05"), end.Local().Format("15:04:05"))
 	if exact := exactLines(rec, hits); len(exact) > 0 {
 		hits, pm.Match, pm.Note = exact, "request id", "matched by req= ids that also appear in the dispatch's own log: exact"
 	}
@@ -220,30 +227,43 @@ func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
 	return pm
 }
 
+// proxyKind is "tagged" for a dispatch=<rec.ID> line, "window" for an untagged line of rec's profile and model in
+// [start, end], else "".
+func proxyKind(pl proxyLine, rec Record, start, end time.Time) string {
+	switch {
+	case pl.dispatch == rec.ID:
+		return "tagged"
+	case pl.dispatch == "" && !pl.ts.Before(start) && !pl.ts.After(end) && pl.profile == rec.Provider && pl.model == rec.Model:
+		return "window"
+	}
+	return ""
+}
+
 // windowLines reads the proxy log from its end, stopping once lines are older than the window.
-func windowLines(logPath string, rec Record, start, end time.Time) ([]proxyLine, error) {
+func windowLines(logPath string, rec Record, start, end time.Time) (tagged, window []proxyLine, err error) {
 	f, err := os.Open(logPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var hits []proxyLine
 	err = scanBackward(f, st.Size(), func(line string) bool {
 		pl, ok := parseProxyLine(line)
 		switch {
 		case !ok:
 		case pl.ts.Before(start.Add(-logLookback)):
 			return false
-		case !pl.ts.Before(start) && !pl.ts.After(end) && pl.profile == rec.Provider && pl.model == rec.Model:
-			hits = append(hits, pl)
+		case proxyKind(pl, rec, start, end) == "tagged":
+			tagged = append(tagged, pl)
+		case proxyKind(pl, rec, start, end) == "window":
+			window = append(window, pl)
 		}
 		return true
 	})
-	return hits, err
+	return tagged, window, err
 }
 
 // exactLines keeps the lines whose req= id appears in the dispatch's job log or event file.

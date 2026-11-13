@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway/translate"
@@ -27,25 +29,88 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 	w.WriteHeader(resp.StatusCode)
 	flush := flusher(w)
 	buf := make([]byte, 32<<10)
+	var watch terminalWatch
+	sse := strings.Contains(resp.Header.Get("Content-Type"), "event-stream")
 	for {
 		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-			flush()
-		}
-		if errors.Is(err, io.EOF) {
+		if n > 0 && !forward(w, flush, buf[:n], sse, &watch) {
 			return
 		}
-		if err != nil {
-			if sw, ok := w.(*statusWriter); ok { // the handler logs and meters first, then breaks the stream
-				sw.aborted = true
-				return
-			}
-			panic(http.ErrAbortHandler) // a mid-body upstream failure must reach the client as a broken stream
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, io.EOF) && !watch.done { // a drop after the terminal event cut nothing
+			breakStream(w, err)
+		}
+		return
+	}
+}
+
+// forward writes one upstream chunk to the client and feeds the terminal-event watch; false once the client is gone.
+func forward(w http.ResponseWriter, flush func(), chunk []byte, sse bool, watch *terminalWatch) bool {
+	if _, err := w.Write(chunk); err != nil {
+		return false
+	}
+	flush()
+	if sse {
+		watch.see(chunk)
+	}
+	return true
+}
+
+// breakStream flags a mid-body upstream failure: the handler logs and meters first, then aborts the client stream.
+func breakStream(w http.ResponseWriter, err error) {
+	if sw, ok := w.(*statusWriter); ok {
+		sw.broken = streamErrClass(err)
+		return
+	}
+	panic(http.ErrAbortHandler)
+}
+
+// streamErrClass names a mid-body read error with one short word for the request log; the error text never is.
+func streamErrClass(err error) string {
+	var ne net.Error
+	switch {
+	case errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
+		return "eof"
+	case errors.Is(err, syscall.ECONNRESET):
+		return "reset"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &ne) && ne.Timeout(),
+		errors.Is(err, net.ErrClosed), errors.Is(err, http.ErrBodyReadAfterClose): // idleBody closes a wedged body
+		return "timeout"
+	}
+	return "other"
+}
+
+// terminalMarkers end an SSE reply: Responses, Anthropic and chat wires; quoted so escaped text in a delta can't match.
+var terminalMarkers = [][]byte{
+	[]byte(`"response.completed"`), []byte(`"response.incomplete"`), []byte(`"response.failed"`),
+	[]byte(`"message_stop"`), []byte("data: [DONE]"),
+}
+
+// terminalWatch notes whether a stream's terminal event went by, keeping a tail so a marker split across reads matches.
+type terminalWatch struct {
+	tail []byte
+	done bool
+}
+
+const markerOverlap = 32 // longer than any marker, so one split across reads still matches
+
+func (t *terminalWatch) see(p []byte) {
+	if t.done {
+		return
+	}
+	seam := append(append([]byte(nil), t.tail...), p[:min(len(p), markerOverlap)]...)
+	for _, m := range terminalMarkers {
+		if bytes.Contains(p, m) || bytes.Contains(seam, m) {
+			t.done = true
+			return
 		}
 	}
+	t.tail = append(t.tail, p[max(0, len(p)-markerOverlap):]...)
+	t.tail = t.tail[max(0, len(t.tail)-markerOverlap):]
 }
 
 func drain(resp *http.Response) {
@@ -72,23 +137,23 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status  int
-	rc      *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
-	errBuf  []byte                   // the first bytes of an error reply (status >= 400), for the request log
-	aborted bool                     // relay hit a mid-body upstream failure: abort once logged and metered
+	status int
+	rc     *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
+	errBuf []byte                   // the first bytes of an error reply (status >= 400), for the request log
+	broken string                   // error class when relay hit a mid-body upstream failure: abort once logged and metered
 }
 
-// brokenDiag marks a request line whose upstream reply broke mid-body.
+// brokenDiag marks a request line whose upstream reply broke mid-body, with the error class.
 func brokenDiag(sw *statusWriter) string {
-	if sw.aborted {
-		return " stream=broken"
+	if sw.broken != "" {
+		return " stream=broken:" + sw.broken
 	}
 	return ""
 }
 
 // abortIfBroken breaks the client's stream (http.ErrAbortHandler) when relay saw the upstream fail mid-body.
 func (s *statusWriter) abortIfBroken() {
-	if s.aborted {
+	if s.broken != "" {
 		panic(http.ErrAbortHandler)
 	}
 }
