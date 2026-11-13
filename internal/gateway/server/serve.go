@@ -35,7 +35,7 @@ func Serve(ctx context.Context, port int) error {
 		return err
 	}
 
-	st := gateway.State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC()}
+	st := gateway.State{PID: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Started: time.Now().UTC(), Exe: gateway.ExeHash()}
 	cleanup, err := gateway.WriteState(st)
 	if err != nil {
 		_ = ln.Close()
