@@ -48,11 +48,16 @@ func judgeCall(p agent.Permissions, tool string, args []string) core.Result {
 	if tool != "Bash" && tool != "Edit" {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
+	hasAbs := slices.ContainsFunc(args, filepath.IsAbs)
 	for _, arg := range args {
 		if r, blind := blindDeny(p, tool, arg); blind {
 			return blindResult(p, tool, r)
 		}
-		if decideCall(judge, tool, arg) == agent.Deny {
+		j := judge
+		if tool == "Edit" && hasAbs && !filepath.IsAbs(arg) { // the cwd-relative spelling: Deny rules only, its absolute forms meet the allow list
+			j = agent.Permissions{Deny: p.Deny}
+		}
+		if decideCall(j, tool, arg) == agent.Deny {
 			return denyResult(p, agent.Rule{Tool: tool, Arg: arg})
 		}
 	}
@@ -113,9 +118,21 @@ func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result 
 }
 
 func denyResult(p agent.Permissions, call agent.Rule) core.Result {
+	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
+	next := "\nReport it instead of retrying another way."
+	switch {
+	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, "*>*"):
+		next = "\nRedirects (`>`, `2>&1`) are refused: run the same command again without them."
+	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
+		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
+		next = "\nOnly the allow list runs here: continue with an allowed call; do not retry this one another way."
+	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +
-		call.String() + "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") + modeNote(p) +
-		"\nReport it instead of retrying another way."}
+		call.String() + rules + modeNote(p) + next}
+}
+
+func anyDenyArg(rules []agent.Rule, arg string) bool {
+	return slices.ContainsFunc(rules, func(r agent.Rule) bool { return r.Arg == arg })
 }
 
 func modeNote(p agent.Permissions) string {
