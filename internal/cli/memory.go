@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"os/signal"
 	"slices"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -37,7 +40,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, alias — dispatchable, off the menu above\n" +
+		"          catchup, timeline, alias, import — dispatchable, off the menu above\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -206,6 +209,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"catchup":  cmdMemoryCatchup,
 		"timeline": cmdMemoryTimeline,
 		"alias":    cmdMemoryAlias,
+		"import":   cmdMemoryImport,
 	}
 }
 
@@ -248,6 +252,8 @@ func memorySpec() *helptext.Node {
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
 		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
+		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.RepoKeys),
+			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
 }
 
@@ -552,6 +558,97 @@ func printAliasPlan(dryRun bool, lines []string) {
 	for _, l := range lines {
 		fmt.Println("  " + l)
 	}
+}
+
+var memoryImportPage = helptext.Page{
+	Usage: "claude-code memory import (--from DIR | --host HOST) [flags]",
+	About: "Merge another bank's logs (a memory root or one store) into this one; nothing\n" +
+		"local is overwritten, the source is never changed. --topics adds the other files.\n" +
+		"git -C <memory> log is the undo.",
+}
+
+// cmdMemoryImport is `memory import`: --dry-run prints the plan and writes nothing.
+func cmdMemoryImport(args []string) int {
+	fs := helptext.NewFlagSet("memory import", memoryImportPage)
+	from := fs.String("from", "", "memory root or store dir to merge in")
+	host := fs.String("host", "", "tailnet host whose memory root to fetch over ssh")
+	repo := fs.String("repo", "", "store key or checkout to import into (default: this repo)")
+	all := fs.Bool("all", false, "every store present on both sides, home included")
+	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
+	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
+	if code, done := memoryParseNoArgs(fs, "import", args); done {
+		return code
+	}
+	if (*from == "") == (*host == "") {
+		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
+	}
+	dir, label, err := memoryImportSource(*from, *host)
+	if err != nil {
+		return helptext.Fail("memory import: %v", err)
+	}
+	if *host != "" {
+		defer func() { _ = os.RemoveAll(dir) }() // the fetched copy
+	}
+	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Repo: *repo, Label: label, All: *all, DryRun: *dryRun, Topics: *topics})
+	if err != nil {
+		return memoryImportFail(err)
+	}
+	fmt.Println(strings.Join(append(res.Lines, res.Summary), "\n"))
+	return 0
+}
+
+// memoryImportFail is exit 2 for a bad --from or flag combination, else exit 1.
+func memoryImportFail(err error) int {
+	if _, bad := errors.AsType[*memory.ImportInputError](err); bad {
+		return helptext.FailUsage("memory import: %v", err)
+	}
+	return helptext.Fail("memory import: %v", err)
+}
+
+// memoryImportSource is the dir to import from and its commit label: --from as given, else the --host fetch.
+func memoryImportSource(from, host string) (dir, label string, err error) {
+	if host == "" {
+		return from, from, nil
+	}
+	if dir, err = fetchMemoryRoot(host); err != nil {
+		_ = os.RemoveAll(dir) // a failed fetch leaves no copy behind
+		err = fmt.Errorf("fetch from %s: %w", host, err)
+	}
+	return dir, host, err
+}
+
+// fetchMemoryRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
+func fetchMemoryRoot(host string) (string, error) {
+	script := `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
+	argv, err := remote.StreamArgs(host, script)
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "memory-import-")
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return dir, err
+	}
+	if err := cmd.Start(); err != nil {
+		return dir, err
+	}
+	skipped, xerr := memory.ExtractStoreTar(out, dir)
+	if xerr != nil {
+		_ = cmd.Process.Kill()
+	}
+	werr := cmd.Wait()
+	for _, s := range skipped {
+		fmt.Println("fetch " + s)
+	}
+	if werr != nil {
+		return dir, werr
+	}
+	return dir, xerr
 }
 
 // memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.
