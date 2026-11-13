@@ -255,7 +255,7 @@ func TestReviewPromptAdversarialVerdictMarker(t *testing.T) {
 
 func TestReviewPromptNeutralAsksForVerdictFirst(t *testing.T) {
 	p := reviewPrompt(false, "")
-	if !strings.Contains(p, "SHIP IT") || !strings.Contains(p, "NEEDS WORK") || !strings.Contains(p, "BLOCK") {
+	if !strings.Contains(p, "SHIP") || !strings.Contains(p, "FIX REQUIRED") || !strings.Contains(p, "BLOCK") {
 		t.Errorf("neutral prompt missing verdict vocabulary:\n%s", p)
 	}
 }

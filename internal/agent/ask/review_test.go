@@ -49,7 +49,7 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	vaulttest.SetRecord(t, "opencode", "profile", "zen-free")
 	t.Setenv("OPENCODE_API_KEY", "test-key")
-	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"SHIP IT"}}'`)
+	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"SHIP"}}'`)
 	parent := agent.NewRecord("opencode", agent.RunOptions{Prompt: "review"}, time.Now())
 	if err := parent.Save(); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestSplitReviewReportsMergedWriteFailure(t *testing.T) {
 		return runSplitReview("opencode", nil, []part{{Diff: []byte("test diff")}}, ReviewOptions{}, p)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)
-	if code != 0 || !strings.Contains(stdout, "SHIP IT") {
+	if code != 0 || !strings.Contains(stdout, "SHIP") {
 		t.Fatalf("review control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 	code, stderr = captureFailedStdout(t, run)

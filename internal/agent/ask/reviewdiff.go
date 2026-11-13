@@ -214,7 +214,7 @@ func readCapped(path string) ([]byte, error) {
 // reviewPromptNeutral mirrors the adversarial prompt's shape with a non-adversarial brief.
 const reviewPromptNeutral = `Review the attached diff for correctness, regressions, missing tests, and scope creep.
 Findings as one per line: [SEVERITY] file:line — issue — fix, ordered CRITICAL to LOW.
-The first line of your answer is the verdict alone: SHIP IT, NEEDS WORK or BLOCK.`
+The first line of your answer is the verdict alone: SHIP, FIX REQUIRED or BLOCK.`
 
 // reviewPromptAdversarial asks for severity-ordered findings only, with a fixed clean-diff verdict.
 const reviewPromptAdversarial = `You are an adversarial reviewer: find what the author missed, not what is correct. Review the attached diff in

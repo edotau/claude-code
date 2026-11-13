@@ -246,7 +246,7 @@ const (
 )
 
 // verdictRank orders the neutral review verdicts, worst highest.
-var verdictRank = map[string]int{"SHIP IT": 1, "NEEDS WORK": 2, "FIX REQUIRED": 2, "BLOCK": 3}
+var verdictRank = map[string]int{"SHIP": 1, "FIX REQUIRED": 2, "BLOCK": 3}
 
 // mergeReports folds per-part answers into one report: worst verdict first, then deduped findings per part.
 func mergeReports(adversarial bool, parts []part, answers []string) string {
@@ -314,8 +314,8 @@ func mergedVerdict(adversarial bool, worst string, best int, unjudged bool, tota
 		if total > 0 {
 			head = "VERDICT: findings across " + strconv.Itoa(parts) + " parts"
 		}
-	} else if head == "" || (unjudged && best < verdictRank["NEEDS WORK"]) {
-		head = "NEEDS WORK" // a part without a parseable verdict is never judged SHIP IT
+	} else if head == "" || (unjudged && best < verdictRank["FIX REQUIRED"]) {
+		head = "FIX REQUIRED" // a part without a parseable verdict is never judged SHIP
 	}
 	return head
 }
