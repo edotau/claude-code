@@ -1,0 +1,29 @@
+Owned: {{.OwnedLine}}
+Mode: {{if .ReadOnly}}read-only; do not edit files{{else}}implementation; edit only owned files{{end}}
+{{if .Verify}}Verify: {{.Verify}}
+{{end}}{{if .Report}}Report: {{.Report}}
+{{end}}
+Task:
+{{.Task}}
+
+## Leaf rules
+
+- Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
+- Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
+  not own is reported, not fixed.
+- Order: format → lint → live check on the changed surface → scoped tests → `Skill(simplify)`; never the full suite.
+- Tests: one fast regression test per bug, one end-to-end test per feature, teeth proven by breaking the fix in a copy;
+  no value-pinning. A copilot test leaf writes it after the implementer returns (refactor packages get none).
+- Report gross added and deleted production lines separately; a package with net growth names what it clarified.
+- Write the full report to `/Users/edotau/.claude/memory/claude-code/reports/`; return at most 8 lines.
+- Code leaves run on the Databricks arm (`/coworker` overlay `{"provider":"databricks","profile":"auto"}`), spread
+  over dev/qa/prod; docs leaves on claude sonnet.
+
+## Reporting contract
+
+Write the full report under /Users/edotau/.claude/memory/claude-code/reports/ (the memory store's reports/).
+{{if .Report}}Use the Report path above.
+{{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
+gross production lines added and deleted, what net growth clarified, and anything blocked.
+Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
+and deleted, anything blocked, and the full report path.

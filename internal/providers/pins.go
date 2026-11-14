@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -385,4 +386,21 @@ func ApplyClaudeModels(set map[string]string) error {
 		AuditModelPin(alias, set[alias])
 	}
 	return nil
+}
+
+// SessionProfileContext is the profile selected by the run snapshot.
+func SessionProfileContext(ctx context.Context) string {
+	return strings.TrimSpace(proc.Value(ctx, EnvSessionProfile))
+}
+
+// SessionLeadContext resolves SessionLead using the run snapshot.
+func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) string {
+	name := SessionProfileContext(ctx)
+	if name == "" && withRecord {
+		name = AgentRecord("claude").Profile
+	}
+	if reg != nil && reg.Providers[name] == nil {
+		return ""
+	}
+	return name
 }

@@ -4,6 +4,7 @@ package router
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -566,6 +569,22 @@ func CurrentLimits() inflight.Limits {
 func SessionAccount() string {
 	name := providers.SessionLead(nil, true)
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
+		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
+			name, _, _ = strings.Cut(rest, "/")
+		}
+	}
+	if name == "" {
+		if reg, err := providers.Load(); err == nil {
+			name = reg.Default
+		}
+	}
+	return ProviderAccount(name)
+}
+
+// SessionAccountContext resolves SessionAccount using the run snapshot.
+func SessionAccountContext(ctx context.Context) string {
+	name := providers.SessionLeadContext(ctx, nil, true)
+	if u, err := url.Parse(proc.Value(ctx, "ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
 			name, _, _ = strings.Cut(rest, "/")
 		}

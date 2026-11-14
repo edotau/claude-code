@@ -1,7 +1,6 @@
 package tree
 
 import (
-	"bufio"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -119,13 +118,7 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 		if err != nil || cur.Status != "running" || cur.Alive() {
 			continue // the owner may have finished or started after the snapshot
 		}
-		rec, outcome := cur, "dispatch"
-		if env, ok := savedOKResult(cur); ok {
-			rec.Finish(envelopeResult(env), nil, time.Duration(env.DurationMs)*time.Millisecond)
-			outcome = "finished dispatch (result saved before the process left)"
-		} else {
-			rec.Status, rec.Error = "error", lostError
-		}
+		rec, outcome := settleDead(cur)
 		if !dryRun {
 			if err := rec.Save(); err != nil {
 				fmt.Fprintf(errw, "agents reap: %s: %v\n", rec.ID, err)
@@ -139,23 +132,15 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 	return records, code
 }
 
-// savedOKResult is rec's last result event when it holds a complete ok answer, which a dead process already delivered.
-func savedOKResult(rec agent.Record) (env wire.Envelope, _ bool) {
-	f, err := os.Open(rec.EventsPath())
-	if err != nil {
-		return env, false
+// settleDead finishes a dead record with a saved ok answer, else marks it lost; returns it and the outcome label.
+func settleDead(cur agent.Record) (agent.Record, string) {
+	env, ok := cur.SavedEnvelope()
+	if ok && env.Status == wire.StatusOK && env.Error == nil && (env.Answer != "" || len(env.Structured) > 0) {
+		cur.Finish(envelopeResult(env), nil, time.Duration(env.DurationMs)*time.Millisecond)
+		return cur, "finished dispatch (result saved before the process left)"
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(nil, 16<<20)
-	for sc.Scan() {
-		var ev wire.Event
-		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
-			env = *ev.Envelope
-		}
-	}
-	answered := env.Answer != "" || len(env.Structured) > 0
-	return env, sc.Err() == nil && env.Status == wire.StatusOK && env.Error == nil && answered
+	cur.Status, cur.Error = "error", lostError
+	return cur, "dispatch"
 }
 
 // envelopeResult is the part of env that Record.Finish reads back.

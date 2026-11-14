@@ -401,25 +401,42 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	return res, err
 }
 
+// lastResultEvent is the last result event's envelope in rec's events file; nil when none or the file is unreadable.
+func (rec Record) lastResultEvent() (*wire.Envelope, error) {
+	f, err := os.Open(rec.EventsPath())
+	if err != nil {
+		return nil, nil
+	}
+	defer f.Close()
+	var env *wire.Envelope
+	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 16<<20)
+	for sc.Scan() {
+		var ev wire.Event
+		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
+			env = ev.Envelope
+		}
+	}
+	return env, sc.Err()
+}
+
+// SavedEnvelope is the last result event's envelope, true only when one was found and the events file read cleanly.
+func (rec Record) SavedEnvelope() (wire.Envelope, bool) {
+	env, err := rec.lastResultEvent()
+	if env == nil || err != nil {
+		return wire.Envelope{}, false
+	}
+	return *env, true
+}
+
 // ResultEnvelope is the result event's envelope, or one rebuilt from rec when no result event can be read.
 func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
-	if f, err := os.Open(rec.EventsPath()); err == nil {
-		defer f.Close()
-		var env *wire.Envelope
-		sc := bufio.NewScanner(f)
-		sc.Buffer(nil, 16<<20)
-		for sc.Scan() {
-			var ev wire.Event
-			if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
-				env = ev.Envelope
-			}
-		}
-		if err := sc.Err(); err != nil {
-			fmt.Fprintf(errw, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
-		}
-		if env != nil {
-			return *env
-		}
+	env, err := rec.lastResultEvent()
+	if err != nil {
+		fmt.Fprintf(errw, "agents result: %s: events unreadable, envelope may be incomplete: %v\n", rec.ID, err)
+	}
+	if env != nil {
+		return *env
 	}
 	var runErr error
 	if rec.Status == "error" {

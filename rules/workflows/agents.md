@@ -21,6 +21,7 @@ conveniences.
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`; test files and `testdata` need `--with-tests`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
+| After a leaf returns | `claude-code agents wait <id>...` · `agents result <id> --save <path>` · `agents diff --check --path <p>...` · `review scope --range <r> --caps`; read the exit code, not the output |
 | Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
 | What a leaf changed, stayed inside its files, passes the gates | `claude-code agents diff [--base <ref>] [--path <path>]... [--check] [--verify <id>] [--format json]` (gates: gofmt, build, vet, golangci-lint, complexity, test, docs on changed `.md`; exit 1 gate failed or MISMATCH, 3 outside `--path`) |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |

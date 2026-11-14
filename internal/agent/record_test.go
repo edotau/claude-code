@@ -599,6 +599,30 @@ func TestDispatchWritesResultBeforeFinishedRecord(t *testing.T) {
 	}
 }
 
+// SavedEnvelope is the last result event in the events file; no file or no result event is false.
+func TestRecordSavedEnvelope(t *testing.T) {
+	setConfigDir(t)
+	rec := ClaimRecord("codex", RunOptions{}, time.Now())
+	if _, ok := rec.SavedEnvelope(); ok {
+		t.Fatal("SavedEnvelope ok with no events file")
+	}
+	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
+	for _, answer := range []string{"first", "last"} {
+		res := wire.Result{Agent: "codex", Status: wire.StatusOK, Answer: answer}
+		if err := events.Emit(wire.ResultEvent(wire.NewEnvelope(res, nil, rec.ID))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events.Close()
+	env, ok := rec.SavedEnvelope()
+	if !ok || env.Answer != "last" {
+		t.Fatalf("SavedEnvelope = %q, %v; want last result, true", env.Answer, ok)
+	}
+	if got := rec.ResultEnvelope(io.Discard).Answer; got != "last" {
+		t.Fatalf("ResultEnvelope answer = %q, want last", got)
+	}
+}
+
 // A codex dispatch asked at sonnet keeps the alias in the record (and --retry) while the answer reports the shared one.
 func TestRecordKeepsRequestedAlias(t *testing.T) {
 	setConfigDir(t)

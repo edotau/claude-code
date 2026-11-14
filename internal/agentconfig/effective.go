@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -137,4 +138,63 @@ func serves(l Launch, agent string, p *providers.Provider) bool {
 		return p.Provider == "databricks"
 	}
 	return l.CanServe(agent, p)
+}
+
+// ForContext resolves For using the run snapshot.
+func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return Effective{}, err
+	}
+	if l.Routed {
+		lead, err := resolveLeadContext(ctx, reg, agent, l)
+		return Effective{Agent: agent, Profile: lead}, err
+	}
+	recs, err := vault.ReadAgentRecords([]string{agent})
+	if err != nil {
+		return Effective{}, err
+	}
+	rec := recs[agent]
+	cfg := Effective{Agent: agent, AgentRecord: rec}
+	if cfg.Profile == "" && agent == agentid.Gemini {
+		cfg.Profile = geminiLogin
+	}
+	if cfg.Profile, err = launchProfileContext(ctx, reg, cfg, l, rec.Profile != ""); err != nil {
+		return Effective{}, err
+	}
+	return cfg, checkProfile(reg, agent, cfg.Profile)
+}
+
+// launchProfileContext applies launch selection to cfg using the run snapshot.
+func launchProfileContext(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch, active bool) (string, error) {
+	switch {
+	case l.Profile != "" || l.Provider != "":
+		lead, err := resolveLeadContext(ctx, reg, cfg.Agent, l)
+		if err != nil {
+			return "", fmt.Errorf("agent %s: %w", cfg.Agent, err)
+		}
+		return cmp.Or(lead, cfg.Profile), nil
+	case l.LastProfile != "" && active && slices.Contains(agentid.External(), cfg.Agent) && reg.Providers[l.LastProfile] != nil:
+		return l.LastProfile, nil
+	}
+	return cfg.Profile, nil
+}
+
+// resolveLeadContext resolves resolveLead using the run snapshot.
+func resolveLeadContext(ctx context.Context, reg *providers.Registry, agent string, l Launch) (string, error) {
+	profile := l.Profile
+	fromSession := profile == vaultSession
+	if fromSession {
+		profile = providers.SessionLeadContext(ctx, nil, true)
+		if keepsGeminiPin(reg, agent, profile, l.Provider) {
+			return "", nil
+		}
+	}
+	if profile != "" && reg.Providers[profile] == nil && l.Routed {
+		return "", fmt.Errorf("profile %s is not in the registry", profile)
+	}
+	if l.Provider == "" {
+		return profile, nil
+	}
+	return leadForProvider(reg, agent, l, profile, fromSession)
 }

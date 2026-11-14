@@ -4,6 +4,7 @@ package agentconfig
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -470,4 +472,32 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+// DispatchOverlayContext resolves DispatchOverlay using the run snapshot.
+func DispatchOverlayContext(ctx context.Context, flag string) string {
+	if v := cmp.Or(flag, proc.Value(ctx, OverlayVar)); v != "" {
+		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
+	}
+	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
+}
+
+// LoadOverlayContext resolves LoadOverlay using the run snapshot.
+func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Overlay, error) {
+	value = cmp.Or(value, proc.Value(ctx, OverlayVar))
+	if value == "" {
+		return Overlay{}, nil
+	}
+	where, raw, err := readOverlaySource(value, stdin)
+	if err == nil && len(raw) > overlayMaxBytes { // every form: file, stdin, inline and env
+		err = fmt.Errorf("over %d bytes", overlayMaxBytes)
+	}
+	var o Overlay
+	if err == nil {
+		o, err = parseOverlay(raw)
+	}
+	if err != nil {
+		return Overlay{}, fmt.Errorf("%s: %w", where, err)
+	}
+	return o, nil
 }

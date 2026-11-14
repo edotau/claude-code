@@ -1,8 +1,10 @@
 package proc
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 )
@@ -55,4 +57,28 @@ func (v Values) Args(flag string) []string {
 		out = append(out, flag, entry)
 	}
 	return out
+}
+
+type valuesKey struct{}
+
+// WithValues stores a complete environment snapshot, copied from values.
+func WithValues(ctx context.Context, values Values) context.Context {
+	return context.WithValue(ctx, valuesKey{}, values.Merge(nil))
+}
+
+// ValuesFromContext returns a copy of the snapshot and whether one was installed.
+func ValuesFromContext(ctx context.Context) (Values, bool) {
+	values, ok := ctx.Value(valuesKey{}).(Values)
+	if !ok {
+		return nil, false
+	}
+	return values.Merge(nil), true
+}
+
+// Value reads the complete run snapshot, falling back to the environment only when no snapshot exists.
+func Value(ctx context.Context, name string) string {
+	if values, ok := ctx.Value(valuesKey{}).(Values); ok {
+		return values[name]
+	}
+	return os.Getenv(name)
 }

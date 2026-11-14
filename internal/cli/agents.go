@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
 	"time"
@@ -46,9 +48,10 @@ func agentsSpec() *helptext.Node {
 			flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{formatFlag()}},
-		"result": {Flags: []helptext.Flag{formatFlag()}},
+		"result": {Flags: []helptext.Flag{flag("save"), flag("head"), formatFlag()}},
 		"tail":   {Flags: []helptext.Flag{boolFlag("f"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{formatFlag()}},
+		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
 	}}
 }
 
@@ -94,9 +97,10 @@ var agentsPage = helptext.Page{
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
 		{"status", "show a dispatch's state (any agent): status <id>"},
-		{"result", "print a finished dispatch's answer or envelope: result <id>"},
+		{"result", "print a finished dispatch's answer: result <id> [--save F]"},
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
 		{"cancel", "interrupt a running dispatch: cancel <id>"},
+		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
@@ -128,9 +132,12 @@ var agentsSubPages = map[string][3]string{
 		"lists each answer.",
 		"Roles come from the vault overlay dispatch-roles, else the built-in table."},
 	"status": {"status <id> [flags]", "Show one dispatch's state, whichever agent ran it (claude included)."},
-	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope."},
+	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope. " +
+		"--save <file> writes the text there and prints one summary line instead (--head N echoes its first N lines)."},
 	"tail":   {"tail <id> [flags]", "Print a dispatch's log; --format json streams its events.jsonl instead."},
 	"cancel": {"cancel <id> [flags]", "Interrupt a running background dispatch, whichever agent runs it."},
+	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
+		"Exit 0 all done, 1 any not done, 2 usage."},
 }
 
 // agentsFlags makes the `agents <verb>` FlagSet whose -h renders its page.
@@ -166,6 +173,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"result": func(a []string) int { return cmdAgentsJob("result", a) },
 	"tail":   func(a []string) int { return cmdAgentsJob("tail", a) },
 	"cancel": func(a []string) int { return cmdAgentsJob("cancel", a) },
+	"wait":   cmdAgentsWait,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
@@ -406,9 +414,13 @@ func cmdAgentsDispatch(args []string) int {
 func cmdAgentsJob(verb string, args []string) int {
 	fs := agentsFlags(verb)
 	format := helptext.FormatFlag(fs)
-	follow := new(bool)
-	if verb == "tail" {
+	follow, save, head := new(bool), new(string), new(int)
+	switch verb {
+	case "tail":
 		follow = fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
+	case "result":
+		fs.StringVar(save, "save", "", "write the result text to this file and print one summary line")
+		fs.IntVar(head, "head", 0, "with --save, also print the first N lines of the saved text")
 	}
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -417,7 +429,7 @@ func cmdAgentsJob(verb string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("agents "+verb, err)
 	}
-	if len(pos) != 1 {
+	if len(pos) != 1 || *head < 0 || (*head > 0 && *save == "") {
 		fs.Usage()
 		return 2
 	}
@@ -425,15 +437,69 @@ func cmdAgentsJob(verb string, args []string) int {
 	if err != nil {
 		return helptext.Fail("agents %s: %v", verb, err)
 	}
+	return runAgentsJob(verb, rec, *format, jobOpts{*follow, *save, *head})
+}
+
+// jobOpts are the tail and result flags.
+type jobOpts struct {
+	follow bool
+	save   string
+	head   int
+}
+
+// runAgentsJob runs the verb against the dispatch record.
+func runAgentsJob(verb string, rec agent.Record, format string, o jobOpts) int {
 	switch verb {
 	case "status":
-		return ask.Status("agents status", rec.Agent, rec.ID, true, *format, "")
+		return ask.Status("agents status", rec.Agent, rec.ID, true, format, "")
 	case "result":
-		return ask.PrintResult(rec, *format)
+		if o.save != "" {
+			return ask.SaveResult(rec, o.save, o.head, format)
+		}
+		return ask.PrintResult(rec, format)
 	case "tail":
-		return ask.TailJob("agents tail", rec, *format, *follow)
+		return ask.TailJob("agents tail", rec, format, o.follow)
 	}
-	return ask.CancelJob("agents cancel", rec.Agent, rec.ID, *format)
+	return ask.CancelJob("agents cancel", rec.Agent, rec.ID, format)
+}
+
+// cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 unless every one is done.
+func cmdAgentsWait(args []string) int {
+	fs := agentsFlags("wait")
+	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
+	format := helptext.FormatFlag(fs)
+	ids, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("agents wait", err)
+	}
+	if len(ids) == 0 {
+		fs.Usage()
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	rows, err := agent.Wait(ctx, ids, *timeout, time.Second)
+	if err != nil {
+		return helptext.Fail("agents wait: %v", err)
+	}
+	if *format == helptext.JSON {
+		if code := helptext.WriteJSONOrFail("agents wait", rows); code != 0 {
+			return code
+		}
+	} else {
+		for _, r := range rows {
+			fmt.Println(r.Line())
+		}
+	}
+	for _, r := range rows {
+		if r.State != agent.WaitDone {
+			return 1
+		}
+	}
+	return 0
 }
 
 // cmdAgentsSend is `agents send <id> <task>`.

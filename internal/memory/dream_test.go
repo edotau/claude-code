@@ -76,6 +76,10 @@ func TestDreamGateRefusalsWithoutEditsStampForRetry(t *testing.T) {
 				NoteGateBlocks(ctx, tc.blocks)
 				if tc.edit {
 					write(t, filepath.Join(Dir(root), "conventions.md"), templates()["conventions.md"]+"\n- merged\n")
+					future := time.Now().Add(time.Second) // past the coarser filesystem clock
+					if err := os.Chtimes(filepath.Join(Dir(root), "conventions.md"), future, future); err != nil {
+						t.Error(err)
+					}
 				}
 				return "stub", nil
 			}

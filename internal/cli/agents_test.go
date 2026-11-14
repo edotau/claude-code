@@ -661,6 +661,48 @@ func TestAgentsResultReportsTextWriteFailure(t *testing.T) {
 	requireLostOutput(t, run, "agents result: write output:")
 }
 
+// A failed dispatch makes `agents wait` print one row per id, in order, and exit 1.
+func TestAgentsWaitExitsOneWhenAnyDispatchErrored(t *testing.T) {
+	cfgDir(t)
+	okRec, errRec := seedClaudeJob(t), seedClaudeJob(t)
+	errRec.ID, errRec.Status = errRec.ID+"-e", "error"
+	if err := errRec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := runAgents(t, "wait", okRec.ID, errRec.ID)
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	if code != 1 || len(rows) != 2 || !strings.HasPrefix(rows[0], okRec.ID+" done ") || !strings.HasPrefix(rows[1], errRec.ID+" error ") {
+		t.Fatalf("wait = %d %q (stderr %q), want two rows done/error and exit 1", code, out, stderr)
+	}
+	if code, _, _ := runAgents(t, "wait"); code != 2 {
+		t.Errorf("wait without ids = %d, want 2", code)
+	}
+}
+
+// `agents result --save F` writes exactly what plain `agents result` prints and prints one summary line.
+func TestAgentsResultSaveMatchesPlainResult(t *testing.T) {
+	cfgDir(t)
+	rec := seedClaudeJob(t)
+	rec.Log = rec.LogPath()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	plain := okAgents(t, "result", rec.ID)
+	dest := filepath.Join(t.TempDir(), "out.txt")
+	out := okAgents(t, "result", rec.ID, "--save", dest, "--head", "1")
+	saved, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("saved %d B, %d lines -> %s\nhi there\n", len(plain), strings.Count(plain, "\n"), dest)
+	if string(saved) != plain || out != want {
+		t.Fatalf("saved %q, stdout %q; want the plain result %q and stdout %q", saved, out, plain, want)
+	}
+	if code, _, _ := runAgents(t, "result", rec.ID, "--head", "1"); code != 2 {
+		t.Errorf("--head without --save = %d, want 2", code)
+	}
+}
+
 func TestAgentsTreeReportsJSONWriteFailure(t *testing.T) {
 	cfgDir(t)
 	run := func() int { return cmdAgents([]string{"tree", "--format", "json"}) }
