@@ -115,54 +115,6 @@ func TestAutoRateLimitMovesToNextWorkspace(t *testing.T) {
 	}
 }
 
-// Parallel legs that move workspaces together each report only their own workspaces (run with -race).
-func TestParallelLegsKeepTheirOwnWorkspaces(t *testing.T) {
-	armRateFixture(t, []string{"dev"}, nil)
-	cl := newClient()
-	hops, answered := make([][]string, 2), make([]string, 2)
-	var wg sync.WaitGroup
-	for i, start := range []string{"dev", "qa"} {
-		wg.Go(func() {
-			a := &armRetry{agentName: "codex", fallback: router.FallbackNone, tried: []string{start}}
-			o := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
-			env := a.streamLeg(t.Context(), cl, o, make(chan wire.Event, 256))
-			answered[i] = env.Provider
-			if env.Error != nil {
-				t.Logf("leg %d error: %s", i, env.Error.Message)
-			}
-			for _, h := range env.Hops {
-				hops[i] = append(hops[i], h.Profile)
-			}
-		})
-	}
-	wg.Wait()
-	if got := strings.Join(hops[0], ","); got != "dev,qa" {
-		t.Errorf("leg starting on dev hops %q, want dev,qa", got)
-	}
-	if slices.Contains(hops[1], "dev") || !strings.Contains(answered[1], "qa") {
-		t.Errorf("leg starting on qa: hops %v answered by %q, want qa and never dev", hops[1], answered[1])
-	}
-}
-
-// Legs sharing one client never write it: the race detector flags a per-leg write of Client.Notify (run with -race).
-func TestParallelLegsDoNotWriteSharedClient(t *testing.T) {
-	armRateFixture(t, []string{"dev"}, nil)
-	cl := newClient()
-	cl.Notify = func(string) {}
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			a := &armRetry{agentName: "codex", fallback: router.FallbackNone, tried: []string{"dev"}}
-			o := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
-			<-start
-			a.streamLeg(t.Context(), cl, o, make(chan wire.Event, 256))
-		})
-	}
-	close(start)
-	wg.Wait()
-}
-
 // checkMovedReport asserts the envelope lists the hops dev then qa and names the move in ran_on.
 func checkMovedReport(t *testing.T, env map[string]any) {
 	t.Helper()

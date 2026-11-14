@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -67,7 +67,7 @@ func builtLaunch(name string, build func() ([]string, error)) pathLaunch {
 // exploreLaunch is the `explore` argv, detached or not.
 func exploreLaunch(background bool) func(string, string) pathLaunch {
 	return func(name, wd string) pathLaunch {
-		return builtLaunch(name, func() ([]string, error) { return roles.Args(name, wd, "q", false, background) })
+		return builtLaunch(name, func() ([]string, error) { return ask.ExploreArgs(name, wd, "q", false, background) })
 	}
 }
 

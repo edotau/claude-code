@@ -14,7 +14,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
@@ -23,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -42,10 +40,9 @@ func agentsSpec() *helptext.Node {
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
 		"list": {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":  {Flags: ask.CompletionFlags()},
-		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
-			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
+		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
-			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
+			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),
@@ -83,7 +80,7 @@ var agentsPage = helptext.Page{
 	Commands: [][2]string{
 		{"list", "list each agent, its availability and honored fields; --format json"},
 		{"ask", "one-shot task on an agent; --format json = envelope"},
-		{"dispatch", "run a task by role: explore, fleet, compare"},
+		{"dispatch", "run a plan's waves: dispatch --waves <plan>"},
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"label", "print a leaf's dispatch description prefix"},
@@ -120,11 +117,9 @@ var agentsSubPages = map[string][3]string{
 		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live) and stream that turn's events; exits on its result. One turn at a time per session."},
-	"dispatch": {"dispatch [<role> <task> | --waves <plan>] [flags]", "Run a task by role: explore (copilot, one dispatch per --part), fleet " +
-		"(copilot fleet mode) or compare (opencode, one dispatch per model). Dispatches run concurrently; the report " +
-		"lists each answer. With --waves, run the plan’s waves with observed verification and no commits.",
-		"Roles come from the vault overlay dispatch-roles, else the built-in table.\n" +
-			"With --waves, exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
+	"dispatch": {"dispatch --waves <plan> [flags]", "Run a plan’s waves with observed verification and no commits; " +
+		"the shared route and permission flags reach every leaf.",
+		"Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
 			"3 outside owned files or unattributed, 4 interrupted."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
@@ -370,18 +365,12 @@ func cmdAgentsFind(args []string) int {
 	return agent.Find(o)
 }
 
-// cmdAgentsDispatch runs a role task or a plan’s waves.
+// cmdAgentsDispatch is `agents dispatch --waves <plan>`: the wave runner.
 func cmdAgentsDispatch(args []string) int {
 	fs := agentsFlags("dispatch")
-	var parts []string
-	helptext.ListVar(fs, &parts, "part", "QUESTION", "explore: question per dispatch (repeatable, max 12)", false)
-	noWeb := fs.Bool("no-web", false, "explore: code scan only, skip web research")
-	models := fs.String("models", "", "compare: model ids, comma-separated (default: the role's set)")
-	jobs := fs.Int("jobs", roles.MaxParts, "dispatches running at once (max 12)")
 	timeout := fs.Duration("timeout", 0, "per-dispatch time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
-	background := fs.Bool("background", false, "detach each dispatch, print its id; no merged report")
-	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) each answer must satisfy")
+	background := fs.Bool("background", false, "detach the run, print its id")
 	route := ask.RegisterRouteFlags(fs)
 	waveOpts := registerDispatchWaves(fs)
 	job := fs.String("job", "", "internal detached wave dispatch id")
@@ -392,24 +381,11 @@ func cmdAgentsDispatch(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("dispatch", err)
 	}
-	if fs.Lookup("waves").Value.String() != "" {
-		waveOpts.Timeout, waveOpts.JSON = *timeout, *format == helptext.JSON
-		return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})
+	if waveOpts.Plan == "" {
+		return helptext.FailUsage("agents dispatch: --waves <plan> is required")
 	}
-	if err := dispatchWaveCompanions(fs); err != nil {
-		return helptext.FailUsage("agents dispatch: %v", err)
-	}
-	if len(pos) < 2 {
-		fs.Usage()
-		return 2
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return helptext.Fail("agents dispatch: %v", err)
-	}
-	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: textutil.SplitCSV(*models),
-		Web: !*noWeb, Timeout: *timeout}
-	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background, Route: route})
+	waveOpts.Timeout, waveOpts.JSON = *timeout, *format == helptext.JSON
+	return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})
 }
 
 // cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 on error or lost, 4 on timeout.

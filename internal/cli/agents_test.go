@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
@@ -400,39 +399,21 @@ func TestAgentsResultFollow(t *testing.T) {
 	}
 }
 
-// partArgs is n repeated --part flags followed by tail.
-func partArgs(n int, tail ...string) []string {
-	var args []string
-	for range n {
-		args = append(args, "--part", "q")
-	}
-	return append(args, tail...)
-}
-
-// Bad dispatch args exit 2 and the message names the cause where one is pinned.
+// Bad dispatch args exit 2 and the message names --waves: the role mode is gone.
 func TestDispatchUsageErrorsExit2(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	capMsg := fmt.Sprintf("%d --part", roles.MaxParts+1)
 	for _, tc := range []struct {
 		name string
 		args []string
-		want []string
 	}{
-		{"missing task", []string{"explore"}, nil},
-		{"no args", []string{}, nil},
-		{"unknown role", []string{"nonesuch", "task"}, []string{`unknown role "nonesuch"`}},
-		{"over-cap --part", partArgs(roles.MaxParts+1, "explore", "task"), []string{capMsg, fmt.Sprintf("cap is %d", roles.MaxParts)}},
-		{"bad schema", []string{"--output-schema", "{not json", "fleet", "task"}, []string{"--output-schema"}},
-		{"schema file", []string{"--output-schema", "/nonexistent/schema.json", "fleet", "task"}, nil},
+		{"no args", []string{}},
+		{"explore", []string{"explore", "x"}},
+		{"fleet", []string{"fleet", "x"}},
+		{"compare", []string{"compare", "x"}},
 	} {
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(tc.args) })
-		if code != 2 {
-			t.Errorf("%s: exit %d, want 2", tc.name, code)
-		}
-		for _, w := range tc.want {
-			if !strings.Contains(stderr, w) {
-				t.Errorf("%s: stderr %q lacks %q", tc.name, stderr, w)
-			}
+		if code != 2 || !strings.Contains(stderr, "--waves <plan> is required") {
+			t.Errorf("%s: exit %d, stderr %q; want exit 2 naming --waves", tc.name, code, stderr)
 		}
 	}
 }
@@ -1008,7 +989,7 @@ func TestAgentsDispatchWaveCompanionsRequirePlan(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			args = append(args, "explore", "task")
 			code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(args) })
-			if code != 2 || !strings.Contains(stderr, "requires --waves") {
+			if code != 2 || !strings.Contains(stderr, "--waves <plan> is required") {
 				t.Fatalf("exit %d, stderr %q; want usage error requiring --waves", code, stderr)
 			}
 		})

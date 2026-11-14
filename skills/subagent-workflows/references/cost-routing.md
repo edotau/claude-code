@@ -11,20 +11,8 @@ measurements. Aliases come from `internal/providers/defaults.json` and the vault
 `internal/models`; `internal/router/table.json` holds price/account rows and the Databricks tier buckets (the
 models an alias picks on a workspace; `rules/harness/providers.md` → Model selection).
 
-### Shell roles
-
-For an explicitly requested script or shell task, `claude-code agents dispatch` supplies these built-in roles;
-the vault's dispatch-roles overlay may replace them:
-
-| Role | Execution |
-| --- | --- |
-| `explore` | copilot, one read-only code/web question per `--part`, up to 12 |
-| `fleet` | copilot fleet mode; inspect every changed file |
-| `compare` | opencode, one call per model in `--models a,b` |
-
-These are shell conveniences, not substitutes for visible Agent leaves. A relay runs one task; it does not invoke
-a role fan-out unless explicitly requested. `gemini` needs tools for file reads or search; use its read-only mode
-for research. An OpenCode run may write outside its intended workdir: verify the actual tree and owned files.
+A relay runs one task. `gemini` needs tools for file reads or search; use its read-only mode for research. An OpenCode
+run may write outside its intended workdir: verify the actual tree and owned files.
 
 ## Ask flags and lifecycle
 

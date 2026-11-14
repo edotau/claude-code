@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/proc"
@@ -56,7 +55,7 @@ func Explore(name, question string, web, background bool, format string) int {
 	if err != nil {
 		return helptext.Fail("%s explore: %v", name, err)
 	}
-	askArgs, err := roles.Args(name, cwd, question, web, background)
+	askArgs, err := ExploreArgs(name, cwd, question, web, background)
 	if err != nil {
 		return helptext.Fail("%s explore: %v", name, err)
 	}
