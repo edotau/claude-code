@@ -2,6 +2,7 @@ package router
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -429,4 +432,65 @@ func sortUnits(us []rungGroup) {
 		return cmp.Or(cmp.Compare(a.rung, b.rung), cmp.Compare(lowRank(a.cs[0].State), lowRank(b.cs[0].State)),
 			cmp.Compare(b.cs[0].Total, a.cs[0].Total))
 	})
+}
+
+// CoworkerContext resolves Coworker using the run snapshot.
+func CoworkerContext(ctx context.Context) (provider, profile string, err error) {
+	v := strings.TrimSpace(proc.Value(ctx, overlayEnv))
+	var doc struct{ Provider, Profile string }
+	switch {
+	case !strings.HasPrefix(v, "{"):
+		return "", "", nil
+	case json.Unmarshal([]byte(v), &doc) != nil:
+		return "", "", errors.New(overlayEnv + ": not valid JSON")
+	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
+		return "", "", nil // the ask applying this document resolves the workspace
+	}
+	if provider, profile, err = ParseCoworker(JoinCoworker(doc.Provider, doc.Profile)); err != nil {
+		return "", "", fmt.Errorf("%s: %w", overlayEnv, err)
+	}
+	return provider, profile, nil
+}
+
+// ConfinedContext resolves Confined using the run snapshot.
+func ConfinedContext(ctx context.Context) (provider, profile string) {
+	provider, profile, err := CoworkerContext(ctx)
+	switch {
+	case err != nil:
+		return BadOverlay, ""
+	case provider == RouteDatabricks:
+		return "", ""
+	}
+	return provider, profile
+}
+
+// ConfineLeadContext resolves ConfineLead using the run snapshot.
+func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model string) (string, string) {
+	cp, cprof := ConfinedContext(ctx)
+	switch {
+	case cp == "" || profile != "" || strings.Contains(model, ":"):
+		return profile, provider
+	case cprof != "": // a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
+		return cprof, ""
+	case provider != "":
+		return profile, provider
+	case agentName != "claude":
+		return "", cp
+	}
+	reg, err := providers.Load()
+	if err != nil { // fail closed: a profile no row has, never an unconfined lead
+		return unresolvedProfile, ""
+	}
+	if own := OwnProfiles(reg, agentName, cp); len(own) > 0 { // claude reads a profile, never a provider lead
+		return own[0], ""
+	}
+	return "", ""
+}
+
+// ArmProfileContext resolves ArmProfile using the run snapshot.
+func ArmProfileContext(ctx context.Context) string {
+	if mode, profile, err := CoworkerContext(ctx); err == nil && mode == RouteDatabricks {
+		return profile
+	}
+	return ""
 }

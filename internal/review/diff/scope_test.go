@@ -228,3 +228,40 @@ func TestRunScopeTextIncludesImporters(t *testing.T) {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
+
+func TestRunScopeCaps(t *testing.T) {
+	lines := func(n int) string { return "package p\n" + strings.Repeat("\n", n-1) }
+	imports := func(n int) string {
+		var b strings.Builder
+		b.WriteString("package p\n\nimport (\n")
+		for i := range n {
+			fmt.Fprintf(&b, "\t_ \"example.com/m/i%d\"\n", i)
+		}
+		b.WriteString(")\n")
+		return b.String()
+	}
+	dir := hosttest.Repo(t)
+	for name, body := range map[string]string{
+		"over.go": lines(1201), "edge.go": lines(1200), "big_test.go": lines(1500), "huge_test.go": lines(1501),
+		"many.go": imports(26), "some.go": imports(25),
+	} {
+		hosttest.WriteRel(t, dir, name, body)
+	}
+	for _, tc := range []struct {
+		path, out string
+		code      int
+	}{
+		{"over.go", "OVER over.go lines=1201 cap=1200\n", 1},
+		{"edge.go", "ok\n", 0},
+		{"big_test.go", "ok\n", 0},
+		{"huge_test.go", "OVER huge_test.go lines=1501 cap=1500\n", 1},
+		{"some.go", "ok\n", 0},
+		{"many.go", "OVER many.go imports=26 cap=25\n", 1},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := RunScope([]string{"--repo", dir, "--paths", tc.path, "--caps"}, &stdout, &stderr)
+		if code != tc.code || stdout.String() != tc.out {
+			t.Errorf("%s: exit %d out %q, want exit %d out %q (stderr %s)", tc.path, code, stdout.String(), tc.code, tc.out, stderr.String())
+		}
+	}
+}

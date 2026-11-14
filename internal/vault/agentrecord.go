@@ -147,13 +147,13 @@ func ReadAgentRecords(names []string) (map[string]AgentRecord, error) {
 	recs, err := agentRecordCache.Get(Path(), loadAgentRecords)
 	out := make(map[string]AgentRecord, len(names))
 	for _, n := range names {
-		out[n] = recs[n].clone()
+		out[n] = recs[n].Clone()
 	}
 	return out, err
 }
 
-// clone is a deep copy of r, so a caller's edit never reaches the cached record.
-func (r AgentRecord) clone() AgentRecord {
+// Clone is a deep copy of r, so a caller's edit never reaches the cached or stored record.
+func (r AgentRecord) Clone() AgentRecord {
 	r.Aliases, r.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
 	if r.Permissions != nil {
 		p := *r.Permissions

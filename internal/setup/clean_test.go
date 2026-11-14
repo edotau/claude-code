@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -923,5 +925,57 @@ func TestCleanListNamesMemorySandboxesAndDefaultSweeps(t *testing.T) {
 	sel, err := selectTargets(targets(), "")
 	if err != nil || !slices.ContainsFunc(sel, func(tg target) bool { return tg.name == "memory-sandboxes" }) {
 		t.Fatalf("default selection lacks memory-sandboxes (err %v)", err)
+	}
+}
+
+func TestContractCleanSweeps(t *testing.T) {
+	for _, f := range schemas.All() {
+		if f.Clean == "" {
+			continue
+		}
+		t.Run(f.Name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			path := strings.ReplaceAll(f.Glob(), "*", "contract-fixture")
+			if !strings.HasPrefix(path, dir) {
+				t.Fatalf("glob %s outside %s", path, dir)
+			}
+			if got := cleanSweep(t, f.Clean); strings.Contains(got, f.Clean+" ") && strings.Contains(got, "would remove") {
+				t.Fatalf("empty tree already reports a removal: %s", got)
+			}
+			if f.Clean == "dispatch-log" { // clean keeps the newest 200 records at any age: bury the fixture below them
+				for i := range 200 {
+					writeOldCleanFixture(t, filepath.Join(filepath.Dir(path), fmt.Sprintf("zz-%03d.json", i)))
+				}
+			}
+			writeOldCleanFixture(t, path)
+			got := cleanSweep(t, f.Clean)
+			if !strings.Contains(got, f.Clean) || !strings.Contains(got, "would remove 1 entr") {
+				t.Fatalf("clean --target %s does not sweep %s:\n%s", f.Clean, path, got)
+			}
+		})
+	}
+}
+
+func cleanSweep(t *testing.T, target string) string {
+	t.Helper()
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", target, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
+		t.Fatalf("clean exit %d: %s", code, errw.String())
+	}
+	return out.String() + errw.String()
+}
+
+func writeOldCleanFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().AddDate(0, 0, -400)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
 	}
 }

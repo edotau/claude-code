@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
+
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -108,4 +110,12 @@ func Install() {
 			t.Proxy = Proxy
 		}
 	})
+}
+
+// HostContext returns the request-pinned host, including direct routing, else the run's host.
+func HostContext(ctx context.Context) string {
+	if host, ok := ctx.Value(hostKey{}).(string); ok {
+		return host
+	}
+	return proc.Value(ctx, EnvHost)
 }

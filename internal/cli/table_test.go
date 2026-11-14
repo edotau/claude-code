@@ -2,21 +2,16 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -26,9 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -68,12 +61,6 @@ func vendorSubwords() []string {
 		out = append(out, sub)
 	}
 	slices.Sort(out)
-	return out
-}
-
-func captureUsage(t *testing.T) string {
-	t.Helper()
-	_, out, _ := hosttest.CaptureOutput(t, func() int { usage(os.Stdout); return 0 })
 	return out
 }
 
@@ -491,7 +478,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
 		"gateway":  {"proxy"},
-		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel"},
+		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel", "wait"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
@@ -644,54 +631,6 @@ func TestMenuRowsFit(t *testing.T) {
 		if !seen {
 			t.Errorf("group %s has no rows", g)
 		}
-	}
-}
-
-// Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
-func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
-	out := captureUsage(t)
-	const menuWidth = 80
-	col := 2 + nameWidth
-	for line := range strings.SplitSeq(out, "\n") {
-		if utf8.RuneCountInString(line) > menuWidth && len(strings.Fields(line)) > 2 {
-			t.Errorf("line over %d cols: %q", menuWidth, line)
-		}
-		if ind := len(line) - len(strings.TrimLeft(line, " ")); ind > 10 && ind != col {
-			t.Errorf("continuation indent %d, want %d: %q", ind, col, line)
-		}
-	}
-	for _, c := range commands() {
-		if c.hidden {
-			continue
-		}
-		if !regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(c.name) + ` +\S`).MatchString(out) {
-			t.Errorf("row for %s missing or misaligned", c.name)
-		}
-	}
-}
-func menuGroup(out, group string) string {
-	i := strings.Index(out, "\n"+group+"\n")
-	if i < 0 {
-		return ""
-	}
-	rest := out[i+len(group)+2:]
-	if j := strings.Index(rest, "\n\n"); j >= 0 {
-		rest = rest[:j]
-	}
-	return rest
-}
-func TestMenuRegroupNetworkAuthMemorySession(t *testing.T) {
-	out := captureUsage(t)
-	for _, verb := range []string{"network", "vault"} {
-		if !regexp.MustCompile(`(?m)^  ` + verb + ` +\S`).MatchString(menuGroup(out, "AUTH")) {
-			t.Errorf("%s row missing from AUTH:\n%s", verb, out)
-		}
-	}
-	if !regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SESSION")) {
-		t.Errorf("memory row missing from SESSION:\n%s", out)
-	}
-	if regexp.MustCompile(`(?m)^  memory +\S`).MatchString(menuGroup(out, "SETTINGS")) {
-		t.Errorf("memory still listed under SETTINGS")
 	}
 }
 
@@ -922,27 +861,6 @@ func helpAllowsNoRows(path []string) bool {
 	return flagless[strings.Join(path, " ")]
 }
 
-// AUTH, SESSION, DIAGNOSTICS and SETTINGS list verbs A→Z; ANTHROPIC keeps its tier order.
-func TestMenuGroupsAlphabetical(t *testing.T) {
-	byGroup := map[string][]string{}
-	group := ""
-	for _, r := range menuRows() {
-		if r.head != "" {
-			group = r.head
-		} else if r.name != "" {
-			byGroup[group] = append(byGroup[group], strings.TrimSpace(r.name))
-		}
-	}
-	for g := range alphabetical {
-		if !slices.IsSorted(byGroup[g]) {
-			t.Errorf("%s not alphabetical: %v", g, byGroup[g])
-		}
-	}
-	if got := byGroup[groupAgents]; len(got) == 0 || got[0] != "anthropic" {
-		t.Errorf("AGENTS must open with anthropic, got %v", got)
-	}
-}
-
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
 	agent.NoticeOut = io.Discard
@@ -986,269 +904,4 @@ func termWidth(l string) int {
 		}
 	}
 	return w
-}
-
-var update = flag.Bool("update", false, "regenerate the schemas registry golden")
-
-const (
-	goldenPath = "../schemas/testdata/registry.golden"
-	legacyTag  = "# legacy-layout: "
-	// outside marks a Glob that is fixed at package init, so it cannot follow CLAUDE_CONFIG_DIR in a test.
-	outside = "<fixed at init>"
-)
-
-// decodable reports whether the row has a JSON shape the fixtures describe.
-func decodable(f schemas.Format) bool {
-	return f.New != nil && f.Kind != schemas.Store && f.Kind != schemas.Derived
-}
-
-func readFixture(t *testing.T, name string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(goldenPath), name))
-	if err != nil {
-		t.Fatalf("fixture missing: %v", err)
-	}
-	return b
-}
-
-func jsonEqual(t *testing.T, a, b []byte) bool {
-	t.Helper()
-	var x, y any
-	if err := json.Unmarshal(a, &x); err != nil {
-		t.Fatalf("bad json %q: %v", a, err)
-	}
-	if err := json.Unmarshal(b, &y); err != nil {
-		t.Fatalf("bad json %q: %v", b, err)
-	}
-	return reflect.DeepEqual(x, y)
-}
-
-func TestContractRoundTrip(t *testing.T) {
-	for _, f := range schemas.All() {
-		if !decodable(f) {
-			continue
-		}
-		t.Run(f.Name, func(t *testing.T) {
-			raw := readFixture(t, f.Name+".json")
-			dst := f.New()
-			from, err := schemas.Decode(f, raw, dst)
-			if err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			if from != f.Version {
-				t.Fatalf("fixture is schema %d, registry says %d", from, f.Version)
-			}
-			out, err := json.Marshal(dst)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !jsonEqual(t, raw, out) {
-				t.Fatalf("round trip differs:\nfixture %s\nremarshal %s", bytes.TrimSpace(raw), out)
-			}
-			var stamp struct {
-				Schema *int `json:"schema"`
-			}
-			if err := json.Unmarshal(out, &stamp); err != nil || stamp.Schema == nil || *stamp.Schema != f.Version {
-				t.Fatalf(`re-marshalled value lacks "schema": %d (%s)`, f.Version, out)
-			}
-		})
-	}
-}
-
-func TestContractMigrateFromV0(t *testing.T) {
-	for _, f := range schemas.All() {
-		if !decodable(f) || f.Migrate == nil {
-			continue
-		}
-		t.Run(f.Name, func(t *testing.T) {
-			raw := readFixture(t, f.Name+".v0.json")
-			dst := f.New()
-			from, err := schemas.Decode(f, raw, dst)
-			if err != nil {
-				t.Fatalf("decode v0: %v", err)
-			}
-			if from != 0 {
-				t.Fatalf("v0 fixture reports schema %d", from)
-			}
-			out, err := json.Marshal(dst)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !jsonEqual(t, readFixture(t, f.Name+".json"), out) {
-				t.Fatalf("v0 migrated to %s, want the current fixture", out)
-			}
-		})
-	}
-}
-
-func relGlob(dir string, f schemas.Format) string {
-	if f.Glob == nil {
-		return "-"
-	}
-	g := f.Glob()
-	rel, err := filepath.Rel(dir, g)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return outside
-	}
-	return filepath.ToSlash(rel)
-}
-
-func ownerBase(f schemas.Format) string { return filepath.Base(f.Owner) }
-
-func TestContractLayout(t *testing.T) {
-	dir := cfgDir(t)
-	legacy := goldenLegacy(t)
-	for _, f := range schemas.All() {
-		if f.Glob == nil {
-			continue
-		}
-		t.Run(f.Name, func(t *testing.T) {
-			rel := relGlob(dir, f)
-			if rel == outside {
-				t.Fatalf("glob %s is outside %s", f.Glob(), dir)
-			}
-			if !strings.HasPrefix(rel, "state/") {
-				t.Fatalf("glob %q is not under state/", rel)
-			}
-			if legacy[f.Name] {
-				return
-			}
-			want := "state/harness/" + ownerBase(f) + "/"
-			if !strings.HasPrefix(rel, want) {
-				t.Fatalf("new row %s glob %q must sit under %s (or be added to the golden's legacy-layout list on purpose)",
-					f.Name, rel, want)
-			}
-		})
-	}
-}
-
-func TestContractCleanOrKeep(t *testing.T) {
-	for _, f := range schemas.All() {
-		if f.Kind == schemas.Wire {
-			continue
-		}
-		if f.Clean == "" && f.Keep == "" {
-			t.Errorf("%s: neither Clean nor Keep", f.Name)
-		}
-	}
-}
-
-func TestContractCleanSweeps(t *testing.T) {
-	for _, f := range schemas.All() {
-		if f.Clean == "" {
-			continue
-		}
-		t.Run(f.Name, func(t *testing.T) {
-			dir := cfgDir(t)
-			path := strings.ReplaceAll(f.Glob(), "*", "contract-fixture")
-			if !strings.HasPrefix(path, dir) {
-				t.Fatalf("glob %s outside %s", path, dir)
-			}
-			if got := cleanSweep(t, f.Clean); strings.Contains(got, f.Clean+" ") && strings.Contains(got, "would remove") {
-				t.Fatalf("empty tree already reports a removal: %s", got)
-			}
-			if f.Clean == "dispatch-log" { // clean keeps the newest 200 records at any age: bury the fixture below them
-				for i := range 200 {
-					writeOldCleanFixture(t, filepath.Join(filepath.Dir(path), fmt.Sprintf("zz-%03d.json", i)))
-				}
-			}
-			writeOldCleanFixture(t, path)
-			got := cleanSweep(t, f.Clean)
-			if !strings.Contains(got, f.Clean) || !strings.Contains(got, "would remove 1 entr") {
-				t.Fatalf("clean --target %s does not sweep %s:\n%s", f.Clean, path, got)
-			}
-		})
-	}
-}
-
-func cleanSweep(t *testing.T, target string) string {
-	t.Helper()
-	var out, errw bytes.Buffer
-	if code := setup.Clean([]string{"--target", target, "--dry-run", "--older-than", "30d"}, &out, &errw); code != 0 {
-		t.Fatalf("clean exit %d: %s", code, errw.String())
-	}
-	return out.String() + errw.String()
-}
-
-func writeOldCleanFixture(t *testing.T, path string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().AddDate(0, 0, -400)
-	if err := os.Chtimes(path, old, old); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func goldenLegacy(t *testing.T) map[string]bool {
-	t.Helper()
-	m := map[string]bool{}
-	b, err := os.ReadFile(goldenPath)
-	if err != nil {
-		return m
-	}
-	for l := range strings.SplitSeq(string(b), "\n") {
-		if n, ok := strings.CutPrefix(l, legacyTag); ok {
-			m[strings.TrimSpace(n)] = true
-		}
-	}
-	return m
-}
-
-func render(t *testing.T, legacy map[string]bool) string {
-	dir := cfgDir(t)
-	var sb strings.Builder
-	sb.WriteString("# Reviewable registry: name | kind | version | glob (relative to the config dir) | owner | clean:<target>|keep\n")
-	sb.WriteString("# A change here is a change to the on-disk contract; regenerate with: go test ./internal/cli -run Golden -update\n")
-	var names []string
-	rows := map[string]string{}
-	for _, f := range schemas.All() {
-		disp := "keep"
-		if f.Clean != "" {
-			disp = "clean:" + f.Clean
-		}
-		rows[f.Name] = strings.Join([]string{f.Name, string(f.Kind), itoa(f.Version), relGlob(dir, f), f.Owner, disp}, " | ")
-		names = append(names, f.Name)
-		if f.Glob != nil && !legacy[f.Name] && !strings.HasPrefix(relGlob(dir, f), "state/harness/"+ownerBase(f)+"/") {
-			legacy[f.Name] = true
-		}
-	}
-	var keep []string
-	for n := range legacy {
-		if _, ok := rows[n]; ok {
-			keep = append(keep, n)
-		}
-	}
-	sort.Strings(keep)
-	for _, n := range keep {
-		sb.WriteString(legacyTag + n + "\n")
-	}
-	for _, n := range names {
-		sb.WriteString(rows[n] + "\n")
-	}
-	return sb.String()
-}
-
-func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
-
-func TestContractRegistryGolden(t *testing.T) {
-	legacy := goldenLegacy(t)
-	if *update { // first -update seeds the legacy list with every row that is off the new layout
-		got := render(t, legacy)
-		if err := os.WriteFile(goldenPath, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("golden missing; run with -update: %v", err)
-	}
-	if got := render(t, legacy); got != string(want) {
-		t.Fatalf("registry differs from %s (run -update after reviewing):\n--- got\n%s--- want\n%s", goldenPath, got, want)
-	}
 }

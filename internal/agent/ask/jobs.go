@@ -67,22 +67,8 @@ func printResult(prefix, agentName, ref, format string, full bool) int {
 		}
 		return resultExit(rec)
 	}
-	out := &textutil.ErrWriter{W: os.Stdout}
-	fmt.Fprint(out, log)
-	if log != "" && !strings.HasSuffix(log, "\n") {
-		fmt.Fprintln(out)
-	}
-	if full {
-		if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
-			fmt.Fprintln(out, "ask:", line)
-		}
-	}
-	if rec.SessionID != "" {
-		fmt.Fprintf(out, "session: %s\n", rec.SessionID)
-		fprintResumeHint(out, agentName, rec.SessionID)
-	}
-	if out.Err != nil {
-		return helptext.Fail("%s: write output: %v", prefix, out.Err)
+	if _, err := os.Stdout.WriteString(resultText(rec, log, full)); err != nil {
+		return helptext.Fail("%s: write output: %v", prefix, err)
 	}
 	return resultExit(rec)
 }

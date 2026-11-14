@@ -3,7 +3,10 @@ package diff
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"io/fs"
 	"maps"
@@ -24,6 +27,13 @@ import (
 // scopeBytesPerLine is the size estimate per changed line for the --range listing.
 const scopeBytesPerLine = 80
 
+// Size caps from rules/standards/quality.md: lines per file (test files get the larger one) and imports per Go file.
+const (
+	capLines     = 1200
+	capTestLines = 1500
+	capImports   = 25
+)
+
 // scopeExts are the source extensions the --paths listing keeps.
 var scopeExts = textutil.SetOf(".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".rs", ".java")
 
@@ -43,6 +53,14 @@ type scopePackage struct {
 	Importers []string `json:"importers"`
 }
 
+// capFinding is one file over a cap: kind is "lines" or "imports".
+type capFinding struct {
+	Path  string `json:"path"`
+	Kind  string `json:"kind"`
+	Value int    `json:"value"`
+	Cap   int    `json:"cap"`
+}
+
 type scopeResult struct {
 	Files    []scopeFile    `json:"files"`
 	Packages []scopePackage `json:"packages"`
@@ -60,6 +78,7 @@ func RunScope(args []string, stdout, stderr io.Writer) int {
 	diffRange := fs.String("range", "", "Git revision range whose changed files are listed (e.g. HEAD~1..HEAD)")
 	paths := fs.String("paths", "", "Comma-separated paths: the pathspec for --range, or the source tree to list")
 	importers := fs.Bool("importers", false, "Add each Go package among the files with its in-repo importers")
+	caps := fs.Bool("caps", false, "Instead of the listing, report listed files over the line (1200, tests 1500) or import (25) cap")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -71,15 +90,89 @@ func RunScope(args []string, stdout, stderr io.Writer) int {
 	if !ok {
 		return 1
 	}
-	result, err := buildScope(root, *diffRange, splitPaths(*paths), *importers)
+	result, err := buildScope(root, *diffRange, splitPaths(*paths), *importers && !*caps)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
+	}
+	if *caps {
+		return runCaps(root, result.Files, *format, stdout, stderr)
 	}
 	if *format == helptext.JSON {
 		return printJSON(stdout, stderr, result)
 	}
 	return printScopeText(stdout, stderr, result)
+}
+
+// runCaps prints the cap findings for files and exits 1 when any file is over a cap.
+func runCaps(root string, files []scopeFile, format string, stdout, stderr io.Writer) int {
+	findings, err := capFindings(root, files)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
+	}
+	code := 0
+	if len(findings) > 0 {
+		code = 1
+	}
+	if format == helptext.JSON {
+		if printJSON(stdout, stderr, findings) != 0 {
+			return 1
+		}
+		return code
+	}
+	if len(findings) == 0 {
+		fmt.Fprintln(stdout, "ok")
+	}
+	for _, f := range findings {
+		fmt.Fprintf(stdout, "OVER %s %s=%d cap=%d\n", f.Path, f.Kind, f.Value, f.Cap)
+	}
+	return code
+}
+
+// capFindings checks each listed source file still on disk against the line cap and, for Go, the import cap.
+func capFindings(root string, files []scopeFile) ([]capFinding, error) {
+	findings := []capFinding{}
+	for _, f := range files {
+		if !scopeExts[filepath.Ext(f.Path)] {
+			continue
+		}
+		file := filepath.Join(root, filepath.FromSlash(f.Path))
+		data, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // deleted in the range
+		}
+		if err != nil {
+			return nil, err
+		}
+		limit := capLines
+		if strings.HasSuffix(f.Path, "_test.go") {
+			limit = capTestLines
+		}
+		if n := countLines(data); n > limit {
+			findings = append(findings, capFinding{f.Path, "lines", n, limit})
+		}
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, data, parser.ImportsOnly)
+		if err != nil {
+			return nil, fmt.Errorf("parse imports of %s: %w", f.Path, err)
+		}
+		if n := len(parsed.Imports); n > capImports {
+			findings = append(findings, capFinding{f.Path, "imports", n, capImports})
+		}
+	}
+	return findings, nil
+}
+
+// countLines counts lines like wc -l, plus one for a final line without a newline.
+func countLines(data []byte) int {
+	n := bytes.Count(data, []byte{'\n'})
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }
 
 // checkScopeArgs refuses an unknown format or a call with neither --range nor --paths (exit 2).
