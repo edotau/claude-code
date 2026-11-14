@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -302,6 +305,37 @@ func TestLoginIdentitySPMintsWithoutBrowser(t *testing.T) {
 			t.Errorf("%s: exit %d mints %d browser %d, output %q; want exit %d mints %d browser %d containing %q",
 				c.name, code, mints.Load(), browser, out, c.code, c.mints, c.browser, c.out)
 		}
+	}
+}
+
+// With a dead user login recorded, the bare login that the dead-login hints name opens the browser, not the SP mint.
+func TestLoginAutoSPRowWithDeadLoginOpensTheBrowser(t *testing.T) {
+	mints := spLoginRow(t, "auto", true, true)
+	stubValid(t, false)
+	mark := filepath.Join(paths.StateDir(), "cache", "login-state", "dbx-sp.json")
+	if err := os.MkdirAll(filepath.Dir(mark), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := fmt.Sprintf(`{"schema":1,"state":"needs_login","since":%q,"until":%q}`,
+		time.Now().Add(-time.Hour).Format(time.RFC3339), time.Now().Add(time.Hour).Format(time.RFC3339))
+	if err := os.WriteFile(mark, []byte(rec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	browser := 0
+	fakeLogin(t, func(*providers.Provider) (time.Duration, error) { browser++; return 30 * time.Minute, nil })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-sp"}) })
+	if code != 0 || browser != 1 || mints.Load() != 0 || !strings.Contains(stdout, "your login is dead") {
+		t.Errorf("exit %d browser %d mints %d, stdout %q; want the browser login and no SP mint", code, browser, mints.Load(), stdout)
+	}
+}
+
+// An SP-only mint on an auto row with no stored login says it was not a login of the user's.
+func TestLoginAutoSPMintNamesTheUserLoginWhenNoneIsStored(t *testing.T) {
+	spLoginRow(t, "auto", true, true)
+	stubValid(t, false)
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-sp"}) })
+	if want := "login --profile dbx-sp --as user"; code != 0 || !strings.Contains(stdout, want) {
+		t.Errorf("exit %d, stdout %q; want a line naming %q", code, stdout, want)
 	}
 }
 

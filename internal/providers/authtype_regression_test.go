@@ -83,6 +83,36 @@ func TestRotatedRefreshSealFailureCarriedToNextMint(t *testing.T) {
 	}
 }
 
+// A refresh the IdP rejects after a peer sealed a newer login is retried on that login: no dead mark, A never written back.
+func TestRejectedRefreshAfterANewerLoginSealedRetriesOnIt(t *testing.T) {
+	var seen []string
+	var p *Provider
+	srv := oidcServer(t, func(_ *http.Request, f url.Values) (int, map[string]any) {
+		rt := f.Get("refresh_token")
+		seen = append(seen, rt)
+		if rt == "refresh-A" {
+			_ = writeOAuth(p, oauthValue{Refresh: "refresh-B"}) // a login that did not wait for the refresh lock
+			return http.StatusBadRequest, map[string]any{"error": "invalid_grant", "error_description": "refresh token expired"}
+		}
+		return http.StatusOK, map[string]any{"access_token": jwtExpIn(time.Hour, "https://x"), "expires_in": 3600}
+	})
+	p = mintRow(t, "reject-after-login", AuthOAuth, "", srv.URL)
+	t.Cleanup(func() { loginMarks.Delete(p.Name) })
+	putOAuth(t, p, oauthValue{Refresh: "refresh-A"})
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatalf("Credential = %v; want a retry on the newer login to serve", err)
+	}
+	if _, dead := LoginStatus(p); dead {
+		t.Error("a rejection of the superseded refresh token marked the newer login dead")
+	}
+	if ov, _ := readOAuth(p); ov.Refresh != "refresh-B" {
+		t.Errorf("sealed refresh = %q; want the newer login's refresh-B kept", ov.Refresh)
+	}
+	if len(seen) != 2 || seen[0] != "refresh-A" || seen[1] != "refresh-B" {
+		t.Errorf("refresh tokens sent = %q; want refresh-A then refresh-B", seen)
+	}
+}
+
 // staleRow is a u2m row on a token endpoint that always answers 503, with a sealed access token valid for left.
 func staleRow(t *testing.T, name string, left time.Duration) (*Provider, string) {
 	t.Helper()
