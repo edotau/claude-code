@@ -262,11 +262,11 @@ func TestSetPATRejectedRestoresCommandAuth(t *testing.T) {
 func TestMintExpiryComesFromMintedToken(t *testing.T) {
 	want := time.Now().Add(37 * time.Minute).Truncate(time.Second)
 	enc := base64.RawURLEncoding.EncodeToString
-	jwt := enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(fmt.Sprintf(`{"exp":%d}`, want.Unix()))) + ".sig"
+	tok := enc([]byte(`{"alg":"none"}`)) + "." + enc(fmt.Appendf(nil, `{"exp":%d}`, want.Unix())) + ".sig"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"data":[]}`) }))
 	t.Cleanup(srv.Close)
 	seedOverlay(t, fmt.Sprintf(`{"providers":{"databricks":{"mrow":{"protocol":"anthropic","base_url":%q,`+
-		`"auth":{"type":"key","command":"printf %s"}}}}}`, srv.URL, jwt))
+		`"auth":{"type":"key","command":"printf %s"}}}}}`, srv.URL, tok))
 	res, _, err := Mint(context.Background(), "mrow")
 	if err != nil || !res.Expiry.Equal(want) {
 		t.Errorf("expiry %v err %v, want %v", res.Expiry, err, want)
