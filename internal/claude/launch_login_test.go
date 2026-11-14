@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -77,6 +80,8 @@ func loginSetup(t *testing.T, tty bool, input string, loginErr error) loginHarne
 		if loginErr != nil {
 			return loginErr
 		}
+		// A real login (providers.sealLogin) clears the dead-login mark the failed pre-login check left behind.
+		_ = os.Remove(filepath.Join(paths.StateDir(), "cache", "login-state", name+".json"))
 		return vault.Store(providers.AuthSecretName(&providers.Provider{Name: name, Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}}), `{"refresh":"rt"}`) // oauth = one JSON value
 	}
 	return h

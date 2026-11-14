@@ -43,7 +43,9 @@ func Serve(ctx context.Context, port int) error {
 	}
 	defer cleanup()
 
-	srv := &http.Server{Handler: newRouter(secret), ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
+	r := newRouter(secret)
+	defer r.startKeepalive(ctx)()
+	srv := &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	serveListening()
 	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", gateway.Base(st.Port), st.PID)
 	return serve(ctx, srv, ln)

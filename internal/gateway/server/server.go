@@ -64,6 +64,8 @@ type Router struct {
 	authGen int
 	// provider names this process marked auth-dead: cleared on their next success
 	marked map[string]bool
+	used   map[string]time.Time // provider name → last request through the router, for the keepalive loop
+	ka     keepalive
 	// scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	files map[string]fileEntry
 	// sha256 of the bearer the Files API refused; a new credential clears it
@@ -85,7 +87,7 @@ func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
-		marked: map[string]bool{}, oauth: providers.HeadlessOAuthToken}
+		marked: map[string]bool{}, used: map[string]time.Time{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
 	r.tags = parseRequestTags(os.Getenv(requestTagsEnv), r.log)
@@ -190,8 +192,9 @@ func stripClientAuth(req *http.Request) {
 type fallbackError struct {
 	error
 	status int
-	hard   bool // a 429 that denies the model outright (quota 0), not a transient rate limit
-	auth   bool // the credential was condemned (login required or rejected after a re-mint)
+	hard   bool   // a 429 that denies the model outright (quota 0), not a transient rate limit
+	auth   bool   // the credential was condemned (login required or rejected after a re-mint)
+	text   string // the 401 text after "proxy: <p>: " when the row names its own login command; else authHint's
 }
 
 func (e *fallbackError) Unwrap() error { return e.error }
@@ -505,12 +508,13 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header)) (*http.Response, error) {
 	ctx := in.Context()
+	r.touch(p.Name)
 	do := func(credential string) (*http.Response, error) {
 		return r.sendRequest(in, method, p, url, body, hdr, credential)
 	}
 	resp, err := do("")
 	if err != nil {
-		return nil, r.authFailure(p, err)
+		return nil, r.authFailure(ctx, p, err)
 	}
 	resp.Body = newIdleBody(resp.Body, idleTimeout) // before invalidToken's peek, so a stalled 400 body cannot hang
 	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p)) &&
@@ -521,7 +525,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 		) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
 		credential, err := providers.Refresh(ctx, p)
 		if err != nil {
-			return nil, r.authFailure(p, err)
+			return nil, r.authFailure(ctx, p, err)
 		}
 		if resp, err = do(credential); err != nil {
 			return nil, err
@@ -529,12 +533,7 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 		resp.Body = newIdleBody(resp.Body, idleTimeout)
 		if rejectedAfterRemint(resp, p) { // a policy/WAF 403 is relayed to the client, never condemned
 			drain(resp)
-			r.condemn(p, providers.VerdictRejected)
-			return nil, &fallbackError{
-				error:  errors.New("credential rejected after re-mint"),
-				status: http.StatusUnauthorized,
-				auth:   true,
-			}
+			return nil, r.condemned(ctx, p, providers.VerdictRejected, "credential rejected after re-mint")
 		}
 	}
 	return resp, nil

@@ -30,6 +30,7 @@ const (
 	sessionVerify  = 2 * time.Second    // how long a liveness check is trusted
 	sessionPersist = time.Hour          // a slid expiry is written to disk once it leads the saved one by this much
 	sessionMax     = 256
+	droppedKeep    = time.Hour // how long the reason a token was dropped stays answerable
 	sessionTokenPf = "cct_"
 )
 
@@ -41,6 +42,13 @@ type session struct {
 	expires  time.Time
 	saved    time.Time // the expiry last written to disk
 	checked  time.Time
+	exited   bool // the bound process is gone: the drop reason is "exited", not "expired"
+}
+
+// dropped is why a token left the store; held in memory only, never persisted.
+type dropped struct {
+	why string
+	at  time.Time
 }
 
 type persistedSession struct {
@@ -62,6 +70,7 @@ func sessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "se
 type sessionStore struct {
 	mu        sync.Mutex
 	m         map[string]*session
+	gone      map[string]dropped // token hash -> drop reason, at most sessionMax entries
 	file      string
 	now       func() time.Time
 	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
@@ -69,7 +78,7 @@ type sessionStore struct {
 }
 
 func newSessionStore(now func() time.Time) *sessionStore {
-	s := &sessionStore{m: map[string]*session{}, file: sessionsFile(), now: now, procStart: proc.StartTime}
+	s := &sessionStore{m: map[string]*session{}, gone: map[string]dropped{}, file: sessionsFile(), now: now, procStart: proc.StartTime}
 	raw, err := os.ReadFile(s.file)
 	var state sessionState
 	if err != nil || !schemas.DecodeOK(routerSessionsFormat, raw, &state) {
@@ -195,7 +204,11 @@ func (s *sessionStore) makeRoomLocked(now time.Time) error {
 func (s *sessionStore) revoke(tok string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.m, textutil.SHA256Hex([]byte(tok)))
+	hash := textutil.SHA256Hex([]byte(tok))
+	if _, ok := s.m[hash]; ok {
+		delete(s.m, hash)
+		s.noteLocked(hash, whyRevoked)
+	}
 	return s.saveLocked()
 }
 
@@ -229,6 +242,7 @@ func (s *sessionStore) liveLocked(hash string, ses *session, now time.Time, rech
 	}
 	if !now.Before(ses.expires) {
 		delete(s.m, hash)
+		s.noteLocked(hash, goneReason(ses))
 		_ = s.saveLocked()
 		return false
 	}
@@ -244,9 +258,56 @@ func (s *sessionStore) probeUnlocked(hash string, ses *session) bool {
 		return false
 	}
 	if !bound {
-		ses.expires = time.Time{}
+		ses.expires, ses.exited = time.Time{}, true
 	}
 	return true
+}
+
+const (
+	whyExpired = "session token expired"
+	whyExited  = "the process the session token was bound to has exited"
+	whyRevoked = "session token was revoked"
+)
+
+func goneReason(ses *session) string {
+	if ses.exited {
+		return whyExited
+	}
+	return whyExpired
+}
+
+// noteLocked remembers why hash was dropped, evicting the oldest note at the cap.
+func (s *sessionStore) noteLocked(hash, why string) {
+	if _, ok := s.gone[hash]; !ok && len(s.gone) >= sessionMax {
+		oldest := ""
+		for k, d := range s.gone {
+			if oldest == "" || d.at.Before(s.gone[oldest].at) {
+				oldest = k
+			}
+		}
+		delete(s.gone, oldest)
+	}
+	s.gone[hash] = dropped{why: why, at: s.now()}
+}
+
+// refusal names why tok was refused on profile's route; it never returns any part of tok.
+func (s *sessionStore) refusal(tok, profile string) string {
+	if tok == "" {
+		return "no token header sent"
+	}
+	hash := textutil.SHA256Hex([]byte(tok))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ses := s.findLocked(hash); ses != nil {
+		if profile == "" || !slices.Contains(ses.profiles, profile) {
+			return "session token is not scoped to this route (" + strings.Join(ses.profiles, ",") + " only)"
+		}
+		return "the session token's process could not be verified"
+	}
+	if d, ok := s.gone[hash]; ok && s.now().Sub(d.at) < droppedKeep {
+		return d.why
+	}
+	return "token is not the router secret or a session token this daemon knows (never minted here, or minted by a previous daemon)"
 }
 
 // profiles is tok's profile set, nil for an unknown token; it neither slides nor probes (accept already did).
@@ -302,6 +363,7 @@ func (s *sessionStore) pruneExpiredLocked(now time.Time) bool {
 	for k, v := range s.m {
 		if !now.Before(v.expires) {
 			delete(s.m, k)
+			s.noteLocked(k, goneReason(v))
 			pruned = true
 		}
 	}
@@ -325,6 +387,7 @@ func (s *sessionStore) dropLocked(dead map[string]*session) bool {
 	for hash, ses := range dead {
 		if s.m[hash] == ses {
 			delete(s.m, hash)
+			s.noteLocked(hash, whyExited)
 			dropped = true
 		}
 	}

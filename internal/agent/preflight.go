@@ -87,7 +87,7 @@ var refreshListing = func(profile string) { catalog.SpawnDiscover(profile, false
 // StubRefreshListingForTest turns the detached listing refresh off for a whole test binary (call from TestMain).
 func StubRefreshListingForTest() { refreshListing = func(string) {} }
 
-// CheckWorkspace is the local, no-network check of a Databricks row: a stored credential and no live auth mark.
+// CheckWorkspace is the local, no-network check of a Databricks row: a stored credential, live login, no auth mark.
 func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Finding {
 	var out []Finding
 	if !providers.CredentialPresent(p) {
@@ -96,7 +96,20 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Fin
 	if reason, marked := st.AuthMarked(router.AccountOf(p), now); marked {
 		out = append(out, Finding{Check: "auth", Profile: p.Name, Detail: p.Name + " is auth-marked: " + reason})
 	}
+	if f, dead := deadLoginFinding(p); dead {
+		out = append(out, f)
+	}
 	return out
+}
+
+// deadLoginFinding is the failure for a remembered dead user login that no paired service principal covers.
+func deadLoginFinding(p *providers.Provider) (Finding, bool) {
+	login, dead := providers.LoginStatus(p)
+	if !dead || p.Identity == providers.IdentitySP || (p.Identity != providers.IdentityUser && providers.SPPresent(p)) {
+		return Finding{}, false
+	}
+	return Finding{Check: "login", Profile: p.Name, Detail: fmt.Sprintf("%s login needs renewal (%s since %s): run `%s`",
+		p.Name, login.State, login.Since.Local().Format("15:04"), login.Command())}, true
 }
 
 // checkModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.

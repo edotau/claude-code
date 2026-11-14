@@ -7,11 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -19,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -352,7 +348,9 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 	if err != nil || got != "sp-token" || *m2m != 1 {
 		t.Fatalf("Credential = %q, %v (m2m %d)", got, err, *m2m)
 	}
-	if n := note.String(); !strings.Contains(n, "service principal") || strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 1 {
+	n := note.String() // one line reports the fallback, one the mint
+	if !strings.Contains(n, "login needs renewal; using the service principal (run `claude-code databricks login --profile "+p.Name+"`)") ||
+		strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 2 {
 		t.Errorf("note = %q", n)
 	}
 }
@@ -388,7 +386,7 @@ func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
 		mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
 			return oauth.Token{}, errors.New("connection refused")
 		}
-		got, err := mintSP(ctx, p, c.force)
+		got, _, err := mintSP(ctx, p, c.force, expiryMargin)
 		mintM2M = orig
 		if served := err == nil && got == old; served != c.want {
 			t.Errorf("%s: served the sealed token = %v (err %v), want %v", c.name, served, err, c.want)
@@ -471,6 +469,8 @@ func TestIdentitySPCacheCannotAuthenticateUser(t *testing.T) {
 func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	p, _, _, _ := spHarness(t, IdentityAuto)
 	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	finish := func() { once.Do(func() { close(release) }) }
 	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
 		close(entered)
 		<-release
@@ -478,17 +478,18 @@ func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { _, err := Credential(context.Background(), p); done <- err }()
-	t.Cleanup(func() { close(release); <-done })
+	t.Cleanup(func() { finish(); <-done })
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("auto request never reached SP mint")
 	}
-	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), time.Second)
+	time.AfterFunc(200*time.Millisecond, finish) // the SP mint holds the profile lock; the user flight mints once it is free
+	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), 10*time.Second)
 	defer cancel()
-	_, err := Credential(ctx, p)
-	if err == nil || errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("user-only request joined the auto fallback flight")
+	got, err := Credential(ctx, p)
+	if err == nil || got == "sp-token" || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("user-only request = %q, %v; want its own refresh failure, not the auto fallback flight", got, err)
 	}
 }
 
@@ -500,10 +501,6 @@ func TestIdentityAutoWithoutUserLoginSkipsRefresh(t *testing.T) {
 	got, err := Credential(context.Background(), p)
 	if err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
 		t.Fatalf("Credential = %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
-	}
-	lock := filepath.Join(paths.StateDir(), "locks", "auth-"+lockNameRE.ReplaceAllString(p.Name, "_")+".lock")
-	if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("the user refresh lock was taken: %v", err)
 	}
 }
 

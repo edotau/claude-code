@@ -491,8 +491,8 @@ func TestPassthroughCondemnedRefreshAnswers401AndMarks(t *testing.T) {
 			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
 			b := body(t, resp)
 			if resp.StatusCode != http.StatusUnauthorized ||
-				!strings.Contains(b, "authentication failed; run `claude-code databricks login --profile up1`") {
-				t.Fatalf("status %d body %s, want 401 authentication failed with login hint", resp.StatusCode, b)
+				!strings.Contains(b, "authentication failed (needs_login); run `claude-code databricks login --profile up1`; ") {
+				t.Fatalf("status %d body %s, want 401 needs_login text with login command and fallback note", resp.StatusCode, b)
 			}
 			if len(up.got()) != 0 {
 				t.Fatal("upstream reached without a credential")

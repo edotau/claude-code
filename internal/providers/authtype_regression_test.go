@@ -65,7 +65,7 @@ func TestRotatedRefreshSealFailureCarriedToNextMint(t *testing.T) {
 	if _, err := Refresh(context.Background(), p); err != nil {
 		t.Fatalf("first mint = %v; want success despite the failed re-seal", err)
 	}
-	if v, ok := unsealedRefresh.Load(p.Name); !ok || v != "refresh-2" {
+	if v, ok := unsealedRefresh.Load(p.Name); !ok || v.(carriedRefresh).token != "refresh-2" {
 		t.Fatalf("unsealedRefresh = %v, %v; want the rotated refresh-2 kept in memory", v, ok)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", good)

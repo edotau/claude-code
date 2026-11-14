@@ -32,17 +32,36 @@ var retryable = map[int]bool{429: true, 500: true, 502: true, 503: true, 504: tr
 var loadRegistry = providers.Load
 
 // authFailure condemns p when err's verdict says only a login can fix it (the router then moves on); else err as is.
-func (r *Router) authFailure(p *providers.Provider, err error) error {
+func (r *Router) authFailure(ctx context.Context, p *providers.Provider, err error) error {
 	v := providers.Verdict(err)
 	if !v.Condemns() {
 		return err
 	}
+	return r.condemned(ctx, p, v, "authentication failed ("+string(v)+")")
+}
+
+// condemned marks p auth-dead and returns the 401 failure; an oauth row's text names the login command and the fallback.
+func (r *Router) condemned(ctx context.Context, p *providers.Provider, v providers.AuthVerdict, msg string) error {
 	r.condemn(p, v)
-	return &fallbackError{
-		error:  errors.New("authentication failed (" + string(v) + ")"),
-		status: http.StatusUnauthorized,
-		auth:   true,
+	text := loginText(ctx, p, v)
+	return &fallbackError{error: errors.New(cmp.Or(text, msg)), status: http.StatusUnauthorized, auth: true, text: text}
+}
+
+// loginText is an oauth row's client and log text for a condemned login, "" for other rows and the sp identity.
+func loginText(ctx context.Context, p *providers.Provider, v providers.AuthVerdict) string {
+	mode, _ := providers.ResolveIdentity(p.Identity, providers.IdentityFrom(ctx)) // headless is not valid here: auto
+	if p.Auth.Type != providers.AuthOAuth || mode == providers.IdentitySP {
+		return ""
 	}
+	login := providers.LoginState{Profile: p.Name}.Command()
+	fallback := "no service principal is paired, so there was no fallback"
+	switch {
+	case mode == providers.IdentityUser:
+		fallback = "the service principal fallback was not used: this request required the user identity"
+	case providers.SPPresent(p):
+		fallback = "the paired service principal fallback was tried and failed"
+	}
+	return fmt.Sprintf("authentication failed (%s); run `%s`; %s", v, login, fallback)
 }
 
 // readBody reads the request body up to maxBody; a read error or an oversize body is written out and returns false.
@@ -259,6 +278,7 @@ func (r *Router) admit(req *http.Request) *http.Request {
 		if scope == nil { // a client token reaches only its path's profile
 			scope = []string{profileOfPath(req.URL.Path)}
 		}
+		r.touch(scope...)
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, scope))
 	}
 	stripClientAuth(req)
@@ -270,9 +290,9 @@ func (r *Router) admit(req *http.Request) *http.Request {
 
 // refuseUnauthorized answers a request no credential admits: 403 for a client token out of scope, else 401.
 func (r *Router) refuseUnauthorized(w http.ResponseWriter, req *http.Request) {
-	if !r.clients.valid(presentedSecret(req)) {
-		r.refuse(w, req, http.StatusUnauthorized,
-			"proxy: missing or wrong client secret (apiKeyHelper: claude-code resolve --proxy)")
+	if tok := presentedSecret(req); !r.clients.valid(tok) {
+		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret: "+
+			r.sessions.refusal(tok, profileOfPath(req.URL.Path))+" (apiKeyHelper: claude-code resolve --proxy)")
 		return
 	}
 	if _, err := r.registry(); err != nil { // the scope check could not run: not the token's fault
