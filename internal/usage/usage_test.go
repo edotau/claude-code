@@ -629,3 +629,31 @@ func TestPrintQuotaWarnings(t *testing.T) {
 		}
 	}
 }
+
+// --context prints the per-source table in text and JSON, and refuses --workflows beside it.
+func TestUsageContextFlag(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	writeFile(t, filepath.Join(dir, "projects", "-p", "sess1.jsonl"),
+		`{"type":"user","message":{"content":"hello world"}}`+"\n"+
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"reply"}]}}`+"\n")
+	var out, errw bytes.Buffer
+	if code := Run([]string{"--context", "--session", "sess1"}, dir, &out, &errw); code != 0 {
+		t.Fatalf("exit %d: %s", code, errw.String())
+	}
+	for _, want := range []string{"session sess1", "bytes / 4", "user text", "assistant text", "LARGEST ENTRIES"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("text output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "hello world") {
+		t.Error("transcript text leaked into the table")
+	}
+	out.Reset()
+	if code := Run([]string{"--context", "--session", "sess1", "--format", "json"}, dir, &out, &errw); code != 0 || !strings.Contains(out.String(), `"total_bytes": 16`) {
+		t.Errorf("json: exit %d, out %s", code, out.String())
+	}
+	if code := Run([]string{"--context", "--workflows"}, dir, &out, &errw); code != 2 {
+		t.Errorf("--context --workflows exit = %d, want 2", code)
+	}
+}

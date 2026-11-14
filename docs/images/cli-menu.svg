@@ -58,7 +58,7 @@
 <text x="173.2" y="540" fill="#d7d4dc">which agent + model a task routes to; the loopback proxy</text>
 <text x="22.0" y="559" fill="#d7d4dc">  </text>
 <text x="38.8" y="559" fill="#e1698e" font-weight="bold">usage           </text>
-<text x="173.2" y="559" fill="#d7d4dc">token totals, peak rate, profile quotas</text>
+<text x="173.2" y="559" fill="#d7d4dc">token totals, peak rate, profile quotas, context by source</text>
 <text x="22.0" y="597" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="616" fill="#d7d4dc">  </text>
 <text x="38.8" y="616" fill="#ef6a95" font-weight="bold">configure       </text>

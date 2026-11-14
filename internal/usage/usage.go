@@ -153,6 +153,7 @@ type usageOpts struct {
 	days         int
 	show         string
 	jsonOut      bool
+	context      bool
 	workflows    bool
 	wantProvider bool
 }
@@ -162,9 +163,11 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	fs := helptext.NewFlagSet("usage", helptext.Page{
 		Usage: "claude-code usage [flags]",
 		About: "Token totals and peak input tokens/min across Claude Code subagent transcripts and the " +
-			"codex, opencode and copilot stores; then live plan quotas, API-key spend and a per-agent table.",
+			"codex, opencode and copilot stores; then live plan quotas, API-key spend and a per-agent table. " +
+			"--context instead prints where one session's logged context went, by source (estimated tokens = bytes / 4).",
 	})
 	fs.SetOutput(errw)
+	contextFlag := fs.Bool("context", false, "context bytes, est. tokens and share by source for one session; default: newest here")
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "count the last N days (ignored with --session)")
 	formatFlag := helptext.FormatFlag(fs)
@@ -174,7 +177,7 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
-	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, workflows: *workflowsFlag, wantProvider: *providersFlag}
+	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, workflows: *workflowsFlag, wantProvider: *providersFlag, context: *contextFlag}
 	o, err := buildUsageOpts(raw, *formatFlag)
 	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
@@ -192,11 +195,11 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 		return usageOpts{}, fmt.Errorf("--show must be left, used, or total (got %q)", o.show)
 	}
 	o.jsonOut = format == helptext.JSON
-	if o.workflows && o.jsonOut {
-		return usageOpts{}, errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
+	if err := checkReportFlags(o); err != nil {
+		return usageOpts{}, err
 	}
-	if strings.ContainsAny(o.session, `*?[]\/`) || o.session == "." || o.session == ".." {
-		return usageOpts{}, fmt.Errorf("--session must be a bare session id, without glob characters or path separators (got %q)", o.session)
+	if err := checkSessionID(o.session); err != nil {
+		return usageOpts{}, err
 	}
 	if o.session == "" { // --days is ignored with --session
 		if err := checkDays(o.days); err != nil {
@@ -205,6 +208,25 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	}
 	o.wantProvider = o.wantProvider && o.show != "total"
 	return o, nil
+}
+
+// checkReportFlags refuses the report flags that cannot combine.
+func checkReportFlags(o usageOpts) error {
+	if o.workflows && o.jsonOut {
+		return errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
+	}
+	if o.context && o.workflows {
+		return errors.New("--context and --workflows are separate reports; pick one")
+	}
+	return nil
+}
+
+// checkSessionID requires a bare session id.
+func checkSessionID(session string) error {
+	if strings.ContainsAny(session, `*?[]\/`) || session == "." || session == ".." {
+		return fmt.Errorf("--session must be a bare session id, without glob characters or path separators (got %q)", session)
+	}
+	return nil
 }
 
 // checkDays validates --days.
@@ -223,6 +245,9 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	o, code, done := parseUsageArgs(args, errw)
 	if done {
 		return code
+	}
+	if o.context {
+		return runContext(o, out, errw)
 	}
 	if o.workflows {
 		return runUsageWorkflows(claudeDir, out, errw, o.session, o.days)
@@ -416,6 +441,55 @@ func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount in
 	fmt.Fprintf(out, "peak input tokens/min:      %d  (uncached input + cache writes; the ITPM 429-risk proxy)\n", agg.PeakInputTokensPerMin)
 }
 
+// runContext prints the per-source context table of one session (--session, else the newest of this project).
+func runContext(o usageOpts, out, errw io.Writer) int {
+	rep, session, err := loadContext(o.session)
+	if err == nil && o.jsonOut {
+		err = helptext.WriteJSON(out, rep)
+	} else if err == nil {
+		_, err = fmt.Fprint(out, renderContext(rep, session))
+	}
+	if err != nil {
+		fmt.Fprintln(errw, "usage:", err)
+		return 1
+	}
+	return 0
+}
+
+// loadContext measures the transcript chosen by session and returns it with its session id.
+func loadContext(session string) (*transcript.ContextReport, string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+	path, err := transcript.SessionFile(cwd, session)
+	if err != nil {
+		return nil, "", err
+	}
+	rep, err := transcript.ContextBySource(path)
+	return rep, strings.TrimSuffix(filepath.Base(path), ".jsonl"), err
+}
+
+// renderContext is the text form of a context report: the per-source table, then the largest single entries.
+func renderContext(rep *transcript.ContextReport, session string) string {
+	n := func(v int64) string { return fmt.Sprintf("%12d", v) }
+	rows := make([][]string, 0, len(rep.Rows))
+	for _, r := range rep.Rows {
+		rows = append(rows, []string{r.Source, n(int64(r.Count)), n(r.Bytes), n(r.Tokens), fmt.Sprintf("%5.1f%%", r.Percent)})
+	}
+	rows = append(rows, []string{"TOTAL", "", n(rep.TotalBytes), n(rep.TotalTokens), "100.0%"})
+	top := make([][]string, 0, len(rep.Top))
+	for _, e := range rep.Top {
+		top = append(top, []string{e.Source, fmt.Sprintf("%12d", e.Line), n(e.Bytes), n(e.Tokens)})
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "session %s (estimated tokens = bytes / 4)\n", session)
+	b.WriteString(table.Render([]string{"SOURCE", "COUNT", "BYTES", "TOKENS", "SHARE"}, nil, rows, 0))
+	b.WriteString("\nLARGEST ENTRIES\n")
+	b.WriteString(table.Render([]string{"SOURCE", "LINE", "BYTES", "TOKENS"}, nil, top, 0))
+	return b.String()
+}
+
 // newestModTime is the latest mtime of dir or anything under it: appending to a transcript in subagents/ leaves
 // the session dir's own mtime untouched, so a resumed session would otherwise fall outside --days. A walk
 // error (e.g. an unreadable subdir) propagates instead of returning a partial, too-old timestamp that would
@@ -460,5 +534,5 @@ func printQuotaWarnings(errw io.Writer, qs []quota) {
 // Spec is the completion node for the usage verb.
 func Spec() *helptext.Node {
 	flag, boolFlag := helptext.Plain, helptext.BoolFlag
-	return &helptext.Node{Flags: []helptext.Flag{flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}}
+	return &helptext.Node{Flags: []helptext.Flag{boolFlag("context"), flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}}
 }
