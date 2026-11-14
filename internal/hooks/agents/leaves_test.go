@@ -517,7 +517,10 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 			{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": `claude-code agents ask --agent codex "x"`}}}}})
 		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
 			{"type": "tool_result", "tool_use_id": id, "content": r}}}})
-		bodySb206.WriteString(string(call) + "\n" + string(line) + "\n")
+		bodySb206.Write(call)
+		bodySb206.WriteByte('\n')
+		bodySb206.Write(line)
+		bodySb206.WriteByte('\n')
 	}
 	body += bodySb206.String()
 	tx := filepath.Join(dir, "agent-a1.jsonl")
