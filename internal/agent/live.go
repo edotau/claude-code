@@ -73,6 +73,9 @@ func ServeLive(ctx context.Context, rec *Record) (err error) {
 	if err == nil {
 		err = ag.Available()
 	}
+	if err == nil {
+		req, err = checkRun(ag, req) // the ask path's policy layering and refusals; the record holds the raw request
+	}
 	if err != nil {
 		return err
 	}

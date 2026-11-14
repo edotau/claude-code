@@ -69,6 +69,9 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	st.Agent, st.Record, st.Target = agentName, rec, t
 	st.Effort = cmp.Or(req.Effort, rec.Effort)
 	st.Permissions, _ = resolvePermissions(st.Permissions, req.Permissions)
+	if row, ok := lookupRow(agentName); ok && req.ReadOnly { // fail closed for a caller that skipped checkRun
+		st.Permissions, _ = resolvePermissions(st.Permissions, withReadOnlyRules(row.CLI.Caps, Permissions{}))
+	}
 	st.Tools, st.Autonomous, st.SafeMode, st.Gate = req.Tools, req.Autonomous, req.SafeMode, req.Gate
 	st.Headless, st.WorkDir = headless, req.WorkDir
 	if req.Values != nil {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,6 +38,50 @@ func (c *collect) Emit(ev wire.Event) error {
 	c.got = append(c.got, ev)
 	c.mu.Unlock()
 	return nil
+}
+
+// liveGemini is the fixture gemini with a live mode whose Build records the request it was handed and stops there.
+type liveGemini struct {
+	fixtureGemini
+	got *RunOptions
+}
+
+func (liveGemini) Available() error { return nil }
+
+func (g liveGemini) NewLive() LiveBackend { return recordingLive{g.got} }
+
+type recordingLive struct{ got *RunOptions }
+
+var errBuildStop = errors.New("build reached")
+
+func (b recordingLive) Build(_ context.Context, req RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
+	*b.got = req
+	return nil, nil, "", errBuildStop
+}
+
+func (recordingLive) WriteTurn(io.Writer, string) error { return nil }
+
+func (recordingLive) Parse(*bufio.Reader, wire.Sink, func(kind, text string)) (wire.Result, error) {
+	return wire.Result{}, nil
+}
+
+// A live read-only session gets the emulated read-only rules from checkRun, as the ask path does.
+func TestServeLiveAppliesCheckRun(t *testing.T) {
+	liveEnv(t)
+	var got RunOptions
+	registryMu.Lock()
+	orig := drivers["gemini"]
+	drivers["gemini"] = liveGemini{fixtureGemini{fixtureDriver{NewBaseEngine("gemini")}}, &got}
+	registryMu.Unlock()
+	t.Cleanup(func() { registryMu.Lock(); drivers["gemini"] = orig; registryMu.Unlock() })
+	rec := ClaimRecord("gemini", RunOptions{Tools: true, ReadOnly: true}, time.Now())
+	rec.Live = true
+	if err := ServeLive(context.Background(), &rec); !errors.Is(err, errBuildStop) {
+		t.Fatalf("ServeLive = %v, want the fake Build's stop", err)
+	}
+	if !slices.Contains(got.Permissions.Allow, ReadOnlyAllow) || !slices.Contains(got.Permissions.Deny, ReadOnlyDeny[0]) {
+		t.Errorf("Build got permissions %+v, want the read-only rules checkRun adds", got.Permissions)
+	}
 }
 
 // An agent without a live mode is refused before anything starts.
