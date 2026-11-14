@@ -20,6 +20,9 @@ import (
 	"sync"
 	"time"
 
+	bolterrors "go.etcd.io/bbolt/errors"
+
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -81,16 +84,20 @@ func keySecretName(p *Provider) string {
 	return SecretName(p.Provider, p.Name, AuthKey)
 }
 
-// oauthValue is an oauth profile's one sealed value: the refresh and the cached access token.
+// oauthValue is an oauth profile's one sealed value: the refresh and the cached access token, and when it was sealed.
 type oauthValue struct {
 	Refresh string `json:"refresh,omitempty"`
 	Access  string `json:"access,omitempty"`
+	Sealed  int64  `json:"sealed,omitempty"` // unix nanos of the write; 0 on a record sealed before the stamp existed
 }
 
-// readOAuth reads p's sealed {refresh, access}.
+// readOAuth reads p's sealed {refresh, access}; a vault lock timeout is retried once.
 func readOAuth(p *Provider) (oauthValue, error) {
 	var ov oauthValue
 	raw, found, err := vault.ReadSecret(AuthSecretName(p))
+	if errors.Is(err, bolterrors.ErrTimeout) {
+		raw, found, err = vault.ReadSecret(AuthSecretName(p))
+	}
 	if err != nil {
 		return ov, err
 	}
@@ -103,8 +110,9 @@ func readOAuth(p *Provider) (oauthValue, error) {
 	return ov, nil
 }
 
-// writeOAuth seals ov as the one JSON value under p's oauth secret name.
+// writeOAuth seals ov, stamped now, as the one JSON value under p's oauth secret name.
 func writeOAuth(p *Provider, ov oauthValue) error {
+	ov.Sealed = time.Now().UnixNano()
 	b, err := json.Marshal(ov)
 	if err != nil {
 		return err
@@ -210,7 +218,7 @@ func validateSPClientID(n string, p *Provider) []string {
 }
 
 // refreshLockWait outlasts postToken's worst case (3 × 30s client timeout + backoff), so a follower never times out first.
-const refreshLockWait = 2 * time.Minute
+var refreshLockWait = 2 * time.Minute // a var so tests can shorten it
 
 var errRefreshLockTimeout = errors.New("timed out waiting for another refresh to finish")
 
@@ -236,7 +244,10 @@ func withRefreshLock(p *Provider, fn func() error) error {
 // authCredential mints (or serves from cache) the access token for a sealed auth type; force skips the cache.
 func authCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	if p.Auth.Type != AuthOAuth {
-		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintAndCache(ctx, p, force) })
+		return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
+			v, _, err := mintAndCache(ctx, p, force)
+			return v, err
+		})
 	}
 	as := IdentityFrom(ctx)
 	mode, err := ResolveIdentity(p.Identity, headlessAs(as))
@@ -254,17 +265,58 @@ func authCredential(ctx context.Context, p *Provider, force bool) (string, error
 	return userCredential(ctx, p, force)
 }
 
-// autoCredential is auto outside a dispatch: the user login, the paired SP while none is stored or when it is refused.
+// autoCredential is auto outside a dispatch: the user login, the paired SP while none is stored or when it is refused
+// (the fallback is reported once per dead-login window).
 func autoCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	if p.Auth.SPClientID != "" && !hasUserLogin(p) {
-		return spCredential(ctx, p, force)
+	if p.Auth.SPClientID != "" {
+		if v, handled, err := autoSPFirst(ctx, p, force); handled {
+			return v, err
+		}
 	}
 	v, err := userCredential(ctx, p, force)
-	if err != nil && p.Auth.SPClientID != "" &&
-		(errors.Is(err, ErrNeedsLogin) || oauth.IsRejected(err) || oauth.IsLoginRequired(err)) {
-		return spCredential(ctx, p, force)
+	if err != nil && p.Auth.SPClientID != "" && isLoginFailure(err) {
+		if sp, spErr := fallbackToSP(ctx, p, force); spErr == nil {
+			return sp, nil
+		}
+		return "", err // the login error names the command that fixes it
 	}
-	return v, err
+	return spOnVaultError(ctx, p, force, v, err)
+}
+
+// autoSPFirst serves the paired SP before any user attempt when no login is stored or a dead login's window is open.
+func autoSPFirst(ctx context.Context, p *Provider, force bool) (string, bool, error) {
+	if !hasUserLogin(p) {
+		v, err := spCredential(ctx, p, force)
+		return v, true, err
+	}
+	if _, dead := openLoginMark(p); dead && SPPresent(p) { // no user attempt while the dead login's window is open
+		v, err := fallbackToSP(ctx, p, force)
+		return v, true, err
+	}
+	return "", false, nil
+}
+
+// isLoginFailure reports a user-login failure the paired SP may cover: no login, or one the IdP refused.
+func isLoginFailure(err error) bool {
+	return errors.Is(err, ErrNeedsLogin) || oauth.IsRejected(err) || oauth.IsLoginRequired(err)
+}
+
+// isVaultError reports a failure reading the vault (a lock timeout, no key), as opposed to a login the IdP refused.
+func isVaultError(p *Provider, err error) bool {
+	return errors.Is(err, bolterrors.ErrTimeout) || strings.HasPrefix(err.Error(), p.Name+": vault:")
+}
+
+// spOnVaultError serves the paired SP when the user path failed on the vault; the SP may be readable or env-held.
+func spOnVaultError(ctx context.Context, p *Provider, force bool, v string, err error) (string, error) {
+	if err == nil || p.Auth.SPClientID == "" || !isVaultError(p, err) {
+		return v, err
+	}
+	sp, spErr := spCredential(ctx, p, force)
+	if spErr != nil {
+		return v, err
+	}
+	note(ctx, p.Name+": your login could not be read from the vault; using the service principal")
+	return sp, nil
 }
 
 // hasUserLogin reports a sealed (or carried) user login; a vault read error counts as one so the user path reports it.
@@ -285,10 +337,11 @@ var spSkip sync.Map // profile name -> time.Time until which dispatches skip its
 // back to the user login with one note, and later dispatches skip that SP for spSkipWait unless forced.
 func dispatchCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	if until, ok := spSkip.Load(p.Name); p.Auth.SPClientID == "" || (ok && !force && time.Now().Before(until.(time.Time))) {
-		return userCredential(ctx, p, force)
+		v, err := userCredential(ctx, p, force)
+		return spOnVaultError(ctx, p, force, v, err)
 	}
 	reason := "no service-principal secret stored"
-	if SPPresent(p) {
+	if present, readErr := spPresence(p); present || readErr != nil { // a vault read error is unknown, not absent
 		v, err := spCredential(ctx, p, force)
 		if err == nil || !oauth.IsRejected(err) {
 			return v, err
@@ -301,31 +354,46 @@ func dispatchCredential(ctx context.Context, p *Provider, force bool) (string, e
 }
 
 // userCredential keeps user-only flights separate from automatic SP fallback.
+// While a dead login's retry window is open an unforced call fails at once, with no lock and no network.
 func userCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
-		var out string
-		// mintAuth re-reads the sealed refresh token, so a rotation by another process is picked up.
-		err := withRefreshLock(p, func() error {
-			if !force {
-				if v, ok := sealedAccess(p, expiryMargin); ok {
-					out = v
-					return finishCredential(p, v, time.Time{})
-				}
-			}
-			v, err := mintAndCache(ctx, p, force)
-			out = v
-			if err == nil {
-				sealAccess(p, v)
-			} else if !force && Verdict(err) == VerdictTransient {
-				if old, ok := staleAccess(p, err); ok {
-					out = old
-					return nil
-				}
-			}
-			return err
-		})
+		if rec, dead := openLoginMark(p); dead && !force {
+			return "", loginRenewalError(p, rec)
+		}
+		out, _, err := lockedUserMint(ctx, p, force, expiryMargin)
 		return out, err
 	})
+}
+
+// lockedUserMint is userMint under p's refresh lock; minted reports a token endpoint exchange.
+func lockedUserMint(ctx context.Context, p *Provider, force bool, margin time.Duration) (out string, minted bool, err error) {
+	err = withRefreshLock(p, func() error {
+		var e error
+		out, minted, e = userMint(ctx, p, force, margin)
+		return e
+	})
+	return out, minted, err
+}
+
+// userMint serves a peer's sealed token valid past margin, else exchanges the sealed refresh token (re-read under the
+// lock, so a rotation by another process is picked up) and marks or clears a dead login.
+func userMint(ctx context.Context, p *Provider, force bool, margin time.Duration) (string, bool, error) {
+	if v, ok := peerToken(func(m time.Duration) (string, bool) { return sealedAccess(p, m) }, &cmdCache, p.Name, force, margin); ok {
+		return v, false, finishCredential(p, v, time.Time{})
+	}
+	v, base, err := mintAndCache(ctx, p, force)
+	if err == nil {
+		clearLoginMark(p.Name)
+		sealAccess(p, v, base)
+		return v, true, nil
+	}
+	markLoginDead(p, err)
+	if !force && Verdict(err) == VerdictTransient {
+		if old, ok := staleAccess(p, err); ok {
+			return old, false, nil
+		}
+	}
+	return "", false, err
 }
 
 // Seams for the token endpoint calls and the fallback note.
@@ -339,34 +407,78 @@ var (
 
 // spCredential isolates SP tokens, expiry records and flights from the user's profile key.
 func spCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	return spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) { return mintSP(ctx, p, force) })
+	return spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) {
+		v, _, err := mintSP(ctx, p, force, expiryMargin)
+		return v, err
+	})
 }
 
 // mintSP mints the paired service principal's token (same workspace host); it never touches the user login.
-func mintSP(ctx context.Context, p *Provider, force bool) (string, error) {
+// The mint holds the profile's refresh lock and re-checks the sealed slot, so a follower serves the winner's token;
+// a sealed token valid past margin is served, and minted reports a token endpoint exchange.
+func mintSP(ctx context.Context, p *Provider, force bool, margin time.Duration) (out string, minted bool, err error) {
 	name, secret, access, err := spSecrets(p)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	host := AuthHost(p)
 	bind := clientBind(host, p.Auth.SPClientID, secret)
-	if v, ok := clientAccessHit(access, bind, expiryMargin); ok && !force {
-		return v, finishSPCredential(p, v, time.Time{}) // a served token is no news: the note marks a mint only
+	if v, ok := clientAccessHit(access, bind, margin); ok && !force {
+		return v, false, finishSPCredential(p, v, time.Time{}) // a served token is no news: the note marks a mint only
+	}
+	mint := func() error {
+		var e error
+		out, minted, e = spMintUnderLock(ctx, p, force, margin, name, host, secret, access, bind)
+		return e
+	}
+	ran := false
+	err = withRefreshLock(p, func() error { ran = true; return mint() })
+	if !ran { // an SP mint is idempotent: a lock timeout or lock error mints unlocked instead of failing
+		err = mint()
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return out, minted, nil
+}
+
+// spMintUnderLock serves a peer's sealed SP token, else mints one (riding a transient failure on the stale token).
+func spMintUnderLock(ctx context.Context, p *Provider, force bool, margin time.Duration, name, host, secret, access, bind string) (out string, minted bool, err error) {
+	read := func(m time.Duration) (string, bool) { return sealedClientAccess(name+"_ACCESS", bind, m) }
+	if v, ok := peerToken(read, &spCache, p.Name, force, margin); ok {
+		return v, false, finishSPCredential(p, v, time.Time{})
 	}
 	tok, err := m2mToken(ctx, p, name, host, p.Auth.SPClientID, secret, true) // the sealed slot was checked above
 	if err != nil {
 		if !force && Verdict(err) == VerdictTransient {
 			if old, ok := staleSPAccess(p, access, bind, err); ok {
-				return old, nil
+				return old, false, nil
 			}
 		}
-		return "", fmt.Errorf("%s: service principal: %w", p.Name, err)
+		return "", false, fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
 	if err := finishSPCredential(p, tok.Access, tok.Expiry); err != nil {
-		return "", err
+		return "", false, err
 	}
 	note(ctx, fmt.Sprintf("%s: using the service principal %s", p.Name, p.Auth.SPClientID))
-	return tok.Access, nil
+	return tok.Access, true, nil
+}
+
+// peerToken is the sealed token another process stored that this call may serve instead of minting. Unforced: any one
+// valid past margin. Forced: one valid for a minute that differs from the token this process last served
+// (the one the caller just saw rejected); a process that served none mints.
+func peerToken(read func(margin time.Duration) (string, bool), cache *sync.Map, name string, force bool, margin time.Duration) (string, bool) {
+	if !force {
+		return read(margin)
+	}
+	c, ok := cache.Load(name)
+	if !ok {
+		return "", false
+	}
+	if v, ok := read(time.Minute); ok && v != c.(cached).value {
+		return v, true
+	}
+	return "", false
 }
 
 // spSecrets reads the paired service principal's vault name, client secret and sealed access slot.
@@ -422,54 +534,63 @@ func sealedAccess(p *Provider, margin time.Duration) (string, bool) {
 	return jwtValidPast(v, margin)
 }
 
-// sealAccess caches a u2m access token beside the refresh token; a seal error is logged by name only.
-func sealAccess(p *Provider, tok string) {
+// sealAccess caches a u2m access token beside the refresh token unless a record newer than base is sealed; a seal error
+// is logged by name only.
+func sealAccess(p *Provider, tok string, base int64) {
+	if _, carried := unsealedRefresh.Load(p.Name); carried { // a rewrite would stamp over the carry
+		return
+	}
 	ov, err := readOAuth(p)
 	if err != nil { // a failed read must not re-seal {access} alone and drop the refresh token
 		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) skipped: vault read failed\n", p.Name, AuthSecretName(p))
+		audit.Log(audit.SealFailed, AuthSecretName(p), "access")
 		return
 	}
-	if ov.Access == tok { // the rotation path already sealed this access token
+	if ov.Access == tok || ov.Sealed > base { // the rotation path sealed this token, or another login won meanwhile
 		return
 	}
 	ov.Access = tok
 	if err := writeOAuth(p, ov); err != nil {
 		fmt.Fprintf(os.Stderr, "%s: cache access token (%s) failed\n", p.Name, AuthSecretName(p))
+		audit.Log(audit.SealFailed, AuthSecretName(p), "access")
 	}
 }
 
-func mintAndCache(ctx context.Context, p *Provider, force bool) (string, error) {
-	tok, err := mintAuth(ctx, p, force)
+// mintAndCache mints, caches and returns the access token with the vault stamp the mint started from.
+func mintAndCache(ctx context.Context, p *Provider, force bool) (string, int64, error) {
+	tok, base, err := mintAuth(ctx, p, force)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if err := finishCredential(p, tok.Access, tok.Expiry); err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return tok.Access, nil
+	return tok.Access, base, nil
 }
 
-// mintAuth is the one path that turns a sealed credential into an access token.
-func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, error) {
+// mintAuth is the one path that turns a sealed credential into an access token; base is the vault stamp it read.
+func mintAuth(ctx context.Context, p *Provider, force bool) (oauth.Token, int64, error) {
 	name := AuthSecretName(p)
-	secret, err := mintSecret(p)
+	secret, base, err := mintSource(p)
 	if err != nil {
-		return oauth.Token{}, fmt.Errorf("%s: vault: %w", p.Name, err)
+		return oauth.Token{}, 0, fmt.Errorf("%s: vault: %w", p.Name, err)
 	}
 	if secret == "" {
-		return oauth.Token{}, noSecretError(p, name)
+		return oauth.Token{}, 0, noSecretError(p, name)
 	}
 	if err := checkAuthScheme(p); err != nil {
-		return oauth.Token{}, err
+		return oauth.Token{}, 0, err
 	}
 	host := AuthHost(p)
 	switch p.Auth.Type {
 	case AuthPAT:
-		return oauth.Token{Access: secret}, nil
+		return oauth.Token{Access: secret}, base, nil
 	case AuthM2M:
-		return m2mToken(ctx, p, name, host, p.Auth.ClientID, secret, force)
+		tok, err := m2mToken(ctx, p, name, host, p.Auth.ClientID, secret, force)
+		return tok, base, err
 	}
-	return mintU2M(ctx, p, host, name, secret)
+	tok, err := mintU2M(ctx, p, host, name, secret, base)
+	return tok, base, err
 }
 
 // clientAccess is a client-credentials token sealed for other processes; Bind ties it to the host, client and secret.
@@ -483,7 +604,7 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	bind := clientBind(host, clientID, secret)
 	name := secretName + "_ACCESS" // per row on purpose: a forced mint rotates only that row's slot
 	if !force {
-		if v, ok := sealedClientAccess(name, bind); ok {
+		if v, ok := sealedClientAccess(name, bind, expiryMargin); ok {
 			return oauth.Token{Access: v}, nil
 		}
 	}
@@ -497,6 +618,11 @@ func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secr
 	if b, err := json.Marshal(clientAccess{Access: tok.Access, Bind: bind}); err == nil {
 		if err := vault.Store(name, string(b)); err != nil {
 			fmt.Fprintf(os.Stderr, "cache access token (%s) failed\n", name)
+			kind := "access"
+			if p.Auth.Type == AuthOAuth {
+				kind = "sp-access"
+			}
+			audit.Log(audit.SealFailed, name, kind)
 		}
 	}
 	return tok, nil
@@ -508,22 +634,27 @@ func clientBind(host, clientID, secret string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// sealedClientAccess returns the sealed token under name when bind matches and it stays valid past expiryMargin.
-func sealedClientAccess(name, bind string) (string, bool) {
+// sealedClientAccess returns the sealed token under name when bind matches and it stays valid past margin.
+func sealedClientAccess(name, bind string, margin time.Duration) (string, bool) {
 	raw, _, err := vault.ReadSecret(name)
 	if err != nil {
 		return "", false
 	}
-	return clientAccessHit(raw, bind, expiryMargin)
+	return clientAccessHit(raw, bind, margin)
+}
+
+// clientAccessToken is the token in a sealed clientAccess when bind matches, whatever its age; "" otherwise.
+func clientAccessToken(raw, bind string) string {
+	var ca clientAccess
+	if raw == "" || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
+		return ""
+	}
+	return ca.Access
 }
 
 // clientAccessHit returns the token in a sealed clientAccess when bind matches and it stays valid past margin.
 func clientAccessHit(raw, bind string, margin time.Duration) (string, bool) {
-	var ca clientAccess
-	if raw == "" || json.Unmarshal([]byte(raw), &ca) != nil || ca.Bind != bind {
-		return "", false
-	}
-	return jwtValidPast(ca.Access, margin)
+	return jwtValidPast(clientAccessToken(raw, bind), margin)
 }
 
 // noSecretError is the missing-credential error; an oauth row's is a loginRequiredError.
@@ -535,8 +666,8 @@ func noSecretError(p *Provider, name string) error {
 	return err
 }
 
-// mintU2M exchanges the sealed refresh token and re-seals a rotated one.
-func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth.Token, error) {
+// mintU2M exchanges the sealed refresh token and re-seals a rotated one; base is the vault stamp secret came from.
+func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base int64) (oauth.Token, error) {
 	tok, err := refreshU2M(ctx, host, secret)
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, authHint(p, name))
@@ -547,52 +678,90 @@ func mintU2M(ctx context.Context, p *Provider, host, name, secret string) (oauth
 	}
 	// A carried in-memory token is re-sealed on every mint until the vault takes it.
 	if _, carried := unsealedRefresh.Load(p.Name); carried || (tok.Refresh != "" && tok.Refresh != secret) {
-		if err := sealRotated(ctx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}); err != nil {
+		if err := sealRotated(ctx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}, base); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: re-seal rotated refresh token (%s) failed; kept in memory: %v\n", p.Name, name, err)
 		}
 	}
 	return tok, nil
 }
 
-// unsealedRefresh maps a provider name to a rotated refresh token whose re-seal failed; mintSecret prefers it.
+// carriedRefresh is a rotated refresh token whose re-seal failed, and the vault stamp of the record it came from.
+type carriedRefresh struct {
+	token string
+	base  int64
+}
+
+// unsealedRefresh maps a provider name to its carriedRefresh; mintSource prefers it until the vault holds a newer record.
 var unsealedRefresh sync.Map
 
 // sealRetryDelay is the backoff unit between re-seal attempts (1x, then 2x).
 var sealRetryDelay = time.Second
 
 // sealRotated retries the re-seal: a lost rotated refresh token forces a browser login once the old one is spent.
-func sealRotated(ctx context.Context, p *Provider, tok oauth.Token) error {
+func sealRotated(ctx context.Context, p *Provider, tok oauth.Token, base int64) error {
 	var err error
 	for i := range 3 {
-		if err = writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err == nil {
-			unsealedRefresh.Delete(p.Name)
+		if err = sealUnlessNewer(p, tok, base); err == nil {
 			return nil
 		}
 		if i < 2 {
 			select {
 			case <-ctx.Done():
-				err = errors.Join(err, ctx.Err())
-				unsealedRefresh.Store(p.Name, tok.Refresh)
-				return err
+				return carryRotated(p, tok.Refresh, base, errors.Join(err, ctx.Err()))
 			case <-time.After(time.Duration(i+1) * sealRetryDelay):
 			}
 		}
 	}
-	unsealedRefresh.Store(p.Name, tok.Refresh)
+	return carryRotated(p, tok.Refresh, base, err)
+}
+
+// carryRotated keeps a refresh token the vault would not take for the next mint and leaves an audit trace.
+func carryRotated(p *Provider, refresh string, base int64, err error) error {
+	unsealedRefresh.Store(p.Name, carriedRefresh{token: refresh, base: base})
+	audit.Log(audit.SealFailed, AuthSecretName(p), "refresh")
 	return err
 }
 
-// mintSecret reads the sealed secret; u2m reads the vault only so a stale env value never replays a rotated token.
-func mintSecret(p *Provider) (string, error) {
-	if p.Auth.Type == AuthOAuth {
-		if v, ok := unsealedRefresh.Load(p.Name); ok {
-			return v.(string), nil
-		}
-		ov, err := readOAuth(p)
-		return strings.TrimSpace(ov.Refresh), err
+// sealUnlessNewer seals tok unless the vault record is newer than base (another login or rotation won): then it keeps
+// that record and drops any carry. Callers hold the profile's refresh lock, which makes read-then-write safe.
+func sealUnlessNewer(p *Provider, tok oauth.Token, base int64) error {
+	ov, err := readOAuth(p)
+	if err != nil {
+		return err
 	}
-	v, _, err := vault.EffectiveSecret(AuthSecretName(p))
-	return v, err
+	if ov.Sealed > base {
+		unsealedRefresh.Delete(p.Name)
+		return nil
+	}
+	if err := writeOAuth(p, oauthValue{Refresh: tok.Refresh, Access: tok.Access}); err != nil {
+		return err
+	}
+	unsealedRefresh.Delete(p.Name)
+	return nil
+}
+
+// mintSecret is mintSource without the stamp.
+func mintSecret(p *Provider) (string, error) {
+	secret, _, err := mintSource(p)
+	return secret, err
+}
+
+// mintSource reads the sealed secret and, for u2m, the stamp of the record it came from. u2m reads the vault only so a
+// stale env value never replays a rotated token; a carried refresh wins only while the vault holds nothing newer.
+func mintSource(p *Provider) (secret string, base int64, err error) {
+	if p.Auth.Type != AuthOAuth {
+		secret, _, err = vault.EffectiveSecret(AuthSecretName(p))
+		return secret, 0, err
+	}
+	ov, err := readOAuth(p)
+	if v, ok := unsealedRefresh.Load(p.Name); ok {
+		c := v.(carriedRefresh)
+		if err != nil || ov.Sealed <= c.base { // an unreadable vault cannot show a newer record; sealUnlessNewer rechecks
+			return c.token, c.base, nil
+		}
+		unsealedRefresh.Delete(p.Name)
+	}
+	return strings.TrimSpace(ov.Refresh), ov.Sealed, err
 }
 
 // authHint is the one fix-it phrase for a missing or rejected credential: a login for oauth, else the vault secret.
@@ -645,6 +814,7 @@ func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
 		unsealedRefresh.Delete(p.Name)
+		clearLoginMark(p.Name)
 		return finishCredential(p, tok.Access, tok.Expiry)
 	}
 	err := withRefreshLock(p, seal)

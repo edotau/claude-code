@@ -18,13 +18,16 @@ import (
 // tokenNameRE admits only a provider name that is a safe single path segment.
 var tokenNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// tokenExpiryPath is the expiry record for a provider; "" when the name is not a safe path segment.
-func tokenExpiryPath(name string) string {
+// cacheRecordPath is the record file of a provider name in the state cache dir; "" when the name is not a safe segment.
+func cacheRecordPath(dir, name string) string {
 	if !tokenNameRE.MatchString(name) || name == "." || name == ".." {
 		return ""
 	}
-	return filepath.Join(paths.StateDir(), "cache", "token-expiry", name+".json")
+	return filepath.Join(paths.StateDir(), "cache", dir, name+".json")
 }
+
+// tokenExpiryPath is the expiry record for a provider; "" when the name is not a safe path segment.
+func tokenExpiryPath(name string) string { return cacheRecordPath("token-expiry", name) }
 
 // maxJWTExp bounds a plausible exp claim (year 9999) so the float64 to int64 conversion cannot overflow.
 const maxJWTExp = 253402300799

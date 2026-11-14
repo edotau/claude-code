@@ -467,7 +467,17 @@ func sealedPresent(p *Provider) bool {
 
 // SPPresent reports a paired service principal: its spClientId and a stored M2M secret.
 func SPPresent(p *Provider) bool {
-	return p.Auth.SPClientID != "" && HasSecret(SecretName(p.Provider, p.Name, AuthM2M)) != ""
+	present, _ := spPresence(p)
+	return present
+}
+
+// spPresence is SPPresent with the vault read error kept: on an error present is false but unknown.
+func spPresence(p *Provider) (present bool, err error) {
+	if p.Auth.SPClientID == "" {
+		return false, nil
+	}
+	source, err := vault.HasSecretErr(SecretName(p.Provider, p.Name, AuthM2M))
+	return source != "", err
 }
 
 // keyHint is the name a key row's credential is set under: its vault name, else auth.env, else the placeholder.

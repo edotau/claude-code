@@ -262,7 +262,7 @@ type sessionToken struct {
 	minted time.Time
 }
 
-// sessionTokenMaxAge re-mints well inside the router's 12h idle lifetime: a long-lived process never holds a dead one.
+// sessionTokenMaxAge re-mints well inside the router's 7-day idle session life, so no process holds a dead token.
 const sessionTokenMaxAge = time.Hour
 
 // sessionTokens holds one session token per router base and profile set, bound to this pid (it dies with the process).

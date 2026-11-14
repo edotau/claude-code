@@ -416,9 +416,10 @@ func TestOAuthValueRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _, _ := vault.ReadSecret("DATABRICKS_RT_PROD_OAUTH")
-	var stored map[string]string
-	if err := json.Unmarshal([]byte(raw), &stored); err != nil || stored["refresh"] != "new-refresh" || stored["access"] != "new-access" {
-		t.Fatalf("stored value = %q (%v), want one {refresh, access} JSON", raw, err)
+	var stored map[string]any
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil || stored["refresh"] != "new-refresh" || stored["access"] != "new-access" ||
+		stored["sealed"] == nil || len(stored) != 3 {
+		t.Fatalf("stored value = %q (%v), want one {refresh, access, sealed} JSON", raw, err)
 	}
 	if ov, _ := readOAuth(p); ov.Refresh != "new-refresh" || ov.Access != "new-access" {
 		t.Errorf("after write = %+v", ov)
@@ -468,7 +469,7 @@ func TestSealAccessKeepsUnreadableOAuthValue(t *testing.T) {
 	if err := vault.Store(AuthSecretName(p), "not-json{"); err != nil {
 		t.Fatal(err)
 	}
-	sealAccess(p, "new-access")
+	sealAccess(p, "new-access", 0)
 	raw, _, err := vault.ReadSecret(AuthSecretName(p))
 	if err != nil || raw != "not-json{" {
 		t.Fatalf("sealed value = %q, %v; want it untouched after an unreadable read", raw, err)

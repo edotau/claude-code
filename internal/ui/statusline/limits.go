@@ -24,13 +24,27 @@ func limitsSegment(in input) string {
 	return fmt.Sprintf("7d:%d%%", week)
 }
 
-// authSegment is the session credential's countdown ("m2m:42m") from its expiry record; "" when none is recorded.
+// authSegment is the session credential's countdown ("m2m:42m") from its expiry record, or "login:<p>" while the
+// profile's user login is dead; "" when neither is recorded.
 func authSegment(session string) string {
+	if loginDead(session) {
+		return "login:" + session
+	}
 	exp, method, ok := providers.TokenExpiryMethod(session)
 	if !ok {
 		return ""
 	}
 	return tokenLeft(tokenLabel(session, method), exp, time.Now())
+}
+
+// loginDead is true when the session row's user login is remembered dead and its identity can reach for it.
+func loginDead(session string) bool {
+	reg := registry()
+	if reg == nil || reg.Providers[session] == nil || reg.Providers[session].Identity == providers.IdentitySP {
+		return false
+	}
+	_, dead := providers.LoginStatus(reg.Providers[session])
+	return dead
 }
 
 // onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.

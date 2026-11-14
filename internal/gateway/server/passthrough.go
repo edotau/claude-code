@@ -244,7 +244,8 @@ func copyClientHeaders(in *http.Request) func(http.Header) {
 func writeSendError(w http.ResponseWriter, p *providers.Provider, err error) {
 	var failure *fallbackError
 	if errors.As(err, &failure) && failure.auth {
-		writeError(w, http.StatusUnauthorized, fmt.Sprintf("proxy: %s: authentication failed; %s", p.Name, authHint(p)))
+		text := cmp.Or(failure.text, "authentication failed; "+authHint(p))
+		writeError(w, http.StatusUnauthorized, "proxy: "+p.Name+": "+text)
 		return
 	}
 	writeError(w, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())

@@ -171,3 +171,36 @@ func TestLimitsSegmentLabelsFromRecordedMethod(t *testing.T) {
 		t.Errorf("SP-minted record on an oauth row: %q, want m2m:42m", got)
 	}
 }
+
+// plantDeadLogin writes the dead-login mark providers.LoginStatus reads for the profile.
+func plantDeadLogin(t *testing.T, name string) {
+	t.Helper()
+	dir := filepath.Join(paths.StateDir(), "cache", "login-state")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	rec := fmt.Sprintf(`{"schema":1,"state":"needs_login","since":%q,"until":%q}`, now, now)
+	if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(rec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A dead user login replaces a countdown that looks healthy; a live login and an SP-only row keep the countdown.
+func TestAuthSegmentShowsADeadLoginInsteadOfTheCountdown(t *testing.T) {
+	hermetic(t)
+	oauth := func(name, identity string) *providers.Provider {
+		return &providers.Provider{Name: name, Provider: "databricks", Identity: identity, Auth: providers.Auth{Type: providers.AuthOAuth}}
+	}
+	useSessions(t, oauth("dbx-dead", ""), oauth("dbx-live", ""), oauth("dbx-sponly", providers.IdentitySP))
+	for _, name := range []string{"dbx-dead", "dbx-live", "dbx-sponly"} {
+		writeTokenExpiryMethod(t, name, time.Now().Add(42*time.Minute+30*time.Second), "m2m")
+	}
+	plantDeadLogin(t, "dbx-dead")
+	plantDeadLogin(t, "dbx-sponly")
+	for session, want := range map[string]string{"dbx-dead": "login:dbx-dead", "dbx-live": "m2m:42m", "dbx-sponly": "m2m:42m"} {
+		if got := authSegment(session); got != want {
+			t.Errorf("authSegment(%s) = %q, want %q", session, got, want)
+		}
+	}
+}

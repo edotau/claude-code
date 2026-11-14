@@ -28,6 +28,16 @@ func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
 	}
 }
 
+// A failed credential seal is a valid action and keeps the vault secret's name and the kind readable.
+func TestSealFailedIsLoggedWithNameAndKind(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	Log(SealFailed, "DATABRICKS_DEV_OAUTH", "refresh")
+	ev, err := Read(time.Time{})
+	if err != nil || len(ev) != 1 || ev[0].Action != SealFailed || ev[0].Resource != "DATABRICKS_DEV_OAUTH" || ev[0].Detail != "refresh" {
+		t.Fatalf("Read = %+v, %v; want one seal_failed event naming the secret and kind", ev, err)
+	}
+}
+
 // A credential in any field is replaced before the line reaches disk.
 func TestLogRedactsCredentials(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
