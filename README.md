@@ -417,7 +417,7 @@ pending migrations), `state/harness/backups/` (every plaintext backup, via `path
 every embedded (`//go:embed`) template.
 `container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
 root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
-`mods/slash-usage/` is a TypeScript plugin, built with `tsc -p mods/<name>`.
+`mods/slash-usage/` and `mods/agents-band/` are TypeScript plugins, built with `tsc -p mods/<name>`.
 
 ## Command reference
 

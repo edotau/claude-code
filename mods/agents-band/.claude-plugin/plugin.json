@@ -1,0 +1,1 @@
+{ "name": "agents-band", "version": "0.1.0", "description": "Live band above the prompt listing running claude-code dispatches and workflow legs", "types": "./types/index.d.ts" }
