@@ -321,6 +321,32 @@ func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 	}
 }
 
+// The docs gate also runs the memory formatter check on changed bank files, not on bank files the change left alone.
+func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	long := "- " + strings.TrimSpace(strings.Repeat("word ", 40)) + "\n"
+	writeRepoFile(t, cfg, "memory/home/activeContext.md", "# Focus\n\n"+long)
+	writeRepoFile(t, cfg, "memory/claude-code/activeContext.md", "# Focus\n\n- short\n")
+	changed := func(rel string) []DiffFile { return []DiffFile{{Path: rel, Status: "M"}} }
+	dirty, clean := "memory/home/activeContext.md", "memory/claude-code/activeContext.md"
+
+	for _, lint := range []bool{true, false} { // the memory check does not depend on mdsmith being installed
+		(&fakeGates{lint: lint}).install(t)
+		last := func(rel string) GateResult {
+			rs := runGates(context.Background(), cfg, "HEAD", changed(rel))
+			return rs[len(rs)-1]
+		}
+		r := last(dirty)
+		if r.Name != "docs" || r.Status != "FAIL" || !strings.Contains(r.OutputHead, "home/activeContext.md") {
+			t.Errorf("lint=%t dirty changed bank file: %+v, want a docs FAIL naming the file", lint, r)
+		}
+		if r := last(clean); r.Status == "FAIL" {
+			t.Errorf("lint=%t clean changed bank file failed on another bank file: %+v", lint, r)
+		}
+	}
+}
+
 func TestGatesComplexityFindings(t *testing.T) {
 	dir, files := gateRepo(t)
 	finding := `{"files":[{"file":"` + dir + `/pkg/p.go","complexity":[{"rule":"cyclomatic-complexity","severity":"warn",` +

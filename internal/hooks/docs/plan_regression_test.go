@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -303,5 +304,48 @@ func TestIsUndatedDraftThroughSymlink(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", real)
 	if !isUndatedDraft(filepath.Join(link, "plans", "draft.md")) {
 		t.Error("symlink-spelled draft not recognized")
+	}
+}
+
+// holdLock holds path's file lock until the test ends and returns once it is held.
+func holdLock(t *testing.T, path string) {
+	t.Helper()
+	held, stop, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = paths.WithFileLock(path, func() error { close(held); <-stop; return nil })
+	}()
+	<-held
+	t.Cleanup(func() { close(stop); <-done })
+}
+
+// A hook that finds its lock held gives up after hookLockWait and degrades as on any lock error, not after 2 minutes.
+func TestHooksDegradeWhenLockHeld(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	old := hookLockWait
+	t.Cleanup(func() { hookLockWait = old })
+	recordPartials("held", "plan", "", []string{"task"}, &bytes.Buffer{})
+	holdLock(t, partialsLock())
+	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "held.md", planTemplate)
+	holdLock(t, filepath.Join(paths.StateDir(), "plan-mirror"))
+	hookLockWait = 20 * time.Millisecond
+
+	res := Reminder(&core.Input{SessionID: "held"})
+	if !strings.Contains(res.SystemMessage, "kept for the next Stop") {
+		t.Errorf("Reminder SystemMessage = %q, want the kept-record notice", res.SystemMessage)
+	}
+	if _, err := os.Stat(partialFile("held")); err != nil {
+		t.Errorf("Reminder dropped the partial record: %v", err)
+	}
+	var tick bytes.Buffer
+	recordPartials("held", "plan", "", []string{"task2"}, &tick)
+	if !strings.Contains(tick.String(), "plan-tick:") || !strings.Contains(tick.String(), paths.ErrLockTimeout.Error()) {
+		t.Errorf("recordPartials stderr = %q, want a plan-tick lock-timeout line", tick.String())
+	}
+	var mirror bytes.Buffer
+	in := core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)))
+	if code := Mirror(in, &mirror); code != core.ExitProceed || !strings.Contains(mirror.String(), "plan-mirror:") {
+		t.Errorf("Mirror = %d, stderr %q, want proceed with a plan-mirror line", code, mirror.String())
 	}
 }

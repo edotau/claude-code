@@ -5,7 +5,7 @@ package gateway
 import "os"
 
 // alive reports a live pid: on Windows FindProcess fails once the process object is gone.
-func alive(pid int) bool {
+var alive = func(pid int) bool {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return false

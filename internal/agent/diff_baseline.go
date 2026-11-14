@@ -182,3 +182,38 @@ func readBlobs(out []byte, sent []string) (map[string]string, error) {
 	}
 	return blobs, nil
 }
+
+// binarySniffBytes is how much of a file's head is scanned for a NUL, as git does.
+const binarySniffBytes = 8000
+
+// countFileLines counts the lines of an untracked regular file; a NUL in the first block marks it binary, as git does.
+func countFileLines(p string) (lines int, binary bool) {
+	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() {
+		return 0, false
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 64<<10)
+	buf := make([]byte, 64<<10)
+	var last byte = '\n'
+	for first := true; ; first = false {
+		n, err := r.Read(buf)
+		if first && bytes.IndexByte(buf[:min(n, binarySniffBytes)], 0) >= 0 {
+			return 0, true
+		}
+		if n > 0 {
+			lines += bytes.Count(buf[:n], []byte{'\n'})
+			last = buf[n-1]
+		}
+		if err != nil {
+			break
+		}
+	}
+	if last != '\n' {
+		lines++
+	}
+	return lines, false
+}

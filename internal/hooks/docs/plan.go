@@ -400,13 +400,16 @@ func gateDraft(path, content string, stderr io.Writer) int {
 	return core.ExitProceed
 }
 
+// hookLockWait bounds how long a hook waits on a held lock; paths.WithFileLock's 2 minutes would stall the tool call.
+var hookLockWait = time.Second
+
 // Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.
 func Mirror(in *core.Input, stderr io.Writer) int {
 	path, content, ok := mirrorSource(in)
 	if !ok {
 		return core.ExitProceed
 	}
-	err := paths.WithFileLock(filepath.Join(paths.StateDir(), "plan-mirror"), func() error {
+	err := paths.WithFileLockWithin(filepath.Join(paths.StateDir(), "plan-mirror"), hookLockWait, func() error {
 		base := filepath.Base(path)
 		dest, ok := plans.ReadRecordedDest(base)
 		if !ok {
@@ -462,7 +465,7 @@ func Reminder(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	var data []byte
-	err := paths.WithFileLock(partialsLock(), func() error {
+	err := paths.WithFileLockWithin(partialsLock(), hookLockWait, func() error {
 		var rerr error
 		if data, rerr = os.ReadFile(file); rerr != nil {
 			return rerr

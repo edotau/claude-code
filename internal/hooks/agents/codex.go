@@ -167,7 +167,7 @@ func recordCodexRoute(in *core.Input, record codexRouteRecord) error {
 	}
 	record.SessionID, record.At = in.SessionID, time.Now().UnixMilli()
 	path := filepath.Join(paths.StateDir(), "codex", "routing-"+textutil.SHA256Hex([]byte(in.SessionID))+".jsonl")
-	return paths.WithFileLock(path, func() error { return appendCodexRoute(path, record) })
+	return paths.WithFileLockWithin(path, time.Second, func() error { return appendCodexRoute(path, record) })
 }
 
 func appendCodexRoute(path string, record codexRouteRecord) error {

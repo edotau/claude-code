@@ -5,6 +5,7 @@ package agents
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -364,7 +365,7 @@ func (s *leafScan) addResults(content json.RawMessage) {
 
 // scanResult reads one tool result: an ask call's ran-on or did-not-run line, a delivered or denied hand-back.
 func (s *leafScan) scanResult(it leafToolResult) {
-	text := transcript.ContentText(it.Content)
+	text := resultText(transcript.ContentText(it.Content))
 	if s.askCalls[it.ToolUseID] {
 		ran := ranOnPattern().MatchString(text)
 		s.ranOn = s.ranOn || ran
@@ -377,6 +378,48 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		return
 	}
 	s.handedBack = s.handedBack || strings.Contains(text, handedBackMark)
+}
+
+// savedResultRe matches a persisted tool result's "Full output saved to:" path; only a tool-results file is read.
+var savedResultRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^Output too large \([^)]*\)\. Full output saved to: (/\S*/tool-results/[^\s/]+)$`)
+})
+
+// savedResultCap bounds each end (head and tail) read from a persisted tool result.
+const savedResultCap = 64 << 10
+
+// resultText is a tool result's text; a persisted result (2 KB preview) gains the head and tail of its saved output.
+func resultText(text string) string {
+	m := savedResultRe().FindStringSubmatch(text)
+	if m == nil {
+		return text
+	}
+	saved := readEnds(m[1], savedResultCap)
+	if saved == "" {
+		return text
+	}
+	return text + "\n" + saved
+}
+
+// readEnds is the first and last n bytes of the file, all of it when it fits in 2n; "" when it cannot be read.
+func readEnds(path string, n int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	size := fi.Size()
+	if size <= 2*n {
+		b, _ := io.ReadAll(io.NewSectionReader(f, 0, size))
+		return string(b)
+	}
+	head, _ := io.ReadAll(io.NewSectionReader(f, 0, n))
+	tail, _ := io.ReadAll(io.NewSectionReader(f, size-n, n))
+	return string(head) + "\n" + string(tail)
 }
 
 // leafAgentType is the stopping leaf's type: the payload's agent_type, else the meta.json beside its transcript.

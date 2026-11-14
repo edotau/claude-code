@@ -747,3 +747,21 @@ func runEvent(t *testing.T, event, payload string) string {
 	core.Emit(in.Agent(), event, runners[event](in), &out, &errb)
 	return out.String()
 }
+
+// Regression (2026-11-13): a long ask result is persisted and the transcript keeps a 2 KB preview, so a ran-on line past it
+// read as missing and the gate blocked a leaf that did run its agent; the saved output is what the gate must read.
+func TestRanOnReadsPersistedToolResult(t *testing.T) {
+	saved := filepath.Join(t.TempDir(), "tool-results", "b1.txt")
+	if err := os.MkdirAll(filepath.Dir(saved), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	full := strings.Repeat("report line\n", 400) + "ask: ran on codex · gpt-5\n"
+	if err := os.WriteFile(saved, []byte(full), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	persisted := "<persisted-output>\nOutput too large (4.9KB). Full output saved to: " + saved +
+		"\n\nPreview (first 2KB):\n" + full[:2048] + "\n...\n</persisted-output>"
+	if _, blocked := leafStopBlock(leafTx(t, "codex", "Objective: x\nAgent: codex\n", persisted), "a1"); blocked {
+		t.Fatal("blocked a leaf whose saved ask output carries the ran-on line past the 2 KB preview")
+	}
+}

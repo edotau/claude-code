@@ -416,6 +416,25 @@ func TestWithFileLockWaitsForHolder(t *testing.T) {
 	})
 }
 
+// WithFileLockWithin gives up after its own wait, not lockTimeout, and runs fn when the lock is free.
+func TestWithFileLockWithinUsesItsOwnWait(t *testing.T) {
+	oldWait, oldPoll := lockTimeout, lockPoll
+	t.Cleanup(func() { lockTimeout, lockPoll = oldWait, oldPoll })
+	lockTimeout, lockPoll = time.Hour, func() time.Duration { return time.Millisecond }
+	path := filepath.Join(t.TempDir(), "f")
+	ran := false
+	if err := WithFileLockWithin(path, time.Second, func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("free lock: ran=%t err=%v, want fn run", ran, err)
+	}
+	release := holdLock(t, path)
+	ran = false
+	err := WithFileLockWithin(path, 10*time.Millisecond, func() error { ran = true; return nil })
+	release()
+	if ran || !errors.Is(err, ErrLockTimeout) {
+		t.Fatalf("held lock: ran=%t err=%v, want fn skipped and ErrLockTimeout well before lockTimeout", ran, err)
+	}
+}
+
 func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")

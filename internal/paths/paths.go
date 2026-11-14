@@ -196,12 +196,17 @@ func Stale(at time.Time, ttl, skew time.Duration, now time.Time) bool {
 	return age >= ttl || age < -skew
 }
 
-// WithFileLock runs fn holding an exclusive advisory lock on path+".lock".
+// WithFileLock runs fn holding an exclusive advisory lock on path+".lock", waiting up to lockTimeout for it.
 func WithFileLock(path string, fn func() error) error {
+	return WithFileLockWithin(path, lockTimeout, fn)
+}
+
+// WithFileLockWithin is WithFileLock with a caller-chosen wait, for callers (hooks) that must not block long.
+func WithFileLockWithin(path string, wait time.Duration, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	ran, err := TryFileLock(path+".lock", lockTimeout, fn)
+	ran, err := TryFileLock(path+".lock", wait, fn)
 	if !ran && err == nil {
 		return fmt.Errorf("%w: %s.lock", ErrLockTimeout, path)
 	}
