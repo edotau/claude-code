@@ -36,14 +36,25 @@ var protectedGlobs = sync.OnceValue(func() []string {
 	return globs
 })
 
-// protectedWrite is the first path a Bash command writes that Edit's deny rules protect ("" when none).
+// protectedWrite is the first path a Bash command writes or removes that Edit's deny rules protect ("" when none);
+// a removal confined to temp folders is allowed (tempremoval.go), a write never is.
 func protectedWrite(cmd, cwd string) string {
-	for _, p := range append(core.WrittenPaths(cmd, cwd), core.RemovedPaths(cmd, cwd)...) {
-		if slices.ContainsFunc([]string{p, core.CanonPath(p)}, matchesProtected) {
+	for _, p := range core.WrittenPaths(cmd, cwd) {
+		if protectedPath(p) {
+			return p
+		}
+	}
+	for _, p := range core.RemovedPaths(cmd, cwd) {
+		if protectedPath(p) && !removalAllowed(cmd, cwd) {
 			return p
 		}
 	}
 	return ""
+}
+
+// protectedPath reports whether p, or its symlink-resolved form, falls under an Edit deny glob.
+func protectedPath(p string) bool {
+	return slices.ContainsFunc([]string{p, core.CanonPath(p)}, matchesProtected)
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
