@@ -22,7 +22,7 @@ import (
 const Auto = "auto"
 
 // HostEnv names the machine `auto` resolves to (process env, then vault env); unset, the tailnet is probed.
-const HostEnv = "HARNESS_REMOTE_HOST"
+const HostEnv = "CLAUDE_REMOTE_HOST"
 
 // autoHint closes every `auto` failure: a vault env value, set in configure's environment row, not sealed.
 const autoHint = "name the machine: `claude-code configure` → environment, " + HostEnv
@@ -42,7 +42,7 @@ var (
 	autoAnswers = answersVersion
 )
 
-// ResolveAuto turns `--host auto` or `--remote auto` into HARNESS_REMOTE_HOST, else the one other tailnet machine that answers ssh.
+// ResolveAuto turns `--host auto` or `--remote auto` into CLAUDE_REMOTE_HOST, else the one other tailnet machine that answers ssh.
 func ResolveAuto(host string) (string, error) {
 	if host != Auto {
 		return host, nil

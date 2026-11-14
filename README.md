@@ -189,7 +189,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `AGENT_ERROR_FALLBACK` | set (shell or vault env, any value): a failed dispatch falls back to the agent's pin, then Claude (`--fallback all`); unset: it exits on the error (`none`) |
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
-| `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
+| `CLAUDE_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |

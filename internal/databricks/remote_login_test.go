@@ -217,6 +217,23 @@ func TestRemoteLoginDryRunSaysWhatWouldHappenAndConnectsNowhere(t *testing.T) {
 	}
 }
 
+// A login the variable routed names the cause as its first line; an explicit --remote prints no such line.
+func TestAutoRemoteLoginSaysWhyFirst(t *testing.T) {
+	w := newRemoteWorld(t)
+	t.Setenv(remote.LoginAutoEnv, "1")
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-rem", "--dry-run"}) })
+	want := "dbx-rem: CLAUDE_REMOTE_HOST is " + remoteHost + ": signing in through its browser (as --remote " + remoteHost + ")"
+	first, rest, _ := strings.Cut(stdout, "\n")
+	if code != 0 || first != want || !strings.Contains(rest, "no ssh connection made") || len(w.forwards) != 0 {
+		t.Errorf("exit %d forwards %v first line %q, want %q then the remote dry-run text:\n%s", code, w.forwards, first, want, stdout)
+	}
+	t.Setenv(remote.LoginAutoEnv, "")
+	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-rem", "--dry-run"}) })
+	if strings.Contains(stdout, "CLAUDE_REMOTE_HOST") {
+		t.Errorf("an explicit --remote printed the variable's line:\n%s", stdout)
+	}
+}
+
 func TestOpenURLVerbOpensOneHTTPSURL(t *testing.T) {
 	var got []string
 	old := openLocal
