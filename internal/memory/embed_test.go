@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -645,5 +646,29 @@ func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "query embedding exceeded") {
 		t.Errorf("err %v, want the budget-overrun error", err)
+	}
+}
+
+// Given a run snapshot naming the session profile, When embedProfiles walks, Then the snapshot's profile leads, not the ambient one.
+func TestEmbedProfilesFollowTheRunSnapshot(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_PROFILE", "ambient")
+	prev := claudeRecord
+	t.Cleanup(func() { claudeRecord = prev })
+	claudeRecord = func() string { return "" }
+	first := func(ctx context.Context) string {
+		for name := range embedProfiles(ctx) {
+			return name
+		}
+		return ""
+	}
+	if got := first(proc.WithValues(context.Background(), proc.Values{"CLAUDE_PROFILE": "explicit"})); got != "explicit" {
+		t.Errorf("snapshot profile: first candidate %q, want explicit", got)
+	}
+	if got := first(context.Background()); got != "ambient" {
+		t.Errorf("no snapshot: first candidate %q, want the ambient profile", got)
+	}
+	if got := first(proc.WithValues(context.Background(), proc.Values{})); got == "ambient" {
+		t.Error("empty snapshot: the ambient profile leaked into the walk")
 	}
 }

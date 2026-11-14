@@ -460,4 +460,15 @@ func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 }
 
 // TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
+// An explicit --no-tools cannot be honored (codex keeps its read-only shell), so it refuses instead of dropping (O2).
+func TestCodexNoToolsRefusedNotDropped(t *testing.T) {
+	err := agent.CheckCapabilities("codex", agent.RunOptions{NoTools: true})
+	if err == nil || !strings.Contains(err.Error(), "--no-tools") {
+		t.Fatalf("--no-tools on codex = %v, want a refusal naming the flag", err)
+	}
+	if err := agent.CheckCapabilities("codex", agent.RunOptions{}); err != nil {
+		t.Fatalf("the no-flag default changed: %v", err)
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

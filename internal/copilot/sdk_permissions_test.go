@@ -361,3 +361,82 @@ func TestReadOnlySimplifyDetector(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionRemedyResume(t *testing.T) {
+	call := agent.Rule{Tool: "Bash", Arg: "make lint"}
+	o := sdkOptions{AllowAllTools: true, SessionID: "same-session", Permissions: agent.Permissions{Mode: "plan"}}
+	req := rpc.PermissionRequestShell{FullCommandText: call.Arg}
+	o.Permissions.Allow = []agent.Rule{remedyRule(t, o, call, req)}
+	h := buildResumeSessionConfig(o).OnPermissionRequest
+	for _, managed := range []bool{false, true} {
+		d, err := h(req, copilot.PermissionInvocation{ManagedSettingsEnabled: managed})
+		_, approved := d.(*rpc.PermissionDecisionApproveOnce)
+		_, deferred := d.(*rpc.PermissionDecisionNoResult)
+		if err != nil || approved == managed || deferred != managed {
+			t.Fatalf("resumed managed=%v: %T, err %v", managed, d, err)
+		}
+	}
+	o.Permissions.Deny = []agent.Rule{call}
+	d, err := buildResumeSessionConfig(o).OnPermissionRequest(req, copilot.PermissionInvocation{ManagedSettingsEnabled: true})
+	rejected, ok := d.(*rpc.PermissionDecisionReject)
+	if err != nil || !ok || rejected.Feedback == nil || strings.Contains(*rejected.Feedback, "--allow") ||
+		!strings.Contains(*rejected.Feedback, "permissions.deny") {
+		t.Fatalf("explicit deny = %v, err %v", d, err)
+	}
+}
+
+// remedyRule rejects req under o's plan mode and returns the exact allow rule parsed from the rejection's feedback.
+func remedyRule(t *testing.T, o sdkOptions, call agent.Rule, req rpc.PermissionRequestShell) agent.Rule {
+	t.Helper()
+	d, err := buildSessionConfig(o).OnPermissionRequest(req, copilot.PermissionInvocation{})
+	rejected, ok := d.(*rpc.PermissionDecisionReject)
+	if err != nil || !ok || rejected.Feedback == nil {
+		t.Fatalf("initial decision = %T, err %v", d, err)
+	}
+	denial := o.Permissions.Explain(call.Tool, call.Arg)
+	if denial.Replay == "" || !strings.Contains(*rejected.Feedback, denial.Remedy) {
+		t.Fatalf("feedback %q lacks actionable remedy %+v", *rejected.Feedback, denial)
+	}
+	// Parse the actual feedback's rule, so this replay depends on the adapter's emitted repair.
+	_, quoted, found := strings.Cut(*rejected.Feedback, "--allow '")
+	if !found {
+		t.Fatal("feedback has no exact allow flag")
+	}
+	rule, err := agent.ParseRule(strings.TrimSuffix(quoted, "'"))
+	if err != nil || rule != call {
+		t.Fatalf("repair = %v, err %v; want %v", rule, err, call)
+	}
+	return rule
+}
+
+func TestPermissionAskAndToolsOffResume(t *testing.T) {
+	reqs := []copilot.PermissionRequest{
+		rpc.PermissionRequestShell{FullCommandText: "make lint"},
+		rpc.PermissionRequestRead{Path: "a.go"}, rpc.PermissionRequestWrite{FileName: "a.go"},
+		rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, rpc.PermissionRequestMemory{},
+	}
+	o := sdkOptions{AllowAllTools: true, Permissions: agent.Permissions{Ask: []agent.Rule{{Tool: "Bash"}}}}
+	for _, tools := range []bool{true, false} {
+		o.AllowAllTools = tools
+		cfg := buildResumeSessionConfig(o)
+		if !tools && (cfg.AvailableTools == nil || len(cfg.AvailableTools) != 0) {
+			t.Fatal("tools-off resume must expose no tool schemas")
+		}
+		for _, req := range reqs {
+			checkAskResume(t, cfg.OnPermissionRequest, req, tools)
+		}
+	}
+}
+
+// checkAskResume expects a resumed ask rule to reject with tools off, and with tools on to defer only under managed settings.
+func checkAskResume(t *testing.T, h copilot.PermissionHandlerFunc, req copilot.PermissionRequest, tools bool) {
+	t.Helper()
+	for _, managed := range []bool{false, true} {
+		d, err := h(req, copilot.PermissionInvocation{ManagedSettingsEnabled: managed})
+		_, rejected := d.(*rpc.PermissionDecisionReject)
+		_, deferred := d.(*rpc.PermissionDecisionNoResult)
+		if err != nil || rejected == tools || deferred != (tools && managed) {
+			t.Fatalf("tools=%v managed=%v kind=%s: %T, err %v", tools, managed, req.Kind(), d, err)
+		}
+	}
+}

@@ -274,7 +274,7 @@ const handedBackMark = "Report delivered to your caller"
 // askCmdRe matches a command segment running claude-code agents ask|result|tail or <agent> ask; a quoted mention never.
 var askCmdRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+|(?:timeout\s+\S+|nohup|env|time|command)\s+)*` +
-		`(?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|tail)|(?:codex|copilot|gemini|opencode)\s+ask)\b`)
+		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|tail)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
 })
 
 // didNotRunRe matches the lines an ask prints when no agent ran: its `did not run` line or a pre-run refusal.

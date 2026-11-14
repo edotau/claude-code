@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -47,12 +48,12 @@ type EnvSpec struct {
 func (s EnvSpec) Environ(ctx context.Context) []string {
 	base := s.Base
 	if base == nil && s.Mode != EnvPrescrubbed {
-		base = os.Environ()
+		base = runEnviron(ctx)
 	}
-	base, _ = s.Mode.scrub(base, s.Keep)
+	base, _ = s.Mode.scrub(ctx, base, s.Keep)
 	drop := s.dropper(ctx)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
-	if doc := confinementDoc(); doc != "" && drop(agentconfig.OverlayVar+"=") { // one hop: only the confinement goes down
+	if doc := confinementDocContext(ctx); doc != "" && drop(agentconfig.OverlayVar+"=") { // one hop: only the confinement goes down
 		env = append(env, agentconfig.OverlayVar+"="+doc)
 	}
 	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
@@ -86,12 +87,12 @@ func withMemoryOrigin(env []string) []string {
 }
 
 // scrub is the Mode's deny scrub; EnvPrescrubbed passes env through.
-func (m EnvMode) scrub(env, keep []string) (kept, dropped []string) {
+func (m EnvMode) scrub(ctx context.Context, env, keep []string) (kept, dropped []string) {
 	switch m {
 	case EnvClaude:
-		return proc.Scrub(env, proc.EnvKeepSet(keep))
+		return proc.Scrub(env, keepSet(ctx, keep))
 	case EnvAgent:
-		return proc.ScrubAgent(env, proc.EnvKeepSet(keep))
+		return proc.ScrubAgent(env, keepSet(ctx, keep))
 	}
 	return env, nil
 }
@@ -103,7 +104,11 @@ type permissionsKey struct{}
 
 // inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested one; else the outer applies whole.
 func inheritPermissions(p Permissions) (Permissions, error) {
-	raw := os.Getenv(DispatchPermissionsEnv)
+	return inheritPermissionsContext(context.Background(), p)
+}
+
+func inheritPermissionsContext(ctx context.Context, p Permissions) (Permissions, error) {
+	raw := proc.Value(ctx, DispatchPermissionsEnv)
 	if raw == "" {
 		return p, nil
 	}
@@ -168,13 +173,13 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 func scrubIsolated(ctx context.Context, inherited, keepEnv []string) []string {
 	inherited = dropForeignLogins(ctx, inherited, keepEnv)
 	if p := ownProviderFrom(ctx); p != nil {
-		return scrubExcept(inherited, p.Name, append(providers.CredentialNames(p), keepEnv...), keepEnv)
+		return scrubExcept(ctx, inherited, p.Name, append(providers.CredentialNames(p), keepEnv...), keepEnv)
 	}
 	if ctx.Value(isolateKey{}) == nil {
 		return inherited
 	}
 	ls, _ := ctx.Value(loginScrubKey{}).(loginScrub)
-	return scrubExcept(inherited, "", append(slices.Clone(proc.OwnLoginEnv[ls.own]), keepEnv...), keepEnv)
+	return scrubExcept(ctx, inherited, "", append(slices.Clone(proc.OwnLoginEnv[ls.own]), keepEnv...), keepEnv)
 }
 
 // dropForeignLogins drops the own-login env ctx's loginScrub forbids (a coworker hop, a probe); else env as is.
@@ -183,7 +188,7 @@ func dropForeignLogins(ctx context.Context, env, keepEnv []string) []string {
 	if !ok {
 		return env
 	}
-	return proc.Drop(env, proc.EnvKeepSet(keepEnv), proc.ForeignLogins(ls.own, ls.keepGHToken))
+	return proc.Drop(env, keepSet(ctx, keepEnv), proc.ForeignLogins(ls.own, ls.keepGHToken))
 }
 
 type loginScrubKey struct{}
@@ -201,10 +206,10 @@ func ProbeContext(ctx context.Context, login string) context.Context {
 }
 
 // scrubExcept drops every registry credential name of the profiles other than ownName, except those in mine.
-func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string {
+func scrubExcept(ctx context.Context, env []string, ownName string, mine, keepEnv []string) []string {
 	reg, err := providers.Load()
 	if err != nil { // fail closed: foreign owners are unknown, so drop every credential-shaped name not held
-		return proc.Drop(env, proc.EnvKeepSet(mine), proc.ScrubDenyCredentials)
+		return proc.Drop(env, keepSet(ctx, mine), proc.ScrubDenyCredentials)
 	}
 	foreign := map[string]bool{}
 	for _, p := range reg.Providers {
@@ -217,7 +222,7 @@ func scrubExcept(env []string, ownName string, mine, keepEnv []string) []string 
 			}
 		}
 	}
-	keep := proc.EnvKeepSet(keepEnv)
+	keep := keepSet(ctx, keepEnv)
 	return proc.Drop(env, keep, slices.Collect(maps.Keys(foreign)))
 }
 
@@ -276,4 +281,59 @@ func stderrTail(s string) string {
 		t = "…" + strings.ToValidUTF8(t[len(t)-stderrTailBytes:], "") // the cut may split a rune
 	}
 	return textutil.RedactSecrets(t)
+}
+
+// runValues captures inherited values once and copies them at each run boundary.
+func runValues(ctx context.Context, values proc.Values) (context.Context, proc.Values) {
+	if values == nil {
+		var ok bool
+		values, ok = proc.ValuesFromContext(ctx)
+		if !ok {
+			values = proc.ValuesFromEnv(os.Environ())
+		}
+	}
+	return proc.WithValues(ctx, values), values.Merge(nil)
+}
+
+// runEnviron preserves inherited entry order while applying only the run snapshot's values.
+func runEnviron(ctx context.Context) []string {
+	base := os.Environ()
+	values, ok := proc.ValuesFromContext(ctx)
+	if !ok {
+		return base
+	}
+	if host := egress.HostContext(ctx); host != values[egress.EnvHost] {
+		values = values.With(egress.EnvHost, host)
+	}
+	out := make([]string, 0, len(values))
+	for _, entry := range base {
+		name, _, _ := strings.Cut(entry, "=")
+		if value, found := values[name]; found {
+			out = append(out, name+"="+value)
+			delete(values, name)
+		}
+	}
+	return append(out, values.Env()...)
+}
+
+// valuesContext restores a supplied snapshot without replacing more specific request context values.
+func valuesContext(ctx context.Context, values proc.Values) context.Context {
+	if values != nil {
+		return proc.WithValues(ctx, values)
+	}
+	return ctx
+}
+
+// keepSet unions explicit names with the run's inherited scrub exceptions.
+func keepSet(ctx context.Context, names []string) map[string]bool {
+	keep := make(map[string]bool, len(names))
+	for _, name := range names {
+		keep[name] = true
+	}
+	for name := range strings.SplitSeq(proc.Value(ctx, "HARNESS_KEEP_ENV"), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			keep[name] = true
+		}
+	}
+	return keep
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -54,6 +55,20 @@ func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	}
 	if line := StaticLine(reg, Check(reg, now)); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
+	}
+}
+
+// Two run snapshots pick their own session profile whatever the process environment says.
+func TestCheckReadsTheRunSnapshot(t *testing.T) {
+	hermeticVault(t)
+	t.Setenv(providers.EnvSessionProfile, "ambient")
+	reg, now := preflightRegistry(true), time.Now()
+	for profile, want := range map[string]string{"dev": "dev", "": ""} {
+		ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: profile})
+		got := byAgent(check(ctx, reg, now))["claude"]
+		if got.Profile != want {
+			t.Errorf("snapshot profile %q: claude pin %q, want %q", profile, got.Profile, want)
+		}
 	}
 }
 

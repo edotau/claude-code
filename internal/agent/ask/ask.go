@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -19,15 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	usagepkg "github.com/edotau/claude-code/internal/usage"
-	"github.com/edotau/claude-code/internal/vault"
 
 	// Each vendor CLI registers its roster row and driver from its package init; this package links them all.
 	_ "github.com/edotau/claude-code/internal/claude"
@@ -392,6 +386,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if rc, done := r.applyRecord(); done {
 		return rc, true
 	}
+	f.model = cmp.Or(f.model, agent.SessionModel(f.session)) // a resumed session keeps its model; a typed --model wins
 	if err := recordTools(f); err != nil {
 		return r.fail(err, 2)
 	}
@@ -431,6 +426,15 @@ func (r *askRun) applyRecord() (int, bool) {
 	}
 	if rc, done := loadAskRetry(r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
 		return rc, true
+	}
+	if f.retry != "" && !helptext.Explicit(r.fs, "session") {
+		rec, err := agent.LoadRecord(f.retry)
+		if err != nil {
+			return r.fail(err, 1)
+		}
+		if rec.RanAs == "" || rec.RanAs == rec.Agent {
+			f.session = cmp.Or(rec.SessionID, f.session)
+		}
 	}
 	r.ov.Fold(r.fs) // the overlay beats a --retry record
 	return 0, false
@@ -523,6 +527,9 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return failAskCode(format, name, err, 2)
 	}
 	req = req.ApplyOverlay(ov)
+	if err := agent.CheckCapabilities(name, req); err != nil {
+		return failAskCode(format, name, err, 2)
+	}
 	cl := newClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
 	prepared, err := cl.Prepare(ctx, req, jobRec)
@@ -645,17 +652,6 @@ func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, n
 	return 0
 }
 
-// absDebugFile pins the path now: --workdir moves the child's cwd.
-func absDebugFile(p string) string {
-	if p == "" {
-		return p
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
-	}
-	return p
-}
-
 // stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
 func stdoutSink(format, dispatchID string) wire.Sink { return sinkTo(os.Stdout, format, dispatchID) }
 
@@ -668,15 +664,6 @@ func sinkTo(out io.Writer, format, dispatchID string) wire.Sink {
 		return wire.NewJSONLSink(out, dispatchID)
 	}
 	return wire.NewTextSink(out)
-}
-
-// RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
-var RouteRefresh = usagepkg.RefreshAccount
-
-// newClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
-func newClient() *agent.Client {
-	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
-		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
 }
 
 // backgroundExtraFlags carries explicit routing and identity flags over to the spawned --job child.
@@ -730,55 +717,5 @@ func printAskFailure(format, agentName string, err error) {
 	}
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
-	}
-}
-
-// The terminal and sign-in UI the agent package calls but does not import.
-func init() {
-	agent.StdinIsTerminal = tui.StdinIsTerminal
-	agent.LoginRow = databricks.LoginRow
-	agent.PromptSecret = func(name string) (string, error) {
-		return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", vault.Preview)
-	}
-}
-
-// memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
-// Gate: only the job's bank globs are writable and only its listed commands run; plan mode denies the rest.
-func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
-	write, bash := memory.BankScope(ctx, workdir)
-	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
-	for _, tool := range []string{"Edit", "Write"} {
-		p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: memory.StoreDir() + "/.git/**"})
-		for _, w := range write {
-			p.Allow = append(p.Allow, agent.Rule{Tool: tool, Arg: w})
-		}
-	}
-	for _, w := range write { // cd only into a bank directory
-		if dir, ok := strings.CutSuffix(w, "/**"); ok {
-			p.Allow = append(p.Allow, agent.CdRule(dir))
-		}
-	}
-	for _, b := range bash {
-		p.Allow = append(p.Allow, agent.Rule{Tool: "Bash", Arg: b})
-	}
-	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: true, WorkDir: workdir,
-		Fallback: router.FallbackNone, Gate: true, Permissions: p}
-}
-
-// MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
-func MemoryRunner() memory.AgentFunc {
-	return func(ctx context.Context, prompt, workdir string) (string, error) {
-		c := newClient()
-		c.Refresh = nil
-		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
-		opts := memoryRunOptions(ctx, prompt, workdir)
-		opts.Env = memory.ChildEnv(ctx)
-		res, err := c.Run(ctx, opts, wire.NewTextSink(os.Stdout))
-		who := res.Agent
-		if res.Fallback != "" {
-			who += "<-" + res.Fallback
-		}
-		memory.NoteGateBlocks(ctx, res.GateBlocks)
-		return who, err
 	}
 }

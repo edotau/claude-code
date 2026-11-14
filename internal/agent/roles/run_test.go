@@ -269,6 +269,21 @@ func TestLegsAddFlagPermissionsAndFallbackToRole(t *testing.T) {
 	}
 }
 
+// --fleet is not a permission feature: a fleet role on an agent without it still runs the task and reports the drop.
+func TestLegsFleetOnUnsupportedAgentRuns(t *testing.T) {
+	vaulttest.Use(t)
+	seen := fakeStream(t)
+	r := Role{Name: "fleet", Agent: "codex"}
+	legs := Legs(r, Request{Task: "t"})
+	if len(legs) != 1 || legs[0].Err != "" {
+		t.Fatalf("want one runnable leg; got %+v", legs)
+	}
+	rep := Run(context.Background(), nil, r, legs, 1, nil)
+	if len(*seen) != 1 || rep.Status != "ok" {
+		t.Fatalf("leg not dispatched: calls=%v report=%+v", *seen, rep)
+	}
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	hosttest.Cleanup()

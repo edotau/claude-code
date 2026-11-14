@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // renderGeminiSettings merges the spec's exact-match guard denies into agy's
@@ -134,15 +135,15 @@ func (e geminiEngine) RenderSettings(ctx context.Context, s agent.Settings, env,
 	if argv, emulated, err = agyEffortArgv(s, argv, emulated); err != nil || !s.Headless {
 		return env, argv, emulated, cleanup, err
 	}
-	settings, unmapped, err := agyPermissionSettings(s.Permissions, s.Record.Extras[extraUseGuardRules] != "false", s.Tools, s.WorkDir, os.Stderr)
+	settings, notes, err := agyPermissionSettings(s.Permissions, s.Record.Extras[extraUseGuardRules] != "false", s.Tools, s.WorkDir)
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
 	if settings != "" {
 		argv = append(argv, "--settings", settings)
 	}
-	for _, r := range unmapped {
-		emulated = append(emulated, "permissions:"+r)
+	for _, n := range notes {
+		emulated = append(emulated, "permissions:"+n)
 	}
 	return env, argv, emulated, cleanup, nil
 }
@@ -170,15 +171,14 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 	return append(argv, "--effort", s.Effort), emulated, nil
 }
 
-// agyPermissionSettings renders p as agy's per-run --settings JSON, plus the guard denies when guard is set (it may
-// replace the global block). Ask runs as Allow (agy has no headless judge). A Deny agy can't hold natively or through
-// the permission-gate hook is an error (Deny is the hard boundary); unmapped Allow/Ask go to Emulated.
-func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, out io.Writer) (settings string, unmapped []string, err error) {
+// agyPermissionSettings renders p as agy's per-run --settings JSON (plus guard denies when guard); notes name each
+// Ask that runs as Allow (O1: agy has no headless judge) and each unmapped rule; a Deny agy cannot hold is an error.
+func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (settings string, notes []string, err error) {
 	if p.IsZero() {
 		return "", nil, nil
 	}
-	if p.Mode == "plan" && tools { // plan denies unmatched calls; agy has no deny-all, so --settings would run every tool
-		return "", nil, retry.Fatal("gemini", errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools"))
+	if err := agyPlanRefusal(p, tools, cwd); err != nil {
+		return "", nil, err
 	}
 	cfg, err := loadAgentConfig()
 	if err != nil {
@@ -203,7 +203,7 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, o
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
-		fmt.Fprintf(out, "agy: ask rule %s runs as allow (no --mode auto judge)\n", r)
+		notes = append(notes, "ask "+r.String()+" runs as allow (agy has no headless judge)")
 	}
 	perms := map[string][]string{"deny": mergeAgyDeny(nil, deny)}
 	if len(allow) > 0 {
@@ -213,7 +213,77 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string, o
 	if err != nil {
 		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
 	}
-	return string(b), append([]string{}, agent.RuleStrings(unAllow)...), nil
+	return string(b), append(notes, agent.RuleStrings(unAllow)...), nil
+}
+
+// agyPlanRefusal refuses plan mode where agy cannot deny unmatched calls: with --tools every tool runs, and without
+// them reads in the workspace still run unless the permission-gate hook judges read_file.
+func agyPlanRefusal(p agent.Permissions, tools bool, cwd string) error {
+	switch {
+	case p.Mode != "plan":
+		return nil
+	case tools:
+		return retry.Fatal("gemini", errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools; drop --tools or --mode plan"))
+	case !agyGateCovers(cwd, "read_file"):
+		home, _ := agentconfig.HomeOr("")
+		return retry.Fatal("gemini", fmt.Errorf("permission mode plan needs the permission-gate hook on read_file in %s, which agy otherwise runs; run `claude-code configure --restore --agents --agent gemini`", agyHooksPath(home)))
+	}
+	return nil
+}
+
+// agyDenier explains agy's refusals of calls the run's policy did not grant natively.
+type agyDenier struct {
+	p   agent.Permissions
+	cwd string
+}
+
+// agyRefusedCall is the call a tool step agy refused for want of a grant; a deny rule's refusal reads differently.
+func agyRefusedCall(ev agyEvent) (agent.Rule, bool) {
+	u := ev.StepUpdate
+	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
+		return agent.Rule{}, false
+	}
+	var args struct{ CommandLine, Path string }
+	if json.Unmarshal(u.ToolInfo.Parameters, &args) != nil {
+		return agent.Rule{}, false
+	}
+	switch u.ToolName {
+	case "run_command":
+		return agent.Rule{Tool: "Bash", Arg: args.CommandLine}, args.CommandLine != ""
+	case "read_file":
+		return agent.Rule{Tool: "Read", Arg: args.Path}, args.Path != ""
+	case "write_file":
+		return agent.Rule{Tool: "Write", Arg: args.Path}, args.Path != ""
+	case "edit_file":
+		return agent.Rule{Tool: "Edit", Arg: args.Path}, args.Path != ""
+	}
+	return agent.Rule{}, false
+}
+
+// report prints notes to stderr, where agy's own denial line goes.
+func (d *agyDenier) report(calls []agent.Rule) {
+	for _, n := range d.notes(calls) {
+		fmt.Fprintln(os.Stderr, n)
+	}
+}
+
+// notes names, per refused call, the exact --allow that repairs it; a denied call or one agy has no native rule for gets none.
+func (d *agyDenier) notes(calls []agent.Rule) []string {
+	if d == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range calls {
+		switch {
+		case d.p.Explain(c.Tool, c.Arg).Source == "permissions.deny":
+			out = append(out, "agy: refused "+c.String()+": a permission deny rule matches it; no allow offered")
+		case agyRules(c, d.cwd) == nil:
+			out = append(out, "agy: refused "+c.String()+": agy has no native rule for it; no allow offered")
+		default:
+			out = append(out, "agy: refused "+c.String()+": retry with --allow "+textutil.ShellQuote(c.String()))
+		}
+	}
+	return out
 }
 
 // appendAgyRules appends each rule agy can express natively to dst and names the rest.

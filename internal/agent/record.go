@@ -96,8 +96,12 @@ const dispatchPruneMargin = 20
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
+	if req.Values != nil {
+		req.Values = req.Values.Merge(nil)
+	}
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
-	provider, profile, _ := router.Coworker()
+	ctx := valuesContext(context.Background(), req.Values)
+	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Widened: widened, Route: router.JoinCoworker(provider, profile)}
 }
@@ -317,6 +321,26 @@ func LoadRecord(id string) (Record, error) {
 		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents ask --log)", id, len(match))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
+}
+
+// SessionModel is the model the newest dispatch of session ran, profile prefix cut; "" when unknown.
+func SessionModel(session string) string {
+	if session == "" {
+		return ""
+	}
+	recs, _ := ReadRecent(AllRecords)
+	for _, r := range recs {
+		if r.SessionID != session {
+			continue
+		}
+		if _, model, ok := strings.Cut(r.Invoked, ":"); ok {
+			return model
+		}
+		if m := cmp.Or(r.Invoked, r.Model); !strings.HasPrefix(m, "<") { // "<synthetic>" is no model
+			return m
+		}
+	}
+	return ""
 }
 
 // AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.

@@ -23,7 +23,7 @@ func TestEmbedIndexUsesTheResolvedProfile(t *testing.T) {
 		opened = profile
 		return nil, errors.New("stub")
 	}
-	embedIndex(&bytes.Buffer{}, &bytes.Buffer{}, t.TempDir(), "resolved", false)
+	embedIndex(context.Background(), &bytes.Buffer{}, &bytes.Buffer{}, t.TempDir(), "resolved", false)
 	if opened != "resolved" {
 		t.Fatalf("embedIndex opened %q, want the profile it was given", opened)
 	}

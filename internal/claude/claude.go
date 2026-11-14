@@ -39,6 +39,9 @@ var _ agent.Engine = claudeAgent
 func (claudeEngine) Available() error { _, err := ClaudeBinary(); return err }
 
 func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	if err := refusePermissionCapabilities(req); err != nil {
+		return wire.Result{}, err
+	}
 	if req.NoTools {
 		if res, done, err := runNoTools(ctx, req, sink); done {
 			return res, err
@@ -59,9 +62,6 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 
 // runNoTools takes the HTTP one-shot; done is false when the request needs the claude process instead.
 func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, bool, error) {
-	if req.Tools {
-		return wire.Result{}, true, errors.New("claude: --no-tools and --tools are exclusive")
-	}
 	// the one-shot has no system-prompt or schema channel and a session must resume through the process
 	if req.SessionID != "" || req.SystemPrompt != "" || req.AppendSystemPrompt != "" || req.OutputSchema != "" || req.Persona != nil {
 		return wire.Result{}, false, nil
@@ -113,6 +113,9 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 
 // toolArgs is the tool-set tail, last after the rendered settings as it was after the permission flags.
 func toolArgs(req agent.RunOptions) []string {
+	if req.NoTools {
+		return []string{"--tools", "", "--setting-sources", "", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`}
+	}
 	if !req.Tools {
 		return []string{"--tools", "", "--setting-sources", ""}
 	}
@@ -228,8 +231,8 @@ func launchTarget(req agent.RunOptions) providers.Target {
 
 // claudeCmd renders the settings onto args, resolves the launch plan and returns the unstarted child (--env last).
 func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt string) (*exec.Cmd, *retry.TailBuffer, agent.ClaudeLaunch, error) {
-	if req.Launcher == nil {
-		return nil, nil, agent.ClaudeLaunch{}, errors.New("claude: no launcher (caller must set RunOptions.Launcher)")
+	if err := refuseClaudeCmd(req); err != nil {
+		return nil, nil, agent.ClaudeLaunch{}, err
 	}
 	st, err := agent.ResolveSettings(agentid.Claude, req, launchTarget(req), true)
 	if err != nil {
@@ -259,14 +262,31 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
+	cmd, tail, err := claudeChild(ctx, req, cl, launchEnv, prompt)
+	return cmd, tail, cl, err
+}
+
+// refuseClaudeCmd is the refusal claudeCmd makes before it resolves anything: a permission it cannot enforce, no launcher.
+func refuseClaudeCmd(req agent.RunOptions) error {
+	if err := refusePermissionCapabilities(req); err != nil {
+		return err
+	}
+	if req.Launcher == nil {
+		return errors.New("claude: no launcher (caller must set RunOptions.Launcher)")
+	}
+	return nil
+}
+
+// claudeChild is the unstarted child for the resolved launch, its --env applied last, refused if the gate env leaked.
+func claudeChild(ctx context.Context, req agent.RunOptions, cl agent.ClaudeLaunch, launchEnv []string, prompt string) (*exec.Cmd, *retry.TailBuffer, error) {
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
 	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), proc.Values(cl.Set).Env())
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: set, Extra: req.Env}.Environ(ctx) // --env last, so it wins
 	if err := refuseGateEnv(req, cmd.Env); err != nil {
-		return nil, nil, cl, err
+		return nil, nil, err
 	}
-	return cmd, tail, cl, nil
+	return cmd, tail, nil
 }
 
 // gateExe is the binary the injected gate runs; a var so tests pin it.

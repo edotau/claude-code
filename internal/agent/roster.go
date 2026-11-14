@@ -2,17 +2,18 @@ package agent
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -358,7 +359,11 @@ var agentModelEnv = func() map[string]string {
 
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
 func AgentModelPin(agent string) string {
-	if v := strings.TrimSpace(os.Getenv(agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
+	return agentModelPinContext(context.Background(), agent)
+}
+
+func agentModelPinContext(ctx context.Context, agent string) string {
+	if v := strings.TrimSpace(proc.Value(ctx, agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
 		return v
 	}
 	return vault.GetAgentRecord(agent).Model
@@ -366,9 +371,13 @@ func AgentModelPin(agent string) string {
 
 // ResolveAgentModel is the one model rule: flag > agent's shell env > vault pin > Target.Model, spelled per provider.
 func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
+	return resolveAgentModelContext(context.Background(), a)
+}
+
+func resolveAgentModelContext(ctx context.Context, a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
 	if a.Flag == "" {
-		return pinnedAgentModel(a.Agent, t), ""
+		return pinnedAgentModelContext(ctx, a.Agent, t), ""
 	}
 	if a.Applied {
 		return t, ""
@@ -388,8 +397,9 @@ func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
 	return t, ""
 }
 
-func pinnedAgentModel(agent string, t providers.Target) providers.Target {
-	if pin := AgentModelPin(agent); pin != "" {
+// pinnedAgentModelContext is t with the agent's pin as its model, spelled for t's provider, when it has one.
+func pinnedAgentModelContext(ctx context.Context, agent string, t providers.Target) providers.Target {
+	if pin := agentModelPinContext(ctx, agent); pin != "" {
 		if m := providers.SpellPin(t.Provider, pin); m != "" {
 			t.Model = m
 		}
@@ -473,6 +483,11 @@ func AgentActive(agent string) bool {
 
 // AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else record's.
 func AgentPins() (map[string]router.PinSpec, error) {
+	return AgentPinsContext(context.Background())
+}
+
+// AgentPinsContext resolves agent pins against the run snapshot.
+func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	recs, err := vault.ReadAgentRecords(RosterNames())
 	if err != nil {
 		return nil, fmt.Errorf("agent pins: %w", err)
@@ -489,7 +504,7 @@ func AgentPins() (map[string]router.PinSpec, error) {
 		}
 		spec.Model = r.Model
 		if !k.External() {
-			spec.Profile = cmp.Or(providers.SessionLead(nil, false), spec.Profile)
+			spec.Profile = cmp.Or(providers.SessionLeadContext(ctx, nil, false), spec.Profile)
 		}
 		out[k.Name] = spec
 	}

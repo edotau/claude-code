@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -47,10 +48,10 @@ func TestOpencodePermissionGolden(t *testing.T) {
 		{"default mode asks", agent.Permissions{Deny: rules(t, "Read(.env)")}, `{"*":"ask","read":{".env":"deny","*/.env":"deny"}}`},
 		{"plan mode is read-only", agent.Permissions{Mode: "plan"},
 			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow","websearch":"allow"}`},
-		{"plan mode keeps a read deny and ignores a write allow", agent.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
-			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow","websearch":"allow"}`},
-		{"plan mode ignores an allow or ask on bash, write and task", agent.Permissions{Mode: "plan", Allow: rules(t, "Bash(go test:*)", "Write"), Ask: rules(t, "Agent")},
-			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow","websearch":"allow"}`},
+		{"plan mode keeps a read deny and a write allow", agent.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
+			`{"*":"deny","bash":"deny","edit":"allow","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow","websearch":"allow"}`},
+		{"plan mode preserves explicit write grants", agent.Permissions{Mode: "plan", Allow: rules(t, "Bash(go test:*)", "Write"), Ask: rules(t, "Agent")},
+			`{"*":"deny","bash":{"*":"deny","go test *":"allow"},"edit":"allow","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"ask","webfetch":"allow","websearch":"allow"}`},
 		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
 		{"read relative deny", agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
 		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
@@ -313,4 +314,50 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpencodePermissionResumeReloadsGrant(t *testing.T) {
+	engine, seen := readOnlyLaunchEngine(t, false)
+	for _, granted := range []bool{false, true} {
+		p := agent.Permissions{Mode: "plan"}
+		if granted {
+			p.Allow = rules(t, "Bash(make lint)")
+		}
+		req := agent.RunOptions{Prompt: "permission probe", Tools: true, SessionID: "same-session", Permissions: p}
+		res, err := agent.Run(t.Context(), engine, req, wire.Discard, nil)
+		if err != nil || res.Answer != "ok" {
+			t.Fatalf("Run: %+v, %v", res, err)
+		}
+		output := pathstest.ReadFile(t, seen)
+		if !strings.Contains(output, "ARG=--session\nARG=same-session\n") {
+			t.Fatalf("resume changed session: %s", output)
+		}
+		native, gate := launchPermissions(t, output)
+		var bash map[string]string
+		nativeAllows := json.Unmarshal(native["bash"], &bash) == nil && bash["make lint"] == "allow"
+		if nativeAllows != granted || safety.GateBlocks(gate, "Bash", "make lint") == granted {
+			t.Fatalf("native/plugin disagree, granted=%v native=%s gate=%+v", granted, native["bash"], gate)
+		}
+		if !safety.GateBlocks(gate, "Bash", "make deploy") {
+			t.Fatal("exact grant widened to another command")
+		}
+	}
+}
+
+// launchPermissions reads the native permission map and the gate's dispatch permissions the fake launcher logged.
+func launchPermissions(t *testing.T, output string) (native map[string]json.RawMessage, gate agent.Permissions) {
+	t.Helper()
+	for line := range strings.SplitSeq(output, "\n") {
+		if raw, ok := strings.CutPrefix(line, "PERM="); ok {
+			if err := json.Unmarshal([]byte(raw), &native); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if raw, ok := strings.CutPrefix(line, "DISPATCH="); ok {
+			if err := json.Unmarshal([]byte(raw), &gate); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return native, gate
 }

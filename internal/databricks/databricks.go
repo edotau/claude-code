@@ -213,7 +213,7 @@ func resolveProfile(reg *providers.Registry, name string) string {
 	}
 	profs := providers.DatabricksProfiles(reg)
 	// The session profile shadows the vault pin, even when it is not a Databricks profile.
-	if s := providers.SessionProfile(); s != "" {
+	if s := providers.SessionProfileContext(context.Background()); s != "" {
 		if slices.Contains(profs, s) {
 			return s
 		}

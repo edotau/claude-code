@@ -2,7 +2,10 @@ package agent
 
 import (
 	"cmp"
+	"context"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/providers"
@@ -14,12 +17,16 @@ var ResolveAccount = resolveAccount
 
 // resolveAccount is the account a dispatch bills: "" keeps the table key; another profile bills <provider>·<profile>.
 func resolveAccount(agentName string, c router.Cell) (string, string) {
+	return resolveAccountContext(context.Background(), agentName, c)
+}
+
+func resolveAccountContext(ctx context.Context, agentName string, c router.Cell) (string, string) {
 	var t providers.Target
 	switch agentName {
 	case "opencode":
 		return "", "" // the cell's provider prefix is the account; Configured gates its credential
 	case "claude":
-		_, ct, err := ResolveRequestTarget(RunOptions{Provider: providers.SessionProfile(), Model: c.Model})
+		_, ct, err := ResolveRequestTarget(RunOptions{Provider: providers.SessionProfileContext(ctx), Model: c.Model, Values: contextValues(ctx)})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
 		}
@@ -28,7 +35,7 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 		if ownLoginAccount(agentName, c.Account) {
 			return "", "" // the agent's own login cell keeps its account; a session profile never replaces it
 		}
-		t = billedAgentTarget(agentName, c.Model)
+		t = billedAgentTargetContext(ctx, agentName, c.Model)
 		if t.Provider == nil {
 			return "", ""
 		}
@@ -36,8 +43,8 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 	return t.Provider.Account(), router.DefaultBilling(t.Provider)
 }
 
-func billedAgentTarget(agentName, model string) providers.Target {
-	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: SessionProvider(agentName), Model: model})
+func billedAgentTargetContext(ctx context.Context, agentName, model string) providers.Target {
+	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: sessionProviderContext(ctx, agentName), Model: model, Values: contextValues(ctx)})
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == agentName {
 		return providers.Target{}
 	}
@@ -46,11 +53,15 @@ func billedAgentTarget(agentName, model string) providers.Target {
 
 // SessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
 func SessionProvider(agentName string) string {
+	return sessionProviderContext(context.Background(), agentName)
+}
+
+func sessionProviderContext(ctx context.Context, agentName string) string {
 	reg, err := providers.Load()
 	if err != nil {
 		return ""
 	}
-	p := reg.Providers[providers.SessionLead(reg, false)]
+	p := reg.Providers[providers.SessionLeadContext(ctx, reg, false)]
 	if p != nil && (agentName == "claude" || CanServe(agentName, p)) {
 		return p.Name
 	}
@@ -133,4 +144,10 @@ func withAlias(c Chain, alias string) Chain {
 	disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
 	c.Dispatches = []Dispatch{disp}
 	return c
+}
+
+// contextValues preserves an absent snapshot for legacy entry points.
+func contextValues(ctx context.Context) proc.Values {
+	values, _ := proc.ValuesFromContext(ctx)
+	return values
 }

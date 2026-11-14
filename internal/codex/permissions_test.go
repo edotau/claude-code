@@ -11,19 +11,22 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
-func TestCodexRender(t *testing.T) {
+type codexRenderCase struct {
+	name    string
+	p       agent.Permissions
+	tools   bool
+	gate    bool // the permission-gate hook is installed
+	rules   string
+	approve bool
+	err     string
+}
+
+func codexRenderCases() []codexRenderCase {
 	bash := func(a string) agent.Rule { return agent.Rule{Tool: "Bash", Arg: a} }
-	cases := []struct {
-		name    string
-		p       agent.Permissions
-		tools   bool
-		gate    bool // the permission-gate hook is installed
-		rules   string
-		approve bool
-		err     string
-	}{
+	return []codexRenderCase{
 		{name: "deny prefix", p: agent.Permissions{Mode: "auto", Deny: []agent.Rule{bash("rm:*")}}, tools: true,
 			rules: `prefix_rule(pattern=["rm"], decision="forbidden"`, approve: true},
 		{name: "allow multi-word", p: agent.Permissions{Allow: []agent.Rule{bash("git status:*")}}, tools: true,
@@ -38,6 +41,12 @@ func TestCodexRender(t *testing.T) {
 		{name: "mid wildcard deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("git * --force")}}, gate: true},
 		{name: "pipeline deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("cat x | wc")}}, gate: true},
 		{name: "non-Bash deny still refused with the gate", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Read", Arg: ".env"}}}, gate: true, err: "Read(.env)"},
+		{name: "ask exact command over-matches safely", p: agent.Permissions{Ask: []agent.Rule{bash("git push")}}, tools: true,
+			rules: `pattern=["git", "push"], decision="prompt"`, approve: true},
+		{name: "unenforceable ask refused with tools", p: agent.Permissions{Ask: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
+			err: "Edit(src/**)"},
+		{name: "mid wildcard ask refused despite the gate", p: agent.Permissions{Ask: []agent.Rule{bash("git * --force")}}, tools: true, gate: true,
+			err: "Bash(git * --force)"},
 		{name: "allow without tools writes nothing", p: agent.Permissions{Allow: []agent.Rule{bash("git status:*")}}},
 		{name: "exact allow skipped", p: agent.Permissions{Allow: []agent.Rule{bash("ls")}}},
 		{name: "write deny covered by read-only", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}},
@@ -48,7 +57,10 @@ func TestCodexRender(t *testing.T) {
 		{name: "substitution deny refused", p: agent.Permissions{Deny: []agent.Rule{bash("echo $(id):*")}}, err: "command prefix"},
 		{name: "plan with tools refused", p: agent.Permissions{Mode: "plan"}, tools: true, err: "plan"},
 	}
-	for _, c := range cases {
+}
+
+func TestCodexRender(t *testing.T) {
+	for _, c := range codexRenderCases() {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := codexRender(c.p, c.tools, c.gate)
 			if c.err != "" {
@@ -89,6 +101,17 @@ func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
 	defer remove()
 	if err == nil || !strings.Contains(err.Error(), "--safe-mode") {
 		t.Fatalf("safe-mode deny err = %v, want an explicit refusal", err)
+	}
+}
+
+func TestCodexApplyPermissionsSafeModeRejectsAsk(t *testing.T) {
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
+		Ask: []agent.Rule{{Tool: "Bash", Arg: "git push:*"}},
+	}}
+	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
+	defer remove()
+	if err == nil || !strings.Contains(err.Error(), "Bash(git push:*)") {
+		t.Fatalf("safe-mode ask err = %v, want the dropped ask named", err)
 	}
 }
 
@@ -182,6 +205,30 @@ func TestCodexRulesHomeKeepsAuthWhenSaveFails(t *testing.T) {
 	}
 }
 
+func TestCodexRulesHomeResumeKeepsRolloutPaths(t *testing.T) {
+	cfg, real := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("CODEX_HOME", real)
+	if err := os.MkdirAll(filepath.Join(real, "sessions", "2026"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home, remove, err := codexRulesHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollout := filepath.Join(home, "sessions", "2026", "rollout-id.jsonl") // the path the thread db records
+	if err := os.WriteFile(rollout, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	remove()
+	if _, err := os.Stat(rollout); err != nil {
+		t.Fatalf("rollout path recorded under the per-dispatch home no longer resolves: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "rules")); err == nil {
+		t.Fatal("remove left the dispatch rules behind")
+	}
+}
+
 func TestLinkHomeSurfacesReadDirError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any directory")
@@ -225,3 +272,91 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 		t.Fatal("definitive answer was not cached")
 	}
 }
+
+func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
+	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "make lint"}}}
+	allowed := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "make lint"}}}
+	plan := agent.Permissions{Mode: "plan", Allow: []agent.Rule{{Tool: "Bash", Arg: "git status"}}}
+	cmd := "/opt/homebrew/bin/bash -lc 'make lint'"
+	cases := []struct {
+		name, out, sandbox string
+		p                  agent.Permissions
+		tools              bool
+		layer, remedy      string
+		replay             bool
+	}{
+		{name: "read-only sandbox write", out: "touch: x: Operation not permitted", sandbox: "read-only", layer: "os-sandbox", remedy: "--tools"},
+		{name: "workspace write outside", out: "open /etc/x: read-only file system", sandbox: "workspace-write", tools: true,
+			layer: "os-sandbox", remedy: codexSandboxEnv + "=danger-full-access"},
+		{name: "sealed network", out: "Network access was denied by the Codex sandbox network proxy.", sandbox: "workspace-write", tools: true,
+			layer: "os-sandbox", remedy: codexNetworkEnv + "=1"},
+		{name: "deny rule", out: "command was blocked by policy", p: deny, tools: true, layer: "codex-rules", remedy: "narrow the deciding deny rule"},
+		{name: "foreign rule file", out: "command was blocked by policy", p: allowed, tools: true, layer: "codex-rules", remedy: "rule file"},
+		{name: "gate plan miss", out: "Command blocked by PreToolUse hook: permission-gate", p: plan, tools: true, layer: "hook",
+			remedy: "--allow 'Bash(make lint)'", replay: true},
+		{name: "gate safety block", out: "Command blocked by PreToolUse hook: safety", p: allowed, tools: true, layer: "hook", remedy: "no override"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, ok := codexDenial(c.p, cmd, c.out, c.tools, c.sandbox)
+			if !ok || d.Layer != c.layer || !strings.Contains(d.Remedy, c.remedy) || d.Call.Arg != "make lint" {
+				t.Fatalf("denial = %+v ok %v, want layer %q remedy containing %q for `make lint`", d, ok, c.layer, c.remedy)
+			}
+			if c.replay != (d.Replay != "") || (!c.replay && strings.Contains(d.Remedy, "--allow")) {
+				t.Fatalf("denial %+v offers an allow where %v is the only repair", d, c.layer)
+			}
+		})
+	}
+	if _, ok := codexDenial(deny, cmd, "ls: /x: No such file or directory", true, "workspace-write"); ok {
+		t.Fatal("an ordinary failure was reported as a refusal")
+	}
+}
+
+func TestCodexPermissionDenialSinkWarns(t *testing.T) {
+	use := wire.ToolEvent("shell", "item_1")
+	use.Text = "/bin/bash -lc 'touch x'"
+	result := func(status, out string) wire.Event {
+		return wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell", ID: "item_1"}, Status: status, Text: out}
+	}
+	text := func(out string) wire.Event { return wire.Event{Type: wire.EventText, Text: out} }
+	cases := []struct {
+		name   string
+		events []wire.Event
+		call   string // the warning's named call
+	}{
+		{"failed result", []wire.Event{use, result("completed (exit 0)", "Operation not permitted"), result("failed (exit 1)", "touch: x: Operation not permitted")}, "Bash(touch x)"},
+		{"answer only, once", []wire.Event{text("all good"), text("touch failed: Operation not permitted"), text("again: Operation not permitted")}, "a command"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, warnings := emitThroughDenialSink(t, c.events)
+			if len(got) != len(c.events)+1 || len(warnings) != 1 || !strings.Contains(warnings[0], c.call) {
+				t.Fatalf("events = %+v, want every event forwarded plus one warning naming %q", got, c.call)
+			}
+			if !strings.Contains(warnings[0], "--tools") || strings.Contains(warnings[0], "--allow") {
+				t.Fatalf("warning %q must name the sandbox control, not an allow", warnings[0])
+			}
+		})
+	}
+}
+
+// emitThroughDenialSink feeds events to a read-only denialSink and returns what it forwarded and its progress warnings.
+func emitThroughDenialSink(t *testing.T, events []wire.Event) (got []wire.Event, warnings []string) {
+	t.Helper()
+	s := &denialSink{next: sinkFunc(func(ev wire.Event) error { got = append(got, ev); return nil }), sandbox: "read-only", commands: map[string]string{}}
+	for _, ev := range events {
+		if err := s.Emit(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ev := range got {
+		if ev.Type == wire.EventProgress {
+			warnings = append(warnings, ev.Text)
+		}
+	}
+	return got, warnings
+}
+
+type sinkFunc func(wire.Event) error
+
+func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }

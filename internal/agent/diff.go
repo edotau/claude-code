@@ -90,6 +90,9 @@ type DiffReport struct {
 	Outside []string      `json:"outside"`
 	Gates   []GateResult  `json:"gates"`
 	Verify  *VerifyReport `json:"verify,omitempty"`
+
+	fromBrief bool // --path came from the verified dispatch's brief Owned line: the text report is compact
+	noScope   bool // --verify with neither --path nor an Owned line: the text report is a short verdict
 }
 
 // Diff prints the report for o and returns the exit code: 0 clean, 1 gate failed or MISMATCH, 2 usage, 3 outside --path.
@@ -102,7 +105,7 @@ func Diff(o DiffOptions) int {
 		return DiffExitUsage
 	}
 	rep := DiffReport{Files: in.files, Totals: sumDiff(in.files), Outside: outsidePaths(in.files, in.sel),
-		Gates: []GateResult{}, Verify: in.verify}
+		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope}
 	if o.Check && len(in.files) > 0 {
 		rep.Gates = runGates(ctx, in.root, in.base, filesInPaths(in.files, rep.Outside))
 	}
@@ -123,25 +126,43 @@ type diffIn struct {
 	sel        []string
 	files      []DiffFile
 	verify     *VerifyReport
+	fromBrief  bool
+	noScope    bool
 }
 
 func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 	if in.root, err = repoRoot(o.Dir); err != nil {
 		return
 	}
-	if in.sel, err = cleanPaths(in.root, o.Paths); err != nil {
-		return
-	}
+	sel := o.Paths
 	if o.Verify != "" {
 		if in.verify, err = verifyDispatch(o.Verify, proxyLogPath()); err != nil {
 			return
 		}
+		if in.fromBrief = len(sel) == 0 && len(in.verify.owned) > 0; in.fromBrief {
+			sel = ownedScope(in.verify.owned)
+		}
+		in.noScope = len(sel) == 0
+	}
+	if in.sel, err = cleanPaths(in.root, sel); err != nil {
+		return
 	}
 	if in.base, err = resolveBase(ctx, in.root, o.Base); err != nil {
 		return
 	}
 	in.files, err = collectChanges(ctx, in.root, in.base)
 	return
+}
+
+// ownedScope is a brief's Owned paths plus the _test.go of each owned Go source, which a package owns too.
+func ownedScope(owned []string) []string {
+	sel := slices.Clone(owned)
+	for _, p := range owned {
+		if src, ok := strings.CutSuffix(p, ".go"); ok && !pack.IsTestPath(p) {
+			sel = append(sel, src+"_test.go")
+		}
+	}
+	return sel
 }
 
 func diffExit(rep DiffReport) int {
@@ -354,6 +375,7 @@ func (f *DiffFile) setCounts(added, deleted string) {
 const (
 	diffHeadLines   = 30
 	diffGateTimeout = 10 * time.Minute
+	outsideShown    = 3
 	docsGateChunk   = 200
 )
 
@@ -480,7 +502,7 @@ func gateDefs() []gateDef {
 		{"vet", true, pkgGate("go", "vet")},
 		{"golangci-lint", true, lintGate},
 		{"complexity", false, complexityGate},
-		{"test", true, pkgGate("go", "test", "-count=1")},
+		{"test", true, testGate},
 	}
 }
 
@@ -554,6 +576,16 @@ func pkgGate(name string, args ...string) gateFn {
 		out, err := gateRun(ctx, in.root, name, append(args, in.pkgs...)...)
 		return out, "", err
 	}
+}
+
+// testGate runs go test on the touched packages and, once production Go changed, on internal/schemas (it pins file writers).
+func testGate(ctx context.Context, in gateInput) (string, string, error) {
+	const schemas = "./internal/schemas"
+	prod := slices.ContainsFunc(in.goFiles, func(p string) bool { return !pack.IsTestPath(p) })
+	if prod && !slices.Contains(in.pkgs, schemas) && dirHasGo(filepath.Join(in.root, "internal", "schemas")) {
+		in.pkgs = append(slices.Clone(in.pkgs), schemas)
+	}
+	return pkgGate("go", "test", "-count=1")(ctx, in)
 }
 
 func lintGate(ctx context.Context, in gateInput) (string, string, error) {
@@ -737,6 +769,8 @@ type VerifyReport struct {
 	Proxy      ProxyMatch    `json:"proxy"`
 	Mismatch   bool          `json:"mismatch"`
 	Mismatches []string      `json:"mismatches,omitempty"`
+
+	owned []string // the Owned: paths of the dispatch's brief; unset for a brief without that line
 }
 
 // verifyDispatch builds the routing proof for dispatch id from its record and the proxy log at logPath.
@@ -753,7 +787,7 @@ func verifyDispatch(id, logPath string) (*VerifyReport, error) {
 	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: rec.Route, Model: rec.Model,
 		Status: rec.Status, Fallback: fallbackText(rec), DurationMs: rec.DurationMs, Tokens: logTokens(rec.LogPath()),
 		Start: start.Local().Format(time.RFC3339), End: end.Local().Format(time.RFC3339),
-		Mismatches: routingMismatches(rec)}
+		Mismatches: routingMismatches(rec), owned: ParseOwned(rec.Request.Prompt)}
 	rep.Mismatch = len(rep.Mismatches) > 0
 	rep.Proxy = matchProxy(logPath, rec, start, end.Add(windowSlack))
 	return rep, nil
@@ -994,7 +1028,24 @@ func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
 		renderVerify(o.Out, rep.Verify)
 		return
 	}
-	for _, f := range rep.Files {
+	if rep.noScope {
+		renderVerify(o.Out, rep.Verify)
+		fmt.Fprintf(o.Out, "scope not checked: the brief names no owned files and no --path was given; %d files changed"+
+			" (details: --format json or --path)\n", len(rep.Files))
+		fmt.Fprintln(o.Out, diffSummary(rep, scoped))
+		return
+	}
+	if !rep.fromBrief {
+		renderFiles(o.Out, rep.Files)
+	}
+	renderOutside(o.Out, rep)
+	renderGates(o, rep.Gates)
+	renderVerify(o.Out, rep.Verify)
+	fmt.Fprintln(o.Out, diffSummary(rep, scoped))
+}
+
+func renderFiles(w io.Writer, files []DiffFile) {
+	for _, f := range files {
 		counts, tag := fmt.Sprintf("+%d -%d", f.Added, f.Deleted), ""
 		if f.Binary {
 			counts = "bin"
@@ -1006,17 +1057,28 @@ func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
 		if f.From != "" {
 			name = f.From + " -> " + f.Path
 		}
-		fmt.Fprintf(o.Out, "%s %-12s %s%s\n", f.Status, counts, name, tag)
+		fmt.Fprintf(w, "%s %-12s %s%s\n", f.Status, counts, name, tag)
 	}
-	if len(rep.Outside) > 0 {
-		fmt.Fprintf(o.Out, "outside --path (%d):\n", len(rep.Outside))
+}
+
+// renderOutside lists the files no scope covers: one per line, or for a brief's Owned line the first few on one line.
+func renderOutside(w io.Writer, rep DiffReport) {
+	if len(rep.Outside) == 0 {
+		return
+	}
+	if !rep.fromBrief {
+		fmt.Fprintf(w, "outside --path (%d):\n", len(rep.Outside))
 		for _, p := range rep.Outside {
-			fmt.Fprintf(o.Out, "  %s\n", p)
+			fmt.Fprintf(w, "  %s\n", p)
 		}
+		return
 	}
-	renderGates(o, rep.Gates)
-	renderVerify(o.Out, rep.Verify)
-	fmt.Fprintln(o.Out, diffSummary(rep, scoped))
+	shown := rep.Outside[:min(len(rep.Outside), outsideShown)]
+	more := ""
+	if n := len(rep.Outside) - len(shown); n > 0 {
+		more = fmt.Sprintf(" ... %d more", n)
+	}
+	fmt.Fprintf(w, "outside the brief's Owned line (%d): %s%s\n", len(rep.Outside), strings.Join(shown, ", "), more)
 }
 
 func renderGates(o DiffOptions, gates []GateResult) {
@@ -1058,7 +1120,7 @@ func renderVerify(w io.Writer, v *VerifyReport) {
 	p := v.Proxy
 	fmt.Fprintf(w, "  proxy: %d requests; %s\n", p.Requests, p.Note)
 	if p.Match != "none" {
-		fmt.Fprintf(w, "    via remote host: %d (%s)\n    stream=broken: %d\n    non-200: %s\n", p.Remote,
+		fmt.Fprintf(w, "    via remote host: %d (%s); stream=broken: %d; non-200: %s\n", p.Remote,
 			cmp.Or(strings.Join(p.Hosts, ", "), "none"), p.Broken, nonOKText(p.NonOK))
 	}
 	for _, m := range v.Mismatches {
@@ -1077,15 +1139,22 @@ func nonOKText(m map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
+func scopeName(rep DiffReport) string {
+	if rep.fromBrief {
+		return "Owned"
+	}
+	return "--path"
+}
+
 func diffSummary(rep DiffReport, scoped bool) string {
 	t := rep.Totals
 	s := fmt.Sprintf("agents diff: %d files +%d -%d (prod +%d -%d, test +%d -%d)", t.Files, t.Added, t.Deleted,
 		t.Prod.Added, t.Prod.Deleted, t.Test.Added, t.Test.Deleted)
 	switch {
 	case len(rep.Outside) > 0:
-		s += fmt.Sprintf("; %d outside --path", len(rep.Outside))
+		s += fmt.Sprintf("; %d outside %s", len(rep.Outside), scopeName(rep))
 	case scoped:
-		s += "; --path ok"
+		s += "; " + scopeName(rep) + " ok"
 	}
 	if len(rep.Gates) == 0 {
 		return s

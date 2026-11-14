@@ -25,7 +25,7 @@ var ErrGateway = errors.New("catalog runs on /serving-endpoints only")
 
 // Profile is agent's catalog profile: flag, else the agent's pin, else the session; nil when none is named.
 func Profile(agent, flag string) (*providers.Provider, error) {
-	name := cmp.Or(flag, vault.GetAgentRecord(agent).Profile, providers.SessionProfile())
+	name := cmp.Or(flag, vault.GetAgentRecord(agent).Profile, providers.SessionProfileContext(context.Background()))
 	if name == "" {
 		return nil, nil
 	}

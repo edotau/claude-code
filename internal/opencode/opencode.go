@@ -405,6 +405,9 @@ func (opencodeEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 }
 
 func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	if err := agent.CheckCapabilities(e.Name(), req); err != nil {
+		return p.Result, err
+	}
 	if err := refusePolicyEnv(req); err != nil {
 		return p.Result, err
 	}
@@ -442,6 +445,13 @@ func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, en
 
 // opencodeChild loads the plugin and hook host over env/argv and builds the child; its errors are Fatal for name.
 func opencodeChild(ctx context.Context, name, bin string, env, argv []string, prompt string, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, *hookHost, error) {
+	if err := agent.CheckCapabilities(name, req); err != nil {
+		return nil, nil, nil, err
+	}
+	var err error
+	if env, err = opencodeApplyPermissions(env, req); err != nil {
+		return nil, nil, nil, retry.Fatal(name, err)
+	}
 	env, plugged, err := opencodeApplyPlugin(env, req)
 	if err != nil {
 		return nil, nil, nil, retry.Fatal(name, err)
@@ -455,6 +465,7 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 	if err != nil {
 		return nil, nil, nil, retry.Fatal(name, err)
 	}
+	ctx = agent.WithPermissionsEnv(ctx, GatePolicy(req))
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, "", req.KeepEnv, true)
 	return cmd, tail, host, nil
 }

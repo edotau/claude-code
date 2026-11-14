@@ -227,7 +227,11 @@ func FreshModelFinding(agentName string, p *providers.Provider, model string, no
 
 // armFinding is the first failed local check of the overlay databricks:<p> workspace, recorded in rc.pf; nil passes.
 func (rc routeCtx) armFinding() *Finding {
-	p := rc.reg.Row(router.ArmProfile())
+	ctx := rc.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	p := rc.reg.Row(router.ArmProfileContext(ctx))
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return nil
 	}
@@ -318,11 +322,10 @@ func firstName(profiles []*providers.Provider) string {
 	return profiles[0].Name
 }
 
-// previewProfiles is the Databricks rows q may run on: a typed profile:model, the overlay, the lead, the agent's pin.
-func previewProfiles(q RouteReq, lead string) []*providers.Provider {
+func previewProfilesContext(ctx context.Context, q RouteReq, lead string) []*providers.Provider {
 	reg := loadRegistryWarn()
 	typed, _, _ := strings.Cut(q.Model, ":")
-	names := []string{typed, router.ArmProfile(), q.Profile, lead}
+	names := []string{typed, router.ArmProfileContext(ctx), q.Profile, lead}
 	if pins, err := AgentPins(); err == nil {
 		names = append(names, pins[q.Agent].Profile)
 	}
@@ -371,7 +374,7 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	profiles := previewProfiles(q, lead)
+	profiles := previewProfilesContext(ctx, q, lead)
 	if err := previewServes(tb, q.Model, profiles); err != nil {
 		return Chain{}, router.PickResult{}, err
 	}

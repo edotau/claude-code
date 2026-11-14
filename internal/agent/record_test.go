@@ -760,3 +760,27 @@ func assertAnswerWriteFailure(t *testing.T, id string, events []wire.Event) {
 		t.Fatalf("result error = %q, want the answer write failure", last.Envelope.Error.Message)
 	}
 }
+
+// SessionModel reads the newest record of the session: the invoked model without its profile, else the reported one.
+func TestSessionModel(t *testing.T) {
+	setConfigDir(t)
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	for i, res := range []wire.Result{
+		{SessionID: "a", Model: "old", Invoked: "qa:old"},
+		{SessionID: "a", Model: "wire-new", Invoked: "qa:wire-new"},
+		{SessionID: "b", Model: "<synthetic>", Invoked: "sonnet"},
+		{SessionID: "c", Model: "<synthetic>"},
+		{SessionID: "d", Model: "reported"},
+	} {
+		r := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Minute))
+		r.Finish(res, nil, time.Second)
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for session, want := range map[string]string{"a": "wire-new", "b": "sonnet", "c": "", "d": "reported", "z": "", "": ""} {
+		if got := SessionModel(session); got != want {
+			t.Errorf("SessionModel(%q) = %q, want %q", session, got, want)
+		}
+	}
+}

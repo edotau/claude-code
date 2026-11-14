@@ -111,7 +111,7 @@ func modelListed(p *providers.Provider, claude bool, model string) bool {
 // sealed Databricks snapshot or this dialog's already-fetched catalog holds it; it never fetches.
 func copilotRouteDesc(d *dialog) string {
 	model, _ := providers.CopilotModel(d.reg)
-	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfile())
+	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfileContext(context.Background()))
 	if p := d.reg.Providers[name]; p != nil && p.Preset == providers.PresetDatabricks {
 		return modelDesc("databricks-"+name, model, snapshotHas(p, model))
 	}

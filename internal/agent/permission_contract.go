@@ -2,7 +2,6 @@ package agent
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -76,28 +75,33 @@ func hasRulePattern(tool, arg string) bool {
 	return tool == "WebFetch" && strings.HasPrefix(arg, "domain:")
 }
 
-// CheckCapabilities refuses unsupported requests without changing the request or existing launch behavior.
+// CheckCapabilities refuses an unenforceable --no-tools or permission feature; other unsupported flags run, dropped.
 func CheckCapabilities(name string, req RunOptions) error {
 	r, err := Lookup(name)
+	if err == nil {
+		err = capabilityRefusal(r.Caps(), name, req)
+	}
 	if err != nil {
 		return retry.Fatal(name, err)
 	}
-	c := r.Caps()
+	return nil
+}
+
+// capabilityRefusal is the first capability c cannot honor for req, or nil.
+func capabilityRefusal(c Caps, name string, req RunOptions) error {
 	if err := refusePersona(c, name, req.Persona); err != nil {
-		return retry.Fatal(name, err)
+		return err
 	}
 	if err := refusePermissions(c, name, req.Permissions); err != nil {
-		return retry.Fatal(name, err)
+		return err
 	}
-	_, dropped, _ := applyCaps(c, req)
-	if len(dropped) > 0 {
-		return retry.Fatal(name, fmt.Errorf("unsupported capability: %s", strings.Join(dropped, ", ")))
-	}
-	if req.Tools && req.NoTools {
-		return retry.Fatal(name, errors.New("incompatible capabilities: --tools and --no-tools"))
-	}
-	if req.ReadOnly && c.ReadOnly == Emulated && c.Permissions == None {
-		return retry.Fatal(name, errors.New("--read-only requires permission enforcement"))
+	switch {
+	case req.NoTools && c.NoTools == None:
+		return errors.New("unsupported capability: --no-tools")
+	case req.Tools && req.NoTools:
+		return errors.New("incompatible capabilities: --tools and --no-tools")
+	case req.ReadOnly && c.ReadOnly == Emulated && c.Permissions == None:
+		return errors.New("--read-only requires permission enforcement")
 	}
 	return nil
 }

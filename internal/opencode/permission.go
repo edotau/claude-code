@@ -32,6 +32,7 @@ type opencodeEntry struct{ pattern, action string }
 func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	base := cmp.Or(map[string]string{"auto": "allow", "plan": "deny"}[p.Mode], "ask")
 	byKey := planEntries(p.Mode)
+	readOnly := opencodeReadOnly(agent.RunOptions{Permissions: p})
 	sets := []struct {
 		rules  []agent.Rule
 		action string
@@ -42,8 +43,8 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 			if err != nil {
 				return nil, err
 			}
-			if reopensPlanWrite(p.Mode, set.action, key, r) {
-				continue // plan mode is read-only: an allow or ask never reopens a write tool
+			if readOnly && set.action != "deny" && planDenied[key] && r != agent.ReadOnlyAllow {
+				continue
 			}
 			for _, pat := range pats {
 				byKey[key] = appendEntry(byKey[key], opencodeEntry{pat, set.action})
@@ -51,11 +52,6 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 		}
 	}
 	return renderOpencodePermission(base, byKey), nil
-}
-
-// reopensPlanWrite reports a non-deny rule that would open a write tool plan mode keeps closed.
-func reopensPlanWrite(mode, action, key string, r agent.Rule) bool {
-	return mode == "plan" && action != "deny" && planDenied[key] && r != agent.ReadOnlyAllow
 }
 
 func renderOpencodePermission(base string, byKey map[string][]opencodeEntry) json.RawMessage {
@@ -193,24 +189,13 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 	if !req.Tools {
 		return env, nil
 	}
-	if req.ReadOnly {
-		req.Permissions.Deny = slices.Clone(req.Permissions.Deny)
-		for _, r := range agent.ReadOnlyDeny {
-			if !slices.Contains(req.Permissions.Deny, r) {
-				req.Permissions.Deny = append(req.Permissions.Deny, r)
-			}
-		}
-		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
-	}
+	req.Permissions = GatePolicy(req)
 	if req.Permissions.IsZero() {
 		return env, nil
 	}
-	if opencodeReadOnly(req) {
-		req.Permissions.Mode = "plan"
-	}
 	perm, err := opencodePermission(req.Permissions)
 	if err != nil {
-		return nil, err
+		return nil, retry.Fatal("opencode", err)
 	}
 	env, err = mutateOpencodeConfigEnv(env, false, func(cfg map[string]any) { cfg["permission"] = perm })
 	if err != nil {
@@ -263,6 +248,10 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 
 // GatePolicy is the policy the plugin's permission-gate judges for req, plan mode included when read-only.
 func GatePolicy(req agent.RunOptions) agent.Permissions {
+	if req.ReadOnly {
+		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), agent.ReadOnlyDeny...)
+		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
+	}
 	if opencodeReadOnly(req) {
 		req.Permissions.Mode = "plan"
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -279,4 +281,49 @@ func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 		}
 	}
 	t.Errorf("process group %d still has members after cancel", pgid)
+}
+
+// Concurrent child launches keep independent snapshots and request-pinned egress without changing the parent.
+func TestRunValuesConcurrentChildren(t *testing.T) {
+	t.Setenv("PST_RUN", "parent")
+	t.Setenv(egress.EnvHost, "parent-host")
+	values := proc.ValuesFromEnv(os.Environ())
+	start := make(chan struct{})
+	errc := make(chan error, 2)
+	for _, name := range []string{"first", "second"} {
+		go func() {
+			<-start
+			ctx, copied := runValues(context.Background(), values.With("PST_RUN", name))
+			copied["PST_RUN"] = "mutated-after-capture"
+			ctx = egress.WithHost(ctx, name+"-host")
+			for _, agent := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
+				cmd, _ := ChildCmd(ctx, "/bin/sh", []string{"-c", `printf '%s|%s' "$PST_RUN" "$HARNESS_EGRESS_HOST"`},
+					nil, "", "", nil, agent != "claude")
+				out, err := cmd.Output()
+				if err != nil {
+					errc <- err
+					return
+				}
+				if string(out) != name+"|"+name+"-host" {
+					errc <- fmt.Errorf("%s child got %q", agent, out)
+					return
+				}
+			}
+			direct := proc.ValuesFromEnv(EnvSpec{Mode: EnvClaude}.Environ(egress.WithHost(ctx, "")))
+			if direct[egress.EnvHost] != "" {
+				errc <- errors.New("explicit direct host lost")
+				return
+			}
+			errc <- nil
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errc; err != nil {
+			t.Error(err)
+		}
+	}
+	if os.Getenv("PST_RUN") != "parent" || os.Getenv(egress.EnvHost) != "parent-host" {
+		t.Fatal("child snapshot changed the parent")
+	}
 }

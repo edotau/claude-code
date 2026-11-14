@@ -79,6 +79,9 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 
 // TargetCtx is target, except a target frozen on ctx is used as is.
 func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target, bool, error) {
+	if req.Values == nil {
+		req.Values = contextValues(ctx)
+	}
 	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && s.Name == "copilot" {
 		if f.note != "" {
 			f.once.Do(func() { fmt.Fprintln(NoticeOut, f.note) })
@@ -151,8 +154,8 @@ func hopProvider(ctx context.Context, r Engine, req RunOptions) (*providers.Prov
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
 func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *retry.Error) {
-	arm := router.ArmProfile()
-	cp, _ := router.Confined()
+	arm := router.ArmProfileContext(ctx)
+	cp, _ := router.ConfinedContext(ctx)
 	confined := arm != "" || cp != ""
 	if confined { // inside any confinement every hop keeps only its own credential names
 		ctx = withIsolation(ctx)
@@ -162,7 +165,7 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 		return ctx, retry.Classify(r.Name(), err, false)
 	}
 	// before the own-login return: that hop is scrubbed and route-checked too
-	if err := cmp.Or(checkIsolation(ctx), guardArm(arm, r, gp), guardConfined(r, gp)); err != nil {
+	if err := cmp.Or(checkIsolation(ctx), guardArm(arm, r, gp), guardConfinedContext(ctx, r, gp)); err != nil {
 		return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
 	}
 	if confined { // arm "": a confined hop keeps its own agent's login, the confined provider's, and drops the others
@@ -219,9 +222,8 @@ func guardArm(arm string, r Engine, gp *providers.Provider) error {
 	return fmt.Errorf("%s: profile %s is outside databricks:%s", r.Name(), gp.Name, arm)
 }
 
-// guardConfined refuses a hop on a registry row outside a non-Databricks confinement's provider or pinned profile.
-func guardConfined(r Engine, gp *providers.Provider) error {
-	cp, cprof := router.Confined()
+func guardConfinedContext(ctx context.Context, r Engine, gp *providers.Provider) error {
+	cp, cprof := router.ConfinedContext(ctx)
 	if cp == "" || gp == nil || (gp.Provider == cp && (cprof == "" || gp.Name == cprof)) {
 		return nil
 	}

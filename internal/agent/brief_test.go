@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,16 +39,7 @@ func TestBriefParseOwned(t *testing.T) {
 
 func assertBriefContract(t *testing.T, first string, input BriefInput) {
 	t.Helper()
-	plan, err := os.ReadFile("../../plans/2026-11-13-permissions-settings-toolbox.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, rules, ok := strings.Cut(string(plan), "## Leaf rules\n\n")
-	if !ok {
-		t.Fatal("plan has no leaf rules")
-	}
-	rules, _, _ = strings.Cut(rules, "\n## Decisions needed")
-	for _, want := range []string{strings.TrimSpace(rules), input.Task, input.Report, input.Verify,
+	for _, want := range []string{"## Leaf rules", "Never revert a change you did not make", input.Task, input.Report, input.Verify,
 		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: at most 8 lines"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)

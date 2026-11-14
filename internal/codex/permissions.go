@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
@@ -80,8 +81,8 @@ func codexRenderRules(p agent.Permissions, tools, gate bool) (rules string, unma
 		if errors.As(lerr, &notPrefixError{}) && decision == agent.Deny && gate {
 			return
 		}
-		if lerr != nil && decision == agent.Deny {
-			err = lerr
+		if lerr != nil && decision != agent.Allow {
+			err = lerr // an ask codex cannot enforce would run unprompted: refused like a deny
 			return
 		}
 		if lerr != nil {
@@ -104,8 +105,8 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !wild && decision != "forbidden" {
-		return "", fmt.Errorf("codex: %s is an exact command; a prefix rule would match more", r) // only Deny may over-match
+	if !wild && decision == "allow" {
+		return "", fmt.Errorf("codex: %s is an exact command; a prefix rule would match more", r) // a deny or ask may over-match
 	}
 	pat := make([]string, len(toks))
 	for i, t := range toks {
@@ -154,13 +155,30 @@ func codexRulesHome(rules string) (home string, remove func(), err error) {
 		if !saveRefreshedAuth(real, home) {
 			return // keep home: its auth.json is the only copy of the refreshed login
 		}
-		_ = os.RemoveAll(home)
+		keepSessionsLink(home)
 	}
 	if err = linkHome(real, home, rules); err != nil {
 		remove()
 		return "", nil, err
 	}
 	return home, remove, nil
+}
+
+// keepSessionsLink removes home but its sessions link: the thread db records rollout paths under home, so a resume needs them.
+func keepSessionsLink(home string) {
+	sessions := filepath.Join(home, "sessions")
+	if fi, err := os.Lstat(sessions); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		return // codex made a real sessions dir here (the real home had none): its rollouts live only in home
+	}
+	entries, _ := os.ReadDir(home)
+	for _, e := range entries {
+		if e.Name() != "sessions" {
+			_ = os.RemoveAll(filepath.Join(home, e.Name()))
+		}
+	}
+	if !isLink(sessions) {
+		_ = os.RemoveAll(home) // no sessions link to anchor
+	}
 }
 
 // saveRefreshedAuth copies a codex-refreshed auth.json from home back to real; false means the copy failed.
@@ -287,10 +305,14 @@ func requireFileAuth(env []string) error {
 	return nil
 }
 
-// codexCheckSafeMode rejects Deny rules under --safe-mode and logs the rules codex cannot enforce.
+// codexCheckSafeMode rejects Deny and Ask rules under --safe-mode and logs the rules codex cannot enforce.
 func codexCheckSafeMode(req agent.RunOptions, pol codexPolicy) error {
 	if _, ok := agent.SafeModeDeny(req, func(agent.Rule) bool { return pol.rules != "" }); ok {
 		return errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
+	}
+	if req.SafeMode && req.Tools && len(req.Permissions.Ask) > 0 {
+		return fmt.Errorf("codex: --safe-mode disables permission rules and hooks, so %s would run unprompted; remove --safe-mode to enforce --ask",
+			req.Permissions.Ask[0])
 	}
 	for _, r := range pol.unmapped {
 		fmt.Fprintf(os.Stderr, "ask: codex cannot enforce permission rule %s\n", r)
@@ -326,4 +348,101 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 		return nil, nil, func() {}, fmt.Errorf("codex: permission rules: %w", err)
 	}
 	return argv, append(slices.Clone(env), "CODEX_HOME="+home), remove, nil
+}
+
+// codexDenial names the layer that refused a failed shell call and its real control. An OS block never offers an
+// --allow (no rule overrides the sandbox), and a rule or hook block offers one only when Explain proves it repairs it.
+func codexDenial(p agent.Permissions, command, output string, tools bool, sandbox string) (agent.Denial, bool) {
+	call := agent.Rule{Tool: "Bash", Arg: codexShellCommand(command)}
+	text := strings.ToLower(output)
+	denial := func(layer, source, remedy string) (agent.Denial, bool) {
+		return agent.Denial{Call: call, Layer: layer, Source: source, Remedy: remedy}, true
+	}
+	switch {
+	case strings.Contains(text, "blocked by pretooluse hook"):
+		d := p.Explain(call.Tool, call.Arg)
+		if d.Source == "" {
+			return denial("hook", "safety hook", "a safety block has no override; report it instead of retrying another way")
+		}
+		d.Call, d.Layer = call, "hook"
+		return d, true
+	case strings.Contains(text, "network access was denied by the codex sandbox"), strings.Contains(text, "network access was blocked by policy"):
+		if !tools {
+			return denial("os-sandbox", "read-only sandbox", "relaunch with --tools; the read-only sandbox has no network")
+		}
+		return denial("os-sandbox", "sandbox network", "set "+codexNetworkEnv+"=1 to open sandbox network (all egress)")
+	case strings.Contains(text, "blocked by policy"):
+		if d := p.Explain(call.Tool, call.Arg); d.Source == "permissions.deny" {
+			d.Layer = "codex-rules"
+			return d, true
+		}
+		return denial("codex-rules", "$CODEX_HOME/rules", "a rule file outside this dispatch forbids it; edit that rule")
+	case containsAny(text, "operation not permitted", "read-only file system", "denied by sandbox", "sandbox denied"):
+		switch {
+		case !tools:
+			return denial("os-sandbox", "read-only sandbox", "relaunch with --tools; the read-only sandbox cannot write")
+		case sandbox == "workspace-write":
+			return denial("os-sandbox", "workspace-write sandbox", "set "+codexSandboxEnv+"=danger-full-access (writes anywhere) only if the write is intended")
+		}
+		return denial("os-sandbox", sandbox+" sandbox", "the OS refused beyond the sandbox; no harness control repairs it")
+	}
+	return agent.Denial{}, false
+}
+
+func containsAny(s string, subs ...string) bool {
+	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
+}
+
+// codexShellCommand is the command inside codex's `bash -lc '<cmd>'` wrapper, else command as given.
+func codexShellCommand(command string) string {
+	toks := shell.Tokens(command)
+	for i := 0; i+1 < len(toks); i++ {
+		if toks[i] == "-lc" || toks[i] == "-c" {
+			return toks[i+1]
+		}
+	}
+	return command
+}
+
+// denialSink forwards every event and, after a failed shell result or an answer that reports an OS refusal (codex
+// emits no item for a sandbox-denied command), adds a warning naming the layer and its real control.
+type denialSink struct {
+	next     wire.Sink
+	p        agent.Permissions
+	tools    bool
+	sandbox  string
+	commands map[string]string // tool id -> command
+	warned   bool              // one OS-sandbox warning per run
+}
+
+func (s *denialSink) Emit(ev wire.Event) error {
+	if err := s.next.Emit(ev); err != nil {
+		return err
+	}
+	d, ok := s.denial(ev)
+	if !ok {
+		return nil
+	}
+	s.warned = s.warned || d.Layer == "os-sandbox"
+	what := d.Call.String()
+	if d.Call.Arg == "" {
+		what = "a command"
+	}
+	return s.next.Emit(wire.Event{Type: wire.EventProgress, Status: "warning",
+		Text: fmt.Sprintf("codex: %s refused %s (%s): %s", d.Layer, what, d.Source, d.Remedy)})
+}
+
+// denial is the refusal ev reports, if any; a tool use is remembered so its result can name the command.
+func (s *denialSink) denial(ev wire.Event) (d agent.Denial, ok bool) {
+	switch {
+	case ev.Type == wire.EventToolUse && ev.Tool != nil:
+		s.commands[ev.Tool.ID] = ev.Text
+	case ev.Type == wire.EventToolResult && ev.Tool != nil && !strings.HasPrefix(ev.Status, "completed"):
+		d, ok = codexDenial(s.p, s.commands[ev.Tool.ID], ev.Text, s.tools, s.sandbox)
+	case ev.Type == wire.EventText && !s.warned:
+		if d, ok = codexDenial(s.p, "", ev.Text, s.tools, s.sandbox); ok && d.Layer != "os-sandbox" {
+			ok = false // prose names a refusal only by its OS signature
+		}
+	}
+	return d, ok
 }

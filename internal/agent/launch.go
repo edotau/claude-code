@@ -29,7 +29,11 @@ import (
 
 // PinnedProfile is agent name's vault-pinned registry profile; "" if unpinned or off, an error if the pin names no row.
 func PinnedProfile(name string) (string, error) {
-	pins, err := AgentPins()
+	return pinnedProfile(context.Background(), name)
+}
+
+func pinnedProfile(ctx context.Context, name string) (string, error) {
+	pins, err := AgentPinsContext(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -176,11 +180,11 @@ func ensureRouter(ctx context.Context) (string, error) {
 	if err != nil {
 		return base, err
 	}
-	if egress.Host() != "" {
-		if _, err := egress.Ensure(ctx, egress.Host()); err != nil {
+	if host := egress.HostContext(ctx); host != "" {
+		if _, err := egress.Ensure(ctx, host); err != nil {
 			return "", err
 		}
-		base = gateway.ViaBase(base)
+		base = gateway.ViaBaseContext(ctx, base)
 	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
 	if id == "" {
@@ -189,10 +193,10 @@ func ensureRouter(ctx context.Context) (string, error) {
 	return gateway.TaggedBase(ctx, base, id), nil
 }
 
-// refuseDirect rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
-func refuseDirect(direct bool) error {
-	if direct && egress.Host() != "" {
-		return fmt.Errorf("--direct cannot be combined with --remote %s: a direct agent would bypass the egress host", egress.Host())
+// refuseDirectContext rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
+func refuseDirectContext(ctx context.Context, direct bool) error {
+	if direct && egress.HostContext(ctx) != "" {
+		return fmt.Errorf("--direct cannot be combined with --remote %s: a direct agent would bypass the egress host", egress.HostContext(ctx))
 	}
 	return nil
 }
@@ -227,7 +231,7 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 
 // routerKey is the session token a routed child holds, scoped by TokenScope; never the router secret.
 func routerKey(ctx context.Context, routerBase, profile string) (string, error) {
-	scope, err := TokenScope(profile)
+	scope, err := tokenScope(ctx, profile)
 	if err != nil {
 		return "", err
 	}
@@ -240,7 +244,11 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 
 // TokenScope is a proxied child's token scope: profile alone inside databricks:<p>, else + extra + the fallback ladder.
 func TokenScope(profile string, extra ...string) ([]string, error) {
-	if router.ArmProfile() != "" { // confinement never widens
+	return tokenScope(context.Background(), profile, extra...)
+}
+
+func tokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
+	if router.ArmProfileContext(ctx) != "" { // confinement never widens
 		return []string{profile}, nil
 	}
 	reg, err := providers.Load()
@@ -346,9 +354,10 @@ var defaultLauncher Launcher
 
 // LaunchOptions are the harness flags consumed before passthrough.
 type LaunchOptions struct {
-	Provider string // the profile name from --profile (field name kept until the agent lane moves off it)
-	Model    string // alias, canonical version or wire id, this launch only
-	Alias    string // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
+	Values   proc.Values `json:"-"`
+	Provider string      // the profile name from --profile (field name kept until the agent lane moves off it)
+	Model    string      // alias, canonical version or wire id, this launch only
+	Alias    string      // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
 	PrintEnv bool
 	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
@@ -378,6 +387,7 @@ type LaunchFile struct {
 
 // Plan is a fully resolved launch: exec Binary with Argv under the base env minus Unset plus Set.
 type Plan struct {
+	Values      proc.Values `json:"-"`
 	Binary      string
 	Agent       string // the launched agent, for RecordOverlayDebug at the exec site
 	Argv        []string
@@ -453,7 +463,12 @@ func (p Plan) envMode() EnvMode {
 func (p Plan) plainEnv(base []string) []string {
 	set := proc.Values(p.Set).Env()
 	spec := EnvSpec{Mode: p.envMode(), Base: append([]string{}, base...), Keep: p.Keep, Unset: p.Unset, Set: set}
-	return spec.Environ(context.Background()) // interactive: no batch isolation
+	ctx := context.Background()
+	if p.Values != nil {
+		ctx = proc.WithValues(ctx, p.Values)
+		spec.Base = runEnviron(ctx)
+	}
+	return spec.Environ(ctx) // interactive: no batch isolation
 }
 
 // envRedactors blank the secrets inside a structured env value (key -> redactor), filled by Register.
@@ -493,13 +508,14 @@ func (p Plan) Print(w io.Writer) {
 
 // unsetNames is every inherited var this plan drops: the Anthropic wipe list plus the credential scrub, minus its sets.
 func (p Plan) unsetNames() []string {
+	ctx := valuesContext(context.Background(), p.Values)
 	names := map[string]bool{}
 	for _, k := range p.Unset {
-		if _, set := p.Set[k]; !set && os.Getenv(k) != "" {
+		if _, set := p.Set[k]; !set && proc.Value(ctx, k) != "" {
 			names[k] = true
 		}
 	}
-	_, dropped := p.envMode().scrub(os.Environ(), p.Keep)
+	_, dropped := p.envMode().scrub(ctx, runEnviron(ctx), p.Keep)
 	for _, k := range dropped {
 		if _, set := p.Set[k]; !set {
 			names[k] = true
@@ -565,11 +581,6 @@ var _ = schemas.Register(schemas.Format{
 	Version: 1, Keep: "rewritten on every launch; Claude Code reads it, so no schema field",
 })
 
-// overlayIdle reports a launch the overlay changes nothing about: empty layer and no $COWORKER_OVERLAY to hide.
-func overlayIdle(r agentconfig.Resolved) bool {
-	return len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && os.Getenv(agentconfig.OverlayVar) == ""
-}
-
 // CheckRouteNames refuses an overlay set or unset name that route (KEY=VALUE, before the overlay is appended) sets.
 func CheckRouteNames(route, set, unset []string) error {
 	own := map[string]bool{}
@@ -612,7 +623,7 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 
 // ApplyOverlay layers r under req's --env (the shorthand wins); the child's $COWORKER_OVERLAY is the confinement only.
 func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
-	if overlayIdle(r) {
+	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && proc.Value(valuesContext(context.Background(), req.Values), agentconfig.OverlayVar) == "" {
 		return req
 	}
 	req.Env = append(proc.Values(r.Set).Env(), req.Env...)
@@ -635,11 +646,17 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 		set = map[string]string{}
 	}
 	maps.Copy(set, p.Set)
-	if doc := confinementDoc(); doc != "" {
+	if doc := confinementDocContext(valuesContext(context.Background(), p.Values)); doc != "" {
 		set[agentconfig.OverlayVar] = doc
 	}
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)
 	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
 	p.Unset = slices.Concat(p.Unset, unset, []string{agentconfig.OverlayVar})
 	return p
+}
+
+// confinementDocContext is the one-hop confinement from this run, excluding its env layer.
+func confinementDocContext(ctx context.Context) string {
+	provider, profile, _ := router.CoworkerContext(ctx)
+	return agentconfig.InlineOverlay(provider, profile)
 }

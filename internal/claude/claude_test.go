@@ -976,3 +976,22 @@ func sendTailTurn(t *testing.T, id, prompt, answer string) {
 		t.Fatalf("live turn = %+v, %v; want answer starting %q", env, err, answer)
 	}
 }
+
+func TestPermissionNoToolsProcessIsolation(t *testing.T) {
+	hermetic(t, dbxProfiles)
+	for _, profile := range []string{"ultra", "qa"} {
+		_, args, _ := launchOf(t, agent.RunOptions{NoTools: true, Provider: profile, SessionID: "resume-id"})
+		for flag, want := range map[string]string{"--tools": "", "--mcp-config": `{"mcpServers":{}}`, "--resume": "resume-id"} {
+			at := slices.Index(args, flag)
+			if at < 0 || at+1 >= len(args) || args[at+1] != want {
+				t.Fatalf("%s: missing isolation %s=%q in %q", profile, flag, want, args)
+			}
+		}
+		if !slices.Contains(args, "--strict-mcp-config") {
+			t.Fatalf("%s: ambient MCP configs remain enabled: %q", profile, args)
+		}
+	}
+	if slices.Contains(toolArgs(agent.RunOptions{}), "--strict-mcp-config") {
+		t.Fatal("no-flag default changed")
+	}
+}

@@ -265,7 +265,7 @@ func realScript(t *testing.T, name string) ([]byte, string) {
 func TestCheckWorkflowSteps(t *testing.T) {
 	orig := stepRoute
 	stepRoute = func(who, _, profile, _ string) error {
-		if who == "codex" && profile == "nope" {
+		if profile == "nope" {
 			return errors.New("profile nope is not in the registry")
 		}
 		return nil
@@ -286,9 +286,12 @@ func TestCheckWorkflowSteps(t *testing.T) {
 		{"code-workers.js", `{"steps":{"bogus":{}}`, []string{"args must be a JSON object"}},
 		{"code-workers.js", wfM{"profile": "nope", "steps": wfM{"review": wfM{"agent": "codex"}}}, []string{"codex has no route"}},
 		{"code-engineer.js", wfM{"steps": wfM{"child": wfM{"bogus": wfM{}}, "size": wfM{"profile": "qa"}}},
-			[]string{"steps.child.bogus: unknown stage", "steps.size: claude stages run in-context"}},
+			[]string{"steps.child.bogus: unknown stage"}},
 		{"code-workers.js", wfM{"steps": wfM{"fix": wfM{"model": "opus", "effort": "high"}, "review": wfM{"agent": "codex"}}}, nil},
 		{"code-engineer.js", wfM{"steps": wfM{"impl": wfM{"model": "opus"}, "child": wfM{"fix": wfM{"effort": "high"}}}}, nil},
+		{"code-workers.js", steps("fix", wfM{"agent": "claude", "profile": "nope"}), []string{"claude has no route"}},
+		{"code-workers.js", wfM{"profile": "nope", "steps": wfM{"fix": wfM{}}}, []string{"claude has no route"}},
+		{"code-workers.js", steps("fix", wfM{"profile": "qa", "provider": "databricks"}), nil},
 		{"green-keeper-loop.js", nil, nil},
 	}
 	for _, c := range cases {
@@ -735,3 +738,50 @@ func TestPinAllowListTiesToAgentid(t *testing.T) {
 		t.Errorf("pinAllowed[effort] = %v, want %v", pinAllowed["effort"], wantEffort)
 	}
 }
+
+// Execute each copied selector: native stages stay native; routed stages preserve tool tiers and receipts.
+func TestWorkflowClaudeProfileLaunch(t *testing.T) {
+	useNode(t)
+	node, err := lookNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"code-analyzer", "code-engineer", "code-evaluator", "code-workers", "green-keeper-loop"} {
+		t.Run(name, func(t *testing.T) {
+			src, _ := realScript(t, name+".js")
+			start := strings.Index(string(src), helperStart)
+			end := strings.Index(string(src), helperEnd)
+			if start < 0 || end < start {
+				t.Fatal("missing stepOf block")
+			}
+			cmd := exec.Command(node, "--input-type=module", "-e", string(src[start:end])+workflowLaunchProof)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("selector: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+const workflowLaunchProof = `
+const log = () => {}
+const assert = (ok, why) => { if (!ok) throw new Error(why) }
+const opt = {allowed:['fix'], external:true}
+const native = stepOf({}, 'fix', {tools:'edit'}, opt)
+assert(!native.ext && native.task('work') === 'work', 'native stage changed')
+for (const tools of ['edit', 'run', undefined]) {
+  for (const inherited of [false, true]) {
+    const route = {profile:'qa', provider:'databricks'}
+    const stage = stepOf({fix: inherited ? {} : {agent:'claude', ...route}}, 'fix', {tools},
+      inherited ? {...opt, ...route} : opt)
+    const task = stage.task('work')
+    assert(stage.ext && task.includes('claude-code agents ask --agent claude'), 'profile ignored')
+    assert(task.includes('--profile qa --provider databricks') && task.includes('--tools'), 'route/tools lost')
+    assert(task.includes('task is read-only') === (tools !== 'edit'), 'edit tier changed')
+    assert(stage.done('fix', {coworker:'ok', ran_on:'claude qa:model'}) !== null, 'receipt lost')
+  }
+}
+let refused = false
+try { stepOf({fix:{profile:'qa'}}, 'fix', {}, {...opt, external:false}) }
+catch { refused = true }
+assert(refused, 'unwired route allowed')
+`

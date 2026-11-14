@@ -41,7 +41,7 @@ func baseHandler(o sdkOptions) copilot.PermissionHandlerFunc {
 	return withPermissions(o, approveToolOnce)
 }
 
-// withPermissions lets o.Permissions reject (Deny) a request before next sees it.
+// withPermissions rejects Deny first; headless Ask intentionally falls through to approval (O1).
 func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.PermissionHandlerFunc {
 	if o.Permissions.IsZero() {
 		return next
@@ -57,16 +57,29 @@ func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.P
 // ruleDecision rejects when o.Permissions refuses any group of calls; handled is false when next should decide.
 func ruleDecision(o sdkOptions, req copilot.PermissionRequest, groups [][]agent.Rule) (rpc.PermissionDecision, bool) {
 	if len(groups) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
-		feedback := "Plan mode allows only reads, URL fetches and web search: report it instead."
+		feedback := "Refused by permissions.mode (plan): this request has no supported rule mapping; use a supported read tool."
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 	}
 	for _, group := range groups {
 		if call, refused := refusedCall(o.Permissions, req, group); refused {
-			feedback := "Refused by permission rule for " + call.String() + ": report it instead."
+			feedback := denialFeedback(o.Permissions.Explain(call.Tool, call.Arg))
 			return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
 		}
 	}
 	return nil, false
+}
+
+// denialFeedback names the refused call, its deciding source and rule, and the repair the owner can replay.
+func denialFeedback(d agent.Denial) string {
+	by := d.Source
+	if d.Rule != (agent.Rule{}) {
+		by += " " + d.Rule.String()
+	}
+	remedy := d.Remedy
+	if d.Replay != "" {
+		remedy = "re-run with " + d.Replay
+	}
+	return fmt.Sprintf("Refused %s by %s: %s", d.Call, by, remedy)
 }
 
 // refusedCall is the call a Deny names in group, else group[0] when none is allowed (plan passes reads unless denied).
@@ -194,7 +207,7 @@ func isWebSearchMCP(req copilot.PermissionRequest) bool {
 func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	cmd, ok := shellCommand(req)
 	if !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) && (!ok || !readOnlyCommand(cmd)) {
-		feedback := readOnlyFeedback
+		feedback := "Refused by copilot read-only tier: " + readOnlyFeedback
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, nil
 	}
 	return approveToolOnce(req, inv)

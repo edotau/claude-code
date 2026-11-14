@@ -124,7 +124,7 @@ func Run(o Options, section string) int {
 	}
 	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
-	pins, err := agent.AgentPins()
+	pins, err := agent.AgentPinsContext(context.Background())
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return 1
@@ -256,7 +256,7 @@ func allCredsPresent(reg *providers.Registry, names []string) bool {
 
 func printProviderStatus(d *dialog, cur string) {
 	d.printf("configured profile: %s; to change: claude-code switch <profile>\n", cur)
-	if sp := providers.SessionProfile(); sp != "" {
+	if sp := providers.SessionProfileContext(context.Background()); sp != "" {
 		d.printf("this session: %s\n", sp)
 	}
 }

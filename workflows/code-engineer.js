@@ -21,6 +21,15 @@ export const meta = {
 // ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
+// ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
+const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|opencode)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
+// ranOnVerdict reads a leg's result: ranOn as relayed, whether it is the envelope's line (canon, wire.RanOn) and whether the leg ran.
+const ranOnVerdict = (r) => {
+  const ranOn = (r && r.ran_on) || ''
+  const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
+  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
+  return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed) }
+}
 // Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
 const stepOf = (steps, name, defaults, opt) => {
   const S_FIELDS = ['agent', 'model', 'effort', 'profile', 'provider']
@@ -35,28 +44,23 @@ const stepOf = (steps, name, defaults, opt) => {
   for (const k of Object.keys(v)) if (!S_FIELDS.includes(k)) throw new Error(`${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   const who = v.agent !== undefined ? v.agent : 'claude'
   const effort = v.effort !== undefined ? v.effort : d.effort || 'medium'
-  if (who === 'claude') {
+  const profile = v.profile !== undefined ? v.profile : o.profile || ''
+  const provider = v.provider !== undefined ? v.provider : o.provider || ''
+  if (who === 'claude' && !profile && !provider) {
     const model = v.model !== undefined ? v.model : d.model || 'sonnet'
     const same = (_label, r) => r
     return { agent: 'claude', ext: false, model, effort, type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: same, text: same }
   }
   if (!o.external) throw new Error(`${where}.agent: ${who} is not wired in this workflow yet (claude only)`)
   // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
-  const profile = v.profile !== undefined ? v.profile : o.profile || ''
-  const provider = v.provider !== undefined ? v.provider : o.provider || ''
   const edit = d.tools === 'edit'
   const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
-  const ask = `claude-code ${who} ask --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
+  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
   const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
   const R = ['ran_on', 'coworker']
   const record = (label, r) => {
-    const ranOn = (r && r.ran_on) || ''
-    // the envelope's line (wire.RanOn), or a reworded one naming the agent and a route (account·profile, profile:model or model id)
-    const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
-    const reworded = /^(?:ran on )?(?:codex|copilot|gemini|opencode)\b/.test(ranOn) && (/\S[·:][A-Za-z0-9]/.test(ranOn) || /\b[A-Za-z]+-[\w.-]*\d/.test(ranOn))
-    const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
-    const ok = !!(r && r.coworker === 'ok' && (canon || reworded) && !failed)
+    const { ranOn, canon, ok } = ranOnVerdict(r)
     if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
     const why = ok ? '' : (r && r.coworker_error) || 'no ran_on in the result'
     COWORKERS.push({ stage: name, label, agent: who, status: ok ? 'ok' : 'BLOCKED', ran_on: ok ? r.ran_on : '', hops: (r && r.hops) || 0, error: why })

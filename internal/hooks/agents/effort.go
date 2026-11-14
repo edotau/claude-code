@@ -113,13 +113,33 @@ func agentEffortResult(in *core.Input) core.Result {
 	return e.result()
 }
 
-// directAskRe matches a brief's opening ask command (`agents ask` or `<agent> ask`), past an optional --remote <host>.
-var directAskRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^Run: claude-code (--remote \S+ )?(agents|codex|copilot|gemini|opencode) ask `)
-})
+// openingAskWords uses the receipt grammar for a leading Run command, retaining its flags and quoted prompt.
+func openingAskWords(task string) []string {
+	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
+	command, ok := strings.CutPrefix(line, "Run:")
+	if !ok {
+		return nil
+	}
+	match := askCmdRe().FindStringSubmatchIndex(command)
+	if match == nil || match[0] != 0 {
+		return nil
+	}
+	words := shellFields(command[match[2]:])
+	if len(words) < 3 {
+		return nil
+	}
+	verb := 1
+	if words[1] == "--remote" {
+		verb = 3
+	}
+	if len(words) <= verb+1 || words[verb+1] != "ask" {
+		return nil
+	}
+	return words
+}
 
-// opensWithAsk is a brief opening with its own ask command (/<agent>, /coworker): never rewritten, only labelled.
-func opensWithAsk(task string) bool { return directAskRe().MatchString(strings.TrimSpace(task)) }
+// opensWithAsk is a brief opening with its own ask command: never rewritten, only labelled.
+func opensWithAsk(task string) bool { return len(openingAskWords(task)) > 0 }
 
 // askLine is a brief's opening ask command: its --agent, --model, last word (the prompt), and --overlay document.
 type askLine struct {
@@ -144,18 +164,18 @@ func (r *dispatchRun) opening(task string) askLine {
 
 // parseAskLine reads the flags a shell would see on the opening ask command; text inside a quoted task is no flag.
 func parseAskLine(task string) askLine {
-	if !opensWithAsk(task) {
+	words := openingAskWords(task)
+	if len(words) == 0 {
 		return askLine{}
 	}
-	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
-	words, verb := shellFields(line), 2 // "Run: claude-code <verb> ask", which opensWithAsk matched
-	if words[2] == "--remote" {
-		verb = 4 // past the global "--remote <host>"
+	verb := 1
+	if words[1] == "--remote" {
+		verb = 3
 	}
-	agent := strings.TrimPrefix(words[verb], "agents") // `<agent> ask` is `agents ask --agent <agent>`
-	words = words[min(verb+2, len(words)):]
+	agent := strings.TrimPrefix(words[verb], "agents")
+	words = words[verb+2:]
 	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model"),
-		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 2 && !hasFlag(words, offRoute)}
+		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute)}
 	if n := len(words); n > 0 && !isFlag(words[n-1]) {
 		l.prompt = words[n-1]
 	}

@@ -478,7 +478,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
 		"gateway":  {"proxy"},
-		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel", "wait"},
+		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},

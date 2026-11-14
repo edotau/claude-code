@@ -65,3 +65,53 @@ func TestParseTaskReadOnlyKeepsToolsOverLineToolsFalse(t *testing.T) {
 		t.Errorf("task tools/read-only = %v/%v, want true/true", task.Req.Tools, task.Req.ReadOnly)
 	}
 }
+
+// Replaying a failed batch leg retains its session and task, applies the exact repair, and leaves siblings alone.
+func TestPermissionBatchLegReplay(t *testing.T) {
+	failed := failBatchLeg(t)
+	code, out, stderr := runCLI(t, "ask", "--retry", failed.ID, "--allow", "Bash(make lint)", "--format", "json")
+	if code != 0 {
+		t.Fatalf("replay: %d, %s, %s", code, out, stderr)
+	}
+	replayed := agent.RecentRecords(10)
+	if len(replayed) != 3 {
+		t.Fatalf("replay ran siblings: records = %d", len(replayed))
+	}
+	assertReplayedLeg(t, failed, replayed[0].Request)
+}
+
+// failBatchLeg runs a two-leg permission batch and saves its newest leg as a refused failure.
+func failBatchLeg(t *testing.T) agent.Record {
+	t.Helper()
+	cliEnv(t)
+	cliFakes(t)
+	file := batchFile(t, cliTask(t, "a", "first"), cliTask(t, "b", "second"))
+	code, out, stderr := runCLI(t, "ask", "--batch", file, "--agent", "claude", "--fallback", "none", "--allow", "Read", "--deny", "Bash(rm *)")
+	if code != 0 {
+		t.Fatalf("batch: %d, %s, %s", code, out, stderr)
+	}
+	recs := agent.RecentRecords(10)
+	if len(recs) != 2 {
+		t.Fatalf("batch records = %d", len(recs))
+	}
+	failed := recs[0]
+	failed.Status, failed.Error = "error", "permission refused"
+	if failed.SessionID == "" {
+		t.Fatal("batch leg did not retain its returned session")
+	}
+	if err := failed.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return failed
+}
+
+// assertReplayedLeg checks a replay kept the failed leg's task, session and route and carries the repair beside the deny.
+func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) {
+	t.Helper()
+	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt || got.Provider != failed.Request.Provider || got.Lead != failed.Request.Lead {
+		t.Fatalf("replay lost task/session/route: %+v", got)
+	}
+	if got.Permissions.Decide("Bash", "make lint") != agent.Allow || got.Permissions.Decide("Bash", "rm x") != agent.Deny {
+		t.Fatalf("replay lost exact repair or deny: %+v", got.Permissions)
+	}
+}

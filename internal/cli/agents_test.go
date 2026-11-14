@@ -912,3 +912,28 @@ func TestAgentsJSONCapabilitySchema(t *testing.T) {
 		t.Errorf("gemini = %+v, want binary agy and live native", g)
 	}
 }
+
+// `agents brief` prints the Owned line the diff verifier reads back; an implementation brief without --own is a usage error.
+func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
+	task := filepath.Join(t.TempDir(), "task.md")
+	if err := os.WriteFile(task, []byte("Do the thing.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := okAgents(t, "brief", "--task", task, "--own", "internal/a.go", "--own", "internal/b.go", "--report", "/tmp/r.md")
+	if got := agent.ParseOwned(out); !slices.Equal(got, []string{"internal/a.go", "internal/b.go"}) {
+		t.Errorf("Owned round trip = %q\n%s", got, out)
+	}
+	for _, want := range []string{"Do the thing.", "Report: /tmp/r.md", "implementation; edit only owned files"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("brief lacks %q:\n%s", want, out)
+		}
+	}
+	if ro := okAgents(t, "brief", "--task", task, "--read-only"); !strings.Contains(ro, "read-only; do not edit files") {
+		t.Errorf("read-only brief:\n%s", ro)
+	}
+	for _, args := range [][]string{{"brief", "--task", task}, {"brief", "--own", "a.go"}} {
+		if code, _, _ := runAgents(t, args...); code != 2 {
+			t.Errorf("agents %v exit %d, want 2", args, code)
+		}
+	}
+}

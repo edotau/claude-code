@@ -546,7 +546,7 @@ func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []strin
 // embedProfiles yields the session profile, the claude record's, then every Databricks workspace, each only if reached.
 func embedProfiles(ctx context.Context) iter.Seq[string] {
 	return func(yield func(string) bool) {
-		name := providers.SessionProfile()
+		name := providers.SessionProfileContext(ctx)
 		if name != "" && !yield(name) {
 			return
 		}

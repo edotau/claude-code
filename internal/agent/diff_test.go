@@ -532,3 +532,84 @@ func TestVerifyMismatchExitsOneAndUnknownIDExitsTwo(t *testing.T) {
 	}
 	wantInOutput(t, errOut, `--verify "nope"`)
 }
+
+// With no --path, --verify scopes the diff to the brief's Owned: line (plus each owned source's _test.go) in a short report.
+func TestVerifyDefaultsPathToBriefOwned(t *testing.T) {
+	brief, err := RenderBrief(BriefInput{Task: "do it", Owned: []string{"pkg/p.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saveVerifyFixture(t, Record{ID: "b1", Agent: "codex", Provider: "prod", Model: "m1", Request: RunOptions{Prompt: brief}})
+	plain := Record{ID: "b2", Time: time.Now(), Agent: "codex", Provider: "prod", Model: "m1", Status: "ok",
+		Request: RunOptions{Prompt: "no ownership line"}}
+	if err := plain.Save(); err != nil {
+		t.Fatal(err)
+	}
+	dir := newDiffRepo(t)
+	writeRepoFile(t, dir, "pkg/p.go", "package pkg\n\nfunc P() int { return 2 }\n")
+	writeRepoFile(t, dir, "pkg/p_test.go", "package pkg\n\n// t\n")
+
+	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "b1"}); code != 0 || !strings.Contains(out, "; Owned ok") {
+		t.Fatalf("owned-only change: exit %d, want 0 and %q\n%s", code, "; Owned ok", out)
+	}
+	writeRepoFile(t, dir, "other/a.md", "x\n")
+	writeRepoFile(t, dir, "other/b.md", "x\n")
+	code, out, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "b1"})
+	if lines := strings.Count(out, "\n"); code != DiffExitOutside || lines > 10 {
+		t.Fatalf("outside change: exit %d with %d lines, want 3 and at most 10\n%s", code, lines, out)
+	}
+	wantInOutput(t, out, "outside the brief's Owned line (2): other/a.md, other/b.md\n", "2 outside Owned")
+	if strings.Contains(out, "pkg/p.go") {
+		t.Errorf("compact report lists in-scope files:\n%s", out)
+	}
+	if code, _, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "b1", Paths: []string{"other"}}); code != DiffExitOutside {
+		t.Errorf("explicit --path must win over the brief: exit %d, want 3 (pkg is outside other)", code)
+	}
+}
+
+// A --verify with no --path and a brief without an Owned line prints a short verdict, not every changed file.
+func TestVerifyWithoutOwnedPrintsShortVerdict(t *testing.T) {
+	saveVerifyFixture(t, Record{ID: "n1", Agent: "codex", Provider: "prod", Model: "m1",
+		Request: RunOptions{Prompt: "no ownership line"}})
+	dir := newDiffRepo(t)
+	for i := range 30 {
+		writeRepoFile(t, dir, fmt.Sprintf("many/f%02d.md", i), "x\n")
+	}
+	code, out, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "n1"})
+	if lines := strings.Count(out, "\n"); code != 0 || lines > 10 {
+		t.Fatalf("no Owned line: exit %d with %d lines, want 0 and at most 10\n%s", code, lines, out)
+	}
+	wantInOutput(t, out, "verify n1:", "scope not checked", "30 files changed", "agents diff: 30 files")
+	if strings.Contains(out, "many/f00.md") {
+		t.Errorf("short verdict lists changed files:\n%s", out)
+	}
+	_, full, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "n1", Paths: []string{"many"}})
+	wantInOutput(t, full, "many/f00.md", "many/f29.md")
+	_, jsonOut, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "n1", JSON: true})
+	if !strings.Contains(jsonOut, "many/f29.md") {
+		t.Errorf("--format json lost the file list:\n%s", jsonOut)
+	}
+}
+
+// A production Go change adds ./internal/schemas to the test gate, which pins every file writer; a test-only change does not.
+func TestTestGateAddsSchemasOnProductionChange(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, "internal/schemas/s.go", "package schemas\n")
+	var args []string
+	orig := gateRun
+	t.Cleanup(func() { gateRun = orig })
+	gateRun = func(_ context.Context, _, _ string, a ...string) (string, error) { args = a; return "", nil }
+	for _, c := range []struct {
+		file string
+		want bool
+	}{{"pkg/p.go", true}, {"pkg/p_test.go", false}} {
+		in := newGateInput(dir, "HEAD", []DiffFile{{Path: c.file, Status: "M"}})
+		in.pkgs = []string{"./pkg"}
+		if _, _, err := testGate(context.Background(), in); err != nil {
+			t.Fatal(err)
+		}
+		if got := slices.Contains(args, "./internal/schemas"); got != c.want {
+			t.Errorf("%s: test args %v, schemas = %v, want %v", c.file, args, got, c.want)
+		}
+	}
+}

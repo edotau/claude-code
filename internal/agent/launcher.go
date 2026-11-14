@@ -167,6 +167,9 @@ func ParseLaunchArgs(args []string, claude bool) (LaunchOptions, []string, error
 // RunPlan applies the launch overlay to plan, then prints it (--print-env) or execs it; a *UsageError exits 2.
 func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 	plan.Agent = name
+	if opts.Values == nil {
+		opts.Values = plan.Values
+	}
 	if usage, ok := errors.AsType[*UsageError](err); ok {
 		fmt.Fprintln(os.Stderr, usage)
 		return 2
@@ -198,11 +201,11 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 
 // launchOverlay is --overlay, else $COWORKER_OVERLAY; --print-env keeps vault refs unresolved (names, never values).
 func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
-	o, err := agentconfig.LoadOverlay(opts.Overlay, os.Stdin)
+	o, err := agentconfig.LoadOverlayContext(valuesContext(context.Background(), opts.Values), opts.Overlay, os.Stdin)
 	if err != nil {
 		return agentconfig.Resolved{}, err
 	}
-	if p, prof, _ := router.Coworker(); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
+	if p, prof, _ := router.CoworkerContext(valuesContext(context.Background(), opts.Values)); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
 		o.Provider, o.Profile = "", "" // the inherited confinement, not this launch's routing (withOverlay hands it on)
 	}
 	if o.Routed() { // an interactive launch takes the env layer only: refuse, never silently ignore
@@ -217,7 +220,9 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 
 // LaunchPlan resolves `claude-code <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
+	ctx, o.Values = runValues(ctx, o.Values)
 	plan, err := cliPlan(ctx, name, o, args)
+	plan.Values = o.Values.Merge(nil)
 	plan.Keep, plan.CLI = o.KeepEnv, true
 	return plan, err
 }
@@ -230,14 +235,8 @@ func withFlagModel(args []string, model string) []string {
 	return append([]string{"--model", model}, args...)
 }
 
-// agentModelTarget applies flag > the agent's model pin > default to t; a fallback provider respells the flag itself.
-func agentModelTarget(name string, t providers.Target, sel providers.Selection, flagModel string) (providers.Target, string) {
-	applied := t.Provider == nil || t.Provider == sel.Aliases[models.Opus].Provider
-	return ResolveAgentModel(ModelAsk{Agent: name, Flag: flagModel, Target: t, Applied: applied})
-}
-
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
-	if err := refuseDirect(o.Direct); err != nil {
+	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return Plan{}, err
 	}
 	if o.Direct {
@@ -274,7 +273,7 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 	reg *providers.Registry, sel providers.Selection) (Plan, error) {
 	// --profile or the agent profile pin is explicit: the session pin is the default, not a per-agent choice.
 	explicit := o.Provider != ""
-	target, note, err := cliTarget(spec, name, reg, sel, explicit, flagModel)
+	target, note, err := cliTarget(ctx, spec, name, reg, sel, explicit, flagModel)
 	showOwnLoginNote := ownLoginNoteShown(o, args)
 	if errors.Is(err, ErrOwnLogin) {
 		return ownLoginPlan(spec, withFlagModel(args, flagModel), note, showOwnLoginNote)
@@ -342,11 +341,11 @@ func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan,
 }
 
 // cliTarget resolves spec's target, then applies the model flag and pin to it.
-func cliTarget(spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
+func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
 	target, note, err := spec.ResolveTarget(reg, sel, explicit)
 	if err == nil {
 		var modelNote string
-		if target, modelNote = agentModelTarget(name, target, sel, flagModel); modelNote != "" {
+		if target, modelNote = resolveAgentModelContext(ctx, ModelAsk{Agent: name, Flag: flagModel, Target: target, Applied: target.Provider == nil || target.Provider == sel.Aliases[models.Opus].Provider}); modelNote != "" {
 			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
 		}
 	}
@@ -359,7 +358,7 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 		return o, nil
 	}
 	last := lastUsedProfile(name)
-	cfg, err := agentconfig.For(name, agentconfig.Launch{LastProfile: last})
+	cfg, err := agentconfig.ForContext(valuesContext(context.Background(), o.Values), name, agentconfig.Launch{LastProfile: last})
 	if err != nil {
 		return LaunchOptions{}, err
 	}
@@ -428,7 +427,7 @@ func retryConfigure(ctx context.Context, spec Schema, name string, o LaunchOptio
 	if err != nil {
 		return nil, nil, err
 	}
-	target, note, err := cliTarget(spec, name, reg, sel, o.Provider != "", flagModel)
+	target, note, err := cliTarget(ctx, spec, name, reg, sel, o.Provider != "", flagModel)
 	if err != nil {
 		return nil, nil, err
 	}

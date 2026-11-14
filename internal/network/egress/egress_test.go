@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // socksServer is a CONNECT-only, no-auth SOCKS5 server on a loopback port; it stands in for `ssh -D`.
@@ -212,5 +215,19 @@ func TestAlternateFlipsThePath(t *testing.T) {
 	alt, from, to, ok = Alternate(WithHost(t.Context(), ""))
 	if !ok || Via(alt) != "box" || from != "direct" || to != "ssh box" {
 		t.Fatalf("direct: via=%q from=%q to=%q ok=%v", Via(alt), from, to, ok)
+	}
+}
+
+func TestHostContextPinBeatsRun(t *testing.T) {
+	t.Setenv(EnvHost, "ambient")
+	run := proc.WithValues(context.Background(), proc.Values{EnvHost: "run"})
+	if got := HostContext(run); got != "run" {
+		t.Errorf("run value = %q, want run", got)
+	}
+	if got := HostContext(WithHost(run, "pinned")); got != "pinned" {
+		t.Errorf("pinned = %q, want pinned over the run value", got)
+	}
+	if got := HostContext(WithHost(run, "")); got != "" {
+		t.Errorf("empty pin = %q, want direct", got)
 	}
 }

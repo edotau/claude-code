@@ -113,15 +113,16 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
-	profile, _ := embedEndpoint(context.Background()) // none usable: the session's profile, else the default
-	profile = cmp.Or(profile, providers.SessionProfile())
+	ctx := context.Background()
+	profile, _ := embedEndpoint(ctx) // none usable: the session's profile, else the default
+	profile = cmp.Or(profile, providers.SessionProfileContext(ctx))
 	if o.Reembed {
 		if err := reembedGate(time.Now()); err != nil {
 			return err
 		}
 	}
 	if o.MintOnly {
-		embedIndex(out, errw, root, profile, o.Reembed)
+		embedIndex(ctx, out, errw, root, profile, o.Reembed)
 		return nil
 	}
 	hasStore := statOK(Dir(root))
@@ -139,7 +140,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", Dir(root))
 	}
 	refreshNotice(errw, "memory index", root)
-	embedIndex(out, errw, root, profile, o.Reembed)
+	embedIndex(ctx, out, errw, root, profile, o.Reembed)
 	return nil
 }
 
@@ -156,8 +157,8 @@ func reembedGate(now time.Time) error {
 }
 
 // embedIndex refreshes the entry-vector cache after an index; a missing endpoint or credential is a stderr note only.
-func embedIndex(out, errw io.Writer, root, profile string, reembed bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+func embedIndex(ctx context.Context, out, errw io.Writer, root, profile string, reembed bool) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	c, err := openEmbedClient(ctx, profile, "")
 	if err == nil {
