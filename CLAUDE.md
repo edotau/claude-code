@@ -53,11 +53,19 @@ Claude Code reads these source files directly; external CLI projections refresh 
 3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`, `codex`, `copilot`, `gemini`, `opencode`,
    `Plan`, `Explore`, `general-purpose`; description starts `<model>:` followed by a space, printed by
    `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned files;
-   begin non-trivial work with scoped `Explore` legs. Parallel writers own disjoint files. Verify every returned
-   diff, gate and deletion. Briefs, relay rules and recovery: `skills/subagent-workflows/SKILL.md`;
+   begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one
+   message; the only limits are overlapping files and dependency order. Leaves also keep this session's context
+   small: send file reads, diff review and gate runs to a leaf and take back a short verdict, with the long report
+   saved under `<store>/reports/`. Parallel writers own disjoint files.
+   **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
+   listing it. Verify every returned diff, gate and deletion. Briefs, relay rules and recovery:
+   `skills/subagent-workflows/SKILL.md`;
    pipeline: `rules/workflows/master-workflow.md`.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.
+
+5. **Reply concisely.** Lead with the result; no preamble, narration or closing recap; short by default, full
+   detail when asked; never trade correctness for brevity.
 
 Simplicity, comments, verification order and testing: `rules/standards/` (always loaded).
 

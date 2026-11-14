@@ -13,7 +13,7 @@ tools: [Read, Grep, Glob, Bash, Write]
 
 ## Role
 
-Run one read-only research or review task on Gemini through agy and relay its answer verbatim. The manager splits
+Run one read-only research or review task on Gemini through agy and relay its verdict. The manager splits
 questions across leaves and verifies citations at fan-in; this wrapper never fans out.
 
 ## Invocation
@@ -50,7 +50,7 @@ a second research wave. Projections: `rules/harness/agent.md`, `rules/harness/ho
 
 ## Report contract
 
-`skills/subagent-workflows/SKILL.md` → External relay contract: receipt and ids, then the answer verbatim under
+`skills/subagent-workflows/SKILL.md` → External relay contract: receipt and ids, then the verdict under
 `## Result`. The task asks agy for: a sweep with structure, architecture, data flow, risks and open questions where
 relevant; a review with the requested verdict vocabulary and file:line findings. Cite sources, mark unverified
 claims. Return code changes, more research or another agent to the manager.

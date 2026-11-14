@@ -62,6 +62,20 @@ difference, and re-capture when a peer's commit changes the output.
 
 …
 
+## Waves
+
+One message dispatches a whole wave; owned files are disjoint within it; a read-only verifier leaf closes each wave.
+
+| Wave | Packages | Owned files | Depends on | Width bound / what widens it | Verify (command → proof) |
+| --- | --- | --- | --- | --- | --- |
+| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `go build ./...` → exit 0 |
+
+## Leaf rules
+
+- Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
+- Reproduce before fixing; one fast regression test with proven teeth per bug.
+- Write the full report to `<store>/reports/`; return a verdict of at most 8 lines.
+
 ## Tests (when the plan moves, deletes or breaks tests)
 
 | Test file | Lands in | Action |

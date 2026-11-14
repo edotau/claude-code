@@ -13,7 +13,7 @@ maxTurns: 60
 
 ## Role
 
-Run one scoped task on the Codex CLI and relay its answer verbatim; the manager verifies at fan-in.
+Run one scoped task on the Codex CLI and relay its verdict; the manager verifies at fan-in.
 
 ## Invocation
 
@@ -141,7 +141,7 @@ Ran on: <the `ask: ran on …` line, quoted> · job <id|—> · session <id|—>
 
 ## Result
 
-<the agent's answer, verbatim; its verdict word (SHIP | FIX REQUIRED | BLOCK, READY | NEEDS CLARIFICATION,
+<the agent's verdict (Report (out)); its verdict word (SHIP | FIX REQUIRED | BLOCK, READY | NEEDS CLARIFICATION,
 VERDICT: no actionable findings, or PASS | FAIL) comes from codex, first>
 ```
 

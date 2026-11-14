@@ -119,6 +119,21 @@ Every phase is:
 - **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): a
   commit touching all of them ticks it (`docs-plan-tick`).
 
+### Delegation rules
+
+Build every plan for the widest parallel delegation, so the main session never restates strategy in prompts:
+
+- **Packages** — split work into packages that each name exclusively owned files, disjoint within a wave.
+- **Waves** — group packages so a whole wave is dispatched in one message; per wave, state what bounds its width (file
+  overlap or a dependency) and what would widen it (`## Waves`).
+- **Foundation first** — prefer a first package that only ADDS (new functions, types, a mechanical pass): the build
+  stays green and the next wave can be wide.
+- **Proof** — each package carries its verification command and the observable output that proves it.
+- **Verifier** — end each wave with one read-only leaf (diffs stayed inside owned files, gates pass) before the next
+  wave starts.
+- **Small context** — every leaf writes its full report to `<store>/reports/` and returns a verdict of at most 8 lines.
+- **Leaf rules once** — state the standing leaf rules once in the plan (`## Leaf rules`); briefs point at them.
+
 ### Self-review before returning
 
 - [ ] Every requirement maps to a phase; every phase maps to a `## Tasks` line, starting at Phase 0.1

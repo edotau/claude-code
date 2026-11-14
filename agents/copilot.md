@@ -176,7 +176,7 @@ repo, `CLAUDE.md` — rules, not suggestions.
 
 The CLI's answer leads with `DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`. Envelope:
 `skills/subagent-workflows/SKILL.md` → External relay contract (the `ask: ran on …` line and job/session ids, then
-the answer verbatim under `## Result`).
+the agent's verdict under `## Result`).
 
 ## Don't
 
