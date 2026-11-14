@@ -89,8 +89,7 @@ var loginPage = helptext.Page{
 	About: "Sign in through the browser for a profile with auth type oauth;\n" +
 		"the refresh token is sealed in the vault.\n" +
 		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.\n" +
-		"Under --remote <host> the browser opens on <host>; the token is sealed here.\n" +
-		"With CLAUDE_REMOTE_HOST set, a plain login runs as --remote <it>.",
+		"Under --remote <host> the browser opens on <host>; the token is sealed here.",
 }
 
 // loginFlags is login's parsed command line; fs is kept so loginProfile can tell an explicit --auth-type.
@@ -153,9 +152,6 @@ func loginRowAs(ctx context.Context, f loginFlags) int {
 	p, err := loginProfile(ctx, f.fs, f.profile)
 	if err != nil {
 		return fail("login: %v", err)
-	}
-	if f.h.via != "" && os.Getenv(remote.LoginAutoEnv) != "" {
-		fmt.Printf("%s: %s is %s: signing in through its browser (as --remote %s)\n", p.Name, remote.HostEnv, f.h.via, f.h.via)
 	}
 	as := f.as
 	if f.h.via != "" && as == "" { // --remote renews the user's login, whatever service principal is paired

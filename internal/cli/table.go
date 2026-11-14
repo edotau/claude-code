@@ -287,12 +287,6 @@ func runRouted(argv []string, name string) (code int, ok bool) {
 	if err := remote.CheckLogin(argv[1:], egressFlag); err != nil {
 		return helptext.FailUsage("%v", err), true
 	}
-	if host, auto := remote.AutoLogin(argv[1:]); auto { // CLAUDE_REMOTE_HOST set: a plain login is `--remote <host>`
-		if err := proc.Setenv(remote.LoginAutoEnv, host); err != nil {
-			return helptext.Fail("%s: %v", egressFlag, err), true
-		}
-		return runVia(append([]string{argv[0], egressFlag, host}, argv[1:]...)), true
-	}
 	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") {
 		if rest, local := remote.LocalArgs(remote.Flag, argv[1:]); local { // the named host is this machine: run here
 			return Run(append(argv[:1:1], rest...)), true
