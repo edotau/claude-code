@@ -109,7 +109,7 @@ func deadLoginFinding(p *providers.Provider) (Finding, bool) {
 		return Finding{}, false
 	}
 	return Finding{Check: "login", Profile: p.Name, Detail: fmt.Sprintf("%s login needs renewal (%s since %s): run `%s`",
-		p.Name, login.State, login.Since.Local().Format("15:04"), login.Command())}, true
+		p.Name, login.State, login.Since.Local().Format("15:04"), providers.LoginCommand(p.Name))}, true
 }
 
 // checkModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.

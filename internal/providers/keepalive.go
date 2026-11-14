@@ -12,8 +12,8 @@ import (
 const keepaliveMargin = 15 * time.Minute
 
 // Keepalive refreshes the tokens p's next request would use when under keepaliveMargin remains on one: an oauth row's
-// user login (a dead one only after its retry window, as one probe) and paired SP, an m2m row's token. It makes no
-// network call and takes no lock when nothing is due; refreshed reports a token endpoint exchange by this call.
+// user login (a dead one only after its retry window, as one probe; never an SP-covered or sp row's) and paired SP, an
+// m2m row's token. It makes no network call and takes no lock when nothing is due; refreshed reports an exchange.
 func Keepalive(ctx context.Context, p *Provider) (refreshed bool, err error) {
 	switch p.Auth.Type {
 	case AuthM2M:
@@ -36,13 +36,13 @@ func tokenDue(tok, record string) bool {
 	return !ok || time.Until(exp) < keepaliveMargin
 }
 
-// keepaliveUser refreshes a stored user login that is due; a dead mark inside its window is left alone.
+// keepaliveUser refreshes a stored user login that is due; a dead mark waits out its window, or lasts under an SP.
 func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
-	if !hasUserLogin(p) {
+	if p.Identity == IdentitySP || !hasUserLogin(p) {
 		return false, nil
 	}
 	if rec, dead := readLoginMark(p.Name); dead {
-		if time.Now().Before(rec.Until) {
+		if time.Now().Before(rec.Until) || spCovers(p) {
 			return false, nil
 		}
 		_, stillDead, err := ProbeUserLogin(ctx, p) // a login renewed in another shell clears the mark

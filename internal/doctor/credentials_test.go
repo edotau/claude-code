@@ -226,8 +226,8 @@ func TestCredentialRowReportsUserLoginFromRecords(t *testing.T) {
 // assertDeadLoginRow checks the dead-login warning row: wording, soft marks and an unchanged cache record.
 func assertDeadLoginRow(t *testing.T, dead check) {
 	t.Helper()
-	for _, want := range []string{"verified", "user login dead (needs_login), using the service principal: " +
-		"run claude-code databricks login --profile dbx"} {
+	for _, want := range []string{"verified", "warn on the service principal; your own login is not signed in (needs_login; to sign in: " +
+		providers.LoginCommand("dbx") + ")"} {
 		if !strings.Contains(dead.Detail, want) {
 			t.Errorf("dead login row %q lacks %q", dead.Detail, want)
 		}

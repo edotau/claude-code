@@ -202,7 +202,7 @@ func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
 	p := kindRow(AuthOAuth, "", "")
 	p.Name = "dbx"
 	got := authHint(p, "DBX_TOKEN")
-	for _, want := range []string{"claude-code databricks login --profile dbx", "claude-code configure", "Set up"} {
+	for _, want := range []string{"claude-code --remote <host> databricks login --profile dbx", "claude-code configure", "Set up"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("OAuth hint %q lacks %q", got, want)
 		}
@@ -354,7 +354,7 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 		t.Fatalf("Credential = %q, %v (m2m %d)", got, err, *m2m)
 	}
 	n := note.String() // one line reports the fallback, one the mint
-	if !strings.Contains(n, "login needs renewal; using the service principal (run `claude-code databricks login --profile "+p.Name+"`)") ||
+	if !strings.Contains(n, p.Name+": on the service principal; your own login is not signed in (to sign in: "+LoginCommand(p.Name)+")") ||
 		strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 2 {
 		t.Errorf("note = %q", n)
 	}

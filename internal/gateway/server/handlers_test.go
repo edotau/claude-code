@@ -19,17 +19,18 @@ import (
 )
 
 func TestAuthHintByAuthType(t *testing.T) {
+	t.Setenv(providers.RemoteHostEnv, "wsl.test")
 	cases := map[string]struct {
 		p    providers.Provider
 		want string
 	}{
 		"oauth": {
 			providers.Provider{Name: "d", Auth: providers.Auth{Type: providers.AuthOAuth}},
-			"claude-code databricks login --profile d",
+			"claude-code --remote wsl.test databricks login --profile d",
 		},
 		"preset": {
 			providers.Provider{Name: "d", Preset: providers.PresetDatabricks},
-			"claude-code databricks login --profile d",
+			"claude-code --remote wsl.test databricks login --profile d",
 		},
 		"dbx pat": {
 			providers.Provider{
@@ -71,6 +72,7 @@ func TestPeekBodyLeavesWholeBodyReadable(t *testing.T) {
 }
 
 func TestExhaustedSharesSendErrorReply(t *testing.T) {
+	t.Setenv(providers.RemoteHostEnv, "wsl.test")
 	p := &providers.Provider{Name: "up1", Preset: providers.PresetDatabricks}
 	ladder := []providers.Target{{Provider: p, Model: "m"}}
 	cases := map[string]struct {
@@ -81,7 +83,7 @@ func TestExhaustedSharesSendErrorReply(t *testing.T) {
 		"auth": {
 			&fallbackError{error: errors.New("denied"), auth: true},
 			http.StatusUnauthorized,
-			"proxy: up1: authentication failed; run `claude-code databricks login --profile up1`",
+			"proxy: up1: authentication failed; run `claude-code --remote wsl.test databricks login --profile up1`",
 		},
 		"other": {errors.New("boom"), http.StatusBadGateway, "proxy: up1: boom"},
 	}
@@ -587,6 +589,7 @@ func TestRejectedKeyHintsVaultSetNotDatabricksLogin(t *testing.T) {
 }
 
 func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
+	t.Setenv(providers.RemoteHostEnv, "wsl.test")
 	g := useGate(t)
 	up1 := newUpstream(t, ok)
 	srv := setupRouter(t, `{"default":"up1","providers":{"databricks":{"up1":`+u2mRow(up1.URL)+`}}}`, nil)
@@ -594,7 +597,7 @@ func TestLadderExhaustedReturns401WithLoginHint(t *testing.T) {
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-opus"}`, nil)
 	b := body(t, resp)
 	if resp.StatusCode != 401 || !strings.Contains(b, `"authentication_error"`) ||
-		!strings.Contains(b, "run `claude-code databricks login --profile up1`") {
+		!strings.Contains(b, "run `claude-code --remote wsl.test databricks login --profile up1`") {
 		t.Fatalf("status %d body %s, want 401 authentication_error with the login hint", resp.StatusCode, b)
 	}
 	if up1.hits.Load() != 0 {

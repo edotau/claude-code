@@ -283,13 +283,13 @@ func autoCredential(ctx context.Context, p *Provider, force bool) (string, error
 	return spOnVaultError(ctx, p, force, v, err)
 }
 
-// autoSPFirst serves the paired SP before any user attempt when no login is stored or a dead login's window is open.
+// autoSPFirst serves the paired SP before any user attempt when no login is stored or one is recorded dead.
 func autoSPFirst(ctx context.Context, p *Provider, force bool) (string, bool, error) {
 	if !hasUserLogin(p) {
 		v, err := spCredential(ctx, p, force)
 		return v, true, err
 	}
-	if _, dead := openLoginMark(p); dead && SPPresent(p) { // no user attempt while the dead login's window is open
+	if _, dead := readLoginMark(p.Name); dead && SPPresent(p) { // a dead login is not retried while the SP covers it
 		v, err := fallbackToSP(ctx, p, force)
 		return v, true, err
 	}
@@ -767,7 +767,7 @@ func mintSource(p *Provider) (secret string, base int64, err error) {
 // authHint is the one fix-it phrase for a missing or rejected credential: a login for oauth, else the vault secret.
 func authHint(p *Provider, name string) string {
 	if p.Auth.Type == AuthOAuth {
-		return "run `claude-code databricks login --profile " + p.Name + "`, or `claude-code configure` and pick Set up"
+		return "run `" + LoginCommand(p.Name) + "`, or `claude-code configure` and pick Set up"
 	}
 	return "set " + name + " with `claude-code vault set`"
 }
