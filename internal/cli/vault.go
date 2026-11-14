@@ -262,6 +262,12 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if err := agent.ValidateVaultSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
+	login := providers.LoginSecretProvider(name)
+	if login != nil {
+		if err := providers.CheckLoginRecord(name, value); err != nil {
+			return helptext.Fail("vault set: %v", err)
+		}
+	}
 	if dryRun {
 		names, err := vault.NamesErr()
 		if err != nil {
@@ -271,14 +277,25 @@ func vaultSetSecret(name string, dryRun bool) int {
 		if slices.Contains(names, name) {
 			verb = "replace"
 		}
-		fmt.Printf("would %s %s in the vault (%d chars); nothing written\n", verb, name, len(value))
+		fmt.Printf("would %s %s in the vault (%d chars)%s; nothing written\n", verb, name, len(value), verifyNote(login))
 		return 0
 	}
 	if err := configure.StoreSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, vault.Redact(value), name)
+	if login != nil {
+		printLoginVerdict(login)
+	}
 	return 0
+}
+
+// verifyNote is the dry-run clause for a login secret: it would be verified and sealed once the write happens.
+func verifyNote(login *providers.Provider) string {
+	if login == nil {
+		return ""
+	}
+	return ", would verify and seal"
 }
 
 // readSecretValue prompts with hidden input on a terminal; a pipe still supplies the value on stdin.
@@ -412,10 +429,16 @@ func cmdVaultImport(args []string) int {
 	if pairs == nil {
 		return code
 	}
+	if pairs = loginPairsOnly(pairs); len(pairs) == 0 {
+		return helptext.Fail("vault import: %s: nothing written", name)
+	}
 	if !confirmImport(pairs, *yes) {
 		return 1
 	}
-	err = configure.StoreImport(pairs, func(n string) { fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n) })
+	err = configure.StoreImport(pairs, func(n string) {
+		fmt.Fprintf(os.Stderr, "stored %s in the vault\n", n)
+		verifyIfLogin(n)
+	})
 	if err != nil {
 		return helptext.Fail("vault import: %v", err)
 	}

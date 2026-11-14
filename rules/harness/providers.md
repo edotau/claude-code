@@ -96,7 +96,9 @@ static menu: routing never touches the network.
   only) and reported, not hidden: `doctor` and `databricks check --all` say the SP covers and name the sign-in, the
   status line shows `login:<profile>`, a proxy 401 names `claude-code --remote <host> databricks login --profile <p>`
   (`<host>` from `CLAUDE_REMOTE_HOST`; a plain login only mints the SP). While a paired SP covers, a dead login is
-  never re-probed on a timer, only a sealed login clears the mark; an `sp` row never reads its user login.
+  never re-probed on a timer; a sealed login clears the mark, and so does a `vault set`/`import` of the login (a JSON
+  record with `refresh`), which is verified and sealed once. A rewrite that bypassed that hook is tried once because
+  the mark holds the secret's vault set-time (never a token); an `sp` row never reads its user login.
 - While the proxy runs it refreshes the tokens of profiles used in the last 24 h once under 15 minutes remain, under
   the per-profile lock (an idle machine mints nothing). A rotated refresh token is carried until sealed (a failed seal
   is audited `seal_failed`); a stale one never replaces a newer vault copy.
