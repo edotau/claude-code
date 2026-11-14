@@ -918,6 +918,14 @@ func TestCompletionAgentsDispatchWaves(t *testing.T) {
 	if slices.Contains(candidates("agents", ""), "waves") {
 		t.Fatal("waves must be a dispatch flag, not a verb")
 	}
+	for _, name := range []string{"part", "no-web", "models", "jobs", "output-schema"} {
+		if slices.Contains(got, "--"+name) {
+			t.Errorf("dispatch completions still offer the role-mode flag --%s", name)
+		}
+	}
+	if slices.Contains(candidates("agents", "dispatch", ""), "explore") {
+		t.Error("dispatch completions still offer the explore role")
+	}
 }
 
 // Every -h page lists its COMMANDS rows A-Z: the renderer sorts, so a verb added later cannot land out of order.

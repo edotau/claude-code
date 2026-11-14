@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -163,7 +162,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 func TestPermissionLifecycleRefusesUnsupported(t *testing.T) {
 	vaulttest.Use(t)
 	cliEnv(t)
-	for _, mode := range []string{"foreground", "background", "job", "batch", "live", "dispatch", "detached"} {
+	for _, mode := range []string{"foreground", "background", "job", "batch", "live"} {
 		t.Run(mode, func(t *testing.T) {
 			checkPermissionBoundary(t, mode)
 			if recs := agent.RecentRecords(10); len(recs) != 0 {
@@ -179,10 +178,6 @@ func checkPermissionBoundary(t *testing.T, mode string) {
 	switch mode {
 	case "batch":
 		checkBatchBoundary(t, req)
-	case "dispatch":
-		checkDispatchBoundary(t, req)
-	case "detached":
-		checkDetachedBoundary(t, req)
 	default:
 		checkCLIBoundary(t, mode, req)
 	}
@@ -193,22 +188,6 @@ func checkBatchBoundary(t *testing.T, req agent.RunOptions) {
 	_, _, err := lineRequest(parsedLine{N: 1, Task: batchLine{Prompt: "proof"}}, "codex", req)
 	if err == nil || !strings.Contains(err.Error(), "--no-tools") {
 		t.Fatalf("batch refusal = %v", err)
-	}
-}
-
-func checkDispatchBoundary(t *testing.T, req agent.RunOptions) {
-	t.Helper()
-	for ev := range legStream(newClient(), "", "none")(context.Background(), req) {
-		if ev.Envelope == nil || ev.Envelope.Error == nil || !strings.Contains(ev.Envelope.Error.Message, "--no-tools") {
-			t.Fatalf("dispatch event = %+v", ev)
-		}
-	}
-}
-
-func checkDetachedBoundary(t *testing.T, req agent.RunOptions) {
-	t.Helper()
-	if _, err := spawnLeg(context.Background(), newClient(), roles.Leg{Opts: req}); err == nil || !strings.Contains(err.Error(), "--no-tools") {
-		t.Fatalf("detached refusal = %v", err)
 	}
 }
 

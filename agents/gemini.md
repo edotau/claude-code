@@ -40,7 +40,7 @@ Shared flags and lifecycle: `skills/subagent-workflows/references/agent-verbs.md
 - `--index` includes a path index; `--max-files` and `--max-file-bytes` bound packed context. Narrow on overflow.
 - Select a model only when requested, using ids from `claude-code gemini catalog`; retain the root machine's pin.
 - `--system-prompt` and `--append-system-prompt` are emulated. Do not rely on `--safe-mode` or `--no-persist` on agy.
-- `claude-code gemini explore` is refused. Shell `agents dispatch explore` uses copilot by default, not agy.
+- `claude-code gemini explore` is refused.
 
 ## Procedure
 

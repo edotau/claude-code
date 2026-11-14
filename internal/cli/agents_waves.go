@@ -17,7 +17,7 @@ import (
 // registerDispatchWaves registers the plan runner's options on dispatch's existing flag set.
 func registerDispatchWaves(fs *flag.FlagSet) *waves.Options {
 	o := &waves.Options{Out: os.Stdout, Err: os.Stderr}
-	fs.StringVar(&o.Plan, "waves", "", "run waves from this plan instead of a role task")
+	fs.StringVar(&o.Plan, "waves", "", "run the waves of this plan")
 	fs.Func("wave", "wave N or inclusive range N-M (default: all)", func(s string) error {
 		bounds := strings.Split(s, "-")
 		if len(bounds) > 2 {
@@ -56,18 +56,6 @@ func dispatchWaveNumber(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscan(s, &n)
 	return n, err
-}
-
-// dispatchWaveCompanions rejects wave-only flags even when their explicit value equals the default.
-func dispatchWaveCompanions(fs *flag.FlagSet) error {
-	var err error
-	fs.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "waves", "wave", "dry-run", "status", "fresh", "gate", "provider", "profile", "profiles", "job":
-			err = fmt.Errorf("--%s requires --waves <plan>", f.Name)
-		}
-	})
-	return err
 }
 
 type waveJob struct {
