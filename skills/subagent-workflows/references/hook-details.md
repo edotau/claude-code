@@ -8,7 +8,8 @@ Verbatim cells moved from `rules/harness/hooks.md` → Event → hook matrix (th
 fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
 redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the template's `Edit(...)` deny rules protect
 (an `rm`/`unlink`/`mv`-away of a literal path under a temp folder passes, never one inside the config dir or home,
-through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`, `deno`, `bun` — naming one beside a write call **asks**;
+through a symlink, `..` or glob, beside `ln`/`truncate`;
+an interpreter script — `python`, `node`, `perl`, `ruby`, `deno`, `bun` — naming one beside a write call **asks**;
 reads pass), and a `commit --amend`/`rebase`/`reset <commit>` in a shared checkout (`~/.claude`, a tree a peer session
 works in, a main tree where this session has live leaves or the caller is a leaf; own linked worktree exempt; an infra
 error allows with a warning); **ask** on Claude (block on codex/copilot) for `git
