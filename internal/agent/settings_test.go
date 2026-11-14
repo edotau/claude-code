@@ -132,6 +132,24 @@ func TestResolveSettingsBuiltIn(t *testing.T) {
 	}
 }
 
+// A read-only request resolves the emulated read-only rules even when its caller skipped checkRun, once.
+func TestResolveSettingsReadOnlyRules(t *testing.T) {
+	vaulttest.Use(t)
+	req := RunOptions{Tools: true, ReadOnly: true}
+	st, err := ResolveSettings("gemini", req, providers.Target{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(st.Permissions.Allow, ReadOnlyAllow) || !slices.Contains(st.Permissions.Deny, ReadOnlyDeny[0]) {
+		t.Errorf("read-only gemini resolved %+v, want the read-only rules", st.Permissions)
+	}
+	req.Permissions = withReadOnlyRules(SchemaFor("gemini").CLI.Caps, Permissions{})
+	again, _ := ResolveSettings("gemini", req, providers.Target{}, true)
+	if len(again.Permissions.Allow) != len(st.Permissions.Allow) || len(again.Permissions.Deny) != len(st.Permissions.Deny) {
+		t.Errorf("rules applied by checkRun were duplicated: %+v vs %+v", again.Permissions, st.Permissions)
+	}
+}
+
 // The stored record replaces the built-in launch block and keeps the built-in extras it does not name.
 func TestResolveSettingsRecordOverBuiltIn(t *testing.T) {
 	vaulttest.Use(t)
