@@ -921,3 +921,18 @@ func (s namedEngine) Available() error { return nil }
 func (s namedEngine) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	return wire.Result{}, nil
 }
+
+// A direct run whose auth fails after output started names the static token and the routed default; a routed run does not.
+func TestRunDirectAuthFailureNamesRoutedDefault(t *testing.T) {
+	setConfigDir(t)
+	for _, direct := range []bool{true, false} {
+		f := &fakeRunner{caps: Caps{Direct: Native}, write: "partial", errs: []error{errors.New("HTTP 401 unauthorized")}}
+		_, err := Run(context.Background(), f, RunOptions{Prompt: "p", Direct: direct}, wire.Discard, nil)
+		if err == nil {
+			t.Fatalf("direct=%v: want an error", direct)
+		}
+		if got := strings.Contains(err.Error(), "drop --direct"); got != direct {
+			t.Errorf("direct=%v: hint present = %v: %v", direct, got, err)
+		}
+	}
+}

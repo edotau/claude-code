@@ -1047,3 +1047,96 @@ func TestRunAuthCommandKeepsStderrTail(t *testing.T) {
 		t.Fatalf("err = %v, want a network classification from the stderr tail", err)
 	}
 }
+
+// A forced refresh serves a valid token another process sealed instead of minting, unless it is the rejected one.
+func TestForcedRefreshServesNewerSealedToken(t *testing.T) {
+	p, hits, _ := u2mMint(t, "forced-reread")
+	t.Cleanup(func() { cmdCache.Delete(p.Name) })
+	ctx := context.Background()
+	if _, err := Credential(ctx, p); err != nil || hits.Load() != 1 {
+		t.Fatalf("Credential: hits %d, err %v", hits.Load(), err)
+	}
+	served, _ := cmdCache.Load(p.Name)
+	cmdCache.Store(p.Name, cached{value: served.(cached).value, until: time.Now().Add(-time.Second)}) // past its cache window
+	peer := jwtExpIn(2*time.Hour, "https://x")
+	putAccess(t, p, peer) // another process sealed a newer token
+	if got, err := Refresh(ctx, p); err != nil || got != peer || hits.Load() != 1 {
+		t.Fatalf("Refresh = %q, %v (hits %d); want the peer's sealed token with no mint", got, err, hits.Load())
+	}
+	if _, err := Refresh(ctx, p); err != nil || hits.Load() != 2 {
+		t.Fatalf("second Refresh: hits %d, err %v; want a mint once the sealed token is the rejected one", hits.Load(), err)
+	}
+	cmdCache.Delete(p.Name)
+	putAccess(t, p, peer)
+	if _, err := Refresh(ctx, p); err != nil || hits.Load() != 3 {
+		t.Fatalf("Refresh with nothing served: hits %d, err %v; want a mint as before", hits.Load(), err)
+	}
+}
+
+func TestForcedSPRefreshServesNewerSealedToken(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentitySP)
+	mints := countingM2M(t, jwtExpIn(time.Hour, ""))
+	ctx := context.Background()
+	first, err := Credential(ctx, p)
+	if err != nil || *mints != 1 {
+		t.Fatalf("Credential = %q, %v (mints %d)", first, err, *mints)
+	}
+	peer := jwtExpIn(2*time.Hour, "")
+	b, _ := json.Marshal(clientAccess{Access: peer, Bind: clientBind(AuthHost(p), "sp-client", "sp-secret")})
+	if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M)+"_ACCESS", string(b)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Refresh(ctx, p); err != nil || got != peer || *mints != 1 {
+		t.Fatalf("Refresh = %q, %v (mints %d); want the peer's sealed SP token with no mint", got, err, *mints)
+	}
+	if _, err := Refresh(ctx, p); err != nil || *mints != 2 {
+		t.Fatalf("second Refresh: mints %d, err %v; want a mint once the sealed token is the rejected one", *mints, err)
+	}
+}
+
+// A vault error on the user path serves the paired SP, for an interactive auto request and for a dispatch.
+func TestVaultErrorOnUserPathServesPairedSP(t *testing.T) {
+	for _, headless := range []bool{false, true} {
+		name := map[bool]string{false: "auto", true: "dispatch"}[headless]
+		t.Run(name, func(t *testing.T) {
+			p, m2m, _, note := spHarness(t, IdentityAuto)
+			t.Setenv(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret") // the SP secret does not need the vault
+			corruptVault(t)
+			ctx := context.Background()
+			if headless {
+				ctx = WithIdentity(ctx, IdentityHeadless)
+				spSkip.Store(p.Name, time.Now().Add(time.Hour))
+				t.Cleanup(func() { spSkip.Delete(p.Name) })
+			}
+			got, err := Credential(ctx, p)
+			if err != nil || got != "sp-token" || *m2m != 1 {
+				t.Fatalf("Credential = %q, %v (mints %d); want the SP token after the vault error", got, err, *m2m)
+			}
+			if !strings.Contains(note.String(), "vault") {
+				t.Errorf("note = %q; want it to name the vault failure", note.String())
+			}
+			evs := sealFailures(t)
+			if len(evs) != 1 || evs[0].Detail != "sp-access" || !strings.HasSuffix(evs[0].Resource, "_M2M_ACCESS") {
+				t.Errorf("seal_failed events = %+v; want one sp-access for the unwritable slot", evs)
+			}
+		})
+	}
+}
+
+// Without a paired SP a vault error is returned, not hidden.
+func TestVaultErrorWithoutPairedSPIsReturned(t *testing.T) {
+	p, m2m, _, _ := spHarness(t, IdentityAuto)
+	p.Auth.SPClientID = ""
+	corruptVault(t)
+	if got, err := Credential(context.Background(), p); err == nil || !strings.Contains(err.Error(), "vault:") || *m2m != 0 {
+		t.Fatalf("Credential = %q, %v (mints %d); want the vault error and no SP mint", got, err, *m2m)
+	}
+}
+
+// corruptVault makes every vault read and write fail with a database error.
+func corruptVault(t *testing.T) {
+	t.Helper()
+	if err := os.WriteFile(vault.Path(), []byte("not a bolt database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
