@@ -33,6 +33,7 @@ func vaultSpec() *helptext.Node {
 			boolFlag("dry-run")}},
 		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key")}},
 		"delete":        {Args: []func() []string{secretNames}},
+		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
@@ -48,6 +49,7 @@ var vaultPage = helptext.Page{
 		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
 		{"get", "print secret values; --export for shell, --key for master"},
 		{"delete", "remove a secret"},
+		{"env", "set or unset one env value (not sealed); ls env lists"},
 		{"import", "seal every NAME=value line of a .env file"},
 		{"export", "append secrets to ./.env (0600); --out for another path"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
@@ -58,7 +60,7 @@ var vaultPage = helptext.Page{
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
 	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
+	"env": cmdVaultEnv, "import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
 }
 
 // cmdVault dispatches the vault subcommands; bare `vault` lists.
