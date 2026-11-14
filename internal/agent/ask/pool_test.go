@@ -1241,3 +1241,48 @@ func authEnv(t *testing.T, row string) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"agauth","providers":{"anthropic":{"agauth":`+row+`}}}`)
 }
+
+func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
+	retryUnit(t, func(t *testing.T) {
+		calls := 0
+		req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: "none"}
+		engine := retryStub{name: "batch-stub", run: func(_ agent.RunOptions, _ wire.Sink) (wire.Result, error) {
+			calls++
+			if calls == 1 {
+				return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Terminal: true, Err: errors.New("429")}
+			}
+			return wire.Result{Answer: "done"}, nil
+		}}
+		prepare := func(_ *agent.Client, _ context.Context, req agent.RunOptions, _ *agent.Record) (*agent.Prepared, error) {
+			return &agent.Prepared{Opts: req, Chain: agent.Single(engine), Record: agent.NewRecord(req.Agent, req, time.Now())}, nil
+		}
+		old := armPrepare
+		armPrepare = prepare
+		t.Cleanup(func() { armPrepare = old })
+		if err := ApplyCoworker("databricks:auto", "", "", "", "none"); err != nil {
+			t.Fatal(err)
+		}
+		task, err := buildTask(parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
+			batchOpts{Agent: req.Agent, Fallback: "none"}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.arm == nil || !task.Req.AutoArm {
+			t.Fatal("auto batch lost workspace retry intent")
+		}
+		p, err := task.Prepare(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := task.arm
+		stopped := false
+		b := &batchRun{o: poolOptions{ID: "test", FailFast: true}, stop: func() { stopped = true }}
+		env, ok := b.run(t.Context(), task, p)
+		if got := fmt.Sprintf("%t/%s/%d/%t", ok, env.Answer, calls, stopped); got != "true/done/2/false" {
+			t.Fatalf("ok/answer/model calls/stopped = %s; want true/done/2/false", got)
+		}
+		if got := fmt.Sprintf("%s/%d/%s", strings.Join(a.tried, ","), len(env.Hops), env.TaskID); got != "dev,qa/2/item" {
+			t.Fatalf("workspaces/hops/task = %s; want dev,qa/2/item", got)
+		}
+	})
+}

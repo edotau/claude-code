@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -345,6 +346,37 @@ func TestPermissionPathRuleMatchesEitherSymlinkSpelling(t *testing.T) {
 		}
 		if got := p.Decide("Write", t.TempDir()+"/f.txt"); got == Deny {
 			t.Errorf("rule under %s denied an unrelated path", c.rule)
+		}
+	}
+}
+
+func TestPermissionHomePaths(t *testing.T) {
+	u, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", "/permission-home")
+	for _, c := range []struct{ rule, target string }{
+		{"~", "/permission-home"}, {"~/x", "/permission-home/x"},
+		{"~" + u.Username + "/x", filepath.Join(u.HomeDir, "x")},
+		{"~claude-code-no-such-user/x", "~claude-code-no-such-user/x"},
+	} {
+		for _, want := range []Decision{Allow, Deny, Ask} {
+			sets := make([][]string, 3)
+			sets[want] = []string{"Read(" + c.rule + ")"}
+			p := mustPerms(t, "plan", sets[Allow], sets[Ask], sets[Deny])
+			if want != Allow {
+				p.Allow = []Rule{{Tool: "Read"}}
+			}
+			if got := p.Decide("Read", c.target); got != want {
+				t.Errorf("rule %q target %q: got %v, want %v", c.rule, c.target, got, want)
+			}
+			if got := p.Decide("Read", "/unrelated/x"); got == want {
+				t.Errorf("rule %q widened to unrelated path", c.rule)
+			}
+			if want == Deny && c.rule != "~/x" && p.Decide("Read", c.rule) != Deny {
+				t.Errorf("deny %q lost its literal match", c.rule)
+			}
 		}
 	}
 }

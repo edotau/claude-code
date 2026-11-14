@@ -2,6 +2,7 @@ package tree
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -105,6 +107,42 @@ func TestReapRecordsSkipsRecordRevivedAfterSnapshot(t *testing.T) {
 	}
 }
 
+// Given a dead running record whose events file holds a complete ok result, Then reap finishes it ok; else it is lost.
+func TestReapRecordsFinishesDeadRecordWithSavedOKResult(t *testing.T) {
+	reapSocketConfig(t)
+	save := func(env *wire.Envelope) agent.Record {
+		rec := saveReapRecord(t, deadPID, time.Now().Add(-time.Minute))
+		if env != nil {
+			events := wire.NewEventLog(rec.EventsPath(), rec.ID)
+			_ = events.Emit(wire.Event{Type: wire.EventStart})
+			_ = events.Emit(wire.ResultEvent(*env))
+			events.Close()
+		}
+		return rec
+	}
+	okEnv := wire.NewEnvelope(wire.Result{Agent: "claude", Model: "m", SessionID: "s", Answer: "done"}, nil, "x")
+	failEnv := wire.NewEnvelope(wire.Result{Agent: "claude"}, errors.New("boom"), "x")
+	done, failed, bare := save(&okEnv), save(&failEnv), save(nil)
+	var out bytes.Buffer
+	snapshot, _ := agent.ReadRecent(agent.AllRecords)
+	if n, code := reapRecords(snapshot, false, "reaped", &out, &out); n != 3 || code != 0 {
+		t.Fatalf("reapRecords = %d, %d: %s", n, code, out.String())
+	}
+	for _, c := range []struct {
+		rec             agent.Record
+		status, errText string
+	}{
+		{done, "ok", ""}, {failed, "error", lostError}, {bare, "error", lostError}} {
+		got, err := agent.LoadRecord(c.rec.ID)
+		if err != nil || got.Status != c.status || got.Error != c.errText {
+			t.Errorf("%s = %q %q (%v), want %q %q", c.rec.ID, got.Status, got.Error, err, c.status, c.errText)
+		}
+	}
+	if got, _ := agent.LoadRecord(done.ID); got.Model != "m" || got.SessionID != "s" {
+		t.Errorf("finished record = model %q session %q, want them copied from the saved result", got.Model, got.SessionID)
+	}
+}
+
 // withDispatchFixture points the dispatch log at testdata/dispatch via CLAUDE_CONFIG_DIR (paths.StateDir honors it).
 func withDispatchFixture(t *testing.T) {
 	t.Helper()
@@ -142,6 +180,34 @@ func TestBuildDispatchesEnvelopeID(t *testing.T) {
 	got := buildDispatches(path, "", time.Now(), Activity{}, transcript.AppendDispatchIDs(nil, map[string]bool{}, []byte(line)))
 	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
 		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
+	}
+}
+
+// A relay's pending ask claims only a dispatch started right after its tool_use, not a fresh one from another leaf.
+func TestPendingDispatchIgnoresDispatchStartedLongAfterTheAsk(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 11, 13, 20, 0, 0, 0, time.UTC)
+	askedAt := now.Add(-90 * time.Minute)
+	path := filepath.Join(t.TempDir(), "agent-relay.jsonl")
+	line := `{"type":"user","timestamp":"` + askedAt.Add(-time.Minute).Format(time.RFC3339) + `"}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	act := Activity{Tool: "Bash", Arg: `claude-code ask --agent codex "x"`, At: askedAt}
+	save := func(start time.Time) {
+		rec := agent.NewRecord("codex", agent.RunOptions{WorkDir: "/repo"}, start)
+		rec.PID = os.Getpid()
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(now) // another leaf's dispatch, started 90 minutes after this relay stopped
+	if got := buildDispatches(path, "/repo", now, act, nil); len(got) != 0 {
+		t.Fatalf("buildDispatches = %+v, want no child for a relay whose ask ran 90m before this dispatch", got)
+	}
+	save(askedAt.Add(5 * time.Second)) // negative control: the dispatch its own ask launched
+	if got := buildDispatches(path, "/repo", now, act, nil); len(got) != 1 || got[0].Matched != "heuristic" {
+		t.Fatalf("buildDispatches = %+v, want the one dispatch started right after the ask", got)
 	}
 }
 

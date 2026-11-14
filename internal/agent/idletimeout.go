@@ -25,6 +25,7 @@ type IdleTimeout struct {
 	spoke   bool // the child produced model output: a later trip is ErrSilent, not ErrStalled
 	tripped bool
 	done    bool
+	deliver bool // the child already delivered its final result: a later trip only bounds a lingering child
 }
 
 // NewIdleTimeout arms a d-long idle window now; d <= 0 returns nil, whose methods are all no-ops. kill may be nil.
@@ -105,6 +106,26 @@ func (w *IdleTimeout) Spoke() {
 	w.mu.Unlock()
 }
 
+// Delivered marks the final result as received: a later trip kills a lingering child but no longer fails the run.
+func (w *IdleTimeout) Delivered() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.deliver = true
+	w.mu.Unlock()
+}
+
+// HasDelivered reports whether Delivered was called.
+func (w *IdleTimeout) HasDelivered() bool {
+	if w == nil {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.deliver
+}
+
 // Stop ends the watch for good (first output, or the stream read); a trip that already happened still reports via Err.
 func (w *IdleTimeout) Stop() {
 	if w == nil {
@@ -117,13 +138,14 @@ func (w *IdleTimeout) Stop() {
 }
 
 // Err is the classified failure when the window expired, else nil: ErrSilent after Spoke, ErrStalled before.
+// A delivered result makes it nil.
 func (w *IdleTimeout) Err() error {
 	if w == nil {
 		return nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.tripped {
+	if !w.tripped || w.deliver {
 		return nil
 	}
 	sentinel := ErrStalled

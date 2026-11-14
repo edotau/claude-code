@@ -266,8 +266,17 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
-	if serr := opts.Idle.Err(); serr != nil {
+	return streamResult(ctx, name, res, perr, werr, opts.Idle, tail)
+}
+
+// streamResult picks RunEventStream's outcome: an idle kill, a delivered result, a child failure, an empty answer.
+func streamResult(ctx context.Context, name string, res wire.Result, perr, werr error, idle *IdleTimeout,
+	tail *retry.TailBuffer) (wire.Result, error) {
+	if serr := idle.Err(); serr != nil {
 		return res, serr
+	}
+	if perr == nil && idle.HasDelivered() { // the result arrived whole: the kill of a lingering child is no failure
+		return res, nil
 	}
 	if werr != nil || ctx.Err() != nil {
 		return res, ChildErr(ctx, name, errors.Join(werr, perr), tail)

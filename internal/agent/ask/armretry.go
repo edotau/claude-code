@@ -57,10 +57,12 @@ func (r *askRun) armRun() *armRetry {
 		tried: []string{r.auto}}
 }
 
-// probe is req for the first attempt: fallback none while another workspace is left, so a 429 moves workspaces first.
+// probe keeps the requested chain, yielding only a pre-progress 429 to another usable workspace.
 func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
-	if a.fallback != router.FallbackNone && armsLeft(a.agentName, a.model, a.tried) {
-		req.Fallback = router.FallbackNone
+	req.YieldFallback = func(res wire.Result, err error) bool {
+		e, ok := errors.AsType[*retry.Error](err)
+		return ok && e.Kind == retry.KindRateLimit && agent.HopFailed(res, err) &&
+			armsLeft(a.agentName, a.model, a.tried)
 	}
 	return req
 }
@@ -159,7 +161,7 @@ func (a *armRetry) claimOf(p *agent.Prepared) *agent.Record {
 	return &p.Record
 }
 
-// next is the request for the attempt after a failed one (next workspace on a 429, else the skipped policy); false: final.
+// next moves a pre-progress 429 to another workspace; all other outcomes finish the requested chain.
 func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req agent.RunOptions) (agent.RunOptions, bool) {
 	if ctx.Err() != nil || !agent.HopFailed(res, err) {
 		return req, false
@@ -169,11 +171,7 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 			return moved, true
 		}
 	}
-	if req.Fallback == a.fallback {
-		return req, false
-	}
-	req.Fallback = a.fallback // the probe ran with fallback none: the policy now applies to the same workspace
-	return req, true
+	return req, false
 }
 
 // move cools the workspace that answered 429 and exports the next pick; false when none is left.
@@ -184,15 +182,12 @@ func (a *armRetry) move(ctx context.Context, req agent.RunOptions, retryAfter ti
 		return req, false
 	}
 	defer leaveArm()
-	name, more, err := nextArm(a.agentName, a.model, a.tried)
+	name, _, err := nextArm(a.agentName, a.model, a.tried)
 	if err != nil {
 		return req, false
 	}
 	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s rate limited, trying %s\n", cur, name)
 	a.tried = append(a.tried, name)
-	if req.Fallback = a.fallback; more {
-		req.Fallback = router.FallbackNone
-	}
 	return req, true
 }
 
@@ -324,6 +319,9 @@ func leaveArm() {
 // current is the workspace this run is on.
 func (a *armRetry) current() string { return a.tried[len(a.tried)-1] }
 
+// armPrepare is the model-routing seam for workspace retry tests.
+var armPrepare = (*agent.Client).Prepare
+
 // prepare is cl.Prepare with the process arm held on this run's current workspace.
 func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions,
 	claim *agent.Record) (*agent.Prepared, error) {
@@ -331,7 +329,7 @@ func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunO
 		return nil, err
 	}
 	defer leaveArm()
-	return cl.Prepare(ctx, req, claim)
+	return armPrepare(cl, ctx, req, claim)
 }
 
 // exec is one attempt with the process arm held on this run's current workspace.

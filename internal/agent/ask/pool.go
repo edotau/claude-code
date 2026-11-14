@@ -53,9 +53,21 @@ func buildTask(l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool
 	if req, err = confineLine(t.Agent, req); err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
+	if autoPickedArm != "" && l.Task.Profile == "" && base.Provider == "" {
+		req.AutoArm, req.Lead, req.Provider = true, "", ""
+		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{autoPickedArm}}
+		req = t.arm.probe(req)
+	}
+	t.Req = req
 	cl := newClient()
 	t.Prepare = func(ctx context.Context) (*agent.Prepared, error) {
-		p, err := cl.Prepare(ctx, req, nil)
+		var p *agent.Prepared
+		var err error
+		if t.arm != nil {
+			p, err = t.arm.prepare(ctx, cl, req, nil)
+		} else {
+			p, err = cl.Prepare(ctx, req, nil)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", l.N, err)
 		}
@@ -284,7 +296,8 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 	if err := rec.Save(); err != nil { // fail-open: the log is for replay and forensics, never a gate on the run
 		b.logf(t.ID, "dispatch record %s not saved: %v", rec.ID, err)
 	}
-	res, err := taskClient(p, func(s string) { b.logf(t.ID, "%s", s) }).Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
+	p, res, err := b.runTask(ctx, t, p)
+	rec = &p.Record
 	for _, d := range res.Dropped {
 		b.logf(t.ID, "%s has no channel on the %s agent — dropped", d, res.Agent)
 	}
@@ -292,6 +305,21 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 	env = wire.NewEnvelope(res, err, res.DispatchID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == wire.StatusOK
+}
+
+// runTask shares the workspace retry with foreground asks while keeping fail-fast at the task boundary.
+func (b *batchRun) runTask(ctx context.Context, t batchTask, p *agent.Prepared) (*agent.Prepared, wire.Result, error) {
+	cl := taskClient(p, func(s string) { b.logf(t.ID, "%s", s) })
+	exec := func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
+		p.Record.TaskID, p.Record.BatchID, p.Record.PlanTask = t.ID, b.o.ID, t.Plan
+		return cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
+	}
+	if t.arm != nil && p.Opts.Agent == t.Agent {
+		ctx = retry.WithFailFast(ctx, func() {})
+		return t.arm.attempts(ctx, cl, p, p.Opts, exec)
+	}
+	res, err := exec(ctx, p)
+	return p, res, err
 }
 
 // taskClient is the dispatch client of one batch task: progress goes to notify, a prepared launcher wins.

@@ -418,7 +418,8 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRun(s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && !midRun && !dispatchUnavailable(s.prevDispatch.Agent, s.res, s.err) {
+	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) ||
+		(!midRun && !dispatchUnavailable(s.prevDispatch.Agent, s.res, s.err))) {
 		s.stopped = true
 		return true, nil
 	}
@@ -482,6 +483,9 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {
 	trip := retry.FailFastStop(ctx)
 	if trip == nil || err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	if c.yieldsFallback(req, res, err) {
 		return
 	}
 	if i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req)) {
@@ -687,4 +691,9 @@ func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(stri
 func aliasDenied(r Engine, req RunOptions, e *retry.Error) bool {
 	return e != nil && (e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota) && providers.ModelDenied(e.Err.Error()) &&
 		r.Caps().Model != None && (req.Model == "" || slices.Contains(models.AliasNames, req.Model))
+}
+
+// yieldsFallback lets an internal caller handle a failure before the next fallback dispatch.
+func (c Chain) yieldsFallback(req RunOptions, res wire.Result, err error) bool {
+	return len(c.Dispatches) > 0 && req.YieldFallback != nil && req.YieldFallback(res, err)
 }

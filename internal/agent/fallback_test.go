@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -946,5 +948,30 @@ func TestFallbackReasonSkipsBareJSONClosers(t *testing.T) {
 	got := FallbackReason(err)
 	if !strings.Contains(got, "model rejected the request") || strings.Contains(got, token[:20]) {
 		t.Fatalf("FallbackReason = %q, want the message line with the credential masked", got)
+	}
+}
+
+func TestFallbackYieldPreservesBatchForWorkspaceRetry(t *testing.T) {
+	fallbackConfigDir(t)
+	for _, successor := range []bool{false, true} {
+		t.Run(strconv.FormatBool(successor), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				retry.ResetCooldowns()
+				first := &fakeRunner{name: "lead-stub", emptyAnswer: true, errs: []error{
+					&retry.Error{Kind: retry.KindRateLimit, Terminal: true, Err: errors.New("429")}}}
+				next := &fakeRunner{name: "fallback-stub", errs: []error{nil}}
+				c := Single(first)
+				if successor {
+					c = chainOf([]Engine{first, next})
+				}
+				tripped := false
+				ctx := retry.WithFailFast(t.Context(), func() { tripped = true })
+				req := RunOptions{Prompt: "task", YieldFallback: func(wire.Result, error) bool { return true }}
+				_, err := runWithFallback(ctx, c, req, wire.Discard, nil)
+				if err == nil || len(next.seen) != 0 || tripped {
+					t.Fatalf("err=%v fallback calls=%d fail-fast=%v", err, len(next.seen), tripped)
+				}
+			})
+		})
 	}
 }

@@ -7,10 +7,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/network/egress"
 )
 
 func TestBackoff(t *testing.T) {
@@ -398,4 +401,113 @@ func fastRateLimitFloor(t *testing.T) {
 	floor := RateLimitFloor
 	RateLimitFloor = time.Millisecond
 	t.Cleanup(func() { RateLimitFloor = floor })
+}
+
+// connectFail is a pre-response connection failure as an engine would report it.
+func connectFail() *Error {
+	return Classify("dev", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection timed out")}, false)
+}
+
+func TestClassifyMarksConnectionFailures(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want bool
+	}{
+		{&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("network is unreachable")}, true},
+		{errors.New("Post https://x: net/http: TLS handshake timeout"), true},
+		{errors.New("Get https://x: dial tcp 1.2.3.4:443: i/o timeout"), true},
+		{errors.New("egress host box: ssh is gone"), true},
+		{statusErr{503}, false},
+		{statusErr{429}, false},
+		{errors.New("API Error: 429 rate limit"), false},
+		{context.DeadlineExceeded, false},
+		{errors.New("overloaded"), false},
+	} {
+		if got := Classify("x", c.err, false).Connect; got != c.want {
+			t.Errorf("Classify(%q).Connect = %v, want %v", c.err, got, c.want)
+		}
+	}
+}
+
+type pathRun struct {
+	calls  []string
+	notes  []string
+	policy Policy
+}
+
+func newPathRun(t *testing.T) *pathRun {
+	r := &pathRun{policy: fastPolicy(t)}
+	r.policy.Notify = func(s string) { r.notes = append(r.notes, s) }
+	return r
+}
+
+func (r *pathRun) do(ctx context.Context, fn func(via string) *Error) *Error {
+	return Do(ctx, r.policy, func(c context.Context, _ int) *Error {
+		via := egress.Via(c)
+		r.calls = append(r.calls, via)
+		return fn(via)
+	})
+}
+
+func (r *pathRun) alternates() (n int) {
+	for _, s := range r.notes {
+		if strings.Contains(s, "unreachable via") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestDoTriesTheOtherPathOnAConnectionFailure(t *testing.T) {
+	t.Setenv(egress.EnvHost, "")
+	r := newPathRun(t)
+	e := r.do(egress.WithHost(t.Context(), "box"), func(via string) *Error {
+		if via != "" {
+			return connectFail()
+		}
+		return nil
+	})
+	if e != nil || fmt.Sprint(r.calls) != "[box ]" || r.alternates() != 1 {
+		t.Fatalf("err=%v calls=%q notes=%q; want success on the direct retry with one notice", e, r.calls, r.notes)
+	}
+	if want := "dev: unreachable via ssh box, trying direct"; r.notes[0] != want {
+		t.Fatalf("notice = %q, want %q", r.notes[0], want)
+	}
+
+	t.Setenv(egress.EnvHost, "box")
+	r = newPathRun(t)
+	e = r.do(egress.WithHost(t.Context(), ""), func(via string) *Error {
+		if via == "" {
+			return connectFail()
+		}
+		return nil
+	})
+	if e != nil || fmt.Sprint(r.calls) != "[ box]" || r.notes[0] != "dev: unreachable via direct, trying ssh box" {
+		t.Fatalf("err=%v calls=%q notes=%q; want success through the tunnel", e, r.calls, r.notes)
+	}
+}
+
+func TestDoTriesTheOtherPathOnlyOnce(t *testing.T) {
+	t.Setenv(egress.EnvHost, "box")
+	r := newPathRun(t)
+	e := r.do(t.Context(), func(string) *Error { return connectFail() })
+	if e == nil || e.Attempts != 3 || r.alternates() != 1 || len(r.calls) != 4 {
+		t.Fatalf("err=%v calls=%q notes=%q; want 1 alternate among 4 calls, then ordinary failure", e, r.calls, r.notes)
+	}
+	if len(e.Earlier) != 3 {
+		t.Fatalf("Earlier = %d, want every failed call kept (3)", len(e.Earlier))
+	}
+}
+
+func TestDoLeavesOtherFailuresAndNoTunnelAlone(t *testing.T) {
+	t.Setenv(egress.EnvHost, "box")
+	r := newPathRun(t)
+	if e := r.do(t.Context(), func(string) *Error { return &Error{Kind: KindTransient, Agent: "dev", Status: 503} }); e == nil || r.alternates() != 0 {
+		t.Fatalf("a 503 is not a connection failure: err=%v notes=%q", e, r.notes)
+	}
+	t.Setenv(egress.EnvHost, "")
+	r = newPathRun(t)
+	if e := r.do(t.Context(), func(string) *Error { return connectFail() }); e == nil || r.alternates() != 0 || len(r.calls) != 3 {
+		t.Fatalf("no tunnel host: err=%v calls=%q notes=%q; want plain retries", e, r.calls, r.notes)
+	}
 }

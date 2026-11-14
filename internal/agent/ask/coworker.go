@@ -25,6 +25,7 @@ import (
 
 // ApplyCoworker exports confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
 func ApplyCoworker(value, profile, agentName, model, fallback string) error {
+	autoPickedArm = ""
 	ip, iprof, err := router.Coworker()
 	if err != nil {
 		return err
@@ -130,8 +131,12 @@ func routedLead(q agent.RouteReq, readsProvider bool) (lead, provider string, er
 	return lead, "", nil
 }
 
+// autoPickedArm retains auto intent after confinement exports the selected workspace.
+var autoPickedArm string
+
 // applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks the row and exports it.
 func applyArm(p, profile, agentName, model, fallback string) error {
+	auto := p == router.AutoArm && router.ArmProfile() == ""
 	p, explicit, err := armWorkspace(p, profile, agentName, model)
 	if err != nil {
 		return err
@@ -142,7 +147,13 @@ func applyArm(p, profile, agentName, model, fallback string) error {
 	if err := exportConfinement(router.RouteDatabricks, p); err != nil {
 		return err
 	}
-	return proc.Setenv(providers.EnvSessionProfile, p)
+	if err := proc.Setenv(providers.EnvSessionProfile, p); err != nil {
+		return err
+	}
+	if auto {
+		autoPickedArm = p
+	}
+	return nil
 }
 
 // armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.

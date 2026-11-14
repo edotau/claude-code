@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"regexp"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -49,6 +51,7 @@ type Error struct {
 	Earlier    []*Error      // the attempts before this one, oldest first; Do sets it on the error it returns
 	Terminal   bool          // a state check refused the attempt: retrying cannot help
 	Waited     time.Duration // wall time Do spent on attempts and waits before giving up
+	Connect    bool          // failed before any response (dial, TLS, tunnel), not an HTTP status: Do tries the other egress path
 }
 
 // Fatal is a terminal, never-retried failure of agent wrapping err.
@@ -121,6 +124,7 @@ var (
 	rateRE       = regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
 	authRE       = regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
 	transientRE  = regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
+	connectRE    = regexp.MustCompile(`dial tcp|\btls\b|i/o timeout|connection refused|no such host|egress host`)
 	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(h|hrs?|hours?|m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
 )
 
@@ -143,12 +147,29 @@ func Classify(agent string, err error, progressed bool) *Error {
 		}
 	} else {
 		e.Kind, e.RetryAfter = classifyText(err)
+		e.Connect = preResponseConnect(e.Kind, err)
 	}
 	var ra interface{ RetryAfter() time.Duration }
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		e.RetryAfter = ra.RetryAfter()
 	}
 	return e
+}
+
+// preResponseConnect is true when a transient or fatal text-classified error is a connection failure.
+func preResponseConnect(kind Kind, err error) bool {
+	return (kind == KindTransient || kind == KindFatal) && connectFailure(err)
+}
+
+// connectFailure is true for a dial, TLS or network timeout (a deadline of the attempt itself is not one).
+func connectFailure(err error) bool {
+	if op, ok := errors.AsType[*net.OpError](err); ok && op.Op == "dial" {
+		return true
+	}
+	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() && !errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return connectRE.MatchString(strings.ToLower(err.Error()))
 }
 
 func classifyText(err error) (Kind, time.Duration) {
@@ -304,6 +325,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 	p.MaxAttempts = max(p.MaxAttempts, 1)
 	var last *Error
 	var earlier []*Error
+	fn = p.reroute(fn, &earlier)
 	start := time.Now()
 	fail := func() *Error { // every attempt before the last rides on the error returned
 		last.Earlier = earlier
@@ -341,6 +363,28 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 		}
 	}
 	return fail()
+}
+
+// reroute wraps fn so the first connection failure is retried at once over the other egress path, never again.
+func (p Policy) reroute(fn func(context.Context, int) *Error, earlier *[]*Error) func(context.Context, int) *Error {
+	tried := false
+	return func(ctx context.Context, attempt int) *Error {
+		e := fn(ctx, attempt)
+		if e == nil || !e.Connect || tried || ctx.Err() != nil {
+			return e
+		}
+		alt, from, to, ok := egress.Alternate(ctx)
+		if !ok {
+			return e
+		}
+		tried = true
+		if p.Notify != nil {
+			p.Notify(fmt.Sprintf("%s: unreachable via %s, trying %s", e.Agent, from, to))
+		}
+		e.Attempts = attempt
+		*earlier = append(*earlier, WithoutEarlier(e))
+		return fn(alt, attempt)
+	}
 }
 
 func (p Policy) notifyRetry(last *Error, attempt int, wait time.Duration) {

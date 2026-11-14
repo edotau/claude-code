@@ -83,6 +83,7 @@ type batchTask struct {
 	ID      string
 	Agent   string // the agent asked for, named on a failure envelope
 	Plan    string // plan_task of the line, stamped on the dispatch record
+	arm     *armRetry
 	Req     agent.RunOptions
 	Prepare func(ctx context.Context) (*agent.Prepared, error)
 	Retry   func(ctx context.Context) (*agent.Prepared, error) // optional: reroutes a failed task once, same id

@@ -473,6 +473,9 @@ type RunOptions struct {
 	Background                                          bool               `json:"-"`
 	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429
 	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, Permissions enforced by the injected permission-gate
+
+	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
+	YieldFallback func(wire.Result, error) bool `json:"-"`
 }
 
 // StatusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
