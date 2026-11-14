@@ -208,6 +208,7 @@ var writers = map[string]string{
 	"internal/memory/bank_remember.go:writeRememberFact":       unversioned("memory-bank: bank remember"),
 	"internal/memory/recall.go:markSeen":                       unversioned("log: seen-ids list, text lines"),
 	"internal/memory/recall.go:resetSeen":                      unversioned("log: seen-ids list rewrite"),
+	"internal/hooks/agents/effort.go:appendSeen":               unversioned("log: dispatch-recall seen ids, text lines"),
 	"internal/memory/bank_settle.go:rotateSessionHistory":      unversioned("memory-bank: sessionHistory rotation"),
 	"internal/memory/sandbox.go:sandboxStore":                  unversioned("memory-bank: disposable sandbox copy"),
 	"internal/memory/sandbox.go:recordSandbox":                 unversioned("marker: sandbox owner pid and start"),

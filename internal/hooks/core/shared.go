@@ -105,3 +105,19 @@ func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 	}
 	return msg + "  command: " + textutil.CapRunes(in.ToolCommand(), 160, "…") + "\n" + hint + "\n"
 }
+
+var (
+	deliveryRe = regexp.MustCompile(`(?s)<(agent-message|task-notification)\b.*?</(?:agent-message|task-notification)>` +
+		`|Another Claude session sent a message:`)
+	reminderRe = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+)
+
+// AutomatedDelivery reports whether prompt is only an agent hand-back or task notification, with no user-typed text.
+func AutomatedDelivery(prompt string) bool {
+	p := strings.TrimSpace(prompt)
+	if strings.HasPrefix(p, "[SYSTEM NOTIFICATION - NOT USER INPUT]") {
+		return true
+	}
+	rest := deliveryRe.ReplaceAllString(p, "")
+	return rest != p && strings.TrimSpace(reminderRe.ReplaceAllString(rest, "")) == ""
+}
