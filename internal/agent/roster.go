@@ -428,7 +428,7 @@ func VaultAgentIsClaude(name string) bool {
 	return ok && !s.External()
 }
 
-// AgentOn and AgentOff are the values `<agent> on|off` and ValidAgentActive accept.
+// AgentOn and AgentOff are the values `<agent> profile` (`--off` = AgentOff) and ValidAgentActive accept.
 const (
 	AgentOn  = "on"
 	AgentOff = "off"

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -40,72 +41,97 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 	return 0
 }
 
-// PrintResult prints a dispatch's log, its ask line and resume command, or with json its envelope.
-func PrintResult(rec agent.Record, format string) int {
-	return printResult("agents result", rec.Agent, rec.ID, format, true)
+// ResultOptions select `agents result`: Ref "" needs Agent; Follow streams until the job ends, Events the event file.
+type ResultOptions struct {
+	Prefix, Agent, Ref, Format string
+	Follow, Events             bool
 }
 
-// PrintAgentResult is `<agent> result`: a job's log, session and resume hint, or with json {id, session, resume, log}.
-func PrintAgentResult(name, ref, format string) int {
-	return printResult(name+" result", name, ref, format, false)
-}
-
-// printResult loads agentName's job ref and prints it; full adds the ask line, and json prints the envelope.
-func printResult(prefix, agentName, ref, format string, full bool) int {
+// Result prints a job's log, ask line and resume command (json: its envelope), streaming it while Follow or Events;
+// exit 1 for an errored job or a followed job that was lost.
+func Result(o ResultOptions) int {
+	prefix := cmp.Or(o.Prefix, "agents result")
+	if o.Agent == "" && o.Ref == "" {
+		return helptext.FailUsage("%s: an id or --agent is required", prefix)
+	}
 	cwd, err := os.Getwd()
-	var rec agent.Record
-	var log string
-	if err == nil {
-		rec, log, err = agent.JobResult(context.Background(), agentName, cwd, ref)
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
+	name, ref := o.Agent, o.Ref
+	if name == "" { // a bare id names its agent in its record
+		rec, err := agent.LoadRecord(ref)
+		if err != nil {
+			return helptext.Fail("%s: %v", prefix, err)
+		}
+		name, ref = rec.Agent, rec.ID
+	}
+	if o.Follow || o.Events {
+		return streamResult(prefix, o, name, cwd, ref)
+	}
+	rec, log, err := agent.JobResult(context.Background(), name, cwd, ref)
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
+	return emitResult(prefix, rec, log, o.Format)
+}
+
+// streamResult follows (or just copies) the job's log or events; a followed log's trailer closes it, without the log.
+func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	rec, err := agent.ResolveJob(ctx, name, cwd, ref)
+	if err != nil {
+		return helptext.Fail("%s: %v", prefix, err)
+	}
+	out := &endWriter{w: os.Stdout}
+	switch {
+	case o.Events:
+		rec, err = agent.TailEvents(ctx, rec, o.Follow, os.Stdout)
+	case o.Format == helptext.JSON: // the envelope is the only JSON: wait for the job, stream nothing
+		rec, err = agent.Tail(ctx, name, cwd, rec.ID, true, io.Discard)
+	default:
+		rec, err = agent.Tail(ctx, name, cwd, rec.ID, true, out)
 	}
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
+	if rec.Status == "running" && o.Follow {
+		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
+		return 1
+	}
+	if o.Events {
+		return resultExit(rec)
+	}
+	if out.last != 0 && out.last != '\n' {
+		fmt.Println()
+	}
+	return emitResult(prefix, rec, "", o.Format)
+}
+
+// endWriter remembers the last byte written, so a trailer can start on a fresh line.
+type endWriter struct {
+	w    io.Writer
+	last byte
+}
+
+func (e *endWriter) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		e.last = p[len(p)-1]
+	}
+	return e.w.Write(p)
+}
+
+// emitResult prints rec's envelope (json) or log, ask line and resume hint (text), and maps the job to an exit code.
+func emitResult(prefix string, rec agent.Record, log, format string) int {
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, resultJSON(rec, agentName, log, full)); err != nil {
+		if err := helptext.WriteJSON(os.Stdout, rec.ResultEnvelope(os.Stderr)); err != nil {
 			return helptext.Fail("%s: %v", prefix, err)
 		}
 		return resultExit(rec)
 	}
-	if _, err := os.Stdout.WriteString(resultText(rec, log, full)); err != nil {
+	if _, err := os.Stdout.WriteString(resultText(rec, log)); err != nil {
 		return helptext.Fail("%s: write output: %v", prefix, err)
-	}
-	return resultExit(rec)
-}
-
-// resultJSON is the dispatch envelope when full, else `<agent> result`'s {id, session, resume, log}.
-func resultJSON(rec agent.Record, agentName, log string, full bool) any {
-	if full {
-		return rec.ResultEnvelope(os.Stderr)
-	}
-	s, _ := agent.LookupSchema(agentName)
-	return struct {
-		ID      string `json:"id"`
-		Session string `json:"session,omitempty"`
-		Resume  string `json:"resume,omitempty"`
-		Log     string `json:"log"`
-	}{rec.ID, rec.SessionID, s.ResumeHint(rec.SessionID), log}
-}
-
-// TailJob prints a job's log (json: its events); exit 1 for an errored job or a followed job that was lost.
-func TailJob(prefix string, rec agent.Record, format string, follow bool) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	cwd, err := os.Getwd()
-	if err != nil {
-		return helptext.Fail("%s: %v", prefix, err)
-	}
-	if format == helptext.JSON {
-		rec, err = agent.TailEvents(ctx, rec, follow, os.Stdout)
-	} else {
-		rec, err = agent.Tail(ctx, rec.Agent, cwd, rec.ID, follow, os.Stdout)
-	}
-	if err != nil {
-		return helptext.Fail("%s: %v", prefix, err)
-	}
-	if rec.Status == "running" && follow {
-		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
-		return 1
 	}
 	return resultExit(rec)
 }
@@ -178,7 +204,7 @@ func printLiveEnvelope(env wire.Envelope, format string) error {
 
 // liveExclusive are the ask flags a live session cannot honor: it has no single task, route or envelope of its own.
 var liveExclusive = []string{"background", "host", "batch", "retry", "job", "env", "attach", "no-tools", "output-schema",
-	"rubric", "log", "stdin-framed", "fallback", "native"}
+	"rubric", "stdin-framed", "fallback", "native"}
 
 // askLiveCheck rejects --live with a persona, another agent, a task, or a flag a held-open session cannot honor.
 func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
@@ -271,11 +297,11 @@ func abandonLive(rec *agent.Record, cause error) error {
 	return cause
 }
 
-// printDispatchLog lists recent dispatches; the prompt preview is scrubbed of credential shapes.
-func printDispatchLog(format string) int {
+// DispatchLog is bare `agents status`: the 20 newest dispatches, prompt preview scrubbed of credential shapes.
+func DispatchLog(prefix, format string) int {
 	recs := agent.RecentRecords(20)
 	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail("ask", recs)
+		return helptext.WriteJSONOrFail(prefix, recs)
 	}
 	if len(recs) == 0 {
 		fmt.Println("no dispatches logged yet")

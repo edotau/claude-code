@@ -12,12 +12,14 @@ import (
 
 // Options configures a sync run; Check implies DryRun and exits 1 on pending work or a foreign entry on a managed name.
 type Options struct {
-	DryRun  bool
-	NoPrune bool
-	Check   bool
-	JSON    bool      // emit per-destination rows as JSON instead of status lines
-	Agent   string    // one of Names(); "" = every agent
-	Out     io.Writer // status lines; nil → os.Stdout
+	DryRun   bool
+	Check    bool
+	JSON     bool      // emit per-destination rows as JSON instead of status lines
+	Agent    string    // one of Names(); "" = every agent
+	Out      io.Writer // status lines; nil → os.Stdout
+	Root     string    // source config dir; "" = paths.ConfigDir()
+	Home     string    // agent homes' parent; "" = the user's home
+	StateDir string    // holds projections/; "" = <Root>/state
 }
 
 // writeResult classifies one projection write.
@@ -61,9 +63,9 @@ func (r *syncResult) add(o syncResult) {
 
 // syncInputs is everything Sync discovers before it writes anything.
 type syncInputs struct {
-	home, root, skillsDir string
-	names                 []string
-	agents, skills        []Source
+	home, root, state, skillsDir string
+	names                        []string
+	agents, skills               []Source
 }
 
 // Sync projects agents/ and skills/ into every agent home and prunes stale output. Exit 0 ok, 1 error or stale.
@@ -84,8 +86,8 @@ func runSync(opts Options) int {
 	if !ok {
 		return code
 	}
-	prune := !opts.NoPrune && len(in.agents)+len(in.skills) > 0
-	if !opts.NoPrune && !prune {
+	prune := len(in.agents)+len(in.skills) > 0
+	if !prune {
 		fmt.Fprintln(os.Stderr, "sync: "+emptySourceNote(in.skillsDir)+"; refusing to prune")
 	}
 
@@ -104,8 +106,7 @@ func runSync(opts Options) int {
 
 // loadSyncInputs resolves HOME, the vendor roster and the discovered agents/skills; ok is false with the exit code.
 func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
-	home, _ := os.UserHomeDir()
-	root := paths.ConfigDir()
+	home, root, state := syncDirs(opts)
 	if home == "" {
 		fmt.Fprintln(os.Stderr, "sync: HOME is not set")
 		return in, 1, false
@@ -134,7 +135,22 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	if err := validateUniqueNames(skills); err != nil {
 		return in, syncFail(err), false
 	}
-	return syncInputs{home: home, root: root, skillsDir: skillsDir, names: names, agents: agents, skills: skills}, 0, true
+	return syncInputs{home: home, root: root, state: state, skillsDir: skillsDir, names: names, agents: agents, skills: skills}, 0, true
+}
+
+// syncDirs resolves the home, config root and state directories, defaulting each one the options leave empty.
+func syncDirs(opts Options) (home, root, state string) {
+	home, root, state = opts.Home, opts.Root, opts.StateDir
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if root == "" {
+		root = paths.ConfigDir()
+	}
+	if state == "" {
+		state = filepath.Join(root, "state")
+	}
+	return home, root, state
 }
 
 // emptySourceNote tells a readable skills/ with zero skills apart from one that is missing or unreadable.
@@ -218,13 +234,13 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 func syncProjectionAssets(out io.Writer, name string, in syncInputs, docs string, hasDocs, dryRun, prune bool) syncResult {
 	header(out, name)
 	tg := targets[name]
-	res := syncProjection(out, name, tg, in.agents, Dir(in.root, name), tg.home(in.home), dryRun, prune)
+	res := syncProjection(out, name, tg, in.agents, stateRoot(in.state, name, "agents"), tg.home(in.home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		res.add(syncSkillLinks(out, in.skills, in.skillsDir, tg.skills(in.home), prune, dryRun))
 	}
-	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(in.home, rel)), Root(in.root, name)) {
-		res.record(writeProjection(out, filepath.Join(Root(in.root, name), filepath.Base(rel)), docs, dryRun))
+	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(in.home, rel)), stateRoot(in.state, name)) {
+		res.record(writeProjection(out, filepath.Join(stateRoot(in.state, name), filepath.Base(rel)), docs, dryRun))
 		res.record(writeOwnedFile(out, filepath.Join(in.home, rel), docs, dryRun))
 	}
 	return res

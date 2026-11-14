@@ -106,7 +106,7 @@ func hostEngine(o RunOptions) (Engine, error) {
 	if err := textutil.ValidHost(o.Host); err != nil {
 		return nil, err
 	}
-	return newRemoteEngine(o.Agent, o.Host, remote.Bin(o.RemoteBin), o.Fallback), nil
+	return newRemoteEngine(o.Agent, o.Host, remote.Bin(), o.Fallback), nil
 }
 
 // withRubric is o with its prompt wrapped in o.Rubric, when one is set.
@@ -202,7 +202,7 @@ func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) Record
 	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
 		if o.Host != "" {
-			rec.Host, rec.RemoteBin = o.Host, remote.Bin(o.RemoteBin)
+			rec.Host = o.Host
 		}
 	}
 	return rec
@@ -425,6 +425,10 @@ func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverE
 	if e != nil {
 		e.Agent = cmp.Or(e.Agent, name)
 		condemnAuth(e, recoverErr)
+		if s.req.Direct && e.Kind == retry.KindAuth && e.Progressed {
+			e.Err = fmt.Errorf("%w (the static --direct token probably expired; drop --direct, the default is routed "+
+				"through the proxy, which keeps tokens fresh)", e.Err)
+		}
 		return res, e
 	}
 	return res, nil
@@ -482,7 +486,6 @@ type RunOptions struct {
 	Fallback                                            string             `json:"-"`
 	Native                                              bool               `json:"native,omitempty"` // opencode: skip the hub ladder; --retry replays it
 	Host                                                string             `json:"-"`
-	RemoteBin                                           string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
 	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429

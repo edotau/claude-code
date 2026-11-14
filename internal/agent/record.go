@@ -61,7 +61,6 @@ type Record struct {
 	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
 	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string     `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
-	RemoteBin      string     `json:"remote_bin,omitempty"`      // ask --host: the remote claude-code binary
 	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
 	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
 	TaskID         string     `json:"task_id,omitempty"`         // ask --batch: the task line's id
@@ -192,7 +191,7 @@ func (r Record) Elapsed() string {
 	return (time.Duration(r.DurationMs) * time.Millisecond).String()
 }
 
-// LogLine renders r as one `ask --log` row, plus a fallback line; the prompt preview is scrubbed of credential shapes.
+// LogLine renders r as one `agents status` row plus a fallback line; the prompt preview is scrubbed of credentials.
 func (r Record) LogLine() string {
 	tools := ""
 	if r.Request.Tools {
@@ -318,7 +317,7 @@ func LoadRecord(id string) (Record, error) {
 		}
 	}
 	if len(match) != 1 {
-		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents ask --log)", id, len(match))
+		return Record{}, fmt.Errorf("dispatch %q: %d matches (see claude-code agents status)", id, len(match))
 	}
 	return readRecord(filepath.Join(dir, match[0]))
 }
@@ -368,7 +367,7 @@ func ReadRecent(n int) ([]Record, error) {
 // RunRecordedOpts tunes runRecorded for the caller's stdout contract.
 type RunRecordedOpts struct {
 	Job      bool         // a --job child: stdout is the log, so out is dropped and the log keeps events + stderr only
-	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `<agent> result` reads it)
+	AnswerTo io.Writer    // written the final answer once the log is flushed (a job's `agents result` reads it)
 	Notify   func(string) // receives non-fatal bookkeeping failures (the record not saving)
 	Hold     bool         // a retried attempt: no answer, result event or Finish; the caller's Conclude does them once
 }

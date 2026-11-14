@@ -150,8 +150,7 @@ type askLine struct {
 }
 
 // offRoute are ask flags taking the run to another host, lead, record or batch: the hook predicts no preflight.
-var offRoute = []string{"agents", "native", "provider", "host", "host-bin", "retry", "retry-agent", "resume", "live",
-	"log", "job", "jobs", "batch", "follow"}
+var offRoute = []string{"agents", "native", "provider", "host", "retry", "resume", "live", "job", "jobs", "batch"}
 
 // opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
 func (r *dispatchRun) opening(ctx context.Context, task string) askLine {

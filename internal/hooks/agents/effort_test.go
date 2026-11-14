@@ -848,7 +848,7 @@ func TestDispatchRunReceiptGrammar(t *testing.T) {
 			}
 		}
 	}
-	for _, brief := range []string{"Run: echo 'claude-code codex ask x'", "Run: claude-code agents result id", "Run: claude-code agents tail id", "Task\nRun: claude-code codex ask x"} {
+	for _, brief := range []string{"Run: echo 'claude-code codex ask x'", "Run: claude-code agents result id", "Run: claude-code agents result -f id", "Task\nRun: claude-code codex ask x"} {
 		if opensWithAsk(brief) {
 			t.Errorf("not an opening launch: %q", brief)
 		}

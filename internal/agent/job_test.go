@@ -415,7 +415,7 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 
 func TestWavesIsAJobAgentNotALaunchableOne(t *testing.T) {
 	if err := checkAgent("waves"); err != nil {
-		t.Errorf("checkAgent(waves) = %v, want nil: status, result, tail and cancel resolve its records", err)
+		t.Errorf("checkAgent(waves) = %v, want nil: status, result and cancel resolve its records", err)
 	}
 	if _, ok := LookupSchema("waves"); ok {
 		t.Error("waves is registered as a launchable agent; it must stay job-only")

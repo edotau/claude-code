@@ -24,14 +24,14 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// BinEnv names the remote claude-code binary when --host-bin is absent; else "claude-code" on the remote PATH.
+// BinEnv names the remote claude-code binary; else "claude-code" on the remote PATH.
 const BinEnv = "HARNESS_REMOTE_BIN"
 
 // PathPrefix is `make install`'s login PATH: ssh's non-login shell lacks it, so claude-code and auth commands fail.
 const PathPrefix = `export PATH="$HOME/.claude/bin:$HOME/.local/bin:$HOME/.local/go/bin:$HOME/go/bin:$PATH";`
 
-// Bin picks the remote binary: the flag, then HARNESS_REMOTE_BIN, then "claude-code".
-func Bin(flagValue string) string { return cmp.Or(flagValue, os.Getenv(BinEnv), "claude-code") }
+// Bin picks the remote binary: HARNESS_REMOTE_BIN, then "claude-code".
+func Bin() string { return cmp.Or(os.Getenv(BinEnv), "claude-code") }
 
 // HomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
 func HomePath(p string) string {
@@ -170,7 +170,7 @@ func hostArgv(host string, args []string, tty bool) ([]string, error) {
 	if isLogin(args) {
 		env = oauth.ViaHostEnv + "=" + textutil.ShellQuote(host) + " "
 	}
-	script := PathPrefix + " " + env + "exec " + textutil.QuotePath(HomePath(Bin(""))) + " " + strings.Join(quoted, " ")
+	script := PathPrefix + " " + env + "exec " + textutil.QuotePath(HomePath(Bin())) + " " + strings.Join(quoted, " ")
 	return sshArgv(host, tty, false, script)
 }
 

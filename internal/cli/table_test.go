@@ -129,7 +129,9 @@ func TestCompletionContains(t *testing.T) {
 		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
 		{"network subverbs", []string{"network", ""}, []string{"tailscale", "browser", "websearch", "restart", "remote"}},
 		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
-		{"vendor status flag", []string{"codex", "status", "--"}, []string{"--all"}},
+		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
+		{"agents cancel flags", []string{"agents", "cancel", "--"}, []string{"--dry-run", "--lost"}},
+		{"vendor profile flags", []string{"codex", "profile", "--"}, []string{"--clear", "--off"}},
 		{"vendor setup flag", []string{"codex", "setup", "--"}, []string{"--format"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -478,7 +480,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
 		"gateway":  {"proxy"},
-		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel", "wait", "brief"},
+		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
@@ -855,7 +857,7 @@ func helpAllowsNoRows(path []string) bool {
 		"opencode catalog remove": true, "opencode catalog reset": true,
 	}
 	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&
-		slices.Contains([]string{"cancel", "catalog", "models", "resume", "on", "off"}, path[1]) {
+		slices.Contains([]string{"catalog", "models"}, path[1]) {
 		return true
 	}
 	return flagless[strings.Join(path, " ")]

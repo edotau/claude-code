@@ -343,14 +343,14 @@ func leafInput(tx string) *core.Input { return &core.Input{AgentTranscriptPath: 
 
 func startedLine() string { return "job " + leafJob + " started" }
 
-// A running dispatch blocks the stop, naming the id and the tail command, and the Stop path exits 2 with the reason.
+// A running dispatch blocks the stop, naming the id and the result -f command, and the Stop path exits 2 with the reason.
 func TestLeafStopBlocksRunningDispatch(t *testing.T) {
 	tx := leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
 	r, blocked := leafStopBlock(leafInput(tx), "a1")
 	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, leafJob) ||
-		!strings.Contains(r.Reason, "claude-code agents tail -f "+leafJob) || !strings.Contains(r.Reason, "600000ms") {
-		t.Fatalf("got %+v blocked=%v, want a Block naming %s, the tail command and the 600000ms timeout", r, blocked, leafJob)
+		!strings.Contains(r.Reason, "claude-code agents result -f "+leafJob) || !strings.Contains(r.Reason, "600000ms") {
+		t.Fatalf("got %+v blocked=%v, want a Block naming %s, the result -f command and the 600000ms timeout", r, blocked, leafJob)
 	}
 	var out, errb bytes.Buffer
 	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock || !strings.Contains(errb.String(), leafJob) {
@@ -508,6 +508,12 @@ func gatedLeafTx(t *testing.T, brief string, toolResults ...string) *core.Input 
 // leafTx is gatedLeafTx for any subagent type.
 func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.Input {
 	t.Helper()
+	return leafTxCmd(t, agentType, `claude-code agents ask --agent codex "x"`, brief, toolResults...)
+}
+
+// leafTxCmd is leafTx where every result answers the given Bash command.
+func leafTxCmd(t *testing.T, agentType, command, brief string, toolResults ...string) *core.Input {
+	t.Helper()
 	dir := t.TempDir()
 	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
 	body := string(first) + "\n"
@@ -515,7 +521,7 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 	for i, r := range toolResults { // each result answers a Bash call that ran an ask, the only results the gate reads
 		id := "toolu_" + strconv.Itoa(i)
 		call, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
-			{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": `claude-code agents ask --agent codex "x"`}}}}})
+			{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": command}}}}})
 		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
 			{"type": "tool_result", "tool_use_id": id, "content": r}}}})
 		bodySb206.Write(call)
@@ -532,6 +538,19 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 		t.Fatal(err)
 	}
 	return leafInput(tx)
+}
+
+// `agents result -f` carries the ran-on receipt the way `tail -f` did; the removed `agents tail` earns none.
+func TestRanOnReceiptFromResultFollow(t *testing.T) {
+	const receipt = "ask: ran on codex · gpt-5 · profile x\nresult"
+	for command, wantBlocked := range map[string]bool{
+		"claude-code agents result -f job1": false, "claude-code agents result job1": false, "claude-code agents tail -f job1": true,
+	} {
+		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt)
+		if _, blocked := leafStopBlock(in, "a1"); blocked != wantBlocked {
+			t.Errorf("%q: blocked = %v, want %v", command, blocked, wantBlocked)
+		}
+	}
 }
 
 // The ran-on gate covers every leaf type that can request an agent and spares claude.

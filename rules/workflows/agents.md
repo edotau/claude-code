@@ -14,16 +14,17 @@ conveniences.
 
 | To… | Run |
 | --- | --- |
-| Relay or explicitly requested script (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents ask --log` · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
-| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status\|result\|tail\|cancel <id>`; `agents list --format json` = capability schema (`skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle) |
-| Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|resume\|review\|transfer\|status\|result\|cancel\|setup\|catalog` · `--print-env` |
+| Relay or explicitly requested script (one shot) | `claude-code agents ask --agent <agent> "<task>"` (`--format json` = envelope) · `agents status` (the 20 most recent dispatches) · `agents ask --retry <id>` · inline agents: `agents ask --agents <json\|file>` (`rules/harness/agent.md` → Dispatch behavior) |
+| Stream events, set env/system prompt, run remote, or hold a live claude session | `agents ask --format stream-json` · `--env K=V` · `--append-system-prompt` · `--host <h>` · `--live` + `agents send <id> "<task>"`; `agents status [<id>] [--agent A] [--all]` · `agents result [<id>] [--agent A] [-f] [--events]` · `agents cancel (<id> \| --lost) [--agent A]`; `agents list --format json` = capability schema (`skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle) |
+| Launch or drive codex/gemini/opencode/copilot | `claude-code <v> [args]` (`--` forces passthrough) · `<v> ask\|review\|explore\|transfer\|setup\|catalog\|profile [<p>\|--clear\|--off]` (job verbs and resume: `agents status\|result\|cancel --agent <v>`, `agents ask --agent <v> --session <id> <task>`) · `--print-env` |
 | Owner prompt-box syntax | `@agent-<name>` selects a subagent; owner-only `/<agent>` and `/coworker` shortcuts below |
 | Sweep many files in one Gemini call (1M context) | `claude-code agents ask --agent gemini --tools --dirs <d> [--index] [--diff] [--rubric <file>] "<task>"` (or any agent; large files need `--max-file-bytes`; test files and `testdata` need `--with-tests`) |
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
 | After a leaf returns | `claude-code agents wait <id>...` · `agents result <id> --save <path>` · `agents diff --check --path <p>...` · `review scope --range <r> --caps`; read the exit code, not the output |
 | Run a plan's waves (never commits) | `claude-code agents dispatch --waves <plan> [--wave N[-M]] [--dry-run\|--status] [--gate CMD]`: exit 0 passed, 1 failed, 2 invalid plan, 3 file outside owned set, 4 still running; launch in the background and `agents wait <id> --timeout 10m` (exit 4 = still running) |
-| Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
+| Subagent status | `claude-code agents tree [--watch\|--finished]` · `agents cancel --lost [--dry-run]` |
+| Leaf description prefix and prompt body | `claude-code agents label <type> --task F` prints the description prefix (`<model>:` and a trailing space); `agents brief --task F` renders the prompt body |
 | What a leaf changed, stayed inside its files, passes the gates | `claude-code agents diff [--base <ref>] [--path <path>]... [--check] [--verify <id>] [--format json]` (gates: gofmt, build, vet, golangci-lint, complexity, test, docs on changed `.md`; exit 1 gate failed or MISMATCH, 3 outside `--path`) |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
 

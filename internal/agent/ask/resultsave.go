@@ -13,17 +13,15 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// resultText is the text `agents result` prints: the log, the ask line when full, then the session and resume command.
-func resultText(rec agent.Record, log string, full bool) string {
+// resultText is the text `agents result` prints: the log, the ask line, then the session and resume command.
+func resultText(rec agent.Record, log string) string {
 	var b strings.Builder
 	b.WriteString(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		b.WriteByte('\n')
 	}
-	if full {
-		if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
-			fmt.Fprintln(&b, "ask:", line)
-		}
+	if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
+		fmt.Fprintln(&b, "ask:", line)
 	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(&b, "session: %s\n", rec.SessionID)
@@ -48,7 +46,7 @@ func SaveResult(rec agent.Record, path string, head int, format string) int {
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
 	}
-	text := resultText(rec, log, true)
+	text := resultText(rec, log)
 	if err := paths.AtomicWrite(path, []byte(text), 0o600); err != nil {
 		return helptext.Fail("agents result: save %s: %v", path, err)
 	}

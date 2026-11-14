@@ -263,7 +263,7 @@ func (r remoteEngine) noResult(werr error, tail *retry.TailBuffer, streamed bool
 	kind := retry.KindTransient
 	switch {
 	case code == 127: // the remote shell found nothing to exec: the task never started
-		msg = fmt.Sprintf("remote %s: claude-code binary not found (%s); install it there or pass --host-bin", r.host, r.bin)
+		msg = fmt.Sprintf("remote %s: claude-code binary not found (%s); install it there or set $HARNESS_REMOTE_BIN", r.host, r.bin)
 		kind = retry.KindFatal
 	case code != 255:
 		msg = fmt.Sprintf("remote ask on %s ended (exit %d) without a result event; does it run a claude-code with --format stream-json?", r.host, code)

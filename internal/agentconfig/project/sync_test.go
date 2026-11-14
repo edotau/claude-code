@@ -17,7 +17,7 @@ func TestSyncRejectsDuplicateSkillNamesBeforeWriting(t *testing.T) {
 	writeSource(t, claude, "skills", "first", "duplicate")
 	writeSource(t, claude, "skills", "second", "duplicate")
 
-	if code := Sync(Options{NoPrune: true, Out: io.Discard}); code != 1 {
+	if code := Sync(Options{Out: io.Discard}); code != 1 {
 		t.Fatalf("Sync exit = %d, want 1", code)
 	}
 	for _, p := range []string{filepath.Join(claude, "state", "projections"), filepath.Join(home, ".agents"), filepath.Join(home, ".codex")} {
@@ -35,7 +35,7 @@ func TestDiscoverAgentsRejectsNameDirMismatch(t *testing.T) {
 	if _, err := DiscoverAgents(filepath.Join(claude, "agents")); err == nil {
 		t.Fatal("DiscoverAgents accepted name != dir")
 	}
-	if code := Sync(Options{NoPrune: true, Out: io.Discard}); code != 1 {
+	if code := Sync(Options{Out: io.Discard}); code != 1 {
 		t.Fatalf("Sync exit = %d, want 1", code)
 	}
 	if _, err := os.Stat(filepath.Join(claude, "state", "projections")); !os.IsNotExist(err) {
@@ -44,7 +44,7 @@ func TestDiscoverAgentsRejectsNameDirMismatch(t *testing.T) {
 }
 
 // Agents and skills live on different surfaces now (vendor agent dirs vs ~/.agents/skills), so a shared name is
-// not a collision: both project, and a NoPrune run leaves exactly what a pruning run leaves.
+// not a collision: both project.
 func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "unique-agent", "unique-agent")

@@ -10,14 +10,12 @@ import (
 	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tree"
-	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
 	hookagents "github.com/edotau/claude-code/internal/hooks/agents"
@@ -34,26 +32,25 @@ import (
 func agentsSpec() *helptext.Node {
 	flag, boolFlag, valuedFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"), boolFlag("no-prune"),
+		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"),
 			formatFlag()}},
-		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("background"), boolFlag("bg"),
+		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("finished"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
-		"reap":  {Flags: []helptext.Flag{boolFlag("dry-run")}},
-		"label": {Flags: []helptext.Flag{flag("model"), flag("brief"), flag("session-model"), formatFlag()}},
+		"label": {Flags: []helptext.Flag{flag("model"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
-		"list": {Flags: []helptext.Flag{flag("host"), flag("host-bin"), formatFlag()}},
+		"list": {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
 			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
-		"status": {Flags: []helptext.Flag{formatFlag()}},
-		"result": {Flags: []helptext.Flag{flag("save"), flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
-		"tail":   {Flags: []helptext.Flag{boolFlag("f"), formatFlag()}},
-		"cancel": {Flags: []helptext.Flag{formatFlag()}},
+		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
+		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),
+			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
+		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report")}},
 	}}
@@ -67,19 +64,12 @@ func agentSpec(name string) func() *helptext.Node {
 func agentNode(name string) *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"ask":    {Flags: ask.CompletionFlags()},
-		"resume": {},
+		"ask": {Flags: ask.CompletionFlags()},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
 			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model")}},
 		"explore":  {Flags: []helptext.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
-		"status":   {Flags: []helptext.Flag{boolFlag("all"), formatFlag()}},
-		"tail":     {Flags: []helptext.Flag{boolFlag("f")}},
-		"result":   {Flags: []helptext.Flag{formatFlag()}},
-		"cancel":   {},
-		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear")}},
-		"on":       {},
-		"off":      {},
+		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
 		"setup":    {Flags: []helptext.Flag{formatFlag()}},
 		"catalog":  catalogSpec(name),
 	}}
@@ -96,14 +86,12 @@ var agentsPage = helptext.Page{
 		{"dispatch", "run a task by role: explore, fleet, compare"},
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
-		{"reap", "mark dead running dispatches as error; drop stale markers"},
 		{"label", "print a leaf's dispatch description prefix"},
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
-		{"status", "show a dispatch's state (any agent): status <id>"},
-		{"result", "print a finished dispatch's answer: result <id> [--save F]"},
-		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
-		{"cancel", "interrupt a running dispatch: cancel <id>"},
+		{"status", "dispatch state: status [<id>] [--agent A] [--all]"},
+		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
+		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"brief", "render a leaf brief: the task plus the contract footer"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
@@ -117,15 +105,15 @@ var agentsSubPages = map[string][3]string{
 		"An unreadable or unparseable file is skipped and named on stderr. Callers are name-based. More than budget is a lower bound.",
 		"Exit 0 match, 1 no match, 2 usage."},
 	"list": {"list [flags]", "List each agent, whether it is available and which request fields (model, profile, effort, …) it honors."},
-	"reap": {"reap [flags]", "Mark dispatch records still \"running\" whose process is gone as error, and drop stale " +
-		"agent-inflight markers."},
 	"sync": {"sync [flags]", "Render agents/ into state/projections/<agent>/agents plus each agent's instruction " +
 		"file, install them into the agent homes, and link skills/ into ~/.agents/skills " +
 		"(plus gemini's and copilot's own skills dirs)."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
-		"--background adds idle and finished work."},
+		"--finished adds idle and finished work in the --days window.",
+		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive\n--interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
-		"description, for a leaf of <type> with the given model and brief."},
+		"description, for a leaf of <type> with the given model and task.",
+		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
 		"the ones outside every --path, and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
@@ -138,13 +126,24 @@ var agentsSubPages = map[string][3]string{
 		"Roles come from the vault overlay dispatch-roles, else the built-in table.\n" +
 			"With --waves, exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
 			"3 outside owned files or unattributed, 4 interrupted."},
-	"status": {"status <id> [flags]", "Show one dispatch's state, whichever agent ran it (claude included)."},
-	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope. " +
-		"--save <file> writes the text there and prints one summary line instead (--head N echoes its first N lines). " +
-		"--verdict prints one status line and the last --lines N (default 10) non-empty answer lines.",
-		"Exit 0 ok, 1 errored, 2 usage (--verdict with --save)."},
-	"tail":   {"tail <id> [flags]", "Print a dispatch's log; --format json streams its events.jsonl instead."},
-	"cancel": {"cancel <id> [flags]", "Interrupt a running background dispatch, whichever agent runs it."},
+	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
+		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
+		"An <id> shows that dispatch, whichever agent ran it.",
+		"Exit 0, 1 unknown id or agent, 2 usage (--all without --agent)."},
+	"result": {"result [<id>] [flags]", "Print a dispatch's log, its ask line and resume command; --format json prints " +
+		"its envelope. With --agent and no <id>, the newest finished job of that agent in this repo. " +
+		"-f follows a running job until it finishes, with a heartbeat on silence; --events streams its " +
+		"events.jsonl instead of the log. --save <file> writes the text there and prints one summary line " +
+		"(--head N echoes its first N lines). --verdict prints one status line and the last --lines N " +
+		"(default 10) non-empty answer lines.",
+		"Exit 0 ok, 1 errored or lost job, 2 usage (--save or --verdict without an\n" +
+			"<id> or with -f or --events; --events with --format json; no <id> and\nno --agent)."},
+	"cancel": {"cancel (<id> | --lost) [flags]", "Interrupt a running background dispatch, whichever agent runs it; " +
+		"with --agent and no <id>, that agent's single running job in this repo. --lost instead marks " +
+		"dispatch records still \"running\" whose process is gone as error and drops stale agent-inflight " +
+		"markers; --dry-run prints what it would change and writes nothing.",
+		"Exit 0, 1 failed, 2 usage (--lost with an <id>, --agent or --format json;\n" +
+			"--dry-run without --lost; none of <id>, --agent and --lost)."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
 		"Exit 0 all done, 1 any error or lost, 2 usage, 4 timed out, still running."},
 	"brief": {"brief --task <file|-> [--own <path>]... [flags]", "Print a leaf brief: an Owned: line, the mode, the task, the leaf rules and the " +
@@ -175,16 +174,15 @@ func cmdAgentsAsk(args []string) int {
 	return ask.Cmd(args)
 }
 
-// agentsVerbs routes `agents <verb>` to its handler; the job verbs share cmdAgentsJob.
+// agentsVerbs routes `agents <verb>` to its handler.
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
-	"tree": cmdAgentsTree, "reap": cmdAgentsReap, "send": cmdAgentsSend, "label": cmdAgentsLabel,
+	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"diff":   cmdAgentsDiff,
 	"find":   cmdAgentsFind,
-	"status": func(a []string) int { return cmdAgentsJob("status", a) },
-	"result": func(a []string) int { return cmdAgentsJob("result", a) },
-	"tail":   func(a []string) int { return cmdAgentsJob("tail", a) },
-	"cancel": func(a []string) int { return cmdAgentsJob("cancel", a) },
+	"status": cmdAgentsStatus,
+	"result": cmdAgentsResult,
+	"cancel": cmdAgentsCancel,
 	"wait":   cmdAgentsWait,
 	"brief":  cmdAgentsBrief,
 }
@@ -193,7 +191,6 @@ var agentsVerbs = map[string]func([]string) int{
 func cmdAgentsList(args []string) int {
 	fs := agentsFlags("list")
 	host := fs.String("host", "", "list the agents on this ssh host instead (runs its agents list --format)")
-	remoteBin := fs.String("host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	format := fs.String("format", "text", "text, or json: caps, events, permissions")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -206,26 +203,12 @@ func cmdAgentsList(args []string) int {
 		return 2
 	}
 	if *host != "" {
-		if err := agent.ListRemote(*host, remote.Bin(*remoteBin), *format, os.Stdout); err != nil {
+		if err := agent.ListRemote(*host, remote.Bin(), *format, os.Stdout); err != nil {
 			return helptext.Fail("%v", err)
 		}
 		return 0
 	}
 	return printRoster(*format)
-}
-
-// cmdAgentsReap marks dead-but-"running" dispatch records as error and drops stale agent-inflight markers.
-func cmdAgentsReap(args []string) int {
-	fs := agentsFlags("reap")
-	dryRun := fs.Bool("dry-run", false, "print what would change, write nothing")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() > 0 {
-		fs.Usage()
-		return 2
-	}
-	return tree.Reap(*dryRun, os.Stdout, os.Stderr)
 }
 
 // cmdAgentsSync renders agents/ into state/projections, installs the copies into agent homes and links skills/.
@@ -234,7 +217,6 @@ func cmdAgentsSync(args []string) int {
 	name := fs.String("agent", "", "one target: "+strings.Join(project.Names(), "|")+" (default: all)")
 	dryRun := fs.Bool("dry-run", false, "report without writing")
 	check := fs.Bool("check", false, "dry-run; exit 1 when the projection is stale")
-	noPrune := fs.Bool("no-prune", false, "keep orphaned projections")
 	format := fs.String("format", "text", "output: text|json (json = one row per destination)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -246,7 +228,7 @@ func cmdAgentsSync(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return project.Sync(project.Options{JSON: *format == "json", DryRun: *dryRun, Check: *check, NoPrune: *noPrune, Agent: *name, Out: os.Stdout})
+	return project.Sync(project.Options{JSON: *format == "json", DryRun: *dryRun, Check: *check, Agent: *name, Out: os.Stdout})
 }
 
 // cmdAgentsTree is `agents tree`; --watch clears and redraws every --interval until a render fails.
@@ -254,9 +236,7 @@ func cmdAgentsTree(args []string) int {
 	fs := agentsFlags("tree")
 	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	var background bool
-	fs.BoolVar(&background, "background", false, "also show idle and finished work in the --days window")
-	fs.BoolVar(&background, "bg", false, "shorthand for --background")
+	finished := fs.Bool("finished", false, "also show idle and finished work")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	format := helptext.FormatFlag(fs)
@@ -268,8 +248,8 @@ func cmdAgentsTree(args []string) int {
 		return 2
 	}
 	// A named session shows whole.
-	opts := tree.Options{Days: *days, Session: *session, Running: !background && *session == ""}
-	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: background || *session != "",
+	opts := tree.Options{Days: *days, Session: *session, Running: !*finished && *session == ""}
+	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: *finished || *session != "",
 		Watch: *watch, Interval: *interval})
 }
 
@@ -291,7 +271,7 @@ func checkTreeFlags(format string, watch bool, interval time.Duration) error {
 func cmdAgentsLabel(args []string) int {
 	fs := agentsFlags("label")
 	model := fs.String("model", "", "the dispatch's model (default unset: the hook classifies the brief)")
-	brief := fs.String("brief", "", "the brief file the leaf gets; - reads stdin")
+	taskFile := fs.String("task", "", "the task file the leaf gets; - reads stdin")
 	sessionModel := fs.String("session-model", "", "the session's model id (default: from this session's transcript)")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
@@ -305,7 +285,7 @@ func cmdAgentsLabel(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	task, err := hookagents.ReadBrief(*brief)
+	task, err := hookagents.ReadBrief(*taskFile)
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
@@ -432,161 +412,6 @@ func cmdAgentsDispatch(args []string) int {
 	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background, Route: route})
 }
 
-// registerDispatchWaves registers the plan runner's options on dispatch's existing flag set.
-func registerDispatchWaves(fs *flag.FlagSet) *waves.Options {
-	o := &waves.Options{Out: os.Stdout, Err: os.Stderr}
-	fs.StringVar(&o.Plan, "waves", "", "run waves from this plan instead of a role task")
-	fs.Func("wave", "wave N or inclusive range N-M (default: all)", func(s string) error {
-		bounds := strings.Split(s, "-")
-		if len(bounds) > 2 {
-			return fmt.Errorf("invalid wave range %q", s)
-		}
-		var err error
-		o.From, err = dispatchWaveNumber(bounds[0])
-		if err != nil || o.From < 1 {
-			return fmt.Errorf("invalid wave range %q", s)
-		}
-		o.To = o.From
-		if len(bounds) == 2 {
-			o.To, err = dispatchWaveNumber(bounds[1])
-		}
-		if err != nil || o.To < o.From {
-			return fmt.Errorf("invalid wave range %q", s)
-		}
-		return nil
-	})
-	fs.BoolVar(&o.DryRun, "dry-run", false, "with --waves, list packages without launching")
-	fs.BoolVar(&o.Status, "status", false, "with --waves, print saved state without launching")
-	fs.BoolVar(&o.Fresh, "fresh", false, "with --waves, discard saved state and use current HEAD")
-	fs.StringVar(&o.Gate, "gate", "", "with --waves, override the wave gate command")
-	fs.StringVar(&o.Provider, "provider", "", "with --waves, provider for every leaf")
-	for _, name := range []string{"profile", "profiles"} {
-		helptext.ListVar(fs, &o.Profiles, name, "PROFILE", "with --waves, leaf profiles (repeatable or comma-separated)", true)
-	}
-	return o
-}
-
-// dispatchWaveNumber parses a decimal wave number without accepting trailing text.
-func dispatchWaveNumber(s string) (int, error) {
-	if s == "" || strings.Trim(s, "0123456789") != "" {
-		return 0, fmt.Errorf("invalid wave number %q", s)
-	}
-	var n int
-	_, err := fmt.Sscan(s, &n)
-	return n, err
-}
-
-// dispatchWaveCompanions rejects wave-only flags even when their explicit value equals the default.
-func dispatchWaveCompanions(fs *flag.FlagSet) error {
-	var err error
-	fs.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "waves", "wave", "dry-run", "status", "fresh", "gate", "provider", "profile", "profiles", "job":
-			err = fmt.Errorf("--%s requires --waves <plan>", f.Name)
-		}
-	})
-	return err
-}
-
-type waveJob struct {
-	background bool
-	id         string
-	args       []string
-}
-
-// dispatchWaves preserves the runner's exit codes and forwards shared route flags to every leaf.
-func dispatchWaves(pos []string, route *ask.RouteFlags, o *waves.Options, job waveJob) int {
-	if job.background && (o.DryRun || o.Status || job.id != "") {
-		return helptext.FailUsage("agents dispatch: --background cannot combine with --dry-run, --status or --job")
-	}
-	if len(pos) != 0 {
-		return helptext.FailUsage("agents dispatch: --waves accepts no role or task argument")
-	}
-	var err error
-	o.Route, err = route.Args()
-	if err != nil {
-		return helptext.FailUsage("agents dispatch: %v", err)
-	}
-	o.Dir, err = os.Getwd()
-	if err != nil {
-		return helptext.Fail("agents dispatch: %v", err)
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if job.background {
-		return waves.Background(ctx, *o, job.args)
-	}
-	if job.id != "" {
-		return waves.RunJob(ctx, *o, job.id)
-	}
-	return waves.Run(ctx, *o)
-}
-
-// cmdAgentsJob is `agents status|result|tail|cancel <id>`: the agent comes from the dispatch record.
-func cmdAgentsJob(verb string, args []string) int {
-	fs := agentsFlags(verb)
-	format := helptext.FormatFlag(fs)
-	var o jobOpts
-	switch verb {
-	case "tail":
-		fs.BoolVar(&o.follow, "f", false, "follow until the job finishes, with a heartbeat on silence")
-	case "result":
-		fs.StringVar(&o.save, "save", "", "write the result text to this file and print one summary line")
-		fs.IntVar(&o.head, "head", 0, "with --save, also print the first N lines of the saved text")
-		fs.BoolVar(&o.verdict, "verdict", false, "print one status line and the last --lines non-empty answer lines")
-		fs.IntVar(&o.lines, "lines", 10, "with --verdict, how many answer lines to print")
-	}
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("agents "+verb, err)
-	}
-	if len(pos) != 1 || !o.valid() {
-		fs.Usage()
-		return 2
-	}
-	rec, err := agent.LoadRecord(pos[0])
-	if err != nil {
-		return helptext.Fail("agents %s: %v", verb, err)
-	}
-	return runAgentsJob(verb, rec, *format, o)
-}
-
-// jobOpts are the tail and result flags.
-type jobOpts struct {
-	follow  bool
-	save    string
-	head    int
-	verdict bool
-	lines   int
-}
-
-// valid reports whether the flag combination is allowed.
-func (o jobOpts) valid() bool {
-	return o.head >= 0 && (o.head == 0 || o.save != "") && (!o.verdict || (o.save == "" && o.lines >= 1))
-}
-
-// runAgentsJob runs the verb against the dispatch record.
-func runAgentsJob(verb string, rec agent.Record, format string, o jobOpts) int {
-	switch verb {
-	case "status":
-		return ask.Status("agents status", rec.Agent, rec.ID, true, format, "")
-	case "result":
-		if o.save != "" {
-			return ask.SaveResult(rec, o.save, o.head, format)
-		}
-		if o.verdict {
-			return ask.Verdict(rec, o.lines, format)
-		}
-		return ask.PrintResult(rec, format)
-	case "tail":
-		return ask.TailJob("agents tail", rec, format, o.follow)
-	}
-	return ask.CancelJob("agents cancel", rec.Agent, rec.ID, format)
-}
-
 // cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 on error or lost, 4 on timeout.
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
@@ -689,19 +514,12 @@ var agentAbout = map[string]string{
 func agentPage(name string) helptext.Page {
 	rows := [][2]string{
 		{"ask", "one-shot run (= ask --agent " + name + ")"},
-		{"resume", "continue a session"},
 		{"review", "diff review; --adversarial"},
 		{"explore", "scan code + web research → brief"},
 		{"transfer", "hand this Claude session to " + name + "; --source"},
-		{"status", "background jobs in this repo; --all"},
-		{"tail", "a job's output; -f follows live"},
-		{"result", "a finished job's answer + session"},
-		{"cancel", "interrupt a running job"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "model catalog; on Databricks: list|check|sync"},
-		{"profile", "show or set " + name + "'s profile; --clear = own login"},
-		{"on", "route to " + name + " again"},
-		{"off", "stop routing to " + name},
+		{"profile", "show or set " + name + "'s profile; --clear = own login; --off"},
 	}
 	if exploreRefused(name) {
 		rows = slices.DeleteFunc(rows, func(r [2]string) bool { return r[0] == "explore" })
@@ -757,19 +575,12 @@ func launchFlags(name string) *flag.FlagSet {
 
 // agentSubPages maps each sub-verb to its synopsis tail and blurb; %s is the agent name.
 var agentSubPages = map[string][2]string{
-	"resume": {"resume <id> [ask flags] <task>",
-		"Continue session <id> on %s (= ask --agent %[1]s --session <id>); ask's flags apply, see claude-code agents ask -h."},
-	"status":   {"status [id] [flags]", "Background %s jobs in this repo, newest first; an id narrows to one job."},
-	"tail":     {"tail [id] [flags]", "A job's output (default: the newest). Exits 1 when the job failed or was lost."},
-	"result":   {"result [id] [flags]", "A finished job's answer (default: the newest), its session and resume command."},
-	"cancel":   {"cancel [id]", "Interrupt a running %s job (default: the single running job in this repo)."},
-	"setup":    {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
-	"catalog":  {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
-	"review":   {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
-	"explore":  {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
-	"profile":  {"profile [<profile>|--clear]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login."},
-	"on":       {"on", "Route to %s again: sets its profile to its own login."},
-	"off":      {"off", "Stop routing to %s: clears its profile."},
+	"setup":   {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
+	"catalog": {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
+	"review":  {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
+	"explore": {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
+	"profile": {"profile [<profile>|--clear|--off]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login, " +
+		"--off = no profile (stop routing). The three are exclusive. Exit 0, 1 failed."},
 	"transfer": {"transfer [flags] [note…]", "Hand this session's transcript to %s with tools on; detached unless --wait."},
 }
 
@@ -791,6 +602,9 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 	return helptext.NewFlagSet(name+" "+verb, agentSubPage(name, verb))
 }
 
+// retiredAgentVerbs are refused, not forwarded to the agent CLI; their jobs moved to agents verbs and ask --session.
+var retiredAgentVerbs = []string{"resume", "status", "tail", "result", "cancel", "on", "off"}
+
 // cmdAgentVerb is `<agent>`: bare or `--` launches, `ask` = `ask --agent <v>`, a sub-verb runs it, else launch.
 func cmdAgentVerb(name string, args []string) int {
 	switch {
@@ -798,8 +612,10 @@ func cmdAgentVerb(name string, args []string) int {
 		return ask.Launch(name, args)
 	case args[0] == "--":
 		return ask.Launch(name, args[1:])
+	case slices.Contains(retiredAgentVerbs, args[0]):
+		return unknownSub(name, args[0], agentPage(name))
 	case args[0] == "ask":
-		return ask.Run(append([]string{"--agent", name}, args[1:]...), false, name)
+		return ask.Run(append([]string{"--agent", name}, args[1:]...), name)
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
 	case len(args) == 1 && isHelpVerb(args[0]):
@@ -812,44 +628,16 @@ func cmdAgentVerb(name string, args []string) int {
 	return ask.Launch(name, args)
 }
 
-// agentSubHelp prints the sub-verb's page when args open with -h/--help, for sub-verbs without a FlagSet.
-func agentSubHelp(name, verb string, args []string) bool {
-	if len(args) == 0 || (args[0] != "-h" && args[0] != "--help") {
-		return false
-	}
-	agentSubPage(name, verb).Fprint(os.Stderr)
-	return true
-}
-
-// agentSub dispatches an agent's background-job and setup subverbs (resume/status/result/cancel/setup/catalog…).
+// agentSub dispatches an agent's subverbs (setup, catalog, explore, transfer, profile, review).
 func agentSub(name string, args []string) int {
 	handlers := map[string]func(string, []string) int{
-		"resume": agentResume, "status": agentStatus, "tail": agentTail,
-		"result": agentResult, "cancel": agentCancel, "setup": agentSetup,
-		"catalog": agentCatalog, "explore": agentExplore,
-		"transfer": agentTransfer, "profile": agentProfile,
-		"review": agentReview,
-		"on":     func(name string, args []string) int { return agentOnOff(name, true, args) },
-		"off":    func(name string, args []string) int { return agentOnOff(name, false, args) },
+		"setup": agentSetup, "catalog": agentCatalog, "explore": agentExplore,
+		"transfer": agentTransfer, "profile": agentProfile, "review": agentReview,
 	}
 	if run := handlers[args[0]]; run != nil {
 		return run(name, args[1:])
 	}
 	return helptext.Fail("%s: unknown subcommand %q", name, args[0])
-}
-
-// agentResume is `<v> resume <id> <task…>` = `ask --agent <v> --session <id> <task…>`.
-func agentResume(name string, args []string) int {
-	if agentSubHelp(name, "resume", args) {
-		return 0
-	}
-	if len(args) < 1 {
-		return helptext.Fail("%s resume: usage: claude-code %s resume <id> <task>", name, name)
-	}
-	if strings.HasPrefix(args[0], "-") { // flags first: ask's own parser, the session id is its first positional
-		return ask.Run(append([]string{"--agent", name}, args...), true, "")
-	}
-	return ask.Cmd(append([]string{"--agent", name, "--session", args[0]}, args[1:]...))
 }
 
 // agentSetup is `<v> setup [--format text|json]`.
@@ -874,7 +662,7 @@ func agentReview(name string, args []string) int {
 	fs.StringVar(&o.Commit, "commit", "", "diff this single commit")
 	fs.BoolVar(&o.PR, "pr", false, "diff against the remote's default branch")
 	fs.BoolVar(&o.Adversarial, "adversarial", false, "adversarial findings instead of a neutral verdict")
-	fs.BoolVar(&o.Background, "background", false, "detach; claude-code "+name+" status|result to follow up")
+	fs.BoolVar(&o.Background, "background", false, "detach; claude-code agents status|result --agent "+name+" to follow up")
 	fs.StringVar(&o.Rubric, "rubric", "", "grade the review against this rubric file")
 	fs.StringVar(&o.Model, "model", "", "model for the review (default: the agent's pin)")
 	if code, done := helptext.Parse(fs, args); done {
@@ -888,7 +676,7 @@ func agentReview(name string, args []string) int {
 func agentExplore(name string, args []string) int {
 	fs := newAgentFlags(name, "explore")
 	noWeb := fs.Bool("no-web", false, "skip the web-research step; code scan only")
-	background := fs.Bool("background", false, "detach; claude-code "+name+" status|result to follow up")
+	background := fs.Bool("background", false, "detach; claude-code agents status|result --agent "+name+" to follow up")
 	format := fs.String("format", "text", "stream text or print the JSON result envelope")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -911,21 +699,6 @@ func agentTransfer(name string, args []string) int {
 	return ask.Transfer(name, *source, strings.Join(fs.Args(), " "), *wait)
 }
 
-// agentStatus is `<v> status [id] [--all] [--format text|json]`.
-func agentStatus(name string, args []string) int {
-	fs := newAgentFlags(name, "status")
-	all := fs.Bool("all", false, "every repo, not just this one")
-	format := helptext.FormatFlag(fs)
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" status", err)
-	}
-	return ask.Status(name+" status", name, firstPositional(pos), *all, *format, "no "+name+" dispatches logged yet")
-}
-
 // firstPositional is pos[0], or "" when there is none.
 func firstPositional(pos []string) string {
 	if len(pos) == 0 {
@@ -934,77 +707,24 @@ func firstPositional(pos []string) string {
 	return pos[0]
 }
 
-// agentTail is `<v> tail [id] [-f]`: exit 0 when the job ended ok, 1 on error or a lost job.
-func agentTail(name string, args []string) int {
-	fs := newAgentFlags(name, "tail")
-	follow := fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	return ask.TailJob(name+" tail", agent.Record{Agent: name, ID: firstPositional(pos)}, helptext.Text, *follow)
-}
-
-// agentResult is `<v> result [id] [--format text|json]`.
-func agentResult(name string, args []string) int {
-	fs := newAgentFlags(name, "result")
-	format := helptext.FormatFlag(fs)
-	pos, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat(name+" result", err)
-	}
-	return ask.PrintAgentResult(name, firstPositional(pos), *format)
-}
-
-// agentCancel is `<v> cancel [id]`.
-func agentCancel(name string, args []string) int {
-	fs := newAgentFlags(name, "cancel")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	return ask.CancelJob(name+" cancel", name, fs.Arg(0), helptext.Text)
-}
-
-// agentProfile is `<v> profile [<profile>] [--clear]`: show, set or clear the agent's record profile.
+// agentProfile is `<v> profile [<profile>|--clear|--off]`: show, set, clear or switch off the agent's record profile.
 func agentProfile(name string, args []string) int {
 	if _, ok := agent.LookupSchema(name); !ok {
 		return helptext.Fail("%s profile: unknown agent", name)
 	}
 	fs := newAgentFlags(name, "profile")
 	unpin := fs.Bool("clear", false, "reset to its own login ("+vault.OwnLoginProfiles[name]+")")
+	off := fs.Bool("off", false, "clear the record's profile: stop routing to "+name)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) > 1 || (*unpin && len(pos) > 0) {
-		return helptext.Fail("%s profile: want one profile name, or --clear", name)
+	if len(pos) > 1 || (*unpin && *off) || ((*unpin || *off) && len(pos) > 0) {
+		return helptext.Fail("%s profile: want one profile name, --clear or --off", name)
 	}
-	if err := configure.AgentProfile(os.Stdout, name, firstPositional(pos), *unpin); err != nil {
+	if err := configure.AgentProfile(os.Stdout, name, firstPositional(pos), *unpin, *off); err != nil {
 		return helptext.Fail("%s profile: %v", name, err)
 	}
-	return 0
-}
-
-// agentOnOff is `<v> on|off`.
-func agentOnOff(name string, on bool, args []string) int {
-	verb := "off"
-	if on {
-		verb = "on"
-	}
-	fs := newAgentFlags(name, verb)
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() > 0 {
-		return helptext.Fail("%s %s: takes no arguments", name, verb)
-	}
-	if err := configure.SetAgentActive(name, on); err != nil {
-		return helptext.Fail("%s %s: %v", name, verb, err)
-	}
-	fmt.Printf("%s: %s\n", name, verb)
 	return 0
 }
 

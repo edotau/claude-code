@@ -124,19 +124,45 @@ func KeyVerified(p *providers.Provider) bool {
 	return status == providers.ProbeVerified
 }
 
-// AgentProfile is `<agent> profile`: clear the pin (an external agent's own login, not off), show it, or set it.
-func AgentProfile(w io.Writer, name, profile string, clear bool) error {
+// AgentProfile is `<agent> profile`: clear the pin (own login), turn the agent off, show it, or set it.
+func AgentProfile(w io.Writer, name, profile string, clear, off bool) error {
+	if clear && off || (clear || off) && profile != "" {
+		return fmt.Errorf("%s profile: --clear, --off and a profile name are mutually exclusive", name)
+	}
 	switch {
 	case clear:
-		if _, err := ApplyProfile([]string{name}, vault.OwnLoginProfiles[name]); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "%s: profile cleared (own login)\n", name)
+		return clearAgentProfile(w, name)
+	case off:
+		return turnAgentOff(w, name)
 	case profile == "":
 		fmt.Fprintln(w, profileStatus(name))
+		return nil
 	default:
 		return setAgentProfile(context.Background(), w, name, profile)
 	}
+}
+
+// clearAgentProfile resets name's pin to its own login.
+func clearAgentProfile(w io.Writer, name string) error {
+	if _, err := ApplyProfile([]string{name}, vault.OwnLoginProfiles[name]); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s: profile cleared (own login)\n", name)
+	return nil
+}
+
+// turnAgentOff clears name's pin so the agent stays off; claude is always on.
+func turnAgentOff(w io.Writer, name string) error {
+	if agentpkg.VaultAgentIsClaude(name) {
+		return fmt.Errorf("%s is always on", name)
+	}
+	if err := agentpkg.ValidAgentActive(name, agentpkg.AgentOff); err != nil {
+		return err
+	}
+	if _, err := ApplyProfile([]string{name}, ""); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s: %s\n", name, agentpkg.AgentOff)
 	return nil
 }
 
@@ -158,24 +184,4 @@ func setAgentProfile(ctx context.Context, w io.Writer, name, profile string) err
 		fmt.Fprintln(w, "plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}
 	return nil
-}
-
-// SetAgentActive is `<agent> on|off`: off clears the record's profile, on sets the own login; claude is always on.
-func SetAgentActive(name string, on bool) error {
-	value := agentpkg.AgentOff
-	if on {
-		value = agentpkg.AgentOn
-	}
-	if agentpkg.VaultAgentIsClaude(name) {
-		return fmt.Errorf("%s is always on", name)
-	}
-	if err := agentpkg.ValidAgentActive(name, value); err != nil {
-		return err
-	}
-	profile := ""
-	if on {
-		profile = vault.OwnLoginProfiles[name]
-	}
-	_, err := ApplyProfile([]string{name}, profile)
-	return err
 }

@@ -1,5 +1,5 @@
 // Package inflight holds the agent-inflight marker rules shared by the hook (which writes and prunes the
-// markers) and the read-only callers (status line, `agents reap`); it imports only paths and proc.
+// markers) and the read-only callers (status line, `agents cancel --lost`); it imports only paths and proc.
 package inflight
 
 import (
@@ -82,7 +82,7 @@ func CountOwned(owner int, now time.Time) int {
 	return n
 }
 
-// liveness is the limiter's own marker rule for read-only callers (status line, `agents reap`); false for a non-marker.
+// liveness is the limiter's own marker rule for read-only callers (status line, `agents cancel --lost`); false else.
 func liveness(now time.Time) func(name string) bool {
 	s := newScanner(now)
 	return func(name string) bool {

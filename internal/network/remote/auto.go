@@ -125,7 +125,7 @@ func onlinePeers() ([]string, error) {
 
 // answersVersion reports whether host runs `claude-code version` over a prompt-free ssh within autoProbeTimeout.
 func answersVersion(host string) bool {
-	argv, err := StreamArgs(host, PathPrefix+" exec "+textutil.QuotePath(HomePath(Bin("")))+" version")
+	argv, err := StreamArgs(host, PathPrefix+" exec "+textutil.QuotePath(HomePath(Bin()))+" version")
 	if err != nil {
 		return false
 	}

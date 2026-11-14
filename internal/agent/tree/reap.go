@@ -88,20 +88,20 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	}
 	snapshot, err := agent.ReadRecent(agent.AllRecords)
 	if err != nil {
-		fmt.Fprintln(errw, "agents reap:", err)
+		fmt.Fprintln(errw, "agents cancel --lost:", err)
 		return 1
 	}
 	records, code := reapRecords(snapshot, dryRun, verb, out, errw)
 	socks, sockCode := reapSockets(dryRun, verb, out, errw)
 	markers, err := reapMarkers(dryRun, verb, out)
 	if err != nil {
-		fmt.Fprintln(errw, "agents reap:", err)
+		fmt.Fprintln(errw, "agents cancel --lost:", err)
 		code = 1
 	}
 	orphans, orphanCode := reapOrphans(dryRun, verb, out, errw)
 	code = max(code, sockCode, orphanCode)
 	if records+markers+socks+orphans == 0 {
-		fmt.Fprintln(out, "agents reap: nothing to reap")
+		fmt.Fprintln(out, "agents cancel --lost: nothing to reap")
 		return code
 	}
 	fmt.Fprintf(out, "%s %d dispatches, %d markers, %d sockets, %d orphans\n", verb, records, markers, socks, orphans)
@@ -121,7 +121,7 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 		rec, outcome := settleDead(cur)
 		if !dryRun {
 			if err := rec.Save(); err != nil {
-				fmt.Fprintf(errw, "agents reap: %s: %v\n", rec.ID, err)
+				fmt.Fprintf(errw, "agents cancel --lost: %s: %v\n", rec.ID, err)
 				code = 1
 				continue
 			}
@@ -165,7 +165,7 @@ func reapSockets(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 		if !dryRun {
 			if err := os.Remove(sock); err != nil {
 				if !errors.Is(err, fs.ErrNotExist) {
-					fmt.Fprintf(errw, "agents reap: socket %s: %v\n", filepath.Base(sock), err)
+					fmt.Fprintf(errw, "agents cancel --lost: socket %s: %v\n", filepath.Base(sock), err)
 					code = 1
 				}
 				continue
@@ -195,7 +195,7 @@ const orphanSlack = time.Minute
 func reapOrphans(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	procs, err := listProcs(proc.DispatchIDEnv)
 	if err != nil {
-		fmt.Fprintf(errw, "agents reap: process table: %v\n", err)
+		fmt.Fprintf(errw, "agents cancel --lost: process table: %v\n", err)
 		return 0, 1
 	}
 	now := reapNow()
@@ -203,7 +203,7 @@ func reapOrphans(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	for _, o := range orphanedChildren(procs, now) {
 		if !dryRun {
 			if err := stopGroup(o.PID); err != nil {
-				fmt.Fprintf(errw, "agents reap: orphan pid %d: %v\n", o.PID, err)
+				fmt.Fprintf(errw, "agents cancel --lost: orphan pid %d: %v\n", o.PID, err)
 				code = 1
 				continue
 			}

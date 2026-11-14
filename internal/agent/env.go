@@ -61,7 +61,7 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if kv, ok := ctx.Value(permissionsKey{}).(string); ok { // the dispatch's policy wins over any inherited copy
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
 	}
-	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents reap` can find it once orphaned
+	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents cancel --lost` can find it once orphaned
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchIDEnv+"=") }),
 			proc.DispatchIDEnv+"="+id)
 	}

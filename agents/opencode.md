@@ -19,7 +19,7 @@ Discover or compare models only when the task asks. The manager verifies at fan-
 ## Invocation
 
 Follow the relay contract in `skills/subagent-workflows/SKILL.md`; run a leading `Run:` once, exactly as written.
-Otherwise `review` for a diff, `ask --tools` for code/docs changes or lookups, `resume` only for an explicit
+Otherwise `review` for a diff, `ask --tools` for code/docs changes or lookups, `ask --session <id>` only for an explicit
 follow-up. DOC-UPDATE and DOC-LOOKUP are instructions for that task, not extra dispatches. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
@@ -30,7 +30,7 @@ follow-up. DOC-UPDATE and DOC-LOOKUP are instructions for that task, not extra d
 - **DOC-LOOKUP** — answer library/API questions from current official sources (installed docs,
   then the web through `skills/web-explorer/SKILL.md`: Tavily first, your own `WebSearch`/`WebFetch` optional).
 - **Diff review** — `claude-code opencode review [--adversarial]`; **continuing a session** —
-  `claude-code opencode resume <id> <task>`.
+  `claude-code opencode ask --session <id> <task>`.
 - **Any delegated task** — `claude-code opencode ask --tools [--background] "<brief>"`.
 
 ## Usage
@@ -46,7 +46,8 @@ Opencode deltas:
   `--native` (skip the hub ladder, own login) · `--timeout` · `--autonomous`.
 
 Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `catalog sync --profile P [--apply]`;
-`opencode profile <p>|--clear` pins the profile, `opencode off|on` toggles routing, `opencode setup` checks it.
+`opencode profile <p>|--clear|--off` pins the profile, clears it to the own login, or stops routing,
+`opencode setup` checks it.
 
 - Commands: the overlay projects `~/.claude/commands/*.md` that lack `Agent` in `allowed-tools` — today
   `/discover-models`; `/coworker` and the `/<agent>` launchers name `Agent`, so they are not projected.
