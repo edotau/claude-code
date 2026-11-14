@@ -479,7 +479,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
 		"gateway":  {"proxy"},
 		"agents":   {"sync", "tree", "reap", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "tail", "cancel", "wait", "brief"},
-		"workflow": {"skeleton", "lint"},
+		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
 		"gemini":   vendorSubwords(),
@@ -850,7 +850,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
-		"hook": true, "clip": true, "history diff": true, "workflow lint": true,
+		"hook": true, "clip": true, "history diff": true, "workflow lint": true, "workflow sync": true,
 		"vault delete": true, "test ramdisk": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 	}

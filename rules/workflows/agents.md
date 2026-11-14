@@ -59,7 +59,7 @@ resolves to: `rules/harness/network.md`.
 - **Split** a role into its own file only when its expertise, tool grant or authority differs (read-only `Explore`
   vs editing `claude`), or several shapes reuse it; **merge** when two files differ only in task wording. A role
   that only picks a different agent is the leaf type of that agent (`codex`, `copilot`…), not a new file.
-- **Model:** an alias, never a dated id: `sonnet` for leaves and `claude` (`gemini`: `haiku`), `opus` for `Plan`;
+- **Model:** an alias, never a dated id: `sonnet` for leaves and `claude` (`gemini`: `haiku`); `Plan` inherits;
   raise one call with the Agent tool's `model` (`opus` for a hard task, `fable` only for two large designs at once);
   provider aliases resolve through `internal/models` and `internal/providers/defaults.json`. Frontmatter in
   `agents/*.md` uses an alias; `inherit` in a file means the session model (the hook then pins nothing), `model:

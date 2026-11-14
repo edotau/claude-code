@@ -68,7 +68,7 @@ type helperBlock struct {
 
 var helperBlocks = []helperBlock{
 	{"stepOf", helperStart, helperEnd, []string{"stepOf("}},
-	{"stages", stagesStart, stagesEnd, []string{"stageGate(", "stageFix(", "stagePolish(", "stageDetect("}},
+	{"stages", stagesStart, stagesEnd, []string{"stageLoop(", "stageGate(", "stageFix(", "stagePolish(", "stageDetect("}},
 }
 
 // lintTargets is every workflow script plus every skill script under root.

@@ -30,7 +30,7 @@ This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `
 
 ## Gate Loop (max 5 iterations per change set)
 
-Scripted form: `Workflow green-keeper-loop` (only when the user asks; caps 3 iterations per call;
+Scripted form: `Workflow code-looper` (only when the user asks; caps 3 iterations per call;
 `../../subagent-workflows/references/saved-workflows.md`).
 
 Each iteration runs Gates 1-2 only, fixing failures minimally. Once clean, run Gate 5, then Gates 3, 4 and 6 ONCE as

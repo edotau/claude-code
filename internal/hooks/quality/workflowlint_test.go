@@ -292,7 +292,7 @@ func TestCheckWorkflowSteps(t *testing.T) {
 		{"code-workers.js", steps("fix", wfM{"agent": "claude", "profile": "nope"}), []string{"claude has no route"}},
 		{"code-workers.js", wfM{"profile": "nope", "steps": wfM{"fix": wfM{}}}, []string{"claude has no route"}},
 		{"code-workers.js", steps("fix", wfM{"profile": "qa", "provider": "databricks"}), nil},
-		{"green-keeper-loop.js", nil, nil},
+		{"code-looper.js", nil, nil},
 	}
 	for _, c := range cases {
 		src, dir := realScript(t, c.script)
@@ -746,7 +746,7 @@ func TestWorkflowClaudeProfileLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"code-analyzer", "code-engineer", "code-evaluator", "code-workers", "green-keeper-loop"} {
+	for _, name := range []string{"code-analyzer", "code-engineer", "code-evaluator", "code-workers", "code-looper"} {
 		t.Run(name, func(t *testing.T) {
 			src, _ := realScript(t, name+".js")
 			start := strings.Index(string(src), helperStart)

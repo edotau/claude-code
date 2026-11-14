@@ -99,6 +99,13 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 its directory, `<dir>/<file>` drops the shared leading part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 `- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/cli.go`
 
+`claude-code agents waves` reads the same lines: `Phase W.k` is wave W, package k; `W.V` is the wave's manual verifier
+(never launched). Optional attributes go **before** `owns:`, which takes everything after the last `owns:`:
+`... Agent: codex — verify: go test ./internal/claude — findings: reports/x.md#key — owns: internal/claude/gate.go`.
+`verify:` defaults to `claude-code agents diff --check` on the owned files. The wave gate is the first `bash` fence
+under `## Phases` unless `--gate` overrides it; a gate with a git write verb (add, commit, stash, reset, checkout,
+restore, clean, push, rebase, merge) is refused.
+
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
 point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
 multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.

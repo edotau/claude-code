@@ -679,6 +679,48 @@ func TestAgentsWaitExitsOneWhenAnyDispatchErrored(t *testing.T) {
 	}
 }
 
+// `agents wait` on a dispatch still running at --timeout exits 4, not the 1 of a failed dispatch.
+func TestAgentsWaitTimeoutExitsFour(t *testing.T) {
+	cfgDir(t)
+	rec := seedClaudeJob(t)
+	rec.Status, rec.PID, rec.Time = "running", os.Getpid(), time.Now()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := runAgents(t, "wait", rec.ID, "--timeout", "50ms")
+	if code != 4 || !strings.HasPrefix(out, rec.ID+" timeout ") {
+		t.Fatalf("wait = %d %q (stderr %q), want a timeout row and exit 4", code, out, stderr)
+	}
+}
+
+// `agents result --verdict` prints a status line and only the last --lines non-empty answer lines.
+func TestAgentsResultVerdictPrintsStatusAndTail(t *testing.T) {
+	cfgDir(t)
+	rec := seedClaudeJob(t)
+	rec.Log = rec.LogPath()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rec.Log, []byte("a\n\nb\nc\nd\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := okAgents(t, "result", rec.ID, "--verdict", "--lines", "2")
+	if want := rec.ID + " claude ok 42ms\nc\nd\n"; out != want {
+		t.Fatalf("verdict = %q, want %q", out, want)
+	}
+	var env struct {
+		DispatchID string   `json:"dispatch_id"`
+		Verdict    []string `json:"verdict"`
+	}
+	if err := json.Unmarshal([]byte(okAgents(t, "result", rec.ID, "--verdict", "--lines", "2", "--format", "json")), &env); err != nil ||
+		env.DispatchID != rec.ID || strings.Join(env.Verdict, ",") != "c,d" {
+		t.Fatalf("verdict json = %+v, %v; want the envelope id and verdict [c d]", env, err)
+	}
+	if code, _, _ := runAgents(t, "result", rec.ID, "--verdict", "--save", filepath.Join(t.TempDir(), "x")); code != 2 {
+		t.Errorf("--verdict with --save = %d, want 2", code)
+	}
+}
+
 // `agents result --save F` writes exactly what plain `agents result` prints and prints one summary line.
 func TestAgentsResultSaveMatchesPlainResult(t *testing.T) {
 	cfgDir(t)

@@ -276,6 +276,9 @@ var writers = map[string]string{
 	"internal/worktree/ledger.go:CloseLedger":                  unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:openLedger":                   unversioned("memory-bank: worktree ledger open"),
 	"internal/worktree/operation.go:SaveOperation":             "worktree-merge-op",
+	"internal/agent/waves/state.go:Save":                       unversioned("runtime: the waves verb's per-run state.json, private to one run"),
+	"internal/agent/waves/verify.go:GateRun":                   unversioned("log: one gate's saved output, humans only"),
+	"internal/hooks/quality/workflowsync.go:syncWorkflowFile":  unversioned("foreign: workflow script rewritten in place"),
 	"internal/worktree/seed.go:copyEnvFile":                    unversioned("text: .env copied into a new worktree"),
 }
 

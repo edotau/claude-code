@@ -91,7 +91,7 @@ Chain: `rules/standards/quality.md` → Verification Order; loop and caps: `skil
 Step 5 runs once, over the **merged** diff — parallel lanes duplicate each other's helpers and only the merged diff
 shows it. Same pass, before any new test: if existing tests already cover the change add nothing; delete dead code
 and stale tests the change left behind; fold near-duplicate tests. Net test count may fall.
-**Never edit a migration to make a gate pass.** `Workflow green-keeper-loop` only when the user asks.
+**Never edit a migration to make a gate pass.** `Workflow code-looper` only when the user asks.
 
 ## Phase 9: Commit
 

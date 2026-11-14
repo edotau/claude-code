@@ -48,7 +48,7 @@ func agentsSpec() *helptext.Node {
 			flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{formatFlag()}},
-		"result": {Flags: []helptext.Flag{flag("save"), flag("head"), formatFlag()}},
+		"result": {Flags: []helptext.Flag{flag("save"), flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"tail":   {Flags: []helptext.Flag{boolFlag("f"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
@@ -135,11 +135,13 @@ var agentsSubPages = map[string][3]string{
 		"Roles come from the vault overlay dispatch-roles, else the built-in table."},
 	"status": {"status <id> [flags]", "Show one dispatch's state, whichever agent ran it (claude included)."},
 	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope. " +
-		"--save <file> writes the text there and prints one summary line instead (--head N echoes its first N lines)."},
+		"--save <file> writes the text there and prints one summary line instead (--head N echoes its first N lines). " +
+		"--verdict prints one status line and the last --lines N (default 10) non-empty answer lines.",
+		"Exit 0 ok, 1 errored, 2 usage (--verdict with --save)."},
 	"tail":   {"tail <id> [flags]", "Print a dispatch's log; --format json streams its events.jsonl instead."},
 	"cancel": {"cancel <id> [flags]", "Interrupt a running background dispatch, whichever agent runs it."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
-		"Exit 0 all done, 1 any not done, 2 usage."},
+		"Exit 0 all done, 1 any error or lost, 2 usage, 4 timed out, still running."},
 	"brief": {"brief --task <file|-> [--own <path>]... [flags]", "Print a leaf brief: an Owned: line, the mode, the task, the leaf rules and the " +
 		"reporting contract. Pipe it to agents ask -; agents diff --verify <id> reads the Owned: line back.",
 		"Exit 0, 2 usage (no --task, or an implementation brief with no --own)."},
@@ -420,13 +422,15 @@ func cmdAgentsDispatch(args []string) int {
 func cmdAgentsJob(verb string, args []string) int {
 	fs := agentsFlags(verb)
 	format := helptext.FormatFlag(fs)
-	follow, save, head := new(bool), new(string), new(int)
+	var o jobOpts
 	switch verb {
 	case "tail":
-		follow = fs.Bool("f", false, "follow until the job finishes, with a heartbeat on silence")
+		fs.BoolVar(&o.follow, "f", false, "follow until the job finishes, with a heartbeat on silence")
 	case "result":
-		fs.StringVar(save, "save", "", "write the result text to this file and print one summary line")
-		fs.IntVar(head, "head", 0, "with --save, also print the first N lines of the saved text")
+		fs.StringVar(&o.save, "save", "", "write the result text to this file and print one summary line")
+		fs.IntVar(&o.head, "head", 0, "with --save, also print the first N lines of the saved text")
+		fs.BoolVar(&o.verdict, "verdict", false, "print one status line and the last --lines non-empty answer lines")
+		fs.IntVar(&o.lines, "lines", 10, "with --verdict, how many answer lines to print")
 	}
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -435,7 +439,7 @@ func cmdAgentsJob(verb string, args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("agents "+verb, err)
 	}
-	if len(pos) != 1 || *head < 0 || (*head > 0 && *save == "") {
+	if len(pos) != 1 || !o.valid() {
 		fs.Usage()
 		return 2
 	}
@@ -443,14 +447,21 @@ func cmdAgentsJob(verb string, args []string) int {
 	if err != nil {
 		return helptext.Fail("agents %s: %v", verb, err)
 	}
-	return runAgentsJob(verb, rec, *format, jobOpts{*follow, *save, *head})
+	return runAgentsJob(verb, rec, *format, o)
 }
 
 // jobOpts are the tail and result flags.
 type jobOpts struct {
-	follow bool
-	save   string
-	head   int
+	follow  bool
+	save    string
+	head    int
+	verdict bool
+	lines   int
+}
+
+// valid reports whether the flag combination is allowed.
+func (o jobOpts) valid() bool {
+	return o.head >= 0 && (o.head == 0 || o.save != "") && (!o.verdict || (o.save == "" && o.lines >= 1))
 }
 
 // runAgentsJob runs the verb against the dispatch record.
@@ -462,6 +473,9 @@ func runAgentsJob(verb string, rec agent.Record, format string, o jobOpts) int {
 		if o.save != "" {
 			return ask.SaveResult(rec, o.save, o.head, format)
 		}
+		if o.verdict {
+			return ask.Verdict(rec, o.lines, format)
+		}
 		return ask.PrintResult(rec, format)
 	case "tail":
 		return ask.TailJob("agents tail", rec, format, o.follow)
@@ -469,7 +483,7 @@ func runAgentsJob(verb string, rec agent.Record, format string, o jobOpts) int {
 	return ask.CancelJob("agents cancel", rec.Agent, rec.ID, format)
 }
 
-// cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 unless every one is done.
+// cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 on error or lost, 4 on timeout.
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
 	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")
@@ -500,12 +514,7 @@ func cmdAgentsWait(args []string) int {
 			fmt.Println(r.Line())
 		}
 	}
-	for _, r := range rows {
-		if r.State != agent.WaitDone {
-			return 1
-		}
-	}
-	return 0
+	return agent.WaitExit(rows)
 }
 
 // cmdAgentsBrief is `agents brief`: the rendered brief on stdout; an implementation brief needs --own.

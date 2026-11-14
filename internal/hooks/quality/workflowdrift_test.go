@@ -160,3 +160,16 @@ func TestHelperDriftSkipsUnreadableScript(t *testing.T) {
 		t.Fatalf("workflowHelperDrift = %q, want no report for an unreadable script", got)
 	}
 }
+
+func TestWorkflowStageLoopDrift(t *testing.T) {
+	for _, call := range []string{"stageLoop(", "stageGate("} {
+		t.Run(call, func(t *testing.T) {
+			root := writeDriftRoot(t, nil, nil)
+			writeScript(t, filepath.Join(root, "workflows"), "missing.js", "await "+call+")\n")
+			got := workflowHelperDrift(root)
+			if len(got) != 1 || !strings.Contains(got[0], "no stages block") {
+				t.Fatalf("drift: %v", got)
+			}
+		})
+	}
+}

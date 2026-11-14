@@ -15,7 +15,7 @@ export const meta = {
   ],
 }
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
 // ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
@@ -78,7 +78,7 @@ const stepOf = (steps, name, defaults, opt) => {
   }
 }
 // ── end stepOf ──
-// ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
+// ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
