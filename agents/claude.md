@@ -122,9 +122,10 @@ Run phases inline. A saved Workflow only when the owner requested it and the bri
 
 ## Report contract
 
-**Implementation report:** the Handoff contract's Report (out), status first, plus simplifications applied with the
-behavior-preserved confirmation and any **[extended]** fix with its blast radius. State the
-`TASK:`/`ISSUE:` facts (`skills/problem-solving/references/notes.md`) as plain sentences, never raw tags.
+**Implementation report:** the Handoff contract's Report (out) (8-line verdict, full report to the store), status
+first, plus simplifications applied with the behavior-preserved confirmation and any **[extended]** fix with its
+blast radius. State the `TASK:`/`ISSUE:` facts (`skills/problem-solving/references/notes.md`) as plain sentences,
+never raw tags.
 
 **Review request:** `evaluate-code`'s own report format and verdict (`SHIP \| FIX REQUIRED \| BLOCK`); verdict
 discipline (closed vocabulary first, evidence after, never soften or inflate): `skills/evaluate-code/SKILL.md` →

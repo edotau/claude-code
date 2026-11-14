@@ -6,7 +6,7 @@ paths:
 ---
 # Master Workflow — End-to-End Development Pipeline
 
-The pipeline for non-trivial work; Phase 3 research may run beside Phase 4 planning and joins at review.
+The pipeline for non-trivial work (Phase 3 runs beside Phase 4 and joins at review).
 Dispatch follows `CLAUDE.md` guideline 3; brief and relay rules: `skills/subagent-workflows/SKILL.md`.
 Skip phases outside the requested scope, including commits for an edit-only task.
 
@@ -95,8 +95,8 @@ and stale tests the change left behind; fold near-duplicate tests. Net test coun
 
 ## Phase 9: Commit
 
-Only when authorized, follow `rules/standards/worktree-git.md` and `CLAUDE.md` hard rule 5.
-A LAST-MILE `copilot` leaf may execute the approved commit; the main session owns release checks and push.
+Only when authorized, follow `rules/standards/worktree-git.md` and `CLAUDE.md` hard rule 5; the main session owns
+release checks and push.
 
 ## Quick reference
 

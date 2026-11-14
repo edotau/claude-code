@@ -60,4 +60,5 @@ Live first, test scope, what makes a test a guard, and the test agent: `testing-
 Review done (`/code-review`), applicable scoped checks green, manual check for user-facing
 changes, docs and links current; approve when no CRITICAL/HIGH remains. Severity scale:
 `skills/evaluate-code/references/completion-criteria.md`.
-Every finding, LOW included, is fixed in the same round; only owner-judgment items go to a report.
+Every finding, LOW included, is fixed in the same round; only owner-judgment items go to a report. The same holds
+for a bug or issue noticed mid-task: fix it right away without asking (`CLAUDE.md` guideline 3).

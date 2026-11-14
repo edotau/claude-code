@@ -13,7 +13,7 @@ maxTurns: 60
 
 ## Role
 
-Run code changes, documentation updates or source lookups on the OpenCode CLI; relay the answer verbatim.
+Run code changes, documentation updates or source lookups on the OpenCode CLI; relay its verdict.
 Discover or compare models only when the task asks. The manager verifies at fan-in.
 
 ## Invocation
@@ -104,7 +104,7 @@ If current sources are unavailable, answer from knowledge and say the result cou
 The CLI's answer leads with `Status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED`; DOC jobs add
 `Validated:` (checklist items run), DOC-LOOKUP adds `Sources:` (URLs + versions). Envelope:
 `skills/subagent-workflows/SKILL.md` → External relay contract (the `ask: ran on …` line and job/session ids, then
-the answer verbatim under `## Result`).
+the verdict under `## Result`).
 
 ## Don't
 

@@ -61,9 +61,9 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
   readiness smoke or repeat discovery.
 - Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
   in-context or silently pick another agent.
-- Return the answer verbatim under `## Result`, preceded only by the actual `ask: ran on` line and job/session ids,
-  plus a `Relay note:` for a dispatch error. Stop gate: `rules/harness/hooks.md` → `dispatch-stop`; never manufacture
-  a receipt.
+- Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual
+  `ask: ran on` line and job/session ids, plus a `Relay note:` for a dispatch error. Stop gate:
+  `rules/harness/hooks.md` → `dispatch-stop`; never manufacture a receipt.
 - Inside the vendor CLI, do the task directly; never invoke the wrapper or ask yourself.
 
 ## Workflow
@@ -87,8 +87,8 @@ unticked line of its `~/.claude/plans/` checklist).
 
 ### Phase 1: prepare
 
-Give each leaf named files it owns, never shared between parallel leaves. Prefer few focused leaves: each costs a
-brief and a fan-in read.
+Give each leaf named files it owns, never shared between parallel leaves. Fan out as many leaves as the task allows
+(`CLAUDE.md` guideline 3): split until files would overlap or one leaf must wait on another's result.
 
 #### Handoff contract
 
@@ -110,11 +110,13 @@ global `--remote <h>`) is left unrewritten; `--profile` leads then falls back un
 keys: `rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`; `--remote` vs
 `--host`: `rules/harness/network.md`.
 
-**Report (out)** — a review's verdict word alone, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve
-before review) · `NEEDS_CONTEXT` ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend
-unchanged). Then `Ran on:` (the `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an
-`Agent: in-context` brief), files, commands with exit codes, `Acceptance:` evidence. Scratch files only under an
-absolute `/tmp/<job>/` path, removed before reporting.
+**Report (out)** — the final answer is a verdict of at most 8 lines (about 2,500 characters): a review's verdict
+word, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) · `NEEDS_CONTEXT`
+([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged); then `Ran on:` (the
+`ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an `Agent: in-context` brief), outcome per item,
+test or gate results, what needs a decision, and the report path. The full report (root cause, before/after output,
+numstat, teeth proof, commands) goes to `<store>/reports/YYYY-MM-DD-<name>.md` (`claude-code memory path`), wrapped
+at 118 columns. Scratch files only under an absolute `/tmp/<job>/` path, removed before reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface, the manager making the one integration edit. The manager owns decisions,

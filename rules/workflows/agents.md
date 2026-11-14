@@ -6,8 +6,9 @@ paths:
 ---
 # Agent Authoring and Commands
 
-Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields and relay policy:
-`skills/subagent-workflows/SKILL.md`. The commands below are relay, script and owner conveniences.
+Dispatch and the allowed roster: `CLAUDE.md` guideline 3. Brief fields, relay policy, concurrency,
+escalation and the test agent: `skills/subagent-workflows/SKILL.md`. The commands below are relay, script and owner
+conveniences.
 
 ## Commands
 
@@ -69,8 +70,6 @@ resolves to: `rules/harness/network.md`.
   (`internal/agentid/agentid.go`); the ran-on stop gate (`externalTypes`) and labels (`labelAgent`) in
   `internal/hooks/agents/leaves.go` derive from it. Shapes and what enforces each:
   `skills/subagent-workflows/references/patterns.md`.
-
-Dispatch, concurrency, escalation and the test agent: `skills/subagent-workflows/SKILL.md`.
 
 ## Authoring: thinking and caching
 
