@@ -227,21 +227,6 @@ func TestFreshLoginClearsTheMark(t *testing.T) {
 	}
 }
 
-// Any seal of the login record, not only a fresh login, ends the dead mark: it cannot outlive a newer sealed record.
-func TestAnySealOfTheLoginRecordClearsTheMark(t *testing.T) {
-	r := newLoginRig(t, "dead-any-seal")
-	_, _ = Credential(context.Background(), r.p)
-	if _, dead := LoginStatus(r.p); !dead {
-		t.Fatal("no mark to clear")
-	}
-	if err := writeOAuth(r.p, oauthValue{Refresh: "refresh-from-a-peer"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, dead := LoginStatus(r.p); dead {
-		t.Error("a newer sealed record left the dead mark")
-	}
-}
-
 // An auto row goes straight to its paired SP while the dead login's window is open, and says so once.
 func TestAutoGoesStraightToSPWhileWindowOpenAndReportsIt(t *testing.T) {
 	p, m2m, refresh, note := spHarness(t, IdentityAuto)

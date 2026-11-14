@@ -101,8 +101,7 @@ static menu: routing never touches the network.
 ## Headless login
 
 `databricks login` on a profile with a paired service principal mints as it and opens no browser; `--as user`
-forces the browser login, and a bare `login` does the same while your own login is recorded dead. The browser
-login (not `--as sp`, which rejects these flags) works without a local browser:
+forces the browser login. The browser login (not `--as sp`, which rejects these flags) works without a local browser:
 
 - From another machine: `claude-code --host <host> databricks login` forwards the callback port itself (the first
   free local port from 8030 to 8050, or exactly `--port N`), adds `--no-browser`, and closes the forward when the

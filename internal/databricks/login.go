@@ -144,23 +144,12 @@ func loginRowAs(ctx context.Context, f loginFlags) int {
 	if err != nil {
 		return fail("login: %s: %v", p.Name, err)
 	}
-	autoSP := mode == providers.IdentityAuto && f.as == "" && providers.SPPresent(p)
-	if st, dead := providers.LoginStatus(p); dead && autoSP { // the command a dead login names must renew it, not mint the SP
-		fmt.Printf("%s: your login is dead (%s since %s); signing in as you, not as the service principal\n",
-			p.Name, st.State, st.Since.Local().Format("15:04"))
-		return loginUser(p, providers.IdentityUser, f.h, f.dryRun, !f.force)
-	}
 	// A paired service principal mints with no browser, so the browser-only flags would be dropped: refuse them.
-	if mode == providers.IdentitySP || autoSP {
+	if mode == providers.IdentitySP || mode == providers.IdentityAuto && f.as == "" && providers.SPPresent(p) {
 		if code, bad := checkHeadless(f.h, providers.IdentitySP); bad {
 			return code
 		}
-		code := loginSP(p, f.dryRun)
-		if autoSP && code == 0 && !f.dryRun && providers.HasSecret(providers.AuthSecretName(p)) == "" {
-			fmt.Printf("no login of yours is stored: this was the service principal only; sign in with "+
-				"`claude-code databricks login --profile %s --as user`\n", p.Name)
-		}
-		return code
+		return loginSP(p, f.dryRun)
 	}
 	return loginUser(p, mode, f.h, f.dryRun, !f.force && p.Auth.Method() == providers.AuthOAuth)
 }
