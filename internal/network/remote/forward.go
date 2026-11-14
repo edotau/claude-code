@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -27,37 +26,6 @@ func PinLogin(host string, rest []string) error {
 		return nil
 	}
 	return proc.Setenv(LoginRemoteEnv, host)
-}
-
-// LoginAutoEnv marks a login that CLAUDE_REMOTE_HOST sent through --remote, so login says why on its first line.
-const LoginAutoEnv = "HARNESS_LOGIN_REMOTE_AUTO"
-
-// autoSelf reports whether a host names this machine; tests swap it.
-var autoSelf = IsSelf
-
-// AutoLogin is the host a plain `databricks login` signs in through when CLAUDE_REMOTE_HOST names one; args follow argv[0].
-// Only the variable decides: an explicit mode flag, a pinned login or a host naming this machine leaves the login local.
-func AutoLogin(args []string) (host string, ok bool) {
-	if !isLogin(args) || os.Getenv(LoginRemoteEnv) != "" {
-		return "", false
-	}
-	if flagValues(args[2:])["as"] == "sp" || boolFlagOn(args[2:], "no-browser", HostBrowser[2:], "h", "help") {
-		return "", false
-	}
-	host = autoEnvHost()
-	if host == "" || host == Auto || namesSelf(host) {
-		return "", false
-	}
-	return host, true
-}
-
-// namesSelf reports whether host, or its first DNS label, names this machine.
-func namesSelf(host string) bool {
-	if autoSelf(host) {
-		return true
-	}
-	label, _, dotted := strings.Cut(host, ".")
-	return dotted && !strings.Contains(host, "@") && autoSelf(label)
 }
 
 // CheckLogin refuses a `databricks login` that combines --remote with --host or --host-browser; flags are the global ones.

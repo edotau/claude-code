@@ -110,7 +110,6 @@ forces the browser login. The browser login (not `--as sp`, which rejects these 
   browser here; the host opens it, the callback returns over an ssh `-R` forward, and the token is sealed in this
   machine's vault. It always signs the user in (a paired service principal does not mint; `--as sp` still does).
   `--paste` is its fallback when the forward fails; it refuses `--host`, `--host-browser` and `--no-browser`.
-  With `CLAUDE_REMOTE_HOST` set to another machine, a plain login does this itself (not `--as sp`, `--no-browser`).
 - Sign-in only allowed on the host's own browser (company device policy): add `--host-browser`; no forward, no
   `--no-browser`, the host opens its browser (WSL: the Windows default browser) and the callback stays on that host.
 - By hand: `ssh -L 8030:localhost:8030 <host>`, then run `claude-code databricks login --no-browser --port 8030` on
