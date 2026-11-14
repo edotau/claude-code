@@ -379,15 +379,15 @@ func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, " qa ")
 	if got := AgentRecord("claude").Profile; got != "" {
-		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfile only", got)
+		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfileContext only", got)
 	}
-	if got := SessionProfile(); got != "qa" {
-		t.Errorf("SessionProfile = %q, want qa", got)
+	if got := SessionProfileContext(t.Context()); got != "qa" {
+		t.Errorf("SessionProfileContext = %q, want qa", got)
 	}
 	t.Setenv(EnvSessionProfile, "")
 	vaulttest.SetRecord(t, "claude", "profile", "dev")
-	if got := SessionProfile(); got != "" {
-		t.Errorf("SessionProfile = %q, want empty: the vault pin leaked into it", got)
+	if got := SessionProfileContext(t.Context()); got != "" {
+		t.Errorf("SessionProfileContext = %q, want empty: the vault pin leaked into it", got)
 	}
 }
 
@@ -437,8 +437,8 @@ func TestSelectSurfacesUnreadableVault(t *testing.T) {
 			t.Errorf("Select (env %q) error = %v, want vault: pins unreadable", env, err)
 		}
 	}
-	if got := SessionProfile(); got != "openai" {
-		t.Errorf("SessionProfile() = %q, want env value openai despite unreadable vault", got)
+	if got := SessionProfileContext(t.Context()); got != "openai" {
+		t.Errorf("SessionProfileContext = %q, want env value openai despite unreadable vault", got)
 	}
 }
 

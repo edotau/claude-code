@@ -151,8 +151,8 @@ func (t *RouteTable) pick(
 	gate := func(agent string) []Candidate {
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
-	firstG, restG, lastG := t.gatherCandidates(want, o, gate)
-	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(), alias: alias, now: now, res: &res}
+	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)
+	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res}
 	firstG = lp.admitGroups(firstG)
 	lastG = lp.admitGroups(lastG)
 	restG, lastG = lp.l.claim(restG, lastG)
@@ -273,14 +273,14 @@ func ClaudeBackstop(cands []Candidate, req int, mode string) int {
 }
 
 // RequestedIndex is the candidate the caller asked for: the wanted agent on the overlay workspace, the lead or its pin.
-func RequestedIndex(cands []Candidate, want, lead string, pin int) int {
+func RequestedIndex(ctx context.Context, cands []Candidate, want, lead string, pin int) int {
 	on := func(profile string) int {
 		acct := ProviderAccount(profile)
 		return slices.IndexFunc(cands, func(c Candidate) bool {
 			return c.Agent == want && (c.Profile == profile || c.Account == acct)
 		})
 	}
-	switch arm := ArmProfile(); {
+	switch arm := ArmProfileContext(ctx); {
 	case arm != "":
 		return on(arm)
 	case want == "claude":
@@ -292,14 +292,14 @@ func RequestedIndex(cands []Candidate, want, lead string, pin int) int {
 }
 
 // AskedWorkspace reports the wanted agent on the overlay workspace or inside a confinement: neither is a fallback.
-func AskedWorkspace(cand Candidate, want string) bool {
+func AskedWorkspace(ctx context.Context, cand Candidate, want string) bool {
 	if cand.Agent != want {
 		return false
 	}
-	if arm := ArmProfile(); arm != "" && cand.Profile == arm {
+	if arm := ArmProfileContext(ctx); arm != "" && cand.Profile == arm {
 		return true // databricks:<p> asked for this workspace: running there is not a fallback
 	}
-	cp, _ := Confined() // the confinement admitted it: the pin was set aside, nothing fell back
+	cp, _ := ConfinedContext(ctx) // the confinement admitted it: the pin was set aside, nothing fell back
 	return cp != ""
 }
 
@@ -465,13 +465,13 @@ func (t *RouteTable) gateOpencodeSub(
 }
 
 // gatherCandidates gates want, other agents, then FallbackAll Claude; free+paid groups remain inseparable.
-func (t *RouteTable) gatherCandidates(want string, o PickOpts, gate func(string) []Candidate) (first, rest, last [][]Candidate) {
+func (t *RouteTable) gatherCandidates(ctx context.Context, want string, o PickOpts, gate func(string) []Candidate) (first, rest, last [][]Candidate) {
 	if want != "" {
 		if cs := gate(want); len(cs) > 0 {
 			first = append(first, cs)
 		}
 	}
-	if o.Fallback == FallbackNone || (want == "claude" && ArmProfile() == "") { // the route falls a wanted claude through
+	if o.Fallback == FallbackNone || (want == "claude" && ArmProfileContext(ctx) == "") { // the route falls a wanted claude through
 		return first, nil, nil
 	}
 	rest = gateOthers(want, gate)

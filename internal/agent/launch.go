@@ -28,11 +28,7 @@ import (
 )
 
 // PinnedProfile is agent name's vault-pinned registry profile; "" if unpinned or off, an error if the pin names no row.
-func PinnedProfile(name string) (string, error) {
-	return pinnedProfile(context.Background(), name)
-}
-
-func pinnedProfile(ctx context.Context, name string) (string, error) {
+func PinnedProfile(ctx context.Context, name string) (string, error) {
 	pins, err := AgentPinsContext(ctx)
 	if err != nil {
 		return "", err
@@ -129,7 +125,7 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 		return nil, nil, fmt.Errorf("profile %s uses the AI Gateway wire; agents run on /serving-endpoints only", p.Name)
 	}
 	if p.Auth.Login != "" {
-		return login(e, p, models.Strip1M(t.Model), h)
+		return login(ctx, e, p, models.Strip1M(t.Model), h)
 	}
 	if len(s.CLI.Dialects) == 0 && GeminiGatewayRow(p) { // a CLI with no dialect reaches a gateway row only here
 		return e.Wire(ctx, WireRoute{Target: t, Provider: p}, h)
@@ -307,11 +303,11 @@ func ResetSessionTokens() {
 }
 
 // login runs the agent on its own subscription sign-in; a login provider serves only the CLI it names.
-func login(e Driver, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
+func login(ctx context.Context, e Driver, p *providers.Provider, model string, h *Headless) ([]string, []string, error) {
 	if !e.LoginServes(p) {
 		return nil, nil, fmt.Errorf("%s: provider %s is the %s sign-in; use claude-code %s --profile %s", e.Name(), p.Name, p.Auth.Login, p.Auth.Login, p.Name)
 	}
-	return e.Login(p, model, h)
+	return e.Login(ctx, p, model, h)
 }
 
 // StubRouter points configure at base (unstubbed Ensure would relaunch the test binary as the daemon).
@@ -621,9 +617,10 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 	return nil
 }
 
-// ApplyOverlay layers r under req's --env (the shorthand wins); the child's $COWORKER_OVERLAY is the confinement only.
-func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
-	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && proc.Value(valuesContext(context.Background(), req.Values), agentconfig.OverlayVar) == "" {
+// ApplyOverlay layers r under req's --env (the shorthand wins), reading values from req, else ctx; the child's $COWORKER_OVERLAY is the confinement only.
+func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) RunOptions {
+	_, values := RunValues(ctx, req.Values)
+	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && values[agentconfig.OverlayVar] == "" {
 		return req
 	}
 	req.Env = append(proc.Values(r.Set).Env(), req.Env...)
@@ -633,10 +630,9 @@ func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	return req
 }
 
-// confinementDoc is the inline overlay naming only this process's provider and profile (one hop); "": none.
-func confinementDoc() string {
-	provider, profile, _ := router.Coworker() // a bad value confines nothing here either
-	return agentconfig.InlineOverlay(provider, profile)
+// confinementDoc is the inline overlay naming only req's run provider and profile (one hop); "": none.
+func confinementDoc(req RunOptions) string {
+	return confinementDocContext(valuesContext(context.Background(), req.Values))
 }
 
 // withOverlay layers r over an interactive plan like ApplyOverlay; the vault's standing document never reaches it.

@@ -124,35 +124,7 @@ var (
 	flagSrc = overlaySrc{"--env", "--keep-env", "unset", flagSetRules}
 )
 
-// DispatchOverlay is a dispatch's overlay value: flag, else $COWORKER_OVERLAY, else the vault env's (top-level only).
-func DispatchOverlay(flag string) string {
-	if v := cmp.Or(flag, os.Getenv(OverlayVar)); v != "" {
-		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
-	}
-	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
-}
-
-// LoadOverlay reads value, else $COWORKER_OVERLAY: a file path, inline JSON, or - for stdin; "" is the zero overlay.
-func LoadOverlay(value string, stdin io.Reader) (Overlay, error) {
-	value = cmp.Or(value, os.Getenv(OverlayVar))
-	if value == "" {
-		return Overlay{}, nil
-	}
-	where, raw, err := readOverlaySource(value, stdin)
-	if err == nil && len(raw) > overlayMaxBytes { // every form: file, stdin, inline and env
-		err = fmt.Errorf("over %d bytes", overlayMaxBytes)
-	}
-	var o Overlay
-	if err == nil {
-		o, err = parseOverlay(raw)
-	}
-	if err != nil {
-		return Overlay{}, fmt.Errorf("%s: %w", where, err)
-	}
-	return o, nil
-}
-
-// readCapped reads r one byte past overlayMaxBytes: LoadOverlay's cap sees an oversized document, unread.
+// readCapped reads r one byte past overlayMaxBytes: LoadOverlayContext's cap sees an oversized document, unread.
 func readCapped(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, overlayMaxBytes+1)) }
 
 // readOverlaySource returns value's error label and bytes: stdin for -, inline JSON, else the file it names.
@@ -194,7 +166,7 @@ func readOverlayFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if pe, ok := errors.AsType[*fs.PathError](err); ok {
-			return nil, pe.Err // LoadOverlay names the path once
+			return nil, pe.Err // LoadOverlayContext names the path once
 		}
 		return nil, err
 	}
@@ -474,7 +446,7 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 	return nil
 }
 
-// DispatchOverlayContext resolves DispatchOverlay using the run snapshot; a snapshot holding the key empty means none.
+// DispatchOverlayContext is a dispatch's overlay: flag, else the run's $COWORKER_OVERLAY, else the vault env's.
 func DispatchOverlayContext(ctx context.Context, flag string) string {
 	if v := cmp.Or(flag, proc.Value(ctx, OverlayVar)); v != "" {
 		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
@@ -487,7 +459,7 @@ func DispatchOverlayContext(ctx context.Context, flag string) string {
 	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
 }
 
-// LoadOverlayContext resolves LoadOverlay using the run snapshot.
+// LoadOverlayContext reads value, else the run's $COWORKER_OVERLAY: a file, inline JSON or - for stdin; "" is none.
 func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Overlay, error) {
 	value = cmp.Or(value, proc.Value(ctx, OverlayVar))
 	if value == "" {

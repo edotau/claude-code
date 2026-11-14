@@ -10,13 +10,11 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -31,9 +29,9 @@ const (
 type askRunner func(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int
 
 // armAutoPick reports whether applying the confinement value makes this process pick the workspace (databricks:auto).
-func armAutoPick(value string) bool {
+func armAutoPick(ctx context.Context, value string) bool {
 	provider, p, err := router.ParseCoworker(value)
-	return err == nil && provider == router.RouteDatabricks && p == router.AutoArm && router.ArmProfileContext(context.Background()) == ""
+	return err == nil && provider == router.RouteDatabricks && p == router.AutoArm && router.ArmProfileContext(ctx) == ""
 }
 
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.
@@ -133,7 +131,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 	exec func(context.Context, *agent.Prepared) (wire.Result, error)) (*agent.Prepared, wire.Result, error) {
 	var hops []wire.Hop
 	for {
-		res, err := a.exec(ctx, p, exec)
+		res, err := exec(ctx, p)
 		hops = append(hops, res.Hops...)
 		res.Hops = slices.Clone(hops)
 		next, again := a.next(ctx, res, err, req)
@@ -166,29 +164,21 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 	if ctx.Err() != nil || !agent.HopFailed(res, err) {
 		return req, false
 	}
-	if e, ok := errors.AsType[*retry.Error](err); ok && e.Kind == retry.KindRateLimit {
-		if moved, ok := a.move(ctx, req, e.RetryAfter); ok {
-			return moved, true
-		}
-	}
-	return req, false
+	e, ok := errors.AsType[*retry.Error](err)
+	return req, ok && e.Kind == retry.KindRateLimit && a.move(e.RetryAfter)
 }
 
-// move cools the workspace that answered 429 and exports the next pick; false when none is left.
-func (a *armRetry) move(ctx context.Context, req agent.RunOptions, retryAfter time.Duration) (agent.RunOptions, bool) {
-	cur := a.tried[len(a.tried)-1]
+// move cools the workspace that answered 429 and picks the next; false when none is left.
+func (a *armRetry) move(retryAfter time.Duration) bool {
+	cur := a.current()
 	coolArm(cur, retryAfter)
-	if enterArm(ctx, cur) != nil { // the pick reads the process arm: hold it on this run's own workspace
-		return req, false
-	}
-	defer leaveArm()
 	name, _, err := nextArm(a.agentName, a.model, a.tried)
 	if err != nil {
-		return req, false
+		return false
 	}
 	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s rate limited, trying %s\n", cur, name)
 	a.tried = append(a.tried, name)
-	return req, true
+	return true
 }
 
 // coolArm holds workspace name out of the pick for retryAfter (else armCoolHold), the cooling the gateway also writes.
@@ -244,110 +234,20 @@ func armCandidates(reg *providers.Registry, agentName, model string, now time.Ti
 	return usable, skipped
 }
 
-// armGate holds the process-wide arm steady: runs on one workspace share it, runs on another wait their turn in order.
-var armGate = struct {
-	cond  *sync.Cond
-	cur   string
-	n     int
-	queue []*armTicket // the entrants not yet in, oldest first
-}{cond: sync.NewCond(new(sync.Mutex))}
-
-// armTicket is one waiting enterArm.
-type armTicket struct{ arm string }
-
-// canEnter reports whether t may join: the gate is idle or on its workspace, and no older waiter wants another one.
-func canEnter(t *armTicket) bool {
-	g := &armGate
-	if g.n > 0 && g.cur != t.arm {
-		return false
-	}
-	for _, w := range g.queue {
-		if w == t {
-			return true
-		}
-		if w.arm != t.arm {
-			return false
-		}
-	}
-	return true
-}
-
-// enterArm waits until the process arm may be arm (or ctx ends: ctx.Err()), sets it and counts in; pair with leaveArm.
-func enterArm(ctx context.Context, arm string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	g := &armGate
-	defer context.AfterFunc(ctx, func() {
-		g.cond.L.Lock()
-		g.cond.Broadcast()
-		g.cond.L.Unlock()
-	})()
-	g.cond.L.Lock()
-	defer g.cond.L.Unlock()
-	t := &armTicket{arm: arm}
-	g.queue = append(g.queue, t)
-	defer func() {
-		g.queue = slices.DeleteFunc(g.queue, func(w *armTicket) bool { return w == t })
-		g.cond.Broadcast()
-	}()
-	for !canEnter(t) {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		g.cond.Wait()
-	}
-	if g.n == 0 {
-		if err := setArm(arm); err != nil {
-			return err
-		}
-		g.cur = arm
-	}
-	g.n++
-	return nil
-}
-
-// leaveArm releases one enterArm.
-func leaveArm() {
-	g := &armGate
-	g.cond.L.Lock()
-	g.n--
-	g.cond.L.Unlock()
-	g.cond.Broadcast()
-}
-
 // current is the workspace this run is on.
 func (a *armRetry) current() string { return a.tried[len(a.tried)-1] }
 
 // armPrepare is the model-routing seam for workspace retry tests.
 var armPrepare = (*agent.Client).Prepare
 
-// prepare is cl.Prepare with the process arm held on this run's current workspace.
+// prepare is cl.Prepare of req on this run's current workspace: its own values, so no other run sees the move.
 func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions,
 	claim *agent.Record) (*agent.Prepared, error) {
-	if err := enterArm(ctx, a.current()); err != nil {
-		return nil, err
+	if req.Values == nil {
+		_, req.Values = agent.RunValues(ctx, nil)
 	}
-	defer leaveArm()
+	req.Values = req.Values.Merge(armValues(a.current()))
 	return armPrepare(cl, ctx, req, claim)
-}
-
-// exec is one attempt with the process arm held on this run's current workspace.
-func (a *armRetry) exec(ctx context.Context, p *agent.Prepared,
-	run func(context.Context, *agent.Prepared) (wire.Result, error)) (wire.Result, error) {
-	if err := enterArm(ctx, a.current()); err != nil {
-		return wire.Result{Agent: a.agentName, Status: wire.StatusError}, err
-	}
-	defer leaveArm()
-	return run(ctx, p)
-}
-
-// setArm moves this process's confinement to workspace name, as applyArm exports it.
-func setArm(name string) error {
-	if err := exportConfinement(router.RouteDatabricks, name); err != nil {
-		return err
-	}
-	return proc.Setenv(providers.EnvSessionProfile, name)
 }
 
 // ranOn is wire.RanOn plus " · tried a → b" when a run moved across Databricks workspaces.

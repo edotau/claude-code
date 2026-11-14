@@ -406,9 +406,6 @@ func TestGatewayRunEgress(t *testing.T) {
 			t.Logf("base = %s", tc.want)
 		})
 	}
-	if got := ViaBase(base); got != base+"/via/launcher-host" {
-		t.Fatalf("legacy base = %q", got)
-	}
 	if runtime.GOOS == "windows" {
 		if _, ok := proc.ValuesFromEnv(daemonCommand("claude-code.exe").Env)[egress.EnvHost]; ok {
 			t.Fatal("daemon inherits egress")

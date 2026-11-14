@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -55,11 +56,11 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 }
 
 // opencodeRouteDetail reports configure --restore routes, files and login booleans, never credentials.
-func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selErr error) string {
+func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel providers.Selection, selErr error) string {
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
 	copilotCLILogin := agent.SchemaFor("copilot").LoginPresent()
-	pin, err := agent.PinnedProfile("opencode") // a pinned profile is what a launch uses, as cli.go does
+	pin, err := agent.PinnedProfile(ctx, "opencode") // a pinned profile is what a launch uses, as cli.go does
 	switch {
 	case err != nil:
 		selErr = err
@@ -71,7 +72,7 @@ func opencodeRouteDetail(reg *providers.Registry, sel providers.Selection, selEr
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
-	target, _, err := agent.SchemaFor("opencode").ResolveTarget(reg, sel, pin != "")
+	target, _, err := agent.SchemaFor("opencode").ResolveTarget(ctx, reg, sel, pin != "")
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
 	}

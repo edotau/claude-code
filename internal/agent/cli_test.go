@@ -93,7 +93,7 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, _, err := SchemaFor("codex").ResolveTarget(reg, sel, false)
+	rt, _, err := SchemaFor("codex").ResolveTarget(context.Background(), reg, sel, false)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}

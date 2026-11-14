@@ -22,21 +22,6 @@ import (
 // know the session's profile.
 const EnvSessionProfile = "CLAUDE_PROFILE"
 
-// SessionProfile is the profile of the session this process runs in ("" outside a launched session).
-func SessionProfile() string { return strings.TrimSpace(os.Getenv(EnvSessionProfile)) }
-
-// SessionLead is the session's profile, else (withRecord) claude's record profile; a non-nil reg drops a name it lacks.
-func SessionLead(reg *Registry, withRecord bool) string {
-	name := SessionProfile()
-	if name == "" && withRecord {
-		name = AgentRecord("claude").Profile
-	}
-	if reg != nil && reg.Providers[name] == nil {
-		return ""
-	}
-	return name
-}
-
 // agentRecords reads every stored agent record in one vault transaction.
 func agentRecords() (recs map[string]vault.AgentRecord, err error) {
 	err = vault.View(func(tx *vault.Tx) (e error) { recs, e = tx.AgentRecords(); return e })
@@ -317,7 +302,7 @@ func CopilotPlanName(raw string) string {
 }
 
 // QualifyPinSpec is spec as "profile:model" when providerFlag names a profile other than the session's own; "" stays "" (unpin).
-func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
+func QualifyPinSpec(ctx context.Context, reg *Registry, providerFlag, spec string) string {
 	if providerFlag == "" || spec == "" {
 		return spec
 	}
@@ -326,7 +311,7 @@ func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 			return spec
 		}
 	}
-	session := cmp.Or(SessionLead(nil, true), reg.Default)
+	session := cmp.Or(SessionLeadContext(ctx, nil, true), reg.Default)
 	if providerFlag == session {
 		return spec
 	}
@@ -352,7 +337,7 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return nil, fmt.Errorf("unknown alias %q (opus|sonnet|haiku|fable|all)", alias)
 		}
-		set[alias] = QualifyPinSpec(reg, profile, spec)
+		set[alias] = QualifyPinSpec(context.Background(), reg, profile, spec) // ctx-less until configure.ApplyModelPins passes one
 	}
 	return set, nil
 }
@@ -388,12 +373,12 @@ func ApplyClaudeModels(set map[string]string) error {
 	return nil
 }
 
-// SessionProfileContext is the profile selected by the run snapshot.
+// SessionProfileContext is the profile of the session a run belongs to ("" outside a launched session).
 func SessionProfileContext(ctx context.Context) string {
 	return strings.TrimSpace(proc.Value(ctx, EnvSessionProfile))
 }
 
-// SessionLeadContext resolves SessionLead using the run snapshot.
+// SessionLeadContext is the session's profile, else (withRecord) claude's record profile; a non-nil reg drops unknowns.
 func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) string {
 	name := SessionProfileContext(ctx)
 	if name == "" && withRecord {

@@ -36,17 +36,12 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	return changed, providers.ClearLastProfilesFor(agents...)
 }
 
-// ValidProfile rejects a profile some agent cannot run on, and an edit its record would not survive, before any record
-// is written; "" (off) always passes.
+// ValidProfile rejects a profile some agent cannot run on, before any record is written; "" (off) always passes.
 func ValidProfile(agents []string, profile string) error {
 	if profile == "" {
 		return nil
 	}
 	reg, err := providers.Load()
-	if err != nil {
-		return err
-	}
-	recs, err := vault.ReadAgentRecords(agents)
 	if err != nil {
 		return err
 	}
@@ -56,12 +51,6 @@ func ValidProfile(agents []string, profile string) error {
 		}
 		if row := reg.Providers[profile]; row != nil && a != "claude" && !agentpkg.CanServe(a, row) {
 			return fmt.Errorf("%s cannot serve profile %q", a, profile)
-		}
-		if next := recs[a]; next.Profile != profile {
-			next.Profile = profile
-			if err := agentpkg.ValidateRecord(a, next); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

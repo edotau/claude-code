@@ -214,26 +214,21 @@ func refuseUnmappedDeny(p agent.Permissions) error {
 }
 
 // launchProvider is the profile claudeCmd launches req on: the request's, else its run snapshot's session profile.
-func launchProvider(req agent.RunOptions) string {
+func launchProvider(ctx context.Context, req agent.RunOptions) string {
 	if req.Provider != "" {
 		return req.Provider
 	}
-	reg, err := providers.Load()
-	if err != nil {
-		return ""
-	}
-	ctx := context.Background()
 	if req.Values != nil {
 		ctx = proc.WithValues(ctx, req.Values)
 	}
-	return providers.SessionLeadContext(ctx, reg, false)
+	return agent.SessionProviderContext(ctx, agentid.Claude)
 }
 
 // launchTarget is req's launch profile row; Provider nil when it does not resolve (never Anthropic, so no auto judge).
-func launchTarget(req agent.RunOptions) providers.Target {
+func launchTarget(ctx context.Context, req agent.RunOptions) providers.Target {
 	t := providers.Target{Model: req.Model}
 	if reg, err := providers.Load(); err == nil {
-		if p, err := reg.Get(launchProvider(req)); err == nil {
+		if p, err := reg.Get(launchProvider(ctx, req)); err == nil {
 			t.Provider = p
 		}
 	}
@@ -245,7 +240,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseClaudeCmd(req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
-	st, err := agent.ResolveSettings(agentid.Claude, req, launchTarget(req), true)
+	st, err := agent.ResolveSettings(agentid.Claude, req, launchTarget(ctx, req), true)
 	if err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
@@ -257,10 +252,10 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if req.Gate {
 		args = append(args, gateArgs(req)...)
 	}
-	if err := refuseUngatedBypass(args, req); err != nil {
+	if err := refuseUngatedBypass(ctx, args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
-	o := agent.ClaudeOptions{Provider: launchProvider(req), Model: req.Model, KeepEnv: req.KeepEnv}
+	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.Model, KeepEnv: req.KeepEnv}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err

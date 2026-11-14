@@ -193,11 +193,11 @@ func TestEmptyContextHostForcesDirect(t *testing.T) {
 	if u, err := Proxy(req); err != nil || u != nil {
 		t.Fatalf("Proxy = %v, %v; want direct (nil, nil)", u, err)
 	}
-	if got := Via(req.Context()); got != "" {
-		t.Fatalf("Via = %q, want direct", got)
+	if got := HostContext(req.Context()); got != "" {
+		t.Fatalf("HostContext = %q, want direct", got)
 	}
-	if got := Via(t.Context()); got != "box" {
-		t.Fatalf("Via without a pin = %q, want the environment host", got)
+	if got := HostContext(t.Context()); got != "box" {
+		t.Fatalf("HostContext without a pin = %q, want the environment host", got)
 	}
 }
 
@@ -208,13 +208,29 @@ func TestAlternateFlipsThePath(t *testing.T) {
 		t.Fatal("no tunnel host configured: want no alternate")
 	}
 	alt, from, to, ok := Alternate(WithHost(t.Context(), "pin"))
-	if !ok || Via(alt) != "" || from != "ssh pin" || to != "direct" {
-		t.Fatalf("tunnelled: via=%q from=%q to=%q ok=%v", Via(alt), from, to, ok)
+	if !ok || HostContext(alt) != "" || from != "ssh pin" || to != "direct" {
+		t.Fatalf("tunnelled: via=%q from=%q to=%q ok=%v", HostContext(alt), from, to, ok)
 	}
 	t.Setenv(EnvHost, "box")
 	alt, from, to, ok = Alternate(WithHost(t.Context(), ""))
-	if !ok || Via(alt) != "box" || from != "direct" || to != "ssh box" {
-		t.Fatalf("direct: via=%q from=%q to=%q ok=%v", Via(alt), from, to, ok)
+	if !ok || HostContext(alt) != "box" || from != "direct" || to != "ssh box" {
+		t.Fatalf("direct: via=%q from=%q to=%q ok=%v", HostContext(alt), from, to, ok)
+	}
+}
+
+// A run snapshot decides the tunnel path: the ambient environment's host neither routes nor flips a run that lacks it.
+func TestHostContextAndAlternateFollowTheRunSnapshot(t *testing.T) {
+	t.Setenv(EnvHost, "ambient")
+	bare := proc.WithValues(t.Context(), proc.Values{})
+	if got := HostContext(bare); got != "" {
+		t.Errorf("HostContext(snapshot without a host) = %q, want direct", got)
+	}
+	if _, _, _, ok := Alternate(bare); ok {
+		t.Error("Alternate(snapshot without a host) found an alternate from the ambient host")
+	}
+	run := proc.WithValues(t.Context(), proc.Values{EnvHost: "run"})
+	if _, from, to, ok := Alternate(WithHost(run, "")); !ok || from != "direct" || to != "ssh run" {
+		t.Errorf("Alternate(direct on a tunnelled run) = %q -> %q, %v; want direct -> ssh run", from, to, ok)
 	}
 }
 

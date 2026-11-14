@@ -100,7 +100,7 @@ func codexOverrideValue(line, table, path string, n int) (string, error) {
 }
 
 // RouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
-func (codexEngine) RouteDetail() (string, bool) {
+func (codexEngine) RouteDetail(context.Context) (string, bool) {
 	model, source := providers.CodexModel()
 	effort, _ := providers.CodexEffort()
 	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default")), true

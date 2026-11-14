@@ -32,10 +32,9 @@ func SetAgentPin(agent, field, val string) (bool, error) {
 		_, err := ApplyProfile([]string{agent}, val)
 		return err == nil, err
 	}
-	if val != "" { // clearing a pin always applies, as an off profile does
-		if err := agentpkg.ValidateRecord(agent, next); err != nil {
-			return false, err
-		}
+	// Only the touched field is checked: a stored record already invalid elsewhere is reported as before, not blocking.
+	if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}.WithPin(field, val)); err != nil {
+		return false, err
 	}
 	if err := vault.SetAgentRecord(agent, next); err != nil {
 		return false, err
@@ -81,7 +80,7 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 	if err != nil {
 		return helptext.Fail("%v", err), true
 	}
-	warn, err := copilot.ValidateCopilotPins(provider, pins)
+	warn, err := copilot.ValidateCopilotPins(context.Background(), provider, pins)
 	if err != nil {
 		return helptext.Fail("%v", err), true
 	}

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -51,7 +52,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := providers.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
+	got := providers.QualifyPinSpec(t.Context(), reg, "personal", "anthropic:claude-opus-5.5")
 	if got != "anthropic:claude-opus-5.5" {
 		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
 	}
@@ -98,10 +99,36 @@ func TestSetAgentPinClearReportsUnreadableVault(t *testing.T) {
 	}
 }
 
-// An edit whose record has an invalid launch env is refused before the vault is written; a valid one is stored.
-func TestSetAgentPinRefusesInvalidLaunchEnvBeforeStoring(t *testing.T) {
+// A record invalid in an untouched field does not block an edit of another field, and its report is unchanged.
+func TestSetAgentPinIgnoresInvalidUntouchedFields(t *testing.T) {
 	hosttest.PinScratch(t)
 	bad := vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"NO_EQUALS_SIGN"}}}
+	wantReport := agentpkg.ValidateRecord("claude", bad)
+	if wantReport == nil || !strings.Contains(wantReport.Error(), "launch.env") {
+		t.Fatalf("setup: the record should fail on launch.env, got %v", wantReport)
+	}
+	for _, c := range []struct{ field, val string }{{"MODEL", "pinned"}, {"PROFILE", "anthropic"}} {
+		t.Run(c.field, func(t *testing.T) {
+			if err := vault.SetAgentRecord("claude", bad); err != nil {
+				t.Fatal(err)
+			}
+			if changed, err := SetAgentPin("claude", c.field, c.val); err != nil || !changed {
+				t.Fatalf("SetAgentPin(%s) = (%v, %v), want applied", c.field, changed, err)
+			}
+			got := vault.GetAgentRecord("claude")
+			if err := agentpkg.ValidateRecord("claude", got); err == nil || err.Error() != wantReport.Error() {
+				t.Errorf("stored record report = %v, want %v", err, wantReport)
+			}
+		})
+	}
+}
+
+// An edit that makes the touched field invalid is refused before the vault is written, whatever else is stored.
+func TestSetAgentPinRefusesInvalidTouchedFieldBeforeStoring(t *testing.T) {
+	hosttest.PinScratch(t)
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Model: "kept"}); err != nil {
+		t.Fatal(err)
+	}
 	stored := func() string {
 		var raw string
 		if err := vault.View(func(tx *vault.Tx) error { raw, _ = tx.Get(vault.Overlay, vault.AgentRecordsKey); return nil }); err != nil {
@@ -109,29 +136,12 @@ func TestSetAgentPinRefusesInvalidLaunchEnvBeforeStoring(t *testing.T) {
 		}
 		return raw
 	}
-	for _, c := range []struct{ field, val string }{{"MODEL", "pinned"}, {"PROFILE", "anthropic"}} {
-		t.Run(c.field, func(t *testing.T) {
-			if err := vault.SetAgentRecord("claude", bad); err != nil {
-				t.Fatal(err)
-			}
-			before := stored()
-			changed, err := SetAgentPin("claude", c.field, c.val)
-			if err == nil || !strings.Contains(err.Error(), "launch.env") || changed {
-				t.Fatalf("SetAgentPin(%s) = (%v, %v), want a launch.env refusal", c.field, changed, err)
-			}
-			if after := stored(); after != before {
-				t.Errorf("refused edit changed the stored records:\n before %s\n after  %s", before, after)
-			}
-		})
+	before := stored()
+	changed, err := SetAgentPin("claude", "EFFORT", "no-such-effort")
+	if err == nil || !strings.Contains(err.Error(), "effort") || changed {
+		t.Fatalf("SetAgentPin(EFFORT) = (%v, %v), want an effort refusal", changed, err)
 	}
-	good := vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"SYNTHETIC_FLAG=1"}}}
-	if err := vault.SetAgentRecord("claude", good); err != nil {
-		t.Fatal(err)
-	}
-	if changed, err := SetAgentPin("claude", "MODEL", "pinned"); err != nil || !changed {
-		t.Fatalf("SetAgentPin on a valid record = (%v, %v), want stored", changed, err)
-	}
-	if got := vault.GetAgentRecord("claude").Model; got != "pinned" {
-		t.Errorf("model = %q, want pinned", got)
+	if after := stored(); after != before {
+		t.Errorf("refused edit changed the stored records:\n before %s\n after  %s", before, after)
 	}
 }

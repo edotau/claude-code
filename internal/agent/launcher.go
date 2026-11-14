@@ -220,7 +220,7 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 
 // LaunchPlan resolves `claude-code <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
-	ctx, o.Values = runValues(ctx, o.Values)
+	ctx, o.Values = RunValues(ctx, o.Values)
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Values = o.Values.Merge(nil)
 	plan.Keep, plan.CLI = o.KeepEnv, true
@@ -342,10 +342,10 @@ func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan,
 
 // cliTarget resolves spec's target, then applies the model flag and pin to it.
 func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
-	target, note, err := spec.ResolveTarget(reg, sel, explicit)
+	target, note, err := spec.ResolveTarget(ctx, reg, sel, explicit)
 	if err == nil {
 		var modelNote string
-		if target, modelNote = resolveAgentModelContext(ctx, ModelAsk{Agent: name, Flag: flagModel, Target: target, Applied: target.Provider == nil || target.Provider == sel.Aliases[models.Opus].Provider}); modelNote != "" {
+		if target, modelNote = ResolveAgentModel(ctx, ModelAsk{Agent: name, Flag: flagModel, Target: target, Applied: target.Provider == nil || target.Provider == sel.Aliases[models.Opus].Provider}); modelNote != "" {
 			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
 		}
 	}

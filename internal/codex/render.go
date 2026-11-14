@@ -35,9 +35,8 @@ func codexBannerSection(block string) string {
 // errNoBlock marks a deliberate "no banner" outcome, so the prior banner is stripped rather than kept.
 var errNoBlock = errors.New("codex: no config.toml block")
 
-func codexProviderSection(reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
-	ctx := context.Background()
-	target, note, err := codexSchema().ResolveTarget(reg, sel, false)
+func codexProviderSection(ctx context.Context, reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
+	target, note, err := codexSchema().ResolveTarget(ctx, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -165,7 +164,7 @@ func codexBlockFromArgv(argv []string) (string, error) {
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-func renderCodex(reg *providers.Registry, sel providers.Selection, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+func renderCodex(ctx context.Context, reg *providers.Registry, sel providers.Selection, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CodexJSON()
 	if err != nil {
 		return false, err
@@ -174,7 +173,7 @@ func renderCodex(reg *providers.Registry, sel providers.Selection, o agentconfig
 	if err != nil {
 		return false, err
 	}
-	next, err := codexProviderConfig(reg, sel, string(raw), out)
+	next, err := codexProviderConfig(ctx, reg, sel, string(raw), out)
 	if err != nil {
 		return false, err
 	}
@@ -222,9 +221,9 @@ func readCodexConfig(home string) (path string, raw []byte, existed bool, err er
 }
 
 // codexProviderConfig is raw with the provider section inserted, any prior banner removed.
-func codexProviderConfig(reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
+func codexProviderConfig(ctx context.Context, reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
 	stripped := codexBannerRE().ReplaceAllString(raw, "") // sans any prior banner, for the user-value check
-	section, err := codexProviderSection(reg, sel, stripped, out)
+	section, err := codexProviderSection(ctx, reg, sel, stripped, out)
 	if errors.Is(err, errNoBlock) {
 		return stripped, nil
 	}

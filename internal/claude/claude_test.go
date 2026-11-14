@@ -322,7 +322,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
 	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"ultra", "auto", "dontAsk"}} {
 		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
-		got := strings.Join(renderedArgs(t, req, launchTarget(req)), " ")
+		got := strings.Join(renderedArgs(t, req, launchTarget(context.Background(), req)), " ")
 		if !strings.Contains(got, "--permission-mode "+c.want) || strings.Contains(got, "--permission-mode "+c.not) {
 			t.Errorf("profile %s: args %q, want --permission-mode %s", c.profile, got, c.want)
 		}
@@ -333,7 +333,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 		t.Errorf("ultra, no rules: args %q, want %q", got, tail)
 	}
 	req := agent.RunOptions{Tools: true, Provider: "qa"}
-	got := strings.Join(renderedArgs(t, req, launchTarget(req)), " ")
+	got := strings.Join(renderedArgs(t, req, launchTarget(context.Background(), req)), " ")
 	for _, want := range []string{"--allowedTools Edit Write Read Grep Glob Bash(go build *)", "Bash(go test *)", "Bash(git diff *)",
 		"Bash(rtk go test *)", "Bash(rtk read *) --permission-mode dontAsk --permission-prompts none"} {
 		if !strings.Contains(got, want) {
@@ -388,6 +388,16 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 				t.Errorf("%s/%s: env must carry launch.env minus the wiped model name", c.name, prof) // never print cmd.Env
 			}
 		}
+	}
+}
+
+// TestLaunchProviderReadsCtxSnapshot: a run whose ctx carries the snapshot launches on its session profile, not the process env's.
+func TestLaunchProviderReadsCtxSnapshot(t *testing.T) {
+	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	t.Setenv(providers.EnvSessionProfile, "ultra")
+	ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "qa"})
+	if got := launchProvider(ctx, agent.RunOptions{}); got != "qa" {
+		t.Errorf("launchProvider = %q, want the ctx snapshot's qa", got)
 	}
 }
 

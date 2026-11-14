@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -283,6 +284,18 @@ func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 	t.Errorf("process group %d still has members after cancel", pgid)
 }
 
+// An ambient but empty COWORKER_OVERLAY must not hide the vault's stored overlay from the captured snapshot.
+func TestRunValuesAmbientEmptyOverlayKeepsStored(t *testing.T) {
+	vaulttest.Use(t)
+	const stored = `{"provider":"databricks","profile":"qa"}`
+	vaulttest.Put(t, vault.Env, agentconfig.OverlayVar, stored)
+	t.Setenv(agentconfig.OverlayVar, "")
+	ctx, _ := RunValues(context.Background(), nil)
+	if got := agentconfig.DispatchOverlayContext(ctx, ""); got != stored {
+		t.Fatalf("DispatchOverlayContext = %q, want the stored overlay %q", got, stored)
+	}
+}
+
 // Concurrent child launches keep independent snapshots and request-pinned egress without changing the parent.
 func TestRunValuesConcurrentChildren(t *testing.T) {
 	t.Setenv("PST_RUN", "parent")
@@ -293,7 +306,7 @@ func TestRunValuesConcurrentChildren(t *testing.T) {
 	for _, name := range []string{"first", "second"} {
 		go func() {
 			<-start
-			ctx, copied := runValues(context.Background(), values.With("PST_RUN", name))
+			ctx, copied := RunValues(context.Background(), values.With("PST_RUN", name))
 			copied["PST_RUN"] = "mutated-after-capture"
 			ctx = egress.WithHost(ctx, name+"-host")
 			for _, agent := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {

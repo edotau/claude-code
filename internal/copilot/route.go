@@ -89,7 +89,7 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 	}
 	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile wins
 		p := reg.Providers[pin]
-		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: tierModel(p, models.Opus)}})
+		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: tierModel(p, models.Opus)}})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
@@ -113,11 +113,11 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 }
 
 // copilotRouteDetail is copilot's resolved dispatch, never a credential; its GitHub login adds model source and pins.
-func copilotRouteDetail(reg *providers.Registry, selErr error) string {
+func copilotRouteDetail(ctx context.Context, reg *providers.Registry, selErr error) string {
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
 	}
-	ri := copilotSchema().DescribeRoute(reg)
+	ri := copilotSchema().DescribeRoute(ctx, reg)
 	if !ri.OK {
 		return ri.Reason
 	}
@@ -138,7 +138,7 @@ type RouteStep struct {
 }
 
 // RouteChain is copilot's routes in describeCopilotRoute's try order, offline (no credit lookup).
-func RouteChain(reg *providers.Registry) []RouteStep {
+func RouteChain(ctx context.Context, reg *providers.Registry) []RouteStep {
 	if reg == nil {
 		return nil
 	}
@@ -153,7 +153,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 		gh += " " + a.Account
 	}
 	steps = append(steps, RouteStep{Label: gh, When: fmt.Sprintf("under %.0f%% of credits", copilotWorkablePct), OK: ok})
-	for _, name := range fallbackProfiles(context.Background(), reg) {
+	for _, name := range fallbackProfiles(ctx, reg) {
 		if p := reg.Providers[name]; name != pin && p.DatabricksUsable() {
 			steps = append(steps, RouteStep{Label: "databricks-" + name, When: "fallback", OK: true})
 			break
@@ -284,8 +284,7 @@ func copilotCredEnv(p *providers.Provider, cred string) proc.Values {
 }
 
 // ValidateCopilotPins checks pins against their live catalog: unreachable warns (pin written), an unknown id errors.
-func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
-	ctx := context.Background()
+func ValidateCopilotPins(ctx context.Context, providerFlag string, pins []string) (warn string, err error) {
 	fallback := providerFlag
 	if fallback == "" {
 		fallback = providers.SessionLeadContext(ctx, nil, true)

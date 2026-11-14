@@ -303,7 +303,7 @@ func absPaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-func (copilotEngine) Login(p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
+func (copilotEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
 	login := ""
 	if p != nil {
 		login = p.Login
@@ -315,21 +315,20 @@ func (copilotEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headles
 	return copilotWire(r, h)
 }
 
-func (e copilotEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	return agent.RouteFallback(reg, e.DescribeRoute(reg))
+func (e copilotEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
+	return agent.RouteFallback(reg, e.DescribeRoute(ctx, reg))
 }
 
-func (copilotEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
-	return describeCopilotRoute(context.Background(), reg)
+func (copilotEngine) DescribeRoute(ctx context.Context, reg *providers.Registry) agent.RouteInfo {
+	return describeCopilotRoute(ctx, reg)
 }
 
-func (copilotEngine) Gate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	return copilotGate(context.Background(), reg, t)
+func (copilotEngine) Gate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	return copilotGate(ctx, reg, t)
 }
 
 // GateExplicit also turns a gate move off the pinned GitHub profile into a quota error and keeps the requested tier.
-func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	ctx := context.Background() // the Driver method carries no ctx yet
+func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	if req.Fallback == router.FallbackNone {
 		if err := gateNoFallback(ctx, t); err != nil {
 			return providers.Target{}, "", err
@@ -359,8 +358,8 @@ func gateNoFallback(ctx context.Context, t providers.Target) error {
 	return nil
 }
 
-func (e copilotEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
-	return agent.RouteErr(e.DescribeRoute(reg))
+func (e copilotEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
+	return agent.RouteErr(e.DescribeRoute(ctx, reg))
 }
 
 // FallbackNote keeps the Databricks fallback's own notice: the gate already names the account and the profile.
@@ -368,7 +367,7 @@ func (copilotEngine) FallbackNote(ft providers.Target, note string) (string, boo
 	return note, ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks
 }
 
-func (copilotEngine) Presence(router.Cell) error {
+func (copilotEngine) Presence(_ context.Context, _ router.Cell) error {
 	u, err := copilotPinLoginErr()
 	if err != nil {
 		return fmt.Errorf("cannot read the provider registry to check the pinned gh user: %w", err)
@@ -387,8 +386,8 @@ func (copilotEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (copilotEngine) Render(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	return renderCopilot(reg, sel, home, o, out)
+func (copilotEngine) Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	return renderCopilot(ctx, reg, sel, home, o, out)
 }
 
 func (copilotEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
@@ -412,12 +411,12 @@ func (copilotEngine) RegistryLaunch(
 	return configureCopilotRegistry(ctx, reg, t, args, dry)
 }
 
-func (copilotEngine) RouteDetail() (string, bool) {
+func (copilotEngine) RouteDetail(ctx context.Context) (string, bool) {
 	reg, _, selErr, ok := agent.LoadSelection()
 	if !ok {
 		return "", false
 	}
-	return copilotRouteDetail(reg, selErr), true
+	return copilotRouteDetail(ctx, reg, selErr), true
 }
 
 // copilotSchema is the registered copilot roster row.

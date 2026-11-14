@@ -475,7 +475,7 @@ func (e opencodeEngine) LoginServes(p *providers.Provider) bool {
 	return p.Provider == "github" || e.BaseEngine.LoginServes(p)
 }
 
-func (opencodeEngine) Login(p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
+func (opencodeEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
 	}
@@ -493,11 +493,11 @@ func (opencodeEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Head
 	return opencode(r.Provider, r.Dialect, r.Base, r.Model, r.Cred, r.Routed, h)
 }
 
-func (e opencodeEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
-	return agent.RouteFallback(reg, e.DescribeRoute(reg))
+func (e opencodeEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
+	return agent.RouteFallback(reg, e.DescribeRoute(ctx, reg))
 }
 
-func (opencodeEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
+func (opencodeEngine) DescribeRoute(_ context.Context, reg *providers.Registry) agent.RouteInfo {
 	return describeOpenCodeRoute(reg)
 }
 
@@ -531,7 +531,7 @@ func (e opencodeEngine) Verify(context.Context) (providers.AuthVerdict, string) 
 }
 
 // PreRoute prefers opencode's own login (Go/Zen, else github-copilot) ahead of a session provider that could serve it.
-func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
+func (opencodeEngine) PreRoute(_ context.Context, reg *providers.Registry, explicit bool) (providers.Target, string, bool, error) {
 	if explicit {
 		return providers.Target{}, "", false, nil
 	}
@@ -544,8 +544,8 @@ func (opencodeEngine) PreRoute(reg *providers.Registry, explicit bool) (provider
 	return providers.Target{}, "", false, nil
 }
 
-func (e opencodeEngine) NoRoute(reg *providers.Registry, _ providers.Target) error {
-	return agent.RouteErr(e.DescribeRoute(reg))
+func (e opencodeEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
+	return agent.RouteErr(e.DescribeRoute(ctx, reg))
 }
 
 // LaunchEnv points every opencode launch at the tracked overlay; each error is a notice and opencode runs without it.
@@ -563,7 +563,7 @@ func (opencodeEngine) LaunchEnv() []string {
 	return append(env, "OPENCODE_CONFIG="+cfg, "OPENCODE_TUI_CONFIG="+tui)
 }
 
-func (opencodeEngine) Presence(c router.Cell) error {
+func (opencodeEngine) Presence(_ context.Context, c router.Cell) error {
 	if id, _, found := strings.Cut(c.Model, "/"); found {
 		_, err := opencodeCredential(id)
 		return err
@@ -572,7 +572,7 @@ func (opencodeEngine) Presence(c router.Cell) error {
 }
 
 // OwnLogin uses stored login/config with argv only, adding inline config when tools are off.
-func (opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error) {
+func (opencodeEngine) OwnLogin(_ context.Context, h agent.Headless) (env, argv []string, err error) {
 	if err := agent.CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
@@ -583,16 +583,16 @@ func (opencodeEngine) OwnLogin(h agent.Headless) (env, argv []string, err error)
 	return env, argv, nil // prepare's RenderSettings adds the launch env
 }
 
-func (opencodeEngine) Render(_ *providers.Registry, _ providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+func (opencodeEngine) Render(_ context.Context, _ *providers.Registry, _ providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	return renderOpenCodeOverlay(o, out)
 }
 
-func (opencodeEngine) RouteDetail() (string, bool) {
+func (opencodeEngine) RouteDetail(ctx context.Context) (string, bool) {
 	reg, sel, selErr, ok := agent.LoadSelection()
 	if !ok {
 		return "", false
 	}
-	return opencodeRouteDetail(reg, sel, selErr), true
+	return opencodeRouteDetail(ctx, reg, sel, selErr), true
 }
 
 // opencodeSystemAgent is the custom agent whose prompt carries --system-prompt for opencode.

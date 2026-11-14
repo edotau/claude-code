@@ -226,7 +226,7 @@ func hooksPath(home string) string {
 func settingsPath(home string) string { return filepath.Join(home, ".copilot", "settings.json") }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
-func renderCopilot(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CopilotJSON()
 	if err != nil {
 		return false, err
@@ -240,8 +240,7 @@ func renderCopilot(reg *providers.Registry, sel providers.Selection, home string
 		return drift, err
 	}
 	drift = drift || sd
-	ctx := context.Background()
-	target, note, err := copilotSchema().ResolveTarget(reg, sel, false)
+	target, note, err := copilotSchema().ResolveTarget(ctx, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil

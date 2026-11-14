@@ -63,7 +63,7 @@ func TestFor(t *testing.T) {
 			setup(t)
 			pin(t, c.agent, "dev2", c.fallback)
 			t.Setenv(providers.EnvSessionProfile, c.session)
-			got, err := For(c.agent, c.l)
+			got, err := ForContext(t.Context(), c.agent, c.l)
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) {
 					t.Fatalf("err = %v, want %q", err, c.err)
@@ -71,7 +71,7 @@ func TestFor(t *testing.T) {
 				return
 			}
 			if err != nil || got.Profile != c.want || got.Model != "m1" || got.Fallback != c.fallback {
-				t.Fatalf("For(%s) = %+v, %v; want profile %s", c.agent, got, err, c.want)
+				t.Fatalf("ForContext(%s) = %+v, %v; want profile %s", c.agent, got, err, c.want)
 			}
 		})
 	}
@@ -80,9 +80,9 @@ func TestFor(t *testing.T) {
 func TestForOpencodePinWithoutRegistryRow(t *testing.T) {
 	setup(t)
 	pin(t, "opencode", "zen-free", "")
-	got, err := For("opencode", Launch{})
+	got, err := ForContext(t.Context(), "opencode", Launch{})
 	if err != nil || got.Profile != "zen-free" {
-		t.Fatalf("For(opencode) = %+v, %v", got, err)
+		t.Fatalf("ForContext(opencode) = %+v, %v", got, err)
 	}
 }
 
@@ -91,9 +91,9 @@ func TestForSessionWithoutLeadKeepsPin(t *testing.T) {
 	setup(t)
 	vaulttest.SetRecord(t, "claude", "profile", "")
 	pin(t, "codex", "dev2", "")
-	got, err := For("codex", Launch{Profile: "session"})
+	got, err := ForContext(t.Context(), "codex", Launch{Profile: "session"})
 	if err != nil || got.Profile != "dev2" {
-		t.Fatalf("For(codex, session) = %+v, %v; want the dev2 pin", got, err)
+		t.Fatalf("ForContext(codex, session) = %+v, %v; want the dev2 pin", got, err)
 	}
 }
 
@@ -102,9 +102,9 @@ func TestForIgnoresArmEnv(t *testing.T) {
 	setup(t)
 	pin(t, "gemini", "", "")
 	t.Setenv("HARNESS_DATABRICKS_ARM", "dev")
-	got, err := For("gemini", Launch{})
+	got, err := ForContext(t.Context(), "gemini", Launch{})
 	if err != nil || got.Profile != "antigravity" {
-		t.Fatalf("For(gemini) with arm env = %+v, %v; want the antigravity pin", got, err)
+		t.Fatalf("ForContext(gemini) with arm env = %+v, %v; want the antigravity pin", got, err)
 	}
 }
 
@@ -113,9 +113,9 @@ func TestForRejectsBadProviderWithProfile(t *testing.T) {
 	setup(t)
 	t.Setenv(providers.EnvSessionProfile, "dev")
 	for profile, want := range map[string]string{"dev": "--profile dev is not a openai profile", "session": "no signed-in openai profile serves codex"} {
-		_, err := For("codex", Launch{Profile: profile, Provider: "openai", CanServe: databricksOnly})
+		_, err := ForContext(t.Context(), "codex", Launch{Profile: profile, Provider: "openai", CanServe: databricksOnly})
 		if err == nil || err.Error() != "agent codex: "+want {
-			t.Fatalf("For(profile %s, provider openai) err = %v, want %q", profile, err, want)
+			t.Fatalf("ForContext(profile %s, provider openai) err = %v, want %q", profile, err, want)
 		}
 	}
 }
@@ -124,9 +124,9 @@ func TestForRejectsBadProviderWithProfile(t *testing.T) {
 func TestForUnknownProfileWithProviderWrapsSentinel(t *testing.T) {
 	setup(t)
 	for _, provider := range []string{"", "databricks"} {
-		_, err := For("codex", Launch{Profile: "nosuch", Provider: provider, CanServe: databricksOnly})
+		_, err := ForContext(t.Context(), "codex", Launch{Profile: "nosuch", Provider: provider, CanServe: databricksOnly})
 		if !errors.Is(err, ErrUnknownProfile) {
-			t.Errorf("For(profile nosuch, provider %q) err = %v, want ErrUnknownProfile", provider, err)
+			t.Errorf("ForContext(profile nosuch, provider %q) err = %v, want ErrUnknownProfile", provider, err)
 		}
 	}
 }
@@ -148,12 +148,12 @@ func TestForRouted(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Setenv(providers.EnvSessionProfile, c.env)
-		cfg, err := For(c.agent, Launch{Profile: c.profile, Provider: c.provider, Routed: true, CanServe: databricksOnly})
+		cfg, err := ForContext(t.Context(), c.agent, Launch{Profile: c.profile, Provider: c.provider, Routed: true, CanServe: databricksOnly})
 		if cfg.Profile != c.want || (c.err == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.err)) {
 			t.Errorf("%+v: got %q, %v", c, cfg.Profile, err)
 		}
 	}
-	cfg, err := For("codex", Launch{})
+	cfg, err := ForContext(t.Context(), "codex", Launch{})
 	if err != nil || cfg.Profile != "dev2" {
 		t.Errorf("non-routed pin = %q, %v, want dev2", cfg.Profile, err)
 	}
@@ -164,7 +164,7 @@ func TestForRoutedProviderEvaluatesRegistryProfiles(t *testing.T) {
 	setup(t)
 	var seen []string
 	deny := func(_ string, p *providers.Provider) bool { seen = append(seen, p.Provider); return false }
-	_, err := For("codex", Launch{Provider: "github", Routed: true, CanServe: deny})
+	_, err := ForContext(t.Context(), "codex", Launch{Provider: "github", Routed: true, CanServe: deny})
 	if err == nil || !strings.Contains(err.Error(), "no signed-in github profile serves codex") || len(seen) == 0 {
 		t.Fatalf("err = %v, evaluated %v; want a github row evaluated then rejected", err, seen)
 	}
@@ -176,9 +176,9 @@ func databricksOnly(_ string, p *providers.Provider) bool { return p.Provider ==
 // A non-routed --provider with no CanServe never picks a signed-in non-databricks profile (openai's chatgpt login is always present).
 func TestForNonRoutedProviderWithoutCanServeRejectsNonDatabricks(t *testing.T) {
 	setup(t)
-	got, err := For("codex", Launch{Provider: "openai"})
+	got, err := ForContext(t.Context(), "codex", Launch{Provider: "openai"})
 	if err == nil || !strings.Contains(err.Error(), "no signed-in openai profile serves codex") {
-		t.Fatalf("For(codex, provider openai) = %+v, %v; want the no-profile-serves error", got, err)
+		t.Fatalf("ForContext(codex, provider openai) = %+v, %v; want the no-profile-serves error", got, err)
 	}
 }
 
@@ -187,11 +187,11 @@ func TestForProviderPickMatchesRouted(t *testing.T) {
 	setup(t)
 	pin(t, "codex", "ultra", "")
 	t.Setenv(providers.EnvSessionProfile, "dev")
-	routed, err := For("codex", Launch{Provider: "databricks", Routed: true, CanServe: databricksOnly})
+	routed, err := ForContext(t.Context(), "codex", Launch{Provider: "databricks", Routed: true, CanServe: databricksOnly})
 	if err != nil || routed.Profile == "" || routed.Profile == "ultra" {
 		t.Fatalf("routed = %+v, %v; want a databricks pick", routed, err)
 	}
-	got, err := For("codex", Launch{Provider: "databricks"})
+	got, err := ForContext(t.Context(), "codex", Launch{Provider: "databricks"})
 	if err != nil || got.Profile != routed.Profile {
 		t.Fatalf("non-routed = %+v, %v; want %q like routed", got, err, routed.Profile)
 	}

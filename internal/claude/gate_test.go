@@ -85,10 +85,10 @@ func TestGateOffAnthropicGatesBareAutonomous(t *testing.T) {
 		t.Errorf("bare autonomous off Anthropic: gate=%v args %q, want the gated launch", req.Gate, args)
 	}
 	bare := []string{"--permission-mode", "bypassPermissions"}
-	if err := refuseUngatedBypass(bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", SafeMode: true}); err == nil {
+	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", SafeMode: true}); err == nil {
 		t.Error("ungated bypassPermissions off Anthropic must be refused")
 	}
-	if err := refuseUngatedBypass(bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
+	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
 		t.Errorf("bare autonomous on Anthropic keeps its launch, got %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestGateOffAnthropicKeepsOtherLaunches(t *testing.T) {
 			t.Errorf("%s: must not take the gated launch", name)
 		}
 	}
-	if err := refuseUngatedBypass([]string{"--permission-mode", "bypassPermissions"}, agent.RunOptions{Tools: true}); err == nil {
+	if err := refuseUngatedBypass(context.Background(), []string{"--permission-mode", "bypassPermissions"}, agent.RunOptions{Tools: true}); err == nil {
 		t.Error("bypassPermissions without a gate (or the bare --autonomous) must be refused")
 	}
 }

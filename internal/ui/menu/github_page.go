@@ -47,10 +47,11 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 
 	d.printf("%-16s %s\n", "GitHub auth", githubAuthLine(d))
 
+	ctx := context.Background() // the menu is a command entry: no caller ctx
 	auth := agent.AuthStatus("copilot")
 	copilotOK = auth.Present
 	if copilotOK {
-		auth.Account = cmp.Or(auth.Account, agent.AuthPlan(context.Background(), "copilot", auth).Account)
+		auth.Account = cmp.Or(auth.Account, agent.AuthPlan(ctx, "copilot", auth).Account)
 		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
 	} else {
 		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
@@ -60,7 +61,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 
 	oc, _ := agent.LookupSchema("opencode")
 	cp, _ := agent.LookupSchema("copilot")
-	ocRoute, cpRoute := oc.DescribeRoute(d.reg), cp.DescribeRoute(d.reg)
+	ocRoute, cpRoute := oc.DescribeRoute(ctx, d.reg), cp.DescribeRoute(ctx, d.reg)
 	printRoute(d, ocRoute)
 	printRoute(d, cpRoute)
 	return ghOK, copilotOK, ocRoute.OK && cpRoute.OK

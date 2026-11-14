@@ -565,23 +565,7 @@ func CurrentLimits() inflight.Limits {
 	return inflight.ComputeLimits(available, override, cpus)
 }
 
-// SessionAccount is the account this session bills: the loopback /p/<name>/ profile, else pin, else the default.
-func SessionAccount() string {
-	name := providers.SessionLead(nil, true)
-	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
-		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok {
-			name, _, _ = strings.Cut(rest, "/")
-		}
-	}
-	if name == "" {
-		if reg, err := providers.Load(); err == nil {
-			name = reg.Default
-		}
-	}
-	return ProviderAccount(name)
-}
-
-// SessionAccountContext resolves SessionAccount using the run snapshot.
+// SessionAccountContext is the account this session bills: the loopback /p/<name>/ profile, else pin, else the default.
 func SessionAccountContext(ctx context.Context) string {
 	name := providers.SessionLeadContext(ctx, nil, true)
 	if u, err := url.Parse(proc.Value(ctx, "ANTHROPIC_BASE_URL")); err == nil && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {

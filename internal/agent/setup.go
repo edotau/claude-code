@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -29,11 +30,12 @@ func (s Schema) Setup() Report {
 	if !s.External() {
 		return Report{Agent: s.Name, Checks: []Check{{Name: "agent", State: "fail", Detail: errUnknownAgent(s.Name).Error()}}}
 	}
+	ctx := context.Background()
 	binCheck := binaryCheck(s)
 	loginCheck := loginCheck(s)
 	return Report{
 		Agent:  s.Name,
-		Checks: []Check{binCheck, loginCheck, s.routeCheck(), s.projectionCheck()},
+		Checks: []Check{binCheck, loginCheck, s.routeCheck(ctx), s.projectionCheck()},
 		OK:     binCheck.State == "ok" && loginCheck.State == "ok",
 	}
 }
@@ -56,16 +58,16 @@ func loginCheck(s Schema) Check {
 }
 
 // routeCheck pulls the "<name> route" detail from RouteDetail, without running the full doctor sweep.
-func (s Schema) routeCheck() Check {
-	detail, ok := s.Eng().RouteDetail()
+func (s Schema) routeCheck(ctx context.Context) Check {
+	detail, ok := s.Eng().RouteDetail(ctx)
 	if !ok {
 		return Check{Name: "route", State: "warn", Detail: "no route check found for " + s.Name}
 	}
-	return Check{Name: "route", State: s.routeState(), Detail: detail}
+	return Check{Name: "route", State: s.routeState(ctx), Detail: detail}
 }
 
 // routeState warns when copilot's dispatch is not the route it is pinned to: no route, or a fallback off the pin.
-func (s Schema) routeState() string {
+func (s Schema) routeState(ctx context.Context) string {
 	if s.Name != agentid.Copilot {
 		return "ok"
 	}
@@ -73,7 +75,7 @@ func (s Schema) routeState() string {
 	if err != nil {
 		return "warn"
 	}
-	ri := s.DescribeRoute(reg)
+	ri := s.DescribeRoute(ctx, reg)
 	if !ri.OK || ri.Route != RouteCopilotLogin && ri.Provider != vault.GetAgentRecord(s.Name).Profile {
 		return "warn"
 	}
@@ -91,7 +93,7 @@ func (s Schema) projectionCheck() Check {
 }
 
 // configured is the no-network presence check: the agent binary, plus an opencode login for the cell's provider.
-func configured(agent string, c router.Cell) error {
+func configured(ctx context.Context, agent string, c router.Cell) error {
 	s, ok := LookupSchema(agent)
 	if !ok {
 		return fmt.Errorf("unknown agent %s", agent)
@@ -102,5 +104,5 @@ func configured(agent string, c router.Cell) error {
 	if _, err := paths.AgentBin(s.CLI.Binary); err != nil {
 		return err
 	}
-	return s.Eng().Presence(c)
+	return s.Eng().Presence(ctx, c)
 }

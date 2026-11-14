@@ -68,6 +68,22 @@ func TestCodexSandboxOptIn(t *testing.T) {
 	}
 }
 
+// codex on its own login reads the sandbox opt-in from the run's values, not the parent's environment.
+func TestCodexLoginTakesSandboxFromRunValues(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(codexSandboxEnv, "")
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"tokens":{"access_token":"synthetic"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := proc.WithValues(context.Background(), proc.Values{codexSandboxEnv: "danger-full-access"})
+	_, argv, err := codexEngine{}.Login(ctx, nil, "gpt-x", &agent.Headless{Tools: true})
+	if err != nil || !slices.Contains(argv, "danger-full-access") {
+		t.Fatalf("Login argv = %q, err %v; want the run's danger-full-access sandbox", argv, err)
+	}
+}
+
 // Go caches land under a temp dir only where the caller set none, and only under workspace-write.
 func TestCodexToolsEnvCaches(t *testing.T) {
 	t.Setenv(codexSandboxEnv, "")

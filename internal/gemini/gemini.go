@@ -63,7 +63,7 @@ func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpti
 	return res, err
 }
 
-func (geminiEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+func (geminiEngine) Login(_ context.Context, _ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	return geminiLogin(model, h)
 }
 
@@ -75,14 +75,14 @@ func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headle
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: the router fixes agy's requests for Databricks
 }
 
-func (e geminiEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
+func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
 	present, perr := geminiLoginProbe()
 	if perr != nil {
 		fmt.Fprintf(os.Stderr, "gemini: agy login marker unreadable, Google-login fallback dropped: %v\n", perr)
 	}
 	if p, ok := reg.LoginProfile("google", e.Name()); ok && present {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
 		return t, "gemini (Google login via agy)", true
 	}
 	return providers.Target{}, "", false
@@ -115,7 +115,7 @@ func (geminiEngine) FollowsPin(p *providers.Provider) bool {
 }
 
 // NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
-func (geminiEngine) NoRoute(_ *providers.Registry, t providers.Target) error {
+func (geminiEngine) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
 	if agent.GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
@@ -133,7 +133,7 @@ func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-func (geminiEngine) Render(_ *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+func (geminiEngine) Render(_ context.Context, _ *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	reportGemini(sel, out)
 	gd, err := renderGeminiSettings(home, o, out)
 	if err != nil {
@@ -154,7 +154,7 @@ func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
 	}, nil
 }
 
-func (geminiEngine) RouteDetail() (string, bool) { return geminiRouteDetail(), true }
+func (geminiEngine) RouteDetail(context.Context) (string, bool) { return geminiRouteDetail(), true }
 
 func (geminiEngine) NewLive() agent.LiveBackend { return &agyLive{} }
 
@@ -639,7 +639,11 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = agyDefaultModel
 	}
-	gt, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	ctx := context.Background() // Before carries no ctx; the run's values ride req
+	if req.Values != nil {
+		ctx = proc.WithValues(ctx, req.Values)
+	}
+	gt, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
 	if !agent.GeminiGatewayRow(t.Provider) {
 		return gt.Model, ""
 	}

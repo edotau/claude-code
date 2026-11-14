@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -19,9 +18,6 @@ import (
 
 // EnvHost names the egress host for this process and its children; `claude-code --remote <host>` sets it.
 const EnvHost = "HARNESS_EGRESS_HOST"
-
-// Host is the egress host from the environment, "" when requests leave directly.
-func Host() string { return os.Getenv(EnvHost) }
 
 type hostKey struct{}
 
@@ -36,20 +32,12 @@ func PinnedHost(ctx context.Context) string {
 	return h
 }
 
-// Via is the host a request on ctx leaves through: the pinned one (even ""), else the environment's.
-func Via(ctx context.Context) string {
-	if h, ok := ctx.Value(hostKey{}).(string); ok {
-		return h
-	}
-	return Host()
-}
-
-// Alternate is ctx on the other path (direct when tunnelled, else the environment tunnel) and both paths' names.
+// Alternate is ctx on the other path (direct when tunnelled, else the run's tunnel) and both paths' names.
 func Alternate(ctx context.Context) (alt context.Context, from, to string, ok bool) {
-	if h := Via(ctx); h != "" {
+	if h := HostContext(ctx); h != "" {
 		return WithHost(ctx, ""), "ssh " + h, "direct", true
 	}
-	if h := Host(); h != "" {
+	if h := proc.Value(ctx, EnvHost); h != "" {
 		return WithHost(ctx, h), "direct", "ssh " + h, true
 	}
 	return ctx, "", "", false
@@ -98,7 +86,7 @@ func proxyFor(host string) func(*http.Request) (*url.URL, error) {
 
 // Proxy is proxyFor the host pinned on the request's context (even ""), else the environment's.
 func Proxy(req *http.Request) (*url.URL, error) {
-	return proxyFor(Via(req.Context()))(req)
+	return proxyFor(HostContext(req.Context()))(req)
 }
 
 var install sync.Once
@@ -112,7 +100,7 @@ func Install() {
 	})
 }
 
-// HostContext returns the request-pinned host, including direct routing, else the run's host.
+// HostContext is the host pinned on ctx (even "" = direct), else the run snapshot's (the environment's with none).
 func HostContext(ctx context.Context) string {
 	if host, ok := ctx.Value(hostKey{}).(string); ok {
 		return host

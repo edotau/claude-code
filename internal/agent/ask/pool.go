@@ -32,6 +32,7 @@ type batchOpts struct {
 	FailFast        bool
 	Agent, Fallback string
 	Native          bool
+	Auto            string // the workspace databricks:auto picked for the batch; "" when the confinement was not an auto pick
 	Identity        string
 	FollowInput     bool
 	FollowIdle      time.Duration
@@ -53,9 +54,9 @@ func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOpt
 	if req, err = confineLine(ctx, t.Agent, req); err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
-	if autoPickedArm != "" && l.Task.Profile == "" && base.Provider == "" {
+	if o.Auto != "" && l.Task.Profile == "" && base.Provider == "" {
 		req.AutoArm, req.Lead, req.Provider = true, "", ""
-		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{autoPickedArm}}
+		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{o.Auto}}
 		req = t.arm.probe(req)
 	}
 	t.Req = req
@@ -350,11 +351,11 @@ func (b *batchRun) recoverTask(t batchTask, rec *agent.Record, start time.Time, 
 var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
 
 // runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool, one envelope per line.
-func runAskBatch(fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
+func runAskBatch(ctx context.Context, fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
 	if err := checkBatchFlags(fs, resume, o); err != nil {
 		return failAskCode("text", o.Agent, err, 2)
 	}
-	return runAskBatchInput(fs, src, o, base)
+	return runAskBatchInput(ctx, fs, src, o, base)
 }
 
 func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
@@ -390,7 +391,7 @@ func checkBatchRun(fs *flag.FlagSet, o batchOpts) error {
 	return nil
 }
 
-func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
+func runAskBatchInput(ctx context.Context, fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
 	in := io.Reader(os.Stdin)
 	var fw *follower
 	if o.FollowInput {
@@ -414,7 +415,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 	if len(lines) == 0 && !o.FollowInput { // a followed file may get its tasks later
 		return failAskCode("text", o.Agent, errors.New("--batch: no tasks in the input"), 2)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
 	o.Decorate = func(t *batchTask) { t.Retry = retryFor(ctx, *t, o, o.RetryAgents) }
 	if fw != nil {

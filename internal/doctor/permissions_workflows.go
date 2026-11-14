@@ -145,7 +145,7 @@ type permStageCell struct {
 	Mode    string   `json:"mode"`
 	Verdict string   `json:"verdict"`
 	Denied  []string `json:"denied,omitempty"`
-	Why     string   `json:"not_evaluable,omitempty"`
+	Why     string   `json:"runtime_unavailable,omitempty"`
 }
 
 type permStageRow struct {
@@ -167,37 +167,41 @@ func needVerdict(judge permVerdict, need string, probes map[string]probe) permRe
 		for _, job := range n.jobs {
 			pr, ok := probes[job]
 			if !ok {
-				return permResult{"deny", "no probe " + job}
+				return permResult{"deny", "no probe " + job, ""}
 			}
 			if r := judge(pr.tool, pr.arg); r.verdict != "allow" {
 				return r
 			}
 		}
 	}
-	return permResult{"allow", ""}
+	return permResult{"allow", "", ""}
 }
 
-// stageCell judges every need of a stage against one agent's launch policy: denied beats n/e beats ok.
+// stageCell judges every need of a stage against one agent's launch policy: denied beats runtime beats ok.
 func stageCell(judge permVerdict, why, mode string, needs []string, probes map[string]probe) permStageCell {
 	c := permStageCell{Mode: mode, Verdict: "ok"}
 	if judge == nil {
-		c.Verdict, c.Why = "n/e", why
+		c.Verdict, c.Why = verdictRuntime, why
 		return c
 	}
 	for _, need := range needs {
 		switch r := needVerdict(judge, need, probes); r.verdict {
 		case "allow":
-		case "n/e":
+		case verdictRuntime:
 			c.Why = r.layer
 		default:
-			c.Denied = append(c.Denied, strings.TrimSpace(need+" "+r.verdict+" "+r.layer))
+			d := strings.TrimSpace(need + " " + r.verdict + " " + r.layer)
+			if r.remedy != "" {
+				d += " (remedy: " + r.remedy + ")"
+			}
+			c.Denied = append(c.Denied, d)
 		}
 	}
 	switch {
 	case len(c.Denied) > 0:
 		c.Verdict = "denied"
 	case c.Why != "":
-		c.Verdict = "n/e"
+		c.Verdict = verdictRuntime
 	}
 	return c
 }
@@ -246,7 +250,7 @@ func permStageRows(dir string, agents []string, wd string) ([]permStageRow, perm
 			}
 			c := stageCell(j.judge, j.why, mode, d.Needs, probes)
 			row.Cells[a] = c
-			if c.Verdict != "n/e" {
+			if c.Verdict != verdictRuntime {
 				t.total, t.met = t.total+1, t.met+b2i(c.Verdict == "ok")
 			}
 		}
@@ -271,23 +275,16 @@ func writePermStages(w io.Writer, agents []string, rows []permStageRow) {
 	fmt.Fprintln(w, "workflow stages: needs checked against each agent's grant in the mode its stepOf launch uses")
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "  script\tstage\tneeds\t%s\n", strings.Join(agents, "\t"))
-	var legend []string
 	for _, r := range rows {
 		cells := make([]string, len(agents))
 		for i, a := range agents {
 			c := r.Cells[a]
 			cells[i] = stageCellText(c)
-			if l := "n/e for " + a + ": " + c.Why; c.Why != "" && !slices.Contains(legend, l) {
-				legend = append(legend, l)
-			}
 		}
 		fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", r.Script, r.Stage, strings.Join(r.Needs, ","), strings.Join(cells, "\t"))
 	}
 	if err := tw.Flush(); err != nil {
 		fmt.Fprintf(w, "  table: %v\n", err)
-	}
-	for _, l := range legend {
-		fmt.Fprintf(w, "  %s\n", l)
 	}
 	fmt.Fprintln(w)
 }

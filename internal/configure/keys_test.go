@@ -475,7 +475,7 @@ func cached(t *testing.T) bool {
 
 func testRoutingPins(t *testing.T) map[string]router.PinSpec {
 	t.Helper()
-	pins, err := agent.AgentPins()
+	pins, err := agent.AgentPinsContext(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

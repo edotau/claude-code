@@ -117,8 +117,8 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := Spawn(&rec, nil); err != nil {
-		t.Fatalf("Spawn() = %v", err)
+	if err := SpawnContext(context.Background(), &rec, nil); err != nil {
+		t.Fatalf("SpawnContext() = %v", err)
 	}
 	if rec.PID <= 0 {
 		t.Fatalf("rec.PID = %d, want > 0", rec.PID)
@@ -184,8 +184,8 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	defer func() { executable = old }()
 
-	if err := Spawn(&rec, nil); err != nil {
-		t.Fatalf("Spawn() = %v", err)
+	if err := SpawnContext(context.Background(), &rec, nil); err != nil {
+		t.Fatalf("SpawnContext() = %v", err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -261,8 +261,8 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := Spawn(&rec, nil); err != nil {
-		t.Fatalf("Spawn() = %v", err)
+	if err := SpawnContext(context.Background(), &rec, nil); err != nil {
+		t.Fatalf("SpawnContext() = %v", err)
 	}
 	if !rec.Alive() {
 		t.Fatal("rec.Alive() = false right after Spawn, want true")
@@ -603,7 +603,7 @@ func TestCancelRejectsReusedSplitReviewPID(t *testing.T) {
 			t.Cleanup(func() { executable = old })
 			rec := ClaimRecord("codex", RunOptions{}, time.Now())
 			rec.Progress = "part 1/2"
-			if err := SpawnArgv(&rec, []string{"codex", "review", "--background"}, nil); err != nil {
+			if err := SpawnArgvContext(context.Background(), &rec, []string{"codex", "review", "--background"}, nil); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = kill(rec.PID) })
@@ -726,7 +726,7 @@ func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
 	executable = func() (string, error) { return script, nil }
 	t.Cleanup(func() { executable = old })
 	rec := Record{Log: filepath.Join(dir, "child.log")}
-	if err := SpawnArgv(&rec, nil, []string{"REGRESSION_EXTRA=explicit-extra"}); err != nil {
+	if err := SpawnArgvContext(context.Background(), &rec, nil, []string{"REGRESSION_EXTRA=explicit-extra"}); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.After(3 * time.Second)
@@ -758,7 +758,7 @@ func TestCancelDetachedSplitReview(t *testing.T) {
 	t.Cleanup(func() { executable = old })
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.Progress = "part 1/2"
-	if err := SpawnArgv(&rec, []string{"codex", "review", "--background"}, nil); err != nil {
+	if err := SpawnArgvContext(context.Background(), &rec, []string{"codex", "review", "--background"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = kill(rec.PID) })

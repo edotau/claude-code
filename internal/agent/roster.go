@@ -370,11 +370,7 @@ func agentModelPinContext(ctx context.Context, agent string) string {
 }
 
 // ResolveAgentModel is the one model rule: flag > agent's shell env > vault pin > Target.Model, spelled per provider.
-func ResolveAgentModel(a ModelAsk) (providers.Target, string) {
-	return resolveAgentModelContext(context.Background(), a)
-}
-
-func resolveAgentModelContext(ctx context.Context, a ModelAsk) (providers.Target, string) {
+func ResolveAgentModel(ctx context.Context, a ModelAsk) (providers.Target, string) {
 	t, p := a.Target, a.Target.Provider
 	if a.Flag == "" {
 		return pinnedAgentModelContext(ctx, a.Agent, t), ""
@@ -464,7 +460,7 @@ func AgentUnbillable(agent string) string {
 	if err != nil {
 		return ""
 	}
-	if SchemaFor(agentid.Copilot).Eng().DescribeRoute(reg).OK {
+	if SchemaFor(agentid.Copilot).Eng().DescribeRoute(context.Background(), reg).OK {
 		return ""
 	}
 	return "no account to bill"
@@ -481,12 +477,8 @@ func AgentActive(agent string) bool {
 	return vault.GetAgentRecord(agent).Profile != ""
 }
 
-// AgentPins reads the records once and returns every agent's spec; claude's profile is the session's, else record's.
-func AgentPins() (map[string]router.PinSpec, error) {
-	return AgentPinsContext(context.Background())
-}
-
-// AgentPinsContext resolves agent pins against the run snapshot.
+// AgentPinsContext reads the records once and returns every agent's spec against the run snapshot; claude's profile
+// is the session's, else the record's.
 func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	recs, err := vault.ReadAgentRecords(RosterNames())
 	if err != nil {
@@ -556,12 +548,12 @@ func ValidAgentPin(reg *providers.Registry, agent, v string) error {
 }
 
 // rosterPick fills o's unset Configured, Pins, CanServe and CodexModel from the roster (the router imports no agent).
-func rosterPick(o router.PickOpts) (router.PickOpts, error) {
+func rosterPick(ctx context.Context, o router.PickOpts) (router.PickOpts, error) {
 	if o.Configured == nil {
-		o.Configured = configured
+		o.Configured = func(agent string, c router.Cell) error { return configured(ctx, agent, c) }
 	}
 	if o.Pins == nil {
-		pins, err := AgentPins()
+		pins, err := AgentPinsContext(ctx)
 		if err != nil {
 			return router.PickOpts{}, err
 		}
@@ -572,7 +564,7 @@ func rosterPick(o router.PickOpts) (router.PickOpts, error) {
 	}
 	if o.CodexModel == nil {
 		o.CodexModel = func(t providers.Target) providers.Target {
-			t, _ = ResolveAgentModel(ModelAsk{Agent: "codex", Target: t})
+			t, _ = ResolveAgentModel(ctx, ModelAsk{Agent: "codex", Target: t})
 			return t
 		}
 	}

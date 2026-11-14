@@ -436,7 +436,7 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 		t.Errorf("fallback none = %+v, want claude on databricks·dev only", c)
 	}
 	calls := map[string]int{}
-	(&RouteTable{}).gatherCandidates("claude", PickOpts{Fallback: FallbackAll}, func(a string) []Candidate {
+	(&RouteTable{}).gatherCandidates(context.Background(), "claude", PickOpts{Fallback: FallbackAll}, func(a string) []Candidate {
 		calls[a]++
 		return nil
 	})

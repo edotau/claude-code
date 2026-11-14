@@ -17,11 +17,11 @@ func TestOpencodeRouteDetailHonorsPin(t *testing.T) {
 	vaulttest.Secret(t, opencodeAPIKeyEnv, "placeholder")
 	InvalidateOpencodeAuth()
 	own := "provider=opencode-go dispatch=own-login opencode_login=true "
-	if row, ok := (opencodeEngine{}).RouteDetail(); !ok || !strings.HasPrefix(row, own) {
+	if row, ok := (opencodeEngine{}).RouteDetail(t.Context()); !ok || !strings.HasPrefix(row, own) {
 		t.Fatalf("unpinned row = %q, want today's own-login row %q…", row, own)
 	}
 	vaulttest.SetRecord(t, "opencode", "profile", "databricks-test")
-	if row, _ := (opencodeEngine{}).RouteDetail(); !strings.HasPrefix(row, "provider=databricks-test ") {
+	if row, _ := (opencodeEngine{}).RouteDetail(t.Context()); !strings.HasPrefix(row, "provider=databricks-test ") {
 		t.Fatalf("pinned row = %q, want it to name the pinned profile databricks-test", row)
 	}
 }

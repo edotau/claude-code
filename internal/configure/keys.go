@@ -188,7 +188,7 @@ func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 // when it is usable, the agent's own stored login, or the configure hint.
 func fallbackKeyTarget(reg *providers.Registry, name string, s agent.Schema, known bool) KeyTarget {
 	if sel, err := providers.Select(reg, ""); err == nil { // only when the agent's own sign-in is absent
-		target, note, rerr := s.ResolveTarget(reg, sel, false)
+		target, note, rerr := s.ResolveTarget(context.Background(), reg, sel, false)
 		// The agent's own stored config/login is a working setup, not a missing key.
 		if errors.Is(rerr, agent.ErrOwnLogin) {
 			return KeyTarget{Label: name, Present: true, Source: AfterUsing(note)}

@@ -556,7 +556,7 @@ func runAgents(d *dialog) bool {
 // reportAgentRoute prints where name routes (configuring it unless read-only); false when it needs a fix.
 func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
 	s, _ := agent.LookupSchema(name)
-	target, note, err := s.ResolveTarget(d.reg, sel, false)
+	target, note, err := s.ResolveTarget(context.Background(), d.reg, sel, false)
 	if errors.Is(err, agent.ErrOwnLogin) {
 		d.printf("%-10s runs on %s\n", name, configure.AfterUsing(note))
 		return true

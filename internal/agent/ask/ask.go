@@ -58,7 +58,7 @@ func retargetPage(fs *flag.FlagSet, name string) {
 
 // askRun is one ask invocation: its flags plus what the setup phases resolve.
 type askRun struct {
-	ctx         context.Context // the run's values: no snapshot at the command entry, so the env the phases export
+	ctx         context.Context // the run's values: the phases that export lay theirs over a snapshot of the env
 	f           *askFlags
 	fs          *flag.FlagSet
 	args        []string
@@ -117,7 +117,7 @@ func (r *askRun) config() (int, bool) {
 	if r.stdinTaken() {
 		busy = "stdin is the overlay, so give the task as an argument"
 	}
-	ov, err := LoadOverlay(r.f.overlay, busy)
+	ov, err := LoadOverlay(r.ctx, r.f.overlay, busy)
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -133,8 +133,7 @@ func (r *askRun) config() (int, bool) {
 }
 
 // LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
-func LoadOverlay(value, busy string) (agentconfig.Overlay, error) {
-	ctx := context.Background()
+func LoadOverlay(ctx context.Context, value, busy string) (agentconfig.Overlay, error) {
 	if busy != "" && cmp.Or(value, proc.Value(ctx, agentconfig.OverlayVar)) == "-" {
 		from := "--overlay -"
 		if value == "" {
@@ -157,10 +156,10 @@ func (r *askRun) remoteWithHost() error {
 func (r *askRun) export() (int, bool) {
 	err := r.remoteWithHost()
 	if err == nil {
-		err = overlayEgress(r.ov.Remote)
+		r.ctx, err = overlayEgress(r.ctx, r.ov.Remote)
 	}
 	if err == nil {
-		err = carryOverlay(r.ov)
+		r.ctx, err = carryOverlay(r.ctx, r.ov)
 	}
 	if err != nil {
 		return r.fail(err, 2)
@@ -237,19 +236,21 @@ func (r *askRun) checkArm() (int, bool) {
 		return r.fail(err, 2)
 	}
 	agentName, batchLines := confineAgent(r.ov, f, r.ag)
-	picks := armAutoPick(value)
-	// exported here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the env
-	if err := ApplyCoworker(value, f.provider, agentName, f.model, f.fallback); err != nil {
+	picks := armAutoPick(r.ctx, value)
+	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
+	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, f.fallback)
+	if err != nil {
 		return r.fail(err, ApplyCode(err))
 	}
+	r.ctx = ctx
 	if picks || r.jobAutoArm() {
 		r.auto = router.ArmProfileContext(r.ctx)
 	}
-	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
+	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
 	if !batchLines {
-		r.confined = confineLead(r.ag, f) || r.confined
+		r.confined = confineLead(r.ctx, r.ag, f) || r.confined
 	}
 	return 0, false
 }
@@ -271,8 +272,8 @@ func ApplyCode(err error) int {
 }
 
 // confineLead narrows --provider and the lead to the overlay's confinement, reporting whether either changed.
-func confineLead(ag string, f *askFlags) bool {
-	profile, provider := router.ConfineLeadContext(context.Background(), ag, f.provider, f.leadProvider, f.model)
+func confineLead(ctx context.Context, ag string, f *askFlags) bool {
+	profile, provider := router.ConfineLeadContext(ctx, ag, f.provider, f.leadProvider, f.model)
 	changed := profile != f.provider || provider != f.leadProvider
 	f.provider, f.leadProvider = profile, provider
 	return changed
@@ -330,7 +331,7 @@ func (r *askRun) runBatch() (int, bool) {
 	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
 		return code, true
 	}
-	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native,
+	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto,
 		FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents, Identity: f.as}
 	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
 	if err != nil {
@@ -339,7 +340,7 @@ func (r *askRun) runBatch() (int, bool) {
 	if code, done := r.export(); done {
 		return code, true
 	}
-	return runAskBatch(r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(ov)), true
+	return runAskBatch(r.ctx, r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(r.ctx, ov)), true
 }
 
 // batchOnlyFlags refuses the first --batch-only flag typed without --batch.
@@ -370,10 +371,11 @@ func (r *askRun) retryAgents() ([]string, error) {
 
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
+	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, Provider: f.provider, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
 		Timeout: f.timeout, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms}
+		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
 }
 
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
@@ -473,7 +475,7 @@ func (r *askRun) askState() *askState {
 func (r *askRun) execute() int {
 	f := r.f
 	if f.live {
-		return startLive(r.state, r.perms, f.name, f.as, f.format)
+		return startLive(r.ctx, r.state, r.perms, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
 		return agent.RunHolder(r.jobRec, newClient().Launcher)
@@ -487,7 +489,7 @@ func (r *askRun) execute() int {
 		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
+	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
 		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
@@ -528,7 +530,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err != nil {
 		return failAskCode(format, name, err, 2)
 	}
-	req = req.ApplyOverlay(ov)
+	req = req.ApplyOverlay(ctx, ov)
 	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
 	}

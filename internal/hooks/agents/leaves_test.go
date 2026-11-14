@@ -2,6 +2,7 @@ package agents
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -52,7 +53,7 @@ func seedForeign(t *testing.T, n int) {
 	}
 	for i := range n {
 		name := inflight.Prefix + strconv.Itoa(os.Getpid()) + "-seed" + strconv.Itoa(i)
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(router.SessionAccount()), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(router.SessionAccountContext(context.Background())), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -217,7 +218,7 @@ func dispatchEnv(t *testing.T) int {
 		t.Skip("session owner unavailable")
 	}
 	lim := router.CurrentLimits()
-	return min(lim.For(router.SessionAccount()), lim.Total)
+	return min(lim.For(router.SessionAccountContext(context.Background())), lim.Total)
 }
 
 func pre(payload string) core.Result { return Effort(core.ParseInput(strings.NewReader(payload))) }

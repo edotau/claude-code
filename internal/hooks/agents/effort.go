@@ -692,25 +692,14 @@ func labelConfinement(cfg agentconfig.Overlay) string {
 	return cfg.Confinement()
 }
 
-// pickEnvMu serializes coworkerPick's env swap: router and preview readers still read the process env.
-var pickEnvMu sync.Mutex
-
-// coworkerPick is labelCell inside confinement confine: ask's values for it in the pick ctx and swapped into the env.
+// coworkerPick is labelCell inside confinement confine: ask's values for it laid over the run's, in the pick ctx only.
 func coworkerPick(ctx context.Context, run *dispatchRun, confine, agent, tier string) string {
 	provider, profile, _ := strings.Cut(confine, ":")
 	env := proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, profile)}
 	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
 		env[providers.EnvSessionProfile] = p
 	}
-	pickEnvMu.Lock()
-	defer pickEnvMu.Unlock() // deferred first, so it runs after every restoreEnv
-	pick := pickContext(ctx, env)
-	for k, v := range env {
-		old, had := os.LookupEnv(k)
-		_ = proc.Setenv(k, v)
-		defer restoreEnv(k, old, had)
-	}
-	return labelCell(pick, run, agent, tier)
+	return labelCell(pickContext(ctx, env), run, agent, tier)
 }
 
 // pickContext is ctx's run values (else the process environment) with env laid over them.
@@ -720,14 +709,6 @@ func pickContext(ctx context.Context, env proc.Values) context.Context {
 		base = proc.ValuesFromEnv(os.Environ())
 	}
 	return proc.WithValues(ctx, base.Merge(env))
-}
-
-func restoreEnv(k, old string, had bool) {
-	if had {
-		_ = proc.Setenv(k, old)
-		return
-	}
-	_ = proc.Unsetenv(k)
 }
 
 // Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
