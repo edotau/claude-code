@@ -787,3 +787,57 @@ func TestRefreshU2MFollowsNoRedirect(t *testing.T) {
 		t.Errorf("redirect target received %d requests, want 0", n)
 	}
 }
+
+// Forward moves the redirect to the port it returns, is closed when the login ends, and an error from it ends the login.
+func TestLoginU2MForwardRedirectsToItsPortAndCloses(t *testing.T) {
+	var form url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		form = r.PostForm
+		tokenJSON(w, "acc-1", "ref-1")
+	}))
+	defer srv.Close()
+	local, stopped := freePort(t), 0
+	var out strings.Builder
+	var authURL string
+	opts := LoginOptions{Port: local, Timeout: 10 * time.Second, Out: &out,
+		Forward: func(_ context.Context, got int) (int, func(), error) {
+			if got != local {
+				t.Errorf("Forward got local port %d, want %d", got, local)
+			}
+			return 9999, func() { stopped++ }, nil
+		},
+		Open: func(a string) error {
+			authURL = a
+			cb := "http://127.0.0.1:" + strconv.Itoa(local) + "/?code=c&state=" + url.QueryEscape(mustQuery(t, a).Get("state"))
+			resp, err := http.Get(cb)
+			if err == nil {
+				resp.Body.Close()
+			}
+			return err
+		}}
+	if _, err := LoginU2M(context.Background(), srv.URL, opts); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustQuery(t, authURL).Get("redirect_uri"); got != "http://localhost:9999" || form.Get("redirect_uri") != got {
+		t.Errorf("authorize redirect %q, exchange redirect %q; both want the forwarded port", got, form.Get("redirect_uri"))
+	}
+	if stopped != 1 || strings.Contains(out.String(), "ssh -L") {
+		t.Errorf("closed %d times, output %q; want once and no -L hint", stopped, out.String())
+	}
+	opened := false
+	opts.Forward = func(context.Context, int) (int, func(), error) { return 0, nil, errors.New("no forward") }
+	opts.Open = func(string) error { opened = true; return nil }
+	if _, err := LoginU2M(context.Background(), srv.URL, opts); err == nil || opened {
+		t.Errorf("err %v opened %v; a failed forward must end the login before any browser", err, opened)
+	}
+}
+
+func mustQuery(t *testing.T, raw string) url.Values {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.Query()
+}

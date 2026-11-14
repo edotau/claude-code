@@ -855,6 +855,7 @@ func helpAllowsNoRows(path []string) bool {
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true, "workflow sync": true,
 		"vault delete": true, "test ramdisk": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
+		"databricks open-url": true,
 	}
 	if len(path) == 2 && slices.Contains([]string{"copilot", "codex", "gemini", "opencode"}, path[0]) &&
 		slices.Contains([]string{"catalog", "models"}, path[1]) {
@@ -1011,4 +1012,18 @@ func commandWords(text string) []string {
 		}
 	}
 	return words
+}
+
+// --remote cannot also be --host or --host-browser on a login, in either flag order: one line, exit 2, nothing run.
+func TestRemoteLoginRefusesHostAndHostBrowser(t *testing.T) {
+	for _, argv := range [][]string{
+		{"claude-code", "--remote", "a", "--host", "b", "databricks", "login", "--dry-run"},
+		{"claude-code", "--host", "b", "--remote", "a", "databricks", "login", "--dry-run"},
+		{"claude-code", "--remote", "a", "databricks", "login", "--host-browser"},
+	} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { c, _ := runRouted(argv, argv[1]); return c })
+		if code != 2 || strings.Count(strings.TrimSpace(stderr), "\n") != 0 || !strings.Contains(stderr, "--remote with --host") {
+			t.Errorf("%q: exit %d stderr %q, want exit 2 and one line naming both flags", argv[1:], code, stderr)
+		}
+	}
 }
