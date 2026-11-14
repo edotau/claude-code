@@ -331,3 +331,47 @@ func TestRunQualityAnalysisErrorExitsNonZero(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestFindFunctionsJSOwnClosingBrace(t *testing.T) {
+	for _, language := range []string{"typescript", "javascript"} {
+		t.Run(language, func(t *testing.T) {
+			src := "async function poll(on) {\n  const text = \"}\\\"{\";\n  const single = '}';\n" +
+				"  const template = `} ${on ? `nested }` : '{'} {`;\n  // }\n  /* { */\n" +
+				"  const names = (x) => {\n    if (x) on();\n  };\n  if (on) on();\n}\n" +
+				"const clean = (x) => x.replace(/^\\.\\//, '');\n" +
+				strings.Repeat("if (outside) run();\n", 60) + "function last() {}\n"
+			got, err := findFunctions(src, language)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []FunctionInfo{{Name: "poll", Parameters: 1, Lines: 11, Complexity: 3},
+				{Name: "names", Parameters: 1, Lines: 3, Complexity: 2},
+				{Name: "clean", Parameters: 1, Lines: 1, Complexity: 1}, {Name: "last", Lines: 1, Complexity: 1}}
+			if !slices.Equal(got, want) {
+				t.Fatalf("functions = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestFindFunctionsConstArrowVariants(t *testing.T) {
+	for _, header := range []string{
+		"const register = (on) =>", "export const register: Register = on =>",
+		"const register = async (on) =>", "export const register: Register = async on =>",
+		"const register = on =>", "export const register: Register = async (on) =>",
+	} {
+		t.Run(header, func(t *testing.T) {
+			src := "async function poll(on) {\n  on();\n}\n" + header + " {\n" +
+				strings.Repeat("  if (on) on();\n", 24) + strings.Repeat("  on();\n", 54) + "}\n"
+			got, err := findFunctions(src, "typescript")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []FunctionInfo{{Name: "poll", Parameters: 1, Lines: 3, Complexity: 1},
+				{Name: "register", Parameters: 1, Lines: 80, Complexity: 25}}
+			if !slices.Equal(got, want) {
+				t.Fatalf("functions = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
