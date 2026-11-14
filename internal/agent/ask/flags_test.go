@@ -227,7 +227,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := &askRun{fs: fs, f: f}
-			if code, done := loadAskRetry(fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
 			if got := r.request(r.prompt); got.Lead != tc.wantLead {

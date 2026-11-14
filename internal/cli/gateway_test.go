@@ -602,7 +602,7 @@ func TestRenderGatewayRouteFailsWhenStdoutFull(t *testing.T) {
 	os.Stdout = full
 	t.Cleanup(func() { os.Stdout = orig })
 	res := router.PickResult{Alias: "m", Weights: map[string]float64{}}
-	if code := renderGatewayRoute("gateway", res, ""); code == 0 {
+	if code := renderGatewayRoute(context.Background(), "gateway", res, ""); code == 0 {
 		t.Fatal("exit 0 despite a failed stdout write")
 	}
 }

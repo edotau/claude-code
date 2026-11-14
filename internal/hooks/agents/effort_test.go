@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -249,23 +249,23 @@ func TestAgentEffortRecallEngineFailureFallsBackToTodaysBehavior(t *testing.T) {
 
 // effortResult runs the pin step on a payload without the emitter.
 func effortResult(payload string) core.Result {
-	return agentEffortResult(core.ParseInput(strings.NewReader(payload)))
+	return agentEffortResult(context.Background(), core.ParseInput(strings.NewReader(payload)))
 }
 
 // runEffortHook renders the pin step through the production PreToolUse emitter.
 func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
-	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(core.ParseInput(r)), stdout, os.Stderr)
+	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
 // A pinned agent's label names the pinned model, not the route table's cell (real labelCell, hermetic vault).
 func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
-	cell := labelCell(newDispatchRun(nil), "codex", "sonnet")
+	cell := labelCell(context.Background(), newDispatchRun(nil), "codex", "sonnet")
 	pathstest.FakeVendor(t, "codex", "exit 0") // the label is the pick: an uninstalled codex would fall through to claude
 	vaulttest.SetRecord(t, "codex", "profile", "probe")
 	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-pin")
-	got := labelCell(newDispatchRun(nil), "codex", "sonnet")
+	got := labelCell(context.Background(), newDispatchRun(nil), "codex", "sonnet")
 	if got != "databricks-gpt-pin" {
 		t.Errorf("labelCell(codex) = %q with the pin set (unpinned cell %q), want the pinned model", got, cell)
 	}
@@ -289,7 +289,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
 	stubLabelModels(t, "")
-	labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+	labelCell = func(_ context.Context, _ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
 	r := effortResult(payload)
@@ -305,7 +305,7 @@ func stubLabelModels(t *testing.T, cell string) {
 	t.Helper()
 	oc := labelCell
 	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(*dispatchRun, string, string) string { return cell }
+	labelCell = func(context.Context, *dispatchRun, string, string) string { return cell }
 }
 
 func TestDispatchAgentLabels(t *testing.T) {
@@ -528,7 +528,7 @@ func TestArmLabelIsPick(t *testing.T) {
 			if predicted := tableCellModel(newDispatchRun(nil), "codex", "sonnet", pins["codex"]); armed == (want == first.Model) || !armed && want == predicted {
 				t.Fatalf("fixture: pick %q (profile %q), prediction %q; want a prefixed pick armed, a pick unlike the prediction unarmed", first.Model, first.Profile, predicted)
 			}
-			if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got != want {
+			if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got != want {
 				t.Errorf("label = %q, want the first candidate %s on %s: %q", got, first.Agent, first.Account, want)
 			}
 		})
@@ -543,7 +543,7 @@ func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
 	vaulttest.SetRecord(t, "codex", "profile", "dev")
 	pathstest.FakeVendor(t, "codex", "exit 0")
 	t.Setenv(agentconfig.OverlayVar, "")
-	unconfined := cellModelFor(newDispatchRun(nil), "codex", "sonnet")
+	unconfined := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet")
 	t.Setenv(agentconfig.OverlayVar, `{"provider":"openai"}`)
 	q := agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Provider: "openai", Fallback: router.FallbackAll, Preview: true}
 	_, res, err := agentpkg.Resolve(context.Background(), q) // what `ask --provider openai` runs
@@ -551,7 +551,7 @@ func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
 		t.Fatalf("fixture: openai preview = %+v, %v; want an openai candidate first", res.Candidates, err)
 	}
 	want := res.Candidates[0].Model
-	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got != want || got == unconfined {
+	if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got != want || got == unconfined {
 		t.Errorf("label under openai = %q (unconfined %q), want the confined pick %q", got, unconfined, want)
 	}
 }
@@ -560,10 +560,10 @@ func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
 func TestLabelWithoutPickIsPrediction(t *testing.T) {
 	vaulttest.Use(t)
 	orig := labelPick
-	labelPick = func(string, string) string { return "" }
+	labelPick = func(context.Context, string, string) string { return "" }
 	t.Cleanup(func() { labelPick = orig })
 	want := tableCellModel(newDispatchRun(nil), "codex", "sonnet", router.PinSpec{})
-	if got := cellModelFor(newDispatchRun(nil), "codex", "sonnet"); got == "" || got != want {
+	if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got == "" || got != want {
 		t.Errorf("label = %q with no pick, want the table prediction %q", got, want)
 	}
 }
@@ -577,7 +577,7 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value") // with copilot installed, the pick reaches the rotation
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	before, _ := os.ReadFile(router.StatePath())
-	cellModelFor(newDispatchRun(nil), "copilot", "sonnet")
+	cellModelFor(context.Background(), newDispatchRun(nil), "copilot", "sonnet")
 	after, _ := os.ReadFile(router.StatePath())
 	if !bytes.Equal(before, after) {
 		t.Errorf("quota.json changed by a label: %q -> %q", before, after)
@@ -630,14 +630,14 @@ func TestDispatchLabelInventory(t *testing.T) {
 		for _, src := range []string{"explicit", "file", "none"} {
 			cfg := useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode", "Plan")
 			stubLabelModels(t, "")
-			labelCell = func(_ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+			labelCell = func(_ context.Context, _ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
 			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
 			if src == "file" {
 				writeAgentFile(t, cfg, st+":haiku")
 			}
-			pinned, _, _ := dispatchLabel(LabelInput{Type: st, Model: map[string]string{"explicit": "opus"}[src], Brief: task})
+			pinned, _, _ := dispatchLabel(context.Background(), LabelInput{Type: st, Model: map[string]string{"explicit": "opus"}[src], Brief: task})
 			if src == "none" {
-				_, model, _ = dispatchLabel(LabelInput{Type: st, Brief: task})
+				_, model, _ = dispatchLabel(context.Background(), LabelInput{Type: st, Brief: task})
 			}
 			label := inventoryLabel(st, model)
 			if pinned != label {
@@ -665,7 +665,7 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 			doc["permission_mode"] = "auto"
 		}
 		raw, _ := json.Marshal(doc)
-		r := agentEffortResult(core.ParseInput(bytes.NewReader(raw)))
+		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 		got, _ := r.UpdatedInput["description"].(string)
 		if got == "" {
 			got = desc
@@ -699,7 +699,7 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 	cfg := useAgentsDir(t, "claude", "codex", "Plan")
 	blocked := func(st, brief string) string {
 		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{"subagent_type": st, "prompt": brief, "description": "x"}})
-		r := agentEffortResult(core.ParseInput(bytes.NewReader(raw)))
+		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 		if r.Decision != core.Block || !strings.HasPrefix(r.Reason, "dispatch-effort: subagent_type") {
 			return ""
 		}
@@ -742,7 +742,7 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode"}; !slices.Equal(got, want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all
@@ -770,7 +770,7 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
 	oc := labelCell
 	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(*dispatchRun, string, string) string {
+	labelCell = func(context.Context, *dispatchRun, string, string) string {
 		before := os.Getenv(agentconfig.OverlayVar)
 		runtime.Gosched()
 		if os.Getenv(agentconfig.OverlayVar) != before {
@@ -782,12 +782,36 @@ func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
 	got := make([]string, 40)
 	var wg sync.WaitGroup
 	for i := range got {
-		wg.Go(func() { got[i] = coworkerPick(newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet") })
+		wg.Go(func() {
+			got[i] = coworkerPick(context.Background(), newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet")
+		})
 	}
 	wg.Wait()
 	for i, g := range got {
 		if want := agentconfig.InlineOverlay("databricks", profiles[i%2]); g != want {
 			t.Fatalf("pick %d saw overlay %q, want %q", i, g, want)
+		}
+	}
+}
+
+// A pick lays its confinement over the caller's run values (else the process env) in the ctx its label reads.
+func TestCoworkerPickLaysConfinementOverRunValues(t *testing.T) {
+	var got proc.Values
+	oc := labelCell
+	t.Cleanup(func() { labelCell = oc })
+	labelCell = func(ctx context.Context, _ *dispatchRun, _, _ string) string {
+		got, _ = proc.ValuesFromContext(ctx)
+		return ""
+	}
+	t.Setenv("RUN_MARK", "ambient")
+	run := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: "outer", "RUN_MARK": "caller"})
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		mark string
+	}{"caller values": {run, "caller"}, "process env": {context.Background(), "ambient"}} {
+		coworkerPick(tc.ctx, newDispatchRun(nil), "databricks:dev", "claude", "sonnet")
+		if got[agentconfig.OverlayVar] != agentconfig.InlineOverlay("databricks", "dev") || got[providers.EnvSessionProfile] != "dev" || got["RUN_MARK"] != tc.mark {
+			t.Errorf("%s: pick ctx = %v, want the dev confinement over RUN_MARK=%s", name, got, tc.mark)
 		}
 	}
 }
@@ -833,7 +857,7 @@ func checkReceiptCommand(t *testing.T, command, verb string, local bool) {
 		t.Fatalf("receipt rejects %q", command)
 	}
 	brief := "Run: " + command
-	l := parseAskLine(brief)
+	l := parseAskLine(context.Background(), brief)
 	if !opensWithAsk(brief) || l.model != "pinned" || l.prompt != "inspect the hook" || l.local != local {
 		t.Fatalf("%q: parsed %+v", brief, l)
 	}
@@ -861,7 +885,7 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 		t.Fatalf("no receipt for %q", command)
 	}
 	e := &effortPlan{updated: map[string]any{"subagent_type": "codex", "description": "inspect hook"}, run: newDispatchRun(nil)}
-	if denied := e.label(brief, true); denied == nil || !strings.Contains(denied.Reason, "pinned: inspect hook") {
+	if denied := e.label(context.Background(), brief, true); denied == nil || !strings.Contains(denied.Reason, "pinned: inspect hook") {
 		t.Fatalf("missing label enforcement for %q: %+v", brief, denied)
 	}
 }

@@ -2,6 +2,7 @@ package vscode
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -60,7 +61,7 @@ func seedDatabricks(t *testing.T) {
 		t.Fatal(err)
 	}
 	orig := routerBase
-	routerBase = func() string { return testBase }
+	routerBase = func(context.Context) string { return testBase }
 	t.Cleanup(func() { routerBase = orig })
 }
 

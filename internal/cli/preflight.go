@@ -14,16 +14,16 @@ import (
 )
 
 // preflightRefresh re-lists stale served-endpoint caches within the preflight budget, silently.
-func preflightRefresh(reg *providers.Registry) {
+func preflightRefresh(ctx context.Context, reg *providers.Registry) {
 	now := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+	ctx, cancel := context.WithTimeout(ctx, preflight.Budget)
 	defer cancel()
-	preflight.RefreshStale(ctx, reg, preflight.Check(reg, now), now, false)
+	preflight.RefreshStale(ctx, reg, preflight.Check(ctx, reg, now), now, false)
 }
 
 // preflightDiscover re-seals one profile's model snapshot within the preflight budget.
-func preflightDiscover(profile string) int {
-	ctx, cancel := context.WithTimeout(context.Background(), preflight.Budget)
+func preflightDiscover(ctx context.Context, profile string) int {
+	ctx, cancel := context.WithTimeout(ctx, preflight.Budget)
 	defer cancel()
 	if err := copilot.RefreshProfile(ctx, profile); err != nil {
 		return helptext.Fail("preflight: %v", err)
@@ -32,20 +32,20 @@ func preflightDiscover(profile string) int {
 }
 
 // preflightLive runs the post-install pong round against the running binary.
-func preflightLive(reg *providers.Registry, profile string) int {
+func preflightLive(ctx context.Context, reg *providers.Registry, profile string) int {
 	bin, err := os.Executable()
 	if err != nil {
 		return helptext.Fail("preflight: %v", err)
 	}
 	var pongs []preflight.Pong
 	if profile != "" {
-		pongs = preflight.RunProfilePongs(context.Background(), os.Stdout, reg, bin, profile)
+		pongs = preflight.RunProfilePongs(ctx, os.Stdout, reg, bin, profile)
 		if len(pongs) == 0 {
 			return helptext.Fail("preflight: no pong ran for %q (unknown, non-Databricks or no credential)", profile)
 		}
 	} else {
-		pongs = preflight.RunInstallStep(context.Background(), os.Stdout, reg, bin, time.Now())
-		if len(pongs) == 0 && pinsBroken(reg) { // a vault error skips every pong; that must not exit 0
+		pongs = preflight.RunInstallStep(ctx, os.Stdout, reg, bin, time.Now())
+		if len(pongs) == 0 && pinsBroken(ctx, reg) { // a vault error skips every pong; that must not exit 0
 			return helptext.Fail("preflight: no pong ran: the pin check failed (see the fix rows above)")
 		}
 	}
@@ -75,19 +75,20 @@ func cmdPreflight(args []string) int {
 	if msg := preflightConflict(*discover, *live, *refresh, *profile); msg != "" {
 		return helptext.Fail("preflight: %s", msg)
 	}
+	ctx := context.Background()
 	if *discover != "" {
-		return preflightDiscover(*discover)
+		return preflightDiscover(ctx, *discover)
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("preflight: %v", err)
 	}
-	return preflightReport(reg, *refresh, *live, *profile)
+	return preflightReport(ctx, reg, *refresh, *live, *profile)
 }
 
 // pinsBroken reports whether the pin check hit an unreadable vault (a StatusError row).
-func pinsBroken(reg *providers.Registry) bool {
-	return slices.ContainsFunc(preflight.Check(reg, time.Now()), func(p preflight.Pin) bool { return p.Status == preflight.StatusError })
+func pinsBroken(ctx context.Context, reg *providers.Registry) bool {
+	return slices.ContainsFunc(preflight.Check(ctx, reg, time.Now()), func(p preflight.Pin) bool { return p.Status == preflight.StatusError })
 }
 
 // preflightConflict names the flag combination that would silently drop a flag, or "" when valid.
@@ -104,15 +105,15 @@ func preflightConflict(discover string, live, refresh bool, profile string) stri
 }
 
 // preflightReport runs the refresh or live step when asked, else prints each agent's pin check.
-func preflightReport(reg *providers.Registry, refresh, live bool, profile string) int {
+func preflightReport(ctx context.Context, reg *providers.Registry, refresh, live bool, profile string) int {
 	if refresh {
-		preflightRefresh(reg)
+		preflightRefresh(ctx, reg)
 		return 0
 	}
 	if live {
-		return preflightLive(reg, profile)
+		return preflightLive(ctx, reg, profile)
 	}
-	for _, p := range preflight.Check(reg, time.Now()) {
+	for _, p := range preflight.Check(ctx, reg, time.Now()) {
 		fmt.Printf("%-8s %-9s %s\n", p.Agent, p.Status, p.Line())
 	}
 	return 0

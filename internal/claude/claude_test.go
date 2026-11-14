@@ -21,8 +21,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -386,6 +388,27 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 				t.Errorf("%s/%s: env must carry launch.env minus the wiped model name", c.name, prof) // never print cmd.Env
 			}
 		}
+	}
+}
+
+// TestClaudeLauncherChildEnvIsRunSnapshot: the launched child inherits the run's snapshot and pinned egress host, not the process env.
+func TestClaudeLauncherChildEnvIsRunSnapshot(t *testing.T) {
+	hermetic(t, "")
+	t.Setenv("FOO_AMBIENT", "ambient")
+	run := proc.ValuesFromEnv(os.Environ())
+	delete(run, "FOO_AMBIENT")
+	ctx := egress.WithHost(proc.WithValues(context.Background(), run.With("FOO_RUN", "snapshot")), "pinned.example")
+	cl, err := claudeLauncher{}.Claude(ctx, agent.ClaudeOptions{Provider: "ultra"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FOO_RUN=snapshot", "HARNESS_EGRESS_HOST=pinned.example"} {
+		if !slices.Contains(cl.Env, want) {
+			t.Errorf("child env lacks %s", want)
+		}
+	}
+	if slices.Contains(cl.Env, "FOO_AMBIENT=ambient") {
+		t.Error("child env carries a value the run snapshot lacks")
 	}
 }
 

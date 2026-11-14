@@ -397,7 +397,7 @@ type CopilotCatalog struct {
 func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile string) (CopilotCatalog, error) {
 	name := profile
 	if name == "" {
-		name = providers.SessionProfile()
+		name = providers.SessionProfileContext(ctx)
 	}
 	p, ok := reg.Providers[name]
 	if !ok || p == nil || p.Preset != providers.PresetDatabricks {

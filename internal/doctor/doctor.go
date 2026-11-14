@@ -16,8 +16,8 @@ import (
 )
 
 // doctorChecks is a test seam over the probing runChecks plus the soft, config-only MCP row.
-var doctorChecks = func() ([]check, bool) {
-	checks, ok := runChecks()
+var doctorChecks = func(ctx context.Context) ([]check, bool) {
+	checks, ok := runChecks(ctx)
 	mcpOK, detail := summary(mcpOptions(false))
 	return append(checks, check{Name: "mcp", OK: mcpOK, Detail: detail}), ok
 }
@@ -117,6 +117,7 @@ func conflictingModes(o *doctorOpts) (string, bool) {
 }
 
 func runDoctor(o *doctorOpts, targets []string) int {
+	ctx := context.Background()
 	if msg, bad := conflictingModes(o); bad {
 		helptext.Fail("doctor: %s", msg)
 		return 2
@@ -137,9 +138,9 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		return audit.Report(o.days, *o.format)
 	}
 	if o.refresh {
-		refreshServed()
+		refreshServed(ctx)
 	}
-	checks, ok := doctorChecks()
+	checks, ok := doctorChecks(ctx)
 	return printChecks(o, checks, ok)
 }
 
@@ -198,8 +199,8 @@ func runDoctorAudits(o *doctorOpts, targets []string) int {
 }
 
 // refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.
-func refreshServed() {
-	for _, err := range preflight.RefreshPinned(context.Background()) {
+func refreshServed(ctx context.Context) {
+	for _, err := range preflight.RefreshPinned(ctx) {
 		fmt.Fprintf(os.Stderr, "doctor --refresh: %v\n", err)
 	}
 }

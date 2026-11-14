@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -195,7 +196,7 @@ func RecallExplain(w io.Writer, repo, query string) error {
 	if err != nil {
 		return err
 	}
-	_, trace := recallPicks(top, os.Getenv(SessionIDEnv), query, true, true)
+	_, trace := recallPicks(context.Background(), top, os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)

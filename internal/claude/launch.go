@@ -64,7 +64,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
-	proxied := sel.NeedsRouter(reg) || armedHop(p, args)
+	proxied := sel.NeedsRouter(reg) || armedHop(ctx, p, args)
 	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
@@ -72,7 +72,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if proxied && !agent.IsHeadless(args) {
 		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
 	}
-	if err := applyOverlay(&plan, passthrough, args, helper, settings, p.Env); err != nil {
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, settings, p.Env); err != nil {
 		return agent.Plan{}, err
 	}
 	if !agent.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
@@ -82,7 +82,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	}
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
-	keepShellEndpoint(&plan, o)
+	keepShellEndpoint(ctx, &plan, o)
 	return plan, nil
 }
 
@@ -159,7 +159,7 @@ func typesEffort(args []string) bool {
 
 // keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;
 // credentials stay scrubbed.
-func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
+func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOptions) {
 	keep := []string{proc.EnvAnthropicBaseURL}
 	if o.Model == "" {
 		keep = append(keep, "ANTHROPIC_MODEL")
@@ -168,18 +168,18 @@ func keepShellEndpoint(plan *agent.Plan, o agent.LaunchOptions) {
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
-	base := gateway.UntaggedBase(strings.TrimSpace(os.Getenv(proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
-	inherited := inheritedBase(base, own)
+	base := gateway.UntaggedBase(strings.TrimSpace(proc.Value(ctx, proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
+	inherited := inheritedBase(ctx, base, own)
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
 		dropHarnessCredential(plan)
 	}
-	keepShellKeys(plan, keep, inherited)
+	keepShellKeys(ctx, plan, keep, inherited)
 }
 
-func keepShellKeys(plan *agent.Plan, keys []string, inherited bool) {
+func keepShellKeys(ctx context.Context, plan *agent.Plan, keys []string, inherited bool) {
 	for _, k := range keys {
-		if strings.TrimSpace(os.Getenv(k)) == "" || (k == proc.EnvAnthropicBaseURL && inherited) {
+		if strings.TrimSpace(proc.Value(ctx, k)) == "" || (k == proc.EnvAnthropicBaseURL && inherited) {
 			continue
 		}
 		delete(plan.Set, k)
@@ -189,9 +189,9 @@ func keepShellKeys(plan *agent.Plan, keys []string, inherited bool) {
 }
 
 // sessionProxyBase reports raw is the proxy base this harness session was launched on (/p/<CLAUDE_PROFILE>).
-func sessionProxyBase(raw string) bool {
+func sessionProxyBase(ctx context.Context, raw string) bool {
 	u, err := url.Parse(raw)
-	sp := providers.SessionProfile()
+	sp := providers.SessionProfileContext(ctx)
 	if err != nil || sp == "" || strings.TrimRight(u.Path, "/") != "/p/"+sp {
 		return false
 	}
@@ -200,16 +200,16 @@ func sessionProxyBase(raw string) bool {
 }
 
 // inheritedBase: the shell base is this session's (proxy, /p/<profile>, direct route); a hop drops it, keeps its login.
-func inheritedBase(base, own string) bool {
-	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(base)) {
+func inheritedBase(ctx context.Context, base, own string) bool {
+	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base)) {
 		return true
 	}
-	return sessionRouteBase(base)
+	return sessionRouteBase(ctx, base)
 }
 
 // sessionRouteBase reports raw is the session profile's own Anthropic route: a direct, unproxied Databricks session.
-func sessionRouteBase(raw string) bool {
-	sp := providers.SessionProfile()
+func sessionRouteBase(ctx context.Context, raw string) bool {
+	sp := providers.SessionProfileContext(ctx)
 	if raw == "" || sp == "" {
 		return false
 	}
@@ -335,8 +335,8 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 }
 
 // armedHop: a headless launch on the armed profile uses /p/<p> even when NeedsRouter would leave it direct.
-func armedHop(p *providers.Provider, args []string) bool {
-	arm := router.ArmProfile()
+func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
+	arm := router.ArmProfileContext(ctx)
 	return arm != "" && p.Name == arm && agent.IsHeadless(args)
 }
 
@@ -433,9 +433,9 @@ func claudeLaunchBinaries() (string, string, error) {
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string) error {
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
-	for k, v := range providerEnv(env) {
+	for k, v := range providerEnv(ctx, env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
 			plan.Set[k] = v
 		}
@@ -444,7 +444,7 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, set
 		if !agent.IsHeadless(args) {
 			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
 			plan.Unset = append(plan.Unset, oauthKey)
-		} else if os.Getenv(oauthKey) == "" {
+		} else if proc.Value(ctx, oauthKey) == "" {
 			// A long-lived setup-token from the env or the vault outlives the /login session in .credentials.json.
 			if tok := providers.HeadlessOAuthToken(); tok != "" {
 				plan.Set[oauthKey] = tok
@@ -463,14 +463,14 @@ func applyOverlay(plan *agent.Plan, passthrough bool, args []string, helper, set
 }
 
 // providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.
-func providerEnv(env map[string]string) map[string]string {
+func providerEnv(ctx context.Context, env map[string]string) map[string]string {
 	if len(env) == 0 {
 		return nil
 	}
 	custom := providers.CustomEnv()
 	out := map[string]string{}
 	for k, v := range env {
-		if _, ok := custom[k]; ok || os.Getenv(k) != "" {
+		if _, ok := custom[k]; ok || proc.Value(ctx, k) != "" {
 			continue
 		}
 		out[k] = v

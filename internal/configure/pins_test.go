@@ -97,3 +97,41 @@ func TestSetAgentPinClearReportsUnreadableVault(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// An edit whose record has an invalid launch env is refused before the vault is written; a valid one is stored.
+func TestSetAgentPinRefusesInvalidLaunchEnvBeforeStoring(t *testing.T) {
+	hosttest.PinScratch(t)
+	bad := vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"NO_EQUALS_SIGN"}}}
+	stored := func() string {
+		var raw string
+		if err := vault.View(func(tx *vault.Tx) error { raw, _ = tx.Get(vault.Overlay, vault.AgentRecordsKey); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	for _, c := range []struct{ field, val string }{{"MODEL", "pinned"}, {"PROFILE", "anthropic"}} {
+		t.Run(c.field, func(t *testing.T) {
+			if err := vault.SetAgentRecord("claude", bad); err != nil {
+				t.Fatal(err)
+			}
+			before := stored()
+			changed, err := SetAgentPin("claude", c.field, c.val)
+			if err == nil || !strings.Contains(err.Error(), "launch.env") || changed {
+				t.Fatalf("SetAgentPin(%s) = (%v, %v), want a launch.env refusal", c.field, changed, err)
+			}
+			if after := stored(); after != before {
+				t.Errorf("refused edit changed the stored records:\n before %s\n after  %s", before, after)
+			}
+		})
+	}
+	good := vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"SYNTHETIC_FLAG=1"}}}
+	if err := vault.SetAgentRecord("claude", good); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := SetAgentPin("claude", "MODEL", "pinned"); err != nil || !changed {
+		t.Fatalf("SetAgentPin on a valid record = (%v, %v), want stored", changed, err)
+	}
+	if got := vault.GetAgentRecord("claude").Model; got != "pinned" {
+		t.Errorf("model = %q, want pinned", got)
+	}
+}

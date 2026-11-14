@@ -124,7 +124,7 @@ func agentCatalog(name string, args []string) int {
 	if err := helptext.CheckFormat(o.format); err != nil {
 		return helptext.BadFormat(name+" catalog", err)
 	}
-	return o.run(pos, args)
+	return o.run(context.Background(), pos, args)
 }
 
 // catalogVerbGate hands opencode's verbs to its menu and refuses a verb name does not take; done ends the run.
@@ -142,13 +142,13 @@ func catalogVerbGate(name, verb string, args []string) (code int, done bool) {
 }
 
 // run resolves the profile and runs the verb on Databricks, else bare catalog's own listing.
-func (o *catalogOpts) run(ids, args []string) int {
+func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 	s, _ := agent.LookupSchema(o.name)
 	dialects := s.CLI.Dialects
 	if len(dialects) == 0 {
 		return o.runOwnLogin()
 	}
-	p, err := catalog.Profile(o.name, o.profile)
+	p, err := catalog.Profile(ctx, o.name, o.profile)
 	if err != nil {
 		return helptext.Fail("%s catalog: %v", o.name, err)
 	}

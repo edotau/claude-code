@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -117,5 +118,19 @@ func TestDiscoverPickerProfilesSkipsUnusableRows(t *testing.T) {
 			t.Errorf("%s = %q discovered=%d note=%q, want %q discovered=%d note containing %q",
 				tc.p.Name, r.Status, r.Discovered, r.Note, tc.status, tc.wantDiscovered, tc.note)
 		}
+	}
+}
+
+// The empty profile resolves to the run's own session profile, not the process env's.
+func TestModelSourceUsesRunSessionProfile(t *testing.T) {
+	t.Setenv(providers.EnvSessionProfile, "")
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dbx": {Name: "dbx", Preset: providers.PresetDatabricks}}}
+	if got, err := CopilotModelSource(t.Context(), reg, ""); err != nil || got.Databricks {
+		t.Fatalf("no session profile: %+v, %v; want the GitHub catalog", got, err)
+	}
+	ctx := proc.WithValues(t.Context(), proc.Values{providers.EnvSessionProfile: "dbx"})
+	got, err := CopilotModelSource(ctx, reg, "")
+	if err == nil && !got.Databricks {
+		t.Fatalf("run session profile dbx: %+v, nil; want the Databricks source (or its listing error)", got)
 	}
 }

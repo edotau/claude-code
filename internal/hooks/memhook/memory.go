@@ -1,6 +1,7 @@
 package memhook
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 
 // Start injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func Start(in *core.Input) core.Result {
+	hctx, cancel := core.HookContext("memory-start")
+	defer cancel()
 	cwd := cwdOf(in)
 	now := time.Now()
 	ctx := memory.StartSession(in.SessionID, cwd, now)
@@ -20,7 +23,7 @@ func Start(in *core.Input) core.Result {
 	if err != nil {
 		reg = nil
 	}
-	pins := pinsOf(reg, now)
+	pins := pinsOf(hctx, reg, now)
 	refreshServed(reg, pins, cwd, now)
 	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins))}
 	if !memory.IsUpdateChild() {
@@ -37,12 +40,14 @@ func Start(in *core.Input) core.Result {
 
 // StartText is Start's context for an audit (doctor --prompts): nothing is written, spawned or consumed.
 func StartText(in *core.Input) core.Result {
+	ctx, cancel := core.HookContext("memory-start")
+	defer cancel()
 	now := time.Now()
 	reg, err := loadProviders()
 	if err != nil {
 		reg = nil
 	}
-	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, pinsOf(reg, now)))}
+	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, pinsOf(ctx, reg, now)))}
 }
 
 // cwdOf is the hook payload's cwd, else the process's.
@@ -63,11 +68,11 @@ func preflightNotice(reg *providers.Registry, pins []preflight.Pin) string {
 }
 
 // pinsOf runs the pin check once per start; nil without a registry.
-func pinsOf(reg *providers.Registry, now time.Time) []preflight.Pin {
+func pinsOf(ctx context.Context, reg *providers.Registry, now time.Time) []preflight.Pin {
 	if reg == nil {
 		return nil
 	}
-	return preflight.Check(reg, now)
+	return preflight.Check(ctx, reg, now)
 }
 
 // refreshServed re-lists a stale served-endpoint cache detached; needs no memory bank, never from an update child.
@@ -106,7 +111,9 @@ func Recall(in *core.Input) core.Result {
 	if core.AutomatedDelivery(in.Prompt) {
 		return core.Result{}
 	}
-	return core.Result{Context: memory.PromptRecall(in.SessionID, in.CWD, in.Prompt, os.Stderr)}
+	ctx, cancel := core.HookContext("memory-recall")
+	defer cancel()
+	return core.Result{Context: memory.PromptRecall(ctx, in.SessionID, in.CWD, in.Prompt, os.Stderr)}
 }
 
 // AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode

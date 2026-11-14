@@ -2,7 +2,6 @@ package claude
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -213,9 +213,20 @@ func refuseUnmappedDeny(p agent.Permissions) error {
 	return nil
 }
 
-// launchProvider is the profile name claudeCmd launches req on.
+// launchProvider is the profile claudeCmd launches req on: the request's, else its run snapshot's session profile.
 func launchProvider(req agent.RunOptions) string {
-	return cmp.Or(req.Provider, agent.SessionProvider("claude"))
+	if req.Provider != "" {
+		return req.Provider
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return ""
+	}
+	ctx := context.Background()
+	if req.Values != nil {
+		ctx = proc.WithValues(ctx, req.Values)
+	}
+	return providers.SessionLeadContext(ctx, reg, false)
 }
 
 // launchTarget is req's launch profile row; Provider nil when it does not resolve (never Anthropic, so no auto judge).
@@ -644,7 +655,20 @@ func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []
 	if err := plan.WriteFiles(); err != nil {
 		return agent.ClaudeLaunch{}, err
 	}
+	plan.Values = runValues(ctx)
 	return agent.ClaudeLaunch{Binary: plan.Binary, Argv: plan.Argv, Env: plan.Env(os.Environ()), Set: plan.Set}, nil
+}
+
+// runValues is ctx's run snapshot with its pinned egress host, nil when ctx carries none (the live env then).
+func runValues(ctx context.Context) proc.Values {
+	values, ok := proc.ValuesFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	if host := egress.HostContext(ctx); host != values[egress.EnvHost] {
+		values = values.With(egress.EnvHost, host)
+	}
+	return values
 }
 
 func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }

@@ -56,7 +56,7 @@ func Run(args []string) int {
 	if code, ok := subverbExit(args); ok {
 		return code
 	}
-	p, err := plan(args)
+	p, err := plan(context.Background(), args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
 		return 2
@@ -120,7 +120,7 @@ var subverbs = map[string]func([]string) int{
 }
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
-func plan(args []string) (launchPlan, error) {
+func plan(ctx context.Context, args []string) (launchPlan, error) {
 	p, name, err := parsePlanArgs(args)
 	if err != nil {
 		return launchPlan{}, err
@@ -129,7 +129,7 @@ func plan(args []string) (launchPlan, error) {
 	if err != nil {
 		return launchPlan{}, fmt.Errorf("load providers: %w", err)
 	}
-	if p.Provider = resolveProfile(reg, name); p.Provider == "" {
+	if p.Provider = resolveProfile(ctx, reg, name); p.Provider == "" {
 		return launchPlan{}, errNoProfile
 	}
 	if !slices.Contains(providers.DatabricksProfiles(reg), p.Provider) {
@@ -207,13 +207,13 @@ func defaultModel(reg *providers.Registry, profile string) string {
 var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg with `claude-code databricks import --apply`, or pass --profile")
 
 // resolveProfile is name, else the session, last or recorded claude profile (if Databricks), else the first one.
-func resolveProfile(reg *providers.Registry, name string) string {
+func resolveProfile(ctx context.Context, reg *providers.Registry, name string) string {
 	if name != "" || reg == nil {
 		return name
 	}
 	profs := providers.DatabricksProfiles(reg)
 	// The session profile shadows the vault pin, even when it is not a Databricks profile.
-	if s := providers.SessionProfileContext(context.Background()); s != "" {
+	if s := providers.SessionProfileContext(ctx); s != "" {
 		if slices.Contains(profs, s) {
 			return s
 		}

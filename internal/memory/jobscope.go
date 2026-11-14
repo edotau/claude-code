@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -49,7 +50,9 @@ func JobScope(kind, workdir string) Scope {
 	return s
 }
 
-// jobKind names the job a run context marks: dream carries its own child marker, anything else is an update.
+// JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.
+func JobKind(ctx context.Context) string { return jobKind(ChildEnv(ctx)) }
+
 func jobKind(env []string) string {
 	if slices.Contains(env, dreamChildEnv+"=1") {
 		return JobDream

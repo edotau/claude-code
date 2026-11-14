@@ -105,7 +105,7 @@ func TestLiveRequestCarriesReadOnlyAndPermissions(t *testing.T) {
 	}
 	f := askFlags{readOnly: true, tools: true, noTools: true, fleet: true, enableMemory: true}
 	s := (&askRun{f: &f}).askState()
-	got := liveRequest(s, perms, "claude")
+	got := liveRequest(t.Context(), s, perms, "claude")
 	if !got.ReadOnly || !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
 		t.Errorf("live request lost a flag: %+v", got)
 	}
@@ -127,7 +127,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 			t.Setenv(agentconfig.OverlayVar, "")
 		}
 		f := askFlags{provider: tc.typed}
-		if got := liveRequest((&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
+		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
 			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
 		}
 	}

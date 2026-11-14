@@ -3,6 +3,7 @@
 package agents
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,16 +53,17 @@ func Effort(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
 	}
+	ctx := context.Background() // the hook entry: no caller context
 	owner := inflight.SessionOwner()
 	if owner == 0 {
-		return agentEffortResult(in) // an unidentifiable owner claims nothing: fail open
+		return agentEffortResult(ctx, in) // an unidentifiable owner claims nothing: fail open
 	}
-	account, lim := router.SessionAccount(), router.CurrentLimits()
+	account, lim := router.SessionAccountContext(ctx), router.CurrentLimits()
 	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
 	if ok, snap := inflight.Fits(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
-	res := agentEffortResult(in)
+	res := agentEffortResult(ctx, in)
 	if res.Decision == core.Block || claim.ID == "" { // no tool_use_id: no release could match the claim, so make none
 		return res
 	}

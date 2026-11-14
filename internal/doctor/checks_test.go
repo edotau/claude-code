@@ -77,7 +77,7 @@ func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
 	old := probeCredential
 	t.Cleanup(func() { probeCredential = old })
 	probeCredential = state.probe
-	rows := providerCredentialChecks(reg, providers.Selection{}, errors.New("no session"), names)
+	rows := providerCredentialChecks(context.Background(), reg, providers.Selection{}, errors.New("no session"), names)
 	assertCredentialProbeRows(t, rows, names)
 	if m := state.maxSeen.Load(); m < 2 {
 		t.Errorf("max in-flight probes = %d, want >= 2 (probes must overlap)", m)
@@ -139,7 +139,7 @@ func TestToolPATHCopiesAndExtras(t *testing.T) {
 	for _, order := range []string{join(a, bin, b), join(bin, a, b)} {
 		t.Run(order, func(t *testing.T) {
 			t.Setenv("PATH", order)
-			detail := toolDoctorDetail(status)
+			detail := toolDoctorDetail(context.Background(), status)
 			want := primary + " 1.0.0 (direct install in bin/)" + " · also on PATH: " + aBin + " 1.0.0 · also on PATH: " + bBin + " 2.0.0"
 			if detail != want {
 				t.Errorf("detail = %q, want %q", detail, want)
@@ -186,7 +186,7 @@ func TestDoctorVendorRows(t *testing.T) {
 			if kind != "direct" {
 				want = doctorVendorLink(t, kind, source, dst)
 			}
-			checks, _ := runChecks()
+			checks, _ := runChecks(context.Background())
 			row := findCheck(checks, "tool opencode")
 			if row == nil {
 				t.Fatal("missing tool opencode row")
@@ -204,7 +204,7 @@ func TestDoctorVendorRows(t *testing.T) {
 func TestDoctorAgentVersionRows(t *testing.T) {
 	hermetic(t)
 	pathstest.FakeVendor(t, "copilot", "echo 'GitHub Copilot CLI 1.0.100.'")
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "agent version copilot")
 	if c == nil {
 		t.Fatal("no `agent version copilot` row")
@@ -214,7 +214,7 @@ func TestDoctorAgentVersionRows(t *testing.T) {
 	}
 	hermetic(t)
 	t.Setenv("PATH", t.TempDir())
-	checks, _ = runChecks()
+	checks, _ = runChecks(context.Background())
 	c = findCheck(checks, "agent version copilot")
 	if c == nil || c.Detail != "not installed" || c.Hard {
 		t.Errorf("missing binary row = %+v, want `not installed`, non-hard", c)
@@ -231,7 +231,7 @@ func TestToolPATHVersionProbesUnchangedBinaryOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if got := toolPATHVersion(bin); got != "fake 7.8.9" {
+		if got := toolPATHVersion(context.Background(), bin); got != "fake 7.8.9" {
 			t.Fatalf("toolPATHVersion = %q", got)
 		}
 	}
@@ -307,7 +307,7 @@ func findCheck(checks []check, name string) *check {
 // model/small_model pair (that's the github-copilot route's own shape).
 func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 	doctorScratch(t)
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "opencode route")
 	if c == nil {
 		t.Fatal(`no "opencode route" check in Checks output`)
@@ -336,7 +336,7 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "opencode route")
 	if c == nil {
 		t.Fatal(`no "opencode route" check in Checks output`)
@@ -360,7 +360,7 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 	doctorScratch(t)
 	workableCopilotPin(t, "alice")
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "copilot route")
 	if c == nil {
 		t.Fatal(`no "copilot route" check in Checks output`)
@@ -381,7 +381,7 @@ func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	vaulttest.SetRecord(t, "copilot", "model", "claude-opus-5.5")
 	vaulttest.SetRecord(t, "copilot", "effort", "high")
 	vaulttest.SetRecord(t, "copilot", "context", "long_context")
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "copilot route")
 	if c == nil {
 		t.Fatal(`no "copilot route" check in Checks output`)
@@ -409,7 +409,7 @@ func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"api","key":"nvapi-realFAKEsecretvalue"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "opencode auth.json")
 	if c == nil {
 		t.Fatal(`no "opencode auth.json" check in Checks output`)
@@ -431,7 +431,7 @@ func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 // No stale key (auth.json absent, or the provider has no vault credential) reports clean.
 func TestDoctorOpenCodeAuthJSONCleanWhenNoStaleKey(t *testing.T) {
 	doctorScratch(t)
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "opencode auth.json")
 	if c == nil {
 		t.Fatal(`no "opencode auth.json" check in Checks output`)
@@ -452,7 +452,7 @@ func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(authDir, "auth.json"), []byte(`{"openai":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "opencode auth.json")
 	if c == nil {
 		t.Fatal(`no "opencode auth.json" check in Checks output`)
@@ -466,7 +466,7 @@ func TestDoctorOpenCodeAuthJSONIgnoresOAuthConnections(t *testing.T) {
 func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-gh-token-value")
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	for _, c := range checks {
 		if strings.Contains(c.Detail, "super-secret-gh-token-value") {
 			t.Fatalf("check %q leaked a credential: %q", c.Name, c.Detail)
@@ -478,13 +478,13 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 // pinning it for an agent makes the missing key a real ✗ again.
 func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
 	doctorScratch(t)
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	c := findCheck(checks, "credential openai")
 	if c == nil || !c.OK || !strings.Contains(c.Detail, "unused") {
 		t.Fatalf("unused openai row = %+v, want OK with an unused note", c)
 	}
 	vaulttest.SetRecord(t, "codex", "profile", "openai")
-	checks, _ = runChecks()
+	checks, _ = runChecks(context.Background())
 	if c := findCheck(checks, "credential openai"); c == nil || c.OK {
 		t.Fatalf("pinned openai row = %+v, want ✗ for the missing key", c)
 	}
@@ -552,7 +552,7 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
-	checks, _ := runChecks()
+	checks, _ := runChecks(context.Background())
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {
 		detail, ok := agent.RouteDetail(vendor)
 		c := findCheck(checks, vendor+" route")
@@ -597,7 +597,7 @@ func TestDoctorChecksRunsSectionsConcurrentlyInOrder(t *testing.T) {
 	t.Cleanup(func() { doctorSections = orig })
 	var started sync.WaitGroup
 	section := func(name string, hardFail bool, delay time.Duration) doctorSection {
-		return func() ([]check, bool) {
+		return func(context.Context) ([]check, bool) {
 			started.Done()
 			started.Wait() // a serial runner never gets past the first section
 			time.Sleep(delay)
@@ -610,7 +610,7 @@ func TestDoctorChecksRunsSectionsConcurrentlyInOrder(t *testing.T) {
 	done := make(chan struct{})
 	var checks []check
 	var ok bool
-	go func() { checks, ok = runChecks(); close(done) }()
+	go func() { checks, ok = runChecks(context.Background()); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -687,7 +687,7 @@ func TestToolHealthPreservesExhaustedQuotaFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rows []check
-	checkToolHealth(func(ok, hard bool, name, detail string) {
+	checkToolHealth(context.Background(), func(ok, hard bool, name, detail string) {
 		rows = append(rows, check{Name: name, OK: ok, Hard: hard, Detail: detail})
 	})
 	row := findCheck(rows, "quota github·regression")

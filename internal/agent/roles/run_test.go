@@ -13,11 +13,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/codex" // the vendors register their schemas from their own init
 	_ "github.com/edotau/claude-code/internal/copilot"
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini schema (ReadNeedsTools)
 	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -281,6 +283,48 @@ func TestLegsFleetOnUnsupportedAgentRuns(t *testing.T) {
 	rep := Run(context.Background(), nil, r, legs, 1, nil)
 	if len(*seen) != 1 || rep.Status != "ok" {
 		t.Fatalf("leg not dispatched: calls=%v report=%+v", *seen, rep)
+	}
+}
+
+// Concurrent legs each get their own snapshot of the request's Values: one leg's writes reach neither a sibling nor the parent.
+func TestRunLegsOwnValuesSnapshots(t *testing.T) {
+	vaulttest.Use(t)
+	parent := proc.Values{"SYN_RUN": "parent"}
+	legs := Legs(mustRole(t, "compare"), Request{Task: "t", Models: []string{"kimi-k3", "gpt-6-1-sol"}, Values: parent})
+	var ready sync.WaitGroup
+	ready.Add(len(legs))
+	var mu sync.Mutex
+	saw := map[string]string{}
+	rep := RunWith(context.Background(), Role{Name: "compare"}, legs, 2, nil,
+		func(_ context.Context, o agent.RunOptions) <-chan wire.Event {
+			o.Values["SYN_RUN"] = o.Model // every leg writes, then every leg reads after all have written
+			ready.Done()
+			ready.Wait()
+			mu.Lock()
+			saw[o.Model] = o.Values["SYN_RUN"]
+			mu.Unlock()
+			ch := make(chan wire.Event, 1)
+			ch <- wire.ResultEvent(wire.Envelope{Status: "ok", Model: o.Model})
+			close(ch)
+			return ch
+		})
+	if rep.Status != "ok" || saw["kimi-k3"] != "kimi-k3" || saw["gpt-6-1-sol"] != "gpt-6-1-sol" {
+		t.Errorf("legs shared a snapshot: status %q saw %v", rep.Status, saw)
+	}
+	if parent["SYN_RUN"] != "parent" || len(parent) != 1 {
+		t.Errorf("parent snapshot mutated: %v", parent)
+	}
+}
+
+// The request's Values reach the overlay step: a confinement document in them is unset in the child even with no overlay layer.
+func TestLegsOverlaySeesRequestValues(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(agentconfig.OverlayVar, "") // the ambient value must not stand in for the request's
+	q := Request{Task: "t", Values: proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`}}
+	for _, l := range Legs(mustRole(t, "fleet"), q) {
+		if !slices.Contains(l.Opts.Unset, agentconfig.OverlayVar) {
+			t.Errorf("leg %s: Unset = %v, want %s", l.Label, l.Opts.Unset, agentconfig.OverlayVar)
+		}
 	}
 }
 

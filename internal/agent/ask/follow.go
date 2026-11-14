@@ -136,14 +136,14 @@ func (w *follower) poll(ctx context.Context, build func(parsedLine) batchTask, o
 }
 
 // retryFor reroutes t once to the first --retry-agent other than the agent it ran on; nil when there is none.
-func retryFor(t batchTask, bo batchOpts, agents []string) func(context.Context) (*agent.Prepared, error) {
+func retryFor(ctx context.Context, t batchTask, bo batchOpts, agents []string) func(context.Context) (*agent.Prepared, error) {
 	for _, name := range agents {
 		if name == t.Agent {
 			continue
 		}
 		req := t.Req
 		req.Agent, req.Fallback, req.Native = name, bo.Fallback, bo.Native
-		req, err := confineLine(name, req) // the new agent's own lead fill and account check, as buildTask does
+		req, err := confineLine(ctx, name, req) // the new agent's own lead fill and account check, as buildTask does
 		cl := newClient()
 		return func(ctx context.Context) (*agent.Prepared, error) {
 			if err != nil {

@@ -479,9 +479,9 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 		return agent.EnsureRouter(ctx)
 	}
 	if st, ok := runningRouter(ctx); ok {
-		return gateway.ViaBase(gateway.Base(st.Port)), nil
+		return gateway.ViaBaseContext(ctx, gateway.Base(st.Port)), nil
 	}
-	return gateway.ViaBase(gateway.Base(gateway.DefaultPort)), nil
+	return gateway.ViaBaseContext(ctx, gateway.Base(gateway.DefaultPort)), nil
 }
 
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).

@@ -302,7 +302,8 @@ func mint(args []string) int {
 	if err != nil {
 		return fail("token: %v", err)
 	}
-	name := resolveProfile(reg, f.profile)
+	ctx := context.Background()
+	name := resolveProfile(ctx, reg, f.profile)
 	if name == "" {
 		return fail("token: %v", errNoProfile)
 	}
@@ -314,7 +315,7 @@ func mint(args []string) int {
 	if f.dryRun {
 		return mintDryRun(reg, name, f.as, f.doCopy)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	res, tok, err := Mint(providers.WithIdentity(ctx, f.as), name)
 	if err != nil {

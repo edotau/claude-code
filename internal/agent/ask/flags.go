@@ -2,6 +2,7 @@ package ask
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -443,6 +445,14 @@ type askState struct {
 	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
 }
 
+// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
+func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
+	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
+		return agent.DefaultToolsTimeout
+	}
+	return timeout
+}
+
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
 func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
 	if job == "" {
@@ -461,7 +471,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 }
 
 // loadAskRetry loads a --retry record, then re-applies any flags explicitly typed on this command line.
-func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
+func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState, prompt *string) (rc int, done bool) {
 	if retry == "" {
 		return 0, false
 	}
@@ -476,7 +486,7 @@ func loadAskRetry(fs *flag.FlagSet, args []string, retry, format string, s *askS
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
-	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(os.Getenv(router.EnvFallback)) != "" {
+	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(proc.Value(ctx, router.EnvFallback)) != "" {
 		*s.Fallback = router.FallbackAll
 	}
 	*prompt, *s.rubric = rec.Request.Prompt, ""

@@ -346,11 +346,11 @@ type Semantic struct {
 }
 
 // embedQuery embeds a query with the first usable workspace's endpoint and scores it against the shared cache.
-func embedQuery(query string) (*Semantic, error) {
+func embedQuery(ctx context.Context, query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
+	ctx, cancel := context.WithTimeout(ctx, embedRecallWait)
 	defer cancel()
 	profile, cache, err := semanticCache(ctx)
 	if err != nil {
@@ -701,7 +701,7 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 		return "", "", false
 	}
 	secret, err := gateway.ClientSecret()
-	return gateway.ViaBase(gateway.Base(st.Port)), secret, err == nil
+	return gateway.ViaBaseContext(ctx, gateway.Base(st.Port)), secret, err == nil
 }
 
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.

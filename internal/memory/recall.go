@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -17,7 +18,7 @@ import (
 )
 
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
-func recallPicks(root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+func recallPicks(ctx context.Context, root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
@@ -33,7 +34,7 @@ func recallPicks(root, session, query string, semantic, explain bool) ([]recallP
 		return nil, trace
 	}
 	root = recallRoot(root)
-	ready := startSemantic(q, semantic)
+	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
 	ranked, files, segs := searchBanksTerms(root, q, terms, 0)
 	ranked = followReplaced(ranked, files, segs)
@@ -72,11 +73,11 @@ type semanticReady struct {
 	err error
 }
 
-func startSemantic(query string, enabled bool) <-chan semanticReady {
+func startSemantic(ctx context.Context, query string, enabled bool) <-chan semanticReady {
 	ready := make(chan semanticReady, 1)
 	if enabled {
 		go func() {
-			sem, err := embedQuery(query)
+			sem, err := embedQuery(ctx, query)
 			ready <- semanticReady{sem, err}
 		}()
 	}
@@ -137,9 +138,9 @@ func recallContext(picks []recallPick) (string, []SearchHit) {
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
-func PromptRecall(sessionID, cwd, prompt string, warn io.Writer) string {
+func PromptRecall(ctx context.Context, sessionID, cwd, prompt string, warn io.Writer) string {
 	root := SessionRoot(sessionID, cwd)
-	picks, trace := recallPicks(root, sessionID, prompt, true, false)
+	picks, trace := recallPicks(ctx, root, sessionID, prompt, true, false)
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
@@ -206,13 +207,13 @@ const (
 const agentRecallMarker = "<memory-recall>"
 
 // AgentRecall is a subagent spawn's <memory-recall> block plus its up to 3 cited ids; ("", nil) on no match.
-func AgentRecall(sessionID, cwd, task string) (block string, ids []string) {
+func AgentRecall(ctx context.Context, sessionID, cwd, task string) (block string, ids []string) {
 	cwd = SessionRoot(sessionID, cwd)
 	q := strings.TrimSpace(task)
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := recallPicks(cwd, "", q, false, false) // no seen set: the subagent has not seen what its parent did
+	picks, _ := recallPicks(ctx, cwd, "", q, false, false) // no seen set: the subagent has not seen what its parent did
 
 	var lines []string
 	for _, p := range picks[:min(recallK, len(picks))] {

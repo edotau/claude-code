@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestPreflightProfileWithoutLiveFails(t *testing.T) {
 
 func TestPreflightLiveUnknownProfileFailsWithoutSpawning(t *testing.T) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return preflightLive(reg, "prod") })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return preflightLive(context.Background(), reg, "prod") })
 	if code == 0 || !strings.Contains(stderr, `no pong ran for "prod"`) {
 		t.Fatalf("code=%d stderr=%q, want non-zero no-pong failure", code, stderr)
 	}

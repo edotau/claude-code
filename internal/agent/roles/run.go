@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -164,6 +165,7 @@ type Request struct {
 	Overlay       agentconfig.Resolved // the overlay's env layer
 	Lead, Profile string               // the narrowed lead and --provider (ask's resolveLead), applied to every leg
 	Auto          string               // the auto-picked Databricks workspace (profile auto), else ""
+	Values        proc.Values          // the run's value snapshot, copied per leg; nil: each leg captures its own at run time
 }
 
 // layer is base plus add: rules union, add's mode wins when set.
@@ -199,7 +201,7 @@ type Leg struct {
 func Legs(r Role, q Request) []Leg {
 	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
 		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback, Lead: q.Lead, Provider: q.Profile,
-		AutoArm: q.Auto != ""}.ApplyOverlay(q.Overlay)
+		AutoArm: q.Auto != "", Values: q.Values}.ApplyOverlay(q.Overlay)
 	var legs []Leg
 	switch r.Name {
 	case "explore":
@@ -212,6 +214,9 @@ func Legs(r Role, q Request) []Leg {
 		legs = compareLegs(r, base, q)
 	}
 	for i, leg := range legs {
+		if q.Values != nil {
+			legs[i].Opts.Values = q.Values.Merge(nil) // each leg owns its snapshot
+		}
 		if leg.Err != "" {
 			continue
 		}

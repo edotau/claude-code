@@ -74,7 +74,7 @@ func (r *dispatchRun) rosterEffort(name string) string {
 }
 
 // agentEffortResult is the pin step: a spawn gets one UpdatedInput (pin, recall, label), a Workflow its lint result.
-func agentEffortResult(in *core.Input) core.Result {
+func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		return quality.WorkflowResult(in)
 	}
@@ -98,15 +98,15 @@ func agentEffortResult(in *core.Input) core.Result {
 	auto := in.Nested("permission_mode") == "auto" || direct
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
-	if deny := preflightBlock(e.run, task); deny != nil {
+	if deny := preflightBlock(ctx, e.run, task); deny != nil {
 		return *deny
 	}
-	recallNote := e.recall(in, promptField, task, auto)
+	recallNote := e.recall(ctx, in, promptField, task, auto)
 	if !direct {
 		e.note, e.systemMessage = pinModel(e.run, in, updated, task)
 		e.changed = e.changed || e.note != ""
 	}
-	if deny := e.label(task, auto); deny != nil {
+	if deny := e.label(ctx, task, auto); deny != nil {
 		return *deny
 	}
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
@@ -154,16 +154,16 @@ var offRoute = []string{"agents", "native", "provider", "host", "host-bin", "ret
 	"log", "job", "jobs", "batch", "follow"}
 
 // opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
-func (r *dispatchRun) opening(task string) askLine {
+func (r *dispatchRun) opening(ctx context.Context, task string) askLine {
 	if r.line == nil || r.lineTask != task {
-		l := parseAskLine(task)
+		l := parseAskLine(ctx, task)
 		r.line, r.lineTask = &l, task
 	}
 	return *r.line
 }
 
 // parseAskLine reads the flags a shell would see on the opening ask command; text inside a quoted task is no flag.
-func parseAskLine(task string) askLine {
+func parseAskLine(ctx context.Context, task string) askLine {
 	words := openingAskWords(task)
 	if len(words) == 0 {
 		return askLine{}
@@ -183,20 +183,20 @@ func parseAskLine(task string) askLine {
 	if value == "" || value == "-" { // "" would read $COWORKER_OVERLAY, "-" the hook's stdin: no prediction
 		return l
 	}
-	if cfg, err := agentconfig.LoadOverlay(value, strings.NewReader("")); err == nil { // unreadable: no prediction
+	if cfg, err := agentconfig.LoadOverlayContext(ctx, value, strings.NewReader("")); err == nil { // unreadable: no prediction
 		l.cfg = cfg
 	}
 	return l
 }
 
 // preflightBlock denies a Run: line `agents ask` refuses on local cached state alone; every doubt lets it through.
-func preflightBlock(run *dispatchRun, task string) *core.Result {
-	l := run.opening(task)
+func preflightBlock(ctx context.Context, run *dispatchRun, task string) *core.Result {
+	l := run.opening(ctx, task)
 	agent := cmp.Or(l.agent, agentid.Claude)
 	if !l.local || l.cfg.Host != "" || l.cfg.Remote != "" || !agentid.Known(agent) {
 		return nil
 	}
-	if provider, _, err := router.Coworker(); provider != "" || err != nil {
+	if provider, _, err := router.CoworkerContext(ctx); provider != "" || err != nil {
 		return nil // nested in a confinement: ask's own leave rules decide
 	}
 	reg, err := run.registry()
@@ -410,8 +410,8 @@ type effortPlan struct {
 }
 
 // recall appends the memory-recall block to the prompt, or returns it as a note in auto mode.
-func (e *effortPlan) recall(in *core.Input, promptField, task string, auto bool) string {
-	recallBlock, _ := memory.AgentRecall(in.SessionID, in.CWD, task)
+func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, auto bool) string {
+	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, in.CWD, task)
 	if recallBlock == "" {
 		return ""
 	}
@@ -466,14 +466,14 @@ func appendSeen(path string, ids []string) error {
 }
 
 // label prefixes the description with the run's model: a rewrite, or in auto mode (rewrites rejected) a one-time deny.
-func (e *effortPlan) label(task string, auto bool) *core.Result {
+func (e *effortPlan) label(ctx context.Context, task string, auto bool) *core.Result {
 	if !auto {
-		changed, _ := applyLabel(e.run, e.updated, task)
+		changed, _ := applyLabel(ctx, e.run, e.updated, task)
 		e.changed = changed || e.changed
 		return nil
 	}
 	probe := maps.Clone(e.updated)
-	if _, canonical := applyLabel(e.run, probe, task); canonical { // a right prefix passes; case alone never blocks
+	if _, canonical := applyLabel(ctx, e.run, probe, task); canonical { // a right prefix passes; case alone never blocks
 		return nil
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: the description must start with the model the "+
@@ -491,13 +491,13 @@ func (e *effortPlan) result() core.Result {
 }
 
 // applyLabel rewrites the description to `<model>: <task>`; canonical is false when its prefix is missing or wrong.
-func applyLabel(run *dispatchRun, updated map[string]any, task string) (changed, canonical bool) {
+func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, task string) (changed, canonical bool) {
 	st, _ := updated["subagent_type"].(string)
 	orig, _ := updated["description"].(string)
 	if strings.TrimSpace(orig) == "" {
 		return false, true
 	}
-	label := labelModel(run, updated, st, task)
+	label := labelModel(ctx, run, updated, st, task)
 	rest := stripLabels(orig, st, label)
 	out := lowerFirst(rest)
 	if label != "" {
@@ -640,28 +640,28 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 }
 
 // labelModel is the one precedence: Run: line model, its overlay's pick, work agent's cell, own model.
-func labelModel(run *dispatchRun, updated map[string]any, st, task string) string {
-	line := run.opening(task)
+func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) string {
+	line := run.opening(ctx, task)
 	agent := line.workAgent(st, task)
 	confine := labelConfinement(line.cfg)
 	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
-		return explicitLabel(run, confine, cmp.Or(agent, agentid.Claude), m)
+		return explicitLabel(ctx, run, confine, cmp.Or(agent, agentid.Claude), m)
 	}
 	switch tier := pickTier(run, updated, st, agent, cmp.Or(line.prompt, task)); {
 	case confine != "":
-		return coworkerPick(run, confine, cmp.Or(agent, agentid.Claude), tier)
+		return coworkerPick(ctx, run, confine, cmp.Or(agent, agentid.Claude), tier)
 	case agent != "":
-		return labelCell(run, agent, tier)
+		return labelCell(ctx, run, agent, tier)
 	}
 	return ownModel(run, updated, st)
 }
 
 // explicitLabel is the ask's model as the run spells it inside confine (a Databricks endpoint name), else as typed.
-func explicitLabel(run *dispatchRun, confine, agent, model string) string {
+func explicitLabel(ctx context.Context, run *dispatchRun, confine, agent, model string) string {
 	if confine == "" {
 		return model
 	}
-	return cmp.Or(coworkerPick(run, confine, agent, model), model)
+	return cmp.Or(coworkerPick(ctx, run, confine, agent, model), model)
 }
 
 // pickTier is the alias the run picks from: an external agent's ask classifies its prompt, as ask does with no --model.
@@ -692,24 +692,34 @@ func labelConfinement(cfg agentconfig.Overlay) string {
 	return cfg.Confinement()
 }
 
-// pickEnvMu serializes coworkerPick's env swap: the route readers only see the process environment.
+// pickEnvMu serializes coworkerPick's env swap: router and preview readers still read the process env.
 var pickEnvMu sync.Mutex
 
-// coworkerPick is labelCell inside confinement confine: the env ask exports for that overlay, restored after.
-func coworkerPick(run *dispatchRun, confine, agent, tier string) string {
+// coworkerPick is labelCell inside confinement confine: ask's values for it in the pick ctx and swapped into the env.
+func coworkerPick(ctx context.Context, run *dispatchRun, confine, agent, tier string) string {
 	provider, profile, _ := strings.Cut(confine, ":")
-	env := map[string]string{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, profile)}
+	env := proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, profile)}
 	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
 		env[providers.EnvSessionProfile] = p
 	}
 	pickEnvMu.Lock()
 	defer pickEnvMu.Unlock() // deferred first, so it runs after every restoreEnv
+	pick := pickContext(ctx, env)
 	for k, v := range env {
 		old, had := os.LookupEnv(k)
 		_ = proc.Setenv(k, v)
 		defer restoreEnv(k, old, had)
 	}
-	return labelCell(run, agent, tier)
+	return labelCell(pick, run, agent, tier)
+}
+
+// pickContext is ctx's run values (else the process environment) with env laid over them.
+func pickContext(ctx context.Context, env proc.Values) context.Context {
+	base, ok := proc.ValuesFromContext(ctx)
+	if !ok {
+		base = proc.ValuesFromEnv(os.Environ())
+	}
+	return proc.WithValues(ctx, base.Merge(env))
 }
 
 func restoreEnv(k, old string, had bool) {
@@ -727,8 +737,8 @@ var (
 )
 
 // cellModelFor is the model a leaf runs: the no-run preview's first candidate, else the route table's prediction.
-func cellModelFor(run *dispatchRun, agent, alias string) string {
-	pins, err := agentpkg.AgentPins()
+func cellModelFor(ctx context.Context, run *dispatchRun, agent, alias string) string {
+	pins, err := agentpkg.AgentPinsContext(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "dispatch-effort label: %v\n", err)
 		return ""
@@ -736,18 +746,18 @@ func cellModelFor(run *dispatchRun, agent, alias string) string {
 	if slices.ContainsFunc(slices.Collect(maps.Values(pins)), func(s router.PinSpec) bool { return s.Model == router.DiscoveryModel }) {
 		return "" // a discovery pick advances the rotation in quota.json; a label never writes state
 	}
-	if m := labelPick(agent, alias); m != "" {
+	if m := labelPick(ctx, agent, alias); m != "" {
 		return m
 	}
 	return tableCellModel(run, agent, alias, pins[agent])
 }
 
 // previewModel is the preview's first candidate model without its `<profile>:` prefix; "" when nothing runs.
-func previewModel(agent, alias string) string {
-	profile, provider := router.ConfineLead(agent, "", "", alias) // the lead gateway and ask fill under a confinement
+func previewModel(ctx context.Context, agent, alias string) string {
+	profile, provider := router.ConfineLeadContext(ctx, agent, "", "", alias) // the lead gateway and ask fill under a confinement
 	q := agentpkg.RouteReq{Agent: agent, Model: alias, Profile: profile, Provider: provider,
 		Fallback: router.FallbackAll, Preview: true}
-	_, res, err := agentpkg.Resolve(context.Background(), q)
+	_, res, err := agentpkg.Resolve(ctx, q)
 	if err != nil || len(res.Candidates) == 0 {
 		return ""
 	}

@@ -474,10 +474,15 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 	return nil
 }
 
-// DispatchOverlayContext resolves DispatchOverlay using the run snapshot.
+// DispatchOverlayContext resolves DispatchOverlay using the run snapshot; a snapshot holding the key empty means none.
 func DispatchOverlayContext(ctx context.Context, flag string) string {
 	if v := cmp.Or(flag, proc.Value(ctx, OverlayVar)); v != "" {
 		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
+	}
+	if values, ok := proc.ValuesFromContext(ctx); ok {
+		if _, held := values[OverlayVar]; held {
+			return ""
+		}
 	}
 	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
 }

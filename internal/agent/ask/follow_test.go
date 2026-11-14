@@ -269,13 +269,13 @@ func TestFollowerLineNumbersCountBlankLines(t *testing.T) {
 func TestRetryForPicksFirstOtherAgent(t *testing.T) {
 	bo := batchOpts{Fallback: "none"}
 	task := batchTask{Agent: "codex"}
-	if retryFor(task, bo, nil) != nil || retryFor(task, bo, []string{"codex"}) != nil {
+	if retryFor(t.Context(), task, bo, nil) != nil || retryFor(t.Context(), task, bo, []string{"codex"}) != nil {
 		t.Error("retryFor returned a Retry for an empty list or only the task's own agent")
 	}
 	cliEnv(t)
 	cliFakes(t)
 	task.Req = agent.RunOptions{Prompt: "p", WorkDir: t.TempDir(), Model: "m", Tools: true}
-	retry := retryFor(task, bo, []string{"codex", "opencode", "claude"})
+	retry := retryFor(t.Context(), task, bo, []string{"codex", "opencode", "claude"})
 	if retry == nil {
 		t.Fatal("no Retry for a list holding another agent")
 	}
