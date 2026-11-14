@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -71,6 +72,10 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
+	o, err = contextPickOpts(ctx, o)
+	if err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
 	o, pins, err := routePickOpts(o, mode)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
@@ -92,7 +97,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	}
 	c.Skipped = pickSkips(pick, nativeLead)
 	current, _ := models.Alias(alias)
-	rc := routeCtx{tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
+	rc := routeCtx{ctx: ctx, tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, dispatchID: router.NonClaudeDispatchID(exact, explicitModel, pins[want].Model),
 		explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
@@ -100,6 +105,21 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		return Chain{}, pick, err
 	}
 	return rc.finishChain(c, pick), pick, nil
+}
+
+// contextPickOpts fills o's account resolver and pins from the dispatch's context values when the caller left them unset.
+func contextPickOpts(ctx context.Context, o router.PickOpts) (router.PickOpts, error) {
+	if _, ok := proc.ValuesFromContext(ctx); ok && o.Account == nil {
+		o.Account = func(name string, cell router.Cell) (string, string) { return resolveAccountContext(ctx, name, cell) }
+	}
+	if o.Pins == nil {
+		pins, err := AgentPinsContext(ctx)
+		if err != nil {
+			return o, err
+		}
+		o.Pins = pins
+	}
+	return o, nil
 }
 
 // finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.
@@ -304,7 +324,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if q.Host {
 		return Single(q.Engine), router.PickResult{}, nil
 	}
-	lead, explicit, err := routeLead(q)
+	lead, explicit, err := routeLeadContext(ctx, q)
 	if err != nil {
 		return Chain{}, router.PickResult{}, &LeadError{err}
 	}
@@ -335,7 +355,11 @@ func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router
 
 // routeLead is LeadFor, except a preview leads on its pin or the profile of a profile:model, never runs it explicitly.
 func routeLead(q RouteReq) (lead string, explicit bool, err error) {
-	lead, explicit, err = LeadFor(q)
+	return routeLeadContext(context.Background(), q)
+}
+
+func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
+	lead, explicit, err = leadForContext(ctx, q)
 	if err != nil || !explicit || !q.Preview {
 		return lead, explicit, err
 	}
@@ -350,6 +374,10 @@ func routeLead(q RouteReq) (lead string, explicit bool, err error) {
 
 // LeadFor is the one pin-or-lead predicate: a named --profile pins (explicit) only with --fallback none or Pinned.
 func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
+	return leadForContext(context.Background(), q)
+}
+
+func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
 	if q.Lead != "" {
 		return q.Lead, false, nil
 	}
@@ -364,7 +392,7 @@ func LeadFor(q RouteReq) (lead string, explicit bool, err error) {
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}
-	cfg, err := agentconfig.For(q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
+	cfg, err := agentconfig.ForContext(ctx, q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
 	return cfg.Profile, false, err
 }
 
@@ -419,6 +447,7 @@ const LeadSession = "session"
 
 // routeCtx is the per-pick state routeChain's candidate helpers share.
 type routeCtx struct {
+	ctx                           context.Context
 	tb                            *router.RouteTable
 	reg                           *providers.Registry
 	pins                          map[string]router.PinSpec

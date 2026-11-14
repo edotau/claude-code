@@ -32,11 +32,22 @@ var executable = os.Executable
 
 // Spawn re-execs claude-code detached on rec; it never saves, as a post-Start save could clobber a fast child's status.
 func Spawn(rec *Record, extra []string) error {
-	return SpawnArgv(rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
+	return SpawnArgvContext(context.Background(), rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
 }
 
 // SpawnArgv is Spawn for an arbitrary claude-code argv, with env appended to the child's environment.
 func SpawnArgv(rec *Record, argv, env []string) error {
+	return SpawnArgvContext(context.Background(), rec, argv, env)
+}
+
+// SpawnContext launches a detached job with the caller's run values.
+func SpawnContext(ctx context.Context, rec *Record, extra []string) error {
+	return SpawnArgvContext(ctx, rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
+}
+
+// SpawnArgvContext preserves run values while detaching the child lifetime.
+func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) error {
+	ctx, _ = runValues(ctx, nil)
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -52,7 +63,7 @@ func SpawnArgv(rec *Record, argv, env []string) error {
 	defer logFile.Close()
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
 	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.Env = (EnvSpec{Mode: EnvClaude, Extra: env}).Environ(context.Background())
+	cmd.Env = (EnvSpec{Mode: EnvClaude, Extra: env}).Environ(context.WithoutCancel(ctx))
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err

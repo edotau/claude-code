@@ -555,3 +555,14 @@ func parseAgentDefs(agents, host string) (map[string]*agent.Schema, error) {
 	}
 	return defs, nil
 }
+
+// absDebugFile pins the path now: --workdir moves the child's cwd.
+func absDebugFile(p string) string {
+	if p == "" {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -93,6 +94,9 @@ func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.En
 	cmd := exec.CommandContext(ctx, bin, append(argv, "--fallback", "none", "--format", "json", "Reply with the single word: pong")...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
+	if v, ok := proc.ValuesFromContext(ctx); ok { // the child sees the run snapshot the prediction read, not the ambient env
+		cmd.Env = v.Env()
+	}
 	out, err := cmd.Output()
 	var env wire.Envelope
 	if jerr := json.Unmarshal(out, &env); jerr != nil {
@@ -180,7 +184,10 @@ func fieldsLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // RunInstallStep refreshes stale listings, then pongs each agent; silent only when no pin has a credential.
 func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time) []Pong {
-	ps := Check(reg, now)
+	if _, ok := proc.ValuesFromContext(ctx); !ok { // one baseline for the prediction and every pong child
+		ctx = proc.WithValues(ctx, proc.ValuesFromEnv(os.Environ()))
+	}
+	ps := check(ctx, reg, now)
 	if slices.ContainsFunc(ps, func(p Pin) bool { return p.Status == StatusError }) {
 		printFixRows(w, ps)
 		return nil
@@ -191,7 +198,7 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	rctx, rcancel := context.WithTimeout(ctx, Budget)
 	printRefreshErrors(w, RefreshStale(rctx, reg, ps, now, false))
 	rcancel()
-	ps = Check(reg, now)
+	ps = check(ctx, reg, now)
 	pongStart := time.Now()                                      // pongs get their own window after the refresh, not what it left over
 	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
 	defer cancel()
@@ -273,7 +280,7 @@ func RefreshPinned(ctx context.Context) []error {
 		return []error{err}
 	}
 	now := time.Now()
-	return RefreshStale(ctx, reg, Check(reg, now), now, true)
+	return RefreshStale(ctx, reg, check(ctx, reg, now), now, true)
 }
 
 // printFixRows prints one line per pin that is not OK, with its fix or detail.

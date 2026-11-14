@@ -203,12 +203,17 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 func liveRequest(s *askState, perms agent.Permissions, name string) agent.RunOptions {
 	_, cprof := router.Confined() // a live holder runs one hop with no chain: it starts on the confinement's profile
 	return agent.RunOptions{Model: *s.Model, Provider: cmp.Or(router.ArmProfile(), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
-		Tools: *s.Tools, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
+		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
 }
 
 func startLive(s *askState, perms agent.Permissions, name, as, format string) int {
+	req := liveRequest(s, perms, name)
+	req.Identity = as
+	if err := agent.CheckCapabilities(name, req); err != nil {
+		return failAskCode(format, name, err, 2)
+	}
 	r, err := agent.Lookup(name)
 	if err == nil {
 		err = r.Available()
@@ -219,8 +224,6 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	if err != nil {
 		return failAsk(format, name, err)
 	}
-	req := liveRequest(s, perms, name)
-	req.Identity = as
 	rec, err := newClient().Record(context.Background(), req, nil)
 	if err != nil {
 		return failAsk(format, name, err)
@@ -235,6 +238,11 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	if err := agent.WaitLiveReady(rec.ID, rec.PID); err != nil {
 		return failAsk(format, name, abandonLive(&rec, fmt.Errorf("live session %s did not start: %w (log: %s)", rec.ID, err, rec.Log)))
 	}
+	return printLiveStarted(name, format, rec, req)
+}
+
+// printLiveStarted reports a ready live holder as one JSON line or the follow-up commands.
+func printLiveStarted(name, format string, rec agent.Record, req agent.RunOptions) int {
 	if format == helptext.JSON {
 		if err := agent.WriteJSONLine(os.Stdout, struct {
 			ID     string `json:"id"`

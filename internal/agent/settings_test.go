@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -313,5 +314,35 @@ func TestBuiltinRecordsValidate(t *testing.T) {
 				t.Errorf("legacy overlay %v: %s: %v", overlay != "", name, err)
 			}
 		}
+	}
+}
+
+// A bad legacy launch entry still reports the stored-record error and keeps the fallback env for every agent.
+func TestResolveSettingsInvalidLegacyLaunchKeepsFallback(t *testing.T) {
+	for _, name := range agentid.All() {
+		t.Run(name, func(t *testing.T) {
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "agents", fmt.Sprintf(
+				`{"agents":{%q:{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://invalid.example","KEEP_ME=1"]}}}}`, name))
+			st, err := ResolveSettings(name, RunOptions{}, providers.Target{}, false)
+			if err == nil || !strings.Contains(err.Error(), name+" launch.env:") || st.Agent != name {
+				t.Fatalf("ResolveSettings: agent=%q err=%v; want fallback and launch.env error", st.Agent, err)
+			}
+			var notice bytes.Buffer
+			old := NoticeOut
+			NoticeOut = &notice
+			t.Cleanup(func() { NoticeOut = old })
+			st = SchemaFor(name).launchSettings(providers.Target{}, false)
+			want := fmt.Sprintf("claude-code: %s stored agent settings not applied: %v; built-in defaults used\n", name, err)
+			if notice.String() != want {
+				t.Fatalf("notice = %q, want %q", notice.String(), want)
+			}
+			route := "COPILOT_PROVIDER_BASE_URL=https://route.example"
+			env, _, _, cleanup, err := NewBaseEngine(name).RenderSettings(t.Context(), st, []string{route}, nil)
+			defer cleanup()
+			if err != nil || !slices.Contains(env, "KEEP_ME=1") || !slices.Contains(env, route) || len(env) != 2 {
+				t.Fatalf("fallback env=%v err=%v; want KEEP_ME and only the routed endpoint", env, err)
+			}
+		})
 	}
 }

@@ -295,10 +295,13 @@ func (r stepRun) stage(where string, v any) []string {
 		return out
 	}
 	who := plainString(m["agent"])
-	if who == "" || who == "claude" {
+	profile, provider := cmp.Or(plainString(m["profile"]), r.profile), cmp.Or(plainString(m["provider"]), r.provider)
+	if who == "" {
+		who = "claude"
+	}
+	if who == "claude" && profile == "" && provider == "" {
 		return claudeStageProblems(where, m)
 	}
-	profile, provider := cmp.Or(plainString(m["profile"]), r.profile), cmp.Or(plainString(m["provider"]), r.provider)
 	if err := stepRoute(who, plainString(m["model"]), profile, provider); err != nil {
 		return []string{fmt.Sprintf("%s: %s has no route: %v", where, who, err)}
 	}
@@ -336,10 +339,6 @@ func fieldProblem(k string, v any) string {
 
 // claudeStageProblems: an in-context claude stage runs on the session profile with a Claude alias.
 func claudeStageProblems(where string, m map[string]any) []string {
-	if m["profile"] != nil || m["provider"] != nil {
-		return []string{where + ": claude stages run in-context on the session profile; " +
-			"profile/provider need agent codex|copilot|gemini|opencode"}
-	}
 	if model := plainString(m["model"]); model != "" && !slices.Contains(stepClaudeModels, model) {
 		return []string{fmt.Sprintf("%s.model must be %s", where, strings.Join(stepClaudeModels, "|"))}
 	}

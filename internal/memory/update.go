@@ -484,13 +484,8 @@ func NoteGateBlocks(ctx context.Context, n int) {
 
 // BankScope is what the job's agent may write (path globs) and run (Bash patterns); dream also edits every repo store.
 func BankScope(ctx context.Context, workdir string) (write, bash []string) {
-	if slices.Contains(ChildEnv(ctx), dreamChildEnv+"=1") {
-		// dream alone may promote a gated hard rule, which it then writes into CLAUDE.md by hand
-		return []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")},
-			[]string{"claude-code memory timeline *", "claude-code memory review *", "claude-code memory index *",
-				"claude-code memory promote *"}
-	}
-	return []string{Dir(workdir) + "/**", HomeBankDir() + "/**"}, nil
+	s := JobScope(jobKind(ChildEnv(ctx)), workdir)
+	return s.Write, s.Bash
 }
 
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.

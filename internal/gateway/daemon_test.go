@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -381,4 +383,46 @@ func TestAwaitExitObservesTerminatedProcess(t *testing.T) {
 	if !awaitExit(pid) {
 		t.Fatal("awaitExit still reports a terminated process alive")
 	}
+}
+
+func TestGatewayRunEgress(t *testing.T) {
+	t.Setenv(egress.EnvHost, "launcher-host")
+	ctx := proc.WithValues(t.Context(), proc.ValuesFromEnv(os.Environ()).With(egress.EnvHost, "run-host"))
+	base := Base(DefaultPort)
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"run", ctx, base + "/via/run-host"},
+		{"request", egress.WithHost(ctx, "request-host"), base + "/via/request-host"},
+		{"direct", egress.WithHost(ctx, ""), base},
+		{"empty snapshot", proc.WithValues(ctx, proc.Values{}), base},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ViaBaseContext(tc.ctx, base); got != tc.want {
+				t.Fatalf("base = %q, want %q", got, tc.want)
+			}
+			t.Logf("base = %s", tc.want)
+		})
+	}
+	if got := ViaBase(base); got != base+"/via/launcher-host" {
+		t.Fatalf("legacy base = %q", got)
+	}
+	if runtime.GOOS == "windows" {
+		if _, ok := proc.ValuesFromEnv(daemonCommand("claude-code.exe").Env)[egress.EnvHost]; ok {
+			t.Fatal("daemon inherits egress")
+		}
+		return
+	}
+	cmd := daemonCommand("/bin/sh")
+	cmd.Args = []string{"sh", "-c", `if [ "${HARNESS_EGRESS_HOST+x}" = x ]; then exit 9; fi; printf scrubbed`}
+	out, err := cmd.Output()
+	if err != nil || string(out) != "scrubbed" {
+		t.Fatalf("daemon child = %q, %v", out, err)
+	}
+	if got := os.Getenv(egress.EnvHost); got != "launcher-host" {
+		t.Fatalf("parent host changed: %q", got)
+	}
+	t.Log("daemon child: egress absent; parent: launcher-host")
 }

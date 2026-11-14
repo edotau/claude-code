@@ -77,6 +77,14 @@ func ViaBase(base string) string {
 	return base
 }
 
+// ViaBaseContext uses the request's pinned host, including direct routing, before the run's egress default.
+func ViaBaseContext(ctx context.Context, base string) string {
+	if h := egress.HostContext(ctx); h != "" {
+		return base + ViaPrefix + url.PathEscape(h)
+	}
+	return base
+}
+
 // ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
 const ClientHeader = "X-Claude-Code-Proxy"
 
@@ -193,7 +201,9 @@ var ErrTestBinary = errors.New("proxy: refusing to spawn the daemon from a test 
 
 // daemonCommand builds the detached daemon's command line.
 func daemonCommand(exe string) *exec.Cmd {
-	return exec.Command(exe, "gateway", "proxy", "--serve") //nolint:noctx // the detached daemon outlives its caller
+	cmd := exec.Command(exe, "gateway", "proxy", "--serve")          //nolint:noctx // the daemon outlives its caller
+	cmd.Env = proc.Drop(os.Environ(), nil, []string{egress.EnvHost}) // egress is per request (/via/<host>)
+	return cmd
 }
 
 func spawn() error {
@@ -215,7 +225,6 @@ func spawn() error {
 	defer lf.Close()
 	cmd := daemonCommand(exe)
 	cmd.Dir = paths.StateDir()
-	cmd.Env = proc.Drop(os.Environ(), nil, []string{egress.EnvHost}) // the egress host is per request (/via/<host>)
 	cmd.Stdout, cmd.Stderr = lf, lf
 	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {

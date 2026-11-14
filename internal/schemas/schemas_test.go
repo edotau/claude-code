@@ -261,7 +261,7 @@ var writers = map[string]string{
 	"internal/usage/claude.go:writeClaudeUsageCache":           "oauth-usage-cache",
 	"internal/usage/budget.go:writeBudgetCache":                "gateway-budget-cache",
 	"internal/vault/vault.go:create":                           "vault",
-	"internal/agent/job.go:SpawnArgv":                          unversioned("log: vendor job log, humans only"),
+	"internal/agent/job.go:SpawnArgvContext":                   unversioned("log: vendor job log, humans only"),
 	"internal/agent/ask/reviewdiff.go:reviewArgs":              unversioned("foreign: temp diff handed to a vendor CLI"),
 	"internal/codex/catalog.go:validateCodexCatalog":           "codex-catalog",
 	"internal/codex/catalog.go:storeCodexCatalog":              "codex-catalog",

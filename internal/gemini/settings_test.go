@@ -24,18 +24,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Glob-free path denies and exact allows map to agy rules; Ask rides as allow; unmapped Allow/Ask are reported.
+// Glob-free path denies and exact allows map to agy rules; Ask rides as allow, named in the notes (O1: kept, never
+// silent); unmapped Allow/Ask follow.
 func TestAgyPermissionSettings(t *testing.T) {
 	p := agent.Permissions{
 		Deny:  []agent.Rule{{Tool: "Write", Arg: "denied2.txt"}, {Tool: "Read", Arg: "/abs/secret"}},
 		Allow: []agent.Rule{{Tool: "Bash", Arg: "go test ./..."}, {Tool: "Bash", Arg: "git log:*"}},
 		Ask:   []agent.Rule{{Tool: "WebFetch"}},
 	}
-	got, unmapped, err := agyPermissionSettings(p, true, true, "/w", io.Discard)
+	got, notes, err := agyPermissionSettings(p, true, true, "/w")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Log(got)
 	var doc struct {
 		Permissions struct{ Allow, Deny []string }
 	}
@@ -50,10 +50,10 @@ func TestAgyPermissionSettings(t *testing.T) {
 	if !slices.Equal(doc.Permissions.Allow, []string{"command(go test ./...)"}) {
 		t.Errorf("allow = %v", doc.Permissions.Allow)
 	}
-	if want := []string{"Bash(git log:*)", "WebFetch"}; !slices.Equal(unmapped, want) {
-		t.Errorf("unmapped = %v, want %v", unmapped, want)
+	if want := []string{"ask WebFetch runs as allow (agy has no headless judge)", "Bash(git log:*)", "WebFetch"}; !slices.Equal(notes, want) {
+		t.Errorf("notes = %q, want %q", notes, want)
 	}
-	if s, _, _ := agyPermissionSettings(agent.Permissions{}, true, true, "/w", io.Discard); s != "" {
+	if s, _, _ := agyPermissionSettings(agent.Permissions{}, true, true, "/w"); s != "" {
 		t.Errorf("zero policy renders %q, want no --settings", s)
 	}
 }
@@ -86,7 +86,7 @@ func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
 func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, r := range []agent.Rule{{Tool: "Bash", Arg: "touch x"}, {Tool: "Bash", Arg: "rm:*"}, {Tool: "Edit", Arg: "internal/**"}, {Tool: "WebFetch"}} {
-		_, _, err := agyPermissionSettings(agent.Permissions{Deny: []agent.Rule{r}}, true, true, "/w", io.Discard)
+		_, _, err := agyPermissionSettings(agent.Permissions{Deny: []agent.Rule{r}}, true, true, "/w")
 		if err == nil || !strings.Contains(err.Error(), r.String()) {
 			t.Errorf("deny %s: err = %v, want a refusal naming it", r, err)
 		}
@@ -94,22 +94,31 @@ func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	orig := loadAgentConfig
 	loadAgentConfig = func() (*agentconfig.Config, error) { return nil, errors.New("overlay unreadable") }
 	t.Cleanup(func() { loadAgentConfig = orig })
-	_, _, err := agyPermissionSettings(agent.Permissions{Mode: "auto"}, true, true, "/w", io.Discard)
+	_, _, err := agyPermissionSettings(agent.Permissions{Mode: "auto"}, true, true, "/w")
 	if err == nil || !strings.Contains(err.Error(), "overlay unreadable") {
 		t.Errorf("failed guard load: err = %v, want it returned", err)
 	}
 }
 
-// Plan mode with tools on is refused as fatal (agy cannot deny unmatched calls); without tools nothing can run.
+// Plan mode is refused where agy cannot deny unmatched calls: with tools on always, with tools off unless the gate hook
+// judges read_file (agy runs workspace reads itself); the refusal names the remedy.
 func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	p := agent.Permissions{Mode: "plan"}
-	_, _, err := agyPermissionSettings(p, true, true, "/w", io.Discard)
+	_, _, err := agyPermissionSettings(p, true, true, "/w")
 	var ae *retry.Error
-	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "plan") {
-		t.Errorf("plan with tools: err = %v, want a fatal refusal naming plan", err)
+	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "drop --tools") {
+		t.Errorf("plan with tools: err = %v, want a fatal refusal naming the remedy", err)
 	}
-	if _, _, err := agyPermissionSettings(p, true, false, "/w", io.Discard); err != nil {
-		t.Errorf("plan without tools: %v", err)
+	if _, _, err := agyPermissionSettings(p, true, false, "/w"); err == nil || !strings.Contains(err.Error(), "read_file") {
+		t.Errorf("plan without tools or gate hook: err = %v, want a refusal naming read_file", err)
+	}
+	if _, err := stagedHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := agyPermissionSettings(p, true, false, "/w"); err != nil {
+		t.Errorf("plan without tools, gate installed: %v", err)
 	}
 }
 
@@ -118,13 +127,13 @@ func TestAgyBashDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	p := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Bash", Arg: "touch x"}}}
-	if _, _, err := agyPermissionSettings(p, true, true, "/w", io.Discard); err == nil || !strings.Contains(err.Error(), "Bash(rm *)") {
+	if _, _, err := agyPermissionSettings(p, true, true, "/w"); err == nil || !strings.Contains(err.Error(), "Bash(rm *)") {
 		t.Fatalf("no gate installed: err = %v, want a refusal naming Bash(rm *)", err)
 	}
 	if _, err := stagedHooks(home); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := agyPermissionSettings(p, true, true, "/w", io.Discard)
+	got, _, err := agyPermissionSettings(p, true, true, "/w")
 	if err != nil || !strings.Contains(got, "command(touch x)") || strings.Contains(got, "rm *") {
 		t.Fatalf("gate installed: settings %q err %v, want the exact deny only", got, err)
 	}
@@ -167,7 +176,7 @@ func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "touch x"}}}
-			_, _, err = agyPermissionSettings(p, true, true, cwd, io.Discard)
+			_, _, err = agyPermissionSettings(p, true, true, cwd)
 			if (err == nil) != c.wantGate {
 				t.Fatalf("Bash deny with %s hook: err = %v, want gate accepted = %v", c.name, err, c.wantGate)
 			}
@@ -180,7 +189,7 @@ func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	p := agent.Permissions{Deny: agent.ReadOnlyDeny}
-	_, _, err := agyPermissionSettings(p, true, true, "/w", io.Discard)
+	_, _, err := agyPermissionSettings(p, true, true, "/w")
 	for _, r := range []string{"Bash", "Write", "Edit"} { // literal: the read-only set itself is under test
 		if err == nil || !strings.Contains(err.Error(), r) {
 			t.Errorf("no gate installed: err = %v, want a refusal naming %s", err, r)
@@ -189,7 +198,7 @@ func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 	if _, err := stagedHooks(home); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := agyPermissionSettings(p, true, true, "/w", io.Discard)
+	got, _, err := agyPermissionSettings(p, true, true, "/w")
 	if err != nil || strings.Contains(got, "()") || strings.Contains(got, "write_file") {
 		t.Fatalf("gate installed: settings %q err %v, want accepted with no native rule for a bare tool", got, err)
 	}
@@ -309,7 +318,7 @@ func TestAgyGateCoversIgnoresDisabledSet(t *testing.T) {
 			if got := agyGateCovers("", "run_command"); got != c.want {
 				t.Errorf("agyGateCovers = %v, want %v", got, c.want)
 			}
-			_, _, err = agyPermissionSettings(agent.Permissions{Deny: agent.ReadOnlyDeny}, true, true, "/w", io.Discard)
+			_, _, err = agyPermissionSettings(agent.Permissions{Deny: agent.ReadOnlyDeny}, true, true, "/w")
 			if (err == nil) != c.want {
 				t.Errorf("read-only deny err = %v, want accepted = %v", err, c.want)
 			}
@@ -666,7 +675,7 @@ func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
 		Deny:  []agent.Rule{{Tool: "Edit", Arg: "d.txt"}, {Tool: "Write", Arg: "w.txt"}},
 		Allow: []agent.Rule{{Tool: "Edit", Arg: "/abs/a.txt"}},
 	}
-	got, _, err := agyPermissionSettings(p, false, true, "/w", io.Discard)
+	got, _, err := agyPermissionSettings(p, false, true, "/w")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,6 +693,62 @@ func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
 	for _, want := range []string{"write_file(/abs/a.txt)", "edit_file(/abs/a.txt)"} {
 		if !slices.Contains(doc.Permissions.Allow, want) {
 			t.Errorf("allow %v lacks %q", doc.Permissions.Allow, want)
+		}
+	}
+}
+
+// A tool step agy refused for want of a grant yields the exact --allow, and that rule renders natively; a deny rule's
+// refusal, a glob and an unmapped tool yield no allow.
+// failedAgyStep is a failed agy tool step_update carrying parameters and an error message.
+func failedAgyStep(t *testing.T, tool, params, msg string) agyEvent {
+	t.Helper()
+	var ev agyEvent
+	line := `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"` + tool +
+		`","tool_info":{"parameters":` + params + `,"error":{"message":"` + msg + `"}}}}`
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		t.Fatal(err)
+	}
+	return ev
+}
+
+func TestAgyRefusedCallRemedy(t *testing.T) {
+	step := func(tool, params, msg string) agyEvent { return failedAgyStep(t, tool, params, msg) }
+	missed := "permission check failed: user denied permission to run command"
+	call, ok := agyRefusedCall(step("run_command", `{"CommandLine":"echo zebra-ran"}`, missed))
+	if !ok {
+		t.Fatal("an allow miss is not recognised as a refused call")
+	}
+	d := &agyDenier{cwd: "/w"}
+	want := "agy: refused Bash(echo zebra-ran): retry with --allow 'Bash(echo zebra-ran)'"
+	if got := d.notes([]agent.Rule{call}); !slices.Equal(got, []string{want}) {
+		t.Fatalf("notes = %q, want %q", got, want)
+	}
+	if got, _, err := agyPermissionSettings(agent.Permissions{Allow: []agent.Rule{call}}, false, false, "/w"); err != nil || !strings.Contains(got, `"command(echo zebra-ran)"`) {
+		t.Errorf("the offered allow renders %q, err %v; want it as a native command rule", got, err)
+	}
+	if _, ok := agyRefusedCall(step("run_command", `{"CommandLine":"x"}`, "Matches user-configured deny rule.")); ok {
+		t.Error("a deny rule's refusal was treated as an allow miss")
+	}
+	if _, ok := agyRefusedCall(step("search_web", `{"Query":"q"}`, missed)); ok {
+		t.Error("a tool with no rule spelling produced a call")
+	}
+	denied := &agyDenier{p: agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "echo zebra-ran"}}}, cwd: "/w"}
+	glob := agent.Rule{Tool: "Bash", Arg: "echo *"}
+	checkNoAllowOffered(t, map[string]struct {
+		d    *agyDenier
+		call agent.Rule
+	}{"deny": {denied, call}, "glob": {d, glob}})
+}
+
+// checkNoAllowOffered expects each denier's note for its call to offer no --allow remedy.
+func checkNoAllowOffered(t *testing.T, cases map[string]struct {
+	d    *agyDenier
+	call agent.Rule
+}) {
+	t.Helper()
+	for name, c := range cases {
+		if got := c.d.notes([]agent.Rule{c.call}); len(got) != 1 || !strings.Contains(got[0], "no allow offered") {
+			t.Errorf("%s: notes = %q, want a note with no allow", name, got)
 		}
 	}
 }

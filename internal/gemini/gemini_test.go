@@ -3,6 +3,8 @@ package gemini
 import (
 	"bufio"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -636,3 +639,52 @@ while IFS= read -r line; do
   printf '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"r","usage":{"input_tokens":%d,"output_tokens":1}}}\n' "$n"
 done
 `
+
+// An explicit --no-tools is refused before launch: agy has no tools-off flag, so no guarantee is possible; the no-flag run is not.
+func TestGeminiNoToolsIsRefused(t *testing.T) {
+	err := agent.CheckCapabilities("gemini", agent.RunOptions{NoTools: true})
+	var re *retry.Error
+	if !errors.As(err, &re) || re.Kind != retry.KindFatal || !strings.Contains(err.Error(), "--no-tools") {
+		t.Fatalf("--no-tools: err = %v, want a fatal refusal naming --no-tools", err)
+	}
+	if err := agent.CheckCapabilities("gemini", agent.RunOptions{}); err != nil {
+		t.Errorf("no flag: %v, want the tools-off default accepted", err)
+	}
+}
+
+// A resumed conversation carries the policy chosen for this launch, not the one it started under.
+func TestAgyResumeReloadsPermissions(t *testing.T) {
+	for _, deny := range []string{"a.txt", "b.txt"} {
+		agyFixture(t, nil)
+		req := agent.RunOptions{Prompt: "hi", Tools: true, WorkDir: "/w", SessionID: "conv-1",
+			Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: deny}}}}
+		p, err := agent.PrepareCLI(context.Background(), "gemini", req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		argv := agyArgv(newAgyRequest(p, req))
+		i := slices.Index(argv, "--settings")
+		if !slices.Contains(argv, "conv-1") || i < 0 || !strings.Contains(argv[i+1], "write_file(/w/"+deny+")") {
+			t.Errorf("deny %s: argv = %q, want --conversation conv-1 and this policy's --settings", deny, argv)
+		}
+	}
+}
+
+// A refused tool step in the stream reaches the stderr note with its exact --allow.
+func TestParseAgyRefusalNamesAllow(t *testing.T) {
+	stream := `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"make lint"},"error":{"message":"user denied permission to run command"}}}}
+{"event":"result","result":{"status":"SUCCESS","response":""}}`
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	_, _ = parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, &agyDenier{cwd: "/w"})
+	os.Stderr = orig
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if !strings.Contains(string(out), "--allow 'Bash(make lint)'") {
+		t.Errorf("stderr = %q, want the exact allow for make lint", out)
+	}
+}

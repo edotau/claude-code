@@ -171,6 +171,9 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
+	if err := agent.CheckCapabilities(name, req); err != nil {
+		return req, name, fmt.Errorf("line %d: %w", l.N, err)
+	}
 	return req, name, nil
 }
 

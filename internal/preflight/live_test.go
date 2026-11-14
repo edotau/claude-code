@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -84,15 +85,38 @@ func TestRunAskKillsProcessGroup(t *testing.T) {
 	}
 }
 
+// The pong child runs on the snapshot the prediction read, not on the parent's environment.
+func TestRunAskChildGetsTheRunSnapshot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake ask is a shell script")
+	}
+	script := filepath.Join(t.TempDir(), "fake")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '{\"status\":\"ok\",\"provider\":\"%s\"}' \"$CLAUDE_PROFILE\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(providers.EnvSessionProfile, "ambient")
+	ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "snapshot"})
+	env, err := defaultRunAsk(ctx, script, "codex", "")
+	if err != nil || env.Provider != "snapshot" {
+		t.Fatalf("child saw provider %q (err %v), want the snapshot's", env.Provider, err)
+	}
+}
+
 // The install step prints one pong row per live agent (80 columns at most) and a fix row for a pin that is not ok.
 func TestInstallStepRows(t *testing.T) {
 	hermeticVault(t)
 	stubListing(t)
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model"})
+	var mu sync.Mutex
 	var asked []string
-	runAsk = func(_ context.Context, _, a, _ string) (wire.Envelope, error) {
+	runAsk = func(ctx context.Context, _, a, _ string) (wire.Envelope, error) {
+		if _, ok := proc.ValuesFromContext(ctx); !ok {
+			t.Errorf("%s pong ran without the entry's run snapshot", a)
+		}
+		mu.Lock()
 		asked = append(asked, a)
+		mu.Unlock()
 		if a == "opencode" {
 			return wire.Envelope{Status: "error", Error: &wire.EnvelopeError{Kind: "auth"}}, nil
 		}

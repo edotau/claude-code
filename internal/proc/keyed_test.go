@@ -1,8 +1,10 @@
 package proc
 
 import (
+	"context"
 	"maps"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -89,4 +91,49 @@ func TestValuesCopies(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestValueSnapshotContract(t *testing.T) {
+	t.Setenv("PROC_KEYED_X", "ambient")
+	bg := context.Background()
+	if got := Value(bg, "PROC_KEYED_X"); got != "ambient" {
+		t.Errorf("no snapshot: Value = %q, want the process environment", got)
+	}
+	in := Values{"PROC_KEYED_X": "run", "PROC_KEYED_EMPTY": ""}
+	ctx := WithValues(bg, in)
+	if got := Value(ctx, "PROC_KEYED_X"); got != "run" {
+		t.Errorf("Value = %q, want the snapshot value over the environment", got)
+	}
+	t.Setenv("PROC_KEYED_EMPTY", "ambient")
+	t.Setenv("PROC_KEYED_MISSING", "ambient")
+	for _, k := range []string{"PROC_KEYED_EMPTY", "PROC_KEYED_MISSING"} {
+		if got := Value(ctx, k); got != "" {
+			t.Errorf("Value(%s) = %q, want the snapshot to suppress the environment", k, got)
+		}
+	}
+	in["PROC_KEYED_X"] = "mutated"
+	got, ok := ValuesFromContext(ctx)
+	if !ok || got["PROC_KEYED_X"] != "run" {
+		t.Fatalf("mutating the input changed the snapshot: %v, %v", got, ok)
+	}
+	got["PROC_KEYED_X"] = "mutated"
+	if v := Value(ctx, "PROC_KEYED_X"); v != "run" {
+		t.Errorf("mutating the returned copy changed the snapshot: %q", v)
+	}
+}
+
+func TestValueConcurrentContexts(t *testing.T) {
+	a := WithValues(context.Background(), Values{"K": "a"})
+	b := WithValues(context.Background(), Values{"K": "b"})
+	var wg sync.WaitGroup
+	for range 50 {
+		for ctx, want := range map[context.Context]string{a: "a", b: "b"} {
+			wg.Go(func() {
+				if got := Value(ctx, "K"); got != want {
+					t.Errorf("Value = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+	wg.Wait()
 }

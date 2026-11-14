@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
 
 // DispatchOptions are `agents dispatch`'s run flags: the role, --output-schema, --jobs, --format and --background.
@@ -184,6 +185,9 @@ func dispatchDetach(ctx context.Context, client *agent.Client, legs []roles.Leg,
 
 // spawnLeg saves and detaches one leg; a failed spawn finishes its record so it never shows as running.
 func spawnLeg(ctx context.Context, client *agent.Client, leg roles.Leg) (agent.Record, error) {
+	if err := agent.CheckCapabilities(leg.Opts.Agent, leg.Opts); err != nil {
+		return agent.Record{}, err
+	}
 	leg.Opts.Background = true // the saved record must not carry this short-lived process's pid
 	prepared, err := client.Prepare(ctx, leg.Opts, nil)
 	if err != nil {
@@ -225,6 +229,12 @@ func printLegID(label string, rec agent.Record, format string) error {
 // legStream is Client.Stream for a dispatch leg; with an auto-picked workspace a 429 moves to the next one, as in ask.
 func legStream(cl *agent.Client, auto, fallback string) roles.Runner {
 	return func(ctx context.Context, o agent.RunOptions) <-chan wire.Event {
+		if err := agent.CheckCapabilities(o.Agent, o); err != nil {
+			ch := make(chan wire.Event, 1)
+			ch <- wire.ResultEvent(wire.FailureEnvelope(o.Agent, err))
+			close(ch)
+			return ch
+		}
 		if auto == "" {
 			return cl.Stream(ctx, o)
 		}
@@ -296,3 +306,12 @@ func sendLegEvent(ctx context.Context, cancel context.CancelCauseFunc, ch chan<-
 type sinkFunc func(wire.Event) error
 
 func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
+
+// RouteRefresh re-fetches a stale account for a pick; a var so tests stay offline.
+var RouteRefresh = usagepkg.RefreshAccount
+
+// newClient builds the dispatch client; RouteRefresh is the offline-able account refresh.
+func newClient() *agent.Client {
+	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
+		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+}

@@ -107,11 +107,12 @@ func TestClaudeLiveStallsWhenSilent(t *testing.T) {
 	old := claudeIdleLimit
 	claudeIdleLimit = 300 * time.Millisecond
 	t.Cleanup(func() { claudeIdleLimit = old })
+	// the stub stays silent and alive until the test closes its stdin, not for a fixed time
 	bin := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread -r prompt\nexec sleep 30\n"), 0o755); err != nil {
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread -r prompt\nread -r hold\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*claudeIdleLimit) // scales with the idle window
 	defer cancel()
 	backend := claudeAgent.NewLive()
 	cmd, _, _, err := backend.Build(ctx, agent.RunOptions{Tools: true, Launcher: fakeLauncher{bin}})
@@ -129,7 +130,7 @@ func TestClaudeLiveStallsWhenSilent(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { cancel(); _ = cmd.Wait() }()
+	defer func() { _ = stdin.Close(); cancel(); _ = cmd.Wait() }()
 	if err := backend.WriteTurn(stdin, "hello"); err != nil {
 		t.Fatal(err)
 	}

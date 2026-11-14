@@ -52,6 +52,7 @@ func agentsSpec() *helptext.Node {
 		"tail":   {Flags: []helptext.Flag{boolFlag("f"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report")}},
 	}}
 }
 
@@ -101,6 +102,7 @@ var agentsPage = helptext.Page{
 		{"tail", "follow a dispatch's log or events: tail <id> [-f]"},
 		{"cancel", "interrupt a running dispatch: cancel <id>"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
+		{"brief", "render a leaf brief: the task plus the contract footer"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
@@ -138,6 +140,9 @@ var agentsSubPages = map[string][3]string{
 	"cancel": {"cancel <id> [flags]", "Interrupt a running background dispatch, whichever agent runs it."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
 		"Exit 0 all done, 1 any not done, 2 usage."},
+	"brief": {"brief --task <file|-> [--own <path>]... [flags]", "Print a leaf brief: an Owned: line, the mode, the task, the leaf rules and the " +
+		"reporting contract. Pipe it to agents ask -; agents diff --verify <id> reads the Owned: line back.",
+		"Exit 0, 2 usage (no --task, or an implementation brief with no --own)."},
 }
 
 // agentsFlags makes the `agents <verb>` FlagSet whose -h renders its page.
@@ -174,6 +179,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"tail":   func(a []string) int { return cmdAgentsJob("tail", a) },
 	"cancel": func(a []string) int { return cmdAgentsJob("cancel", a) },
 	"wait":   cmdAgentsWait,
+	"brief":  cmdAgentsBrief,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.
@@ -498,6 +504,42 @@ func cmdAgentsWait(args []string) int {
 		if r.State != agent.WaitDone {
 			return 1
 		}
+	}
+	return 0
+}
+
+// cmdAgentsBrief is `agents brief`: the rendered brief on stdout; an implementation brief needs --own.
+func cmdAgentsBrief(args []string) int {
+	fs := agentsFlags("brief")
+	taskFile := fs.String("task", "", "the authored task text file; - reads stdin")
+	var owned []string
+	fs.Func("own", "a file or directory the leaf may edit; repeat per path", func(v string) error {
+		owned = append(owned, v)
+		return nil
+	})
+	readOnly := fs.Bool("read-only", false, "the leaf edits nothing (no --own needed)")
+	report := fs.String("report", "", "where the leaf writes its full report")
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *taskFile == "" || len(pos) > 0 || (!*readOnly && len(owned) == 0) {
+		fs.Usage()
+		return 2
+	}
+	task, err := hookagents.ReadBrief(*taskFile)
+	if err != nil {
+		return helptext.Fail("agents brief: %v", err)
+	}
+	if strings.TrimSpace(task) == "" {
+		return helptext.Fail("agents brief: --task %q is empty", *taskFile)
+	}
+	out, err := agent.RenderBrief(agent.BriefInput{Task: task, Owned: owned, ReadOnly: *readOnly, Report: *report})
+	if err != nil {
+		return helptext.Fail("agents brief: %v", err)
+	}
+	if _, err := fmt.Print(out); err != nil {
+		return helptext.Fail("agents brief: write output: %v", err)
 	}
 	return 0
 }

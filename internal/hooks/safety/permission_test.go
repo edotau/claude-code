@@ -1,6 +1,8 @@
 package safety
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -227,6 +229,92 @@ func TestPermissionGatePlanAllowsAbsoluteGlobUnderCWD(t *testing.T) {
 	} {
 		if got := edit(path) == core.Block; got != block {
 			t.Errorf("Edit(%s) blocked = %v, want %v", path, got, block)
+		}
+	}
+}
+
+type gateRecoveryCase struct{ command, deny, tool, arg string }
+
+func TestPermissionGateContractRecovery(t *testing.T) {
+	for _, tc := range []gateRecoveryCase{
+		{command: "wc -l report.txt", tool: "Bash", arg: "wc -l report.txt"},
+		{command: "wc -l *.txt", tool: "Bash", arg: "wc -l *.txt"},
+		{command: "wc -l report.txt", deny: "Bash(wc *)", tool: "Bash", arg: "wc -l report.txt"},
+		{deny: "Write(secret.txt)", tool: "Edit", arg: "secret.txt"},
+	} {
+		checkGateRecovery(t, tc)
+	}
+}
+
+func mustParseRule(t *testing.T, spec string) agent.Rule {
+	t.Helper()
+	r, err := agent.ParseRule(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// setGatePermissions sets p as the dispatch's permission env the gate reads.
+func setGatePermissions(t *testing.T, p agent.Permissions) {
+	t.Helper()
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(agent.DispatchPermissionsEnv, string(data))
+}
+
+// checkGateRecovery expects the gate to deny tc with the shared remedy (or the deciding deny rule) and each vendor to relay it.
+func checkGateRecovery(t *testing.T, tc gateRecoveryCase) {
+	t.Helper()
+	p := agent.Permissions{Mode: "plan", Allow: []agent.Rule{{Tool: "Bash", Arg: "ls"}}}
+	if tc.deny != "" {
+		p.Deny = []agent.Rule{mustParseRule(t, tc.deny)}
+	}
+	payload := fmt.Sprintf(`{"tool_name":%q,"tool_input":{"command":%q,"file_path":%q}}`, tc.tool, tc.command, tc.arg)
+	setGatePermissions(t, p)
+	r := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+	if r.Decision != core.Block {
+		t.Fatalf("expected denial: %+v", tc)
+	}
+	d := p.Explain(tc.tool, tc.arg)
+	wantAllow := tc.deny == "" && d.Replay != ""
+	if strings.Contains(r.Reason, "--allow") != wantAllow {
+		t.Fatalf("invalid remedy: %s", r.Reason)
+	}
+	if wantAllow {
+		if !strings.Contains(r.Reason, d.Remedy) {
+			t.Fatalf("missing shared remedy: %s", r.Reason)
+		}
+		p.Allow = append(p.Allow, agent.Rule{Tool: tc.tool, Arg: tc.arg})
+		setGatePermissions(t, p)
+		if replay := PermissionGate(core.ParseInput(strings.NewReader(payload))); replay.Decision == core.Block {
+			t.Fatalf("replay denied: %s", replay.Reason)
+		}
+	}
+	if tc.deny != "" && !strings.Contains(r.Reason, "source: permissions.deny rule: "+tc.deny) {
+		t.Fatalf("missing deciding rule: %s", r.Reason)
+	}
+	checkVendorsRelayReason(t, r)
+}
+
+// checkVendorsRelayReason expects every vendor's PreToolUse emission to carry r's reason.
+func checkVendorsRelayReason(t *testing.T, r core.Result) {
+	t.Helper()
+	for _, vendor := range []string{core.AgentClaude, core.AgentCodex, core.AgentCopilot, core.AgentGemini} {
+		var out, stderr bytes.Buffer
+		core.Emit(vendor, "PreToolUse", r, &out, &stderr)
+		var doc any
+		text := stderr.String()
+		if out.Len() > 0 {
+			if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+				t.Fatal(err)
+			}
+			text += fmt.Sprint(doc)
+		}
+		if !strings.Contains(text, r.Reason) {
+			t.Fatalf("%s lost reason: %s", vendor, text)
 		}
 	}
 }

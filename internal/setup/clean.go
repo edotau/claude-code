@@ -92,6 +92,11 @@ func stateTargets() []target {
 			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
 		},
 		{
+			name: "codex-homes", doc: "empty per-dispatch CODEX_HOME dirs (home-*); homes holding a sessions link or auth stay",
+			globs:   func() []string { return []string{s("codex", "home-*")} },
+			ageless: true, keep: keepCodexHome,
+		},
+		{
 			name: "memory-state", doc: "aged memory session state, worker logs, orphan access logs",
 			globs: func() []string {
 				return []string{
@@ -753,4 +758,11 @@ func readJSON(path string) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// keepCodexHome protects a codex home that has contents (resume anchor, unsaved auth) or is under a day old (still being set up).
+func keepCodexHome(p string) bool {
+	entries, err := os.ReadDir(p)
+	fi, serr := os.Stat(p)
+	return err != nil || serr != nil || len(entries) > 0 || time.Since(fi.ModTime()) < 24*time.Hour
 }

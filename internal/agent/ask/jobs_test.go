@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
@@ -101,11 +103,11 @@ func TestLiveRequestCarriesReadOnlyAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := askFlags{readOnly: true, tools: true}
+	f := askFlags{readOnly: true, tools: true, noTools: true, fleet: true, enableMemory: true}
 	s := (&askRun{f: &f}).askState()
 	got := liveRequest(s, perms, "claude")
-	if !got.ReadOnly || !got.Tools {
-		t.Errorf("ReadOnly=%v Tools=%v, want both true", got.ReadOnly, got.Tools)
+	if !got.ReadOnly || !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
+		t.Errorf("live request lost a flag: %+v", got)
 	}
 	if !reflect.DeepEqual(got.Permissions, perms) {
 		t.Errorf("Permissions = %+v, want %+v", got.Permissions, perms)
@@ -151,5 +153,78 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	recs := agent.RecentRecords(1)
 	if len(recs) != 1 || recs[0].Request.Identity != "sp" || !recs[0].Live {
 		t.Fatalf("records = %+v, want one live record with Identity sp", recs)
+	}
+}
+
+// Unsupported requests refuse at every lifecycle boundary before a record or child exists.
+func TestPermissionLifecycleRefusesUnsupported(t *testing.T) {
+	vaulttest.Use(t)
+	cliEnv(t)
+	for _, mode := range []string{"foreground", "background", "job", "batch", "live", "dispatch", "detached"} {
+		t.Run(mode, func(t *testing.T) {
+			checkPermissionBoundary(t, mode)
+			if recs := agent.RecentRecords(10); len(recs) != 0 {
+				t.Fatalf("%s saved records before refusal: %+v", mode, recs)
+			}
+		})
+	}
+}
+
+func checkPermissionBoundary(t *testing.T, mode string) {
+	t.Helper()
+	req := agent.RunOptions{Agent: "codex", Prompt: "proof", NoTools: true}
+	switch mode {
+	case "batch":
+		checkBatchBoundary(t, req)
+	case "dispatch":
+		checkDispatchBoundary(t, req)
+	case "detached":
+		checkDetachedBoundary(t, req)
+	default:
+		checkCLIBoundary(t, mode, req)
+	}
+}
+
+func checkBatchBoundary(t *testing.T, req agent.RunOptions) {
+	t.Helper()
+	_, _, err := lineRequest(parsedLine{N: 1, Task: batchLine{Prompt: "proof"}}, "codex", req)
+	if err == nil || !strings.Contains(err.Error(), "--no-tools") {
+		t.Fatalf("batch refusal = %v", err)
+	}
+}
+
+func checkDispatchBoundary(t *testing.T, req agent.RunOptions) {
+	t.Helper()
+	for ev := range legStream(newClient(), "", "none")(context.Background(), req) {
+		if ev.Envelope == nil || ev.Envelope.Error == nil || !strings.Contains(ev.Envelope.Error.Message, "--no-tools") {
+			t.Fatalf("dispatch event = %+v", ev)
+		}
+	}
+}
+
+func checkDetachedBoundary(t *testing.T, req agent.RunOptions) {
+	t.Helper()
+	if _, err := spawnLeg(context.Background(), newClient(), roles.Leg{Opts: req}); err == nil || !strings.Contains(err.Error(), "--no-tools") {
+		t.Fatalf("detached refusal = %v", err)
+	}
+}
+
+// checkCLIBoundary runs the foreground, background, job or live entry and expects exit 2 naming --no-tools.
+func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
+	t.Helper()
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		if mode == "live" {
+			f := askFlags{noTools: true}
+			return startLive((&askRun{f: &f}).askState(), agent.Permissions{}, "codex", "", "json")
+		}
+		fs, _ := askFlagSet()
+		var job *agent.Record
+		if mode == "job" {
+			job = &agent.Record{Request: req}
+		}
+		return askPrepareAndRun(context.Background(), fs, req, job, agentconfig.Overlay{}, nil, nil, "", "json", "codex", mode == "background", false, nil, io.Discard)
+	})
+	if code != 2 || !strings.Contains(stderr, "--no-tools") {
+		t.Fatalf("%s refusal = %d, %s", mode, code, stderr)
 	}
 }

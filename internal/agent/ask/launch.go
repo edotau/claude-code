@@ -9,10 +9,13 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Launch launches the named agent CLI and returns the exit code.
@@ -143,4 +146,13 @@ func Setup(name, format string) int {
 		return 1
 	}
 	return 0
+}
+
+// The terminal and sign-in UI the agent package calls but does not import.
+func init() {
+	agent.StdinIsTerminal = tui.StdinIsTerminal
+	agent.LoginRow = databricks.LoginRow
+	agent.PromptSecret = func(name string) (string, error) {
+		return tui.Secret("Paste the value for "+name+" (input hidden, Enter when done): ", vault.Preview)
+	}
 }

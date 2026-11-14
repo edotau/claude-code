@@ -485,3 +485,40 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestOpencodeChildPermissionRefusals(t *testing.T) {
+	for name, req := range map[string]agent.RunOptions{
+		"--no-tools":   {NoTools: true},
+		"--safe-mode":  {Tools: true, SafeMode: true},
+		"NotebookEdit": {Tools: true, Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "NotebookEdit"}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/never-launch", nil, nil, "probe", req)
+			requireFatal(t, err, name)
+			if cmd != nil || strings.Contains(err.Error(), "--allow") {
+				t.Fatalf("refusal must precede child creation without allow remedy: cmd=%v err=%v", cmd, err)
+			}
+		})
+	}
+}
+
+func TestOpencodeChildPermissionReadOnly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	req := agent.RunOptions{Tools: true, ReadOnly: true, WorkDir: t.TempDir()}
+	cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/bin/echo", nil, []string{"run"}, "probe", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p agent.Permissions
+	for _, kv := range cmd.Env {
+		if raw, ok := strings.CutPrefix(kv, agent.DispatchPermissionsEnv+"="); ok {
+			if err := json.Unmarshal([]byte(raw), &p); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if p.Decide("Bash", "cat README.md") != agent.Allow || p.Decide("Bash", "rm README.md") != agent.Deny ||
+		p.Decide("Write", "README.md") != agent.Deny {
+		t.Fatalf("child plugin lacks effective read-only policy: %+v", p)
+	}
+}

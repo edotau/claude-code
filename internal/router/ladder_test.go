@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -215,4 +217,32 @@ func TestArmAdmitDropsOffRouteAccount(t *testing.T) {
 	if !slices.Equal(res.Skipped, want) {
 		t.Errorf("skips = %+v, want %+v", res.Skipped, want)
 	}
+}
+
+func TestConfinedContextConcurrentRuns(t *testing.T) {
+	var keys []string
+	for _, k := range providers.ProviderKeys() {
+		if k != RouteDatabricks {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) < 3 {
+		t.Fatalf("need 3 confinable providers, have %v", keys)
+	}
+	var ctxs [2]context.Context
+	for i := range ctxs {
+		ctxs[i] = proc.WithValues(context.Background(), proc.Values{overlayEnv: `{"provider":"` + keys[i] + `"}`})
+	}
+	t.Setenv(overlayEnv, `{"provider":"`+keys[2]+`"}`)
+	var wg sync.WaitGroup
+	for range 50 {
+		for i := range ctxs {
+			wg.Go(func() {
+				if p, _ := ConfinedContext(ctxs[i]); p != keys[i] {
+					t.Errorf("run %d confined to %q, want %q", i, p, keys[i])
+				}
+			})
+		}
+	}
+	wg.Wait()
 }

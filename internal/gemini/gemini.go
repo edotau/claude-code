@@ -324,6 +324,7 @@ type agyRequest struct {
 	DebugFile                     string   // --log-file
 	OutputSchema                  string   // --json-schema
 	SettingsArgv                  []string // RenderSettings' --effort and --settings fragment, inserted before -p=
+	Permissions                   agent.Permissions
 	Env, KeepEnv                  []string
 }
 
@@ -393,7 +394,11 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 		return wire.Result{}, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
-	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parseAgyStream, agent.StreamOpts{})
+	dn := &agyDenier{p: r.Permissions, cwd: r.Cwd}
+	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
+		return parseAgyEvents(br, sink, false, wire.PickLog(logs), dn)
+	}
+	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{})
 }
 
 // agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.
@@ -407,6 +412,13 @@ type agyEvent struct {
 		StepType  string `json:"step_type"`
 		State     string `json:"state"`
 		TextDelta string `json:"text_delta"`
+		ToolName  string `json:"tool_name"`
+		ToolInfo  struct {
+			Parameters json.RawMessage `json:"parameters"`
+			Error      struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"tool_info"`
 	} `json:"step_update"`
 	Result struct {
 		ConversationID string          `json:"conversation_id"`
@@ -430,12 +442,12 @@ type agyEvent struct {
 
 // parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
 func parseAgyStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
-	return parseAgyEvents(br, sink, false, wire.PickLog(logs))
+	return parseAgyEvents(br, sink, false, wire.PickLog(logs), nil)
 }
 
 // parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
-func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog) (res wire.Result, _ error) {
-	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
+func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog, dn *agyDenier) (res wire.Result, _ error) {
+	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res, dn: dn}
 	onBad := func(err error) { t.flush(); _ = wire.EmitError(lg, sink, err.Error()) } // the decode error aborts
 	tr, err := wire.DecodeEvents(br, lg, "decode agy stream-json", true, onBad, func(ev agyEvent, _ *wire.TransportTracker) (bool, error) {
 		return t.handle(ev)
@@ -462,6 +474,8 @@ type agyTurn struct {
 	lg        wire.StreamLog
 	once      bool
 	res       *wire.Result
+	dn        *agyDenier // nil: refused calls are not explained
+	refused   []agent.Rule
 	ans       wire.Answer
 	pending   strings.Builder
 	response  string
@@ -491,6 +505,9 @@ func (t *agyTurn) handle(ev agyEvent) (done bool, _ error) {
 
 func (t *agyTurn) step(ev agyEvent) error {
 	noteAgyStep(ev, &t.lastStep, &t.openStep, t.lg)
+	if call, ok := agyRefusedCall(ev); ok {
+		t.refused = append(t.refused, call)
+	}
 	if err := emitAgyToolStart(ev, &t.toolOpen, t.sink); err != nil {
 		return err
 	}
@@ -505,7 +522,9 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 	t.sawResult = true
 	t.response = ev.Result.Response
 	t.flush()
-	if err := applyAgyResult(t.res, ev); err != nil {
+	err := applyAgyResult(t.res, ev)
+	t.dn.report(t.refused)
+	if err != nil {
 		_ = wire.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
 		if t.once {
 			err = wire.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
@@ -642,13 +661,14 @@ func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	return agyRequest{
 		Prompt: p.Prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
-		SettingsArgv: p.Argv,
+		SettingsArgv: p.Argv, Permissions: req.Permissions,
 	}
 }
 
 // agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
 type agyLive struct {
 	tools   bool
+	dn      *agyDenier
 	intro   string // emulated system prompts, owed to the first turn only
 	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
 	prev    wire.Usage
@@ -666,7 +686,7 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
 	}
-	b.tools, b.resumed = areq.Tools, req.SessionID != ""
+	b.tools, b.resumed, b.dn = areq.Tools, req.SessionID != "", &agyDenier{p: areq.Permissions, cwd: areq.Cwd}
 	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
 		b.intro += agent.Preamble(req.SystemPrompt)
 	}
@@ -689,7 +709,7 @@ func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
 
 // Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
 func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
-	res, err := parseAgyEvents(dec, sink, true, lg)
+	res, err := parseAgyEvents(dec, sink, true, lg, b.dn)
 	if err != nil && !agent.IsResultError(err) {
 		return res, err
 	}

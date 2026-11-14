@@ -122,7 +122,25 @@ func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result 
 		"\nPass an explicit path outside the denied scope, or report it."}
 }
 
+func explainDeniedCall(p agent.Permissions, call agent.Rule) agent.Denial {
+	d := p.Explain(call.Tool, call.Arg)
+	alias := ""
+	switch call.Tool {
+	case "Edit":
+		alias = "Write"
+	case "Grep", "Glob":
+		alias = "Read"
+	}
+	if alias != "" {
+		if other := p.Explain(alias, call.Arg); other.Source == "permissions.deny" {
+			d = other
+		}
+	}
+	return d
+}
+
 func denyResult(p agent.Permissions, call agent.Rule) core.Result {
+	d := explainDeniedCall(p, call)
 	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
 	next := "\nReport it instead of retrying another way."
 	switch {
@@ -131,8 +149,16 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
 		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
 		next = "\nOnly the allow list runs here: continue with an allowed call; do not retry this one another way."
-		if decideCall(agent.Permissions{Deny: p.Deny}, call.Tool, call.Arg) != agent.Deny { // an --allow never beats a deny
-			next += "\nOnly the dispatcher can permit it: re-dispatch with --allow '" + call.String() + "'."
+		if d.Replay != "" {
+			next += "\nOnly the dispatcher can permit it: re-dispatch with " + d.Remedy + "."
+		} else if d.Source != "permissions.deny" {
+			next += "\n" + d.Remedy + "."
+		}
+	}
+	if d.Source != "" {
+		rules += "\n  layer: " + d.Layer + " source: " + d.Source
+		if d.Rule.Tool != "" {
+			rules += " rule: " + d.Rule.String()
 		}
 	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +

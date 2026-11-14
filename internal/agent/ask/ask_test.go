@@ -1,10 +1,7 @@
 package ask
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"flag"
 	"io"
 	"os"
@@ -165,6 +162,35 @@ func TestCmdAskRetryFlags(t *testing.T) {
 				t.Errorf("stderr = %q, want no dispatch line under --format json", stderr)
 			}
 			assertAskRetryRequest(t, dir, tt, records[0].Request)
+		})
+	}
+}
+
+// A resumed session keeps the model it ran on; a typed --model wins, an unknown session routes as before.
+func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
+	for _, tt := range []struct{ name, session, model, want string }{
+		{"resume keeps the recorded model", "sess-1", "", "databricks-gpt-6-1-sol"},
+		{"typed model wins", "sess-1", "opus", "opus"},
+		{"unknown session routes as before", "sess-2", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			t.Setenv("HOME", dir)
+			t.Setenv("PATH", dir)
+			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now().Add(-time.Hour))
+			rec.Finish(wire.Result{Model: "databricks-gpt-6-1-sol", Invoked: "qa:databricks-gpt-6-1-sol", SessionID: "sess-1"}, nil, time.Second)
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--agent", "claude", "--fallback", "none", "--format", "json", "--session", tt.session}
+			if tt.model != "" {
+				args = append(args, "--model", tt.model)
+			}
+			hosttest.CaptureOutput(t, func() int { return Cmd(append(args, "again")) })
+			if got := agent.RecentRecords(1)[0].Request.Model; got != tt.want {
+				t.Errorf("request model = %q, want %q", got, tt.want)
+			}
 		})
 	}
 }
@@ -1246,98 +1272,6 @@ func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
 
 const acmeProvider = `"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}`
 
-// profileFixture isolates the vault and seeds provider acme (no opencodeID).
-func profileFixture(t *testing.T) {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	doc := `{` + acmeProvider + `}`
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
-		t.Fatalf("seed overlay: %v", err)
-	}
-}
-
-func TestClientPrepareHubNativeFallback(t *testing.T) {
-	profileFixture(t)
-	t.Setenv("HOME", t.TempDir())
-	pathstest.FakeVendor(t, "opencode", `printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
-	client := newClient()
-	for _, profile := range []string{"acme", "chatgpt"} {
-		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
-		if err != nil {
-			t.Fatalf("Prepare(%s) = %v", profile, err)
-		}
-		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
-		if len(res.Hops) != 1 {
-			t.Fatalf("%s: want one dispatch, got %+v, err %v", profile, res.Hops, err)
-		}
-		if profile == "acme" && (err != nil || res.Answer != "ok") {
-			t.Fatalf("native profile did not run: %+v, %v", res, err)
-		}
-		if profile == "chatgpt" && (err == nil || !strings.Contains(err.Error(), "opencode has no openai login")) {
-			t.Fatalf("hub profile did not check its login: %+v, %v", res, err)
-		}
-	}
-}
-
-// A cancelled batch prepares nothing and never refreshes quota.
-func TestClientPrepareHonorsCancellation(t *testing.T) {
-	refreshes := 0
-	prev := RouteRefresh
-	RouteRefresh = func(context.Context, string) bool { refreshes++; return false }
-	t.Cleanup(func() { RouteRefresh = prev })
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := newClient().Prepare(ctx, agent.RunOptions{Agent: "opencode", Prompt: "p", Fallback: router.FallbackAgents}, nil); !errors.Is(err, context.Canceled) {
-		t.Errorf("err = %v, want context.Canceled", err)
-	}
-	if refreshes != 0 {
-		t.Errorf("%d quota refreshes ran under a cancelled ctx", refreshes)
-	}
-}
-
-// An explicit --profile with no --model runs the classifier's alias, as the pinned route does.
-func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
-	profileFixture(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	client := newClient()
-	for _, profile := range []string{"chatgpt", "acme"} {
-		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		res, _ := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
-		if len(res.Hops) != 1 {
-			t.Fatalf("%s: hops = %+v, want one unavailable dispatch", profile, res.Hops)
-		}
-		if want := (router.RuleClassifier{}).Alias("pong"); res.Hops[0].Model != want {
-			t.Errorf("%s: dispatch model = %q, want alias %q", profile, res.Hops[0].Model, want)
-		}
-	}
-}
-
-// An explicit --profile is one dispatch for every agent even with --fallback all: nothing can silently take over.
-func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
-	profileFixture(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	client := newClient()
-	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
-		p, err := client.Prepare(context.Background(), agent.RunOptions{
-			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
-		if err != nil {
-			t.Fatalf("%s: Prepare = %v", name, err)
-		}
-		res, err := client.Exec(context.Background(), p, nil, agent.RunRecordedOpts{})
-		if err == nil || len(res.Hops) != 1 {
-			t.Errorf("%s: %d hops, err %v; want one failed dispatch without fallback", name, len(res.Hops), err)
-		}
-	}
-}
-
 // writeFixtureFile creates path (with parents) holding content.
 func writeFixtureFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -1362,29 +1296,6 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 	for _, format := range []string{helptext.Text, helptext.JSON} {
 		if err := reportBackgroundStart(format, agent.Record{ID: "j1"}); err == nil {
 			t.Errorf("%s: write to a closed pipe returned nil", format)
-		}
-	}
-}
-
-func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
-	o := memoryRunOptions(context.Background(), "p", "/w")
-	if o.Fallback != router.FallbackNone || o.Agent != "claude" || !o.Tools || !o.Gate || o.WorkDir != "/w" {
-		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
-	}
-}
-
-// The memory job's `cd` rule reaches its bank directories (and below) and nothing beside or above them.
-func TestMemoryRunOptionsCdCoversOnlyBankDirs(t *testing.T) {
-	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
-	store := filepath.Join(paths.ConfigDir(), "memory")
-	home := filepath.Join(store, "home")
-	for cmd, want := range map[string]agent.Decision{
-		"cd " + home: agent.Allow, "cd " + home + "/sub": agent.Allow,
-		"cd " + store: agent.Deny, "cd " + store + "/other-bank": agent.Deny, "cd " + home + "-evil": agent.Deny,
-		"cd " + home + "/../other-bank": agent.Deny, "cd /": agent.Deny, "cd": agent.Deny,
-	} {
-		if got := p.Decide("Bash", cmd); got != want {
-			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
 		}
 	}
 }

@@ -317,7 +317,7 @@ func sessionProvider() (name string, routed bool) {
 			return name, true
 		}
 	}
-	if p := providers.SessionLead(nil, true); p != "" {
+	if p := providers.SessionLeadContext(context.Background(), nil, true); p != "" {
 		return p, false
 	}
 	if reg := registry(); reg != nil {

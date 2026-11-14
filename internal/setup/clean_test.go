@@ -979,3 +979,40 @@ func writeOldCleanFixture(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// seedCodexHomes makes an aged empty home, an aged home holding a sessions file and a fresh empty home.
+func seedCodexHomes(t *testing.T) (oldEmpty, oldFull, freshEmpty string) {
+	t.Helper()
+	old := time.Now().Add(-25 * time.Hour)
+	oldEmpty, oldFull, freshEmpty = statePath("codex", "home-1"), statePath("codex", "home-2"), statePath("codex", "home-3")
+	write(t, filepath.Join(oldFull, "sessions"), "")
+	for _, d := range []string{oldEmpty, freshEmpty} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range []string{oldEmpty, oldFull} {
+		if err := os.Chtimes(d, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return oldEmpty, oldFull, freshEmpty
+}
+
+func TestCleanCodexHomesSweepsOnlyOldEmpty(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	oldEmpty, oldFull, freshEmpty := seedCodexHomes(t)
+	tg, err := selectTargets(targets(), "codex-homes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, _, failed := pruneAgedTo(io.Discard, tg[0].globs(), time.Now().Add(time.Hour), true, tg[0].keep)
+	if failed != 0 || len(hits) != 1 || hits[0] != oldEmpty {
+		t.Fatalf("swept %v, failures %d; want only %s", hits, failed, oldEmpty)
+	}
+	for _, d := range []string{oldFull, freshEmpty} {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("kept home %s removed: %v", d, err)
+		}
+	}
+}

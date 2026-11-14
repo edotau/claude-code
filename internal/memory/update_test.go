@@ -794,3 +794,18 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 		})
 	}
 }
+
+// BankScope still answers from JobScope: a dream marker in the run context selects the store scope, otherwise the bank.
+func TestBankScopeFollowsRunMarker(t *testing.T) {
+	isolatedConfig(t)
+	work := t.TempDir()
+	write, bash := BankScope(context.Background(), work)
+	if !slices.Equal(write, JobScope(JobUpdate, work).Write) || bash != nil {
+		t.Errorf("update BankScope = %v, %v", write, bash)
+	}
+	write, bash = BankScope(withChildEnv(context.Background(), dreamChildEnv+"=1"), work)
+	want := JobScope(JobDream, work)
+	if !slices.Equal(write, want.Write) || !slices.Equal(bash, want.Bash) {
+		t.Errorf("dream BankScope = %v, %v", write, bash)
+	}
+}

@@ -294,3 +294,74 @@ func TestGatedLaunchRefusedWithoutItsParts(t *testing.T) {
 		}
 	}
 }
+
+func TestGatePermissionCapabilityRefusal(t *testing.T) {
+	hermetic(t, dbxProfiles)
+	for _, req := range []agent.RunOptions{
+		{Tools: true, Provider: "qa", Prompt: "Run saved Workflow code-workers"},
+		{Tools: true, Provider: "qa", Prompt: `Run Workflow({scriptPath: "~/.claude/workflows/x.js"}) and print it`},
+		{Tools: true, Provider: "qa", Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "Workflow"}}}},
+		{Tools: true, Provider: "qa", Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "WebFetch"}}}},
+		{NoTools: true, Gate: true},
+	} {
+		ctx, gated := gateOffAnthropic(context.Background(), req)
+		_, _, _, err := claudeCmd(ctx, gated, nil, "")
+		if err == nil || !strings.Contains(err.Error(), "capability") {
+			t.Fatalf("request %+v: want capability refusal before launcher, got %v", req, err)
+		}
+		if strings.Contains(err.Error(), "Workflow") && !strings.Contains(err.Error(), "native Agent") {
+			t.Fatalf("Workflow refusal lacks native Agent remedy: %v", err)
+		}
+	}
+}
+
+func TestGatePermissionExactReplay(t *testing.T) {
+	hermetic(t, dbxProfiles)
+	wd := t.TempDir()
+	for _, profile := range []string{"ultra", "qa"} {
+		t.Run(profile, func(t *testing.T) {
+			req, _, env := launchOf(t, agent.RunOptions{Tools: true, Provider: profile, WorkDir: wd})
+			if !req.Gate {
+				return // Anthropic retains its native judge; the launch test above asserts its flags.
+			}
+			policy := envPolicy(t, env)
+			for _, call := range []agent.Rule{{Tool: "Read", Arg: wd + "/a.go"},
+				{Tool: "Edit", Arg: wd + "/a.go"}, {Tool: "Bash", Arg: "go test ./internal/claude"}} {
+				if policy.Decide(call.Tool, call.Arg) != agent.Allow {
+					t.Fatalf("lost assigned call %s", call.String())
+				}
+			}
+			denial := policy.Explain("Bash", "make lint")
+			if denial.Remedy != "--allow 'Bash(make lint)'" {
+				t.Fatalf("inexact remedy: %+v", denial)
+			}
+			replayed, _, replayEnv := launchOf(t, agent.RunOptions{Tools: true, Provider: profile, WorkDir: wd,
+				Permissions: agent.Permissions{Allow: []agent.Rule{denial.Call}}})
+			if !replayed.Gate || gateCall(t, envPolicy(t, replayEnv), wd, "Bash", gateBash("make lint")).Decision == core.Block {
+				t.Fatal("exact remedy did not pass on rerun")
+			}
+		})
+	}
+}
+
+func TestAsksToRunWorkflow(t *testing.T) {
+	for _, c := range []struct {
+		brief string
+		want  bool
+	}{
+		{"Run saved Workflow code-workers", true},
+		{`Run Workflow({scriptPath: "~/.claude/workflows/x.js"}) and print it`, true},
+		{"First fix the lint, then run the saved workflow code-workers.", true},
+		{"Invoke the Workflow tool with workflows/code-looper.js", true},
+		{"Fix gate.go.\nCall Workflow({name: 'code-looper'}) next.", true},
+		{"this replaces the saved Workflow", false},
+		{"Do not run a saved Workflow; use the native Agent tool.", false},
+		{"The workflow scripts live in workflows/", false},
+		{"Never call Workflow({name: 'x'}) from here", false},
+		{"Edit workflows/x.js, a saved Workflow script, to fix the lint", false},
+	} {
+		if got := asksToRunWorkflow(c.brief); got != c.want {
+			t.Errorf("asksToRunWorkflow(%q) = %v, want %v", c.brief, got, c.want)
+		}
+	}
+}

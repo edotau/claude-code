@@ -53,7 +53,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 			break
 		}
 	}
-	res, err := chainOutcome(c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
+	res, err := chainOutcome(ctx, c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
 	return s.attach(res), err
 }
 
@@ -89,8 +89,8 @@ func (s *fallbackState) attach(res wire.Result) wire.Result {
 }
 
 // chainOutcome folds every failed hop into err and marks res a fallback when another step than the requested answered.
-func chainOutcome(c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
-	if err != nil && !stopped && len(reasons) > 0 && (HopFailed(res, err) || cutOffMidRun(prevDispatch.Agent, err)) {
+func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reasons []string, prevDispatch Dispatch, ran int, stopped bool) (wire.Result, error) {
+	if err != nil && !stopped && len(reasons) > 0 && (HopFailed(res, err) || cutOffMidRunContext(ctx, prevDispatch.Agent, err)) {
 		err = everyHopFailed(append(reasons, hopLabel(prevDispatch)+": "+FallbackReason(err)), err)
 	}
 	if ran > 0 || c.leadFallsBack() { // a different agent, route or the pin is a fallback
@@ -281,6 +281,10 @@ func FallbackReason(err error) string {
 
 // dispatchUnavailable: a pre-answer auth failure or state refusal, or a failed hop that falls through.
 func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
+	return dispatchUnavailableContext(context.Background(), r, res, err)
+}
+
+func dispatchUnavailableContext(ctx context.Context, r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
 	}
@@ -288,13 +292,12 @@ func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
 	if errors.As(err, &ae) && (ae.AuthReason != "" || ae.Terminal) && res.Answer == "" {
 		return true
 	}
-	return fallsThrough(r) && HopFailed(res, err)
+	return fallsThroughContext(ctx, r) && HopFailed(res, err)
 }
 
-// fallsThrough: an external agent's failed hop moves on; claude's only inside overlay databricks:<p> (else never).
-func fallsThrough(r Engine) bool {
+func fallsThroughContext(ctx context.Context, r Engine) bool {
 	s, ok := LookupSchema(r.Name())
-	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfile() != "")
+	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfileContext(ctx) != "")
 }
 
 // HopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
@@ -308,13 +311,12 @@ func HopFailed(res wire.Result, err error) bool {
 	return !retry.Progressed(err)
 }
 
-// cutOffMidRun: a fall-through dispatch that started work, then hit a 429, quota or auth wall; any Answer is partial.
-func cutOffMidRun(r Engine, err error) bool {
+func cutOffMidRunContext(ctx context.Context, r Engine, err error) bool {
 	e, ok := errors.AsType[*retry.Error](err)
 	if r == nil || !ok || !e.Progressed || requestFault(err) {
 		return false
 	}
-	if !fallsThrough(r) {
+	if !fallsThroughContext(ctx, r) {
 		return false
 	}
 	return e.Kind == retry.KindRateLimit || e.Kind == retry.KindQuota || e.AuthReason != ""
@@ -417,9 +419,9 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
-	midRun := i > 0 && cutOffMidRun(s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
+	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
 	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) ||
-		(!midRun && !dispatchUnavailable(s.prevDispatch.Agent, s.res, s.err))) {
+		(!midRun && !dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err))) {
 		s.stopped = true
 		return true, nil
 	}
@@ -492,7 +494,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 		trip()
 		return
 	}
-	if disp := c.Dispatches[i].Agent; dispatchUnavailable(disp, res, err) || cutOffMidRun(disp, err) {
+	if disp := c.Dispatches[i].Agent; dispatchUnavailableContext(ctx, disp, res, err) || cutOffMidRunContext(ctx, disp, err) {
 		return
 	}
 	trip()
@@ -626,6 +628,9 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		fmt.Fprintln(os.Stderr, disp.note)
 	}
 	out := req
+	if req.Values != nil {
+		out.Values = req.Values.Merge(nil)
+	}
 	if disp.unroutedDispatch {
 		return out
 	}
@@ -643,7 +648,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 
 // leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, not the pin.
 func leadProfile(out RunOptions, disp Dispatch) RunOptions {
-	cp, _ := router.Confined()
+	cp, _ := router.ConfinedContext(valuesContext(context.Background(), out.Values))
 	provider, profile, ok := strings.Cut(disp.Account, "·")
 	if !ok || out.Provider != "" || (provider != cp && profile != out.Lead) {
 		return out
@@ -656,7 +661,7 @@ func leadProfile(out RunOptions, disp Dispatch) RunOptions {
 
 // armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
 func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
-	if router.ArmProfile() == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
+	if router.ArmProfileContext(valuesContext(context.Background(), out.Values)) == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
 		return out
 	}
 	prof, model, ok := strings.Cut(out.Model, ":")

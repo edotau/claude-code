@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -47,11 +49,12 @@ type Prepared struct {
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Prepared, error) {
+	ctx, o.Values = runValues(ctx, o.Values)
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return nil, err
 	}
-	if err := refuseDirect(o.Direct); err != nil {
+	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return nil, clientUsageError{err}
 	}
 	r, err := Lookup(o.Agent)
@@ -118,7 +121,12 @@ func withRubric(o RunOptions) (RunOptions, error) {
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
-	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, router.DefaultFallback()), c.Launcher
+	fallback := router.FallbackNone
+	if strings.TrimSpace(proc.Value(valuesContext(context.Background(), o.Values), router.EnvFallback)) != "" ||
+		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) != "" {
+		fallback = router.FallbackAll
+	}
+	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone
 	}
@@ -127,6 +135,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 
 // Record builds the dispatch record for o without routing, persona refusal or rubric (live sessions, review jobs).
 func (c *Client) Record(ctx context.Context, o RunOptions, claim *Record) (Record, error) {
+	ctx, o.Values = runValues(ctx, o.Values)
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return Record{}, err
@@ -207,6 +216,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	if d.Notify == nil {
 		d.Notify = c.Notify
 	}
+	ctx, _ = runValues(ctx, p.Opts.Values)
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
@@ -278,6 +288,7 @@ func (c *Client) streamWith(
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
 func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
+	ctx, req.Values = runValues(ctx, req.Values)
 	if sink == nil {
 		sink = wire.Discard
 	}
@@ -329,7 +340,7 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 		return req, err
 	}
 	req.Permissions, _ = resolvePermissions(def, req.Permissions)
-	if req.Permissions, err = inheritPermissions(req.Permissions); err != nil {
+	if req.Permissions, err = inheritPermissionsContext(valuesContext(context.Background(), req.Values), req.Permissions); err != nil {
 		return req, err
 	}
 	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
@@ -378,7 +389,9 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 		return s.note(gerr)
 	}
 	cw := &wire.RunSink{Sink: sink, Agent: r.Name()}
-	out, err := r.Run(actx, s.req, cw)
+	req := s.req
+	req.Values = s.req.Values.Merge(nil)
+	out, err := r.Run(actx, req, cw)
 	// Preserve the actual agent named by a delegating engine.
 	out.Agent, out.Dropped, out.Emulated = cmp.Or(out.Agent, s.res.Agent), append(slices.Clone(s.dropped), out.Dropped...), append(slices.Clone(s.emulated), out.Emulated...)
 	if _, ok := errors.AsType[notStartedError](err); ok {
@@ -439,6 +452,7 @@ const DefaultToolsTimeout = 45 * time.Minute
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type RunOptions struct {
+	Values                                              proc.Values `json:"-"`
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Lead                                                string      `json:",omitempty"` // lead profile for the pick; "" = its pin leads
 	Attach                                              []string    // absolute file paths, task text precedes them

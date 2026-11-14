@@ -62,6 +62,8 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
 	if codexJSON {
+		sandbox, _ := codexSandbox(req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
+		sink = &denialSink{next: sink, p: req.Permissions, tools: req.Tools, sandbox: sandbox, commands: map[string]string{}}
 		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
 	var answer strings.Builder

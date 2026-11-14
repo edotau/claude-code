@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -138,4 +139,73 @@ func refuseGateEnv(req agent.RunOptions, env []string) error {
 		return nil
 	}
 	return retry.Fatal("claude", errors.New("gated launch refused: the child env carries no "+agent.DispatchPermissionsEnv))
+}
+
+const noWorkflow = "unsupported capability Workflow in a gated claude child; use the native Agent tool for this task"
+
+var (
+	workflowClause = regexp.MustCompile(`[;\n]|\.\s|,\s`)
+	workflowCall   = regexp.MustCompile(`\bWorkflow\s*\(`)
+	workflowRun    = regexp.MustCompile(`(?i)(?:^\W*|\b(?:and|then|please|now|first|next|also)\s+)` +
+		`(?:run|use|invoke|call|execute|launch|start)\s+(?:the\s+|a\s+|an\s+)?(?:saved\s+)?workflow\b(?:\s+tool)?(?:\s+([\w-]+))?`)
+	workflowNoun = regexp.MustCompile(`(?i)^(?:scripts?|files?|dir|directory|folder|runner|docs?|code)$`)
+	workflowNeg  = regexp.MustCompile(`(?i)\b(?:do not|don't|never|not|without|avoid)\b`)
+)
+
+// asksToRunWorkflow reports whether a brief tells the child to run a Workflow: the call form or an imperative verb.
+func asksToRunWorkflow(brief string) bool {
+	for _, clause := range workflowClause.Split(brief, -1) {
+		loc := workflowCall.FindStringIndex(clause)
+		if m := workflowRun.FindStringSubmatchIndex(clause); loc == nil && m != nil {
+			if m[2] < 0 || !workflowNoun.MatchString(clause[m[2]:m[3]]) {
+				loc = m[:2]
+			}
+		}
+		if loc != nil && !workflowNeg.MatchString(clause[:loc[0]]) {
+			return true
+		}
+	}
+	return false
+}
+
+// refusePermissionCapabilities rejects tool grants the selected launch cannot supply before invoking its launcher.
+func refusePermissionCapabilities(req agent.RunOptions) error {
+	refuse := func(message string) error { return retry.Fatal("claude", errors.New(message)) }
+	if req.Tools && req.NoTools {
+		return refuse("--no-tools and --tools are exclusive")
+	}
+	if err := agent.CheckCapabilities("claude", req); err != nil {
+		return err
+	}
+	if req.NoTools && req.Gate {
+		return refuse("unsupported capability combination: --no-tools with permission-gate")
+	}
+	if !req.Gate {
+		return nil
+	}
+	if asksToRunWorkflow(req.Prompt) {
+		return refuse(noWorkflow)
+	}
+	if message := gateRuleRefusal(req); message != "" {
+		return refuse(message)
+	}
+	return nil
+}
+
+// gateRuleRefusal names the first allow or ask rule outside the gated child's tool set, or "" when every rule fits.
+func gateRuleRefusal(req agent.RunOptions) string {
+	tools := strings.Split(gateTools, ",")
+	if req.ReadOnly {
+		tools = strings.Split(readOnlyGateTools, ",")
+	}
+	for _, r := range slices.Concat(req.Permissions.Allow, req.Permissions.Ask) {
+		switch {
+		case slices.Contains(tools, r.Tool):
+		case r.Tool == "Workflow":
+			return noWorkflow
+		default:
+			return "unsupported capability " + r.Tool + " in the permission-gate tool set"
+		}
+	}
+	return ""
 }

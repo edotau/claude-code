@@ -200,17 +200,26 @@ func Legs(r Role, q Request) []Leg {
 	base := agent.RunOptions{Agent: r.Agent, WorkDir: q.WorkDir, Timeout: q.Timeout, OutputSchema: q.OutputSchema,
 		Permissions: layer(r.Permissions, q.Permissions), Fallback: q.Fallback, Lead: q.Lead, Provider: q.Profile,
 		AutoArm: q.Auto != ""}.ApplyOverlay(q.Overlay)
+	var legs []Leg
 	switch r.Name {
 	case "explore":
-		return exploreLegs(base, q)
+		legs = exploreLegs(base, q)
 	case "fleet":
 		o := base
 		o.Fleet, o.Tools, o.Prompt = true, true, q.Task
-		return []Leg{{Label: "fleet", Opts: o}}
+		legs = []Leg{{Label: "fleet", Opts: o}}
 	case "compare":
-		return compareLegs(r, base, q)
+		legs = compareLegs(r, base, q)
 	}
-	return nil
+	for i, leg := range legs {
+		if leg.Err != "" {
+			continue
+		}
+		if err := agent.CheckCapabilities(leg.Opts.Agent, leg.Opts); err != nil { // refuse before dispatch, never drop a flag
+			legs[i].Err = err.Error()
+		}
+	}
+	return legs
 }
 
 func exploreLegs(base agent.RunOptions, q Request) []Leg {

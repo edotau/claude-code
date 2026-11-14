@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -16,6 +17,9 @@ import (
 
 // Settings is one launch's resolved agent settings: the merged record under the request's flags.
 type Settings struct {
+	Values      proc.Values `json:"-"`
+	LaunchEnv   proc.Values `json:"-"`
+	LaunchArgs  []string
 	Agent       string
 	Record      vault.AgentRecord // agentconfig.Settings(Agent)
 	Effort      string            // request (flag or routed cell) > Record.Effort; "" = the CLI's default
@@ -32,25 +36,55 @@ type Settings struct {
 func ResolveSettings(agentName string, req RunOptions, t providers.Target, headless bool) (Settings, error) {
 	rec, err := agentconfig.Settings(agentName)
 	if err == nil {
-		err = ValidateRecord(agentName, rec)
+		var st Settings
+		st, err = SettingsFromRecord(agentName, rec, req, t, headless)
+		if err == nil {
+			return st, nil
+		}
 	}
-	if err == nil {
-		return newSettings(agentName, rec, req, t, headless), nil
-	}
-	base, berr := agentconfig.BuiltinSettings(agentName) // unchecked, as every launch applied it before records
+	base, berr := agentconfig.BuiltinSettings(agentName)
 	if berr != nil {
 		return Settings{}, err
 	}
+	// The legacy overlay is part of base and was applied unchecked before stored records existed.
 	return newSettings(agentName, base, req, t, headless), err
 }
 
-// newSettings is Settings for rec; an unparsable record policy layers as none (ValidateRecord reports it).
+// SettingsFromRecord validates a stored record and copies its resolved runtime settings without resolving secrets.
+func SettingsFromRecord(agentName string, rec vault.AgentRecord, req RunOptions, t providers.Target, headless bool) (Settings, error) {
+	st, err := validateRecord(agentName, rec)
+	if err != nil {
+		return Settings{}, err
+	}
+	out := newSettings(agentName, rec, req, t, headless)
+	out.LaunchEnv = st.LaunchEnv
+	return out, nil
+}
+
+// newSettings copies runtime fields without revalidating the legacy fallback.
 func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t providers.Target, headless bool) Settings {
-	def, _ := policyPermissions(rec.Permissions)
-	perms, _ := resolvePermissions(def, req.Permissions)
-	return Settings{Agent: agentName, Record: rec, Effort: cmp.Or(req.Effort, rec.Effort), Permissions: perms,
-		Target: t, Tools: req.Tools, Autonomous: req.Autonomous, SafeMode: req.SafeMode, Gate: req.Gate,
-		Headless: headless, WorkDir: req.WorkDir}
+	def, _ := policyPermissions(rec.Permissions) // An unparsable fallback policy layers as none, as before.
+	st := Settings{Permissions: def}
+	rec = rec.Clone()
+	st.Agent, st.Record, st.Target = agentName, rec, t
+	st.Effort = cmp.Or(req.Effort, rec.Effort)
+	st.Permissions, _ = resolvePermissions(st.Permissions, req.Permissions)
+	st.Tools, st.Autonomous, st.SafeMode, st.Gate = req.Tools, req.Autonomous, req.SafeMode, req.Gate
+	st.Headless, st.WorkDir = headless, req.WorkDir
+	if req.Values != nil {
+		st.Values = req.Values.Merge(nil)
+	}
+	if rec.Launch != nil {
+		st.LaunchEnv = proc.ValuesFromEnv(rec.Launch.Env)
+		st.LaunchArgs = slices.Clone(rec.Launch.Args)
+	}
+	if t.Provider != nil {
+		p := *t.Provider
+		p.Headers, p.Env, p.Models = maps.Clone(p.Headers), maps.Clone(p.Env), maps.Clone(p.Models)
+		p.Routes = maps.Clone(p.Routes)
+		st.Target.Provider = &p
+	}
+	return st
 }
 
 // policyPermissions parses a record policy; nil is no policy.
@@ -73,41 +107,50 @@ var recordFieldOwners = []struct {
 
 // ValidateRecord checks agentName's record: effort, owners, policy, declared extras, launch env and args (unechoed).
 func ValidateRecord(agentName string, r vault.AgentRecord) error {
+	_, err := validateRecord(agentName, r)
+	return err
+}
+
+func validateRecord(agentName string, r vault.AgentRecord) (Settings, error) {
+	var st Settings
 	if !agentid.Known(agentName) {
-		return fmt.Errorf("unknown agent %q (%s)", agentName, strings.Join(agentid.All(), "|"))
+		return st, fmt.Errorf("unknown agent %q (%s)", agentName, strings.Join(agentid.All(), "|"))
 	}
 	if err := agentid.ValidEffort(agentName, r.Effort); err != nil {
-		return err
+		return st, err
 	}
 	for _, f := range recordFieldOwners {
 		if f.set(r) && f.owner != agentName {
-			return fmt.Errorf("%s: %s is %s only", agentName, f.field, f.owner)
+			return st, fmt.Errorf("%s: %s is %s only", agentName, f.field, f.owner)
 		}
 	}
-	if _, err := policyPermissions(r.Permissions); err != nil {
-		return fmt.Errorf("%s permissions: %w", agentName, err)
+	var err error
+	if st.Permissions, err = policyPermissions(r.Permissions); err != nil {
+		return st, fmt.Errorf("%s permissions: %w", agentName, err)
 	}
-	if decl := SchemaFor(agentName).CLI.Extras; decl != nil { // nil: the vendor has not declared its keys yet
+	if decl := SchemaFor(agentName).CLI.Extras; decl != nil {
 		if err := checkExtras(agentName, decl, r.Extras); err != nil {
-			return err
+			return st, err
 		}
 	}
-	return checkLaunch(agentName, r.Launch)
+	st.LaunchEnv, err = checkLaunchValues(agentName, r.Launch)
+	return st, err
 }
 
-// checkLaunch refuses launch.env names --env refuses and a credential-shaped launch.args entry, by index.
-func checkLaunch(agentName string, l *vault.AgentLaunch) error {
+// checkLaunchValues validates launch env and args without resolving references or echoing credentials.
+func checkLaunchValues(agentName string, l *vault.AgentLaunch) (proc.Values, error) {
 	if l == nil {
-		return nil
+		return nil, nil
 	}
-	if _, err := agentconfig.FlagOverlay(l.Env, nil); err != nil {
-		return fmt.Errorf("%s launch.env: %w", agentName, err)
+	overlay, err := agentconfig.FlagOverlay(l.Env, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s launch.env: %w", agentName, err)
 	}
 	if i := slices.IndexFunc(l.Args, secretArg); i >= 0 {
-		return fmt.Errorf("%s launch.args[%d]: looks like a credential: store it with `claude-code vault set` or a "+
+		return nil, fmt.Errorf("%s launch.args[%d]: looks like a credential: store it with `claude-code vault set` or a "+
 			"provider's auth.command", agentName, i)
 	}
-	return nil
+	return proc.Values(overlay.Set).Merge(nil), nil
 }
 
 // secretArg reports a credential-shaped argv entry, whole or as the value of --flag=value.

@@ -49,7 +49,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 		return t, own, note, err
 	}
 	t = servedTarget(s.Name, t)
-	t, modelNote := ResolveAgentModel(ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote := resolveAgentModelContext(valuesContext(context.Background(), req.Values), ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
 	}
@@ -60,7 +60,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
 	reg, loadErr := providers.Load()
 	if req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
-		if req.Provider, err = PinnedProfile(s.Name); err != nil {
+		if req.Provider, err = pinnedProfile(valuesContext(context.Background(), req.Values), s.Name); err != nil {
 			return t, false, "", true, err
 		}
 	}
@@ -74,12 +74,11 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 		}
 		return t, false, note, true, err
 	}
-	return s.sessionTarget(reg, t)
+	return s.sessionTargetContext(valuesContext(context.Background(), req.Values), reg, t)
 }
 
-// sessionTarget is targetBase with no provider asked: the session lead's target when it can serve s, else t.
-func (s Schema) sessionTarget(reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
-	sel, err := providers.Select(reg, providers.SessionLead(reg, false))
+func (s Schema) sessionTargetContext(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
+	sel, err := providers.Select(reg, providers.SessionLeadContext(ctx, reg, false))
 	if err != nil {
 		return t, false, "", true, err
 	}
@@ -132,6 +131,7 @@ func (s Schema) checkPromptCap(prompt string) error {
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error) {
+	ctx, req.Values = runValues(ctx, req.Values)
 	name := v.Name()
 	s := SchemaFor(name)
 	t, own, err := s.Target(req)
@@ -364,6 +364,7 @@ func (h *HeadBuffer) String() string { return string(h.buf) }
 
 // DirectCtx carries req.Direct to Configure (skip the router).
 func DirectCtx(ctx context.Context, req RunOptions) context.Context {
+	ctx = valuesContext(ctx, req.Values)
 	if req.Direct {
 		return WithDirect(ctx)
 	}
@@ -387,7 +388,7 @@ func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target
 // resolveIn is ResolveRequestTarget against an already loaded registry.
 func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
 	req = profileAliasRequest(reg, req)
-	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLead(reg, false)))
+	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLeadContext(valuesContext(context.Background(), req.Values), reg, false)))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
 	}
