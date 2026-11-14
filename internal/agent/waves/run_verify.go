@@ -66,7 +66,8 @@ func (r *runner) record(w WaveState, envelopes []Envelope) (WaveState, error) {
 			return w, fmt.Errorf("unexpected leaf %s", e.TaskID)
 		}
 		l := w.Leaves[i]
-		l.Status, l.DispatchID, l.Saved, l.Verdict = e.Status, e.DispatchID, e.Report, "pending"
+		l.Status, l.DispatchID, l.Saved, l.Verdict, l.Scoped = e.Status, e.DispatchID, e.Report, "pending", e.Scoped
+		l.Wrote = relFiles(r.o.Dir, e.Foreign)
 		fingerprints, err := FingerprintAll(r.fingerprint, l.Owns)
 		if err != nil {
 			return w, err
@@ -78,6 +79,17 @@ func (r *runner) record(w WaveState, envelopes []Envelope) (WaveState, error) {
 		}
 	}
 	return w, nil
+}
+
+// relFiles is vs with each absolute file made relative to dir.
+func relFiles(dir string, vs []CheckViolation) []CheckViolation {
+	out := slices.Clone(vs)
+	for i, v := range out {
+		if rel, err := filepath.Rel(dir, v.File); err == nil && filepath.IsAbs(v.File) {
+			out[i].File = rel
+		}
+	}
+	return out
 }
 
 func hasRunning(w WaveState) bool {
@@ -147,7 +159,7 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 			return w, err
 		}
 		w.Proof = append(slices.DeleteFunc(slices.Clone(w.Proof), func(p RoutingResult) bool { return p.ID == proof.ID }), proof)
-		l.Mismatch = proof.Mismatch
+		l.Mismatch, l.ElapsedMs = proof.Mismatch, proof.DurationMs
 		if err = r.save(w.WithLeaf(l)); err != nil {
 			return w, err
 		}
@@ -183,14 +195,20 @@ func (r *runner) checkWave(w WaveState) (WaveState, int, error) {
 	code := 0
 	var packages []CheckPackage
 	for _, l := range w.Leaves {
-		packages = append(packages, CheckPackage{ID: l.ID, Dispatch: l.DispatchID, Owns: l.Owns})
+		packages = append(packages, CheckPackage{ID: l.ID, Dispatch: l.DispatchID, Owns: l.Owns, Scoped: l.Scoped})
 	}
 	if len(packages) > 0 {
 		res, err := CheckUnion(r.h.check, CheckUnionInput{Dir: r.o.Dir, Base: r.state.Base, Launch: r.state.Dirty, Packages: packages})
 		if err != nil {
 			return w, 1, err
 		}
-		w.Outside, w.Gates, w.Violations = append(res.Outside, res.Unattributed...), res.Gates, res.Violations
+		w.Outside, w.Unattributed, w.Gates, w.Violations = res.Outside, res.Unattributed, res.Gates, res.Violations
+		for _, l := range w.Leaves {
+			w.Violations = append(w.Violations, l.Wrote...)
+			if len(l.Wrote) > 0 && res.Exit == 0 {
+				res.Exit = CheckExitOutside
+			}
+		}
 		if res.Exit != 0 {
 			code = res.Exit
 			w.Reason = "owned-file check failed"
@@ -204,7 +222,7 @@ func (r *runner) checkWave(w WaveState) (WaveState, int, error) {
 
 func leafPassed(l LeafState, w WaveState, passed bool) bool {
 	violated := slices.ContainsFunc(w.Violations, func(v CheckViolation) bool { return v.Package == l.ID })
-	return l.Status == LeafStateOK && !l.Mismatch && passed && !violated && len(w.Outside) == 0
+	return l.Status == LeafStateOK && !l.Mismatch && passed && !violated && len(w.Outside)+len(w.Unattributed) == 0
 }
 
 func (r *runner) verifyError(ctx context.Context, w WaveState, err error) (int, error) {

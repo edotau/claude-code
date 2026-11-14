@@ -223,7 +223,7 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 	if skip {
 		return 0, nil
 	}
-	envelopes, launchErr := r.launch(ctx, launch)
+	envelopes, launchErr := r.launch(ctx, launch, specs)
 	ws, err = r.record(ws, envelopes)
 	if err != nil {
 		return 1, err
@@ -256,7 +256,7 @@ func (r *runner) finish(w WaveState) error {
 	return r.save(w)
 }
 
-func (r *runner) launch(ctx context.Context, specs []Spec) ([]Envelope, error) {
+func (r *runner) launch(ctx context.Context, specs, wave []Spec) ([]Envelope, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -264,7 +264,8 @@ func (r *runner) launch(ctx context.Context, specs []Spec) ([]Envelope, error) {
 		return nil, ctx.Err()
 	}
 	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports,
-		Provider: r.o.Provider, Profiles: r.o.Profiles, Route: r.o.Route, Timeout: r.o.Timeout})
+		Provider: r.o.Provider, Profiles: r.o.Profiles, Route: r.o.Route, Timeout: r.o.Timeout, Wave: wave,
+		Fingerprint: r.fingerprint})
 }
 
 func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error) {
@@ -282,7 +283,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 	}
 	ws, _ := r.state.Wave(w.Number)
 	ws.N, ws.Status, ws.Manual = w.Number, WaveStateRunning, manual
-	ws.Reason, ws.Outside, ws.Gates, ws.Verifier, ws.Violations = "", nil, nil, nil, nil
+	ws.Reason, ws.Outside, ws.Unattributed, ws.Gates, ws.Verifier, ws.Violations = "", nil, nil, nil, nil, nil
 	var launch []Spec
 	for i, d := range decision.Leaves {
 		if d.Action == DecideKeep {

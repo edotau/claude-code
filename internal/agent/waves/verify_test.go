@@ -169,9 +169,15 @@ func TestVerifyEachPackageIsCheckedAgainstItsOwnFiles(t *testing.T) {
 		t.Fatalf("cross-package write: %+v", res)
 	}
 	// The same change inside its owner's own window is the owner's write, even while the other package ran.
-	res = run(verifyWindow(0, 60, "b.go"), verifyWindow(40, 60), 50, pkgs)
+	scopedRival := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}, Scoped: true}, pkgs[1]}
+	res = run(verifyWindow(0, 60, "b.go"), verifyWindow(40, 60), 50, scopedRival)
 	if res.Exit != 0 || len(res.Violations)+len(res.Unattributed) != 0 {
 		t.Fatalf("owner write: %+v", res)
+	}
+	// With a rival that was not refused the file running in the same window, the writer cannot be told: exit 3.
+	res = run(verifyWindow(0, 60, "b.go"), verifyWindow(40, 60), 50, pkgs)
+	if res.Exit != CheckExitOutside || !slices.Equal(res.Unattributed, []string{"b.go"}) || len(res.Violations) != 0 {
+		t.Fatalf("parallel unscoped rival: %+v", res)
 	}
 	// No window for the owner, or no write time, or no package running then: unattributed, never passed.
 	noOwnerRun := []CheckPackage{pkgs[0], {ID: "1.2", Owns: []string{"b.go"}}}
@@ -261,5 +267,27 @@ func TestVerifyGateRunTailAndExit(t *testing.T) {
 	if ok, err := GateRun(context.Background(), CheckEnv{}, GateInput{Dir: dir, OutPath: out, Cmd: "echo 1"}); err != nil ||
 		ok.Exit != 0 || !slices.Equal(ok.Tail, []string{"1"}) {
 		t.Fatalf("passing gate: %+v %v", ok, err)
+	}
+}
+
+func TestVerifyNoOwnerFileNamesTheOnlyPackageRunning(t *testing.T) {
+	run := func(a, b agent.DiffReport) CheckUnionResult {
+		t.Helper()
+		union := agent.DiffReport{Outside: []string{"c.go"}}
+		env := CheckEnv{Diff: verifyPackages(union, map[string]agent.DiffReport{"a": a, "b": b}), ModTime: verifyModTimes(50)}
+		res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: []CheckPackage{
+			{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}}, {ID: "1.2", Dispatch: "b", Owns: []string{"b.go"}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	res := run(verifyWindow(40, 60, "c.go"), verifyWindow(0, 30, "c.go"))
+	if res.Exit != CheckExitOutside || !slices.Equal(res.Outside, []string{"c.go"}) || len(res.Violations) != 1 ||
+		res.Violations[0].Package != "1.1" || res.Violations[0].File != "c.go" || len(res.Violations[0].Owners) != 0 {
+		t.Fatalf("one package running: %+v", res)
+	}
+	if res = run(verifyWindow(40, 60, "c.go"), verifyWindow(40, 60, "c.go")); len(res.Violations) != 0 || res.Exit != CheckExitOutside {
+		t.Fatalf("two packages running must stay unnamed: %+v", res)
 	}
 }

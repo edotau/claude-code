@@ -41,17 +41,18 @@ type State struct {
 
 // WaveState is one wave's record; Status is a WaveState* constant.
 type WaveState struct {
-	N          int                `json:"n"`
-	Status     string             `json:"status"`
-	Leaves     []LeafState        `json:"leaves"`
-	Reason     string             `json:"reason,omitempty"`
-	Outside    []string           `json:"outside"`
-	Gates      []agent.GateResult `json:"gates"`
-	Verifier   *stepResult        `json:"verifier,omitempty"`
-	Proof      []RoutingResult    `json:"proof"`
-	Violations []CheckViolation   `json:"violations,omitempty"`
-	Manual     []string           `json:"manual,omitempty"`
-	Packages   []Spec             `json:"packages,omitempty"`
+	N            int                `json:"n"`
+	Status       string             `json:"status"`
+	Leaves       []LeafState        `json:"leaves"`
+	Reason       string             `json:"reason,omitempty"`
+	Outside      []string           `json:"outside"`
+	Unattributed []string           `json:"unattributed,omitempty"` // changed files with no attributable writer
+	Gates        []agent.GateResult `json:"gates"`
+	Verifier     *stepResult        `json:"verifier,omitempty"`
+	Proof        []RoutingResult    `json:"proof"`
+	Violations   []CheckViolation   `json:"violations,omitempty"`
+	Manual       []string           `json:"manual,omitempty"`
+	Packages     []Spec             `json:"packages,omitempty"`
 }
 
 // LeafState is one leaf's record; Status is the envelope status, Verdict "" or "ok" unless the routing check failed.
@@ -67,6 +68,9 @@ type LeafState struct {
 	Verify       *stepResult       `json:"verify,omitempty"`
 	Mismatch     bool              `json:"mismatch"`
 	Verdict      string            `json:"verdict,omitempty"`
+	Wrote        []CheckViolation  `json:"wrote,omitempty"`      // other packages' paths changed while it ran alone
+	Scoped       bool              `json:"scoped"`               // launched with writes to other packages' files denied
+	ElapsedMs    int64             `json:"elapsed_ms,omitempty"` // the dispatch's run time, from its routing proof
 }
 
 // FingerprintGit returns a FingerprintFunc hashing files with `git hash-object`; relative paths resolve under dir,
