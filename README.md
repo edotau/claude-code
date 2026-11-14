@@ -275,6 +275,7 @@ claude-code codex review --adversarial --base main     # per-agent verbs; claude
 claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
 claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"  # per-call config
 claude-code usage --days 7                             # subagent token usage
+claude-code usage --context                          # where one session's context went, by source
 ```
 
 Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
