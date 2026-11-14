@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -106,7 +107,7 @@ func TestPlanTable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := plan(tt.args)
+			p, err := plan(context.Background(), tt.args)
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
@@ -139,22 +140,22 @@ func TestResolveProfileOrder(t *testing.T) {
 	reg := mustLoad(t)
 	first := providers.DatabricksProfiles(reg)[0]
 	t.Setenv(providers.EnvSessionProfile, "")
-	if got := resolveProfile(reg, "zz"); got != "zz" {
+	if got := resolveProfile(context.Background(), reg, "zz"); got != "zz" {
 		t.Errorf("explicit = %q, want zz", got)
 	}
-	if got := resolveProfile(reg, ""); got != first {
+	if got := resolveProfile(context.Background(), reg, ""); got != first {
 		t.Errorf("no pin = %q, want the first profile %q", got, first)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "cc")
-	if got := resolveProfile(reg, ""); got != "cc" {
+	if got := resolveProfile(context.Background(), reg, ""); got != "cc" {
 		t.Errorf("pinned = %q, want cc", got)
 	}
 	t.Setenv(providers.EnvSessionProfile, "bb")
-	if got := resolveProfile(reg, ""); got != "bb" {
+	if got := resolveProfile(context.Background(), reg, ""); got != "bb" {
 		t.Errorf("session = %q, want bb", got)
 	}
 	t.Setenv(providers.EnvSessionProfile, "not-databricks") // shadows the pin of the same name
-	if got := resolveProfile(reg, ""); got != first {
+	if got := resolveProfile(context.Background(), reg, ""); got != first {
 		t.Errorf("non-Databricks session = %q, want the first profile %q", got, first)
 	}
 }
@@ -176,7 +177,7 @@ func TestPlanCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := plan(tt.args)
+			p, err := plan(context.Background(), tt.args)
 			if err != nil {
 				t.Fatalf("plan(%q) error: %v", tt.args, err)
 			}
@@ -204,7 +205,7 @@ func TestPlanProfileErrors(t *testing.T) {
 	}
 	for name, args := range tests {
 		t.Run(name, func(t *testing.T) {
-			p, err := plan(args)
+			p, err := plan(context.Background(), args)
 			if name == "no value" || name == "= (empty)" {
 				if !errors.Is(err, errEmptyProfile) { // an empty name is refused, never defaulted
 					t.Fatalf("plan(%q) error = %v; want errEmptyProfile", args, err)
@@ -401,11 +402,11 @@ func TestProfileShorthandMatchesLongFlag(t *testing.T) {
 func TestPlanShorthandProfile(t *testing.T) {
 	seedOverlay(t, threeProfiles)
 	t.Setenv(providers.EnvSessionProfile, "")
-	c, err := plan([]string{"check", "-p", "cc"})
+	c, err := plan(context.Background(), []string{"check", "-p", "cc"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, err := plan([]string{"-p", "aa", "--print", "hi"})
+	l, err := plan(context.Background(), []string{"-p", "aa", "--print", "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +437,7 @@ const presetOnly = `{"providers":{"databricks":{"aa":{"preset":"databricks",` + 
 
 func TestPlanNoBetaOnlyWhenProviderEnvHasKey(t *testing.T) {
 	seedOverlay(t, presetOnly)
-	p, err := plan([]string{"sonnet", "--profile", "aa"})
+	p, err := plan(context.Background(), []string{"sonnet", "--profile", "aa"})
 	if err != nil || !p.NoBeta {
 		t.Errorf("preset provider Env carries the beta key: NoBeta should be true (err %v)", err)
 	}
@@ -474,7 +475,7 @@ func TestLaunchBetaInjectionFollowsProvider(t *testing.T) {
 func TestPlanFailsClosedOnProviderLoadError(t *testing.T) {
 	seedOverlay(t, "{not json")
 	t.Setenv(providers.EnvSessionProfile, "")
-	if p, err := plan([]string{"--profile", "anything"}); err == nil || !strings.Contains(err.Error(), "load providers") {
+	if p, err := plan(context.Background(), []string{"--profile", "anything"}); err == nil || !strings.Contains(err.Error(), "load providers") {
 		t.Fatalf("plan = %+v, %v; want a load providers error", p, err)
 	}
 }
@@ -542,8 +543,22 @@ func TestResolveProfileUsesWorkspaceLastProfile(t *testing.T) {
 	t.Setenv(providers.EnvSessionProfile, "")
 	vaulttest.SetRecord(t, "claude", "profile", "cc")
 	providers.RecordLastProfile("claude", "bb")
-	if got := resolveProfile(mustLoad(t), ""); got != "bb" {
+	if got := resolveProfile(context.Background(), mustLoad(t), ""); got != "bb" {
 		t.Errorf("resolveProfile = %q, want the workspace's last profile bb", got)
+	}
+}
+
+// A run snapshot on ctx picks the profile; an empty snapshot suppresses the ambient session profile.
+func TestResolveProfileFollowsTheRunSnapshot(t *testing.T) {
+	seedOverlay(t, threeProfiles)
+	t.Setenv(providers.EnvSessionProfile, "bb")
+	reg := mustLoad(t)
+	snap := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "cc"})
+	if got := resolveProfile(snap, reg, ""); got != "cc" {
+		t.Errorf("snapshot cc: resolveProfile = %q, want cc", got)
+	}
+	if got := resolveProfile(proc.WithValues(context.Background(), proc.Values{}), reg, ""); got == "bb" {
+		t.Errorf("empty snapshot: resolveProfile = %q, the ambient bb leaked", got)
 	}
 }
 
@@ -553,7 +568,7 @@ func TestResolveProfileLastNonDatabricksFallsToPin(t *testing.T) {
 	t.Setenv(providers.EnvSessionProfile, "")
 	vaulttest.SetRecord(t, "claude", "profile", "cc")
 	providers.RecordLastProfile("claude", "not-databricks")
-	if got := resolveProfile(mustLoad(t), ""); got != "cc" {
+	if got := resolveProfile(context.Background(), mustLoad(t), ""); got != "cc" {
 		t.Errorf("resolveProfile = %q, want the pinned cc", got)
 	}
 }

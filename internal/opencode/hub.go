@@ -124,7 +124,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if len(req.Prompt) > agent.MaxPromptBytes {
 		return res, retry.Fatal(l.agent, agent.PromptTooLarge(len(req.Prompt), agent.MaxPromptBytes))
 	}
-	bin, env, argv, err := l.prepareLaunch(req, model)
+	bin, env, argv, err := l.prepareLaunch(ctx, req, model)
 	if err != nil {
 		return res, retry.Fatal(l.agent, err)
 	}
@@ -152,7 +152,7 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	return res, refuseToolCallText(l.agent, req, res.Answer)
 }
 
-func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, []string, []string, error) {
+func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, model string) (string, []string, []string, error) {
 	if err := refusePolicyEnv(req); err != nil {
 		return "", nil, nil, err
 	}
@@ -171,7 +171,7 @@ func (l hubDispatch) prepareLaunch(req agent.RunOptions, model string) (string, 
 	if err != nil { // headless: a refused stored record fails the run, it never falls back to the built-ins
 		return "", nil, nil, err
 	}
-	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(context.Background(), st, env, argv) // never errs
+	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(ctx, st, env, argv) // never errs
 	env = append(env, cred...)
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)

@@ -50,10 +50,10 @@ func pinAll(t *testing.T) {
 func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	hermeticVault(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if got := Check(reg, now); len(got) != 1 || got[0].Agent != "gemini" || got[0].Status != StatusOK {
+	if got := Check(context.Background(), reg, now); len(got) != 1 || got[0].Agent != "gemini" || got[0].Status != StatusOK {
 		t.Fatalf("with no profile every external agent but gemini (Google pin) is off, got %+v", got)
 	}
-	if line := StaticLine(reg, Check(reg, now)); line != "" {
+	if line := StaticLine(reg, Check(context.Background(), reg, now)); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
 	}
 }
@@ -65,7 +65,7 @@ func TestCheckReadsTheRunSnapshot(t *testing.T) {
 	reg, now := preflightRegistry(true), time.Now()
 	for profile, want := range map[string]string{"dev": "dev", "": ""} {
 		ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: profile})
-		got := byAgent(check(ctx, reg, now))["claude"]
+		got := byAgent(Check(ctx, reg, now))["claude"]
 		if got.Profile != want {
 			t.Errorf("snapshot profile %q: claude pin %q, want %q", profile, got.Profile, want)
 		}
@@ -76,7 +76,7 @@ func TestCheckReadsTheRunSnapshot(t *testing.T) {
 func TestCheckOwnLoginIsUnpinned(t *testing.T) {
 	hermeticVault(t)
 	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": "zen-free"})
-	got := byAgent(Check(preflightRegistry(true), time.Now()))
+	got := byAgent(Check(context.Background(), preflightRegistry(true), time.Now()))
 	if len(got) != 3 {
 		t.Fatalf("want codex, opencode and gemini checked, copilot off: %+v", got)
 	}
@@ -95,22 +95,22 @@ func TestCheckPinFollowsTheListing(t *testing.T) {
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
 
-	ps := Check(reg, now)
+	ps := Check(context.Background(), reg, now)
 	if c := byAgent(ps)["codex"]; c.ProfileSource != "pin" || c.Status != statusStale {
 		t.Fatalf("codex before any listing = %+v, want stale via its profile pin", c)
 	}
 	if errs := RefreshStale(context.Background(), reg, ps, now, false); len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	if c := byAgent(Check(reg, now))["codex"]; c.Status != StatusOK || c.Served != "yes" {
+	if c := byAgent(Check(context.Background(), reg, now))["codex"]; c.Status != StatusOK || c.Served != "yes" {
 		t.Fatalf("codex after refresh = %+v, want ok/served", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "cold-model"})
-	if c := byAgent(Check(reg, now))["codex"]; c.Status != statusUnserved || c.Detail != "endpoint not READY" {
+	if c := byAgent(Check(context.Background(), reg, now))["codex"]; c.Status != statusUnserved || c.Detail != "endpoint not READY" {
 		t.Fatalf("codex on an unready endpoint = %+v", c)
 	}
 	setPins(t, map[string]string{"CODEX_MODEL": "good-model"})
-	if c := byAgent(Check(reg, now.Add(25*time.Hour)))["codex"]; c.Status != statusStale || c.Fix != "claude-code doctor --refresh" {
+	if c := byAgent(Check(context.Background(), reg, now.Add(25*time.Hour)))["codex"]; c.Status != statusStale || c.Fix != "claude-code doctor --refresh" {
 		t.Fatalf("codex past the TTL = %+v, want stale", c)
 	}
 }
@@ -122,10 +122,10 @@ func TestCheckUnservedAndMissingProfile(t *testing.T) {
 	reg, now := preflightRegistry(true), time.Now()
 	pinAll(t)
 	setPins(t, map[string]string{"COPILOT_MODEL": "gone-model"})
-	if errs := RefreshStale(context.Background(), reg, Check(reg, now), now, false); len(errs) != 0 {
+	if errs := RefreshStale(context.Background(), reg, Check(context.Background(), reg, now), now, false); len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	got := byAgent(Check(reg, now))
+	got := byAgent(Check(context.Background(), reg, now))
 	if c := got["copilot"]; c.Status != statusUnserved || c.Served != "no" || !strings.Contains(c.Fix, "models --live --profile dev") {
 		t.Fatalf("copilot with a missing model = %+v, want unserved with the discovery fix", c)
 	}
@@ -133,10 +133,10 @@ func TestCheckUnservedAndMissingProfile(t *testing.T) {
 		t.Fatalf("opencode = %+v, want ok", got["opencode"])
 	}
 	setPins(t, map[string]string{"OPENCODE_PROFILE": "nope"})
-	if c := byAgent(Check(reg, now))["opencode"]; c.Status != statusStale {
+	if c := byAgent(Check(context.Background(), reg, now))["opencode"]; c.Status != statusStale {
 		t.Fatalf("opencode on a missing profile = %+v, want stale", c)
 	}
-	if line := StaticLine(reg, Check(reg, now)); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy down") {
+	if line := StaticLine(reg, Check(context.Background(), reg, now)); !strings.Contains(line, "opencode stale") || !strings.Contains(line, "proxy down") {
 		t.Fatalf("static line %q must flag opencode and the proxy", line)
 	}
 }
@@ -147,7 +147,7 @@ func TestCheckNoCredentialIsUnserved(t *testing.T) {
 	reg := preflightRegistry(false)
 	pinAll(t)
 	setPins(t, map[string]string{"CODEX_MODEL": "m"})
-	if c := byAgent(Check(reg, time.Now()))["codex"]; c.Status != statusUnserved || !strings.Contains(c.Detail, "no credential for dev") {
+	if c := byAgent(Check(context.Background(), reg, time.Now()))["codex"]; c.Status != statusUnserved || !strings.Contains(c.Detail, "no credential for dev") {
 		t.Fatalf("codex without a credential = %+v", c)
 	}
 }
@@ -157,7 +157,7 @@ func TestUnreadableRecordsSurfaceInPreflight(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
 	reg := preflightRegistry(true)
 	now := time.Now()
-	ps := Check(reg, now)
+	ps := Check(context.Background(), reg, now)
 	if len(ps) != 1 || ps[0].Status != StatusError || ps[0].Served != "no" || !strings.Contains(ps[0].Detail, "agent-records is corrupt") {
 		t.Fatalf("Check = %+v; want a vault error, not unpinned agents", ps)
 	}
@@ -176,7 +176,7 @@ func TestCheckIgnoresDatabricksArm(t *testing.T) {
 	hermeticVault(t)
 	setPins(t, map[string]string{"CODEX_PROFILE": "dev"})
 	t.Setenv("HARNESS_DATABRICKS_ARM", "nosuch")
-	c := byAgent(Check(preflightRegistry(true), time.Now()))["codex"]
+	c := byAgent(Check(context.Background(), preflightRegistry(true), time.Now()))["codex"]
 	if c.ProfileSource != "pin" || c.Profile != "dev" || strings.Contains(c.Detail, "HARNESS_DATABRICKS_ARM") {
 		t.Fatalf("codex with the arm set = %+v, want the plain pin", c)
 	}

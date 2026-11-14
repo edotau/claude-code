@@ -186,7 +186,7 @@ func cmdSwitch(args []string) int {
 		return helptext.Fail("%v", err)
 	}
 	fmt.Printf("profile pinned: %s (relaunch to apply)\n", args[0])
-	preflight.Warm(os.Stdout, reg, time.Now())
+	preflight.Warm(context.Background(), os.Stdout, reg, time.Now())
 	return 0
 }
 

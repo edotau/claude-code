@@ -177,7 +177,7 @@ func (e *leaseEnv) recallReadsExpired() {
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return e.c, nil }
 	e.t.Setenv("CLAUDE_PROFILE", "fake")
 	e.t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
-	if _, err := embedQuery("gamma"); err != nil {
+	if _, err := embedQuery(context.Background(), "gamma"); err != nil {
 		e.t.Fatalf("an expired record must still serve recall: %v", err)
 	}
 }
@@ -442,7 +442,7 @@ func TestNewSemanticReadErrorIsReported(t *testing.T) {
 	prevRead := readEmbedCache
 	t.Cleanup(func() { readEmbedCache = prevRead })
 	readEmbedCache = func() (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
-	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
+	if _, err := embedQuery(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("unreadable cache: err %v, want 'unreadable'", err)
 	}
 }
@@ -473,14 +473,14 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 			return [][]float32{{1, 0, 0}}, nil
 		}}, nil
 	}
-	if _, err := embedQuery("q"); err != nil {
+	if _, err := embedQuery(context.Background(), "q"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("a stale marker must be removed on success: %v", err)
 	}
 	midQuery = func() { time.Sleep(30 * time.Millisecond); write(t, marker, "") } // file mtimes tick coarsely
-	if _, err := embedQuery("q"); err != nil {
+	if _, err := embedQuery(context.Background(), "q"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -547,7 +547,7 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		return &EmbedClient{Model: "other-gte"}, nil
 	}
-	_, err := embedQuery("q")
+	_, err := embedQuery(context.Background(), "q")
 	if _, statErr := os.Stat(filepath.Join(StateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {
 		t.Errorf("a local model mismatch wrote the endpoint backoff marker: %v", statErr)
 	}

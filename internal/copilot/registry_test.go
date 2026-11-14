@@ -12,7 +12,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -149,5 +152,18 @@ func TestArmRegistryEligibility(t *testing.T) {
 		if got := copilotRegistryEligible(false, dbx); got != c.want {
 			t.Errorf("%s route %q: registry eligible = %v, want %v", c.goos, c.route, got, c.want)
 		}
+	}
+}
+
+// The dry router base follows the run's own egress host, not the process env's.
+func TestRouterBaseUsesRunEgressHost(t *testing.T) {
+	t.Setenv(egress.EnvHost, "")
+	old := runningRouter
+	t.Cleanup(func() { runningRouter = old })
+	runningRouter = func(context.Context) (gateway.State, bool) { return gateway.State{Port: 4321}, true }
+	ctx := proc.WithValues(t.Context(), proc.Values{egress.EnvHost: "edge.example"})
+	got, err := copilotRouterBase(ctx, true)
+	if want := gateway.Base(4321) + gateway.ViaPrefix + "edge.example"; err != nil || got != want {
+		t.Fatalf("router base = %q, %v; want %q", got, err, want)
 	}
 }

@@ -425,6 +425,22 @@ func TestArmCopilotBYOK(t *testing.T) {
 	}
 }
 
+// An arm carried only by the run's values still puts a non-macOS route-less Databricks hop on routed BYOK.
+func TestArmedBYOKFromRunValues(t *testing.T) {
+	setGOOS(t, "linux")
+	t.Setenv(agentconfig.OverlayVar, "")
+	tg := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}}
+	arm := proc.Values{agentconfig.OverlayVar: `{"provider":"databricks","profile":"dbx"}`}
+	for name, c := range map[string]struct {
+		values proc.Values
+		want   bool
+	}{"armed": {arm, true}, "unarmed": {proc.Values{}, false}} {
+		if got := armedBYOK(proc.WithValues(t.Context(), c.values), nil, tg); got != c.want {
+			t.Errorf("%s: armedBYOK = %v, want %v", name, got, c.want)
+		}
+	}
+}
+
 // byokKeyState: child carries a BYOK key (the router's credential for dbx; task 2.1 mints cct_ARM there), and whether
 // a planted GitHub token or the workspace token reached it.
 func byokKeyState(child []string) (keyed, leaked bool) {

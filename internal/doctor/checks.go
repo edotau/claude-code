@@ -42,13 +42,13 @@ type check struct {
 }
 
 // doctorSection is one independent group of doctor rows, in order, and whether its hard checks passed.
-type doctorSection func() ([]check, bool)
+type doctorSection func(ctx context.Context) ([]check, bool)
 
 // doctorSections run concurrently and print in this order; a var so tests can swap in fakes.
 var doctorSections = []doctorSection{
 	collect(checkBinaryHealth), collect(checkProviderHealth), collect(checkToolHealth), collect(checkHostHealth),
-	func() ([]check, bool) { return vaultDoctorChecks(), true },
-	func() ([]check, bool) { return []check{formatsCheck()}, true },
+	func(context.Context) ([]check, bool) { return vaultDoctorChecks(), true },
+	func(context.Context) ([]check, bool) { return []check{formatsCheck()}, true },
 }
 
 // doctorWorkers caps the doctor sections probing at once.
@@ -79,10 +79,10 @@ type sectionRows struct {
 }
 
 // runChecks runs every read-only health check; ok is false when any hard check failed.
-func runChecks() (checks []check, ok bool) {
+func runChecks(ctx context.Context) (checks []check, ok bool) {
 	ok = true
 	for _, r := range fanOut(len(doctorSections), doctorWorkers, func(i int) sectionRows {
-		rows, sok := doctorSections[i]()
+		rows, sok := doctorSections[i](ctx)
 		return sectionRows{rows, sok}
 	}) {
 		checks = append(checks, r.rows...)
@@ -92,10 +92,10 @@ func runChecks() (checks []check, ok bool) {
 }
 
 // collect runs a check-callback section into its own rows; ok is false when one of its hard checks failed.
-func collect(run func(check func(bool, bool, string, string))) doctorSection {
-	return func() (checks []check, ok bool) {
+func collect(run func(ctx context.Context, check func(bool, bool, string, string))) doctorSection {
+	return func(ctx context.Context) (checks []check, ok bool) {
 		ok = true
-		run(func(pass, hard bool, name, detail string) {
+		run(ctx, func(pass, hard bool, name, detail string) {
 			checks = append(checks, check{Name: name, OK: pass, Hard: hard, Detail: detail})
 			if !pass && hard {
 				ok = false
@@ -105,7 +105,7 @@ func collect(run func(check func(bool, bool, string, string))) doctorSection {
 	}
 }
 
-func checkBinaryHealth(check func(bool, bool, string, string)) {
+func checkBinaryHealth(_ context.Context, check func(bool, bool, string, string)) {
 	bin, err := claude.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	for _, c := range codex.CodexConfigChecks() {
@@ -113,12 +113,12 @@ func checkBinaryHealth(check func(bool, bool, string, string)) {
 	}
 }
 
-func checkProviderHealth(check func(bool, bool, string, string)) {
+func checkProviderHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
-		for _, c := range providerCredentialChecks(reg, sel, serr, reg.Names()) {
+		for _, c := range providerCredentialChecks(ctx, reg, sel, serr, reg.Names()) {
 			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
 		check(true, false, "opencode route", routeDetail("opencode"))
@@ -127,15 +127,15 @@ func checkProviderHealth(check func(bool, bool, string, string)) {
 		check(true, false, "copilot route", routeDetail("copilot"))
 		check(true, false, "codex route", routeDetail("codex"))
 		check(true, false, "gemini route", routeDetail("gemini"))
-		for _, pin := range preflight.Check(reg, time.Now()) {
+		for _, pin := range preflight.Check(ctx, reg, time.Now()) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
 	}
 }
 
-func checkToolHealth(check func(bool, bool, string, string)) {
+func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	for _, s := range tools.StatusAll() {
-		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(s))
+		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(ctx, s))
 	}
 	for _, spec := range agent.Roster() {
 		pass, detail := agentVersionDetail(spec)
@@ -146,13 +146,13 @@ func checkToolHealth(check func(bool, bool, string, string)) {
 	}
 }
 
-func checkHostHealth(check func(bool, bool, string, string)) {
+func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
-	proxyDetail, proxyBad := proxyStatus()
+	proxyDetail, proxyBad := proxyStatus(ctx)
 	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
 	check(rtkOK, false, "rtk compressor", rtkDetail)
-	tsOK, tsDetail := tailscale.Doctor(context.Background())
+	tsOK, tsDetail := tailscale.Doctor(ctx)
 	check(tsOK, false, "tailscale", tsDetail)
 	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
@@ -182,14 +182,14 @@ const credentialProbeWorkers = 4
 var probeCredential = providers.ProbeCredential
 
 // providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
-func providerCredentialChecks(reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
+func providerCredentialChecks(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
 	agents := sync.OnceValue(providers.AgentRecords) // one vault read per run, not per profile
 	return fanOut(len(names), credentialProbeWorkers, func(i int) check {
-		return providerCredentialCheck(reg, sel, selectErr, names[i], agents)
+		return providerCredentialCheck(ctx, reg, sel, selectErr, names[i], agents)
 	})
 }
 
-func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, selectErr error, name string,
+func providerCredentialCheck(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, name string,
 	agents func() map[string]vault.AgentRecord) check {
 	p := reg.Providers[name]
 	session := selectErr == nil && sel.Provider == p
@@ -202,7 +202,7 @@ func providerCredentialCheck(reg *providers.Registry, sel providers.Selection, s
 	}
 	present := providers.CredentialPresent(p)
 	if present {
-		present, label = probeCredentialLabel(p, label)
+		present, label = probeCredentialLabel(ctx, p, label)
 	}
 	if !present {
 		present, label = alternativeCredentialLabel(name, label)
@@ -224,9 +224,9 @@ func alternativeCredentialLabel(name, label string) (bool, string) {
 	return true, label + " · " + alt
 }
 
-func probeCredentialLabel(p *providers.Provider, label string) (bool, string) {
+func probeCredentialLabel(ctx context.Context, p *providers.Provider, label string) (bool, string) {
 	present := true
-	pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	status, detail := probeCredential(pctx, p)
 	cancel()
 	switch status {
@@ -434,7 +434,7 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 
 // proxyStatus is the running proxy's port, pid and build; bad is true when it runs an older binary than this one
 // or its proxy.json is unreadable (so the build cannot be checked).
-func proxyStatus() (detail string, bad bool) {
+func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	st, err := gateway.ReadState()
 	if errors.Is(err, os.ErrNotExist) {
 		return "not running", false
@@ -442,7 +442,7 @@ func proxyStatus() (detail string, bad bool) {
 	if err != nil || st.Port == 0 {
 		return "proxy.json unreadable (cannot check the running build)", true
 	}
-	h, ok := gateway.Holder(context.Background(), st.Port)
+	h, ok := gateway.Holder(ctx, st.Port)
 	if !ok {
 		return "stale proxy.json (port " + strconv.Itoa(st.Port) + " not answering)", false
 	}
@@ -481,9 +481,9 @@ func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 }
 
 // toolDoctorDetail renders one tool's doctor line: an agent's bin/ entry, else path + version, then extra PATH copies.
-func toolDoctorDetail(s tools.Status) string {
+func toolDoctorDetail(ctx context.Context, s tools.Status) string {
 	if bin, ok := paths.AgentName(s.Name); ok {
-		return agentDoctorDetail(s, bin)
+		return agentDoctorDetail(ctx, s, bin)
 	}
 	if s.Path == "" {
 		if s.Hint != "" {
@@ -503,12 +503,12 @@ func toolDoctorDetail(s tools.Status) string {
 	case s.LocalBin:
 		detail.WriteString(" (~/.local/bin)")
 	}
-	detail.WriteString(extraPATHCopies(s.Name, s.Path))
+	detail.WriteString(extraPATHCopies(ctx, s.Name, s.Path))
 	return detail.String()
 }
 
 // agentDoctorDetail renders BinDir/<bin>: `<dst> → <Target> <version>`, a direct install, or why it is unusable.
-func agentDoctorDetail(s tools.Status, bin string) string {
+func agentDoctorDetail(ctx context.Context, s tools.Status, bin string) string {
 	dst := filepath.Join(paths.BinDir(), bin)
 	if _, err := paths.AgentBin(bin); err != nil {
 		if s.Path != "" {
@@ -524,7 +524,7 @@ func agentDoctorDetail(s tools.Status, bin string) string {
 	}
 	version := s.Version
 	if s.Target == "" || s.Target != s.Path {
-		version = toolPATHVersion(dst)
+		version = toolPATHVersion(ctx, dst)
 	}
 	if version != "" {
 		detail.WriteString(" ")
@@ -536,12 +536,12 @@ func agentDoctorDetail(s tools.Status, bin string) string {
 	if s.NPMGlobal && s.Target == s.Path {
 		detail.WriteString(" (npm-global)")
 	}
-	detail.WriteString(extraPATHCopies(s.Name, dst))
+	detail.WriteString(extraPATHCopies(ctx, s.Name, dst))
 	return detail.String()
 }
 
 // extraPATHCopies lists PATH copies of name that resolve somewhere other than primary, as " · also on PATH: …".
-func extraPATHCopies(name, primary string) string {
+func extraPATHCopies(ctx context.Context, name, primary string) string {
 	first, _ := filepath.Abs(paths.Canon(primary)) // a broken symlink compares by its own path
 	var out strings.Builder
 	for _, path := range toolPATHCopies(name) {
@@ -549,7 +549,7 @@ func extraPATHCopies(name, primary string) string {
 			continue
 		}
 		extra := path
-		if version := toolPATHVersion(path); version != "" {
+		if version := toolPATHVersion(ctx, path); version != "" {
 			extra += " " + version
 		}
 		out.WriteString(" · also on PATH: ")
@@ -586,9 +586,9 @@ func toolPATHCopies(name string) []string {
 const pathCopyVersionTimeout = 2 * time.Second
 
 // toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
-func toolPATHVersion(path string) string {
+func toolPATHVersion(ctx context.Context, path string) string {
 	return tools.ProbedVersionLine(path, func(p string) string {
-		return tools.FirstVersionLine(context.Background(), p, pathCopyVersionTimeout)
+		return tools.FirstVersionLine(ctx, p, pathCopyVersionTimeout)
 	})
 }
 

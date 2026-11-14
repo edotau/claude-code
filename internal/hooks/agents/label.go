@@ -3,6 +3,7 @@ package agents
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -18,7 +19,7 @@ type LabelInput struct {
 }
 
 // dispatchLabel runs the hook's type gate, pin and label on a synthetic spawn; blocked is the type gate's deny.
-func dispatchLabel(in LabelInput) (label, model, blocked string) {
+func dispatchLabel(ctx context.Context, in LabelInput) (label, model, blocked string) {
 	if deny := typeBlock(in.Type, in.Brief); deny != nil {
 		return "", "", deny.Reason
 	}
@@ -31,7 +32,7 @@ func dispatchLabel(in LabelInput) (label, model, blocked string) {
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
-	label = labelModel(run, updated, in.Type, task) // applyLabel's prefix, whatever the description
+	label = labelModel(ctx, run, updated, in.Type, task) // applyLabel's prefix, whatever the description
 	model, _ = updated["model"].(string)
 	return label, model, ""
 }
@@ -49,7 +50,7 @@ type LabelRow struct {
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
-	label, pinned, blocked := dispatchLabel(in)
+	label, pinned, blocked := dispatchLabel(context.Background(), in)
 	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked}
 }
 

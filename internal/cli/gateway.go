@@ -289,7 +289,7 @@ func resolveGatewayRoute(q agent.RouteReq, format string) int {
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
-	return renderGatewayRoute(name, res, format)
+	return renderGatewayRoute(ctx, name, res, format)
 }
 
 // gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
@@ -323,14 +323,14 @@ func checkCoworkerFlags(name, confinement, profile, format, fallback, want, mode
 	return 0
 }
 
-func renderGatewayRoute(name string, res router.PickResult, format string) int {
+func renderGatewayRoute(ctx context.Context, name string, res router.PickResult, format string) int {
 	src := routeSources{Weights: providers.RouteWeightsSource()}
-	pins, err := routePins()
+	pins, err := routePins(ctx)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
 	rj := newRouteJSON(res, src, pins)
-	ps, err := gateway.LoadStatus(context.Background())
+	ps, err := gateway.LoadStatus(ctx)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
@@ -381,9 +381,9 @@ type pinJSON struct {
 // pinAgents is the routed agents, sorted: the order the text view prints pins in.
 var pinAgents = slices.Sorted(slices.Values(providers.RouteAgents))
 
-// routePins maps agent.AgentPins onto the emitted shape.
-func routePins() (map[string]pinJSON, error) {
-	pins, err := agent.AgentPins()
+// routePins maps agent.AgentPinsContext onto the emitted shape.
+func routePins(ctx context.Context) (map[string]pinJSON, error) {
+	pins, err := agent.AgentPinsContext(ctx)
 	if err != nil {
 		return nil, err
 	}

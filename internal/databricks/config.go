@@ -1,6 +1,7 @@
 package databricks
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -54,9 +55,9 @@ func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 }
 
 // resolve returns the provider row and https host: --host builds a preset row, else the registry row's.
-func resolve(f cfgFlags) (*providers.Provider, string, error) {
+func resolve(ctx context.Context, f cfgFlags) (*providers.Provider, string, error) {
 	reg, lerr := providers.Load() // nil reg: --host alone still renders, under the generic name
-	name := resolveProfile(reg, f.profile)
+	name := resolveProfile(ctx, reg, f.profile)
 	if name == "" {
 		name = providers.GroupDatabricks
 	}
@@ -135,8 +136,8 @@ func synth(name, host, wire string) (*providers.Provider, string, error) {
 	return p, host, nil
 }
 
-func (f cfgFlags) options(target, self string) (renderOptions, error) {
-	p, host, err := resolve(f)
+func (f cfgFlags) options(ctx context.Context, target, self string) (renderOptions, error) {
+	p, host, err := resolve(ctx, f)
 	if err != nil {
 		return renderOptions{}, err
 	}
@@ -162,7 +163,7 @@ func config(args []string) int {
 		return 2
 	}
 	self, _ := os.Executable()
-	o, err := f.options(target, self)
+	o, err := f.options(context.Background(), target, self)
 	if err == nil {
 		var res renderResult
 		if res, err = renderConfig(o); err == nil {
@@ -225,7 +226,7 @@ func rescue(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	res, file, err := renderScratch(fs, f)
+	res, file, err := renderScratch(context.Background(), fs, f)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks rescue: %v\n", err)
 		return 2
@@ -255,12 +256,12 @@ func rescue(args []string) int {
 }
 
 // renderScratch renders the claude config for f and writes it to a scratch file.
-func renderScratch(fs *flag.FlagSet, f cfgFlags) (renderResult, string, error) {
+func renderScratch(ctx context.Context, fs *flag.FlagSet, f cfgFlags) (renderResult, string, error) {
 	if err := checkProfileFlag(fs, f.profile); err != nil {
 		return renderResult{}, "", err
 	}
 	self, _ := os.Executable()
-	o, err := f.options(targetClaude, self)
+	o, err := f.options(ctx, targetClaude, self)
 	if err != nil {
 		return renderResult{}, "", err
 	}

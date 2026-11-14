@@ -53,7 +53,7 @@ func DiscoverModels(ctx context.Context, q ModelQuery) (ModelResult, error) {
 	if !slices.Contains([]string{agentid.Codex, agentid.Copilot, agentid.OpenCode}, q.Agent) {
 		return res, fmt.Errorf("discovery: unknown agent %q", q.Agent)
 	}
-	p, err := catalog.Profile(q.Agent, q.Profile)
+	p, err := catalog.Profile(ctx, q.Agent, q.Profile)
 	if err != nil {
 		return res, profileErr(q, err)
 	}

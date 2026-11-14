@@ -135,6 +135,9 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if err := routeOptions(&opts, route, env, req, t); err != nil {
 		return opts, nil, done, err
 	}
+	if armedBYOK(ctx, route, t) {
+		armBYOK(&opts)
+	}
 	return opts, env, done, nil
 }
 
@@ -149,10 +152,12 @@ func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, r
 	}
 	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
 	applyCopilotToken(opts, env)
-	if route == nil && t.Provider.Auth.Login == "" && (router.ArmProfile() != "" || macOSDatabricks(t)) {
-		armBYOK(opts)
-	}
 	return nil
+}
+
+// armedBYOK is a route-less, login-free hop on routed BYOK: inside a databricks arm, or a Databricks row on macOS.
+func armedBYOK(ctx context.Context, route *copilotRegistryRoute, t providers.Target) bool {
+	return route == nil && t.Provider.Auth.Login == "" && (router.ArmProfileContext(ctx) != "" || macOSDatabricks(t))
 }
 
 // macOSDatabricks is a Databricks row on macOS, which skips the registry and so runs routed BYOK.
@@ -315,23 +320,24 @@ func (e copilotEngine) FallbackTarget(reg *providers.Registry) (providers.Target
 }
 
 func (copilotEngine) DescribeRoute(reg *providers.Registry) agent.RouteInfo {
-	return describeCopilotRoute(reg)
+	return describeCopilotRoute(context.Background(), reg)
 }
 
 func (copilotEngine) Gate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	return copilotGate(reg, t)
+	return copilotGate(context.Background(), reg, t)
 }
 
 // GateExplicit also turns a gate move off the pinned GitHub profile into a quota error and keeps the requested tier.
 func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	ctx := context.Background() // the Driver method carries no ctx yet
 	if req.Fallback == router.FallbackNone {
-		if err := gateNoFallback(t); err != nil {
+		if err := gateNoFallback(ctx, t); err != nil {
 			return providers.Target{}, "", err
 		}
 		return t, "", nil
 	}
 	from := t.Provider
-	t, note, err := copilotGate(reg, t)
+	t, note, err := copilotGate(ctx, reg, t)
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
@@ -342,11 +348,11 @@ func (e copilotEngine) GateExplicit(req agent.RunOptions, reg *providers.Registr
 }
 
 // gateNoFallback refuses an unworkable GitHub target under fallback none instead of moving it to Databricks.
-func gateNoFallback(t providers.Target) error {
+func gateNoFallback(ctx context.Context, t providers.Target) error {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return nil
 	}
-	if detail, ok := pinnedHeadroom(context.Background(), t.Provider.Login); !ok {
+	if detail, ok := pinnedHeadroom(ctx, t.Provider.Login); !ok {
 		return copilotFatal(fmt.Errorf("%s; GitHub profile %s refused: fallback none forbids the Databricks "+
 			"move (fix the account or drop fallback none)", detail, t.Provider.Name))
 	}

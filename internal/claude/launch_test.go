@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -381,7 +382,7 @@ func TestKeepShellEndpointDefaultBase(t *testing.T) {
 	}{{"https://api.anthropic.com", false}, {"https://API.anthropic.com/", false}, {"https://shell.example", true}} {
 		t.Setenv("ANTHROPIC_BASE_URL", tc.base)
 		plan := agent.Plan{Set: map[string]string{}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}}, Argv: []string{"--settings", "/tmp/ov.json"}}
-		keepShellEndpoint(&plan, agent.LaunchOptions{})
+		keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 		if plan.ForeignBase != tc.foreign || (len(plan.Files) == 0) != tc.foreign {
 			t.Errorf("base %q: ForeignBase=%v files=%v, want foreign=%v", tc.base, plan.ForeignBase, plan.Files, tc.foreign)
 		}
@@ -393,7 +394,7 @@ func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
 	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
 		Argv: []string{"--settings", "/tmp/ov.json"}}
-	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if plan.ForeignBase || len(plan.Files) == 0 || plan.Set["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:18765/p/dev" {
 		t.Errorf("inherited proxy base won: foreign=%v files=%v set=%q", plan.ForeignBase, plan.Files, plan.Set["ANTHROPIC_BASE_URL"])
 	}
@@ -407,7 +408,7 @@ func TestKeepShellEndpointDispatchTaggedBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/d/20261113T222949.044-claude/p/dev")
 	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
 		Argv: []string{"--settings", "/tmp/ov.json"}}
-	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if plan.ForeignBase || len(plan.Files) == 0 || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
 		t.Errorf("tagged parent base read as foreign: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
 	}
@@ -418,9 +419,31 @@ func TestKeepShellEndpointOtherPortProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9999/p/prod")
 	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
 		Argv: []string{"--settings", "/tmp/ov.json"}}
-	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if !plan.ForeignBase || len(plan.Files) != 0 || !slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
 		t.Errorf("other-port base overridden: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
+	}
+}
+
+// TestClaudePlanReadsRunSnapshot: a plan decides the shell endpoint from its run snapshot, not the process env.
+func TestClaudePlanReadsRunSnapshot(t *testing.T) {
+	hermetic(t, gwProviders)
+	for _, tc := range []struct {
+		name, ambient, run string
+		foreign            bool
+	}{
+		{"snapshot base is foreign", "", "https://shell.example", true},
+		{"ambient base is not the run's", "https://shell.example", "", false},
+	} {
+		t.Setenv("ANTHROPIC_BASE_URL", tc.ambient)
+		ctx := proc.WithValues(context.Background(), proc.Values{"ANTHROPIC_BASE_URL": tc.run})
+		p, err := claudePlan(ctx, agent.LaunchOptions{Provider: "gw"}, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if p.ForeignBase != tc.foreign || slices.Contains(p.Keep, "ANTHROPIC_BASE_URL") != tc.foreign {
+			t.Errorf("%s: ForeignBase=%v keep=%v, want foreign=%v", tc.name, p.ForeignBase, p.Keep, tc.foreign)
+		}
 	}
 }
 
@@ -441,7 +464,7 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	readProxyState = func() (gateway.State, error) { return gateway.State{Port: 18765}, nil }
 	t.Cleanup(func() { readProxyState = orig })
 	plan := agent.Plan{Set: map[string]string{}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}}, Argv: []string{"--settings", "/tmp/ov.json"}}
-	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if plan.ForeignBase || len(plan.Files) == 0 || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
 		t.Errorf("session proxy base kept: foreign=%v files=%v keep=%v", plan.ForeignBase, plan.Files, plan.Keep)
 	}
@@ -453,7 +476,7 @@ func TestKeepShellEndpointSessionRouteBaseToFirstParty(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "qa")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://qa.cloud.databricks.com/serving-endpoints/anthropic/")
 	plan := agent.Plan{Set: map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "tok"}}
-	keepShellEndpoint(&plan, agent.LaunchOptions{})
+	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
 	if plan.ForeignBase || plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] == "" || slices.Contains(plan.Keep, "ANTHROPIC_BASE_URL") {
 		t.Errorf("session route base kept: foreign=%v token=%v keep=%v", plan.ForeignBase, plan.Set["CLAUDE_CODE_OAUTH_TOKEN"] != "", plan.Keep)
 	}

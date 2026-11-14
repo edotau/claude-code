@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -54,7 +55,7 @@ func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 // assertRecallFollows: recall serves the new entry for the old one's terms; review reports the two bad refs.
 func assertRecallFollows(t *testing.T, root string) {
 	t.Helper()
-	picks, _ := recallPicks(root, "", "shard layout audit run concurrently", false, false)
+	picks, _ := recallPicks(context.Background(), root, "", "shard layout audit run concurrently", false, false)
 	if len(picks) != 1 || picks[0].Entry.ID != "b0000002" {
 		t.Fatalf("recall = %+v; want only the replacing entry b0000002", picks)
 	}
@@ -154,7 +155,7 @@ func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	if b := blockOf(t, mustRead(t, path), "9d40e6c1"); strings.Contains(b, "Replaced by") || isSupersededBlock(b) {
 		t.Fatalf("partly struck entry kept a pointer or reads as replaced:\n%s", b)
 	}
-	picks, _ := recallPicks(root, "", "dream stamps retry blocked nothing edited", false, false)
+	picks, _ := recallPicks(context.Background(), root, "", "dream stamps retry blocked nothing edited", false, false)
 	if len(picks) != 1 || picks[0].Entry.ID != "9d40e6c1" {
 		t.Fatalf("recall = %+v; want the partly struck entry 9d40e6c1", picks)
 	}

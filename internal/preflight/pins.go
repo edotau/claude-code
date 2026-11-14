@@ -46,14 +46,9 @@ func (p Pin) Line() string {
 	return s
 }
 
-// Check is check at command entry: with no run snapshot the process environment is read as it stands.
-func Check(reg *providers.Registry, now time.Time) []Pin {
-	return check(context.Background(), reg, now)
-}
-
-// check resolves cached pins from ctx's run snapshot without network or writes; an unreadable vault returns one
-// StatusError diagnostic.
-func check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
+// Check resolves cached pins from ctx's run snapshot (the process environment when it has none) without network or
+// writes; an unreadable vault returns one StatusError diagnostic.
+func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	pins, err := agent.AgentPinsContext(ctx)
 	if err != nil {
 		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}

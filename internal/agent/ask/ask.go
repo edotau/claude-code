@@ -13,12 +13,12 @@ import (
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -58,6 +58,7 @@ func retargetPage(fs *flag.FlagSet, name string) {
 
 // askRun is one ask invocation: its flags plus what the setup phases resolve.
 type askRun struct {
+	ctx         context.Context // the run's values: no snapshot at the command entry, so the env the phases export
 	f           *askFlags
 	fs          *flag.FlagSet
 	args        []string
@@ -97,7 +98,7 @@ func runTo(args []string, resume bool, verb string, out io.Writer) int {
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{f: f, fs: fs, args: args, resume: resume, out: out}
+	r := &askRun{ctx: context.Background(), f: f, fs: fs, args: args, resume: resume, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -133,14 +134,15 @@ func (r *askRun) config() (int, bool) {
 
 // LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
 func LoadOverlay(value, busy string) (agentconfig.Overlay, error) {
-	if busy != "" && cmp.Or(value, os.Getenv(agentconfig.OverlayVar)) == "-" {
+	ctx := context.Background()
+	if busy != "" && cmp.Or(value, proc.Value(ctx, agentconfig.OverlayVar)) == "-" {
 		from := "--overlay -"
 		if value == "" {
 			from = agentconfig.OverlayVar + "=-"
 		}
 		return agentconfig.Overlay{}, errors.New(from + ": " + busy)
 	}
-	return agentconfig.LoadOverlay(agentconfig.DispatchOverlay(value), os.Stdin)
+	return agentconfig.LoadOverlayContext(ctx, agentconfig.DispatchOverlayContext(ctx, value), os.Stdin)
 }
 
 // remoteWithHost refuses an overlay remote on a run that goes to --host (typed, or restored from a record).
@@ -241,9 +243,9 @@ func (r *askRun) checkArm() (int, bool) {
 		return r.fail(err, ApplyCode(err))
 	}
 	if picks || r.jobAutoArm() {
-		r.auto = router.ArmProfile()
+		r.auto = router.ArmProfileContext(r.ctx)
 	}
-	if err := cmp.Or(checkNative(f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
+	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
 	if !batchLines {
@@ -270,7 +272,7 @@ func ApplyCode(err error) int {
 
 // confineLead narrows --provider and the lead to the overlay's confinement, reporting whether either changed.
 func confineLead(ag string, f *askFlags) bool {
-	profile, provider := router.ConfineLead(ag, f.provider, f.leadProvider, f.model)
+	profile, provider := router.ConfineLeadContext(context.Background(), ag, f.provider, f.leadProvider, f.model)
 	changed := profile != f.provider || provider != f.leadProvider
 	f.provider, f.leadProvider = profile, provider
 	return changed
@@ -424,7 +426,7 @@ func (r *askRun) applyRecord() (int, bool) {
 	if r.jobRec != nil {
 		return 0, false // a --job record already holds the fold
 	}
-	if rc, done := loadAskRetry(r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
+	if rc, done := loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
 		return rc, true
 	}
 	if f.retry != "" && !helptext.Explicit(r.fs, "session") {
@@ -541,7 +543,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		if saveErr != nil { // the --job child loads this record: without it the job could never start
 			return failAsk(format, name, fmt.Errorf("save dispatch record: %w", saveErr))
 		}
-		return askSpawn(fs, prepared, native, format, name)
+		return askSpawn(ctx, fs, prepared, native, format, name)
 	}
 	if run != nil {
 		return run(ctx, cl, prepared, req)
@@ -580,14 +582,6 @@ func quietPrinted(notify func(string), pf *agent.Preflight) func(string) {
 			notify(agent.SkippedLead + strings.Join(kept, "; "))
 		}
 	}
-}
-
-// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 45m.
-func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
-	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
-		return agent.DefaultToolsTimeout
-	}
-	return timeout
 }
 
 func warnAskMemory(ag string, enableMemory bool) {
@@ -641,9 +635,12 @@ func prepareExitCode(err error) int {
 	return 1
 }
 
-// askSpawn detaches a prepared dispatch as a background job.
-func askSpawn(fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
-	if err := agent.Spawn(&prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
+// askSpawn detaches a prepared dispatch as a background job; its child starts from the run values it was prepared with.
+func askSpawn(ctx context.Context, fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
+	if prepared.Opts.Values != nil {
+		ctx = proc.WithValues(ctx, prepared.Opts.Values)
+	}
+	if err := agent.SpawnContext(ctx, &prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
 		return failAsk(format, name, failSpawn(&prepared.Record, err))
 	}
 	if err := reportBackgroundStart(format, prepared.Record); err != nil {

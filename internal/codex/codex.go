@@ -62,7 +62,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
 	if codexJSON {
-		sandbox, _ := codexSandbox(req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
+		sandbox, _ := codexSandbox(ctx, req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
 		sink = &denialSink{next: sink, p: req.Permissions, tools: req.Tools, sandbox: sandbox, commands: map[string]string{}}
 		return agent.RunStream(ctx, e.Name(), cmd, tail, res, sink, parseCodexStream)
 	}
@@ -92,7 +92,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if emulated = append(emulated, base...); err != nil || !s.Headless {
 		return env, argv, emulated, cleanup, err
 	}
-	sandbox, err := codexSandbox(s.Tools)
+	sandbox, err := codexSandbox(ctx, s.Tools)
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
@@ -101,7 +101,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if err != nil {
 		return env, argv, emulated, func() { remove(); cleanup() }, err
 	}
-	env, notes, rmCache, err := codexToolsEnv(env, s.Tools, sandbox)
+	env, notes, rmCache, err := codexToolsEnv(ctx, env, s.Tools, sandbox)
 	return env, argv, append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
 }
 
@@ -296,7 +296,7 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 		argv = append(argv, "-c", "model_catalog_json="+agentconfig.TOMLQuote(path))
 		env = env.With(settings.CodexCatalogEnv, path)
 	}
-	return env.Env(), codexHeadless(argv, h), nil
+	return env.Env(), codexHeadless(ctx, argv, h), nil
 }
 
 // codexHeaderEnv names the env var carrying header k's value into codex; punctuation is hex-escaped to stay distinct.
@@ -322,7 +322,8 @@ func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless)
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	return nil, codexHeadless(proc.Values{"model_provider": agentconfig.TOMLQuote("openai"), "model": agentconfig.TOMLQuote(model)}.Args("-c"), h), nil
+	// Login carries no ctx (the interface is agent.Engine), so the sandbox opt-ins come from the ambient env.
+	return nil, codexHeadless(context.Background(), proc.Values{"model_provider": agentconfig.TOMLQuote("openai"), "model": agentconfig.TOMLQuote(model)}.Args("-c"), h), nil
 }
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml; unresolvable is an unusable path.
@@ -370,13 +371,13 @@ func codexChatGPTLogin() error {
 }
 
 // codexHeadless appends the `codex exec` form when h is set; nil h is the interactive launch.
-func codexHeadless(argv []string, h *agent.Headless) []string {
+func codexHeadless(ctx context.Context, argv []string, h *agent.Headless) []string {
 	if h == nil {
 		return argv
 	}
-	sandbox, _ := codexSandbox(h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
+	sandbox, _ := codexSandbox(ctx, h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
-	if sandbox == "workspace-write" && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
+	if sandbox == "workspace-write" && proc.Value(ctx, codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	argv = append(argv, codexLeafArgs.Args("-c")...)

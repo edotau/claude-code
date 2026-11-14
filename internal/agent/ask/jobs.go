@@ -200,16 +200,17 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 }
 
 // liveRequest is the RunOptions a live holder keeps for its whole session.
-func liveRequest(s *askState, perms agent.Permissions, name string) agent.RunOptions {
-	_, cprof := router.Confined() // a live holder runs one hop with no chain: it starts on the confinement's profile
-	return agent.RunOptions{Model: *s.Model, Provider: cmp.Or(router.ArmProfile(), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
+func liveRequest(ctx context.Context, s *askState, perms agent.Permissions, name string) agent.RunOptions {
+	_, cprof := router.ConfinedContext(ctx) // a live holder runs one hop with no chain: it starts on the confinement's profile
+	return agent.RunOptions{Model: *s.Model, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
 }
 
 func startLive(s *askState, perms agent.Permissions, name, as, format string) int {
-	req := liveRequest(s, perms, name)
+	ctx := context.Background()
+	req := liveRequest(ctx, s, perms, name)
 	req.Identity = as
 	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
@@ -224,7 +225,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	if err != nil {
 		return failAsk(format, name, err)
 	}
-	rec, err := newClient().Record(context.Background(), req, nil)
+	rec, err := newClient().Record(ctx, req, nil)
 	if err != nil {
 		return failAsk(format, name, err)
 	}
@@ -232,7 +233,7 @@ func startLive(s *askState, perms agent.Permissions, name, as, format string) in
 	if err := rec.Save(); err != nil {
 		return failAsk(format, name, err)
 	}
-	if err := agent.Spawn(&rec, nil); err != nil {
+	if err := agent.SpawnContext(ctx, &rec, nil); err != nil {
 		return failAsk(format, name, abandonLive(&rec, err))
 	}
 	if err := agent.WaitLiveReady(rec.ID, rec.PID); err != nil {

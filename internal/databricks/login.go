@@ -131,12 +131,12 @@ func login(args []string) int {
 	if code, bad := checkHeadless(f.h, f.as); bad {
 		return code
 	}
-	return loginRowAs(f)
+	return loginRowAs(context.Background(), f)
 }
 
 // loginRowAs resolves the profile and identity for f and runs the service-principal mint or the browser login.
-func loginRowAs(f loginFlags) int {
-	p, err := loginProfile(f.fs, f.profile)
+func loginRowAs(ctx context.Context, f loginFlags) int {
+	p, err := loginProfile(ctx, f.fs, f.profile)
 	if err != nil {
 		return fail("login: %v", err)
 	}
@@ -232,12 +232,12 @@ func flagSet(fs *flag.FlagSet, names ...string) bool {
 }
 
 // loginProfile resolves the profile to log in, refusing a non-oauth one unless --auth-type was passed.
-func loginProfile(fs *flag.FlagSet, profileName string) (*providers.Provider, error) {
+func loginProfile(ctx context.Context, fs *flag.FlagSet, profileName string) (*providers.Provider, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, err
 	}
-	name := resolveProfile(reg, profileName)
+	name := resolveProfile(ctx, reg, profileName)
 	if name == "" {
 		return nil, errNoProfile
 	}

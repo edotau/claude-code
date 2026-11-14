@@ -29,10 +29,15 @@ func SetAgentPin(agent, field, val string) (bool, error) {
 		return false, nil
 	}
 	if field == "PROFILE" {
-		if _, err := ApplyProfile([]string{agent}, val); err != nil {
+		_, err := ApplyProfile([]string{agent}, val)
+		return err == nil, err
+	}
+	if val != "" { // clearing a pin always applies, as an off profile does
+		if err := agentpkg.ValidateRecord(agent, next); err != nil {
 			return false, err
 		}
-	} else if err := vault.SetAgentRecord(agent, next); err != nil {
+	}
+	if err := vault.SetAgentRecord(agent, next); err != nil {
 		return false, err
 	}
 	return true, nil

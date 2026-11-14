@@ -2,6 +2,7 @@
 package configure
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"time"
@@ -35,12 +36,17 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	return changed, providers.ClearLastProfilesFor(agents...)
 }
 
-// ValidProfile rejects a profile some agent cannot run on, before any record is written.
+// ValidProfile rejects a profile some agent cannot run on, and an edit its record would not survive, before any record
+// is written; "" (off) always passes.
 func ValidProfile(agents []string, profile string) error {
 	if profile == "" {
 		return nil
 	}
 	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	recs, err := vault.ReadAgentRecords(agents)
 	if err != nil {
 		return err
 	}
@@ -50,6 +56,12 @@ func ValidProfile(agents []string, profile string) error {
 		}
 		if row := reg.Providers[profile]; row != nil && a != "claude" && !agentpkg.CanServe(a, row) {
 			return fmt.Errorf("%s cannot serve profile %q", a, profile)
+		}
+		if next := recs[a]; next.Profile != profile {
+			next.Profile = profile
+			if err := agentpkg.ValidateRecord(a, next); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -134,13 +146,13 @@ func AgentProfile(w io.Writer, name, profile string, clear bool) error {
 	case profile == "":
 		fmt.Fprintln(w, profileStatus(name))
 	default:
-		return setAgentProfile(w, name, profile)
+		return setAgentProfile(context.Background(), w, name, profile)
 	}
 	return nil
 }
 
 // setAgentProfile pins name to profile and prints what changed; copilot on a login-less github row gets a note.
-func setAgentProfile(w io.Writer, name, profile string) error {
+func setAgentProfile(ctx context.Context, w io.Writer, name, profile string) error {
 	reg, err := providers.Load()
 	if err != nil {
 		return err
@@ -152,7 +164,7 @@ func setAgentProfile(w io.Writer, name, profile string) error {
 		fmt.Fprintf(w, "copilot: %s has no login; billing follows gh's active account (add a login in `claude-code configure github`)\n", profile)
 	}
 	fmt.Fprintf(w, "%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
-	preflight.Warm(w, reg, time.Now())
+	preflight.Warm(ctx, w, reg, time.Now())
 	if name == "codex" {
 		fmt.Fprintln(w, "plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
 	}

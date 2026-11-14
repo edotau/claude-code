@@ -42,15 +42,15 @@ type batchOpts struct {
 }
 
 // buildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
-func buildTask(l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string, seen map[string]bool,
-	newClient func() *agent.Client) (batchTask, error) {
+func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
+	seen map[string]bool, newClient func() *agent.Client) (batchTask, error) {
 	t, err := parseTask(l, o.Agent, base, timeoutSet, cwd, seen)
 	if err != nil {
 		return t, err
 	}
 	req := t.Req
 	req.Agent, req.Fallback, req.Native = t.Agent, o.Fallback, o.Native
-	if req, err = confineLine(t.Agent, req); err != nil {
+	if req, err = confineLine(ctx, t.Agent, req); err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	if autoPickedArm != "" && l.Task.Profile == "" && base.Provider == "" {
@@ -87,7 +87,7 @@ func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.R
 	}
 	seen := map[string]bool{}
 	build := func(l parsedLine) batchTask {
-		t, err := buildTask(l, o, base, timeoutSet, cwd, seen, newClient)
+		t, err := buildTask(ctx, l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
@@ -416,7 +416,7 @@ func runAskBatchInput(fs *flag.FlagSet, src string, o batchOpts, base agent.RunO
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
-	o.Decorate = func(t *batchTask) { t.Retry = retryFor(*t, o, o.RetryAgents) }
+	o.Decorate = func(t *batchTask) { t.Retry = retryFor(ctx, *t, o, o.RetryAgents) }
 	if fw != nil {
 		o.Follow = fw.run
 	}

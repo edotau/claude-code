@@ -466,7 +466,7 @@ func TestBatchTaskProfileReachesRequest(t *testing.T) {
 	profileFixture(t)
 	build := func(n int, profile string) batchTask {
 		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
-		bt, err := buildTask(line, batchOpts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+		bt, err := buildTask(t.Context(), line, batchOpts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1262,7 +1262,7 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 		if err := ApplyCoworker("databricks:auto", "", "", "", "none"); err != nil {
 			t.Fatal(err)
 		}
-		task, err := buildTask(parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
+		task, err := buildTask(t.Context(), parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
 			batchOpts{Agent: req.Agent, Fallback: "none"}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)

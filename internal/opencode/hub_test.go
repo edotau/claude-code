@@ -344,7 +344,7 @@ func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 			p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
 			l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
 			req := agent.RunOptions{Prompt: "hi", Tools: true}
-			_, env, argv, err := l.prepareLaunch(req, "m")
+			_, env, argv, err := l.prepareLaunch(context.Background(), req, "m")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) || strings.Contains(err.Error(), "OPENAI_API_KEY=x") {
 					t.Fatalf("prepareLaunch err = %v, want it to name %s and not the value", err, tc.wantErr)

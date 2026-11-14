@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks only enter a search's results
@@ -79,10 +81,10 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(UpdateChildEnv, "")
 	writeBank(t, "conventions.md", "# C\n\n- alpha bravo charlie delta strong\n")
-	if got := PromptRecall("", t.TempDir(), "alpha bravo charlie delta", io.Discard); !strings.Contains(got, "strong") {
+	if got := PromptRecall(context.Background(), "", t.TempDir(), "alpha bravo charlie delta", io.Discard); !strings.Contains(got, "strong") {
 		t.Fatalf("PromptRecall with explicit cwd = %q, want the seeded hit", got)
 	}
-	if got := PromptRecall("", "", "alpha bravo charlie delta", io.Discard); !strings.Contains(got, "strong") {
+	if got := PromptRecall(context.Background(), "", "", "alpha bravo charlie delta", io.Discard); !strings.Contains(got, "strong") {
 		t.Fatalf("PromptRecall with empty cwd = %q, want the seeded hit", got)
 	}
 }
@@ -148,7 +150,7 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 		"## 2026-09-02 — Quokka burrow tunnel survey archived <!-- id:aaaa0007 -->\n\nquokka burrow tunnel survey results\n")
 	cwd := t.TempDir()
 
-	got := PromptRecall("s1", cwd, "zebra quota limiter fallback", io.Discard)
+	got := PromptRecall(context.Background(), "s1", cwd, "zebra quota limiter fallback", io.Discard)
 	if !strings.HasPrefix(got, "<!-- memory-recall;") {
 		t.Fatalf("header missing: %q", got)
 	}
@@ -163,11 +165,11 @@ func TestRecallEntriesFilterOrderAndExpand(t *testing.T) {
 	}
 	wantRecallBodies(t, got, lines)
 	wantRecallPointers(t, got, lines[2:])
-	if again := PromptRecall("s1", cwd, "zebra quota limiter fallback", io.Discard); strings.Contains(again, "aaaa0005") || strings.Contains(again, "aaaa0004") {
+	if again := PromptRecall(context.Background(), "s1", cwd, "zebra quota limiter fallback", io.Discard); strings.Contains(again, "aaaa0005") || strings.Contains(again, "aaaa0004") {
 		t.Errorf("bodies already in context must not repeat:\n%s", again)
 	}
 
-	if arch := PromptRecall("s2", cwd, "quokka burrow tunnel survey", io.Discard); !strings.Contains(arch, "aaaa0007") && !strings.Contains(arch, "Quokka burrow") {
+	if arch := PromptRecall(context.Background(), "s2", cwd, "quokka burrow tunnel survey", io.Discard); !strings.Contains(arch, "aaaa0007") && !strings.Contains(arch, "Quokka burrow") {
 		t.Errorf("archive must answer when nothing current matches: %q", arch)
 	}
 }
@@ -228,7 +230,7 @@ func TestRecallBlendsCosineWithKeyword(t *testing.T) {
 	cwd := t.TempDir()
 	const prompt = "walrus harbour tide ledger zeta"
 
-	base := PromptRecall("a", cwd, prompt, io.Discard)
+	base := PromptRecall(context.Background(), "a", cwd, prompt, io.Discard)
 	if strings.Contains(base, "bbbb0006") || strings.Contains(base, "bbbb0007") {
 		t.Fatalf("fixture invalid: keyword-only already surfaces the gamma entries:\n%s", base)
 	}
@@ -236,12 +238,31 @@ func TestRecallBlendsCosineWithKeyword(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
-	blended := PromptRecall("b", cwd, prompt, io.Discard)
+	blended := PromptRecall(context.Background(), "b", cwd, prompt, io.Discard)
 	if !strings.Contains(blended, "bbbb0006") || !strings.Contains(blended, "bbbb0007") {
 		t.Errorf("cosine must lift the gamma entries into the five slots:\n%s", blended)
 	}
 	if len(strings.Split(blended, "\n")) != 6 {
 		t.Errorf("filters must still cap at 5 entries:\n%s", blended)
+	}
+}
+
+// recallPicks reads the session profile for its semantic query from the ctx it is handed, not the process env.
+func TestRecallPicksSemanticQueryUsesTheCtxProfile(t *testing.T) {
+	recallEnv(t)
+	seedBlendBank(t)
+	cwd := t.TempDir()
+	const prompt = "walrus harbour tide ledger zeta"
+	if _, _, err := embedChanged(context.Background(), cwd, useEmbedServer(t, slowVecServer(t, 0))); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_PROFILE", "") // the process names no profile: only the snapshot does
+	snap := proc.WithValues(context.Background(), proc.Values{"CLAUDE_PROFILE": "fake"})
+	if _, tr := recallPicks(snap, cwd, "", prompt, true, true); tr.Embeddings != "ran" {
+		t.Errorf("snapshot ctx: embeddings = %q, want the semantic query to run on the snapshot's profile", tr.Embeddings)
+	}
+	if _, tr := recallPicks(context.Background(), cwd, "", prompt, true, true); !strings.HasPrefix(tr.Embeddings, "keyword-only") {
+		t.Errorf("no snapshot: embeddings = %q, want keyword-only", tr.Embeddings)
 	}
 }
 
@@ -254,9 +275,9 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), cwd, useEmbedServer(t, slowVecServer(t, 0))); err != nil {
 		t.Fatal(err)
 	}
-	want := PromptRecall("kw", cwd, prompt, io.Discard) // semantic on, fast endpoint
+	want := PromptRecall(context.Background(), "kw", cwd, prompt, io.Discard) // semantic on, fast endpoint
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "0")
-	keyword := PromptRecall("kw0", cwd, prompt, io.Discard)
+	keyword := PromptRecall(context.Background(), "kw0", cwd, prompt, io.Discard)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	if want == keyword {
 		t.Fatalf("fixture invalid: blend and keyword results are identical:\n%s", keyword)
@@ -267,7 +288,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 	t.Cleanup(func() { embedRecallWait = prevWait })
 	useEmbedServer(t, slowVecServer(t, 10*time.Second))
 	start := time.Now()
-	got := PromptRecall("slow", cwd, prompt, io.Discard)
+	got := PromptRecall(context.Background(), "slow", cwd, prompt, io.Discard)
 	if el := time.Since(start); el > 600*time.Millisecond {
 		t.Errorf("recall took %s with a stalled endpoint, budget is ~100ms", el)
 	}
@@ -282,10 +303,10 @@ func TestRecallNoArchiveFallbackWhenCurrentIsSeen(t *testing.T) {
 	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Zebra quota limiter current <!-- id:aaaa0002 -->\n\nzebra quota limiter fallback current\n")
 	writeBank(t, "archive/decisionLog-2026-09.md", "# D\n\n## 2026-09-01 — Zebra quota limiter outdated <!-- id:aaaa0006 -->\n\nzebra quota limiter fallback outdated\n")
 	cwd := t.TempDir()
-	if first := PromptRecall("s1", cwd, "zebra quota limiter fallback", io.Discard); !strings.Contains(first, "aaaa0002") {
+	if first := PromptRecall(context.Background(), "s1", cwd, "zebra quota limiter fallback", io.Discard); !strings.Contains(first, "aaaa0002") {
 		t.Fatalf("setup: %q", first)
 	}
-	if again := PromptRecall("s1", cwd, "zebra quota limiter fallback", io.Discard); again != "" {
+	if again := PromptRecall(context.Background(), "s1", cwd, "zebra quota limiter fallback", io.Discard); again != "" {
 		t.Errorf("seen current entry must not be replaced by the archive:\n%s", again)
 	}
 }
@@ -297,14 +318,14 @@ func TestRecallSemanticReachesZeroOverlapEntry(t *testing.T) {
 		"## 2026-10-19 — Walrus harbour plain choice <!-- id:cccc0002 -->\n\nwalrus harbour plain\n")
 	cwd := t.TempDir()
 	const prompt = "hello world foo bar zeta"
-	if got := PromptRecall("k", cwd, prompt, io.Discard); got != "" {
+	if got := PromptRecall(context.Background(), "k", cwd, prompt, io.Discard); got != "" {
 		t.Fatalf("fixture invalid: keyword-only already answers: %q", got)
 	}
 	c := useEmbedServer(t, slowVecServer(t, 0))
 	if _, _, err := embedChanged(context.Background(), cwd, c); err != nil {
 		t.Fatal(err)
 	}
-	got := PromptRecall("s", cwd, prompt, io.Discard)
+	got := PromptRecall(context.Background(), "s", cwd, prompt, io.Discard)
 	if !strings.Contains(got, "cccc0001") || strings.Contains(got, "cccc0002") {
 		t.Errorf("want only the semantically close entry:\n%s", got)
 	}
@@ -331,7 +352,7 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 		}
 	}
 	markSeen("sess", seen) // the five closest are already in context
-	got := PromptRecall("sess", cwd, "hello world foo bar zeta", io.Discard)
+	got := PromptRecall(context.Background(), "sess", cwd, "hello world foo bar zeta", io.Discard)
 	if !strings.Contains(got, "dddd0006") {
 		t.Errorf("the sixth entry never surfaced:\n%s", got)
 	}
@@ -348,10 +369,10 @@ func TestRecallNoArchiveFallbackWhenSemanticMatchSeen(t *testing.T) {
 		t.Fatal(err)
 	}
 	const prompt = "hello world foo bar zeta"
-	if first := PromptRecall("sm", cwd, prompt, io.Discard); !strings.Contains(first, "eeee0001") {
+	if first := PromptRecall(context.Background(), "sm", cwd, prompt, io.Discard); !strings.Contains(first, "eeee0001") {
 		t.Fatalf("setup: semantic match not recalled: %q", first)
 	}
-	if again := PromptRecall("sm", cwd, prompt, io.Discard); again != "" {
+	if again := PromptRecall(context.Background(), "sm", cwd, prompt, io.Discard); again != "" {
 		t.Errorf("seen semantic match must not let the archive answer:\n%s", again)
 	}
 }
@@ -370,7 +391,7 @@ func TestRecallUncachedEntryKeepsFullKeywordScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeBank(t, "decisionLog.md", plain("edited after the index")) // ffff0001 now has no valid vector
-	got := PromptRecall("u", cwd, "walrus harbour tide ledger zeta", io.Discard)
+	got := PromptRecall(context.Background(), "u", cwd, "walrus harbour tide ledger zeta", io.Discard)
 	if !strings.Contains(got, "ffff0001") || strings.Contains(got, "ffff0002") {
 		t.Errorf("the uncached keyword match must retain its full score and floor out the weaker semantic match:\n%s", got)
 	}
@@ -414,7 +435,7 @@ func seedRecallBank(t *testing.T, n int) {
 func TestAgentRecallCappedAtThreeHitsAndByteBudget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedRecallBank(t, 5) // more candidates than the k=3 cap
-	block, ids := AgentRecall("", t.TempDir(), recallTask)
+	block, ids := AgentRecall(context.Background(), "", t.TempDir(), recallTask)
 	if len(ids) == 0 || len(ids) > 3 || strings.Count(block, "\n- ") != len(ids) {
 		t.Errorf("ids=%v, want 1-3 matching the block's lines: %q", ids, block)
 	}
@@ -427,11 +448,11 @@ func TestAgentRecallCappedAtThreeHitsAndByteBudget(t *testing.T) {
 func TestAgentRecallHandlesEmptyCwd(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedRecallBank(t, 1)
-	block, ids := AgentRecall("test-session", "", recallTask)
+	block, ids := AgentRecall(context.Background(), "test-session", "", recallTask)
 	if len(ids) != 1 || !strings.Contains(block, agentRecallMarker) {
 		t.Errorf("empty cwd: ids=%v block=%q, want the one home-bank hit", ids, block)
 	}
-	if b, i := AgentRecall("test-session", "", recallTask+" "+agentRecallMarker); b != "" || i != nil {
+	if b, i := AgentRecall(context.Background(), "test-session", "", recallTask+" "+agentRecallMarker); b != "" || i != nil {
 		t.Errorf("a task already carrying the marker must return nothing, got %q %v", b, i)
 	}
 }

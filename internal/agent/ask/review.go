@@ -135,7 +135,8 @@ func spawnSplitReview(name string, args []string, n int) int {
 	}
 	req := agent.RunOptions{Agent: name, Prompt: fmt.Sprintf("%s review split into %d parts", name, n),
 		WorkDir: cwd, Background: true}
-	rec, err := newClient().Record(context.Background(), req, nil)
+	ctx := context.Background()
+	rec, err := newClient().Record(ctx, req, nil)
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
 	}
@@ -146,7 +147,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	argv := append([]string{name, "review"}, slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		return isBackgroundFlag(a)
 	})...)
-	if err := agent.SpawnArgv(&rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
+	if err := agent.SpawnArgvContext(ctx, &rec, argv, []string{reviewJobEnv + "=" + rec.ID}); err != nil {
 		return helptext.Fail("%s review: %v", name, failSpawn(&rec, err))
 	}
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost

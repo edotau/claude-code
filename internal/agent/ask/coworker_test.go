@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -56,19 +57,44 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 func TestConfineLineRefusesOffRouteBatchLine(t *testing.T) {
 	vaulttest.Use(t)
 	confine(t, "databricks:dev")
-	if _, err := confineLine("claude", agent.RunOptions{Provider: "qa"}); err == nil ||
+	if _, err := confineLine(t.Context(), "claude", agent.RunOptions{Provider: "qa"}); err == nil ||
 		!strings.Contains(err.Error(), "--profile qa: outside overlay databricks:dev") {
 		t.Errorf("off-workspace line: err = %v, want --profile qa: outside overlay databricks:dev", err)
 	}
 	confine(t, "openai")
-	if _, err := confineLine("copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
+	if _, err := confineLine(t.Context(), "copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
 		t.Errorf("copilot line under openai: err = %v, want copilot has no openai account", err)
 	}
-	got, err := confineLine("codex", agent.RunOptions{Prompt: "p"})
+	got, err := confineLine(t.Context(), "codex", agent.RunOptions{Prompt: "p"})
 	reg, lerr := providers.Load()
 	if err != nil || lerr != nil || got.Provider != "" || !slices.Contains(router.OwnProfiles(reg, "codex", "openai"), got.Lead) {
 		t.Errorf("clean codex line under openai = lead %q provider %q, %v (%v); want codex's openai row as lead",
 			got.Lead, got.Provider, err, lerr)
+	}
+}
+
+// The fences read the run's values, not the process env: a snapshot's confinement binds and an empty one frees.
+func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
+	vaulttest.Use(t)
+	bound := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay("openai", "")})
+	free := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: ""})
+	t.Setenv(agentconfig.OverlayVar, "")
+	if err := checkNative(bound, true); err == nil || !strings.Contains(err.Error(), "--native: outside overlay openai") {
+		t.Errorf("--native under a snapshot confinement: err = %v, want refusal though the env is free", err)
+	}
+	if _, err := confineLine(bound, "copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
+		t.Errorf("copilot line under a snapshot confinement: err = %v, want no openai account", err)
+	}
+	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")}),
+		(&askRun{f: &askFlags{}}).askState(), agent.Permissions{}, "claude").Provider; got != "qa" {
+		t.Errorf("live holder under a snapshot workspace: Provider = %q, want qa", got)
+	}
+	confine(t, "openai")
+	if err := checkNative(free, true); err != nil {
+		t.Errorf("--native under an empty snapshot: err = %v, want none though the env is confined", err)
+	}
+	if _, err := confineLine(free, "copilot", agent.RunOptions{}); err != nil {
+		t.Errorf("copilot line under an empty snapshot: err = %v, want none though the env is confined", err)
 	}
 }
 

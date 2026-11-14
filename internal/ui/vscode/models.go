@@ -67,18 +67,18 @@ type modelGroups struct {
 var routerBase = runningRouterBase
 
 // runningRouterBase is the running proxy's base (its port may have moved), else the default port.
-func runningRouterBase() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func runningRouterBase(ctx context.Context) string {
+	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	port := gateway.DefaultPort
-	if st, ok := gateway.Running(ctx); ok {
+	if st, ok := gateway.Running(probe); ok {
 		port = st.Port
 	}
-	return gateway.ViaBase(gateway.Base(port))
+	return gateway.ViaBaseContext(ctx, gateway.Base(port))
 }
 
 // buildDatabricksGroups lists every signed-in Databricks serving profile's cached READY chat endpoints, no network.
-func buildDatabricksGroups() (modelGroups, error) {
+func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return modelGroups{}, err
@@ -102,7 +102,7 @@ func buildDatabricksGroups() (modelGroups, error) {
 			continue
 		}
 		if base == "" {
-			base = routerBase()
+			base = routerBase(ctx)
 		}
 		out.Groups = append(out.Groups, profileGroup(p, snap.Models, gateway.SessionBase(base, name)))
 	}
@@ -153,7 +153,7 @@ func minPositive(a, b int) int {
 
 // syncModels merges the Databricks groups into dest, returning "<group> (<n> models)" per group; check never writes.
 func syncModels(dest string, check bool) (mergeResult, []string, error) {
-	mg, err := buildDatabricksGroups()
+	mg, err := buildDatabricksGroups(context.Background())
 	if err != nil {
 		return mergeResult{}, nil, fmt.Errorf("models: %w", err)
 	}

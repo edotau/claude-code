@@ -109,9 +109,9 @@ func (codexEngine) RouteDetail() (string, bool) {
 // codexSandboxEnv names the per-dispatch opt-in to a wider tools sandbox; unset keeps workspace-write.
 const codexSandboxEnv = "HARNESS_CODEX_SANDBOX"
 
-// codexSandbox is the exec sandbox: read-only without tools, else $HARNESS_CODEX_SANDBOX or workspace-write.
-func codexSandbox(tools bool) (string, error) {
-	v := os.Getenv(codexSandboxEnv)
+// codexSandbox is the exec sandbox: read-only without tools, else the run's HARNESS_CODEX_SANDBOX or workspace-write.
+func codexSandbox(ctx context.Context, tools bool) (string, error) {
+	v := proc.Value(ctx, codexSandboxEnv)
 	if v != "" && v != "workspace-write" && v != "danger-full-access" {
 		return "read-only", &agent.UsageError{Msg: fmt.Sprintf("codex: %s=%q is not a sandbox; accepted values: "+
 			"workspace-write, danger-full-access", codexSandboxEnv, v)}
@@ -126,12 +126,12 @@ func codexSandbox(tools bool) (string, error) {
 var codexCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOLANGCI_LINT_CACHE", "lint"}, {"GOMODCACHE", "gomod"}}
 
 // codexToolsEnv adds the sandbox launch note and, under workspace-write, temp-dir Go caches the caller left unset.
-func codexToolsEnv(env []string, tools bool, sandbox string) (out, notes []string, remove func(), err error) {
+func codexToolsEnv(ctx context.Context, env []string, tools bool, sandbox string) (out, notes []string, remove func(), err error) {
 	remove = func() {}
 	if !tools {
 		return env, nil, remove, nil
 	}
-	if os.Getenv(codexSandboxEnv) != "" {
+	if proc.Value(ctx, codexSandboxEnv) != "" {
 		notes = append(notes, fmt.Sprintf("codex: sandbox %s (%s)", sandbox, codexSandboxEnv))
 	}
 	if sandbox != "workspace-write" {
@@ -142,8 +142,12 @@ func codexToolsEnv(env []string, tools bool, sandbox string) (out, notes []strin
 		return env, notes, remove, fmt.Errorf("codex: go cache dir: %w", err)
 	}
 	values := proc.ValuesFromEnv(env)
+	run, ok := proc.ValuesFromContext(ctx)
+	if !ok {
+		run = proc.ValuesFromEnv(os.Environ())
+	}
 	for _, c := range codexCaches {
-		_, inProcess := os.LookupEnv(c[0])
+		_, inProcess := run[c[0]]
 		if _, inEnv := values[c[0]]; !inProcess && !inEnv {
 			values = values.With(c[0], filepath.Join(dir, c[1]))
 		}

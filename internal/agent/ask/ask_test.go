@@ -1229,7 +1229,7 @@ func TestAskJSONStdoutFailureExitsNonzero(t *testing.T) {
 func TestAskSpawnFailureFinishesRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
-	if code := askSpawn(flag.NewFlagSet("ask", flag.ContinueOnError), &agent.Prepared{Record: rec}, false, helptext.Text, "claude"); code != 1 {
+	if code := askSpawn(t.Context(), flag.NewFlagSet("ask", flag.ContinueOnError), &agent.Prepared{Record: rec}, false, helptext.Text, "claude"); code != 1 {
 		t.Fatalf("askSpawn = %d, want 1", code)
 	}
 	got, err := agent.LoadRecord(rec.ID)

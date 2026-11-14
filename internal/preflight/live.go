@@ -187,7 +187,7 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	if _, ok := proc.ValuesFromContext(ctx); !ok { // one baseline for the prediction and every pong child
 		ctx = proc.WithValues(ctx, proc.ValuesFromEnv(os.Environ()))
 	}
-	ps := check(ctx, reg, now)
+	ps := Check(ctx, reg, now)
 	if slices.ContainsFunc(ps, func(p Pin) bool { return p.Status == StatusError }) {
 		printFixRows(w, ps)
 		return nil
@@ -198,7 +198,7 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	rctx, rcancel := context.WithTimeout(ctx, Budget)
 	printRefreshErrors(w, RefreshStale(rctx, reg, ps, now, false))
 	rcancel()
-	ps = check(ctx, reg, now)
+	ps = Check(ctx, reg, now)
 	pongStart := time.Now()                                      // pongs get their own window after the refresh, not what it left over
 	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
 	defer cancel()
@@ -262,13 +262,13 @@ func Stale(reg *providers.Registry, ps []Pin, now time.Time) bool {
 }
 
 // Warm re-lists stale profiles and prints each pin needing a fix when served routing is on; never fails the caller.
-func Warm(w io.Writer, reg *providers.Registry, now time.Time) {
+func Warm(ctx context.Context, w io.Writer, reg *providers.Registry, now time.Time) {
 	if !providers.ServedRoutingOn() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), profileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, profileTimeout)
 	defer cancel()
-	ps := Check(reg, now)
+	ps := Check(ctx, reg, now)
 	printRefreshErrors(w, RefreshStale(ctx, reg, ps, now, false))
 	printFixRows(w, ps)
 }
@@ -280,7 +280,7 @@ func RefreshPinned(ctx context.Context) []error {
 		return []error{err}
 	}
 	now := time.Now()
-	return RefreshStale(ctx, reg, check(ctx, reg, now), now, true)
+	return RefreshStale(ctx, reg, Check(ctx, reg, now), now, true)
 }
 
 // printFixRows prints one line per pin that is not OK, with its fix or detail.

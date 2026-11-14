@@ -19,19 +19,19 @@ import (
 )
 
 // copilotGate keeps t unless copilot's GitHub login is unworkable; then the Databricks fallback, never another account.
-func copilotGate(reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
 	}
 	// the target GitHub row's own login: an explicit --profile personal is gated on that account, not the copilot pin
-	detail, ok := pinnedHeadroom(context.Background(), t.Provider.Login)
+	detail, ok := pinnedHeadroom(ctx, t.Provider.Login)
 	if ok {
 		return t, "", nil
 	}
-	if arm := router.ArmProfile(); arm != "" { // the route's chain picks the next hop; a silent Databricks move would leak
+	if arm := router.ArmProfileContext(ctx); arm != "" { // the route's chain picks the next hop; a silent Databricks move would leak
 		return providers.Target{}, "", fmt.Errorf("copilot: %s; GitHub hop refused inside databricks:%s", detail, arm)
 	}
-	ri := copilotDatabricksFallback(reg, detail)
+	ri := copilotDatabricksFallback(ctx, reg, detail)
 	ft, ok := agent.RouteTarget(reg, ri)
 	if !ok {
 		return providers.Target{}, "", errors.New(ri.Reason)
@@ -50,8 +50,8 @@ func tierModel(p *providers.Provider, alias string) string {
 }
 
 // copilotDatabricksFallback: session, else pinned, else first credentialed Databricks row; detail: why not GitHub.
-func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.RouteInfo {
-	for _, name := range fallbackProfiles(reg) {
+func copilotDatabricksFallback(ctx context.Context, reg *providers.Registry, detail string) agent.RouteInfo {
+	for _, name := range fallbackProfiles(ctx, reg) {
 		if p := reg.Providers[name]; p.DatabricksUsable() {
 			reason := "copilot: " + detail + " — using databricks profile " + p.Name
 			return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: tierModel(p, models.Opus),
@@ -63,8 +63,8 @@ func copilotDatabricksFallback(reg *providers.Registry, detail string) agent.Rou
 }
 
 // fallbackProfiles is the fallback's try order: the session's (else claude's pinned) profile, then each Databricks row.
-func fallbackProfiles(reg *providers.Registry) []string {
-	lead := providers.SessionLead(nil, true)
+func fallbackProfiles(ctx context.Context, reg *providers.Registry) []string {
+	lead := providers.SessionLeadContext(ctx, nil, true)
 	names := []string{lead}
 	for _, n := range providers.DatabricksProfiles(reg) {
 		if n != lead {
@@ -83,7 +83,7 @@ func copilotGithubRow(reg *providers.Registry) (*providers.Provider, bool) {
 }
 
 // describeCopilotRoute: GitHub login on a workable pin, else Databricks fallback, else anthropic-key BYOK, else none.
-func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
+func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.RouteInfo {
 	if reg == nil {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: no provider registry"}
 	}
@@ -93,7 +93,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
-	detail, workable := pinnedHeadroom(context.Background(), "")
+	detail, workable := pinnedHeadroom(ctx, "")
 	if a, ok := copilotAuthSource(); ok && workable {
 		if p, ok := copilotGithubRow(reg); ok {
 			model, _ := providers.CopilotModel(reg)
@@ -101,7 +101,7 @@ func describeCopilotRoute(reg *providers.Registry) agent.RouteInfo {
 				Reason: "github-copilot (" + providers.AuthState{Account: a.Account, Source: a.Source}.Label() + ")", OK: true}
 		}
 	}
-	if ri := copilotDatabricksFallback(reg, detail); ri.OK {
+	if ri := copilotDatabricksFallback(ctx, reg, detail); ri.OK {
 		return ri
 	}
 	if p, ok := reg.KeyProfile("anthropic"); ok && providers.CredentialPresent(p) {
@@ -153,7 +153,7 @@ func RouteChain(reg *providers.Registry) []RouteStep {
 		gh += " " + a.Account
 	}
 	steps = append(steps, RouteStep{Label: gh, When: fmt.Sprintf("under %.0f%% of credits", copilotWorkablePct), OK: ok})
-	for _, name := range fallbackProfiles(reg) {
+	for _, name := range fallbackProfiles(context.Background(), reg) {
 		if p := reg.Providers[name]; name != pin && p.DatabricksUsable() {
 			steps = append(steps, RouteStep{Label: "databricks-" + name, When: "fallback", OK: true})
 			break
@@ -285,9 +285,10 @@ func copilotCredEnv(p *providers.Provider, cred string) proc.Values {
 
 // ValidateCopilotPins checks pins against their live catalog: unreachable warns (pin written), an unknown id errors.
 func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err error) {
+	ctx := context.Background()
 	fallback := providerFlag
 	if fallback == "" {
-		fallback = providers.SessionLead(nil, true)
+		fallback = providers.SessionLeadContext(ctx, nil, true)
 	}
 	reg, rerr := providers.Load()
 	if rerr != nil {
@@ -295,7 +296,7 @@ func ValidateCopilotPins(providerFlag string, pins []string) (warn string, err e
 	}
 	v := &pinValidator{reg: reg, fallback: fallback, served: map[string][]string{}}
 	for _, p := range pins {
-		if err := v.check(p); err != nil {
+		if err := v.check(ctx, p); err != nil {
 			return "", err
 		}
 	}
@@ -313,14 +314,14 @@ type pinValidator struct {
 }
 
 // check validates one "<agent>=<spec>" pin; a non-nil error is a hard refusal.
-func (v *pinValidator) check(p string) error {
+func (v *pinValidator) check(ctx context.Context, p string) error {
 	_, spec, ok := strings.Cut(p, "=")
 	if !ok {
 		return nil
 	}
 	name, model := pinTarget(spec, v.fallback)
 	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
-		w, err := validateDatabricksCopilotPin(v.reg, name, model, v.served)
+		w, err := validateDatabricksCopilotPin(ctx, v.reg, name, model, v.served)
 		if err != nil {
 			return err
 		}
@@ -331,7 +332,7 @@ func (v *pinValidator) check(p string) error {
 	if err != nil || gh.Provider != "github" {
 		return nil
 	}
-	v.fetchCatalog()
+	v.fetchCatalog(ctx)
 	if v.catalogDown || slices.Contains(v.ids, model) {
 		return nil
 	}
@@ -339,13 +340,13 @@ func (v *pinValidator) check(p string) error {
 }
 
 // fetchCatalog loads the live github-copilot catalog once, remembering a failure as a warning.
-func (v *pinValidator) fetchCatalog() {
+func (v *pinValidator) fetchCatalog(ctx context.Context) {
 	if v.fetched {
 		return
 	}
 	v.fetched = true
 	var err error
-	if v.ids, err = copilotModelIDs(); err != nil {
+	if v.ids, err = copilotModelIDs(ctx); err != nil {
 		v.catalogDown = true
 		v.firstWarn = cmp.Or(v.firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
 	}
@@ -370,9 +371,9 @@ func unknownGithubModel(model, profile string, ids []string) error {
 
 // validateDatabricksCopilotPin checks model against name's serving endpoints; served caches each profile's ids.
 func validateDatabricksCopilotPin(
-	reg *providers.Registry, name, model string, served map[string][]string,
+	ctx context.Context, reg *providers.Registry, name, model string, served map[string][]string,
 ) (string, error) {
-	ids, warn, ok := servedIDs(reg, name, served)
+	ids, warn, ok := servedIDs(ctx, reg, name, served)
 	if !ok {
 		return warn, nil
 	}
@@ -395,11 +396,13 @@ func validateDatabricksCopilotPin(
 }
 
 // servedIDs lists name's serving endpoint ids once per validation; a failed listing is ok=false, warned once.
-func servedIDs(reg *providers.Registry, name string, served map[string][]string) (ids []string, warn string, ok bool) {
+func servedIDs(
+	ctx context.Context, reg *providers.Registry, name string, served map[string][]string,
+) (ids []string, warn string, ok bool) {
 	if ids, seen := served[name]; seen {
 		return ids, "", ids != nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	cat, err := CopilotModelSource(ctx, reg, name)
 	cancel()
 	if err != nil {
@@ -426,8 +429,8 @@ func nearMatches(want string, ids []string) []string {
 }
 
 // copilotModelIDs lists the copilot catalog's model ids (sealed snapshot first).
-func copilotModelIDs() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+func copilotModelIDs(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	list, err := Catalog(ctx)
 	if err != nil {

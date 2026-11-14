@@ -34,7 +34,8 @@ func WarmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec
 	if skip || !providers.ServedRoutingOn() {
 		return
 	}
-	current, err := agent.AgentPins()
+	ctx := context.Background()
+	current, err := agent.AgentPinsContext(ctx)
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return
@@ -43,7 +44,7 @@ func WarmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec
 		return
 	}
 	if reg, err := providers.Load(); err == nil {
-		preflight.Warm(out, reg, time.Now())
+		preflight.Warm(ctx, out, reg, time.Now())
 	}
 }
 

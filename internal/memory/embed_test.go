@@ -106,7 +106,7 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
 	t.Cleanup(func() { openEmbedClient = openDatabricksEmbed })
-	sem, err := embedQuery("gamma gamma")
+	sem, err := embedQuery(context.Background(), "gamma gamma")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestEmbedCacheModelAndDimension(t *testing.T) {
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil } // model fake-gte, cache is the other model
 	before := calls
-	if _, err := embedQuery("q"); err == nil {
+	if _, err := embedQuery(context.Background(), "q"); err == nil {
 		t.Error("a client of a different model must not score the cache")
 	}
 	if calls != before {
@@ -219,7 +219,7 @@ func TestEmbedCacheModelAndDimension(t *testing.T) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
 	}
-	if _, err := embedQuery("q"); err == nil {
+	if _, err := embedQuery(context.Background(), "q"); err == nil {
 		t.Error("a 4-dim query against 3-dim cached vectors must be refused")
 	}
 }
@@ -390,7 +390,7 @@ func TestSharedEmbedCacheAcrossWorkspaces(t *testing.T) {
 	if n, _, err := embedChanged(context.Background(), root, c); err != nil || n != 0 || calls != 3 {
 		t.Fatalf("index under B: n=%d texts sent=%d err=%v, want A's vectors reused", n, calls, err)
 	}
-	sem, err := embedQuery("gamma")
+	sem, err := embedQuery(context.Background(), "gamma")
 	if err != nil || len(sem.rows) != 3 || len(opened) != 1 || opened[0] != "wsb" {
 		t.Fatalf("recall under B: err=%v rows=%d opened=%v, want A's 3 rows through wsb", err, len(sem.rows), opened)
 	}
@@ -422,15 +422,51 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 			return nil, ctx.Err()
 		}}, nil
 	}
-	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "exceeded") {
+	if _, err := embedQuery(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "exceeded") {
 		t.Fatalf("first query: err %v, want the timeout", err)
 	}
 	start := time.Now()
-	if _, err := embedQuery("q"); err == nil || !strings.Contains(err.Error(), "paused") {
+	if _, err := embedQuery(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Fatalf("second query: err %v, want the backoff", err)
 	}
 	if opens.Load() != 1 || time.Since(start) > embedRecallWait/2 {
 		t.Errorf("backoff still reached the endpoint: opens=%d took %s", opens.Load(), time.Since(start))
+	}
+}
+
+// A cancelled caller ctx ends the query embedding at once, not after embedRecallWait.
+func TestEmbedQueryHonoursCallerCancellation(t *testing.T) {
+	isolatedConfig1(t)
+	prevWait := embedRecallWait
+	embedRecallWait = 3 * time.Second
+	t.Cleanup(func() { embedRecallWait = prevWait })
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	t.Setenv("CLAUDE_PROFILE", "fake")
+	f := vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}}
+	if err := saveEmbedCache(f); err != nil {
+		t.Fatal(err)
+	}
+	prev := openEmbedClient
+	finished := make(chan struct{}) // the abandoned embed goroutine is done with the vars before cleanup restores them
+	t.Cleanup(func() {
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second): // embedQuery failed before reaching the client
+		}
+		openEmbedClient = prev
+	})
+	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
+		return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
+			defer close(finished)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := embedQuery(ctx, "q"); err == nil || time.Since(start) > time.Second {
+		t.Fatalf("embedQuery returned %v after %s, want an error within the caller's 50ms deadline", err, time.Since(start))
 	}
 }
 

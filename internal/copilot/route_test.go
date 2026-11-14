@@ -38,7 +38,7 @@ func TestValidateDatabricksCopilotPin(t *testing.T) {
 		{model: "kimi", wantErr: true, hint: "did you mean: databricks-kimi-k3"},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
-			_, err := validateDatabricksCopilotPin(&providers.Registry{}, "dev", tc.model, served)
+			_, err := validateDatabricksCopilotPin(t.Context(), &providers.Registry{}, "dev", tc.model, served)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("validateDatabricksCopilotPin(%q) error = %v, wantErr %v", tc.model, err, tc.wantErr)
 			}
@@ -53,7 +53,7 @@ func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
 	bin := pathstest.FakeVendor(t, "copilot", "exit 99")
 	t.Setenv("PATH", filepath.Dir(bin))
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	ids, err := copilotModelIDs()
+	ids, err := copilotModelIDs(t.Context())
 	if ids != nil {
 		t.Errorf("ids = %v, want nil when bin/copilot is missing", ids)
 	}
@@ -151,7 +151,7 @@ func TestCopilotGateUsesTargetLogin(t *testing.T) {
 	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "work" }
 	t.Cleanup(func() { CopilotUsedPct = orig })
 	target := providers.Target{Provider: &providers.Provider{Name: "w", Login: "work", Auth: providers.Auth{Login: "copilot"}}}
-	got, notice, err := copilotGate(nil, target)
+	got, notice, err := copilotGate(t.Context(), nil, target)
 	if err != nil || notice != "" || got.Provider == nil || got.Provider.Name != "w" {
 		t.Fatalf("gate moved an explicit workable GitHub target: got %+v notice %q err %v", got.Provider, notice, err)
 	}
@@ -268,11 +268,11 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh := &providers.Provider{Name: "personal", Auth: providers.Auth{Login: "copilot"}}
-	if got, _, err := copilotGate(reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}); err != nil ||
+	if got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}); err != nil ||
 		got.Provider == nil || got.Provider.Name != "dbx" {
 		t.Fatalf("served kimi: gate = %+v, %v; want the dbx fallback", got.Provider, err)
 	}
-	_, _, err = copilotGate(reg, providers.Target{Provider: gh, Model: "databricks-glm-5-3"})
+	_, _, err = copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-glm-5-3"})
 	if err == nil || !strings.Contains(err.Error(), "dbx serves no databricks-glm-5-3") {
 		t.Fatalf("unserved glm: gate err = %v, want a refusal naming dbx and databricks-glm-5-3", err)
 	}
@@ -290,7 +290,7 @@ func TestArmCopilotGateRefusalIsError(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh := &providers.Provider{Name: "personal", Login: "free", Auth: providers.Auth{Login: "copilot"}}
-	got, notice, err := copilotGate(reg, providers.Target{Provider: gh})
+	got, notice, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh})
 	if err == nil || got.Provider != nil || notice != "" || !strings.Contains(err.Error(), "inside databricks:dbx") {
 		t.Fatalf("armed gate = %+v, %q, %v; want an error naming databricks:dbx, no Databricks move",
 			got.Provider, notice, err)

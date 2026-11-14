@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -13,25 +12,25 @@ import (
 )
 
 // memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
-// Gate: only the job's bank globs are writable and only its listed commands run; plan mode denies the rest.
+// Gate: only the job's memory.JobScope is writable and only its listed commands run; plan mode denies the rest.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
-	write, bash := memory.BankScope(ctx, workdir)
+	s := memory.JobScope(memory.JobKind(ctx), workdir)
 	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
 	for _, tool := range []string{"Edit", "Write"} {
-		p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: memory.StoreDir() + "/.git/**"})
-		for _, w := range write {
+		for _, d := range s.NoWrite {
+			p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: d})
+		}
+		for _, w := range s.Write {
 			p.Allow = append(p.Allow, agent.Rule{Tool: tool, Arg: w})
 		}
 	}
-	for _, w := range write { // cd only into a bank directory
-		if dir, ok := strings.CutSuffix(w, "/**"); ok {
-			p.Allow = append(p.Allow, agent.CdRule(dir))
-		}
+	for _, dir := range s.CdDirs {
+		p.Allow = append(p.Allow, agent.CdRule(dir))
 	}
-	for _, b := range bash {
+	for _, b := range s.Bash {
 		p.Allow = append(p.Allow, agent.Rule{Tool: "Bash", Arg: b})
 	}
-	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: true, WorkDir: workdir,
+	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
 		Fallback: router.FallbackNone, Gate: true, Permissions: p}
 }
 

@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -173,5 +175,29 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 	o, err := LoadOverlay(DispatchOverlay(""), strings.NewReader(""))
 	if err != nil || o.Confinement() != "databricks:auto" {
 		t.Errorf("stored overlay loaded as %q (err %v), want confinement databricks:auto", o.Confinement(), err)
+	}
+}
+
+// A run snapshot holding the overlay key empty means no overlay; an absent key or no snapshot still uses the stored one.
+func TestDispatchOverlayContextSnapshotEmptyKeySuppressesStored(t *testing.T) {
+	vaulttest.Use(t)
+	stored := `{"provider":"databricks","profile":"auto"}`
+	vaulttest.Put(t, vault.Env, OverlayVar, stored)
+	t.Setenv(OverlayVar, "")
+	flagDoc := `{"provider":"github"}`
+	for _, tc := range []struct {
+		name, flag string
+		ctx        context.Context
+		want       string
+	}{
+		{"snapshot holds the key empty", "", proc.WithValues(context.Background(), proc.Values{OverlayVar: ""}), ""},
+		{"snapshot lacks the key", "", proc.WithValues(context.Background(), proc.Values{"X": "1"}), stored},
+		{"no snapshot", "", context.Background(), stored},
+		{"flag wins over an empty held key", flagDoc, proc.WithValues(context.Background(), proc.Values{OverlayVar: ""}), flagDoc},
+		{"snapshot value wins", "", proc.WithValues(context.Background(), proc.Values{OverlayVar: "{}"}), "{}"},
+	} {
+		if got := DispatchOverlayContext(tc.ctx, tc.flag); got != tc.want {
+			t.Errorf("%s: DispatchOverlayContext = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
