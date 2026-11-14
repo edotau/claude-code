@@ -401,12 +401,27 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 		{"id substring only", []string{"claude-code", "ask", "--job", id + "-x"}, false},
 		{"joined arg", []string{"claude-code", "ask --job " + id}, false},
 		{"missing job flag", []string{"claude-code", "ask", id}, false},
+		{"waves runner", []string{"/bin/claude-code", "agents", "dispatch", "--waves", "p.md", "--background=false", "--job", id}, true},
+		{"dispatch without waves", []string{"claude-code", "agents", "dispatch", "--job", id}, false},
+		{"waves without job", []string{"claude-code", "agents", "dispatch", "--waves", "p.md"}, false},
 		{"empty", nil, false},
 	}
 	for _, c := range cases {
 		if got := isJobArgv(c.argv, id); got != c.want {
 			t.Errorf("%s: isJobArgv = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestWavesIsAJobAgentNotALaunchableOne(t *testing.T) {
+	if err := checkAgent("waves"); err != nil {
+		t.Errorf("checkAgent(waves) = %v, want nil: status, result, tail and cancel resolve its records", err)
+	}
+	if _, ok := LookupSchema("waves"); ok {
+		t.Error("waves is registered as a launchable agent; it must stay job-only")
+	}
+	if err := checkAgent("nonesuch"); err == nil {
+		t.Error("checkAgent(nonesuch) = nil, want unknown agent")
 	}
 }
 

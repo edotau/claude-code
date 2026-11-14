@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -31,6 +32,8 @@ type FingerprintFunc func(path string) (string, error)
 
 // State is the resume record of one plan run, stored as state.json.
 type State struct {
+	Plan  string            `json:"plan"`
+	Next  string            `json:"next"`
 	Base  string            `json:"base"`  // git rev-parse HEAD at launch
 	Dirty map[string]string `json:"dirty"` // path -> fingerprint of every file already dirty at launch
 	Waves []WaveState       `json:"waves"`
@@ -38,9 +41,17 @@ type State struct {
 
 // WaveState is one wave's record; Status is a WaveState* constant.
 type WaveState struct {
-	N      int         `json:"n"`
-	Status string      `json:"status"`
-	Leaves []LeafState `json:"leaves"`
+	N          int                `json:"n"`
+	Status     string             `json:"status"`
+	Leaves     []LeafState        `json:"leaves"`
+	Reason     string             `json:"reason,omitempty"`
+	Outside    []string           `json:"outside"`
+	Gates      []agent.GateResult `json:"gates"`
+	Verifier   *stepResult        `json:"verifier,omitempty"`
+	Proof      []RoutingResult    `json:"proof"`
+	Violations []CheckViolation   `json:"violations,omitempty"`
+	Manual     []string           `json:"manual,omitempty"`
+	Packages   []Spec             `json:"packages,omitempty"`
 }
 
 // LeafState is one leaf's record; Status is the envelope status, Verdict "" or "ok" unless the routing check failed.
@@ -53,6 +64,8 @@ type LeafState struct {
 	Saved        string            `json:"saved,omitempty"`
 	Owns         []string          `json:"owns"`
 	Fingerprints map[string]string `json:"fingerprints,omitempty"` // Owns -> fingerprint when the leaf ended
+	Verify       *stepResult       `json:"verify,omitempty"`
+	Mismatch     bool              `json:"mismatch"`
 	Verdict      string            `json:"verdict,omitempty"`
 }
 

@@ -139,9 +139,10 @@ func isOwnArgv(argv []string, rec *Record) bool {
 	return isJobArgv(argv, rec.ID) || isReviewArgv(argv, rec)
 }
 
-// isJobArgv reports whether argv carries the whole arguments `ask`, `--job` and id.
+// isJobArgv reports whether argv carries the whole arguments `ask` or `dispatch --waves`, `--job` and id.
 func isJobArgv(argv []string, id string) bool {
-	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
+	runner := slices.Contains(argv, "ask") || (slices.Contains(argv, "dispatch") && slices.Contains(argv, "--waves"))
+	return runner && slices.Contains(argv, "--job") && slices.Contains(argv, id)
 }
 
 // isReviewArgv reports whether argv is rec's split review: `<agent> review` at argv[1], or [2] under an interpreter.
@@ -246,9 +247,12 @@ func waitGone(pid int, d time.Duration) bool {
 	return !proc.Alive(pid)
 }
 
-// checkAgent errors when name is not a registered agent.
+// wavesJobAgent is the job-only agent name of a detached `dispatch --waves` runner; it is not a launchable agent.
+const wavesJobAgent = "waves"
+
+// checkAgent errors when name is neither a registered agent nor the job-only waves runner.
 func checkAgent(name string) error {
-	if _, ok := LookupSchema(name); !ok {
+	if _, ok := LookupSchema(name); !ok && name != wavesJobAgent {
 		return fmt.Errorf("unknown agent %q", name)
 	}
 	return nil

@@ -119,8 +119,8 @@ Every phase is:
 - **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): a
   commit touching all of them ticks it (`docs-plan-tick`).
 - **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and `findings: <path>#<key>`
-  go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs (template
-  `## Tasks`).
+  go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs;
+  `claude-code agents dispatch --waves <plan>` runs it (template `## Tasks`).
 
 ### Delegation rules
 

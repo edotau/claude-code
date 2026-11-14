@@ -280,6 +280,8 @@ func (a *armRetry) streamLeg(ctx context.Context, cl *agent.Client, o agent.RunO
 	}()
 	o.AutoArm = true
 	req := a.probe(o)
+	leg := *cl // startPrepared and the retry rewrite Notify: each leg owns its copy of the shared client
+	cl = &leg
 	p, err := a.prepare(ctx, cl, req, nil)
 	if err != nil {
 		return wire.FailureEnvelope(a.agentName, err)

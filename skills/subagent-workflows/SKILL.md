@@ -81,6 +81,7 @@ unticked line of its `~/.claude/plans/` checklist).
 | Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) |
 | Same question, many angles | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [patterns.md](references/patterns.md) |
+| A plan's waves, observed | `claude-code agents dispatch --waves <plan>` (a flag, not a verb; never commits): exit 0 passed, 1 failed wave, 2 invalid plan, 3 file outside a package's owned set or unattributed, 4 interrupted; a failed wave reruns whole, skipping packages whose verification passed. From a script: `--background` prints an id, then `agents wait <id> --timeout 10m` (exit 4 = still running, wait again) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md) |
 | Fleet scan | A `copilot` leaf with an explicitly requested fleet task; verify the returned diff |

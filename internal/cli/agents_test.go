@@ -979,3 +979,50 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentsDispatchWaves exercises validation and a real-plan dry run through the CLI handler.
+func TestAgentsDispatchWaves(t *testing.T) {
+	plan := "/Users/edotau/.claude/plans/2026-11-13-permissions-settings-toolbox.md"
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		code    int
+		message string
+	}{
+		{"role", []string{"--waves", plan, "--dry-run", "explore"}, 2, "no role or task"},
+		{"task", []string{"--waves", plan, "some task"}, 2, "no role or task"},
+		{"missing plan", []string{"--waves", filepath.Join(t.TempDir(), "missing.md")}, 2, ""},
+		{"stdin overlay", []string{"--waves", plan, "--overlay", "-"}, 2, "--overlay -"},
+		{"background dry run", []string{"--waves", plan, "--background", "--dry-run"}, 2, "--background"},
+		{"background status", []string{"--waves", plan, "--background", "--status"}, 2, "--background"},
+		{"dry run", []string{"--waves", plan, "--dry-run"}, 0, ""},
+		{"range", []string{"--waves", plan, "--wave", "2-3", "--dry-run"}, 0, ""},
+		{"bad range", []string{"--waves", plan, "--wave", "3-2"}, 2, "invalid wave range"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(tc.args) })
+			if code != tc.code || !strings.Contains(stderr, tc.message) {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want %d and %q", code, out, stderr, tc.code, tc.message)
+			}
+			if tc.code == 0 && out == "" {
+				t.Fatal("dry run printed no packages")
+			}
+		})
+	}
+}
+
+func TestAgentsDispatchWaveCompanionsRequirePlan(t *testing.T) {
+	for _, args := range [][]string{
+		{"--dry-run"}, {"--dry-run=false"}, {"--status"}, {"--fresh"}, {"--gate", "true"},
+		{"--wave", "1"}, {"--waves", ""}, {"--provider", "databricks"},
+		{"--profile", "dev"}, {"--profiles", "dev,qa"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			args = append(args, "explore", "task")
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(args) })
+			if code != 2 || !strings.Contains(stderr, "requires --waves") {
+				t.Fatalf("exit %d, stderr %q; want usage error requiring --waves", code, stderr)
+			}
+		})
+	}
+}

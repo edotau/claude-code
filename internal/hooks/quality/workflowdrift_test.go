@@ -3,6 +3,7 @@ package quality
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,7 +117,7 @@ func TestWorkflowHelperDrift(t *testing.T) {
 // A stages block is held to the same verbatim rule as stepOf; a stage call without the block is a hit.
 func TestWorkflowStagesDrift(t *testing.T) {
 	block := func(tag string) string {
-		return stagesStart + " x\nasync function stageGate() {" + tag + "}\n" + stagesEnd + "\n"
+		return stagesStart + " x\nasync function stageLoop() {" + tag + "}\n" + stagesEnd + "\n"
 	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "workflows")
@@ -162,7 +163,7 @@ func TestHelperDriftSkipsUnreadableScript(t *testing.T) {
 }
 
 func TestWorkflowStageLoopDrift(t *testing.T) {
-	for _, call := range []string{"stageLoop(", "stageGate("} {
+	for _, call := range []string{"stageLoop("} {
 		t.Run(call, func(t *testing.T) {
 			root := writeDriftRoot(t, nil, nil)
 			writeScript(t, filepath.Join(root, "workflows"), "missing.js", "await "+call+")\n")
@@ -171,5 +172,67 @@ func TestWorkflowStageLoopDrift(t *testing.T) {
 				t.Fatalf("drift: %v", got)
 			}
 		})
+	}
+	root := writeDriftRoot(t, nil, nil)
+	writeScript(t, filepath.Join(root, "workflows"), "legacy.js", "await stageGate(ctx, {})\n")
+	if got := workflowHelperDrift(root); len(got) != 0 {
+		t.Fatalf("removed stageGate must not require the shared block: %v", got)
+	}
+}
+
+// looperProof drives code-looper.js's iteration exits under node with a stubbed agent; argv[1] is the script body.
+const looperProof = `
+const assert = require('assert');
+const Async = Object.getPrototypeOf(async function(){}).constructor;
+const run = new Async('args','agent','parallel','log','phase', process.argv[1]);
+const failure = {file:'x.go',line:1,text:'broken'};
+async function check(args, sequence, texts, stable) {
+  let calls=0, fixes=0, prompt='';
+  const r = await run(args, async (p,o) => {
+    if (o.phase === 'Fix') {
+      fixes++; prompt=p; assert(!p.includes('run the whole gate'));
+      return {status:'done',files:['x.go'],summary:'claim'};
+    }
+    calls++;
+    const exit = sequence.shift();
+    const hash = '0'.repeat(39) + (stable ? 0 : calls);
+    return {gate:'false',exit,changed:['x.go '+hash,'old.go '+'1'.repeat(40)],
+      failures:exit ? [{...failure,text:(texts||[])[calls-1]||failure.text}] : []};
+  }, async jobs => Promise.all(jobs.map(f=>f())), ()=>{}, ()=>{});
+  assert.equal(r.gateRuns,calls); assert(!('status' in r));
+  return {r,fixes,prompt};
+}
+(async()=> {
+  let x = await check({scope:['.'],gate:'false'},[1,0]);
+  assert.equal(x.r.exit,'green'); assert.equal(x.r.iterations,1); assert.equal(x.r.gateRuns,2);
+  assert(x.prompt.includes('package directory'), 'a Go failure is owned by its package: the cause may be outside the test file');
+  x = await check({scope:['.'],gate:'false'},[1,1]);
+  assert.equal(x.r.exit,'stalled'); assert.equal(x.r.iterations,1);
+  x = await check({scope:['.'],gate:'false'},[1,1],['broken','other'],true);
+  assert.equal(x.r.exit,'stalled'); assert.deepEqual(x.r.filesChanged,[]); // a failure moved but no file did
+  x = await check({scope:['.'],gate:'false'},[1,0]); assert.deepEqual(x.r.filesChanged,['x.go']); // old.go was dirty before
+  x = await check({scope:['.'],gate:'false',maxIterations:0},[1]);
+  assert.equal(x.r.exit,'red'); assert.equal(x.fixes,0);
+  x = await check({gate:'false'},[]); assert.equal(x.r.exit,'error'); assert.equal(x.r.gateRuns,0);
+  x = await check({scope:['.'],gate:'false',iterationsUsed:5},[1]); assert.equal(x.fixes,0);
+  let snaps = 0;
+  const m = await run({scope:['.'],gate:'true',measure:true}, async (p,o) => {
+    if (o.phase !== 'Measure') return {gate:'true',exit:0,changed:[],failures:[]};
+    const peer = {path:'peer.go',added:1+8*snaps,deleted:0}, mine = {path:'x.go',added:2,deleted:0};
+    return {files: snaps++ ? [mine, peer] : [peer], outside:['peer.go']};
+  }, async jobs => Promise.all(jobs.map(f=>f())), ()=>{}, ()=>{});
+  assert.deepEqual(m.lines.stages.flatMap(r=>r.files),['x.go'], 'peer.go must not be measured: '+JSON.stringify(m.lines.stages));
+})().catch(e => {console.error(e); process.exitCode=1});`
+
+func TestLooperObservedExits(t *testing.T) {
+	useNode(t)
+	node, err := lookNode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, _ := realScript(t, "code-looper.js")
+	body := strings.Replace(string(src), "export const meta", "const meta", 1)
+	if out, err := exec.Command(node, "-e", looperProof, body).CombinedOutput(); err != nil {
+		t.Fatalf("looper: %v\n%s", err, out)
 	}
 }

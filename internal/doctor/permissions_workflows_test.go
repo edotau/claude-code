@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/waves"
 )
 
 const scratchScript = `const S = {
@@ -61,7 +63,7 @@ func TestPermStageRowsGrowWithAScriptsStages(t *testing.T) {
 	if rows, _, err = permStageRows(dir, agents, t.TempDir()); err != nil || len(rows) != before+1 {
 		t.Fatalf("a new stage must add one row: %d rows, was %d, err %v", len(rows), before, err)
 	}
-	if last := rows[len(rows)-1]; last.Script != "agents waves" || rows[len(rows)-2].Stage != "review" {
+	if last := rows[len(rows)-1]; last.Script != "agents dispatch --waves" || rows[len(rows)-2].Stage != "review" {
 		t.Fatalf("want the new stage then the waves leaf, got %+v", rows[len(rows)-2:])
 	}
 }
@@ -111,7 +113,7 @@ func TestDoctorPermissionsJSONListsTheStageSection(t *testing.T) {
 	if code := doctorPermissions(&out, "copilot", true); code > 1 { // 1 is a denied row, a finding rather than a failure
 		t.Fatalf("exit %d\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), `"script": "agents waves"`) {
+	if !strings.Contains(out.String(), `"script": "agents dispatch --waves"`) {
 		t.Fatalf("the waves leaf row is missing from the JSON:\n%s", out.String())
 	}
 }
@@ -155,7 +157,7 @@ func TestStageNeedsFollowThePromptNotTheTier(t *testing.T) {
 S.record.task('Write the JSON to a NEW file, then run exactly ` + "`claude-code memory report --file x`" + `.
   Edit nothing else.')
 S.record.schema(R)
-S.depscan.task('Read-only scan. Run once: ` + "`claude-code review scope --paths p`" + ` and list files.')
+S.depscan.task('Read-only scan. Run once: ` + "`claude-code worktree gate --dir p`" + ` and list files.')
 S.depscan.schema(R)
 `
 	got := map[string][]string{}
@@ -165,7 +167,7 @@ S.depscan.schema(R)
 	if want := []string{"read", "write", "run:claude-code memory report"}; !slices.Equal(got["record"], want) {
 		t.Errorf("record needs %v, want %v (an edit-tier stage told to edit nothing does not edit)", got["record"], want)
 	}
-	if want := []string{"read", "run:claude-code review scope"}; !slices.Equal(got["depscan"], want) {
+	if want := []string{"read", "run:claude-code worktree gate"}; !slices.Equal(got["depscan"], want) {
 		t.Errorf("depscan needs %v, want %v (a read-only tier whose prompt runs a command needs it)", got["depscan"], want)
 	}
 	wd := t.TempDir()
@@ -198,8 +200,12 @@ func TestWavesLeafRowFollowsTheLaunchCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if def.Launch != "no flag" {
-		t.Errorf("Launch sets no tools today, so the leaf runs %q; got %q", "no flag", def.Launch)
+	args, tools, _, err := waves.LeafLaunch(waves.LaunchOptions{}, "a.go", "go test ./x && go vet ./x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := launchModeOf(args, tools); def.Launch != want || want != "tools" {
+		t.Errorf("a nil Tools launches every leaf with --tools: row launch %q, launch code %q, want tools", def.Launch, want)
 	}
 	for _, need := range []string{"edit", "write", "tests", "vet"} {
 		if !slices.Contains(def.Needs, need) {

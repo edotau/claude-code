@@ -227,9 +227,9 @@ var writeFlags = []string{"--out", "--output", "-o", "--write", "--fix", "--appl
 	"--kill", "--reap", "--clean", "--prune", "--force", "--sync", "--set", "--install", "--restore"}
 
 var readOnlyClaudeVerbs = map[string][]string{
-	"agents":  {"find", "diff", "result", "status", "tree", "list", "label"},
+	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label"},
 	"memory":  {"recall", "search", "show", "path", "timeline"},
-	"review":  {"simplify", "assumptions", "goals"},
+	"review":  {"simplify", "scope", "assumptions", "goals"},
 	"network": {"websearch"},
 }
 
@@ -241,6 +241,8 @@ func readOnlyClaudeCode(args []string) bool {
 	switch args[0] + " " + args[1] {
 	case "review simplify":
 		return simplifyArgsOK(args[2:])
+	case "review scope":
+		return scopeArgsOK(args[2:])
 	case "agents diff":
 		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
 	}
@@ -254,25 +256,51 @@ func unsafeSimplifyRune(r rune) bool {
 
 // simplifyArgsOK allows only the detector's --json, --threshold <level> and --base <ref> flags plus local paths.
 func simplifyArgsOK(args []string) bool {
-	valueOK := map[string]func(string) bool{
+	return detectorArgsOK(args, []string{"--json"}, map[string]func(string) bool{
 		"--threshold": func(v string) bool { return slices.Contains([]string{"strict", "medium", "relaxed"}, v) },
 		"--base":      func(v string) bool { return !strings.HasPrefix(v, "-") },
-	}
+	})
+}
+
+// scopeArgsOK allows only review scope's --caps, --importers, --format, --range and --paths flags (never --repo).
+func scopeArgsOK(args []string) bool {
+	return detectorArgsOK(args, []string{"--caps", "--importers"}, map[string]func(string) bool{
+		"--format": func(v string) bool { return v == "text" || v == "json" },
+		"--range":  func(v string) bool { return !strings.HasPrefix(v, "-") && !strings.HasPrefix(v, "~") },
+		"--paths": func(v string) bool {
+			return !strings.Contains(v, "~") && !slices.ContainsFunc(scopeOperands([]string{"--paths", v}), notLocal)
+		},
+	}, '~', '^')
+}
+
+// detectorArgsOK allows the bool flags, valued flags whose value passes, and local paths; extra runes count as safe.
+func detectorArgsOK(args, bools []string, valueOK map[string]func(string) bool, extra ...rune) bool {
+	unsafe := func(r rune) bool { return unsafeSimplifyRune(r) && !slices.Contains(extra, r) }
 	for ; len(args) > 0; args = args[1:] {
 		a := args[0]
-		if strings.ContainsFunc(a, unsafeSimplifyRune) {
+		if strings.ContainsFunc(a, unsafe) {
 			return false
 		}
 		if ok, isValued := valueOK[a]; isValued {
-			if len(args) < 2 || !ok(args[1]) || strings.ContainsFunc(args[1], unsafeSimplifyRune) {
+			if !valuedArgOK(args, ok, unsafe) {
 				return false
 			}
 			args = args[1:]
-		} else if a != "--json" && (strings.HasPrefix(a, "-") || !filepath.IsLocal(a)) {
+		} else if !plainArgOK(a, bools) {
 			return false
 		}
 	}
 	return true
+}
+
+// valuedArgOK: the flag at args[0] has a value at args[1] that passes ok and holds no unsafe rune.
+func valuedArgOK(args []string, ok func(string) bool, unsafe func(rune) bool) bool {
+	return len(args) >= 2 && ok(args[1]) && !strings.ContainsFunc(args[1], unsafe)
+}
+
+// plainArgOK: a listed bool flag or a local path operand.
+func plainArgOK(a string, bools []string) bool {
+	return slices.Contains(bools, a) || (!strings.HasPrefix(a, "-") && filepath.IsLocal(a))
 }
 
 // readOnlyGo is go doc|list|env|version with no flag that builds, downloads, runs a tool or writes the environment.
@@ -389,7 +417,7 @@ func gitReadOperands(args []string) ([]string, bool) {
 	return nil, false
 }
 
-// claudeReadOperands: agents find|diff read the tree, review simplify its files; the other verbs read no repo path.
+// claudeReadOperands: agents find|diff read the tree, review simplify|scope their files; the rest read no repo path.
 func claudeReadOperands(args, files []string) ([]string, bool) {
 	if len(args) < 2 {
 		return nil, false
@@ -399,6 +427,19 @@ func claudeReadOperands(args, files []string) ([]string, bool) {
 		return nil, false
 	case "review simplify":
 		return files[2:], true
+	case "review scope":
+		return scopeOperands(args[2:]), true
 	}
 	return nil, true
 }
+
+// scopeOperands are the comma-separated paths of review scope's --paths flag.
+func scopeOperands(args []string) []string {
+	i := slices.Index(args, "--paths")
+	if i < 0 || i+1 >= len(args) {
+		return nil
+	}
+	return strings.Split(args[i+1], ",")
+}
+
+func notLocal(p string) bool { return !filepath.IsLocal(p) }
