@@ -46,6 +46,7 @@ type CheckEnv struct {
 type CheckPackage struct {
 	ID, Dispatch string
 	Owns         []string
+	Scoped       bool // launched with writes outside Owns refused, so it cannot have written another package's file
 }
 
 // CheckUnionInput is one wave's owned-file check; Dir is the repo root.
@@ -209,9 +210,6 @@ func checkFile(env CheckEnv, in CheckUnionInput, pkgs []checkPkg, f string) ([]C
 			owners = append(owners, p)
 		}
 	}
-	if len(owners) == 0 {
-		return nil, true, nil
-	}
 	changed, err := checkChanged(env, in, f)
 	if err != nil || !changed {
 		return nil, true, err
@@ -220,7 +218,14 @@ func checkFile(env CheckEnv, in CheckUnionInput, pkgs []checkPkg, f string) ([]C
 	if err != nil {
 		return nil, false, err
 	}
-	culprits, ok := checkWriters(owners, others, mt)
+	if len(owners) == 0 { // nobody owns it: the sole package running then is named, else the file alone is reported
+		culprits, _ := checkWriters(nil, others, mt, false)
+		if len(culprits) != 1 {
+			return nil, true, nil
+		}
+		return []CheckViolation{{Package: culprits[0].ID, File: f}}, true, nil
+	}
+	culprits, ok := checkWriters(owners, others, mt, true)
 	var viol []CheckViolation
 	for _, c := range culprits {
 		viol = append(viol, CheckViolation{Package: c.ID, File: f, Owners: checkIDs(owners)})
@@ -228,18 +233,20 @@ func checkFile(env CheckEnv, in CheckUnionInput, pkgs []checkPkg, f string) ([]C
 	return viol, ok, nil
 }
 
-// checkWriters is the non-owners that ran when f was last written; ok is false when nobody can be named.
-func checkWriters(owners, others []checkPkg, mt time.Time) (culprits []checkPkg, ok bool) {
+// checkWriters is the non-owners that could have written f at mt; ok is false with no name or a rival beside the owner.
+func checkWriters(owners, others []checkPkg, mt time.Time, skipScoped bool) (culprits []checkPkg, ok bool) {
+	rivals := slices.DeleteFunc(slices.Clone(others), func(p checkPkg) bool {
+		return !p.covers(mt) || (skipScoped && p.Scoped)
+	})
 	switch {
 	case mt.IsZero():
 		return nil, false
 	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.covers(mt) }):
-		return nil, true
+		return nil, len(rivals) == 0
 	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.start.IsZero() }):
 		return nil, false
 	}
-	culprits = slices.DeleteFunc(slices.Clone(others), func(p checkPkg) bool { return !p.covers(mt) })
-	return culprits, len(culprits) > 0
+	return rivals, len(rivals) > 0
 }
 
 func checkIDs(pkgs []checkPkg) []string {
@@ -326,6 +333,7 @@ type RoutingResult struct {
 	ID, Agent, Model, Route string
 	Mismatch                bool
 	Mismatches              []string
+	DurationMs              int64
 }
 
 // RoutingProof reads only verify.mismatch of dispatch id.
@@ -339,7 +347,7 @@ func RoutingProof(env CheckEnv, dir, id string) (RoutingResult, error) {
 		return RoutingResult{}, fmt.Errorf("routing proof %s: report has no verify section", id)
 	}
 	return RoutingResult{ID: v.ID, Agent: v.Agent, Model: v.Model, Route: v.Route, Mismatch: v.Mismatch,
-		Mismatches: v.Mismatches}, nil
+		Mismatches: v.Mismatches, DurationMs: v.DurationMs}, nil
 }
 
 // GateRefusal is non-nil for a command that would write to git; it is plans.GateRefused, the one refusal the reader uses.

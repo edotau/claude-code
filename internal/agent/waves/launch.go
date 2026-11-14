@@ -23,6 +23,7 @@ import (
 type Spec struct {
 	ID, Agent, Profile, Task, Workdir, Verify string
 	Owns                                      []string
+	Scope                                     string // dry-run only: scoped or detect-only
 }
 
 // LaunchOptions supplies wave-wide routing and the memory reports directory.
@@ -32,6 +33,8 @@ type LaunchOptions struct {
 	Route                      []string // ask.RouteFlags.Args(): overlay, fallback, mode, allow, ask, deny
 	Tools                      *bool
 	Timeout                    time.Duration
+	Wave                       []Spec          // every package of the wave: the files a leaf must not write
+	Fingerprint                FingerprintFunc // hashes an owned path; a leaf run alone is checked on the others'
 }
 
 // Envelope associates a batch outcome and saved result with its package.
@@ -41,6 +44,9 @@ type Envelope struct {
 	Status     string `json:"status"`
 	Report     string `json:"-"`
 	Result     string `json:"-"`
+	Scoped     bool   `json:"-"` // the leaf launched with its writes confined to its own files
+	// Foreign are other packages' paths that changed while this leaf ran alone, so its own writes.
+	Foreign []CheckViolation `json:"-"`
 }
 
 type launchLine struct {
@@ -57,19 +63,43 @@ type launchLine struct {
 var launchID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 var launchPhase = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
-// Launch runs one ask batch, returning input-ordered envelopes even when a child leaf fails.
+// Launch runs the wave's ask batches; the envelopes are input-ordered, those of a batch that failed whole absent.
 func Launch(ctx context.Context, executable string, specs []Spec, options LaunchOptions) ([]Envelope, error) {
-	lines, err := launchLines(specs, options)
-	if err != nil || len(specs) == 0 {
+	if len(specs) == 0 {
+		_, err := launchLines(nil, options)
+		return nil, err
+	}
+	if _, err := launchLines(specs, options); err != nil {
 		return nil, err
 	}
 	if executable == "" {
-		executable, err = os.Executable()
-		if err != nil {
+		var err error
+		if executable, err = os.Executable(); err != nil {
 			return nil, fmt.Errorf("launch executable: %w", err)
 		}
 	}
-	cmd := exec.CommandContext(ctx, executable, askArgs(len(specs), options)...)
+	out, runErr := make([]Envelope, len(specs)), error(nil)
+	for _, res := range launchAll(ctx, executable, specs, options) {
+		runErr = errors.Join(runErr, res.err, res.snapErr)
+		for j, e := range res.envelopes {
+			out[res.batch.idx[j]], out[res.batch.idx[j]].Scoped = e, res.batch.enforced
+			out[res.batch.idx[j]].Foreign = res.foreign
+		}
+	}
+	out = slices.DeleteFunc(out, func(e Envelope) bool { return e.TaskID == "" })
+	if len(out) == 0 {
+		out = nil
+	}
+	return out, runErr
+}
+
+// launchBatchRun runs one `agents ask --batch` over specs with the extra scope flags, saving each leaf's result.
+func launchBatchRun(ctx context.Context, executable string, specs []Spec, scope []string, options LaunchOptions) ([]Envelope, error) {
+	lines, err := launchLines(specs, options)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, executable, askArgs(len(specs), options, scope)...)
 	cmd.Stdin = bytes.NewReader(lines)
 	var stdout bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, os.Stderr
@@ -81,23 +111,26 @@ func Launch(ctx context.Context, executable string, specs []Spec, options Launch
 	return envelopes, errors.Join(runErr, launchSave(ctx, executable, envelopes))
 }
 
-// askArgs is the `agents ask` batch command line (without the executable) for n leaves.
-func askArgs(n int, options LaunchOptions) []string {
+// askArgs is the `agents ask` batch command line (without the executable) for n leaves, scope flags last.
+func askArgs(n int, options LaunchOptions, scope []string) []string {
 	args := []string{"agents", "ask", "--batch", "-", "--jobs", strconv.Itoa(min(n, 24)), "--format", "json"}
 	if options.Provider != "" {
 		args = append(args, "--provider", options.Provider)
 	}
-	return append(args, options.Route...)
+	return append(append(args, options.Route...), scope...)
 }
 
 // LeafLaunch exposes the actual ask arguments, tools setting and rendered brief for the permission doctor.
 func LeafLaunch(options LaunchOptions, owned, verify string) (args []string, tools *bool, brief string, err error) {
-	line, err := launchLineFor(0, "leaf-1.1", Spec{ID: "1.1", Task: "task", Owns: []string{owned}, Verify: verify},
-		LaunchOptions{ReportsDir: "reports", Provider: options.Provider, Tools: options.Tools, Route: options.Route})
+	spec := Spec{ID: "1.1", Agent: "opencode", Task: "task", Owns: []string{owned}, Verify: verify}
+	sibling := Spec{ID: "1.2", Agent: "opencode", Owns: []string{owned + ".sibling"}}
+	options.Wave, options.ReportsDir = []Spec{spec, sibling}, "reports" // a leaf with one sibling shows the scope flags
+	line, err := launchLineFor(0, "leaf-1.1", spec, options)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return askArgs(1, options), line.Tools, line.Prompt, nil
+	scope, _ := scopeFlags(spec, options)
+	return askArgs(1, options, scope), line.Tools, line.Prompt, nil
 }
 
 func launchSave(ctx context.Context, executable string, envelopes []Envelope) error {

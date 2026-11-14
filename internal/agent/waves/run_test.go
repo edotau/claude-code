@@ -21,6 +21,8 @@ type runFixture struct {
 	out                                bytes.Buffer
 	calls                              [][]Spec
 	fail, outside, mismatch            bool
+	foreign                            map[string][]CheckViolation // package id -> other packages' paths it wrote alone
+	parallel, scoped                   bool                        // 1.1 and 1.2 ran in one window, and 1.1 wrote 1.2's file; 1.1 was refused it
 	gates                              int
 	cancel                             context.CancelFunc
 }
@@ -53,7 +55,8 @@ func (f *runFixture) launch(_ context.Context, _ string, specs []Spec, o LaunchO
 		if f.fail && s.ID == "1.2" {
 			status = "error"
 		}
-		out = append(out, Envelope{TaskID: o.Slug + "-" + s.ID, DispatchID: s.ID, Status: status, Report: "report-" + s.ID})
+		out = append(out, Envelope{TaskID: o.Slug + "-" + s.ID, DispatchID: s.ID, Status: status, Report: "report-" + s.ID,
+			Scoped: f.scoped, Foreign: f.foreign[s.ID]})
 	}
 	if f.cancel != nil {
 		f.cancel()
@@ -69,6 +72,12 @@ func (f *runFixture) diff(o agent.DiffOptions) int {
 		rep.Verify.Mismatch = f.mismatch
 		if f.outside && o.Verify == "1.1" {
 			rep = verifyWindow(40, 60, "b.txt")
+		}
+		if f.parallel {
+			rep = verifyWindow(0, 60)
+			if o.Verify == "1.1" {
+				rep = verifyWindow(0, 60, "b.txt")
+			}
 		}
 	}
 	if err := json.NewEncoder(o.Out).Encode(rep); err != nil {
@@ -218,5 +227,30 @@ func TestRunCancelledVerifier(t *testing.T) {
 	f.cancelVerify = true
 	if code := runWith(ctx, f.o, f.h); code != 4 {
 		t.Fatal(code, &f.out)
+	}
+}
+
+func TestRunForeignWriteInOneParallelWindowIsNeverPassed(t *testing.T) {
+	for _, scoped := range []bool{false, true} {
+		t.Run(strconv.FormatBool(scoped), func(t *testing.T) {
+			f := newRunFixture(t)
+			f.parallel, f.scoped = true, scoped
+			code := runWith(t.Context(), f.o, f.h)
+			if scoped && code != 0 {
+				t.Fatalf("scoped leaves cannot write each other's files: exit %d\n%s", code, &f.out)
+			}
+			if !scoped && (code != 3 || !strings.Contains(f.out.String(), "unattributed: b.txt") ||
+				!strings.Contains(f.out.String(), "scope: 1.1,1.2 cannot refuse a foreign write")) {
+				t.Fatalf("unscoped parallel write: exit %d, want 3 naming b.txt and the scope notice\n%s", code, &f.out)
+			}
+		})
+	}
+}
+
+func TestRunLeafThatWroteAlonePathsOfAnotherPackageFailsTheWave(t *testing.T) {
+	f := newRunFixture(t)
+	f.foreign = map[string][]CheckViolation{"1.1": {{Package: "1.1", File: "b.txt", Owners: []string{"1.2"}}}}
+	if code := runWith(t.Context(), f.o, f.h); code != 3 || !strings.Contains(f.out.String(), "1.1 wrote b.txt (owner 1.2)") {
+		t.Fatalf("exit %d, want 3 naming 1.1, b.txt and owner 1.2\n%s", code, &f.out)
 	}
 }
