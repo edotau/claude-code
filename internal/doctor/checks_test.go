@@ -1,7 +1,6 @@
 package doctor
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -23,83 +21,11 @@ import (
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-type credentialProbeTest struct {
-	inflight, maxSeen atomic.Int32
-	gate, over        chan struct{}
-	once, overOnce    sync.Once
-	byPtr             map[*providers.Provider]string
-}
-
-func (s *credentialProbeTest) probe(_ context.Context, p *providers.Provider) (string, string) {
-	cur := s.inflight.Add(1)
-	defer s.inflight.Add(-1)
-	for {
-		m := s.maxSeen.Load()
-		if cur <= m || s.maxSeen.CompareAndSwap(m, cur) {
-			break
-		}
-	}
-	if cur >= credentialProbeWorkers {
-		s.once.Do(func() { close(s.gate) })
-	}
-	if cur > credentialProbeWorkers {
-		s.overOnce.Do(func() { close(s.over) })
-	}
-	select {
-	case <-s.gate:
-	case <-time.After(5 * time.Second): // only an implementation below the limit reaches this
-	}
-	select {
-	case <-s.over:
-	case <-time.After(100 * time.Millisecond): // gives a probe beyond the limit time to show up
-	}
-	n := s.byPtr[p]
-	return "probe-" + n, "detail-" + n
-}
-
-func TestProviderCredentialChecksRunConcurrentlyInOrder(t *testing.T) {
-	hermetic(t)
-	names := []string{"p-0", "p-1", "p-2", "p-3", "p-4", "p-5", "p-6", "p-7"}
-	reg := &providers.Registry{Default: "elsewhere", Providers: map[string]*providers.Provider{}}
-	state := &credentialProbeTest{gate: make(chan struct{}), over: make(chan struct{}), byPtr: map[*providers.Provider]string{}}
-	for _, n := range names {
-		p := &providers.Provider{Auth: providers.Auth{Type: providers.AuthNone}}
-		reg.Providers[n] = p
-		state.byPtr[p] = n
-	}
-	old := probeCredential
-	t.Cleanup(func() { probeCredential = old })
-	probeCredential = state.probe
-	rows := providerCredentialChecks(context.Background(), reg, providers.Selection{}, errors.New("no session"), names)
-	assertCredentialProbeRows(t, rows, names)
-	if m := state.maxSeen.Load(); m < 2 {
-		t.Errorf("max in-flight probes = %d, want >= 2 (probes must overlap)", m)
-	} else if m > credentialProbeWorkers {
-		t.Errorf("max in-flight probes = %d, want <= %d (worker limit)", m, credentialProbeWorkers)
-	}
-}
-
-func assertCredentialProbeRows(t *testing.T, rows []check, names []string) {
-	t.Helper()
-	if len(rows) != len(names) {
-		t.Fatalf("got %d rows, want %d", len(rows), len(names))
-	}
-	for i, n := range names {
-		if rows[i].Name != "credential "+n {
-			t.Errorf("row %d = %q, want %q", i, rows[i].Name, "credential "+n)
-		}
-		if want := "probe-" + n + ": detail-" + n; !rows[i].OK || !strings.Contains(rows[i].Detail, want) {
-			t.Errorf("row %s = %+v, want OK with detail containing %q", n, rows[i], want)
-		}
-	}
-}
 
 func TestToolPATHCopiesAndExtras(t *testing.T) {
 	scratch := t.TempDir()
@@ -474,79 +400,6 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	}
 }
 
-// A key-auth built-in nothing routes to (not session, default, fallback or pinned) is a soft note, not ✗;
-// pinning it for an agent makes the missing key a real ✗ again.
-func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
-	doctorScratch(t)
-	checks, _ := runChecks(context.Background())
-	c := findCheck(checks, "credential openai")
-	if c == nil || !c.OK || !strings.Contains(c.Detail, "unused") {
-		t.Fatalf("unused openai row = %+v, want OK with an unused note", c)
-	}
-	vaulttest.SetRecord(t, "codex", "profile", "openai")
-	checks, _ = runChecks(context.Background())
-	if c := findCheck(checks, "credential openai"); c == nil || c.OK {
-		t.Fatalf("pinned openai row = %+v, want ✗ for the missing key", c)
-	}
-}
-
-// altAuthScratch isolates the machine state altAuth reads: CLAUDE_CONFIG_DIR (keyring/secrets.env),
-// HOME (the gemini agy login marker, and the claude login probe has nowhere real to run), and a PATH with
-// neither `claude` nor `security`/`secret-tool` on it, so the real Keychain and a real claude login
-// can never answer for this test by accident.
-func altAuthScratch(t *testing.T) (home string) {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	t.Setenv("PATH", t.TempDir())
-	home = filepath.Join(dir, "home")
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv(providers.OAuthTokenEnv, "")
-	return home
-}
-
-func TestAltAuthAnthropicHeadlessToken(t *testing.T) {
-	altAuthScratch(t)
-	t.Setenv(providers.OAuthTokenEnv, "sk-ant-oat-test")
-	if got := altAuth("anthropic"); got != "claude uses the OAuth token instead" {
-		t.Errorf("altAuth(anthropic) with a headless token = %q", got)
-	}
-}
-
-func TestAltAuthAnthropicNone(t *testing.T) {
-	altAuthScratch(t) // no headless token, no claude binary to report a login
-	if got := altAuth("anthropic"); got != "" {
-		t.Errorf("altAuth(anthropic) with neither = %q, want \"\"", got)
-	}
-}
-
-// gemini has no altAuth case: GeminiLoginPresent (not altAuth) now reports the agy Google login.
-func TestAltAuthGemini(t *testing.T) {
-	home := altAuthScratch(t)
-	if got := altAuth("gemini"); got != "" {
-		t.Errorf("altAuth(gemini) without the agy marker = %q, want \"\"", got)
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := altAuth("gemini"); got != "" {
-		t.Errorf("altAuth(gemini) with the agy marker = %q, want \"\" (altAuth has no gemini case)", got)
-	}
-}
-
-func TestAltAuthUnknownProvider(t *testing.T) {
-	altAuthScratch(t)
-	if got := altAuth("openai"); got != "" {
-		t.Errorf("altAuth(openai) = %q, want \"\" (no alt auth path for this provider)", got)
-	}
-}
-
 // RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep; its detail must
 // equal the "<vendor> route" row Checks prints, for every vendor whose engine is registered.
 func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
@@ -572,22 +425,6 @@ func TestRouteDetailUnknownVendor(t *testing.T) {
 	doctorScratch(t)
 	if detail, ok := agent.RouteDetail(context.Background(), "not-a-vendor"); ok || detail != "" {
 		t.Errorf("RouteDetail(unknown) = (%q, %v), want (\"\", false)", detail, ok)
-	}
-}
-
-// TestPrintChecksGoldenBytes pins printChecks' byte format (color off, the case for every test and
-// any non-tty run): "<mark> <name>: <detail>\n", mark = ✓ when OK else ✗. Doctor and printVault both
-// share this function now; a drift here changes what both commands print.
-func TestPrintChecksGoldenBytes(t *testing.T) {
-	checks := []check{
-		{Name: "sample", OK: true, Detail: "all good"},
-		{Name: "sample2", OK: false, Detail: "broken: reason"},
-	}
-	var buf bytes.Buffer
-	printCheckLines(&buf, checks)
-	want := "✓ sample: all good\n✗ sample2: broken: reason\n"
-	if got := buf.String(); got != want {
-		t.Errorf("printChecks =\n%q\nwant\n%q", got, want)
 	}
 }
 

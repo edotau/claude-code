@@ -211,20 +211,25 @@ func permLayer(name string, p agent.Permissions, ro bool, wd string) permVerdict
 	}
 }
 
+// gateDecide is the verdict of claude's permission-gate policy gp: an Ask is refused where no judge answers it.
+func gateDecide(gp agent.Permissions) permVerdict {
+	return func(t, a string) permResult {
+		switch gp.Decide(t, a) {
+		case agent.Allow:
+			return permResult{"allow", "", ""}
+		case agent.Ask:
+			return permResult{"deny", "Ask refused off Anthropic", ""}
+		}
+		return permResult{"deny", "permission rules", ""}
+	}
+}
+
 // bareLayer is the verdict of the policy each agent's own builder makes of p, and the policy that decides.
 func bareLayer(name string, p agent.Permissions, ro bool, wd string) (permVerdict, agent.Permissions) {
 	switch name {
 	case "claude":
 		gp := claude.GatePolicy(p, wd)
-		return func(t, a string) permResult {
-			switch gp.Decide(t, a) {
-			case agent.Allow:
-				return permResult{"allow", "", ""}
-			case agent.Ask:
-				return permResult{"deny", "Ask refused off Anthropic", ""}
-			}
-			return permResult{"deny", "permission rules", ""}
-		}, gp
+		return gateDecide(gp), gp
 	case "copilot":
 		return func(t, a string) permResult {
 			v := copilot.DecideCall(p, ro, wd, t, a)
@@ -245,7 +250,7 @@ func permJudge(name, mode, wd string) (permVerdict, string) {
 	switch {
 	case mode == "no flag" && name == "gemini":
 		return func(string, string) permResult {
-			return permResult{"decided", "O2: instruction only; --no-tools enforces", ""}
+			return permResult{"decided", "O2: instruction only; --no-tools refused", ""}
 		}, ""
 	case mode == "no flag" && noFlagDeny[name] != "":
 		return func(string, string) permResult { return permResult{"deny", noFlagDeny[name], noFlagRemedy} }, ""
@@ -409,15 +414,17 @@ func doctorPermissions(w io.Writer, only string, asJSON bool) int {
 	if err != nil {
 		return helptext.Fail("doctor: %v", err)
 	}
-	sum.met, sum.total = sum.met+st.met, sum.total+st.total
+	pathRows, pt := permPathRows(names, wd)
+	sum.met, sum.total = sum.met+st.met+pt.met, sum.total+st.total+pt.total
 	runtime := permRuntimeRows(reps, stages)
 	if asJSON {
 		doc := struct {
 			Met, Total, DesignNotes int
 			Agents                  []permAgent
 			Stages                  []permStageRow
+			Paths                   []permPathRow
 			RuntimeUnavailable      []permRuntime
-		}{sum.met, sum.total, sum.notes, reps, stages, runtime}
+		}{sum.met, sum.total, sum.notes, reps, stages, pathRows, runtime}
 		if err := helptext.WriteJSON(w, doc); err != nil {
 			return helptext.Fail("doctor: %v", err)
 		}
@@ -426,6 +433,7 @@ func doctorPermissions(w io.Writer, only string, asJSON bool) int {
 			writePermText(w, r)
 		}
 		writePermStages(w, names, stages)
+		writePermPaths(w, names, pathRows)
 		writePermRuntime(w, runtime)
 		fmt.Fprintf(w, "%d of %d expectations met, %d design notes\n", sum.met, sum.total, sum.notes)
 	}
