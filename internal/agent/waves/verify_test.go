@@ -291,3 +291,138 @@ func TestVerifyNoOwnerFileNamesTheOnlyPackageRunning(t *testing.T) {
 		t.Fatalf("two packages running must stay unnamed: %+v", res)
 	}
 }
+
+// verifyWrote is rep with the files its dispatch recorded as written, under the repo /r.
+func verifyWrote(rep agent.DiffReport, files ...string) agent.DiffReport {
+	abs := make([]string, len(files))
+	for i, f := range files {
+		abs[i] = "/r/" + f
+	}
+	rep.Verify.Wrote = &abs
+	return rep
+}
+
+// verifyWant is what a CheckUnion run must report: its exit, the one violating package ("" none), the files nobody
+// can be named for and the unrecorded packages.
+type verifyWant struct {
+	exit     int
+	violator string
+	unattr   []string
+	fallback []string
+}
+
+// check fails t unless res reports w exactly.
+func (w verifyWant) check(t *testing.T, res CheckUnionResult) {
+	t.Helper()
+	var got string
+	if len(res.Violations) == 1 {
+		got = res.Violations[0].Package
+	}
+	if res.Exit != w.exit || got != w.violator || len(res.Violations) > 1 ||
+		!slices.Equal(res.Unattributed, w.unattr) || !slices.Equal(res.Fallback, w.fallback) {
+		t.Fatalf("result %+v, want %+v", res, w)
+	}
+}
+
+// Two leaves run in overlapping windows; the recorded writes name the writer where the last-write time cannot.
+func TestVerifyOverlappingLeavesUseRecordedWrites(t *testing.T) {
+	scoped := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}, Scoped: true},
+		{ID: "1.2", Dispatch: "b", Owns: []string{"b.go"}}}
+	open := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}}, scoped[1]}
+	// b.go changed at sec 50 inside both windows; 1.1 is scoped (its Edit/Write are denied), 1.2 owns b.go.
+	cases := []struct {
+		name string
+		a, b agent.DiffReport
+		pkgs []CheckPackage
+		want verifyWant
+	}{
+		{"scoped leaf wrote the owner's file by shell, owner did not",
+			verifyWrote(verifyWindow(0, 60, "b.go"), "b.go"), verifyWrote(verifyWindow(40, 60)), scoped,
+			verifyWant{exit: CheckExitOutside, violator: "1.1"}},
+		{"both listed the file: the owner's record wins",
+			verifyWrote(verifyWindow(0, 60, "b.go"), "b.go"), verifyWrote(verifyWindow(40, 60), "b.go"), scoped,
+			verifyWant{}},
+		{"only the owner listed it, an unscoped rival ran in the same window",
+			verifyWrote(verifyWindow(0, 60, "b.go")), verifyWrote(verifyWindow(40, 60), "b.go"), open, verifyWant{}},
+		{"a leaf with no record is judged by its window and named",
+			verifyWindow(0, 60, "b.go"), verifyWrote(verifyWindow(40, 60), "b.go"), open,
+			verifyWant{exit: CheckExitOutside, unattr: []string{"b.go"}, fallback: []string{"1.1"}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := CheckEnv{Diff: verifyPackages(agent.DiffReport{}, map[string]agent.DiffReport{"a": c.a, "b": c.b}),
+				ModTime: verifyModTimes(50)}
+			res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: c.pkgs})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.want.check(t, res)
+		})
+	}
+}
+
+// Recorded writes are absolute and resolved; they match `agents diff` paths even when the repo dir is a symlink.
+func TestVerifyRecordedWritesResolveSymlinkedRepo(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []string{filepath.Join(resolved, "x", "a.go"), "/elsewhere/b.go"}
+	got := checkWrote(link, &files)
+	if len(got) != 1 || !got["x/a.go"] {
+		t.Fatalf("checkWrote = %v, want only x/a.go (an outside path never matches a repo file)", got)
+	}
+	cut := append(files, agent.WroteTruncated)
+	if checkWrote(link, &cut) != nil {
+		t.Fatal("a list cut at its cap must fall back: it cannot rule a file out")
+	}
+	if checkWrote(link, nil) != nil {
+		t.Fatal("no record must stay nil: that is the fallback signal")
+	}
+}
+
+// Three leaves run at once in one checkout, each wrote only its own file, and every list also holds its peers' writes.
+func TestVerifyThreeParallelLeavesEachOwnTheirFiles(t *testing.T) {
+	pkgs := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}, Scoped: true},
+		{ID: "1.2", Dispatch: "b", Owns: []string{"b.go"}, Scoped: true},
+		{ID: "1.3", Dispatch: "c", Owns: []string{"c.go"}, Scoped: true}}
+	all := []string{"a.go", "b.go", "c.go"}
+	// leaf is the report of the leaf owning own, which saw every other changed file as outside its scope.
+	leaf := func(own string, wrote ...string) agent.DiffReport {
+		outside := slices.DeleteFunc(slices.Clone(all), func(f string) bool { return f == own })
+		return verifyWrote(verifyWindow(0, 60, outside...), wrote...)
+	}
+	withD := append(slices.Clone(all), "d.go")
+	cases := []struct {
+		name    string
+		union   agent.DiffReport
+		a, b, c agent.DiffReport
+		want    verifyWant
+	}{
+		{"every list holds all three files", agent.DiffReport{},
+			leaf("a.go", all...), leaf("b.go", all...), leaf("c.go", all...), verifyWant{}},
+		{"every list holds one peer's file", agent.DiffReport{},
+			leaf("a.go", "a.go", "b.go"), leaf("b.go", "b.go", "c.go"), leaf("c.go", "c.go", "a.go"), verifyWant{}},
+		{"1.2 wrote a.go by shell and its owner never listed it", agent.DiffReport{},
+			leaf("a.go", "b.go"), leaf("b.go", all...), leaf("c.go", "c.go"),
+			verifyWant{exit: CheckExitOutside, violator: "1.2"}},
+		{"d.go belongs to nobody: reported whoever listed it", agent.DiffReport{Outside: []string{"d.go"}},
+			leaf("a.go", withD...), leaf("b.go", withD...), leaf("c.go", withD...), verifyWant{exit: CheckExitOutside}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := CheckEnv{Diff: verifyPackages(c.union, map[string]agent.DiffReport{"a": c.a, "b": c.b, "c": c.c}),
+				ModTime: verifyModTimes(50)}
+			res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: pkgs})
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.want.check(t, res)
+		})
+	}
+}

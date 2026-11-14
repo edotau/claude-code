@@ -230,7 +230,10 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		return runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
+		wrote := watchWrites(ctx, p.Opts.WorkDir)
+		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
+		p.Record.Wrote = wrote()
+		return res, err
 	})
 	res.DispatchID = p.Record.ID
 	return res, err

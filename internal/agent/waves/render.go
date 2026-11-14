@@ -67,6 +67,9 @@ func findingLines(w WaveState) []string {
 		}
 		lines = append(lines, "  ownership: "+strings.Join(rows, "; "))
 	}
+	if len(w.Fallback) > 0 {
+		lines = append(lines, "  no write record: "+strings.Join(w.Fallback, ",")+" (judged by run window, write time)")
+	}
 	if ids := detectOnly(w); len(ids) > 0 {
 		lines = append(lines, "  scope: "+strings.Join(ids, ",")+" cannot refuse a foreign write; each ran alone, checked after")
 	}

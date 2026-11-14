@@ -67,6 +67,7 @@ type Record struct {
 	BatchID        string     `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
 	PlanTask       string     `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
 	Preflight      *Preflight `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
+	Wrote          *[]string  `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
 
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 }

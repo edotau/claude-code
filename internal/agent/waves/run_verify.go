@@ -203,6 +203,7 @@ func (r *runner) checkWave(w WaveState) (WaveState, int, error) {
 			return w, 1, err
 		}
 		w.Outside, w.Unattributed, w.Gates, w.Violations = res.Outside, res.Unattributed, res.Gates, res.Violations
+		w.Fallback = res.Fallback
 		for _, l := range w.Leaves {
 			w.Violations = append(w.Violations, l.Wrote...)
 			if len(l.Wrote) > 0 && res.Exit == 0 {

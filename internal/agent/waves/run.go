@@ -284,6 +284,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 	ws, _ := r.state.Wave(w.Number)
 	ws.N, ws.Status, ws.Manual = w.Number, WaveStateRunning, manual
 	ws.Reason, ws.Outside, ws.Unattributed, ws.Gates, ws.Verifier, ws.Violations = "", nil, nil, nil, nil, nil
+	ws.Fallback = nil
 	var launch []Spec
 	for i, d := range decision.Leaves {
 		if d.Action == DecideKeep {

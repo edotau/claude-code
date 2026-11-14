@@ -84,3 +84,14 @@ func TestRenderRowPerPackageWithReason(t *testing.T) {
 		t.Fatalf("missing detection-only notice:\n%s", &out)
 	}
 }
+
+func TestRenderNamesLeavesJudgedWithoutAWriteRecord(t *testing.T) {
+	w := WaveState{N: 1, Status: "passed", Fallback: []string{"1.2", "1.4"}}
+	var out bytes.Buffer
+	if err := render(&out, State{Base: "base", Waves: []WaveState{w}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no write record: 1.2,1.4 (judged by run window, write time)") {
+		t.Fatalf("missing fallback notice:\n%s", &out)
+	}
+}
