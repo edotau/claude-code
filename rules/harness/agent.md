@@ -26,8 +26,9 @@ paths:
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
-  (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, claude and opencode get no
-  tools, gemini is only instructed not to use them, and codex keeps a read-only sandbox shell.
+  (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, claude and opencode launch no
+  tools, copilot's SDK rejects every request, gemini is only instructed not to use them, and codex keeps a read-only
+  sandbox shell. `--no-tools` is claude only: the others exit 2.
   `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run; every other
   Bash call and all Write/Edit stay denied; an `--allow` adds but never reopens a deny; codex and gemini refuse
   `--tools` with `--mode plan`; claude `--tools` off Anthropic is a gated allow list, not approve-all. Per-agent
@@ -40,8 +41,9 @@ paths:
 - `agents ask --overlay <value>` / `gateway --overlay <value>` / `COWORKER_OVERLAY`: ONE keyed JSON document (`schema`
   1; keys `provider`, `profile`, `model`, `effort`, `fallback`, `host`, `remote`, env layer `set`/`unset`/`keep`)
   given as a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-`; an unknown key
-  or bad value exits 2. Precedence: typed flag > `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record >
-  process env > vault env > agent definition > agent pin > table default. Nested dispatches inherit only the
+  or bad value exits 2. A dispatch never writes it to its own env: it rides the run's context. Precedence: typed flag >
+  `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent
+  pin > table default. Nested dispatches inherit only the
   confinement (`provider`/`profile`); `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and
   credential env names are refused (use `--profile`). Provider/agent compatibility, relaunch, `--retry`, interactive
   and `--env` rules: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay.
@@ -68,7 +70,8 @@ paths:
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 
 - **Permission check.** `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through
-  each agent's real launch policy per mode, with no model call; exit 1 on a missed expectation.
+  each agent's real launch policy per tier (no flag, `--tools`, `--read-only`), with no model call; exit 1 on a missed
+  expectation. Cells only a vendor runtime judges (claude on Anthropic, codex's sandbox) are listed apart, uncounted.
 
 ## Skills and instructions parity
 
@@ -99,7 +102,9 @@ paths:
 - **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode Ask =
   `--auto`; claude on Anthropic uses its auto judge). Elsewhere: gemini renders Ask as Allow, copilot's SDK handler
   approves it, and claude off Anthropic turns it into Deny. A Deny an
-  agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. opencode
+  agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. `--tools`
+  approves and `--workdir` is no write boundary (D1-D6): only claude `--tools` off Anthropic denies an Edit outside
+  it (`--allow 'Edit(<path>)'` reopens one); scope the others with `--deny`. opencode
   `--read-only` keeps read tools and the vetted shell list on, denies other `Bash`, `Write` and `Edit`, and runs
   without `--auto`; opencode `--safe-mode` refuses any bound tool gate, not only a Bash deny.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's

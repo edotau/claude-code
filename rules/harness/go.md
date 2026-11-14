@@ -78,7 +78,8 @@ Seams, mocks, speed and never spawning the test binary: `rules/standards/testing
 - `.golangci.yml` uses `linters.default: none` plus an explicit `enable` list; `modernize` is enabled. Thresholds come
   from `rules/standards/quality.md`, not upstream defaults; the repo's `gocognit` setting is its own call.
 - Process-wide state (`os.Setenv`, `os.Unsetenv`, `os.Clearenv`, `os.Chdir`) goes through `internal/proc`; `forbidigo`
-  fails any direct call outside it, `internal/hosttest` and tests, and per-run values travel on the run instead.
+  fails any direct call outside it, `internal/hosttest` and tests; per-run values travel on the context
+  (`proc.WithValues`, `agent.RunValues`) instead.
 - `make lint` does not run gopls checks such as `writestring` (golang skill → `references/style.md` → Strings); the
   editor is the
   only signal for those.

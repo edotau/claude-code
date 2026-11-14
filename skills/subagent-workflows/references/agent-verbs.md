@@ -15,11 +15,12 @@ keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; this is 
 | `claude-code agents status [<id>] [--agent A] [--all]` | dispatch state: no id, no agent = the 20 most recent; `--agent` = that agent's jobs in this repo (`--all`: every repo) | rows (id, status, elapsed) |
 | `claude-code agents result [<id>] [--agent A] [-f] [--events] [--save F] [--verdict]` | a dispatch's answer; `-f` follows a running job with a stall heartbeat, `--events` streams its events | answer + session id + resume cmd · log lines |
 | `claude-code agents cancel (<id> \| --lost) [--agent A] [--dry-run]` | interrupt a running job · `--lost` marks dead-but-running records as error | `cancelled <id>` |
+| `claude-code agents brief --task F (--own P... \| --read-only) [--report P]` | print a leaf brief: `Owned:` line, mode, the task, the leaf rules and reporting contract (`internal/agent/brief.tmpl`, the one copy); pipe it to `agents ask -`; `agents diff --verify <id>` reads `Owned:` back | the brief; exit 2 usage |
 | `claude-code agents wait <id>... [--timeout 10m]` | block until the dispatches finish | final status rows |
 | `claude-code <agent> profile [<p>\|--clear\|--off]` | show or set the agent's profile; `--clear` = own login, `--off` = stop routing | the profile |
 | `claude-code <agent> setup [--format json]` · `catalog` | binary, login, route, projection checks · the agent's model catalog | 4 rows, exit on failure · list |
 | `claude-code agents dispatch explore\|fleet\|compare [flags] <task>` | shell roles: explore/fleet on copilot, compare on opencode (unless vault overlay overrides); also takes ask's `--overlay`, `--allow`, `--ask`, `--deny`, `--mode`, `--fallback` | `### label (agent/model) [status]` blocks |
-| `claude-code agents dispatch --waves <plan.md\|manifest.jsonl> [--wave N[-M]] [--dry-run] [--status] [--fresh] [--gate CMD] [--format text\|json] [--timeout D]` | run a plan's waves (`Phase W.k` lines, `docs/templates/plan.md` → Tasks), one leaf per package; `--timeout` is per leaf; `--overlay`, `--fallback`, `--mode`, `--allow`, `--ask`, `--deny` pass to every leaf; never commits; a failed wave reruns whole and skips packages already verified; long-running: launch in the background, `agents wait <id> --timeout 10m` | per-wave package and verifier rows; exit 0 every requested wave passed, 1 leaf, gate or verifier failed or a leaf ran off its asked route, 2 usage or invalid plan, 3 changed file outside every owned set or unattributed, 4 interrupted or timed out with leaves running (run again) |
+| `claude-code agents dispatch --waves <plan.md\|manifest.jsonl> [--wave N[-M]] [--dry-run] [--status] [--fresh] [--gate CMD] [--format text\|json] [--timeout D]` | run a plan's waves (`Phase W.k` lines, `docs/templates/plan.md` → Tasks), one leaf per package; `--timeout` is per leaf; `--overlay`, `--fallback`, `--mode`, `--allow`, `--ask`, `--deny`, `--profiles`, `--provider` pass to every leaf; never commits; a failed wave reruns whole and skips packages already verified; long-running: launch in the background, `agents wait <id> --timeout 10m` | per-wave package and verifier rows; exit 0 every requested wave passed, 1 leaf, gate or verifier failed or a leaf ran off its asked route, 2 usage or invalid plan, 3 changed file outside every owned set or unattributed, 4 interrupted or timed out with leaves running (run again) |
 | `claude-code agents diff [--base b] [--path p]... [--check] [--verify id] [--format json]` | changed files with +/- counts, files outside `--path` (repeat per path), with `--check` gofmt, build, vet, golangci-lint, complexity (only findings the change introduced), test on the touched packages, plus docs (`bin/mdsmith check` on the changed `.md` files only), with `--verify` a dispatch's routing proof (workspace, model, fallback, proxy requests matched by `dispatch=<id>`, by time window only for untagged log lines) | file rows, `ok\|FAIL\|skip` gate lines, verify section, summary; exit 1 gate failed or MISMATCH, 2 usage or unknown id, 3 outside `--path` |
 | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path p]... [--max 200] [--format json]` | content, paths or Go AST search over tracked and new unignored files; callers are name-based; same path prefixes/globs as diff | sorted path:line:text or JSON matches/more; more is a lower bound; exit 0 matches, 1 none, 2 error |
 
@@ -30,13 +31,13 @@ keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; this is 
 
 ## Headless `ask` flags
 
-`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; without `--tools` claude and opencode get no tools
-and gemini is only instructed not to use any. Agent files list only what differs; the full list is
-`claude-code agents ask -h`.
+`claude-code <agent> ask` = `claude-code agents ask --agent <agent>`; without `--tools` claude and opencode launch no
+tools, copilot rejects every request, codex keeps a read-only sandbox shell and gemini is only instructed not to use
+any. Agent files list only what differs; the full list is `claude-code agents ask -h`.
 
 | Need | Flags |
 | --- | --- |
-| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (per agent: claude tools off; codex a read-only sandbox that keeps its shell; gemini, opencode deny Bash/Write/Edit; copilot also read-only git, no other shell) |
+| Edit files / run shell | `--tools` · `--workdir <repo>` · `--read-only` (reads plus a vetted read-only shell list; other Bash, Write and Edit denied; codex keeps its sandbox shell) |
 | Guard the run | `--deny 'Bash(git push:*)'` · `--allow` · `--ask` · `--mode default\|auto\|plan` (hook-enforced per agent); an `--allow` adds but never reopens a deny; codex and gemini refuse `--tools` with `--mode plan`; gemini Ask rules become Allow; copilot Ask is approved; `--autonomous` never enables tools by itself |
 | Long run | `--background` → `agents status --agent <agent> [--all]` · `agents result -f <id>` · `agents cancel --agent <agent>` |
 | Model and depth | `--model <alias\|version\|wire id>` · `--effort low..max` · `--profile <p>` |
@@ -60,4 +61,4 @@ Dispatch choice and fallback: `cost-routing.md` → Fallback. A saved Workflow n
 
 ## Don't
 
-- Invent a verb — the table above is the whole surface; `claude-code <agent> -h` lists it.
+- Invent a verb: the table above is the relay surface; `claude-code agents -h` and `<agent> -h` list the rest.
