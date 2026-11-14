@@ -137,8 +137,8 @@ func TestDeadMarkKeepsSinceAcrossRetriesAndHoldsNoSecret(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "schema,since,state,until" || strings.Contains(string(raw), "refresh") {
-		t.Errorf("mark file = %s; want only schema, state, since, until", raw)
+	if strings.Join(keys, ",") != "schema,set,since,state,until" || strings.Contains(string(raw), "refresh") {
+		t.Errorf("mark file = %s; want only schema, set, since, state, until", raw)
 	}
 }
 

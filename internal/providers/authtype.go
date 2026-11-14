@@ -289,7 +289,7 @@ func autoSPFirst(ctx context.Context, p *Provider, force bool) (string, bool, er
 		v, err := spCredential(ctx, p, force)
 		return v, true, err
 	}
-	if _, dead := readLoginMark(p.Name); dead && SPPresent(p) { // a dead login is not retried while the SP covers it
+	if _, dead := liveLoginMark(p); dead && SPPresent(p) { // a dead login is not retried while the SP covers it
 		v, err := fallbackToSP(ctx, p, force)
 		return v, true, err
 	}

@@ -41,7 +41,7 @@ func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
 	if p.Identity == IdentitySP || !hasUserLogin(p) {
 		return false, nil
 	}
-	if rec, dead := readLoginMark(p.Name); dead {
+	if rec, dead := liveLoginMark(p); dead {
 		if time.Now().Before(rec.Until) || spCovers(p) {
 			return false, nil
 		}

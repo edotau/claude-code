@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // LoginState is a profile's dead user login: State is "needs_login" or "rejected", Since when it was first seen dead.
@@ -44,6 +45,7 @@ type loginRecord struct {
 	State  string    `json:"state"`
 	Since  time.Time `json:"since"`
 	Until  time.Time `json:"until"`
+	Set    time.Time `json:"set,omitzero"` // the login secret's vault set-time when it was marked; never a token
 }
 
 const loginStateSchema = 1
@@ -91,9 +93,27 @@ func LoginStatus(p *Provider) (LoginState, bool) {
 	return LoginState{Profile: p.Name, State: rec.State, Since: rec.Since}, true
 }
 
-// openLoginMark is p's mark while its retry window is still open.
-func openLoginMark(p *Provider) (loginRecord, bool) {
+// loginSetAt is the vault set-time of p's login secret; false when it is unreadable or unset.
+func loginSetAt(p *Provider) (time.Time, bool) {
+	meta, err := vault.LoadMeta()
+	at := meta[AuthSecretName(p)].SetAt
+	return at, err == nil && !at.IsZero()
+}
+
+// liveLoginMark is p's mark unless the login secret was rewritten since (a hand-set login), which makes it stale: the
+// new value gets one try. A mark without a set-time, or an unreadable vault, never goes stale.
+func liveLoginMark(p *Provider) (loginRecord, bool) {
 	rec, ok := readLoginMark(p.Name)
+	if !ok || rec.Set.IsZero() {
+		return rec, ok
+	}
+	at, known := loginSetAt(p)
+	return rec, !known || at.Equal(rec.Set)
+}
+
+// openLoginMark is p's live mark while its retry window is still open.
+func openLoginMark(p *Provider) (loginRecord, bool) {
+	rec, ok := liveLoginMark(p)
 	return rec, ok && time.Now().Before(rec.Until)
 }
 
@@ -105,7 +125,8 @@ func markLoginDead(p *Provider, err error) {
 	}
 	now := time.Now()
 	rec := loginRecord{Schema: loginStateSchema, State: string(v), Since: now, Until: now.Add(loginSuppress)}
-	if old, ok := readLoginMark(p.Name); ok && old.State == rec.State {
+	rec.Set, _ = loginSetAt(p)
+	if old, ok := liveLoginMark(p); ok && old.State == rec.State {
 		rec.Since = old.Since
 	}
 	loginMarks.Delete(p.Name)
