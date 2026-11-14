@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -231,7 +232,7 @@ func TestArmRunServesJobAndKeepsExclusions(t *testing.T) {
 	}
 }
 
-// A 402 on a probe attempt re-runs the same workspace under the fallback policy the probe skipped, never another one.
+// A 402 uses the requested fallback chain once, without replaying the lead or moving workspaces.
 func TestAutoProbeFailureAppliesFallbackPolicyOnSameWorkspace(t *testing.T) {
 	dump := armRateFixture(t, nil, []string{"dev"})
 	askAuto(t, "auto", "all")
@@ -243,7 +244,7 @@ func TestAutoProbeFailureAppliesFallbackPolicyOnSameWorkspace(t *testing.T) {
 		}
 	}
 	if codex != 2 {
-		t.Errorf("launches %v, want codex on dev twice: the probe, then the fallback policy", bins)
+		t.Errorf("launches %v, want the two codex dispatches in the requested fallback chain", bins)
 	}
 	for _, w := range launchedOn(t, dump) {
 		if w == "qa" {
@@ -424,5 +425,119 @@ func TestArmGateWaitingWorkspaceIsNotStarved(t *testing.T) {
 	wg.Wait()
 	if len(early) != 0 || !slices.Equal(order, []string{"qa", "dev"}) {
 		t.Errorf("ran %v before release, %v overall; want none, then qa before dev", early, order)
+	}
+}
+
+// retryStub keeps retry regressions off vendor binaries and the network.
+type retryStub struct {
+	name string
+	run  func(agent.RunOptions, wire.Sink) (wire.Result, error)
+}
+
+func (s retryStub) Name() string     { return s.name }
+func (s retryStub) Caps() agent.Caps { return agent.Caps{} }
+func (s retryStub) Available() error { return nil }
+func (s retryStub) Run(_ context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	return s.run(req, sink)
+}
+
+func retryUnitFixture(t *testing.T) {
+	t.Helper()
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(providers.EnvSessionProfile, "")
+	oldFind, oldLive, oldCool, oldAuto := armFindings, armLive, armCooling, autoPickedArm
+	armFindings = noCredential(nil)
+	armLive = func([]*providers.Provider) map[string]int { return nil }
+	armCooling = func(*providers.Provider, time.Time) bool { return false }
+	t.Cleanup(func() { armFindings, armLive, armCooling, autoPickedArm = oldFind, oldLive, oldCool, oldAuto })
+}
+
+func retryUnit(t *testing.T, run func(*testing.T)) {
+	t.Helper()
+	synctest.Test(t, func(t *testing.T) {
+		retryUnitFixture(t)
+		run(t)
+	})
+}
+
+// A progressed probe keeps the requested chain and reconciles through its successor without workspace replay.
+func TestArmProbePreservesRequestedFallbackAfterProgress(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.example.com"},"qa":{"preset":"databricks","host":"https://qa.example.com"}}}}`)
+	orig := armFindings
+	armFindings = noCredential(nil)
+	t.Cleanup(func() { armFindings = orig })
+	if !armsLeft("lead-stub", "", []string{"dev"}) {
+		t.Fatal("fixture has no spare workspace")
+	}
+	a := &armRetry{agentName: "lead-stub", fallback: "all", tried: []string{"dev"}}
+	req := a.probe(agent.RunOptions{Prompt: "task", Fallback: "all", Tools: true})
+	lead := &armFallbackStub{name: "lead-stub", err: &retry.Error{
+		Kind: retry.KindRateLimit, Progressed: true, Err: errors.New("429")}}
+	next := &armFallbackStub{name: "fallback-stub"}
+	chain := agent.Chain{Want: lead.name, Dispatches: []agent.Dispatch{{Agent: lead}}}
+	if req.Fallback == "all" {
+		chain.Dispatches = append(chain.Dispatches, agent.Dispatch{Agent: next})
+	}
+	p := &agent.Prepared{Opts: req, Chain: chain}
+	res, err := new(agent.Client).Exec(t.Context(), p, wire.Discard, agent.RunRecordedOpts{Hold: true})
+	if err != nil || len(lead.seen) != 1 || len(next.seen) != 1 {
+		t.Fatalf("answer=%q error=%v lead calls=%d fallback calls=%d policy=%q",
+			res.Answer, err, len(lead.seen), len(next.seen), req.Fallback)
+	}
+	if !strings.Contains(next.seen[0].Prompt, "reconcile") || !strings.Contains(next.seen[0].Prompt, "partial") {
+		t.Fatalf("fallback prompt lacks reconciliation: %q", next.seen[0].Prompt)
+	}
+	if _, again := a.next(t.Context(), res, err, req); again {
+		t.Fatal("successful reconciliation replayed the task on another workspace")
+	}
+}
+
+type armFallbackStub struct {
+	name string
+	err  error
+	seen []agent.RunOptions
+}
+
+func (s *armFallbackStub) Name() string     { return s.name }
+func (s *armFallbackStub) Caps() agent.Caps { return agent.Caps{} }
+func (s *armFallbackStub) Available() error { return nil }
+func (s *armFallbackStub) Run(_ context.Context, req agent.RunOptions, _ wire.Sink) (wire.Result, error) {
+	s.seen = append(s.seen, req)
+	return wire.Result{Answer: "partial"}, s.err
+}
+
+func TestArmProbeYieldsOnlyRetryableWorkspaceFailures(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.example.com"}}}}`)
+	orig := armFindings
+	armFindings = noCredential(nil)
+	t.Cleanup(func() { armFindings = orig })
+	for _, tc := range []struct {
+		name       string
+		kind       retry.Kind
+		progressed bool
+		answer     string
+		tried      []string
+		want       bool
+	}{
+		{"pre-progress 429", retry.KindRateLimit, false, "", []string{"dev"}, true},
+		{"tool progress", retry.KindRateLimit, true, "", []string{"dev"}, false},
+		{"text progress", retry.KindRateLimit, false, "partial", []string{"dev"}, false},
+		{"quota", retry.KindQuota, false, "", []string{"dev"}, false},
+		{"last workspace", retry.KindRateLimit, false, "", []string{"dev", "qa"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &armRetry{agentName: "codex", fallback: "all", tried: tc.tried}
+			req := a.probe(agent.RunOptions{Fallback: "all"})
+			err := &retry.Error{Kind: tc.kind, Progressed: tc.progressed, Err: errors.New("stub")}
+			if got := req.YieldFallback(wire.Result{Answer: tc.answer}, err); got != tc.want {
+				t.Fatalf("yield=%v, want %v", got, tc.want)
+			}
+		})
 	}
 }

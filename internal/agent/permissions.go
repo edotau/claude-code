@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -104,17 +105,33 @@ func ParseRule(s string) (Rule, error) {
 	case strings.TrimSpace(arg) == "":
 		return Rule{}, fmt.Errorf("permission rule %q: empty argument (write %q for every call)", s, tool)
 	}
-	return Rule{Tool: tool, Arg: expandHome(tool, arg)}, nil
+	if strings.HasPrefix(arg, "~/") {
+		arg = expandHome(tool, arg)
+	}
+	return Rule{Tool: tool, Arg: arg}, nil
 }
 
-// expandHome turns a leading ~/ in a path rule into the home directory; Bash and WebFetch rules are not paths.
+// expandHome resolves home prefixes in path rules, retaining unknown users and failed lookups literally.
 func expandHome(tool, arg string) string {
-	rest, ok := strings.CutPrefix(arg, "~/")
-	if !ok || tool == "Bash" || tool == "WebFetch" {
+	if !strings.HasPrefix(arg, "~") || tool == "Bash" || tool == "WebFetch" {
 		return arg
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	name, rest, _ := strings.Cut(arg[1:], "/")
+	var home string
+	if name == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return arg
+		}
+	} else {
+		u, err := user.Lookup(name)
+		if err != nil {
+			return arg
+		}
+		home = u.HomeDir
+	}
+	if home == "" {
 		return arg
 	}
 	return filepath.Join(home, rest)
@@ -412,7 +429,7 @@ func (r Rule) matches(tool, arg string) bool {
 	case tool == "WebFetch" && strings.HasPrefix(r.Arg, "domain:"):
 		return domainMatches(strings.TrimPrefix(r.Arg, "domain:"), arg)
 	}
-	return pathMatches(r.Arg, arg)
+	return pathMatches(r.Arg, arg) || pathMatches(expandHome(tool, r.Arg), arg)
 }
 
 // commandMatches: "p:*" is a prefix at a word boundary, anything else must equal the command.

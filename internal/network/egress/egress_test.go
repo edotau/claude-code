@@ -175,3 +175,42 @@ func TestStopDropsRecordAndSparesRecycledPid(t *testing.T) {
 		t.Fatalf("Stop without a record: %v", err)
 	}
 }
+
+// An explicitly empty context host forces the direct path even when the environment names a tunnel host.
+func TestEmptyContextHostForcesDirect(t *testing.T) {
+	t.Setenv(EnvHost, "box")
+	origWorkspace, origSpawn := isWorkspace, spawn
+	t.Cleanup(func() { isWorkspace, spawn = origWorkspace, origSpawn })
+	isWorkspace = func(h string) bool { return h == "127.0.0.1" }
+	spawn = func(string, int, string) (int, <-chan struct{}, error) {
+		t.Error("a forced-direct request must not start the tunnel")
+		return 0, nil, errors.New("no tunnel")
+	}
+	req, _ := http.NewRequestWithContext(WithHost(t.Context(), ""), http.MethodGet, "http://127.0.0.1:1/", nil)
+	if u, err := Proxy(req); err != nil || u != nil {
+		t.Fatalf("Proxy = %v, %v; want direct (nil, nil)", u, err)
+	}
+	if got := Via(req.Context()); got != "" {
+		t.Fatalf("Via = %q, want direct", got)
+	}
+	if got := Via(t.Context()); got != "box" {
+		t.Fatalf("Via without a pin = %q, want the environment host", got)
+	}
+}
+
+// Alternate flips tunnelled to direct and direct to the environment tunnel; with no tunnel host there is none.
+func TestAlternateFlipsThePath(t *testing.T) {
+	t.Setenv(EnvHost, "")
+	if _, _, _, ok := Alternate(t.Context()); ok {
+		t.Fatal("no tunnel host configured: want no alternate")
+	}
+	alt, from, to, ok := Alternate(WithHost(t.Context(), "pin"))
+	if !ok || Via(alt) != "" || from != "ssh pin" || to != "direct" {
+		t.Fatalf("tunnelled: via=%q from=%q to=%q ok=%v", Via(alt), from, to, ok)
+	}
+	t.Setenv(EnvHost, "box")
+	alt, from, to, ok = Alternate(WithHost(t.Context(), ""))
+	if !ok || Via(alt) != "box" || from != "direct" || to != "ssh box" {
+		t.Fatalf("direct: via=%q from=%q to=%q ok=%v", Via(alt), from, to, ok)
+	}
+}

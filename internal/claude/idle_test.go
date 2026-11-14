@@ -76,13 +76,30 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	}
 }
 
+// Given claude delivers a successful result and then lingers, Then the child is killed but the run succeeds with the answer.
 func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
-	res, err := runFakeClaude(t, "echo '"+resultLine+"'\nexec sleep 30\n")
-	if !errors.Is(err, agent.ErrSilent) || errors.Is(err, agent.ErrStalled) {
-		t.Fatalf("err = %v; want ErrSilent (not ErrStalled) after result before EOF", err)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	start := time.Now()
+	res, err := runFakeClaude(t, "echo $$ > "+pidFile+"\necho '"+resultLine+"'\nexec sleep 30\n")
+	if err != nil || res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v; want the complete answer and a nil error", res, err)
 	}
-	if res.Answer != "done" || !strings.Contains(err.Error(), "last event: result") {
-		t.Fatalf("res = %+v, err = %v; want answer preserved and last event result", res, err)
+	if took := time.Since(start); took > 10*time.Second {
+		t.Errorf("run took %s, want about the idle limit", took)
+	}
+	raw, _ := os.ReadFile(pidFile)
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if pid == 0 || proc.Alive(pid) {
+		t.Errorf("lingering child pid %d still alive", pid)
+	}
+}
+
+// Given claude speaks, then goes silent before any result, Then the run is still an ErrSilent failure.
+func TestClaudeExecSilenceBeforeResultStillFails(t *testing.T) {
+	text := `{"type":"assistant","session_id":"s","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}`
+	_, err := runFakeClaude(t, "echo '"+text+"'\nexec sleep 30\n")
+	if !errors.Is(err, agent.ErrSilent) || !strings.Contains(err.Error(), "last event: assistant") {
+		t.Fatalf("err = %v, want ErrSilent after the last assistant event", err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"bufio"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -118,8 +119,13 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 		if err != nil || cur.Status != "running" || cur.Alive() {
 			continue // the owner may have finished or started after the snapshot
 		}
-		rec = cur
-		rec.Status, rec.Error = "error", lostError
+		rec, outcome := cur, "dispatch"
+		if env, ok := savedOKResult(cur); ok {
+			rec.Finish(envelopeResult(env), nil, time.Duration(env.DurationMs)*time.Millisecond)
+			outcome = "finished dispatch (result saved before the process left)"
+		} else {
+			rec.Status, rec.Error = "error", lostError
+		}
 		if !dryRun {
 			if err := rec.Save(); err != nil {
 				fmt.Fprintf(errw, "agents reap: %s: %v\n", rec.ID, err)
@@ -127,10 +133,39 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 				continue
 			}
 		}
-		fmt.Fprintf(out, "%s dispatch %s (%s, pid %d)\n", verb, rec.ID, rec.Agent, rec.PID)
+		fmt.Fprintf(out, "%s %s %s (%s, pid %d)\n", verb, outcome, rec.ID, rec.Agent, rec.PID)
 		records++
 	}
 	return records, code
+}
+
+// savedOKResult is rec's last result event when it holds a complete ok answer, which a dead process already delivered.
+func savedOKResult(rec agent.Record) (env wire.Envelope, _ bool) {
+	f, err := os.Open(rec.EventsPath())
+	if err != nil {
+		return env, false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 16<<20)
+	for sc.Scan() {
+		var ev wire.Event
+		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
+			env = *ev.Envelope
+		}
+	}
+	answered := env.Answer != "" || len(env.Structured) > 0
+	return env, sc.Err() == nil && env.Status == wire.StatusOK && env.Error == nil && answered
+}
+
+// envelopeResult is the part of env that Record.Finish reads back.
+func envelopeResult(env wire.Envelope) wire.Result {
+	res := wire.Result{Agent: env.Agent, Provider: env.Provider, Model: env.Model, Invoked: env.Invoked,
+		SessionID: env.SessionID, FallbackReason: env.FallbackReason}
+	if env.Fallback != nil {
+		res.Fallback = *env.Fallback
+	}
+	return res
 }
 
 // reapSockets removes sockets whose holder is dead or has no dispatch record; returns the count, 1 on a failed remove.
@@ -312,21 +347,24 @@ func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity, id
 		matched[rec.ID] = true
 	}
 	if act.Tool == "Bash" && strings.Contains(act.Arg, pendingAskMarker) {
-		if disp := pendingDispatch(transcriptPath, cwd, matched, now); disp != nil {
+		if disp := pendingDispatch(transcriptPath, cwd, matched, act.At, now); disp != nil {
 			dispatches = append(dispatches, *disp)
 		}
 	}
 	return dispatches
 }
 
-// pendingDispatch matches the newest running dispatch for this cwd that started no earlier than the subagent.
-func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, now time.Time) *Dispatch {
+// askLaunchWindow is how long after its `ask` tool_use a relay's own dispatch may start; a later one is another leaf's.
+const askLaunchWindow = 2 * time.Minute
+
+// pendingDispatch is the newest running dispatch in cwd started after the subagent and within askLaunchWindow of asked.
+func pendingDispatch(transcriptPath, cwd string, matched map[string]bool, asked, now time.Time) *Dispatch {
 	start := firstTimestamp(transcriptPath)
 	for _, rec := range agent.RecentRecords(50) {
 		if matched[rec.ID] || rec.Status != "running" || rec.Request.WorkDir != cwd {
 			continue
 		}
-		if !start.IsZero() && rec.Time.Before(start) {
+		if !start.IsZero() && rec.Time.Before(start) || !asked.IsZero() && rec.Time.After(asked.Add(askLaunchWindow)) {
 			continue
 		}
 		disp := dispatchFromRecord(rec, "heuristic", now)

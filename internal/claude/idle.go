@@ -29,6 +29,10 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	}
 	if ev.ParentToolUseID == "" {
 		switch ev.Type {
+		case "result":
+			if !ev.IsError {
+				w.Delivered() // a child that lingers past its result is killed, not failed
+			}
 		case "assistant":
 			w.pending += countBlocks(msg, "tool_use")
 		case "user":

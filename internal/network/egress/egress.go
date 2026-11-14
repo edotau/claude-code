@@ -2,7 +2,6 @@
 package egress
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -24,7 +23,7 @@ func Host() string { return os.Getenv(EnvHost) }
 
 type hostKey struct{}
 
-// WithHost pins the egress host on ctx: the gateway daemon carries a request's /via/<host> this way.
+// WithHost pins the egress host on ctx: the gateway daemon carries a request's /via/<host> this way; "" forces direct.
 func WithHost(ctx context.Context, host string) context.Context {
 	return context.WithValue(ctx, hostKey{}, host)
 }
@@ -33,6 +32,25 @@ func WithHost(ctx context.Context, host string) context.Context {
 func PinnedHost(ctx context.Context) string {
 	h, _ := ctx.Value(hostKey{}).(string)
 	return h
+}
+
+// Via is the host a request on ctx leaves through: the pinned one (even ""), else the environment's.
+func Via(ctx context.Context) string {
+	if h, ok := ctx.Value(hostKey{}).(string); ok {
+		return h
+	}
+	return Host()
+}
+
+// Alternate is ctx on the other path (direct when tunnelled, else the environment tunnel) and both paths' names.
+func Alternate(ctx context.Context) (alt context.Context, from, to string, ok bool) {
+	if h := Via(ctx); h != "" {
+		return WithHost(ctx, ""), "ssh " + h, "direct", true
+	}
+	if h := Host(); h != "" {
+		return WithHost(ctx, h), "direct", "ssh " + h, true
+	}
+	return ctx, "", "", false
 }
 
 // Valid accepts an ssh host that also fits one URL path segment and one file name.
@@ -76,9 +94,9 @@ func proxyFor(host string) func(*http.Request) (*url.URL, error) {
 	}
 }
 
-// Proxy is proxyFor the host pinned on the request's context, else the environment's.
+// Proxy is proxyFor the host pinned on the request's context (even ""), else the environment's.
 func Proxy(req *http.Request) (*url.URL, error) {
-	return proxyFor(cmp.Or(PinnedHost(req.Context()), Host()))(req)
+	return proxyFor(Via(req.Context()))(req)
 }
 
 var install sync.Once
