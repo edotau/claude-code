@@ -54,6 +54,29 @@ func RegisterRouteFlags(fs *flag.FlagSet) *RouteFlags {
 	return r
 }
 
+// Args re-emits the route flags that were set as `ask` arguments, so a child ask run routes as the caller did.
+func (r *RouteFlags) Args() ([]string, error) {
+	f := &r.f
+	if f.overlay == "-" {
+		return nil, errors.New("--overlay - reads stdin, which a batch child needs; pass a file or inline JSON")
+	}
+	var out []string
+	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}, {"mode", f.permMode}} {
+		if kv[1] != "" {
+			out = append(out, "--"+kv[0], kv[1])
+		}
+	}
+	for _, list := range []struct {
+		name  string
+		rules []string
+	}{{"allow", f.permAllow}, {"ask", f.permAsk}, {"deny", f.permDeny}} {
+		for _, rule := range list.rules {
+			out = append(out, "--"+list.name, rule)
+		}
+	}
+	return out, nil
+}
+
 // apply resolves the flags and overlay as ask does and puts them on q: permissions, fallback, env layer, confinement.
 func (r *RouteFlags) apply(q *roles.Request, agentName, format string, background bool) error {
 	f := &r.f

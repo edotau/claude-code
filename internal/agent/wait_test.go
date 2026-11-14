@@ -53,3 +53,27 @@ func TestWaitTimeoutAndUnknownID(t *testing.T) {
 		t.Error("unknown id: want an error")
 	}
 }
+
+// A timeout exits 4, but an error or lost row wins with 1.
+func TestWaitExitSeparatesTimeoutFromFailure(t *testing.T) {
+	row := func(states ...string) []WaitResult {
+		rows := make([]WaitResult, len(states))
+		for i, s := range states {
+			rows[i].State = s
+		}
+		return rows
+	}
+	for _, c := range []struct {
+		rows []WaitResult
+		want int
+	}{
+		{row(WaitDone, WaitDone), 0},
+		{row(WaitDone, WaitTimeout), 4},
+		{row(WaitTimeout, WaitError), 1},
+		{row(WaitLost, WaitTimeout), 1},
+	} {
+		if got := WaitExit(c.rows); got != c.want {
+			t.Errorf("WaitExit(%v) = %d, want %d", c.rows, got, c.want)
+		}
+	}
+}

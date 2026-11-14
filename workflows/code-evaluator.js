@@ -22,7 +22,7 @@ const SKILL = a.skill
 const SCENARIOS = Array.isArray(a.scenarios) && a.scenarios.length ? a.scenarios : ['s2', 's9', 's13', 's14']
 const SEEDS = Number.isInteger(a.seeds) && a.seeds > 0 ? a.seeds : 2
 const CONDITIONS = Array.isArray(a.conditions) && a.conditions.length ? a.conditions : ['control', 'method']
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
 // ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).

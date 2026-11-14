@@ -1,9 +1,9 @@
 ---
 name: Plan
 description: |
-  Read-only planning on Opus by default; return docs/templates/plan.md with a tickable Tasks checklist.
+  Read-only planning on the session's model; return docs/templates/plan.md with a tickable Tasks checklist.
 tools: [Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__web_search__web_search]
-model: opus
+model: inherit
 ---
 
 # Plan
@@ -118,6 +118,9 @@ Every phase is:
 - **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
 - **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): a
   commit touching all of them ticks it (`docs-plan-tick`).
+- **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and `findings: <path>#<key>`
+  go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs (template
+  `## Tasks`).
 
 ### Delegation rules
 

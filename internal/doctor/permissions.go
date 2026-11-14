@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -16,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -333,23 +335,21 @@ func doctorPermissions(w io.Writer, only string, asJSON bool) int {
 	if err != nil {
 		return helptext.Fail("doctor: %v", err)
 	}
-	var reps []permAgent
-	var sum permTally
-	for _, a := range permModes {
-		if only != "" && only != a.agent {
-			continue
-		}
-		rep, t := permReport(a.agent, a.modes, wd)
-		reps, sum = append(reps, rep), permTally{sum.met + t.met, sum.total + t.total, sum.notes + t.notes}
-	}
+	reps, names, sum := permCollect(only, wd)
 	if len(reps) == 0 {
 		return helptext.FailUsage("doctor: --agent %q is not one of claude, codex, copilot, gemini, opencode", only)
 	}
+	stages, st, err := permStageRows(filepath.Join(paths.ConfigDir(), "workflows"), names, wd)
+	if err != nil {
+		return helptext.Fail("doctor: %v", err)
+	}
+	sum.met, sum.total = sum.met+st.met, sum.total+st.total
 	if asJSON {
 		doc := struct {
 			Met, Total, DesignNotes int
 			Agents                  []permAgent
-		}{sum.met, sum.total, sum.notes, reps}
+			Stages                  []permStageRow
+		}{sum.met, sum.total, sum.notes, reps, stages}
 		if err := helptext.WriteJSON(w, doc); err != nil {
 			return helptext.Fail("doctor: %v", err)
 		}
@@ -357,10 +357,27 @@ func doctorPermissions(w io.Writer, only string, asJSON bool) int {
 		for _, r := range reps {
 			writePermText(w, r)
 		}
+		writePermStages(w, names, stages)
 		fmt.Fprintf(w, "%d of %d expectations met, %d design notes\n", sum.met, sum.total, sum.notes)
 	}
 	if sum.met != sum.total {
 		return 1
 	}
 	return 0
+}
+
+// permCollect builds the per-agent reports for the selected agent (all when empty) and their summed tally.
+func permCollect(only, wd string) ([]permAgent, []string, permTally) {
+	var reps []permAgent
+	var names []string
+	var sum permTally
+	for _, a := range permModes {
+		if only != "" && only != a.agent {
+			continue
+		}
+		rep, t := permReport(a.agent, a.modes, wd)
+		reps, sum = append(reps, rep), permTally{sum.met + t.met, sum.total + t.total, sum.notes + t.notes}
+		names = append(names, a.agent)
+	}
+	return reps, names, sum
 }

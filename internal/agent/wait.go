@@ -94,3 +94,17 @@ func waitElapsed(rec Record, state string) string {
 	}
 	return time.Since(rec.Time).Round(time.Second).String()
 }
+
+// WaitExit is the `agents wait` exit code: 1 any error or lost, else 4 any timeout, else 0.
+func WaitExit(rows []WaitResult) int {
+	code := 0
+	for _, r := range rows {
+		switch r.State {
+		case WaitError, WaitLost:
+			return 1
+		case WaitTimeout:
+			code = 4
+		}
+	}
+	return code
+}

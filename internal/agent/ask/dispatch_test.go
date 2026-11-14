@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"os"
 	"slices"
 	"strings"
@@ -217,5 +218,34 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 		if err == nil || len(res.Hops) != 1 {
 			t.Errorf("%s: %d hops, err %v; want one failed dispatch without fallback", name, len(res.Hops), err)
 		}
+	}
+}
+
+// Every flag RegisterRouteFlags defines comes back out of Args, so a new route flag cannot be dropped silently.
+func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	route := RegisterRouteFlags(fs)
+	var args []string
+	fs.VisitAll(func(f *flag.Flag) {
+		val := "x"
+		if f.Name == "mode" {
+			val = "plan"
+		}
+		args = append(args, "--"+f.Name, val)
+	})
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	got, err := route.Args()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs.VisitAll(func(f *flag.Flag) {
+		if !slices.Contains(got, "--"+f.Name) {
+			t.Errorf("route flag --%s is not forwarded by Args: %q", f.Name, got)
+		}
+	})
+	if _, err := (&RouteFlags{f: askFlags{overlay: "-"}}).Args(); err == nil {
+		t.Error("--overlay - must be refused: stdin carries the batch lines")
 	}
 }

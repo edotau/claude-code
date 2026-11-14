@@ -73,7 +73,7 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
   (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
 
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
 // ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
@@ -136,7 +136,7 @@ const stepOf = (steps, name, defaults, opt) => {
   }
 }
 // ── end stepOf ──
-// ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
+// ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2

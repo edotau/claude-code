@@ -64,12 +64,20 @@ var workflowPage = helptext.Page{
 	Commands: [][2]string{
 		{"skeleton", "print a pipeline|parallel|evaluator|orchestrator script"},
 		{"lint", "check pins, meta/throw, syntax and the saved-workflows table"},
+		{"sync", "copy canonical helper blocks into sibling scripts"},
 	},
 	Hint: "claude-code workflow <command> -h lists that command's flags.",
 }
 
-// workflowSubPage is the -h page for skeleton and lint, whose parsers have no FlagSet.
+// workflowSubPage is the -h page for skeleton, lint and sync, whose parsers have no FlagSet.
 func workflowSubPage(sub string) helptext.Page {
+	if sub == "sync" {
+		return helptext.Page{
+			Usage: "claude-code workflow sync <canonical.js>",
+			About: "Copy helper blocks into sibling scripts; never edit the canonical file. " +
+				"Exits: 0 synced or unchanged; 1 file/marker error; 2 usage.",
+		}
+	}
 	if sub == "lint" {
 		return helptext.Page{
 			Usage: "claude-code workflow lint [<root>]",
@@ -87,14 +95,14 @@ func workflowSubPage(sub string) helptext.Page {
 	}
 }
 
-// cmdWorkflow dispatches `workflow skeleton|lint`.
+// cmdWorkflow dispatches `workflow skeleton|lint|sync`.
 func cmdWorkflow(args []string) int {
 	if len(args) == 0 || isHelpVerb(args[0]) {
 		workflowPage.Fprint(os.Stdout)
 		return 0
 	}
 	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
-	if (args[0] == "skeleton" || args[0] == "lint") && len(args) > 1 && helptext.WantsHelp(helpArgs(args)) {
+	if slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) && len(args) > 1 && helptext.WantsHelp(helpArgs(args)) {
 		workflowSubPage(args[0]).Fprint(os.Stdout)
 		return 0
 	}
@@ -103,6 +111,8 @@ func cmdWorkflow(args []string) int {
 		return quality.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
 		return workflowLint(args[1:])
+	case "sync":
+		return quality.RunWorkflowSync(args[1:], os.Stdout, os.Stderr)
 	}
 	return unknownSub("workflow", args[0], workflowPage)
 }
@@ -151,5 +161,6 @@ func workflowSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []helptext.Flag{{Name: "name"}}},
 		"lint":     {},
+		"sync":     {},
 	}}
 }

@@ -137,7 +137,7 @@ Verdicts.
 - **Mark done on a red verification**, or redesign the manager's approach — flag a genuine blocker.
 - **Write memory files** — propose durable facts in the report.
 - **Run the full gate loop or full build + suite + security scan** — the main thread's, once, with the owner's
-  approval (`skills/problem-solving/references/verify.md`; `Workflow green-keeper-loop` only when the user asks).
+  approval (`skills/problem-solving/references/verify.md`; `Workflow code-looper` only when the user asks).
 - **Write new test coverage** → `copilot` (TEST mode), feature or bug fix only.
 - **Can't assess codebase** → escalate to the human with what you need.
 - **Contradictory requirements** → flag the conflict, propose a resolution.

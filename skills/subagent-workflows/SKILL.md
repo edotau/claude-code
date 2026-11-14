@@ -40,7 +40,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `gemini` | Read-only research and codebase sweeps | Cited findings |
 | `opencode` | Code/docs work and requested model discovery | Status and verification |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
-| `Plan` | Read-only design on Opus unless the call names a model | Plan in `docs/templates/plan.md` form |
+| `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 
 `claude-code agents label <type> --brief FILE` prints the label (`--model` previews a model, `--session-model` supplies
@@ -145,7 +145,7 @@ One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. 
 | Failures across packages | one `copilot` leaf per package in ONE message, each owning only its `_test.go` files |
 | A change being implemented | `claude` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
 | A fixed bug | after your live before/after, one leaf writes the regression test |
-| Suite must go green, bounded | `Workflow green-keeper-loop` — only when the user asks |
+| Suite must go green, bounded | `Workflow code-looper` — only when the user asks |
 
 ### Phase 3: integrate
 

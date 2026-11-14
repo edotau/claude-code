@@ -1,8 +1,8 @@
 export const meta = {
-  name: 'green-keeper-loop',
+  name: 'code-looper',
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse:
-    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/green-keeper-loop.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error (green only when the read-only check re-runs the gate green, never on the fixer\'s claim), gate, iterations, filesChanged, residual, lines (numstat of the fixer iterations), gates}. An unknown arg is refused at launch. steps {detect, fix} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages).',
+    'USE: make a gate pass: run it, fix failures inside scope, re-run (3 iterations per call by default). CALL: Workflow({scriptPath: "~/.claude/workflows/code-looper.js", args: {cwd, scope: ["internal/x"]}}). OPTIONAL: gate (auto-detected), maxIterations, fixesPerIteration, claudeState (ok|low|exhausted|unknown, passed by a caller; omit = read it here). RETURNS {status, exit: green | stalled | capped | error (green only when the read-only check re-runs the gate green, never on the fixer\'s claim), gate, iterations, filesChanged, residual, lines (numstat of the fixer iterations), gates}. An unknown arg is refused at launch. steps {detect, fix} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages).',
   phases: [
     { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
     { title: 'Gate', detail: 'a read-only check first; then one fixer per iteration: run the gate, fix root causes within scope, re-run; a fixer green is re-checked' },
@@ -12,7 +12,7 @@ export const meta = {
 // ── Args ────────────────────────────────────────────────────────────────────
 // Every field is optional except one of gate or scope (a bare call errors); scope is the ONLY place the fixer may edit.
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-// ── stepOf: copied verbatim into code-analyzer, green-keeper-loop, code-evaluator, code-workers, code-engineer ──
+// ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
 // ranOnReworded: a relay-reworded ran_on that still names the agent and a route (account·profile, profile:model or model id).
@@ -75,7 +75,7 @@ const stepOf = (steps, name, defaults, opt) => {
   }
 }
 // ── end stepOf ──
-// ── stages: copied verbatim into code-analyzer, green-keeper-loop, code-workers, code-engineer ──
+// ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
 const ST_GATE_MAX = 2
@@ -376,14 +376,14 @@ async function stagePolish(ctx, o) {
 }
 // ── end stages ──
 const ARGS = ['cwd', 'scope', 'gate', 'maxIterations', 'fixesPerIteration', 'claudeState', 'rules', 'steps', 'profile', 'provider']
-if (stArgs(a, ARGS)) return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['green-keeper-loop: ' + stArgs(a, ARGS)], history: [] }
+if (stArgs(a, ARGS)) return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['code-looper: ' + stArgs(a, ARGS)], history: [] }
 let ST
 try {
   ST = {
     detect: stepOf(a.steps, 'detect', { model: 'haiku', effort: 'low', tools: 'run' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
     fix: stepOf(a.steps, 'fix', { model: 'sonnet', effort: 'medium', tools: 'edit' }, { allowed: ['detect', 'fix'], external: true, profile: a.profile, provider: a.provider }),
   }
-} catch (e) { return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['green-keeper-loop: ' + e.message], history: [] } }
+} catch (e) { return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['code-looper: ' + e.message], history: [] } }
 for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return { status: 'error', exit: 'error', gate: null, gateSource: 'none', iterations: 0, filesChanged: [], residual: ['args.' + k + ' must be a plain name'], history: [] }
 // no I/O needed to reject this, so it runs before the preflight and route-state leaves
 if (!a.gate && !(Array.isArray(a.scope) && a.scope.length)) {
