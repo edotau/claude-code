@@ -27,7 +27,7 @@ digits, letters, `.`, `-`, else 400; each prefix once, a repeat is 400; added on
 by a provider's `auth.command` is that command's own traffic and is not tunnelled.
 
 `--host auto` (`agents ask`, and the global flag) and `--remote auto` become a host name on this machine, before any
-ssh call: the env value `HARNESS_REMOTE_HOST` (process env, else the vault's: `claude-code configure` →
+ssh call: the env value `CLAUDE_REMOTE_HOST` (process env, else the vault's: `claude-code configure` →
 environment), else the one other online tailnet machine that answers `claude-code version` over ssh within 5 s, kept
 10 minutes in `state/harness/remote/auto-host.json`. No machine or more than one is an error that lists them; it
 never guesses.

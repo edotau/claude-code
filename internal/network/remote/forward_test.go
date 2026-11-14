@@ -165,6 +165,72 @@ func TestPinLoginOnlyForLogin(t *testing.T) {
 	}
 }
 
+// swapAuto fixes CLAUDE_REMOTE_HOST's value and which hosts name this machine, and counts every probe the decision makes.
+func swapAuto(t *testing.T, env string, self ...string) (probes *int) {
+	t.Helper()
+	t.Setenv(LoginRemoteEnv, "")
+	oldEnv, oldSelf, oldPeers, oldAnswers := autoEnvHost, autoSelf, autoPeers, autoAnswers
+	t.Cleanup(func() { autoEnvHost, autoSelf, autoPeers, autoAnswers = oldEnv, oldSelf, oldPeers, oldAnswers })
+	n := 0
+	autoEnvHost = func() string { return env }
+	autoSelf = func(h string) bool { n++; return slices.Contains(self, h) }
+	autoPeers = func() ([]string, error) { n++; return nil, errors.New("tailnet probed") }
+	autoAnswers = func(string) bool { n++; return false }
+	return &n
+}
+
+func TestAutoLogin(t *testing.T) {
+	const peer = "wks.tailnet.ts.net"
+	login := []string{"databricks", "login", "--profile", "dev"}
+	with := func(extra ...string) []string { return append(slices.Clone(login), extra...) }
+	cases := []struct {
+		name string
+		env  string
+		args []string
+		self []string
+		want string
+	}{
+		{"variable set, plain login", peer, login, nil, peer},
+		{"dry-run keeps routing", peer, with("--dry-run"), nil, peer},
+		{"--as user keeps routing", peer, with("--as", "user"), nil, peer},
+		{"--as sp mints locally", peer, with("--as", "sp"), nil, ""},
+		{"--as=sp mints locally", peer, with("--as=sp"), nil, ""},
+		{"--no-browser stays local", peer, with("--no-browser"), nil, ""},
+		{"--host-browser stays local", peer, with("--host-browser"), nil, ""},
+		{"--no-browser=false is not the flag", peer, with("--no-browser=false"), nil, peer},
+		{"help stays local", peer, with("-h"), nil, ""},
+		{"the variable names this machine", peer, login, []string{peer}, ""},
+		{"its first label names this machine", peer, login, []string{"wks"}, ""},
+		{"a user@host value is no label match", "me@wks.tailnet.ts.net", login, []string{"me@wks"}, "me@wks.tailnet.ts.net"},
+		{"unset", "", login, nil, ""},
+		{"auto", Auto, login, nil, ""},
+		{"another verb", peer, []string{"databricks", "status"}, nil, ""},
+	}
+	for _, c := range cases {
+		swapAuto(t, c.env, c.self...)
+		got, ok := AutoLogin(c.args)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("%s: AutoLogin = %q, %v; want %q", c.name, got, ok, c.want)
+		}
+	}
+}
+
+// Unset, `auto` and a login already pinned by --remote decide with no is-this-me check and no tailnet probe at all.
+func TestAutoLoginUnsetMakesNoProbe(t *testing.T) {
+	login := []string{"databricks", "login"}
+	for _, env := range []string{"", Auto} {
+		probes := swapAuto(t, env)
+		if h, ok := AutoLogin(login); ok || *probes != 0 {
+			t.Errorf("variable %q: routed to %q, %d probes; want local and none", env, h, *probes)
+		}
+	}
+	probes := swapAuto(t, "wks.ts.net")
+	t.Setenv(LoginRemoteEnv, "other") // --remote other already pinned this login: the variable does not apply
+	if h, ok := AutoLogin(login); ok || *probes != 0 {
+		t.Errorf("pinned login: routed to %q, %d probes; want the explicit host untouched", h, *probes)
+	}
+}
+
 // The real runner, on sh in place of ssh: the marker line arrives while the process lives, stop ends it, a failure's stderr is kept.
 func TestStartSSHRunsAndStops(t *testing.T) {
 	live, err := startSSH(context.Background(), []string{"sh", "-c", "echo " + forwardReady + "; exec cat >/dev/null"})
