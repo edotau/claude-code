@@ -91,6 +91,12 @@ static menu: routing never touches the network.
   mints) and an interactive prompt do.
 - `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
   `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.
+- A dead user login (`needs_login`) is remembered in `state/harness/cache/login-state/<profile>.json` (state and times
+  only) and reported, not hidden: `doctor` and `databricks check --all` name it and say the SP covers headless runs,
+  the status line shows `login:<profile>`, a proxy 401 names `claude-code databricks login --profile <p>`.
+- While the proxy runs it refreshes the tokens of profiles used in the last 24 h once under 15 minutes remain, under
+  the per-profile lock (an idle machine mints nothing). A rotated refresh token is carried until sealed (a failed seal
+  is audited `seal_failed`); a stale one never replaces a newer vault copy.
 
 ## Headless login
 

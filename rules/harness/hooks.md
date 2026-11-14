@@ -44,9 +44,9 @@ harness runs the module around a headless `opencode run`), `plugin` (opencode in
 The `permission-gate` module (AgentOnly `permission` group) judges each call with `Permissions.Decide` against
 `HARNESS_DISPATCH_PERMISSIONS`, covering `bash -c`: opencode runs it from the plugin, codex and agy natively. Copilot
 `ask` runs through the SDK, whose session loads `~/.copilot/hooks/*.json`, so the native row covers it. Skills,
-instruction sources and the Bash-deny path: `agent.md` → Skills and instructions parity. Claude runs it only for the
-memory jobs: `claudeCmd` injects it into that child's one `--settings` (never `settings.json`), under
-`bypassPermissions`, `agent.md` → Memory jobs.
+instruction sources and the Bash-deny path: `agent.md` → Skills and instructions parity. Claude runs it only in a
+gated launch (memory jobs, `--read-only`, `--tools` off Anthropic): `claudeCmd` injects it into that child's one
+`--settings` (never `settings.json`), under `bypassPermissions`, `agent.md` → Memory jobs.
 
 ## Event → hook matrix
 

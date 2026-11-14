@@ -35,9 +35,9 @@ commands.
 - Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot ask --session <id>`).
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
   `skills/subagent-workflows/references/cost-routing.md`.
-- `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
-  branch --list); any chained, redirected or other shell command is rejected, so use its native read and search
-  tools there.
+- `ask --read-only` approves file reads, URL fetches and the vetted read-only shell list
+  (`skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools); any other shell command is
+  rejected, so use its native read and search tools there.
 - `ask --tools` approves every request, still subject to the dispatch Deny rules and native hooks. LAST-MILE merges
   (`claude-code worktree merge`) run under it.
 

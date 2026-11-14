@@ -35,7 +35,8 @@ Owner shortcuts:
 
 Shared flags and lifecycle: `skills/subagent-workflows/references/agent-verbs.md`.
 
-- agy needs tools for repository reads and search; `--read-only` supplies read tools and denies writes and shell.
+- agy needs tools for repository reads and search; `--read-only` supplies read tools and a vetted read-only shell
+  list and denies writes and other shell.
 - `--index` includes a path index; `--max-files` and `--max-file-bytes` bound packed context. Narrow on overflow.
 - Select a model only when requested, using ids from `claude-code gemini catalog`; retain the root machine's pin.
 - `--system-prompt` and `--append-system-prompt` are emulated. Do not rely on `--safe-mode` or `--no-persist` on agy.
