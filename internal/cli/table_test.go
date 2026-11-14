@@ -475,7 +475,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	tree := specTree()
 	for verb, want := range map[string][]string{
 		"history": {"snapshot", "log", "diff"},
-		"vault":   {"ls", "set", "get", "delete", "import", "export", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
@@ -1024,6 +1024,31 @@ func TestRemoteLoginRefusesHostAndHostBrowser(t *testing.T) {
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { c, _ := runRouted(argv, argv[1]); return c })
 		if code != 2 || strings.Count(strings.TrimSpace(stderr), "\n") != 0 || !strings.Contains(stderr, "--remote with --host") {
 			t.Errorf("%q: exit %d stderr %q, want exit 2 and one line naming both flags", argv[1:], code, stderr)
+		}
+	}
+}
+
+// --remote <h> pins the login host for `databricks login` (and for no other verb); the refused --host pair pins nothing.
+func TestRemoteLoginPinsHostRefusedPairPinsNothing(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("HARNESS_LOGIN_REMOTE", "")
+	t.Setenv("HARNESS_EGRESS_HOST", "") // restored when the test ends, whatever runVia pinned
+	login := []string{"claude-code", "--remote", "wks-test", "databricks", "login", "--profile", "no-such-profile", "--dry-run"}
+	for _, c := range []struct {
+		argv     []string
+		wantCode int
+		pinned   string
+		stderr   string
+	}{
+		{login, 1, "wks-test", ""},
+		{append(slices.Clone(login[:3]), "--host", "other", "databricks", "login"), 2, "", "--remote with --host"},
+		{[]string{"claude-code", "--remote", "wks-test", "version"}, 0, "", ""},
+	} {
+		t.Setenv("HARNESS_LOGIN_REMOTE", "")
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { rc, _ := runRouted(c.argv, c.argv[1]); return rc })
+		if got := os.Getenv("HARNESS_LOGIN_REMOTE"); code != c.wantCode || got != c.pinned || !strings.Contains(stderr, c.stderr) {
+			t.Errorf("%q: exit %d, login host %q, stderr %q; want exit %d, login host %q, stderr containing %q",
+				c.argv[1:], code, got, stderr, c.wantCode, c.pinned, c.stderr)
 		}
 	}
 }

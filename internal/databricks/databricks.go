@@ -116,7 +116,7 @@ func cutFlag(args []string, flag string) ([]string, bool) {
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
-	"config": config, "rescue": rescue, "login": login, "open-url": openURLVerb, "token": mint, "import": importCfg, "export": export,
+	"config": config, "rescue": rescue, "identity": identity, "login": login, "open-url": openURLVerb, "token": mint, "import": importCfg, "export": export,
 }
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
@@ -326,6 +326,7 @@ var page = helptext.Page{
 	About: "Launch Claude Code on a Databricks profile. MODEL (optional) picks the model; check runs a smoke reply.",
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per profile (serving; --wire all)"},
+		{"identity", "pin a profile's identity: auto, user or sp"},
 		{"login", "sign in: browser for oauth, a mint for an sp row"},
 		{"open-url", "open an https sign-in URL here (login --remote runs it)"},
 		{"token", "fresh token, never printed; --copy, --auth kind"},
@@ -621,6 +622,8 @@ func Spec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
 		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model"),
 			valuedFlag("wire", func() []string { return []string{providers.WireServing, providers.WireAIGateway, "all"} })}},
+		"identity": {Args: []func() []string{func() []string { return []string{"auto", "user", "sp"} }},
+			Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run")}},
 		"login": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities),
 			flag("port"), boolFlag("no-browser"), boolFlag("paste")}},
 		"open-url": {},
