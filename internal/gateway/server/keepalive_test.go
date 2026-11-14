@@ -227,11 +227,12 @@ func TestSentRequestMarksItsProviderUsed(t *testing.T) {
 
 // The 401 for a dead login names the profile, the exact login command and whether the service principal was used.
 func TestDeadLogin401NamesProfileCommandAndFallback(t *testing.T) {
+	t.Setenv(providers.RemoteHostEnv, "wsl.test")
 	useGate(t)
 	up := newUpstream(t, ok)
 	srv := setupRouter(t, `{"default":"up1","providers":{"databricks":{"up1":`+
 		`{"protocol":"anthropic","base_url":"`+up.URL+`","auth":{"type":"oauth"},"models":{"opus":"m"}}}}}`, nil)
-	cmd := providers.LoginState{Profile: "up1"}.Command()
+	cmd := providers.LoginCommand("up1")
 	cases := map[string]struct {
 		hdr  map[string]string
 		want string

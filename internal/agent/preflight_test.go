@@ -105,7 +105,7 @@ func TestCheckWorkspaceFailsADeadLoginOnlyWithoutAServicePrincipal(t *testing.T)
 
 	fs := CheckWorkspace(alone, router.State{}, now)
 	if len(fs) != 1 || fs[0].Check != "login" || fs[0].Profile != "dbx-alone" ||
-		!strings.Contains(fs[0].Detail, "claude-code databricks login --profile dbx-alone") {
+		!strings.Contains(fs[0].Detail, "`"+providers.LoginCommand("dbx-alone")+"`") {
 		t.Errorf("dead login, no SP: findings %+v, want one login finding naming the command", fs)
 	}
 	if fs := CheckWorkspace(paired, router.State{}, now); len(fs) != 0 {

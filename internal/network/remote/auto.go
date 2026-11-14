@@ -22,7 +22,7 @@ import (
 const Auto = "auto"
 
 // HostEnv names the machine `auto` resolves to (process env, then vault env); unset, the tailnet is probed.
-const HostEnv = "CLAUDE_REMOTE_HOST"
+const HostEnv = providers.RemoteHostEnv
 
 // autoHint closes every `auto` failure: a vault env value, set in configure's environment row, not sealed.
 const autoHint = "name the machine: `claude-code configure` → environment, " + HostEnv

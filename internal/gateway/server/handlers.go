@@ -53,7 +53,7 @@ func loginText(ctx context.Context, p *providers.Provider, v providers.AuthVerdi
 	if p.Auth.Type != providers.AuthOAuth || mode == providers.IdentitySP {
 		return ""
 	}
-	login := providers.LoginState{Profile: p.Name}.Command()
+	login := providers.LoginCommand(p.Name)
 	fallback := "no service principal is paired, so there was no fallback"
 	switch {
 	case mode == providers.IdentityUser:
@@ -348,9 +348,9 @@ func authHint(p *providers.Provider) string {
 	switch {
 	// login refuses a pat row without the switch
 	case p.Preset == providers.PresetDatabricks && a.Type == providers.AuthPAT:
-		return "run `claude-code databricks login --profile " + p.Name + " --auth-type oauth`"
+		return "run `" + providers.LoginCommand(p.Name) + " --auth-type oauth`"
 	case p.Preset == providers.PresetDatabricks || a.Type == providers.AuthOAuth || a.Type == providers.AuthM2M:
-		return "run `claude-code databricks login --profile " + p.Name + "`"
+		return "run `" + providers.LoginCommand(p.Name) + "`"
 	case a.Command != "":
 		return "check the provider's auth.command"
 	case (a.Type == providers.AuthKey || a.Type == providers.AuthPAT) && a.Env != "":

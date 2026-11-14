@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/models"
 	_ "github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -482,6 +483,7 @@ func checkRouterSuffix(t *testing.T, name, wire, suffix string) bool {
 func TestPassthroughCondemnedRefreshAnswers401AndMarks(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
+			t.Setenv(providers.RemoteHostEnv, "wsl.test")
 			g := useGate(t)
 			up := newRawUp(t, okRaw)
 			srv := setupRouter(t,
@@ -491,7 +493,7 @@ func TestPassthroughCondemnedRefreshAnswers401AndMarks(t *testing.T) {
 			resp := ptDo(t, method, srv.URL+"/p/up1/openai/models", "{}", nil)
 			b := body(t, resp)
 			if resp.StatusCode != http.StatusUnauthorized ||
-				!strings.Contains(b, "authentication failed (needs_login); run `claude-code databricks login --profile up1`; ") {
+				!strings.Contains(b, "authentication failed (needs_login); run `claude-code --remote wsl.test databricks login --profile up1`; ") {
 				t.Fatalf("status %d body %s, want 401 needs_login text with login command and fallback note", resp.StatusCode, b)
 			}
 			if len(up.got()) != 0 {

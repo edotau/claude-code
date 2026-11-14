@@ -84,7 +84,7 @@ func TestDeadLoginWindowSuppressesTheNextRefresh(t *testing.T) {
 func assertDeadWindowError(t *testing.T, err error) {
 	t.Helper()
 	want := "dead-window: your login needs renewal (needs_login since "
-	if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "`claude-code databricks login --profile dead-window`") {
+	if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "`"+LoginCommand("dead-window")+"`") {
 		t.Fatalf("second Credential error = %v; want it to name the profile and the login command", err)
 	}
 }
@@ -166,8 +166,13 @@ func TestLoginStatusReadsNoVaultAndTreatsBadFilesAsMiss(t *testing.T) {
 	if _, dead := LoginStatus(r.p); dead {
 		t.Error("an absent file read as a mark")
 	}
-	if got := (LoginState{Profile: "dev"}).Command(); got != "claude-code databricks login --profile dev" {
-		t.Errorf("Command = %q", got)
+	t.Setenv(RemoteHostEnv, "")
+	if got := LoginCommand("dev"); got != "claude-code --remote <host> databricks login --profile dev" {
+		t.Errorf("LoginCommand with no host = %q", got)
+	}
+	t.Setenv(RemoteHostEnv, "wsl.example")
+	if got := LoginCommand("dev"); got != "claude-code --remote wsl.example databricks login --profile dev" {
+		t.Errorf("LoginCommand with a host = %q", got)
 	}
 }
 
@@ -255,7 +260,7 @@ func assertSPServedWithoutUserAttempt(t *testing.T, p *Provider, m2m, refresh *i
 // assertFallbackNotedOnce requires the SP-fallback note exactly once and no secret in the notes.
 func assertFallbackNotedOnce(t *testing.T, p *Provider, notes string) {
 	t.Helper()
-	fallback := "user login needs renewal; using the service principal (run `claude-code databricks login --profile " + p.Name + "`)"
+	fallback := p.Name + ": on the service principal; your own login is not signed in (to sign in: " + LoginCommand(p.Name) + ")"
 	if n := strings.Count(notes, fallback); n != 1 {
 		t.Errorf("fallback reported %d times in %q; want once per window", n, notes)
 	}
@@ -275,7 +280,7 @@ func TestAutoWithoutSPSecretNamesTheLoginCommand(t *testing.T) {
 		t.Fatal("want the first refresh to fail")
 	}
 	_, err := Credential(context.Background(), p)
-	if err == nil || !strings.Contains(err.Error(), "run `claude-code databricks login --profile "+p.Name+"`") || *refresh != 1 {
+	if err == nil || !strings.Contains(err.Error(), "run `"+LoginCommand(p.Name)+"`") || *refresh != 1 {
 		t.Fatalf("second Credential = %v (refresh %d); want the command with no new refresh", err, *refresh)
 	}
 }
@@ -291,5 +296,63 @@ func TestDispatchTreatsSPPresenceReadErrorAsUnknown(t *testing.T) {
 	_, err := Credential(WithIdentity(context.Background(), IdentityHeadless), p)
 	if _, skipped := spSkip.Load(p.Name); skipped || err == nil || *m2m != 0 {
 		t.Fatalf("skipped=%v err=%v mints=%d; want an error from the SP try and no spSkip", skipped, err, *m2m)
+	}
+}
+
+// An sp-pinned row never reads, refreshes or probes its user login, and no mark or hint comes of it, whatever the age.
+func TestSPIdentityNeverTouchesTheUserLogin(t *testing.T) {
+	p, _, refresh, note := spHarness(t, IdentitySP)
+	t.Cleanup(func() { loginMarks.Delete(p.Name); loginNoted.Delete(p.Name) })
+	sealSPAccess(t, p, time.Hour)
+	putAccess(t, p, jwtExpIn(5*time.Minute, "https://x")) // a user token a keepalive would refresh
+	ctx := context.Background()
+	for range 3 {
+		if _, err := Credential(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Keepalive(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(cacheRecordPath("login-state", p.Name)); *refresh != 0 || !os.IsNotExist(err) {
+		t.Fatalf("user refreshes %d, mark file err %v; want none and no mark", *refresh, err)
+	}
+	markLoginDead(p, ErrNeedsLogin) // a mark left from before the row was pinned
+	reopenWindow(t, p)              // 11 minutes pass
+	if _, err := Keepalive(ctx, p); err != nil || *refresh != 0 {
+		t.Fatalf("Keepalive past the window = %v (user refreshes %d); want no probe", err, *refresh)
+	}
+	if _, dead := LoginStatus(p); dead || strings.Contains(note.String(), "sign in") {
+		t.Errorf("LoginStatus dead=%v notes %q; want no hint on an sp row", dead, note.String())
+	}
+}
+
+// With a paired SP covering, a dead login is not re-probed when its window passes: only a login clears the mark.
+func TestDeadLoginIsNotRetriedOnATimerWhileSPCovers(t *testing.T) {
+	p, _, refresh, note := spHarness(t, IdentityAuto)
+	t.Cleanup(func() { loginMarks.Delete(p.Name); loginNoted.Delete(p.Name) })
+	sealSPAccess(t, p, time.Hour)
+	ctx := context.Background()
+	if got, err := Credential(ctx, p); err != nil || got == "" || *refresh != 1 {
+		t.Fatalf("first Credential = %q, %v (user refreshes %d); want one failed refresh then the SP", got, err, *refresh)
+	}
+	for range 3 {
+		reopenWindow(t, p) // 11 minutes pass
+		cmdCache.Delete(p.Name)
+		if _, err := Credential(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Keepalive(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if *refresh != 1 || strings.Count(note.String(), "to sign in") != 1 {
+		t.Fatalf("user refreshes %d, notes %q; want no retry and the hint once", *refresh, note.String())
+	}
+	if _, err := sealLogin(p, oauth.Token{Refresh: "refresh-2", Access: jwtExpIn(time.Hour, "")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, dead := LoginStatus(p); dead {
+		t.Error("a login that sealed a new refresh token left the mark")
 	}
 }

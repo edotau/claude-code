@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,11 +23,20 @@ type LoginState struct {
 	Since          time.Time
 }
 
-// Command is the one command that renews the login.
-func (s LoginState) Command() string { return "claude-code databricks login --profile " + s.Profile }
+// RemoteHostEnv names the machine whose browser signs the user in (process env, then the vault's custom env).
+const RemoteHostEnv = "CLAUDE_REMOTE_HOST"
 
-// loginSuppress is how long a dead login is not retried over the network after a failed refresh.
+// LoginCommand renews profile's own login on the --remote host (a plain login mints the SP); <host> if unset.
+func LoginCommand(profile string) string {
+	host := cmp.Or(strings.TrimSpace(os.Getenv(RemoteHostEnv)), strings.TrimSpace(CustomEnv()[RemoteHostEnv]), "<host>")
+	return "claude-code --remote " + host + " databricks login --profile " + profile
+}
+
+// loginSuppress is how long an uncovered dead login is not retried; one a paired SP covers is never retried on a timer.
 const loginSuppress = 10 * time.Minute
+
+// spCovers reports a paired service principal that serves p while its user login is dead.
+func spCovers(p *Provider) bool { return p.Identity != IdentityUser && SPPresent(p) }
 
 // loginRecord is the on-disk dead-login mark: the failure state and the retry window, never a token.
 type loginRecord struct {
@@ -47,7 +58,7 @@ var loginStateFormat = schemas.Register(schemas.Format{
 // loginMarks holds a mark whose file could not be written, so this process still suppresses retries.
 var loginMarks sync.Map // profile name -> loginRecord
 
-// loginNoted is the Until of the mark whose fallback to the service principal this process already reported.
+// loginNoted is the Since of the mark whose fallback to the service principal this process already reported.
 var loginNoted sync.Map // profile name -> time.Time
 
 // readLoginMark is p's dead-login mark: the file (another process's included), else the unwritable-file fallback.
@@ -67,10 +78,10 @@ func readLoginMark(name string) (loginRecord, bool) {
 	return loginRecord{}, false
 }
 
-// LoginStatus is p's remembered dead login, of any age until a login or a successful refresh clears it. It reads one
-// small cache file: no network, no vault.
+// LoginStatus is p's remembered dead login, of any age until a login or a successful refresh clears it (none on an sp
+// row). It reads one small cache file: no network, no vault.
 func LoginStatus(p *Provider) (LoginState, bool) {
-	if p.Auth.Type != AuthOAuth {
+	if p.Auth.Type != AuthOAuth || p.Identity == IdentitySP {
 		return LoginState{}, false
 	}
 	rec, ok := readLoginMark(p.Name)
@@ -120,16 +131,16 @@ func clearLoginMark(name string) {
 func loginRenewalError(p *Provider, rec loginRecord) error {
 	s := LoginState{Profile: p.Name, State: rec.State, Since: rec.Since}
 	return &loginRequiredError{err: fmt.Errorf("%s: your login needs renewal (%s since %s): run `%s`",
-		p.Name, s.State, s.Since.Local().Format("15:04"), s.Command())}
+		p.Name, s.State, s.Since.Local().Format("15:04"), LoginCommand(p.Name))}
 }
 
-// fallbackToSP serves the paired SP for a dead user login, reporting the fallback once per mark window.
+// fallbackToSP serves the paired SP for a dead user login, reporting the fallback once per mark.
 func fallbackToSP(ctx context.Context, p *Provider, force bool) (string, error) {
 	v, err := spCredential(ctx, p, force)
 	if rec, dead := readLoginMark(p.Name); err == nil && dead {
-		if prev, seen := loginNoted.Swap(p.Name, rec.Until); !seen || !prev.(time.Time).Equal(rec.Until) {
-			note(ctx, fmt.Sprintf("%s: user login needs renewal; using the service principal (run `%s`)", p.Name,
-				LoginState{Profile: p.Name}.Command()))
+		if prev, seen := loginNoted.Swap(p.Name, rec.Since); !seen || !prev.(time.Time).Equal(rec.Since) {
+			note(ctx, fmt.Sprintf("%s: on the service principal; your own login is not signed in (to sign in: %s)", p.Name,
+				LoginCommand(p.Name)))
 		}
 	}
 	return v, err

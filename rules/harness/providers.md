@@ -30,8 +30,8 @@ paths:
   `agents ask --overlay '{"provider":"databricks","profile":"<profile>|auto"}'`.
   Keys, an agent's own login and fallback: `agent.md` → Dispatch behavior.
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
-  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code configure` → environment);
-  remove it to turn it off.
+  dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code configure` → environment, or
+  `claude-code vault env set COWORKER_OVERLAY '<json>'`); remove it (`vault env unset`) to turn it off.
 
 ## Model selection
 
@@ -83,6 +83,7 @@ static menu: routing never touches the network.
 
 - A u2m (`oauth`) row may pair a service principal: `auth.spClientId` (not secret) plus the sealed secret
   `DATABRICKS_<PROFILE>_M2M`; `identity` is `auto` (default) | `user` | `sp`. Unpaired rows are unchanged.
+  `claude-code databricks identity --profile <p> auto|user|sp` pins it without the menu (`sp` needs the pair + secret).
 - Precedence: `--as` (carried by `providers.WithIdentity(ctx, as)`) > the row's `identity` > `auto`.
 - Headless dispatch (`agents ask`, `--batch`, `--background`/job, `--live`, `--host`) with no `--as` runs a paired
   row left at `auto` as its SP first (`IdentityHeadless`), falling back to the user login with one stderr note when
@@ -92,8 +93,10 @@ static menu: routing never touches the network.
 - `auto` tries the user token, then `oauth.MintM2M` on a rejection or login-required, with a one-line stderr note;
   `user` never mints the SP; `sp` mints only the SP, no browser. The SP never refreshes the user login.
 - A dead user login (`needs_login`) is remembered in `state/harness/cache/login-state/<profile>.json` (state and times
-  only) and reported, not hidden: `doctor` and `databricks check --all` name it and say the SP covers headless runs,
-  the status line shows `login:<profile>`, a proxy 401 names `claude-code databricks login --profile <p>`.
+  only) and reported, not hidden: `doctor` and `databricks check --all` say the SP covers and name the sign-in, the
+  status line shows `login:<profile>`, a proxy 401 names `claude-code --remote <host> databricks login --profile <p>`
+  (`<host>` from `CLAUDE_REMOTE_HOST`; a plain login only mints the SP). While a paired SP covers, a dead login is
+  never re-probed on a timer, only a sealed login clears the mark; an `sp` row never reads its user login.
 - While the proxy runs it refreshes the tokens of profiles used in the last 24 h once under 15 minutes remain, under
   the per-profile lock (an idle machine mints nothing). A rotated refresh token is carried until sealed (a failed seal
   is audited `seal_failed`); a stale one never replaces a newer vault copy.
