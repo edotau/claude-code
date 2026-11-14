@@ -3,7 +3,6 @@
 package agent
 
 import (
-	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -24,15 +23,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
-
-// binarySniffBytes is how much of a file's head is scanned for a NUL, as git does.
-const binarySniffBytes = 8000
 
 // Exit codes of Diff; 1 is a failed gate or a --verify MISMATCH, 3 a changed file outside --path.
 const (
@@ -352,38 +349,6 @@ func (f *DiffFile) setCounts(added, deleted string) {
 	f.Deleted, _ = strconv.Atoi(deleted)
 }
 
-// countFileLines counts the lines of an untracked regular file; a NUL in the first block marks it binary, as git does.
-func countFileLines(p string) (lines int, binary bool) {
-	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() {
-		return 0, false
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return 0, false
-	}
-	defer f.Close()
-	r := bufio.NewReaderSize(f, 64<<10)
-	buf := make([]byte, 64<<10)
-	var last byte = '\n'
-	for first := true; ; first = false {
-		n, err := r.Read(buf)
-		if first && bytes.IndexByte(buf[:min(n, binarySniffBytes)], 0) >= 0 {
-			return 0, true
-		}
-		if n > 0 {
-			lines += bytes.Count(buf[:n], []byte{'\n'})
-			last = buf[n-1]
-		}
-		if err != nil {
-			break
-		}
-	}
-	if last != '\n' {
-		lines++
-	}
-	return lines, false
-}
-
 // Go gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test and docs on the touched packages.
 
 const (
@@ -598,8 +563,18 @@ func lintGate(ctx context.Context, in gateInput) (string, string, error) {
 	return pkgGate("golangci-lint", "run")(ctx, in)
 }
 
-// docsGate runs the repo's mdsmith (the `make lint-docs` check, same .mdsmith.yml) on the changed Markdown only.
+// docsGate runs mdsmith (the `make lint-docs` check) and the memory formatter check on the changed Markdown.
 func docsGate(ctx context.Context, in gateInput) (string, string, error) {
+	out, skip, err := mdsmithGate(ctx, in)
+	memOut, memRan, memErr := memoryFmtGate(in)
+	if skip != "" && memRan {
+		skip = ""
+	}
+	return out + memOut, skip, errors.Join(err, memErr)
+}
+
+// mdsmithGate runs the repo's mdsmith on the changed Markdown only.
+func mdsmithGate(ctx context.Context, in gateInput) (string, string, error) {
 	bin := filepath.Join(in.root, "bin", "mdsmith")
 	if _, err := gateLookPath(bin); err != nil {
 		bin = "mdsmith"
@@ -616,6 +591,36 @@ func docsGate(ctx context.Context, in gateInput) (string, string, error) {
 		}
 	}
 	return strings.Join(all, ""), "", nil
+}
+
+// memoryFmtGate runs the `memory fmt --check` package function and fails on the changed memory-store files it lists.
+func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
+	store := paths.Canon(memory.StoreDir())
+	changed := map[string]bool{}
+	for _, p := range in.mds {
+		abs := paths.Canon(filepath.Join(in.root, filepath.FromSlash(p)))
+		if rel, rerr := filepath.Rel(store, abs); rerr == nil && !strings.HasPrefix(rel, "..") {
+			changed[abs] = true
+		}
+	}
+	if len(changed) == 0 {
+		return "", false, nil
+	}
+	var report bytes.Buffer
+	if _, err := memory.FormatReport(&report, true); err != nil {
+		return "", true, fmt.Errorf("memory fmt --check: %w", err)
+	}
+	var dirty []string
+	for line := range strings.Lines(report.String()) {
+		if line = strings.TrimSpace(line); changed[paths.Canon(line)] {
+			dirty = append(dirty, line)
+		}
+	}
+	if len(dirty) == 0 {
+		return "", true, nil
+	}
+	return strings.Join(dirty, "\n") + "\nmemory fmt --check: would change (run `claude-code memory fmt`)\n", true,
+		errors.New("memory fmt")
 }
 
 // complexityGate runs the `review simplify` engine in-process; only MEDIUM+ findings the change introduced fail it.

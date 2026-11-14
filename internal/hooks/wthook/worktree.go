@@ -237,8 +237,9 @@ func PeersOf(ctx context.Context, top string, nested []string) ([]worktree.Proc,
 		err   error
 	}
 	done := make(chan scan, 1)
+	scanFn := PeerAgents // captured here so an abandoned scan never re-reads the seam
 	go func() {
-		procs, err := PeerAgents(top, nested)
+		procs, err := scanFn(top, nested)
 		done <- scan{procs, err}
 	}()
 	select {
