@@ -51,22 +51,17 @@ type MergePlan struct {
 
 // gitEnv returns os.Environ() with per-repo GIT_* overrides stripped, plus extra.
 func gitEnv(extra ...string) []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		k, _, _ := strings.Cut(kv, "=")
-		switch k {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX":
-			continue
-		}
-		env = append(env, kv)
+	env := proc.ValuesFromEnv(os.Environ())
+	for _, k := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX"} {
+		delete(env, k)
 	}
-	return append(env, extra...)
+	return env.Merge(proc.ValuesFromEnv(extra)).Env()
 }
 
 // runGit is the one seam over git here and in merge.go, so tests fake failures; extraEnv is appended (nil = none).
 var runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
 	cmd := gitCmd(ctx, append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(cmd.Env, extraEnv...)
+	cmd.Env = proc.ValuesFromEnv(cmd.Env).Merge(proc.ValuesFromEnv(extraEnv)).Env()
 	return cmd.Output()
 }
 
@@ -247,10 +242,8 @@ func isolatedObjectDir(ctx context.Context, repoPath, commonDir string) ([]strin
 	if err := os.MkdirAll(objDir, 0o700); err != nil {
 		return nil, nil, errors.Join(err, os.RemoveAll(tmp))
 	}
-	env := []string{
-		"GIT_OBJECT_DIRECTORY=" + objDir,
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + filepath.Join(commonDir, "objects"),
-	}
+	env := proc.Values{"GIT_OBJECT_DIRECTORY": objDir,
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES": filepath.Join(commonDir, "objects")}.Env()
 	return env, func() error {
 		if err := os.RemoveAll(tmp); err != nil {
 			return fmt.Errorf("remove merge-tree scratch directory: %w", err)

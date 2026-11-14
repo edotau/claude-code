@@ -170,15 +170,17 @@ func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, e
 	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
 		model = ""
 	}
-	env := []string{"COPILOT_MODEL=" + model, proc.EnvCopilotProviderBaseURL + "=", "COPILOT_OFFLINE=", proc.EnvCopilotProvidersConfig + "="}
+	env := proc.Values{
+		"COPILOT_MODEL": model, proc.EnvCopilotProviderBaseURL: "", "COPILOT_OFFLINE": "", proc.EnvCopilotProvidersConfig: "",
+	}
 	tok, err := copilotLaunchTokenFor(login)
 	if err != nil {
 		return nil, nil, err
 	}
 	if tok != "" { // the harness's chosen account beats any inherited token
-		env = append(env, providers.CopilotTokenEnv+"="+tok)
+		env = env.With(providers.CopilotTokenEnv, tok)
 	}
-	return env, copilotArgv(h), nil
+	return env.Env(), copilotArgv(h), nil
 }
 
 // copilotArgv is the headless argv for h; an interactive launch (nil) gets its pins from RenderSettings.
@@ -218,26 +220,26 @@ func copilotWire(r agent.WireRoute, h *agent.Headless) ([]string, []string, erro
 	}
 	client := providers.Target{Provider: r.Target.Provider, Model: r.Target.Model, OneM: r.Target.OneM}.ClientModel()
 	window, output := copilotCaps(providers.ContextWindow(r.Target.Provider, client), model)
-	env := []string{
-		proc.EnvCopilotProviderBaseURL + "=" + base,
-		proc.EnvCopilotProviderType + "=" + typ,
-		"COPILOT_MODEL=" + model,
-		proc.EnvCopilotProviderMaxOutputTokens + "=" + strconv.Itoa(output),
-		"COPILOT_OFFLINE=true",
+	env := proc.Values{
+		proc.EnvCopilotProviderBaseURL:         base,
+		proc.EnvCopilotProviderType:            typ,
+		"COPILOT_MODEL":                        model,
+		proc.EnvCopilotProviderMaxOutputTokens: strconv.Itoa(output),
+		"COPILOT_OFFLINE":                      "true",
 		// Blank every BYOK credential var so a token exported in the parent shell cannot outrank this route.
-		proc.EnvCopilotProviderAPIKey + "=", proc.EnvCopilotProviderBearerToken + "=", proc.EnvCopilotProviderAPIKeyCommand + "=",
+		proc.EnvCopilotProviderAPIKey: "", proc.EnvCopilotProviderBearerToken: "", proc.EnvCopilotProviderAPIKeyCommand: "",
 	}
 	if wire == providers.ProtocolResponses {
-		env = append(env, proc.EnvCopilotProviderWireAPI+"=responses")
+		env = env.With(proc.EnvCopilotProviderWireAPI, "responses")
 	}
 	if modelID != "" {
-		env = append(env, proc.EnvCopilotProviderModelID+"="+modelID)
+		env = env.With(proc.EnvCopilotProviderModelID, modelID)
 	}
 	// Prompt budget = window minus the output cap and a 10% margin, so copilot compacts before the endpoint refuses.
 	if n := models.PromptTokens(window, output); n > 0 {
-		env = append(env, proc.EnvCopilotProviderMaxPromptTokens+"="+strconv.Itoa(n))
+		env = env.With(proc.EnvCopilotProviderMaxPromptTokens, strconv.Itoa(n))
 	}
-	return append(env, copilotCredEnv(p, r.Cred)...), copilotArgv(h), nil
+	return env.Merge(copilotCredEnv(p, r.Cred)).Env(), copilotArgv(h), nil
 }
 
 // copilotEndpoint picks the BYOK type and base; a non-Claude model on anthropic takes its openai|responses wire.
@@ -265,18 +267,18 @@ func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed 
 }
 
 // copilotCredEnv is the BYOK credential and the provider's extra headers.
-func copilotCredEnv(p *providers.Provider, cred string) []string {
-	var env []string
+func copilotCredEnv(p *providers.Provider, cred string) proc.Values {
+	env := proc.Values{}
 	if cred != "" {
 		// Bearer precedence is copilot's own rule; sending the key on both headers trips strict gateways.
 		if p.Auth.HeaderStyle() == providers.HeaderBearer {
-			env = append(env, proc.EnvCopilotProviderBearerToken+"="+cred)
+			env[proc.EnvCopilotProviderBearerToken] = cred
 		} else {
-			env = append(env, proc.EnvCopilotProviderAPIKey+"="+cred)
+			env[proc.EnvCopilotProviderAPIKey] = cred
 		}
 	}
 	if len(p.Headers) > 0 {
-		env = append(env, proc.EnvCopilotProviderHeaders+"="+providers.HeaderLines(p.Headers))
+		env[proc.EnvCopilotProviderHeaders] = providers.HeaderLines(p.Headers)
 	}
 	return env
 }

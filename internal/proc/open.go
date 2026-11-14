@@ -69,10 +69,11 @@ func powerShellOpen(ctx context.Context, ps, url string) *exec.Cmd {
 	if v := os.Getenv("WSLENV"); v != "" {
 		wslenv = v + ":" + wslenv
 	}
-	cmd.Env = append(os.Environ(), "WIN_BROWSER_URL="+url, "WSLENV="+wslenv)
+	env := ValuesFromEnv(os.Environ()).Merge(Values{"WIN_BROWSER_URL": url, "WSLENV": wslenv})
 	if sock := wslInterop(); sock != "" {
-		cmd.Env = append(cmd.Env, "WSL_INTEROP="+sock)
+		env = env.With("WSL_INTEROP", sock)
 	}
+	cmd.Env = env.Env()
 	return cmd
 }
 

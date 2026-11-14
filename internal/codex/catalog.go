@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -292,4 +293,12 @@ func cloneCodexMetadata(value any) any {
 	default:
 		return value
 	}
+}
+
+// codexResponsesModel swaps a model Responses cannot serve (opus alias, gpt-oss) for the menu's first Responses model.
+func codexResponsesModel(p *providers.Provider, model string) string {
+	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
+		return model
+	}
+	return cmp.Or(providers.FirstResponsesModel(p), model)
 }

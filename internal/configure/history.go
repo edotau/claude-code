@@ -213,13 +213,11 @@ func body(r SnapshotResult) string {
 
 // git runs one git command in the store, forcing identity and signing via -c: a missing user.email would fail `commit`.
 func (s *HistoryStore) git(args ...string) (string, error) {
-	full := append([]string{
-		"-C", s.Dir,
-		"-c", "user.name=claude-code",
-		"-c", "user.email=claude-code@localhost",
-		"-c", "commit.gpgsign=false",
-		"-c", "core.hooksPath=/dev/null", // a stray global hooksPath must not run against this repo
-	}, args...)
+	full := append([]string{"-C", s.Dir}, proc.Values{
+		"user.name": "claude-code", "user.email": "claude-code@localhost",
+		"commit.gpgsign": "false", "core.hooksPath": "/dev/null",
+	}.Args("-c")...)
+	full = append(full, args...)
 	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()

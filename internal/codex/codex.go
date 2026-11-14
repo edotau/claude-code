@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -368,14 +368,6 @@ var (
 		"not", "if", "then", "else", "anyOf", "oneOf", "allOf"}
 )
 
-// codexResponsesModel swaps a model Responses cannot serve (opus alias, gpt-oss) for the menu's first Responses model.
-func codexResponsesModel(p *providers.Provider, model string) string {
-	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
-		return model
-	}
-	return cmp.Or(providers.FirstResponsesModel(p), model)
-}
-
 // RanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
 func (codexEngine) RanModel(t providers.Target) string {
 	if t.Provider == nil {
@@ -396,13 +388,13 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 		return nil, nil, err
 	}
 	fields := [][2]string{{"name", agentconfig.TOMLQuote(p.Name)}, {"base_url", agentconfig.TOMLQuote(base)}, {"wire_api", agentconfig.TOMLQuote("responses")}}
-	var env []string
+	env := proc.Values{}
 	if p.Preset == providers.PresetDatabricks {
-		env = append(env, settings.CodexProfileEnv+"="+p.Name, settings.CodexCatalogEnv+"=")
+		env = env.Merge(proc.Values{settings.CodexProfileEnv: p.Name, settings.CodexCatalogEnv: ""})
 	}
 	var envHs [][2]string // env_http_headers: header name -> env var carrying its value
 	if cred != "" {
-		env = append(env, codexKeyEnv+"="+cred)
+		env = env.With(codexKeyEnv, cred)
 		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
 			envHs = append(envHs, [2]string{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(codexKeyEnv)})
 		} else {
@@ -413,15 +405,15 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	if len(envHs) > 0 {
 		fields = append(fields, [2]string{"env_http_headers", agentconfig.TOMLInline(envHs)})
 	}
-	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote(id), "-c", "model=" + agentconfig.TOMLQuote(model),
-		"-c", "model_providers." + id + "=" + agentconfig.TOMLInline(fields)}
+	argv := proc.Values{"model_provider": agentconfig.TOMLQuote(id), "model": agentconfig.TOMLQuote(model),
+		"model_providers." + id: agentconfig.TOMLInline(fields)}.Args("-c")
 	catalog := codexCatalogArgs(ctx, p)
 	argv = append(argv, catalog...) // /model offers only ids this row serves
 	if len(catalog) == 2 {
 		path, _ := strconv.Unquote(strings.TrimPrefix(catalog[1], "model_catalog_json=")) // TOMLQuote output always unquotes
-		env = append(env, settings.CodexCatalogEnv+"="+path)
+		env = env.With(settings.CodexCatalogEnv, path)
 	}
-	return env, codexHeadless(argv, h), nil
+	return env.Env(), codexHeadless(argv, h), nil
 }
 
 // codexHeaderEnv names the env var carrying header k's value into codex; punctuation is hex-escaped to stay distinct.
@@ -447,8 +439,7 @@ func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless)
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	argv := []string{"-c", "model_provider=" + agentconfig.TOMLQuote("openai"), "-c", "model=" + agentconfig.TOMLQuote(model)}
-	return nil, codexHeadless(argv, h), nil
+	return nil, codexHeadless(proc.Values{"model_provider": agentconfig.TOMLQuote("openai"), "model": agentconfig.TOMLQuote(model)}.Args("-c"), h), nil
 }
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml; unresolvable is an unusable path.
@@ -505,9 +496,9 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 	if sandbox == "workspace-write" && os.Getenv(codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
-	argv = append(argv, codexLeafArgs...)
+	argv = append(argv, codexLeafArgs.Args("-c")...)
 	if !h.Tools { // read-only shell stays; skill listings, desktop plugins and app connectors are ~30 KB per request
-		argv = append(argv, codexToolsOffArgs...)
+		argv = append(argv, codexToolsOffArgs.Args("-c")...)
 	}
 	if h.NoPersist {
 		argv = append(argv, "--ephemeral")
@@ -523,13 +514,13 @@ func codexHeadless(argv []string, h *agent.Headless) []string {
 }
 
 // codexLeafArgs drop what a headless leaf must not use: the sub-agent tools, request_user_input and their role text.
-var codexLeafArgs = []string{
-	"-c", "features.multi_agent_v2.disable_native_tools=true", "-c", "tools.experimental_request_user_input.enabled=false",
-	"-c", `features.multi_agent_v2.root_agent_usage_hint_text=""`, "-c", `features.multi_agent_v2.multi_agent_mode_hint_text=""`,
+var codexLeafArgs = proc.Values{
+	"features.multi_agent_v2.disable_native_tools": "true", "tools.experimental_request_user_input.enabled": "false",
+	"features.multi_agent_v2.root_agent_usage_hint_text": `""`, "features.multi_agent_v2.multi_agent_mode_hint_text": `""`,
 }
 
 // codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop plugins and ChatGPT app connectors.
-var codexToolsOffArgs = []string{"-c", "skills.include_instructions=false", "-c", "features.plugins=false", "-c", "features.apps=false"}
+var codexToolsOffArgs = proc.Values{"skills.include_instructions": "false", "features.plugins": "false", "features.apps": "false"}
 
 // codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
 const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
@@ -655,14 +646,14 @@ func codexSchema() agent.Schema {
 const codexKeyEnv = "HARNESS_CODEX_API_KEY"
 
 func codexInstructionArgs(req agent.RunOptions) []string {
-	var extra []string
+	var extra proc.Values
 	if req.SystemPrompt != "" {
-		extra = append(extra, "-c", "instructions="+agentconfig.TOMLQuote(req.SystemPrompt))
+		extra = extra.With("instructions", agentconfig.TOMLQuote(req.SystemPrompt))
 	}
 	if req.AppendSystemPrompt != "" {
-		extra = append(extra, "-c", "developer_instructions="+agentconfig.TOMLQuote(req.AppendSystemPrompt))
+		extra = extra.With("developer_instructions", agentconfig.TOMLQuote(req.AppendSystemPrompt))
 	}
-	return extra
+	return extra.Args("-c")
 }
 
 // codexObjectType reports whether a JSON Schema "type" is "object", alone or in a type list.
@@ -691,7 +682,7 @@ func codexStrictChildren(x map[string]any) {
 	}
 }
 
-func codexProviderHeaders(p *providers.Provider, env []string, envHs, fields [][2]string) ([]string, [][2]string, [][2]string) {
+func codexProviderHeaders(p *providers.Provider, env proc.Values, envHs, fields [][2]string) (proc.Values, [][2]string, [][2]string) {
 	var hs [][2]string
 	for _, k := range slices.Sorted(maps.Keys(p.Headers)) {
 		if !textutil.LooksSecret(p.Headers[k]) {
@@ -699,7 +690,7 @@ func codexProviderHeaders(p *providers.Provider, env []string, envHs, fields [][
 			continue
 		}
 		name := codexHeaderEnv(k) // A credential-shaped value rides env, never argv.
-		env = append(env, name+"="+p.Headers[k])
+		env = env.With(name, p.Headers[k])
 		envHs = append(envHs, [2]string{agentconfig.TOMLQuote(k), agentconfig.TOMLQuote(name)})
 	}
 	if len(hs) > 0 {

@@ -712,10 +712,10 @@ func checkRelPart(abs, rel string, parts []string, i int) error {
 // run executes git with explicit dirs, literal pathspecs, a throwaway identity, no signing, no hooks, no global ignore.
 func (r Repo) run(args ...string) (string, error) {
 	gitDir := filepath.Join(r.Dir, ".git")
-	full := []string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir, "--literal-pathspecs",
-		"-c", "user.name=claude-code", "-c", "user.email=claude-code@localhost",
-		"-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false",
-		"-c", "core.hooksPath=" + os.DevNull, "-c", "core.excludesFile=" + os.DevNull}
+	full := append([]string{"-C", r.Dir, "--git-dir=" + gitDir, "--work-tree=" + r.Dir, "--literal-pathspecs"}, proc.Values{
+		"user.name": "claude-code", "user.email": "claude-code@localhost",
+		"commit.gpgsign": "false", "tag.gpgsign": "false",
+		"core.hooksPath": os.DevNull, "core.excludesFile": os.DevNull}.Args("-c")...)
 	return runGit(append(full, args...))
 }
 

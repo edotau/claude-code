@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -266,24 +267,22 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
 	list, lite := agyGatewayModels(p, base, time.Now())
-	env := []string{
-		"AGY_LLM_GATEWAY_URL=" + gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
-		"AGY_LLM_GATEWAY_API_KEY=" + tok,
-		"AGY_LLM_GATEWAY_WIRE_PROTOCOL=genai",
-		"AGY_LLM_GATEWAY_MODELS=" + list,
+	env := proc.Values{
+		"AGY_LLM_GATEWAY_URL":     gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
+		"AGY_LLM_GATEWAY_API_KEY": tok, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": "genai", "AGY_LLM_GATEWAY_MODELS": list,
 		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
-		"AGY_LLM_GATEWAY_TIER_FLASH=" + base, "AGY_LLM_GATEWAY_TIER_PRO=" + base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE=" + lite,
+		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,
 		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router
-		"AGY_LLM_GATEWAY_HEADERS=", "AGY_LLM_GATEWAY_CA_CERT=", "AGY_LLM_GATEWAY_PROXY_URL=",
+		"AGY_LLM_GATEWAY_HEADERS": "", "AGY_LLM_GATEWAY_CA_CERT": "", "AGY_LLM_GATEWAY_PROXY_URL": "",
 	}
 	if h != nil {
-		return env, nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
+		return env.Env(), nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
 	}
 	argv := []string{"--model", base} // the gateway advertises only the base id
 	if effort := agyArgEffort(base, arg); effort != "" {
 		argv = append(argv, "--effort", effort)
 	}
-	return env, argv, nil
+	return env.Env(), argv, nil
 }
 
 // agyFlashLite is the model agy's flash-lite tier runs when the profile serves it.
