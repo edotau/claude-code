@@ -76,7 +76,9 @@ Handoff contract. Test: a fresh agent can act from the brief alone.
 ## Phase 6: Dispatch (2+ parallel-safe sub-tasks)
 
 Shape, leaf types, test agent and concurrency: `skills/subagent-workflows/SKILL.md`; pattern → shape:
-`skills/subagent-workflows/references/patterns.md`.
+`skills/subagent-workflows/references/patterns.md`. A plan's `Phase W.k` waves run with
+`claude-code agents dispatch --waves <plan>` (never commits; flags and exit codes:
+`skills/subagent-workflows/references/agent-verbs.md`).
 
 ## Phase 7: Merge
 

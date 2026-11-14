@@ -10,12 +10,14 @@ import (
 	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
 	hookagents "github.com/edotau/claude-code/internal/hooks/agents"
@@ -45,7 +47,8 @@ func agentsSpec() *helptext.Node {
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Args: []func() []string{func() []string { return []string{"explore", "fleet", "compare"} }}, Flags: []helptext.Flag{
 			flag("part"), boolFlag("no-web"), flag("models"), flag("jobs"), flag("timeout"), formatFlag(), boolFlag("background"),
-			flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
+			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
+			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("output-schema"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format")}},
 		"status": {Flags: []helptext.Flag{formatFlag()}},
 		"result": {Flags: []helptext.Flag{flag("save"), flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
@@ -129,10 +132,12 @@ var agentsSubPages = map[string][3]string{
 		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live) and stream that turn's events; exits on its result. One turn at a time per session."},
-	"dispatch": {"dispatch <role> [flags] <task>", "Run a task by role: explore (copilot, one dispatch per --part), fleet " +
+	"dispatch": {"dispatch [<role> <task> | --waves <plan>] [flags]", "Run a task by role: explore (copilot, one dispatch per --part), fleet " +
 		"(copilot fleet mode) or compare (opencode, one dispatch per model). Dispatches run concurrently; the report " +
-		"lists each answer.",
-		"Roles come from the vault overlay dispatch-roles, else the built-in table."},
+		"lists each answer. With --waves, run the plan’s waves with observed verification and no commits.",
+		"Roles come from the vault overlay dispatch-roles, else the built-in table.\n" +
+			"With --waves, exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
+			"3 outside owned files or unattributed, 4 interrupted."},
 	"status": {"status <id> [flags]", "Show one dispatch's state, whichever agent ran it (claude included)."},
 	"result": {"result <id> [flags]", "Print a finished dispatch's output; --format json prints its envelope. " +
 		"--save <file> writes the text there and prints one summary line instead (--head N echoes its first N lines). " +
@@ -385,7 +390,7 @@ func cmdAgentsFind(args []string) int {
 	return agent.Find(o)
 }
 
-// cmdAgentsDispatch is `agents dispatch <role> <task>`.
+// cmdAgentsDispatch runs a role task or a plan’s waves.
 func cmdAgentsDispatch(args []string) int {
 	fs := agentsFlags("dispatch")
 	var parts []string
@@ -398,12 +403,21 @@ func cmdAgentsDispatch(args []string) int {
 	background := fs.Bool("background", false, "detach each dispatch, print its id; no merged report")
 	outputSchema := fs.String("output-schema", "", "JSON Schema (file or inline) each answer must satisfy")
 	route := ask.RegisterRouteFlags(fs)
+	waveOpts := registerDispatchWaves(fs)
+	job := fs.String("job", "", "internal detached wave dispatch id")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("dispatch", err)
+	}
+	if fs.Lookup("waves").Value.String() != "" {
+		waveOpts.Timeout, waveOpts.JSON = *timeout, *format == helptext.JSON
+		return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})
+	}
+	if err := dispatchWaveCompanions(fs); err != nil {
+		return helptext.FailUsage("agents dispatch: %v", err)
 	}
 	if len(pos) < 2 {
 		fs.Usage()
@@ -416,6 +430,96 @@ func cmdAgentsDispatch(args []string) int {
 	q := roles.Request{Task: strings.Join(pos[1:], " "), WorkDir: cwd, Parts: parts, Models: textutil.SplitCSV(*models),
 		Web: !*noWeb, Timeout: *timeout}
 	return ask.Dispatch(q, ask.DispatchOptions{Role: pos[0], Schema: *outputSchema, Format: *format, Jobs: *jobs, Background: *background, Route: route})
+}
+
+// registerDispatchWaves registers the plan runner's options on dispatch's existing flag set.
+func registerDispatchWaves(fs *flag.FlagSet) *waves.Options {
+	o := &waves.Options{Out: os.Stdout, Err: os.Stderr}
+	fs.StringVar(&o.Plan, "waves", "", "run waves from this plan instead of a role task")
+	fs.Func("wave", "wave N or inclusive range N-M (default: all)", func(s string) error {
+		bounds := strings.Split(s, "-")
+		if len(bounds) > 2 {
+			return fmt.Errorf("invalid wave range %q", s)
+		}
+		var err error
+		o.From, err = dispatchWaveNumber(bounds[0])
+		if err != nil || o.From < 1 {
+			return fmt.Errorf("invalid wave range %q", s)
+		}
+		o.To = o.From
+		if len(bounds) == 2 {
+			o.To, err = dispatchWaveNumber(bounds[1])
+		}
+		if err != nil || o.To < o.From {
+			return fmt.Errorf("invalid wave range %q", s)
+		}
+		return nil
+	})
+	fs.BoolVar(&o.DryRun, "dry-run", false, "with --waves, list packages without launching")
+	fs.BoolVar(&o.Status, "status", false, "with --waves, print saved state without launching")
+	fs.BoolVar(&o.Fresh, "fresh", false, "with --waves, discard saved state and use current HEAD")
+	fs.StringVar(&o.Gate, "gate", "", "with --waves, override the wave gate command")
+	fs.StringVar(&o.Provider, "provider", "", "with --waves, provider for every leaf")
+	for _, name := range []string{"profile", "profiles"} {
+		helptext.ListVar(fs, &o.Profiles, name, "PROFILE", "with --waves, leaf profiles (repeatable or comma-separated)", true)
+	}
+	return o
+}
+
+// dispatchWaveNumber parses a decimal wave number without accepting trailing text.
+func dispatchWaveNumber(s string) (int, error) {
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return 0, fmt.Errorf("invalid wave number %q", s)
+	}
+	var n int
+	_, err := fmt.Sscan(s, &n)
+	return n, err
+}
+
+// dispatchWaveCompanions rejects wave-only flags even when their explicit value equals the default.
+func dispatchWaveCompanions(fs *flag.FlagSet) error {
+	var err error
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "waves", "wave", "dry-run", "status", "fresh", "gate", "provider", "profile", "profiles", "job":
+			err = fmt.Errorf("--%s requires --waves <plan>", f.Name)
+		}
+	})
+	return err
+}
+
+type waveJob struct {
+	background bool
+	id         string
+	args       []string
+}
+
+// dispatchWaves preserves the runner's exit codes and forwards shared route flags to every leaf.
+func dispatchWaves(pos []string, route *ask.RouteFlags, o *waves.Options, job waveJob) int {
+	if job.background && (o.DryRun || o.Status || job.id != "") {
+		return helptext.FailUsage("agents dispatch: --background cannot combine with --dry-run, --status or --job")
+	}
+	if len(pos) != 0 {
+		return helptext.FailUsage("agents dispatch: --waves accepts no role or task argument")
+	}
+	var err error
+	o.Route, err = route.Args()
+	if err != nil {
+		return helptext.FailUsage("agents dispatch: %v", err)
+	}
+	o.Dir, err = os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents dispatch: %v", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if job.background {
+		return waves.Background(ctx, *o, job.args)
+	}
+	if job.id != "" {
+		return waves.RunJob(ctx, *o, job.id)
+	}
+	return waves.Run(ctx, *o)
 }
 
 // cmdAgentsJob is `agents status|result|tail|cancel <id>`: the agent comes from the dispatch record.

@@ -2,21 +2,30 @@
 // Setup before running:
 //   1. Pick a scratch dir as args.base.
 //   2. Lay out args.base/pristine/<id> with each scenario's fixture (never copy GROUND-TRUTH.md in).
-//   3. For every run, copy the scenario's pristine dir to args.base/runs/<id>-<cond><seed>.
+//   3. Missing args.base/runs/<id>-<cond><seed> dirs are copied from the scenario's pristine dir by one setup leaf.
 //   4. args.skill is the path to the SKILL.md (or brief text file) under test.
 
 export const meta = {
   name: 'code-evaluator',
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
-    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> and base/runs/<id>-<cond><seed> must exist first. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {runs, cells}.',
+    'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> must exist first; a setup leaf copies it to each missing base/runs/<id>-<cond><seed>. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {exit (green when every run was scored | review when one failed | error), runs, cells, deltas (per scenario: method minus control mean), coworkers}.',
   phases: [{ title: 'Execute' }, { title: 'Judge' }],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
-if (!a.base) return { error: 'code-evaluator needs args.base (scratch dir with pristine/ and runs/ laid out)' }
-if (!a.skill) return { error: 'code-evaluator needs args.skill (path to the SKILL.md or brief under test)' }
+const ERR = (error) => ({ exit: 'error', error })
+const ARGS = ['base', 'skill', 'scenarios', 'seeds', 'conditions', 'steps', 'profile', 'provider']
+// stArgs: the first top-level arg this script does not read, as an error message ('' when every key is known).
+function stArgs(o, known) {
+  const bad = Object.keys(o).filter((k) => !known.includes(k))
+  return bad.length ? 'code-evaluator: unknown arg ' + bad.map((k) => 'args.' + k).join(', ') + ' (known: ' + known.join('|') + ')' : ''
+}
+if (a.model !== undefined) return ERR('code-evaluator: model was replaced by steps.run.model')
+if (stArgs(a, ARGS)) return ERR(stArgs(a, ARGS))
+if (!a.base) return ERR('code-evaluator needs args.base (scratch dir with pristine/ laid out)')
+if (!a.skill) return ERR('code-evaluator needs args.skill (path to the SKILL.md or brief under test)')
 const BASE = a.base
 const SKILL = a.skill
 const SCENARIOS = Array.isArray(a.scenarios) && a.scenarios.length ? a.scenarios : ['s2', 's9', 's13', 's14']
@@ -61,8 +70,8 @@ const stepOf = (steps, name, defaults, opt) => {
   const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
   const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
     (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
-  const F = { ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
-  const R = ['ran_on', 'coworker']
+  const F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
+  const R = ['dispatch_id', 'ran_on', 'coworker']
   const record = (label, r) => {
     const { ranOn, canon, ok } = ranOnVerdict(r)
     if (ok && !canon) log(`coworkers ${label}: ran_on reworded by the relay: ${ranOn}`)
@@ -76,7 +85,7 @@ const stepOf = (steps, name, defaults, opt) => {
     task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.` +
       (edit ? '' : ' The task is read-only: tell the agent to edit nothing.') +
       ' If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.' +
-      ' The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
+      ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed' +
       ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n' + p,
     schema: (s) => s ? { ...s, required: [...(s.required || []), ...R], properties: { ...s.properties, ...F } }
       : { type: 'object', additionalProperties: false, required: ['answer', ...R], properties: { answer: { type: 'string' }, ...F } },
@@ -85,7 +94,6 @@ const stepOf = (steps, name, defaults, opt) => {
   }
 }
 // ── end stepOf ──
-if (a.model !== undefined) return { error: 'code-evaluator: model was replaced by steps.run.model' }
 let ST
 try {
   ST = {
@@ -93,9 +101,9 @@ try {
     judge: stepOf(a.steps, 'judge', { model: 'sonnet', effort: 'high' }, { allowed: ['run', 'judge'], external: true, profile: a.profile, provider: a.provider }),
   }
 } catch (e) {
-  return { error: `code-evaluator: ${e.message}` }
+  return ERR(`code-evaluator: ${e.message}`)
 }
-for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return { error: 'code-evaluator: args.' + k + ' must be a plain name' }
+for (const k of ['profile', 'provider']) if (a[k] !== undefined && !/^[A-Za-z0-9._-]+$/.test(String(a[k]))) return ERR('code-evaluator: args.' + k + ' must be a plain name')
 const EXT = [...new Map(Object.values(ST).filter((s) => s.ext).map((s) => [s.agent + '|' + s.profile + '|' + s.provider, s])).values()]
 if (EXT.length) {
   const pf = await agent(
@@ -108,7 +116,7 @@ if (EXT.length) {
   // fail closed: a missing preflight, or no route row for an external agent, counts as no route
   const dead = [...routes.filter((r) => r.candidates === 0).map((r) => r.agent + (r.error ? ' (' + r.error + ')' : '')),
     ...[...new Set(EXT.map((s) => s.agent))].filter((g) => !routes.some((r) => String(r.agent).includes(g))).map((g) => g + ' (no preflight result)')]
-  if (dead.length) return { error: 'code-evaluator: coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work' }
+  if (dead.length) return ERR('code-evaluator: coworkers: no route for ' + dead.join(', ') + '; BLOCKED before any work')
 }
 const RUN_MODEL = ST.run.model
 const JUDGE_MODEL = ST.judge.model
@@ -155,8 +163,8 @@ const OFFLINE = `The user is offline and cannot answer questions: if you need a 
 
 // Every scenario needs a task; a condition names a run dir, so it is a plain name.
 const badScen = SCENARIOS.filter((id) => !TASKS[id] || !GROUND_TRUTH[id])
-if (badScen.length) return { error: 'code-evaluator: unknown scenario(s) ' + badScen.join(', ') + ' (known: ' + Object.keys(TASKS).join(', ') + ')' }
-if (CONDITIONS.some((c) => !/^[A-Za-z0-9_-]+$/.test(String(c)))) return { error: 'code-evaluator: args.conditions must be plain names' }
+if (badScen.length) return ERR('code-evaluator: unknown scenario(s) ' + badScen.join(', ') + ' (known: ' + Object.keys(TASKS).join(', ') + ')')
+if (CONDITIONS.some((c) => !/^[A-Za-z0-9_-]+$/.test(String(c)))) return ERR('code-evaluator: args.conditions must be plain names')
 // RUNS = scenarios x conditions x seeds, named '<id>-<cond><seed>' (s2-control1): no two conditions share a dir.
 const RUNS = []
 for (const id of SCENARIOS) {
@@ -167,7 +175,7 @@ for (const id of SCENARIOS) {
   }
 }
 
-if (new Set(RUNS.map((r) => r.run)).size !== RUNS.length) return { error: 'code-evaluator: run dirs collide (a condition ending in digits clashes with seeds); rename conditions' }
+if (new Set(RUNS.map((r) => r.run)).size !== RUNS.length) return ERR('code-evaluator: run dirs collide (a condition ending in digits clashes with seeds); rename conditions')
 
 const SCORES = {
   type: 'object',
@@ -220,6 +228,25 @@ ${report ?? '(agent produced no report)'}
 ---`
 }
 
+// Setup: one leaf copies pristine/<id> to every missing runs/<run>; it touches nothing outside BASE.
+const sq = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'"
+const setupLines = [...SCENARIOS.map((id) => `[ -d ${sq(BASE + '/pristine/' + id)} ] || echo "MISSING ${id}"`),
+  `mkdir -p ${sq(BASE + '/runs')}`,
+  ...RUNS.map((r) => `[ -e ${sq(BASE + '/runs/' + r.run)} ] && echo "EXISTS ${r.run}" || { [ -d ${sq(BASE + '/pristine/' + r.scenario)} ] && cp -R ${sq(BASE + '/pristine/' + r.scenario)} ${sq(BASE + '/runs/' + r.run)} && echo "CREATED ${r.run}"; }`)]
+let setup
+try {
+  setup = await agent(
+    'Run these shell lines once, in order. Put each CREATED name in created, each EXISTS name in existing and each MISSING name in missing. Touch nothing outside ' + BASE + ' and run nothing else.\n' + setupLines.join('\n'),
+    { label: 'setup-runs', phase: 'Setup', model: 'haiku', effort: 'low', schema: { type: 'object', additionalProperties: false, required: ['created', 'existing', 'missing'], properties: { created: { type: 'array', items: { type: 'string' } }, existing: { type: 'array', items: { type: 'string' } }, missing: { type: 'array', items: { type: 'string' } } } } },
+  )
+} catch (e) {
+  return ERR('code-evaluator: setup leaf failed: ' + e.message)
+}
+if (!setup) return ERR('code-evaluator: setup leaf returned nothing')
+const ready = new Set([...setup.created, ...setup.existing])
+const unready = RUNS.filter((r) => !ready.has(r.run)).map((r) => r.run)
+if (unready.length) return ERR('code-evaluator: no run dir for ' + unready.join(', ') + (setup.missing.length ? ' (no pristine/ for ' + setup.missing.join(', ') + ')' : ''))
+
 phase('Execute')
 const results = await pipeline(
   RUNS,
@@ -253,4 +280,11 @@ const cells = [...cellMap.values()].map(cell => ({
   mean: Object.fromEntries(NUMERIC_KEYS.map(k => [k, cell.n ? cell.sums[k] / cell.n : 0])),
 }))
 
-return { runs, cells, coworkers: COWORKERS }
+// deltas: per scenario, method minus control mean; null when either side has no scored run.
+const cellOf = (id, cond) => cells.find((c) => c.scenario === id && c.condition === cond)
+const deltas = SCENARIOS.filter((id) => cellOf(id, 'control') && cellOf(id, 'method')).map((id) => {
+  const c = cellOf(id, 'control'), m = cellOf(id, 'method')
+  return { scenario: id, delta: c.n && m.n ? Object.fromEntries(NUMERIC_KEYS.map((k) => [k, m.mean[k] - c.mean[k]])) : null }
+})
+
+return { exit: cells.some((c) => c.failed > 0) ? 'review' : 'green', runs, cells, deltas, coworkers: COWORKERS }

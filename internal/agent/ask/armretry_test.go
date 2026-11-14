@@ -145,6 +145,25 @@ func TestParallelLegsKeepTheirOwnWorkspaces(t *testing.T) {
 	}
 }
 
+// Legs sharing one client never write it: the race detector flags a per-leg write of Client.Notify (run with -race).
+func TestParallelLegsDoNotWriteSharedClient(t *testing.T) {
+	armRateFixture(t, []string{"dev"}, nil)
+	cl := newClient()
+	cl.Notify = func(string) {}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			a := &armRetry{agentName: "codex", fallback: router.FallbackNone, tried: []string{"dev"}}
+			o := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+			<-start
+			a.streamLeg(t.Context(), cl, o, make(chan wire.Event, 256))
+		})
+	}
+	close(start)
+	wg.Wait()
+}
+
 // checkMovedReport asserts the envelope lists the hops dev then qa and names the move in ran_on.
 func checkMovedReport(t *testing.T, env map[string]any) {
 	t.Helper()

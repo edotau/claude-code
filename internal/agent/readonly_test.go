@@ -67,6 +67,23 @@ func TestReadOnlyTools(t *testing.T) {
 	})
 }
 
+func TestReadOnlyReviewScope(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{"claude-code review scope --range HEAD~1..HEAD --caps", true},
+		{"claude-code review scope --paths internal/agent,cmd --importers --format json", true},
+		{"claude-code review scope --range HEAD^..HEAD | head -5", true},
+		{"claude-code review scope --range --output=x", false},
+		{"claude-code review scope --range -x", false},
+		{"claude-code review scope --paths /etc", false},
+		{"claude-code review scope --paths a,../b", false},
+		{"claude-code review scope --repo /tmp/x --caps", false},
+		{"claude-code review scope --format sarif", false},
+		{"claude-code review scope --out x", false},
+		{"claude-code review scope --range 'a;b'", false},
+		{"claude-code memory report --label x", false},
+	})
+}
+
 func TestReadOnlyShell(t *testing.T) {
 	checkReadOnly(t, []roCase{
 		{"rg foo internal && ls", true},
@@ -142,4 +159,12 @@ func TestParseRuleExpandsHome(t *testing.T) {
 	if r, err := ParseRule("Edit(~/a)"); err != nil || r.String() != "Edit(~/a)" {
 		t.Errorf("ParseRule with no HOME = %v, %v; want Edit(~/a)", r, err)
 	}
+}
+
+func TestReadOnlyAgentsWait(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{"claude-code agents wait job --timeout 10m", true},
+		{"claude-code agents wait job --save /tmp/result", false},
+		{"claude-code agents dispatch --waves plan --background", false},
+	})
 }

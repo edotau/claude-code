@@ -215,6 +215,19 @@ func TestGatePolicyCommandForms(t *testing.T) {
 	})
 }
 
+// A claude leaf launched through ask runs the review scope, memory report and python its workflow stages call.
+func TestGatePolicyAllowsWorkflowStageCommands(t *testing.T) {
+	wd := t.TempDir()
+	bash := gateBash
+	runGateRows(t, wd, []gateRow{
+		{"review scope", agent.Permissions{}, "Bash", bash("claude-code review scope --range HEAD~1..HEAD --caps"), false, "", ""},
+		{"memory report", agent.Permissions{}, "Bash", bash("claude-code memory report --label x --file /tmp/f"), false, "", ""},
+		{"python", agent.Permissions{}, "Bash", bash("python test_pricing.py"), false, "", ""},
+		{"python3 -m", agent.Permissions{}, "Bash", bash("python3 -m exports.tests.test_invoices"), false, "", ""},
+		{"memory worktree stays unlisted", agent.Permissions{}, "Bash", bash("claude-code worktree merge x"), true, "deny: ", ""},
+	})
+}
+
 // A --read-only claude run's gate policy: reads and the shared shell list run; builds, writes and redirects do not.
 func TestReadOnlyGatePolicy(t *testing.T) {
 	wd := t.TempDir()
@@ -362,6 +375,15 @@ func TestAsksToRunWorkflow(t *testing.T) {
 	} {
 		if got := asksToRunWorkflow(c.brief); got != c.want {
 			t.Errorf("asksToRunWorkflow(%q) = %v, want %v", c.brief, got, c.want)
+		}
+	}
+}
+
+func TestGatewayAllowsDispatchAndWait(t *testing.T) {
+	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	for _, cmd := range []string{"claude-code agents dispatch --waves plan --background", "claude-code agents wait job --timeout 10m"} {
+		if got := p.Decide("Bash", cmd); got != agent.Allow {
+			t.Errorf("%s: %v", cmd, got)
 		}
 	}
 }

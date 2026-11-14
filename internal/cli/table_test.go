@@ -905,3 +905,15 @@ func termWidth(l string) int {
 	}
 	return w
 }
+
+func TestCompletionAgentsDispatchWaves(t *testing.T) {
+	got := candidates("agents", "dispatch", "--")
+	for _, name := range []string{"waves", "wave", "dry-run", "status", "fresh", "gate", "provider", "profile", "profiles"} {
+		if !slices.Contains(got, "--"+name) {
+			t.Errorf("dispatch completions lack --%s: %v", name, got)
+		}
+	}
+	if slices.Contains(candidates("agents", ""), "waves") {
+		t.Fatal("waves must be a dispatch flag, not a verb")
+	}
+}

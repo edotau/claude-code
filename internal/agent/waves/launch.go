@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -89,11 +90,10 @@ func askArgs(n int, options LaunchOptions) []string {
 	return append(args, options.Route...)
 }
 
-// LeafLaunch is what Launch hands one leaf built from options and an owned file with a verify command:
-// the ask arguments, the line's tools setting (nil = the batch default) and the brief text.
+// LeafLaunch exposes the actual ask arguments, tools setting and rendered brief for the permission doctor.
 func LeafLaunch(options LaunchOptions, owned, verify string) (args []string, tools *bool, brief string, err error) {
 	line, err := launchLineFor(0, "leaf-1.1", Spec{ID: "1.1", Task: "task", Owns: []string{owned}, Verify: verify},
-		LaunchOptions{ReportsDir: "reports", Provider: options.Provider, Tools: options.Tools})
+		LaunchOptions{ReportsDir: "reports", Provider: options.Provider, Tools: options.Tools, Route: options.Route})
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -155,7 +155,11 @@ func launchLines(specs []Spec, options LaunchOptions) ([]byte, error) {
 
 func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLine, error) {
 	report := filepath.Join(options.ReportsDir, id+".md")
-	prompt, err := agent.RenderBrief(agent.BriefInput{Task: spec.Task, Owned: spec.Owns, Verify: spec.Verify, Report: report})
+	verify := spec.Verify
+	if verify == "" {
+		verify = defaultVerify(spec.Owns)
+	}
+	prompt, err := agent.RenderBrief(agent.BriefInput{Task: spec.Task, Owned: spec.Owns, Verify: verify, Report: report})
 	if err != nil {
 		return launchLine{}, err
 	}
@@ -167,11 +171,29 @@ func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLi
 		profile = options.Provider + "·" + profile
 	}
 	line := launchLine{ID: id, Agent: spec.Agent, Profile: profile, Prompt: prompt, Workdir: spec.Workdir,
-		Tools: options.Tools, PlanTask: "Phase " + spec.ID}
+		Tools: launchTools(options), PlanTask: "Phase " + spec.ID}
 	if options.Timeout > 0 {
 		line.Timeout = options.Timeout.String()
 	}
 	return line, nil
+}
+
+func launchTools(o LaunchOptions) *bool {
+	if o.Tools != nil {
+		return o.Tools
+	}
+	for _, arg := range o.Route {
+		flag, value, hasValue := strings.Cut(arg, "=")
+		if flag == "--tools" && hasValue {
+			enabled := value != "false"
+			return &enabled
+		}
+		if (flag == "--no-tools" || flag == "--read-only" || flag == "--autonomous") && value != "false" {
+			return nil
+		}
+	}
+	enabled := true
+	return &enabled
 }
 
 func launchEnvelopes(data []byte, specs []Spec, options LaunchOptions) ([]Envelope, error) {
@@ -217,4 +239,13 @@ func launchCheckEnvelope(envelope Envelope) error {
 		return fmt.Errorf("missing dispatch for %s", envelope.TaskID)
 	}
 	return nil
+}
+
+func defaultVerify(owns []string) string {
+	var cmd strings.Builder
+	cmd.WriteString("claude-code agents diff --check")
+	for _, path := range owns {
+		cmd.WriteString(" --path '" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'")
+	}
+	return cmd.String()
 }

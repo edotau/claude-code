@@ -22,6 +22,7 @@ conveniences.
 | Review a diff; second opinion on another model | `/code-review` · `claude-code codex review [--adversarial] [--base <b>]` · `@agent-codex` |
 | Project agents + CLAUDE.md into every agent CLI | `claude-code agents sync [--agent a] [--dry-run\|--check]` (also run by `install`) |
 | After a leaf returns | `claude-code agents wait <id>...` · `agents result <id> --save <path>` · `agents diff --check --path <p>...` · `review scope --range <r> --caps`; read the exit code, not the output |
+| Run a plan's waves (never commits) | `claude-code agents dispatch --waves <plan> [--wave N[-M]] [--dry-run\|--status] [--gate CMD]`: exit 0 passed, 1 failed, 2 invalid plan, 3 file outside owned set, 4 still running; launch in the background and `agents wait <id> --timeout 10m` (exit 4 = still running) |
 | Subagent status | `claude-code agents tree [--watch\|--background]` · `agents reap` |
 | What a leaf changed, stayed inside its files, passes the gates | `claude-code agents diff [--base <ref>] [--path <path>]... [--check] [--verify <id>] [--format json]` (gates: gofmt, build, vet, golangci-lint, complexity, test, docs on changed `.md`; exit 1 gate failed or MISMATCH, 3 outside `--path`) |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
