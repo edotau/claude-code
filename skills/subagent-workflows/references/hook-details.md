@@ -46,7 +46,7 @@ model and some inline-Workflow paths still rewrite input and may be refused by t
 
 Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 hours from the dispatch's start, then a
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
-tail -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf is also blocked up to 3
+result -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf is also blocked up to 3
 times at a stop whose tool results carry no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves and
 `Agent: in-context` briefs are exempt; the type is the request; prior blocks are counted from hook errors and feedback
 in its transcript); the 4th stop passes with a visible message. A stop it isn't blocking kills the leaf's leftover

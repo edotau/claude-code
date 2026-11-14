@@ -323,7 +323,7 @@ func SendLive(ctx context.Context, id, prompt string, sink wire.Sink) (wire.Enve
 	}
 	conn, err := (&net.Dialer{Timeout: liveIOTimeout}).DialContext(ctx, "unix", LiveSocket(rec.ID))
 	if err != nil {
-		return wire.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents reap clears dead sessions)", rec.ID, err)
+		return wire.Envelope{}, fmt.Errorf("live session %s: %w (claude-code agents cancel --lost clears dead sessions)", rec.ID, err)
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })

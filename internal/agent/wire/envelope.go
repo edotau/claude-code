@@ -32,7 +32,7 @@ type Envelope struct {
 	Provider        string          `json:"provider"` // the profile that answered
 	Model           string          `json:"model"`
 	Invoked         string          `json:"invoked_model"`
-	DispatchID      string          `json:"dispatch_id"` // the id `<agent> status|result` and `ask --retry` accept; "" before a log record exists
+	DispatchID      string          `json:"dispatch_id"` // the id `agents status|result` and `ask --retry` accept; "" before a log record exists
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`

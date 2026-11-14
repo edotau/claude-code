@@ -5,7 +5,6 @@ package doctor
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,11 +38,11 @@ var (
 	namedPath    = regexp.MustCompile("(?:^|[\\s(\\[\"'`])((?:~|/)[A-Za-z0-9._@+/~-]*[A-Za-z0-9_])")
 )
 
-// Seams for H7: production runs the real hooks and sync; tests swap them for fixtures.
+// Seams for H7: production runs the real hooks and a scratch render; tests swap them for fixtures.
 var (
 	memoryStart  = memhook.StartText // side-effect free: an audit must not scaffold, spawn or consume
 	memoryRecall = recallProbe
-	agentsSync   = func() int { return project.Sync(project.Options{DryRun: true, Check: true, Out: io.Discard}) }
+	agentsRender = project.CheckFreshRender
 )
 
 // promptPath returns one check per implemented hop for the config tree at root.
@@ -322,7 +321,7 @@ func recallProbe(root, prompt string) (string, error) {
 	return strings.Join(blocks, "\n"), err
 }
 
-// sessionPrompts runs memory-start and memory-recall on the probe payload and checks the agents projection is clean.
+// sessionPrompts runs memory-start and memory-recall on the probe payload and checks the sources render to a clean projection.
 func sessionPrompts(root string) []string {
 	start := &core.Input{SessionID: probeSession, CWD: root, HookEventName: "SessionStart", Source: "startup"}
 	var out []string
@@ -332,8 +331,8 @@ func sessionPrompts(root string) []string {
 	} else {
 		out = append(out, missingPaths("memory-recall", recall)...)
 	}
-	if rc := agentsSync(); rc != 0 {
-		out = append(out, fmt.Sprintf("agents sync --check exits %d: projection differs from agents/ (fix at agents/)", rc))
+	if err := agentsRender(root); err != nil {
+		out = append(out, fmt.Sprintf("agents projection: %v (fix at agents/ or CLAUDE.md)", err))
 	}
 	return out
 }

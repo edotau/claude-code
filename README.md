@@ -188,7 +188,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
 | `AGENT_ERROR_FALLBACK` | set (shell or vault env, any value): a failed dispatch falls back to the agent's pin, then Claude (`--fallback all`); unset: it exits on the error (`none`) |
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
-| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs, after `--host-bin` |
+| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
 | `HARNESS_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
@@ -267,7 +267,7 @@ claude-code agents list                                # agents and availability
 claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
 claude-code agents dispatch explore|fleet|compare [--part q]… [--models a,b] [--output-schema s] "<task>"   # parallel dispatches, one report
-claude-code agents ask --log | --retry <id>                   # recent dispatches; replay one
+claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
@@ -428,7 +428,7 @@ tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
 | Bash tab completion | `claude-code completion --install` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
 | Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
-| Subagent status and dispatches | `claude-code agents tree [--watch\|--background]` · `agents reap [--dry-run]` |
+| Subagent status and dispatches | `claude-code agents tree [--watch\|--finished]` · `agents cancel --lost [--dry-run]` |
 | What an agent changed, in its files, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
 | Merge another machine's memory, mark a replaced entry, try on a copy | `claude-code memory import --host <h>` · `memory revise <old> --with <new>` · `memory sandbox` |

@@ -32,7 +32,7 @@ commands.
   (`claude-code copilot ask --tools --workdir <repo>`).
 - Merge + conventional commit after gates are green (LAST-MILE); a file another live leaf has claimed needs that
   leaf's hand-back first.
-- Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot resume <id>`).
+- Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot ask --session <id>`).
 - Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
   `skills/subagent-workflows/references/cost-routing.md`.
 - `ask --read-only` approves file reads, URL fetches and read-only git (status, diff, log, show, blame, rev-parse,
@@ -50,7 +50,8 @@ commands.
 - Copilot reads as off while it has no account to bill (no GitHub login under 95%, no usable Databricks profile, no
   Anthropic key); the `COPILOT_ACTIVE` pin is untouched, so it comes back on its own.
 - Model, effort and context: the copilot agent record (`claude-code configure agents --agent copilot`).
-- `claude-code copilot off|on` stops/resumes routing; `claude-code copilot setup` checks the route.
+- `claude-code copilot profile --off` stops routing and `claude-code copilot profile --clear` resumes it on its own
+  login; `claude-code copilot setup` checks the route.
 
 ## Usage
 
@@ -68,8 +69,8 @@ Copilot deltas:
 
 Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`. Copilot deltas:
 
-- `resume <id> <task>` equals `ask --session`; the native CLI resumes with `copilot --resume <id>` (a flag, not a
-  subcommand).
+- Continue a session with `ask --session <id> <task>`; the native CLI resumes with `copilot --resume <id>` (a flag,
+  not a subcommand).
 - `ask --fleet` (Copilot's own parallel subagents; experimental SDK call): prefer for wide scans, audits and
   multi-file edits; verify with the diff stat, since we do not brief those subagents.
 - `ask --agent copilot`: both system-prompt flags are native (passed to the SDK as the system message), `--env`

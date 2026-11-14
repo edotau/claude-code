@@ -300,5 +300,5 @@ func lastDispatchError(name string, since time.Time) string {
 			return textutil.PreviewRedacted(r.Error, 400)
 		}
 	}
-	return "see claude-code " + name + " status"
+	return "see claude-code agents status --agent " + name
 }

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -34,12 +33,6 @@ type batchOpts struct {
 	Native          bool
 	Auto            string // the workspace databricks:auto picked for the batch; "" when the confinement was not an auto pick
 	Identity        string
-	FollowInput     bool
-	FollowIdle      time.Duration
-	RetryAgents     []string
-	Decorate        func(*batchTask) // optional: called on every successfully built task
-	// Follow optionally feeds more tasks after the initial lines; ctx is cancelled when runBatch returns.
-	Follow func(ctx context.Context, build func(parsedLine) batchTask) <-chan batchTask
 }
 
 // buildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
@@ -87,38 +80,27 @@ func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.R
 		return "", false
 	}
 	seen := map[string]bool{}
-	build := func(l parsedLine) batchTask {
+	tasks := make([]batchTask, 0, len(lines))
+	for _, l := range lines {
 		t, err := buildTask(ctx, l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
-		} else if o.Decorate != nil {
-			o.Decorate(&t)
 		}
-		return t
-	}
-	tasks := make([]batchTask, 0, len(lines))
-	for _, l := range lines {
-		tasks = append(tasks, build(l))
+		tasks = append(tasks, t)
 	}
 	id = newID()
 	po := poolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
-	if o.Follow != nil {
-		fctx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		po.More = o.Follow(fctx, build)
-	}
 	return id, runTasks(ctx, tasks, po)
 }
 
 // poolOptions configures runTasks; Out is read when runTasks is called, so a swapped os.Stdout is honored.
 type poolOptions struct {
-	ID       string           // stamped on every envelope as batch_id
-	Jobs     int              // dispatches run at once; <= 0 means defaultJobs
-	FailFast bool             // the first failed task cancels every queued and running one
-	Out      io.Writer        // one envelope JSON per line, in completion order
-	Log      io.Writer        // per-task progress lines tagged with the task id; nil discards
-	More     <-chan batchTask // optional: tasks claimed as they arrive until it closes
+	ID       string    // stamped on every envelope as batch_id
+	Jobs     int       // dispatches run at once; <= 0 means defaultJobs
+	FailFast bool      // the first failed task cancels every queued and running one
+	Out      io.Writer // one envelope JSON per line, in completion order
+	Log      io.Writer // per-task progress lines tagged with the task id; nil discards
 }
 
 type batchDone struct {
@@ -171,27 +153,12 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	return allOK
 }
 
-// feed claims the initial queue in input order, then o.More; it closes done once every claimed task has finished.
+// feed claims the queue in input order; it closes done once every claimed task has finished.
 func (b *batchRun) feed(ctx context.Context, tasks []batchTask, queue []int, done chan<- batchDone) {
 	var wg sync.WaitGroup
 	defer func() { wg.Wait(); close(done) }()
 	for _, i := range queue {
 		b.claim(ctx, &wg, tasks[i], i, done)
-	}
-	for b.o.More != nil {
-		select {
-		case t, ok := <-b.o.More:
-			if !ok {
-				return
-			}
-			if t.Err != nil {
-				done <- batchDone{-1, taskFailure(t, t.Err), false}
-				continue
-			}
-			b.claim(ctx, &wg, t, -1, done)
-		case <-ctx.Done():
-			return
-		}
 	}
 }
 
@@ -206,7 +173,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t batchTask, i
 	wg.Go(func() { b.execute(ctx, sctx, t, i, done) })
 }
 
-// execute prepares and runs t on its reserved slot, retrying a real failure once, and reports to done.
+// execute prepares and runs t on its reserved slot and reports to done.
 func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done chan<- batchDone) {
 	prepared, err := t.Prepare(ctx)
 	if err != nil {
@@ -215,10 +182,6 @@ func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done c
 	}
 	defer retry.Settle(sctx)
 	env, ok := b.run(sctx, t, prepared)
-	if !ok {
-		env = b.retry(sctx, t, env)
-		ok = env.Status == wire.StatusOK && env.Error == nil
-	}
 	done <- batchDone{i, env, ok}
 }
 
@@ -241,22 +204,6 @@ func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t batchTask, i int
 		stop()
 	}
 	done <- batchDone{i, taskFailure(t, err), false}
-}
-
-// retry runs t.Retry once after a real failure and returns the retry's envelope with both attempts in Hops.
-func (b *batchRun) retry(ctx context.Context, t batchTask, first wire.Envelope) wire.Envelope {
-	if t.Retry == nil || ctx.Err() != nil || len(first.Hops) == 0 || !cancelsBatch(first) {
-		return first
-	}
-	p, err := t.Retry(ctx)
-	if err != nil {
-		b.logf(t.ID, "retry not started: %v", err)
-		return first
-	}
-	b.logf(t.ID, "retrying after %s", first.DispatchID)
-	env, _ := b.run(ctx, t, p)
-	env.Hops = append(slices.Clone(first.Hops), env.Hops...)
-	return env
 }
 
 // taskFailure is the error envelope of a task that never ran.
@@ -348,20 +295,20 @@ func (b *batchRun) recoverTask(t batchTask, rec *agent.Record, start time.Time, 
 }
 
 // batchExclusive are the ask flags that make no sense on a batch of independent tasks.
-var batchExclusive = []string{"retry", "job", "background", "session", "log", "attach", "rubric", "debug-file"}
+var batchExclusive = []string{"retry", "job", "background", "session", "attach", "rubric", "debug-file"}
 
 // runAskBatch runs the JSONL tasks in src (a file, or "-" for stdin) on a bounded pool, one envelope per line.
-func runAskBatch(ctx context.Context, fs *flag.FlagSet, resume bool, src string, o batchOpts, base agent.RunOptions) int {
-	if err := checkBatchFlags(fs, resume, o); err != nil {
+func runAskBatch(ctx context.Context, fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
+	if err := checkBatchFlags(fs, o); err != nil {
 		return failAskCode("text", o.Agent, err, 2)
 	}
 	return runAskBatchInput(ctx, fs, src, o, base)
 }
 
-func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
+func checkBatchFlags(fs *flag.FlagSet, o batchOpts) error {
 	var bad error
-	if resume || fs.NArg() > 0 {
-		bad = errors.New("--batch takes tasks from the JSONL source, not a session id or a positional task")
+	if fs.NArg() > 0 {
+		bad = errors.New("--batch takes tasks from the JSONL source, not a positional task")
 	}
 	for _, f := range batchExclusive {
 		if helptext.Explicit(fs, f) {
@@ -374,33 +321,20 @@ func checkBatchFlags(fs *flag.FlagSet, resume bool, o batchOpts) error {
 	return bad
 }
 
-// checkBatchRun rejects a non-JSON --format, --follow on stdin and a --jobs below 1.
+// checkBatchRun rejects a non-JSON --format and a --jobs below 1.
 func checkBatchRun(fs *flag.FlagSet, o batchOpts) error {
 	if helptext.Explicit(fs, "format") && fs.Lookup("format").Value.String() != helptext.JSON {
 		return errors.New("--batch always prints JSON envelopes; drop --format or pass --format json")
 	}
-	if o.FollowInput && fs.Lookup("batch").Value.String() == "-" {
-		return errors.New("--follow needs a --batch file: stdin cannot be followed")
-	}
 	if o.Jobs < 1 {
 		return fmt.Errorf("--jobs %d: need at least 1", o.Jobs)
-	}
-	if o.FollowInput && o.FollowIdle <= 0 {
-		return fmt.Errorf("--follow-idle %s: need a positive duration", o.FollowIdle)
 	}
 	return nil
 }
 
 func runAskBatchInput(ctx context.Context, fs *flag.FlagSet, src string, o batchOpts, base agent.RunOptions) int {
 	in := io.Reader(os.Stdin)
-	var fw *follower
-	if o.FollowInput {
-		var err error
-		if fw, in, err = newFollower(src, o.FollowIdle); err != nil {
-			return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
-		}
-		defer fw.f.Close() // run closes it too; this covers the paths that never reach run
-	} else if src != "-" {
+	if src != "-" {
 		f, err := os.Open(src)
 		if err != nil {
 			return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
@@ -412,15 +346,11 @@ func runAskBatchInput(ctx context.Context, fs *flag.FlagSet, src string, o batch
 	if err != nil {
 		return failAskCode("text", o.Agent, fmt.Errorf("--batch: %w", err), 2)
 	}
-	if len(lines) == 0 && !o.FollowInput { // a followed file may get its tasks later
+	if len(lines) == 0 {
 		return failAskCode("text", o.Agent, errors.New("--batch: no tasks in the input"), 2)
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
-	o.Decorate = func(t *batchTask) { t.Retry = retryFor(ctx, *t, o, o.RetryAgents) }
-	if fw != nil {
-		o.Follow = fw.run
-	}
 	id, ok := runBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)

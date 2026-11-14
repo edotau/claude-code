@@ -249,7 +249,7 @@ func checkAgent(name string) error {
 	return nil
 }
 
-// Row is one background-job line for `claude-code <v> status`.
+// Row is one background-job line for `claude-code agents status`.
 type Row struct {
 	ID       string
 	Status   string // running | lost | ok | error (lost = running record, dead pid)
@@ -298,6 +298,11 @@ func resolveJob(ctx context.Context, name, cwd, ref string, pred func(Record) bo
 		return Record{}, err
 	}
 	return resolveRecord(list(name, RepoRoot(ctx, cwd), ref != ""), ref, pred)
+}
+
+// ResolveJob is name's job ref (default: its newest job in cwd's repo), running or finished.
+func ResolveJob(ctx context.Context, name, cwd, ref string) (Record, error) {
+	return resolveJob(ctx, name, cwd, ref, nil)
 }
 
 // JobResult returns ref's record (default: newest finished) and its log text; a running match errors.

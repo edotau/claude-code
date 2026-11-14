@@ -379,6 +379,20 @@ func TestAsksToRunWorkflow(t *testing.T) {
 	}
 }
 
+func TestGatewayAllowsMergedAgentVerbs(t *testing.T) {
+	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	for cmd, allowed := range map[string]bool{
+		"claude-code agents result -f job": true, "claude-code agents result job --events -f": true,
+		"claude-code agents status": true, "claude-code agents status job --agent codex": true,
+		"claude-code agents cancel job": false, "claude-code agents cancel --lost": false,
+		"claude-code agents tail -f job": false, "claude-code agents reap": false,
+	} {
+		if got := p.Decide("Bash", cmd) == agent.Allow; got != allowed {
+			t.Errorf("%s: allowed = %v, want %v", cmd, got, allowed)
+		}
+	}
+}
+
 func TestGatewayAllowsDispatchAndWait(t *testing.T) {
 	p := gatePolicy(agent.Permissions{}, t.TempDir())
 	for _, cmd := range []string{"claude-code agents dispatch --waves plan --background", "claude-code agents wait job --timeout 10m"} {

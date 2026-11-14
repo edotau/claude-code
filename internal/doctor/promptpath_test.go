@@ -99,12 +99,12 @@ func TestH6AgentNameStemDescriptionModel(t *testing.T) {
 	wantOne(t, agents(root), `agents/x.md:1: name "y" != "x"`, "(fix at agents/x.md)")
 }
 
-// stubSessionSeams swaps the H7 hooks and sync for fixtures and restores them after the test.
-func stubSessionSeams(t *testing.T, start func(*core.Input) core.Result, recall func(root, prompt string) (string, error), sync func() int) {
+// stubSessionSeams swaps the H7 hooks and render for fixtures and restores them after the test.
+func stubSessionSeams(t *testing.T, start func(*core.Input) core.Result, recall func(root, prompt string) (string, error)) {
 	t.Helper()
-	oStart, oRecall, oSync := memoryStart, memoryRecall, agentsSync
-	t.Cleanup(func() { memoryStart, memoryRecall, agentsSync = oStart, oRecall, oSync })
-	memoryStart, memoryRecall, agentsSync = start, recall, sync
+	oStart, oRecall, oRender := memoryStart, memoryRecall, agentsRender
+	t.Cleanup(func() { memoryStart, memoryRecall, agentsRender = oStart, oRecall, oRender })
+	memoryStart, memoryRecall, agentsRender = start, recall, func(string) error { return nil }
 }
 
 func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
@@ -112,7 +112,7 @@ func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	real := filepath.Join(root, "memory.md")
 	hosttest.WriteRel(t, root, "memory.md", "bank\n")
 	ok := func(in *core.Input) core.Result { return core.Result{Context: "see " + real} }
-	stubSessionSeams(t, ok, func(string, string) (string, error) { return "", nil }, func() int { return 0 })
+	stubSessionSeams(t, ok, func(string, string) (string, error) { return "", nil })
 	if got := sessionPrompts(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
@@ -121,6 +121,24 @@ func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	stale := func(string, string) (string, error) {
 		return "claude `/anthropic` via /serving-endpoints/anthropic; pointer " + gone, nil
 	}
-	stubSessionSeams(t, ok, stale, func() int { return 0 })
+	stubSessionSeams(t, ok, stale)
 	wantOne(t, sessionPrompts(root), "memory-recall:1:", gone+" which does not exist")
+}
+
+// H7's projection check renders the source in a scratch dir: stale or empty live homes pass, a broken source fails.
+func TestH7ProjectionRendersFromSourceNotLiveHomes(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", t.TempDir()) // an empty live home: no agent projected anywhere
+	hosttest.WriteRel(t, root, "agents/x.md", "---\nname: x\ndescription: does things\n---\nbody\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "# x\n")
+	empty := func(*core.Input) core.Result { return core.Result{} }
+	oStart, oRecall := memoryStart, memoryRecall
+	t.Cleanup(func() { memoryStart, memoryRecall = oStart, oRecall })
+	memoryStart, memoryRecall = empty, func(string, string) (string, error) { return "", nil }
+
+	if got := sessionPrompts(root); len(got) != 0 {
+		t.Fatalf("clean source with an empty live home: findings = %q", got)
+	}
+	hosttest.WriteRel(t, root, "agents/x.md", "---\nname: y\ndescription: does things\n---\nbody\n")
+	wantOne(t, sessionPrompts(root), "agents projection:", "(fix at agents/")
 }

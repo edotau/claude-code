@@ -2,9 +2,11 @@ package ask
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/roles"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault"
@@ -226,5 +229,165 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 	})
 	if code != 2 || !strings.Contains(stderr, "--no-tools") {
 		t.Fatalf("%s refusal = %d, %s", mode, code, stderr)
+	}
+}
+
+// jobsEnv gives the test its own dispatch store and a working directory that is its repo.
+func jobsEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Chdir(t.TempDir())
+}
+
+// seedJob saves a codex record in this repo whose log holds body; a running one gets pid (this process when 0).
+func seedJob(t *testing.T, age time.Duration, status, body string, pid int) agent.Record {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := agent.NewRecord("codex", agent.RunOptions{Prompt: "seed " + status}, time.Now().Add(-age))
+	rec.Repo, rec.Status, rec.Log = cwd, status, filepath.Join(cwd, rec.ID+".log")
+	if status == "running" {
+		rec.PID = pid
+	}
+	if err := os.WriteFile(rec.Log, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+// finishAfter appends more to rec's log, then finishes it with runErr, once d has passed.
+func finishAfter(rec agent.Record, d time.Duration, more string, runErr error) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		time.Sleep(d)
+		f, err := os.OpenFile(rec.Log, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, err = f.WriteString(more)
+			err = errors.Join(err, f.Close())
+		}
+		rec.Finish(wire.Result{SessionID: "sess-1"}, runErr, d)
+		done <- errors.Join(err, rec.Save())
+	}()
+	return done
+}
+
+func runResult(t *testing.T, o ResultOptions) (code int, stdout, stderr string) {
+	t.Helper()
+	return hosttest.CaptureOutput(t, func() int { return Result(o) })
+}
+
+// result -f streams the log as the job writes it, then closes with the ask line and resume hint without repeating the log.
+func TestResultFollowStreamsLogThenTrailer(t *testing.T) {
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "running", "first\n", os.Getpid())
+	done := finishAfter(rec, 100*time.Millisecond, "second\n", nil)
+	code, out, stderr := runResult(t, ResultOptions{Agent: "codex", Follow: true})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || stderr != "" {
+		t.Fatalf("exit %d stderr %q, want 0", code, stderr)
+	}
+	if !strings.HasPrefix(out, "first\nsecond\n") || strings.Count(out, "first") != 1 || !strings.Contains(out, "session: sess-1") {
+		t.Errorf("stdout = %q, want the log once, then the session trailer", out)
+	}
+}
+
+// A followed job that errors exits 1 with its error, and a followed job whose process vanished is reported lost.
+func TestResultFollowErroredAndLost(t *testing.T) {
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "running", "work\n", os.Getpid())
+	done := finishAfter(rec, 50*time.Millisecond, "", errors.New("boom"))
+	code, _, stderr := runResult(t, ResultOptions{Agent: "codex", Follow: true})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if code != 1 || !strings.Contains(stderr, "boom") {
+		t.Errorf("errored: exit %d stderr %q, want 1 naming boom", code, stderr)
+	}
+
+	gone := exec.Command("true")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	lost := seedJob(t, 0, "running", "", gone.Process.Pid)
+	code, _, stderr = runResult(t, ResultOptions{Agent: "codex", Ref: lost.ID, Follow: true})
+	if code != 1 || !strings.Contains(stderr, "is lost") {
+		t.Errorf("lost: exit %d stderr %q, want 1 and \"is lost\"", code, stderr)
+	}
+}
+
+// With json the envelope is the only output: a followed job waits for the end and streams no log ahead of it.
+func TestResultFollowJSONPrintsOnlyEnvelope(t *testing.T) {
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "running", "first\n", os.Getpid())
+	done := finishAfter(rec, 50*time.Millisecond, "second\n", nil)
+	code, out, _ := runResult(t, ResultOptions{Agent: "codex", Follow: true, Format: "json"})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || !json.Valid([]byte(out)) {
+		t.Errorf("exit %d stdout %q, want exactly one JSON envelope", code, out)
+	}
+}
+
+// --events copies the NDJSON event file as is, with no log trailer.
+func TestResultEventsStreamsEventFile(t *testing.T) {
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "ok", "log text\n", 0)
+	const events = "{\"type\":\"a\"}\n{\"type\":\"b\"}\n"
+	if err := os.WriteFile(rec.EventsPath(), []byte(events), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := runResult(t, ResultOptions{Agent: "codex", Ref: rec.ID, Events: true})
+	if code != 0 || out != events {
+		t.Errorf("exit %d stdout %q, want the event file %q", code, out, events)
+	}
+}
+
+// No id: the agent's newest finished job in this repo; a bare id finds its agent from the record; neither is a usage error.
+func TestResultSelectsJob(t *testing.T) {
+	jobsEnv(t)
+	old := seedJob(t, 3*time.Minute, "ok", "old\n", 0)
+	seedJob(t, 2*time.Minute, "ok", "new\n", 0)
+	seedJob(t, time.Minute, "running", "busy\n", os.Getpid())
+	for _, tc := range []struct {
+		name string
+		o    ResultOptions
+		code int
+		want string
+	}{
+		{"agent newest finished", ResultOptions{Agent: "codex"}, 0, "new\n"},
+		{"bare id", ResultOptions{Ref: old.ID}, 0, "old\n"},
+		{"neither", ResultOptions{}, 2, ""},
+	} {
+		code, out, _ := runResult(t, tc.o)
+		if code != tc.code || !strings.HasPrefix(out, tc.want) || (tc.want != "" && strings.Contains(out, "busy")) {
+			t.Errorf("%s: exit %d stdout %q, want exit %d starting %q", tc.name, code, out, tc.code, tc.want)
+		}
+	}
+}
+
+// Bare `agents status` lists recent dispatches as LogLine rows, or json records; an empty store says so.
+func TestDispatchLogTextAndJSON(t *testing.T) {
+	jobsEnv(t)
+	if _, out, _ := hosttest.CaptureOutput(t, func() int { return DispatchLog("agents status", "text") }); !strings.Contains(out, "no dispatches logged yet") {
+		t.Errorf("empty store stdout = %q, want the empty notice", out)
+	}
+	a := seedJob(t, 2*time.Minute, "ok", "", 0)
+	b := seedJob(t, time.Minute, "error", "", 0)
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return DispatchLog("agents status", "text") })
+	if !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("text stdout = %q, want both dispatch ids", out)
+	}
+	_, out, _ = hosttest.CaptureOutput(t, func() int { return DispatchLog("agents status", "json") })
+	var recs []agent.Record
+	if err := json.Unmarshal([]byte(out), &recs); err != nil || len(recs) != 2 {
+		t.Errorf("json stdout = %q (%v), want two records", out, err)
 	}
 }

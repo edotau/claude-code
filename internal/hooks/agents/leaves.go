@@ -255,7 +255,7 @@ func leafStopVerdict(agentID string, rec agent.Record) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. Run `claude-code agents tail -f %s` "+
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. Run `claude-code agents result -f %s` "+
 		"with a 600000ms Bash timeout, repeating until it finishes, then report its result; do not stop before it reaches a terminal status.", rec.ID, rec.ID)}, true
 }
 
@@ -273,10 +273,10 @@ const ranOnMaxBlocks = 3
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
 
-// askCmdRe matches a command segment running claude-code agents ask|result|tail or <agent> ask; a quoted mention never.
+// askCmdRe matches a command segment running claude-code agents ask|result or <agent> ask; a quoted mention never.
 var askCmdRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+|(?:timeout\s+\S+|nohup|env|time|command)\s+)*` +
-		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|tail)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
+		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
 })
 
 // didNotRunRe matches the lines an ask prints when no agent ran: its `did not run` line or a pre-run refusal.
@@ -287,7 +287,7 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 // leafScan is what the gates read from a leaf transcript: ask calls and their results, the hand-back, prior blocks.
 type leafScan struct {
 	seenBrief         bool
-	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, result or tail
+	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask or result
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	gates             int
@@ -333,7 +333,7 @@ func (s *leafScan) addLine(b []byte) {
 	}
 }
 
-// addCalls records the ids of the Bash calls in an assistant message that run an ask, result or tail.
+// addCalls records the ids of the Bash calls in an assistant message that run an ask or result.
 func (s *leafScan) addCalls(content json.RawMessage) {
 	var items []leafToolUse
 	if json.Unmarshal(content, &items) != nil {

@@ -59,25 +59,6 @@ func vendorHost(t *testing.T) {
 		`printf '%s\n' '{"type":"text","sessionID":"s","part":{"text":"hi"}}'`+"\n")
 }
 
-// vendorPrepare routes a real opencode dispatch for prompt and counts how often it is called.
-func vendorPrepare(t *testing.T, prompt string, n *atomic.Int32) func(context.Context) (*agent.Prepared, error) {
-	dir := t.TempDir()
-	return func(ctx context.Context) (*agent.Prepared, error) {
-		n.Add(1)
-		return agent.NewClient(nil, nil, nil).Prepare(ctx, agent.RunOptions{Agent: "opencode", Provider: "acme",
-			Model: "acme-large", Prompt: prompt, WorkDir: dir, Fallback: router.FallbackAgents}, nil)
-	}
-}
-
-// vendorTask is a task whose first attempt runs the first prompt and whose retry, when given, runs the second.
-func vendorTask(t *testing.T, id, plan, first, retry string, prep, again *atomic.Int32) batchTask {
-	task := batchTask{ID: id, Agent: "opencode", Plan: plan, Prepare: vendorPrepare(t, first, prep)}
-	if retry != "" {
-		task.Retry = vendorPrepare(t, retry, again)
-	}
-	return task
-}
-
 func failPrepare(msg string) func(context.Context) (*agent.Prepared, error) {
 	return func(context.Context) (*agent.Prepared, error) { return nil, errors.New(msg) }
 }
@@ -203,64 +184,6 @@ func TestRunTasksStampsRecordIDs(t *testing.T) {
 	}
 }
 
-// Tasks sent on More run while the batch is open; runTasks returns only after More closes and every task ends.
-func TestRunTasksMoreClaimsTasks(t *testing.T) {
-	vendorHost(t)
-	var n atomic.Int32
-	more := make(chan batchTask)
-	var buf bytes.Buffer
-	done := make(chan bool, 1)
-	go func() {
-		done <- runTasks(t.Context(), []batchTask{vendorTask(t, "a", "", "ok", "", &n, &n)}, poolOptions{ID: "batch-m", Jobs: 1, Out: &buf, More: more})
-	}()
-	more <- vendorTask(t, "b", "", "ok", "", &n, &n)
-	more <- vendorTask(t, "c", "", "ok", "", &n, &n)
-	select {
-	case <-done:
-		t.Fatal("runTasks returned before More was closed")
-	case <-time.After(300 * time.Millisecond):
-	}
-	close(more)
-	if !recvWithin(t, done, 10*time.Second, "runTasks did not return after More closed") {
-		t.Error("runTasks = false, want every task ok")
-	}
-	var ids []string
-	for _, env := range decodePoolEnvelopes(t, &buf) {
-		if env.BatchID != "batch-m" || env.Status != wire.StatusOK {
-			t.Errorf("envelope %+v: want ok and batch-m", env)
-		}
-		ids = append(ids, env.TaskID)
-	}
-	if got := strings.Join(ids, ","); got != "a,b,c" {
-		t.Errorf("task ids in completion order = %q, want a,b,c (Jobs=1 runs serially)", got)
-	}
-}
-
-// Under FailFast a failing initial task ends the batch: a task waiting on an open More never runs.
-func TestRunTasksMoreFailFastDoesNotRunPending(t *testing.T) {
-	vendorHost(t)
-	var prepA, prepB, unused atomic.Int32
-	more := make(chan batchTask, 1) // never closed: runTasks must end on the cancellation alone
-	more <- vendorTask(t, "m", "", "ok", "", &prepB, &unused)
-	var buf bytes.Buffer
-	done := make(chan bool, 1)
-	go func() {
-		done <- runTasks(t.Context(), []batchTask{vendorTask(t, "a", "", "FAILME", "", &prepA, &unused)},
-			poolOptions{ID: "batch-f", Jobs: 1, FailFast: true, Out: &buf, More: more})
-	}()
-	if recvWithin(t, done, 10*time.Second, "runTasks hung with More open under FailFast") {
-		t.Error("runTasks = true, want false after the failure")
-	}
-	if prepB.Load() != 0 {
-		t.Errorf("pending More task was prepared %d times, want 0", prepB.Load())
-	}
-	for _, env := range decodePoolEnvelopes(t, &buf) {
-		if env.TaskID == "m" && (env.Error == nil || env.Error.Kind != "canceled") {
-			t.Errorf("m envelope = %+v, want it never emitted or canceled", env)
-		}
-	}
-}
-
 // runOpts runs the JSONL lines through runBatch against the fake opencode vendor; returns envelopes by task id.
 func runOpts(t *testing.T, initial string, o batchOpts) map[string][]wire.Envelope {
 	t.Helper()
@@ -282,27 +205,24 @@ func runOpts(t *testing.T, initial string, o batchOpts) map[string][]wire.Envelo
 	return byID
 }
 
-// followLines feeds the given raw JSONL lines through build, as a follower would, then closes.
-func followLines(raw string, firstN int) func(context.Context, func(parsedLine) batchTask) <-chan batchTask {
-	return func(_ context.Context, build func(parsedLine) batchTask) <-chan batchTask {
-		out := make(chan batchTask, 16)
-		lines, _ := readTaskLines(strings.NewReader(raw))
-		for i, l := range lines {
-			l.N = firstN + i
-			out <- build(l)
+// countOKFailed counts the ok and the non-ok envelopes.
+func countOKFailed(envs []wire.Envelope) (ok, failed int) {
+	for _, env := range envs {
+		if env.Status == wire.StatusOK {
+			ok++
+		} else {
+			failed++
 		}
-		close(out)
-		return out
 	}
+	return ok, failed
 }
 
-// A followed task is claimed under the run's batch id; a duplicate id and bad lines fail alone.
-func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
+// A duplicate id and bad lines fail alone; the other tasks run under the run's batch id.
+func TestRunDuplicateAndBadLinesFailAlone(t *testing.T) {
 	vendorHost(t)
-	follow := followLines(strings.Join([]string{
+	got := runOpts(t, strings.Join([]string{`{"id":"a","prompt":"ok"}`,
 		`{"id":"f","prompt":"ok"}`, `{"id":"a","prompt":"ok"}`, `{"id":"j"`, `{"id":"u","prompt":"ok","bogus":1}`, `{"id":"np"}`,
-		`{"id":"g","prompt":"ok"}`}, "\n")+"\n", 2)
-	got := runOpts(t, `{"id":"a","prompt":"ok"}`+"\n", batchOpts{Follow: follow})
+		`{"id":"g","prompt":"ok"}`}, "\n")+"\n", batchOpts{})
 	for _, id := range []string{"f", "g"} {
 		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
 			t.Errorf("task %s = %+v, want one ok envelope", id, got[id])
@@ -313,151 +233,19 @@ func TestRunFollowClaimsTasksAndBadLinesFailAlone(t *testing.T) {
 			t.Errorf("bad line %s = %+v, want one error envelope", id, got[id])
 		}
 	}
-	var ok, failed int // the initial a runs; the followed duplicate a is a failure envelope under the same id
-	for _, env := range got["a"] {
-		if env.Status == wire.StatusOK {
-			ok++
-		} else {
-			failed++
-		}
-	}
+	ok, failed := countOKFailed(got["a"]) // the first a runs; the duplicate a is a failure envelope under the same id
 	if ok != 1 || failed != 1 {
-		t.Errorf("task a: %d ok and %d failed envelopes, want the initial run ok and the duplicate failed", ok, failed)
+		t.Errorf("task a: %d ok and %d failed envelopes, want the first run ok and the duplicate failed", ok, failed)
 	}
 }
 
-// Decorate runs on every built task; a Retry it sets reroutes a failure once under the same id.
-func TestRunDecorateSetsRetry(t *testing.T) {
-	vendorHost(t)
-	var again atomic.Int32
-	decorate := func(task *batchTask) { task.Retry = vendorPrepare(t, "ok", &again) }
-	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n", batchOpts{Decorate: decorate})
-	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 || again.Load() != 1 {
-		t.Errorf("a = %+v retries %d, want one ok envelope with >= 2 hops after one retry", got["a"], again.Load())
-	}
-}
-
-// With neither hook set runBatch is the plain pool: one task, one envelope, no retry.
+// A failed task is not retried: one task, one envelope.
 func TestRunWithoutHooks(t *testing.T) {
 	vendorHost(t)
 	got := runOpts(t, `{"id":"a","prompt":"FAILME"}`+"\n"+`{"id":"b","prompt":"ok"}`+"\n", batchOpts{})
 	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 1 ||
 		len(got["b"]) != 1 || got["b"][0].Status != wire.StatusOK {
 		t.Errorf("envelopes = %+v, want a failed once without retry and b ok", got)
-	}
-}
-
-// runRetryBatch runs tasks with one job and returns the ok flag and the decoded envelopes by task id.
-func runRetryBatch(t *testing.T, o poolOptions, tasks ...batchTask) (bool, map[string][]wire.Envelope) {
-	t.Helper()
-	var buf bytes.Buffer
-	o.Out, o.ID, o.Jobs = &buf, "batch-r", 1
-	ok := runTasks(t.Context(), tasks, o)
-	byID := map[string][]wire.Envelope{}
-	for _, env := range decodePoolEnvelopes(t, &buf) {
-		byID[env.TaskID] = append(byID[env.TaskID], env)
-	}
-	return ok, byID
-}
-
-// A real failure is retried once under the same task id: one envelope, the retry's, both attempts in hops.
-func TestRetryAfterFailureEmitsOneEnvelope(t *testing.T) {
-	vendorHost(t)
-	var prep, again atomic.Int32
-	_, got := runRetryBatch(t, poolOptions{}, vendorTask(t, "a", "Phase 1.1", "FAILME", "ok", &prep, &again))
-	if len(got["a"]) != 1 || got["a"][0].Status != wire.StatusOK || len(got["a"][0].Hops) < 2 {
-		t.Fatalf("envelopes for a = %+v, want one ok envelope with >= 2 hops", got["a"])
-	}
-	if prep.Load() != 1 || again.Load() != 1 {
-		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
-	}
-	recs := agent.RecentRecords(10)
-	for _, r := range recs {
-		if r.TaskID != "a" || r.BatchID != "batch-r" || r.PlanTask != "Phase 1.1" {
-			t.Errorf("record %s = task %q batch %q plan %q", r.ID, r.TaskID, r.BatchID, r.PlanTask)
-		}
-	}
-	if len(recs) != 2 {
-		t.Errorf("%d dispatch records, want 2 (first attempt and retry)", len(recs))
-	}
-}
-
-// A retry that fails too is the task's one envelope, and the task never runs a third time.
-func TestRetryAlsoFailsEmitsRetryError(t *testing.T) {
-	vendorHost(t)
-	var prep, again atomic.Int32
-	ok, got := runRetryBatch(t, poolOptions{}, vendorTask(t, "a", "", "FAILME", "FAILME", &prep, &again))
-	if ok || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError || len(got["a"][0].Hops) != 2 {
-		t.Fatalf("ok=%v envelopes for a = %+v, want one error envelope with 2 hops", ok, got["a"])
-	}
-	if prep.Load() != 1 || again.Load() != 1 {
-		t.Errorf("prepare/retry calls = %d/%d, want 1/1", prep.Load(), again.Load())
-	}
-}
-
-// With one slot a retried task keeps its slot: later tasks still run and the batch ends.
-func TestRetryJobsOneKeepsSlotAccounting(t *testing.T) {
-	vendorHost(t)
-	var n, again atomic.Int32
-	var buf bytes.Buffer
-	done := make(chan struct{})
-	tasks := []batchTask{vendorTask(t, "a", "", "FAILME", "ok", &n, &again),
-		vendorTask(t, "b", "", "ok", "", &n, &n), vendorTask(t, "c", "", "ok", "", &n, &n)}
-	go func() { // only the test goroutine may call t.Fatalf, so it decodes after the batch ends
-		defer close(done)
-		runTasks(t.Context(), tasks, poolOptions{Out: &buf, ID: "batch-r", Jobs: 1})
-	}()
-	recvWithin(t, done, 20*time.Second, "batch deadlocked: a retried task leaked its slot")
-	got := map[string][]wire.Envelope{}
-	for _, env := range decodePoolEnvelopes(t, &buf) {
-		got[env.TaskID] = append(got[env.TaskID], env)
-	}
-	for _, id := range []string{"a", "b", "c"} {
-		if len(got[id]) != 1 || got[id][0].Status != wire.StatusOK {
-			t.Errorf("task %s envelopes = %+v, want one ok", id, got[id])
-		}
-	}
-}
-
-// No retry without a dispatch (no hops), after a prepare error, after cancellation, or under FailFast.
-func TestRetrySkippedWhenNotRealFailure(t *testing.T) {
-	vendorHost(t)
-	var retried atomic.Int32
-	retry := func(context.Context) (*agent.Prepared, error) { retried.Add(1); return nil, errors.New("retry ran") }
-	noHops := func(context.Context) (*agent.Prepared, error) {
-		return &agent.Prepared{Record: agent.NewRecord("opencode", agent.RunOptions{}, time.Now())}, nil
-	}
-	runRetryBatch(t, poolOptions{},
-		batchTask{ID: "h", Agent: "opencode", Prepare: noHops, Retry: retry},
-		batchTask{ID: "p", Agent: "opencode", Prepare: failPrepare("prepare failed"), Retry: retry})
-	if retried.Load() != 0 {
-		t.Errorf("Retry ran %d times for a no-hop failure and a prepare error, want 0", retried.Load())
-	}
-	var prep, again atomic.Int32
-	_, got := runRetryBatch(t, poolOptions{FailFast: true},
-		vendorTask(t, "a", "", "FAILME", "ok", &prep, &again), vendorTask(t, "b", "", "ok", "", &prep, &prep))
-	if again.Load() != 0 || len(got["a"]) != 1 || got["a"][0].Status != wire.StatusError {
-		t.Errorf("FailFast: retry calls %d, a envelopes %+v, want 0 retries and a's own error", again.Load(), got["a"])
-	}
-}
-
-// A batch cancelled while the first attempt runs does not start the retry.
-func TestRetrySkippedWhenCancelled(t *testing.T) {
-	vendorHost(t)
-	var prep, again atomic.Int32
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	task := vendorTask(t, "a", "", "FAILME", "ok", &prep, &again)
-	inner := task.Prepare
-	task.Prepare = func(c context.Context) (*agent.Prepared, error) {
-		p, err := inner(c)
-		cancel()
-		return p, err
-	}
-	var buf bytes.Buffer
-	runTasks(ctx, []batchTask{task}, poolOptions{ID: "batch-c", Jobs: 1, Out: &buf})
-	if again.Load() != 0 || len(decodePoolEnvelopes(t, &buf)) != 1 {
-		t.Errorf("retry calls = %d, want 0 and one envelope", again.Load())
 	}
 }
 

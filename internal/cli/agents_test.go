@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,13 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// captureStdout runs fn with os.Stdout redirected and returns what it wrote.
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	_, stdout, _ := hosttest.CaptureOutput(t, func() int { fn(); return 0 })
-	return stdout
-}
 
 // cfgDir points CLAUDE_CONFIG_DIR at a fresh temp dir and returns it.
 func cfgDir(t *testing.T) string {
@@ -96,27 +88,22 @@ func readDispatch(t *testing.T, p string) map[string]any {
 	return m
 }
 
-// The agents page documents reap and reap -h its --dry-run (line widths: TestHelpFormat).
-func TestAgentsHelpDocumentsReap(t *testing.T) {
-	var buf bytes.Buffer
-	agentsPage.Fprint(&buf)
-	if !strings.Contains(buf.String(), "  reap") {
-		t.Error("agentsPage must document reap")
-	}
-	code, _, stderr := runAgents(t, "reap", "-h")
-	if code != 0 || !strings.Contains(stderr, "--dry-run") {
-		t.Errorf("agents reap help must document --dry-run: exit %d:\n%s", code, stderr)
+// `agents cancel -h` documents --lost and --dry-run (line widths: TestHelpFormat).
+func TestAgentsHelpDocumentsCancelLost(t *testing.T) {
+	code, _, stderr := runAgents(t, "cancel", "-h")
+	if code != 0 || !strings.Contains(stderr, "--lost") || !strings.Contains(stderr, "--dry-run") {
+		t.Errorf("agents cancel help must document --lost and --dry-run: exit %d:\n%s", code, stderr)
 	}
 }
 
-func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
+func TestCmdAgentsCancelLostDryRunChangesNothing(t *testing.T) {
 	cfgDir(t)
 	dead := writeDispatch(t, "20261024T000001.000-codex", "running", deadPID(t), time.Hour)
 	marker := filepath.Join(paths.StateDir(), "agents-inflight", "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
 	hosttest.WriteRel(t, filepath.Dir(marker), filepath.Base(marker), "")
 	before, _ := os.ReadFile(dead)
 
-	stdout := okAgents(t, "reap", "--dry-run")
+	stdout := okAgents(t, "cancel", "--lost", "--dry-run")
 	if after, _ := os.ReadFile(dead); string(after) != string(before) {
 		t.Errorf("--dry-run rewrote the record:\n%s", after)
 	}
@@ -128,7 +115,7 @@ func TestCmdAgentsReapDryRunChangesNothing(t *testing.T) {
 	}
 }
 
-func TestCmdAgentsReapMarkers(t *testing.T) {
+func TestCmdAgentsCancelLostMarkers(t *testing.T) {
 	cfgDir(t)
 	dir := filepath.Join(paths.StateDir(), "agents-inflight")
 	deadM := filepath.Join(dir, "agent-"+strconv.Itoa(deadPID(t))+"-toolu_dead")
@@ -140,18 +127,18 @@ func TestCmdAgentsReapMarkers(t *testing.T) {
 	for _, p := range append([]string{deadM}, survivors...) {
 		hosttest.WriteRel(t, filepath.Dir(p), filepath.Base(p), "")
 	}
-	okAgents(t, "reap")
+	okAgents(t, "cancel", "--lost")
 	if _, err := os.Stat(deadM); !os.IsNotExist(err) {
 		t.Errorf("dead-owner marker should be removed (err=%v)", err)
 	}
 	for _, p := range survivors {
 		if _, err := os.Stat(p); err != nil {
-			t.Errorf("%s must survive reap: %v", filepath.Base(p), err)
+			t.Errorf("%s must survive cancel --lost: %v", filepath.Base(p), err)
 		}
 	}
 }
 
-func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
+func TestCmdAgentsCancelLostMarksLostDispatches(t *testing.T) {
 	cfgDir(t)
 	dead := writeDispatch(t, "20261024T000001.000-codex", "running", deadPID(t), time.Hour)
 	live := writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), time.Hour)
@@ -159,7 +146,7 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 	young := writeDispatch(t, "20261024T000004.000-codex", "running", 0, 5*time.Second)
 	old0 := writeDispatch(t, "20261024T000005.000-codex", "running", 0, 10*time.Minute)
 
-	stdout := okAgents(t, "reap")
+	stdout := okAgents(t, "cancel", "--lost")
 	checkLostDispatches(t, []string{dead, old0})
 	for _, p := range []string{live, young} {
 		if m := readDispatch(t, p); m["status"] != "running" {
@@ -170,23 +157,21 @@ func TestCmdAgentsReapMarksLostDispatches(t *testing.T) {
 		t.Errorf("finished record touched: %v", m)
 	}
 	if !strings.Contains(stdout, "000001") {
-		t.Errorf("reap output should name the reaped dispatch, got %q", stdout)
+		t.Errorf("cancel --lost output should name the reaped dispatch, got %q", stdout)
 	}
 }
 
-func TestCmdAgentsReapNothingToDo(t *testing.T) {
+func TestCmdAgentsCancelLostNothingToDo(t *testing.T) {
 	cfgDir(t)
-	okAgents(t, "reap")
+	okAgents(t, "cancel", "--lost")
 }
 
-// --background and -bg are a superset of the default: a running dispatch from another repo stays listed.
-func TestCmdAgentsTreeBackgroundKeepsRunningDispatches(t *testing.T) {
+// --finished is a superset of the default: a running dispatch from another repo stays listed.
+func TestCmdAgentsTreeFinishedKeepsRunningDispatches(t *testing.T) {
 	cfgDir(t)
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
-	for _, flag := range []string{"--background", "-bg"} {
-		if stdout := okAgents(t, "tree", flag, "--days", "1"); !strings.Contains(stdout, "000002") {
-			t.Errorf("%s dropped the running dispatch:\n%s", flag, stdout)
-		}
+	if stdout := okAgents(t, "tree", "--finished", "--days", "1"); !strings.Contains(stdout, "000002") {
+		t.Errorf("--finished dropped the running dispatch:\n%s", stdout)
 	}
 }
 
@@ -258,7 +243,7 @@ func writeDispatch(t *testing.T, id, status string, pid int, age time.Duration) 
 
 // The core sub-verbs stay routed (presence, not exact membership): a renamed or dropped one silently stops routing.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"resume", "status", "result", "cancel", "tail", "setup", "catalog", "review", "transfer"} {
+	for _, w := range []string{"setup", "catalog", "review", "transfer", "profile", "explore"} {
 		if _, ok := agentSubPages[w]; !ok {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
@@ -281,13 +266,9 @@ func TestVendorVerbRouting(t *testing.T) {
 		want, not    string
 	}{
 		{"double dash forces launch", notAVendor, []string{"--", "status"}, -1, false, false, "unknown agent", notAVendor + " status:"},
-		{"status", notAVendor, []string{"status"}, -1, false, false, notAVendor + " status:", ""},
-		{"result", notAVendor, []string{"result"}, -1, false, false, notAVendor + " result:", ""},
-		{"cancel", notAVendor, []string{"cancel"}, -1, false, false, notAVendor + " cancel:", ""},
-		{"tail", notAVendor, []string{"tail"}, -1, false, false, notAVendor + " tail:", ""},
+		{"profile", notAVendor, []string{"profile"}, -1, false, false, notAVendor + " profile:", ""},
 		{"bare word launches", notAVendor, []string{"--native-flag", "x"}, -1, false, false, "unknown agent", ""},
 		{"setup", notAVendor, []string{"setup"}, -1, true, false, notAVendor + "  agent  fail", ""},
-		{"resume without id", "codex", []string{"resume"}, -1, false, false, "codex resume: usage:", ""},
 		{"catalog extra arg", "codex", []string{"catalog", "unexpected"}, 2, false, false, "codex catalog: unexpected argument", ""},
 		{"catalog help", "codex", []string{"catalog", "--help"}, 0, false, true, "usage: claude-code codex catalog", ""},
 	} {
@@ -354,7 +335,7 @@ func saveResultRecord(t *testing.T, status, errMsg string) agent.Record {
 	return rec
 }
 
-func TestVendorResultRecordExit(t *testing.T) {
+func TestAgentsResultRecordExit(t *testing.T) {
 	for _, tc := range []struct {
 		name, status, errMsg string
 		flags                []string
@@ -368,7 +349,7 @@ func TestVendorResultRecordExit(t *testing.T) {
 			cfgDir(t)
 			rec := saveResultRecord(t, tc.status, tc.errMsg)
 			args := append(slices.Clone(tc.flags), rec.ID)
-			code, _, stderr := hosttest.CaptureOutput(t, func() int { return agentResult("codex", args) })
+			code, _, stderr := runAgents(t, append([]string{"result"}, args...)...)
 			if code != tc.code || strings.Contains(stderr, "error: boom happened") != (tc.code == 1) ||
 				(tc.code == 0 && strings.Contains(stderr, "error:")) {
 				t.Errorf("exit %d stderr %q, want exit %d (error line only when 1)", code, stderr, tc.code)
@@ -394,7 +375,7 @@ func seedTailJob(t *testing.T, status, body string) string {
 	return rec.ID
 }
 
-func TestVendorTail(t *testing.T) {
+func TestAgentsResultFollow(t *testing.T) {
 	for _, tc := range []struct {
 		name, status, body, id string // id "" tails the seeded job
 		code                   int
@@ -403,17 +384,16 @@ func TestVendorTail(t *testing.T) {
 	}{
 		{"finished ok job prints its log", "ok", "line one\nline two\n", "", 0, "line one\nline two\n", "", ""},
 		{"error job prints log and exits 1", "error", "boom\n", "", 1, "", "", "boom"},
-		{"unknown id fails with prefix", "ok", "x\n", "zzzzzzzz", 1, "", "codex tail:", ""},
+		{"unknown id fails with prefix", "ok", "x\n", "zzzzzzzz", 1, "", "agents result:", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			id := seedTailJob(t, tc.status, tc.body)
 			if tc.id != "" {
 				id = tc.id
 			}
-			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return agentVerb("codex", []string{"tail", id}) })
-			if code != tc.code || (tc.stdout != "" && stdout != tc.stdout) || !strings.Contains(stdout, tc.stdoutHas) ||
-				!strings.Contains(stderr, tc.stderr) {
-				t.Errorf("tail = exit %d stdout %q stderr %q, want exit %d stdout %q%q stderr %q",
+			code, stdout, stderr := runAgents(t, "result", id, "-f")
+			if code != tc.code || !strings.Contains(stdout, tc.stdoutHas) || !strings.Contains(stderr, tc.stderr) {
+				t.Errorf("result -f = exit %d stdout %q stderr %q, want exit %d stdout %q%q stderr %q",
 					code, stdout, stderr, tc.code, tc.stdout, tc.stdoutHas, tc.stderr)
 			}
 		})
@@ -471,20 +451,6 @@ func writeEvents(t *testing.T, rec agent.Record, evs []wire.Event) {
 	}
 }
 
-func checkJobTailEvents(t *testing.T, code int, out string) {
-	t.Helper()
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if code != 0 || len(lines) != 3 {
-		t.Fatalf("tail = %d, %d lines %q, want 3 events then exit", code, len(lines), out)
-	}
-	for i, want := range []string{wire.EventStart, wire.EventText, wire.EventResult} {
-		var ev wire.Event
-		if err := json.Unmarshal([]byte(lines[i]), &ev); err != nil || ev.Type != want {
-			t.Errorf("line %d = %q, want type %s", i, lines[i], want)
-		}
-	}
-}
-
 // seedClaudeJob saves a finished claude record, an hour old, with a log and no events file.
 func seedClaudeJob(t *testing.T) agent.Record {
 	t.Helper()
@@ -500,10 +466,24 @@ func seedClaudeJob(t *testing.T) agent.Record {
 	return rec
 }
 
+func checkJobTailEvents(t *testing.T, code int, out string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if code != 0 || len(lines) != 3 {
+		t.Fatalf("result --events = %d, %d lines %q, want 3 events then exit", code, len(lines), out)
+	}
+	for i, want := range []string{wire.EventStart, wire.EventText, wire.EventResult} {
+		var ev wire.Event
+		if err := json.Unmarshal([]byte(lines[i]), &ev); err != nil || ev.Type != want {
+			t.Errorf("line %d = %q, want type %s", i, lines[i], want)
+		}
+	}
+}
+
 // jobResultJSON runs `agents result <id> --format json` and decodes the envelope.
 func jobResultJSON(t *testing.T, id string) (wire.Envelope, string) {
 	t.Helper()
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsJob("result", []string{id, "--format", "json"}) })
+	code, stdout, stderr := runAgents(t, "result", id, "--format", "json")
 	var got wire.Envelope
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil || code != 0 {
 		t.Fatalf("result json = %d %q: %v", code, stdout, err)
@@ -514,12 +494,12 @@ func jobResultJSON(t *testing.T, id string) (wire.Envelope, string) {
 func TestAgentsCancelNotRunning(t *testing.T) {
 	cfgDir(t)
 	rec := seedClaudeJob(t)
-	if code := cmdAgentsJob("cancel", []string{rec.ID}); code == 0 {
+	if code, _, _ := runAgents(t, "cancel", rec.ID); code == 0 {
 		t.Error("cancel of a finished job exited 0, want an error")
 	}
 }
 
-// status/result/tail resolve a claude dispatch by id and read its events.
+// status/result resolve a claude dispatch by id and read its events.
 func TestAgentsJobLifecycleClaude(t *testing.T) {
 	cfgDir(t)
 	env := wire.NewEnvelope(wire.Result{Agent: "claude", Answer: "from-event", SessionID: "sess-1"}, nil, "")
@@ -531,15 +511,14 @@ func TestAgentsJobLifecycleClaude(t *testing.T) {
 		{Schema: 1, Seq: 2, Type: wire.EventResult, Envelope: &env},
 	})
 
-	var code int
-	out := captureStdout(t, func() { code = cmdAgentsJob("status", []string{rec.ID}) })
+	code, out, _ := runAgents(t, "status", rec.ID)
 	if code != 0 || !strings.Contains(out, rec.ID) || !strings.Contains(out, "ok") {
 		t.Errorf("status = %d %q, want 0 with id and ok", code, out)
 	}
 	if got, _ := jobResultJSON(t, rec.ID); got.Answer != "from-event" || got.DispatchID != rec.ID {
 		t.Errorf("envelope = %+v, want the result event's", got)
 	}
-	out = captureStdout(t, func() { code = cmdAgentsJob("tail", []string{rec.ID, "--format", "json", "-f"}) })
+	code, out, _ = runAgents(t, "result", rec.ID, "--events", "-f")
 	checkJobTailEvents(t, code, out)
 }
 
@@ -653,7 +632,7 @@ func TestAgentsResultReportsTextWriteFailure(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	run := func() int { return cmdAgentsJob("result", []string{rec.ID}) }
+	run := func() int { return cmdAgents([]string{"result", rec.ID}) }
 	code, stdout, stderr := hosttest.CaptureOutput(t, run)
 	if code != 0 || !strings.Contains(stdout, "hi there") {
 		t.Fatalf("result control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -835,11 +814,17 @@ func profileCmd(t *testing.T, name string, args ...string) (int, string, string)
 	return hosttest.CaptureOutput(t, func() int { return agentProfile(name, args) })
 }
 
-func TestAgentProfileAndOnOffVerbs(t *testing.T) {
+func TestAgentProfileClearAndOff(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	onOff := func(name string) (int, string, string) {
-		return hosttest.CaptureOutput(t, func() int { return agentOnOff(name, false, nil) })
-	}
+	assertCopilotProfileOff(t)
+	assertClaudeProfileOffRefused(t)
+	assertCodexProfilePins(t)
+}
+
+// assertCopilotProfileOff covers copilot's off/profile transitions and claude's refusal.
+func assertCopilotProfileOff(t *testing.T) {
+	t.Helper()
+	onOff := func(name string) (int, string, string) { return profileCmd(t, name, "--off") }
 	pin := func(name string) string { return providers.AgentRecord(name).Profile }
 
 	// copilot off leaves its record without a profile.
@@ -857,10 +842,22 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	if code, _, errOut := onOff("copilot"); code != 0 || agent.AgentActive("copilot") {
 		t.Fatalf("copilot off with a profile: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
+}
+
+// assertClaudeProfileOffRefused checks that claude cannot be turned off.
+func assertClaudeProfileOffRefused(t *testing.T) {
+	t.Helper()
+	onOff := func(name string) (int, string, string) { return profileCmd(t, name, "--off") }
 	// claude has no active pin.
 	if code, _, errOut := onOff("claude"); code == 0 || !strings.Contains(errOut, "always on") {
 		t.Fatalf("claude off: code=%d err=%q", code, errOut)
 	}
+}
+
+// assertCodexProfilePins covers codex's unknown-profile refusal, set and --clear.
+func assertCodexProfilePins(t *testing.T) {
+	t.Helper()
+	pin := func(name string) string { return providers.AgentRecord(name).Profile }
 	// unknown profile is refused and leaves the pin unset.
 	if code, _, _ := profileCmd(t, "codex", "nosuchprofile"); code == 0 || pin("codex") != "" {
 		t.Fatalf("codex profile nosuchprofile: code=%d pin=%q", code, pin("codex"))
@@ -875,15 +872,6 @@ func TestAgentProfileAndOnOffVerbs(t *testing.T) {
 	}
 }
 
-// Every vendor's help block carries a tail row.
-func TestVendorUsageNamesTail(t *testing.T) {
-	for _, vendor := range agent.Names() {
-		if !strings.Contains(renderHelpPage(agentPage(vendor)), "tail") {
-			t.Errorf("vendorUsage(%q) has no tail row", vendor)
-		}
-	}
-}
-
 // The per-vendor help names the profile row and shows the NAME placeholder on the launch --profile flag.
 func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
@@ -891,7 +879,7 @@ func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, vendor := range []string{"codex", "gemini"} {
 		text := renderHelpPage(agentPage(vendor))
-		if !strings.Contains(text, "show or set "+vendor+"'s profile; --clear = own login") {
+		if !strings.Contains(text, "show or set "+vendor+"'s profile; --clear = own login; --off") {
 			t.Errorf("%s help lacks the profile row:\n%s", vendor, text)
 		}
 		want := "harness profile for this launch"

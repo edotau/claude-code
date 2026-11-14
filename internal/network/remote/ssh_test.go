@@ -42,6 +42,18 @@ func TestHostArgvPlainVerb(t *testing.T) {
 	}
 }
 
+// Bin is $HARNESS_REMOTE_BIN when set, else claude-code on the remote PATH.
+func TestBinEnv(t *testing.T) {
+	t.Setenv(BinEnv, "")
+	if got := Bin(); got != "claude-code" {
+		t.Errorf("Bin() = %q, want claude-code", got)
+	}
+	t.Setenv(BinEnv, "/opt/cc")
+	if got := Bin(); got != "/opt/cc" {
+		t.Errorf("Bin() with %s set = %q, want /opt/cc", BinEnv, got)
+	}
+}
+
 func TestSplitHostErrors(t *testing.T) {
 	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "wks"},
 		{"--host="}} {

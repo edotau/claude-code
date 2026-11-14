@@ -43,7 +43,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
 
-`claude-code agents label <type> --brief FILE` prints the label (`--model` previews a model, `--session-model` supplies
+`claude-code agents label <type> --task FILE` prints the label (`--model` previews a model, `--session-model` supplies
 the parent's). Pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
 frontmatter controls the relay, not the vendor model. `dispatch-effort` sets model and effort only for an agent with no
 `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The root machine's pins and per-call flags
@@ -57,7 +57,7 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
   or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
   verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`): follow with foreground
-  `claude-code agents tail -f <id>` (600000 ms, repeated until it ends), then `agents result <id>`. No duplicate ask,
+  `claude-code agents result -f <id>` (600000 ms, repeated until it ends). No duplicate ask,
   readiness smoke or repeat discovery.
 - Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
   in-context or silently pick another agent.
@@ -169,7 +169,7 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 #### Return to owner
 
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or
-`sleep`: a long `ask` runs `--background`, then foreground `tail -f <id>` (600000 ms, repeated;
+`sleep`: a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, repeated;
 [agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
 

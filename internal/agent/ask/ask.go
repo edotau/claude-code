@@ -36,14 +36,14 @@ var askPage = helptext.Page{
 	Usage: "claude-code agents ask [flags] <task | ->",
 	About: "Run one task headlessly on an agent and stream its answer; an agent that " +
 		"fails falls back per --fallback. With no task, or \"-\", the task is read from stdin.",
-	Hint: "Every dispatch is logged: --log lists them, --retry <id> replays one.",
+	Hint: "Every dispatch is logged: `agents status` lists them, --retry <id> replays one.",
 }
 
 // Cmd is `agents ask` with no session id and the `agents ask` page.
-func Cmd(args []string) int { return Run(args, false, "") }
+func Cmd(args []string) int { return Run(args, "") }
 
 // cmdTo is Cmd with the answer and envelope written to out instead of the process stdout.
-func cmdTo(args []string, out io.Writer) int { return runTo(args, false, "", out) }
+func cmdTo(args []string, out io.Writer) int { return runTo(args, "", out) }
 
 // retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
 func retargetPage(fs *flag.FlagSet, name string) {
@@ -62,7 +62,6 @@ type askRun struct {
 	f           *askFlags
 	fs          *flag.FlagSet
 	args        []string
-	resume      bool
 	out         io.Writer // where the answer and envelope go: stdout, or a review part's buffer
 	ref         string    // the raw selector Prepare resolves; f.name becomes the agent so envelopes publish it
 	ag          string
@@ -80,11 +79,11 @@ type askRun struct {
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
 }
 
-// Run is `agents ask`; resume makes the first positional the session id, verb names the `<verb> ask` page -h prints.
-func Run(args []string, resume bool, verb string) int { return runTo(args, resume, verb, os.Stdout) }
+// Run is `agents ask`; verb names the `<verb> ask` page -h prints.
+func Run(args []string, verb string) int { return runTo(args, verb, os.Stdout) }
 
 // runTo is Run writing the answer and envelope to out.
-func runTo(args []string, resume bool, verb string, out io.Writer) int {
+func runTo(args []string, verb string, out io.Writer) int {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
@@ -98,7 +97,7 @@ func runTo(args []string, resume bool, verb string, out io.Writer) int {
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{ctx: context.Background(), f: f, fs: fs, args: args, resume: resume, out: out}
+	r := &askRun{ctx: context.Background(), f: f, fs: fs, args: args, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -170,14 +169,11 @@ func (r *askRun) export() (int, bool) {
 // stdinTaken reports the task, a batch or a framed prompt already reading stdin.
 func (r *askRun) stdinTaken() bool {
 	f := r.f
-	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.fs.Args(), r.resume) && f.retry == "" && f.job == "" && !f.live && !f.showLog)
+	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.fs.Args()) && f.retry == "" && f.job == "" && !f.live)
 }
 
-// taskFromStdin reports no task positional, or a lone "-", past a --resume session id.
-func taskFromStdin(task []string, resume bool) bool {
-	if resume && len(task) > 0 {
-		task = task[1:] // the first positional is the session id
-	}
+// taskFromStdin reports no task positional, or a lone "-".
+func taskFromStdin(task []string) bool {
 	return len(task) == 0 || (len(task) == 1 && task[0] == "-")
 }
 
@@ -301,22 +297,17 @@ func (r *askRun) parsePerms() (int, bool) {
 	return 0, false
 }
 
-// dispatchMode handles --batch and --log, which end the run before a single task is built.
+// dispatchMode handles --batch, which ends the run before a single task is built.
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
-	if f.batchSrc != "" || f.showLog { // --batch picks once from the base flags; a single task checks after its record
+	if f.batchSrc != "" { // --batch picks once from the base flags; a single task checks after its record
 		if code, done := r.checkArm(); done {
 			return code, true
 		}
-	}
-	if f.batchSrc != "" {
 		return r.runBatch()
 	}
 	if err := batchOnlyFlags(r.fs); err != nil {
 		return r.fail(err, 2)
-	}
-	if f.showLog {
-		return printDispatchLog(f.format), true
 	}
 	return 0, false
 }
@@ -324,15 +315,10 @@ func (r *askRun) dispatchMode() (int, bool) {
 // runBatch runs --batch to completion; every path ends the run.
 func (r *askRun) runBatch() (int, bool) {
 	f := r.f
-	retryAgents, err := r.retryAgents()
-	if err != nil {
-		return r.fail(err, 2)
-	}
 	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
 		return code, true
 	}
-	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto,
-		FollowInput: f.follow, FollowIdle: f.followIdle, RetryAgents: retryAgents, Identity: f.as}
+	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as}
 	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
 	if err != nil {
 		return r.fail(err, 2)
@@ -340,33 +326,17 @@ func (r *askRun) runBatch() (int, bool) {
 	if code, done := r.export(); done {
 		return code, true
 	}
-	return runAskBatch(r.ctx, r.fs, r.resume, f.batchSrc, o, r.batchBase().ApplyOverlay(r.ctx, ov)), true
+	return runAskBatch(r.ctx, r.fs, f.batchSrc, o, r.batchBase().ApplyOverlay(r.ctx, ov)), true
 }
 
 // batchOnlyFlags refuses the first --batch-only flag typed without --batch.
 func batchOnlyFlags(fs *flag.FlagSet) error {
-	for _, name := range []string{"jobs", "fail-fast", "follow", "follow-idle", "retry-agent"} {
+	for _, name := range []string{"jobs", "fail-fast"} {
 		if helptext.Explicit(fs, name) {
 			return fmt.Errorf("--%s needs --batch", name)
 		}
 	}
 	return nil
-}
-
-// retryAgents resolves --retry-agent names like --agent does; a bad name is a flag error.
-func (r *askRun) retryAgents() ([]string, error) {
-	var out []string
-	for n := range strings.SplitSeq(r.f.retryAgent, ",") {
-		if n = strings.TrimSpace(n); n == "" {
-			continue
-		}
-		name, _, err := agent.SelectAgent(n, r.defs)
-		if err != nil {
-			return nil, fmt.Errorf("--retry-agent: %w", err)
-		}
-		out = append(out, name)
-	}
-	return out, nil
 }
 
 func (r *askRun) batchBase() agent.RunOptions {
@@ -381,15 +351,12 @@ func (r *askRun) batchBase() agent.RunOptions {
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
-	positional, err := askPositional(r.fs.Args(), r.resume, &f.session)
-	if err != nil {
-		return failAsk(f.format, f.name, err), true
-	}
-	r.prompt = strings.Join(positional, " ")
+	r.prompt = strings.Join(r.fs.Args(), " ")
 	r.state = r.askState()
 	if rc, done := r.applyRecord(); done {
 		return rc, true
 	}
+	var err error
 	f.model = cmp.Or(f.model, agent.SessionModel(f.session)) // a resumed session keeps its model; a typed --model wins
 	if err := recordTools(f); err != nil {
 		return r.fail(err, 2)
@@ -466,7 +433,7 @@ func (r *askRun) askState() *askState {
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
-		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, RemoteBin: &f.remoteBin, Fallback: &f.fallback,
+		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback,
 		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
 		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
 }
@@ -518,7 +485,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	f := r.f
 	o := r.batchBase()
 	o.Prompt, o.SessionID, o.Attach, o.DebugFile, o.Pack, o.Agent = prompt, f.session, []string(f.attach), f.debugFile, f.pack, r.ref
-	o.Persona, o.Fallback, o.Native, o.Host, o.RemoteBin, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.remoteBin, f.rubric, f.background
+	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
 	o.AutoArm = r.auto != ""
 	return o
 }
@@ -691,7 +658,7 @@ func reportBackgroundStart(format string, rec agent.Record) error {
 			Log string `json:"log"`
 		}{rec.ID, rec.Log})
 	}
-	_, err := fmt.Printf("job %s started — claude-code agents status|tail|result|cancel %s\n", rec.ID, rec.ID)
+	_, err := fmt.Printf("job %s started — claude-code agents status|result|cancel %s\n", rec.ID, rec.ID)
 	return err
 }
 

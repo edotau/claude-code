@@ -147,7 +147,7 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 	if !showAll {
 		tree.Sessions = filterIdleSessions(tree.Sessions)
 	}
-	if opts.Session == "" { // every view lists them, so --background stays a superset of the default
+	if opts.Session == "" { // every view lists them, so --finished stays a superset of the default
 		tree.Dispatches = runningDispatches(opts.now())
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
@@ -162,7 +162,7 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 		return nil, err
 	}
 	reg := readRegistry(claudeDir)
-	if opts.Session == "" { // live sessions stay listed past --days, under --background too
+	if opts.Session == "" { // live sessions stay listed past --days, under --finished too
 		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
 	scans := loadScanCache()

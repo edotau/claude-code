@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -304,7 +305,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	}
 }
 
-// hostFixture installs a fake ssh on PATH and a fake remote bin printing banner then NDJSON lines; returns its path.
+// hostFixture installs a fake ssh on PATH and a fake remote bin (via $HARNESS_REMOTE_BIN) printing banner then NDJSON lines; returns its path.
 func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	t.Helper()
 	skipWithoutSh(t)
@@ -336,6 +337,7 @@ func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(remote.BinEnv, bin)
 	return bin
 }
 
@@ -415,13 +417,13 @@ func TestAskHostRelaysRemoteStream(t *testing.T) {
 		wire.Event{Type: wire.EventText, Host: "remotebox", Text: "hi there"},
 		wire.Event{Type: wire.EventToolUse, Host: "remotebox", Tool: &wire.ToolRef{ID: "t1", Name: "Read"}},
 		resultEvent(env))
-	bin := hostFixture(t, "Welcome to fakehost banner", lines, 0)
+	hostFixture(t, "Welcome to fakehost banner", lines, 0)
 	att := filepath.Join(t.TempDir(), "a.txt")
 	if err := os.WriteFile(att, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	code, out := captureAskStdout(t, "--host", "fakehost", "--host-bin", bin, "--format", "stream-json",
+	code, out := captureAskStdout(t, "--host", "fakehost", "--format", "stream-json",
 		"--attach", att, "--keep-env", "FOO", "do it")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -467,8 +469,8 @@ func TestAskHostErrorClassification(t *testing.T) {
 			if c.lines != nil {
 				lines = c.lines(t)
 			}
-			bin := hostFixture(t, "", lines, c.exit)
-			code, out := captureAskStdout(t, "--host", "fakehost", "--host-bin", bin, "--format", "stream-json", "go")
+			hostFixture(t, "", lines, c.exit)
+			code, out := captureAskStdout(t, "--host", "fakehost", "--format", "stream-json", "go")
 			if code == 0 {
 				t.Fatalf("want a failure exit:\n%s", out)
 			}
@@ -521,7 +523,7 @@ func TestAskHostForwardsFallback(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	if code, out := captureAskStdout(t, "--host", "fakehost", "--host-bin", bin, "--fallback", "agents",
+	if code, out := captureAskStdout(t, "--host", "fakehost", "--fallback", "agents",
 		"--format", "json", "go"); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -545,7 +547,7 @@ func TestAskRetryOfHostDispatchRunsRemote(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	code, out := captureAskStdout(t, "--host", "fakehost", "--host-bin", bin, "--format", "json", "go")
+	code, out := captureAskStdout(t, "--host", "fakehost", "--format", "json", "go")
 	if code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -566,7 +568,7 @@ func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
 	bin := hostFixture(t, "", lines, 0)
 	calls := recordingRemote(t, bin)
-	code, out := captureAskStdout(t, "--host", "fakehost", "--host-bin", bin, "--fallback", "none", "--format", "json", "go")
+	code, out := captureAskStdout(t, "--host", "fakehost", "--fallback", "none", "--format", "json", "go")
 	var env wire.Envelope
 	if err := json.Unmarshal([]byte(out), &env); code != 0 || err != nil {
 		t.Fatalf("exit %d (%v):\n%s", code, err, out)
@@ -900,29 +902,25 @@ func TestAskAsChecksResolvedAgent(t *testing.T) {
 	}
 }
 
-func TestAskRunRetryAgents(t *testing.T) {
-	r := &askRun{f: &askFlags{retryAgent: " codex, ,opencode,"}}
-	got, err := r.retryAgents()
-	if err != nil || strings.Join(got, ",") != "codex,opencode" {
-		t.Errorf("retryAgents = %v, %v, want codex,opencode", got, err)
-	}
-	r.f.retryAgent = "codex,nope-agent"
-	if _, err := r.retryAgents(); err == nil || !strings.Contains(err.Error(), "nope-agent") {
-		t.Errorf("unknown agent error = %v, want it to name nope-agent", err)
+// The retired ask flags are undefined: each exits 2 with the flag parser's usage error.
+func TestRetiredAskFlagsAreUndefined(t *testing.T) {
+	for _, argv := range [][]string{{"--follow"}, {"--follow-idle", "5s"}, {"--retry-agent", "codex"}, {"--host-bin", "x"}, {"--log"}} {
+		cliEnv(t)
+		code, out, stderr := runCLI(t, append([]string{"ask"}, append(argv, "hi")...)...)
+		if code != 2 || !strings.Contains(out+stderr, "flag provided but not defined: -"+strings.TrimPrefix(argv[0], "--")) {
+			t.Errorf("%v: exit %d, output %q, want exit 2 \"flag provided but not defined\"", argv, code, out+stderr)
+		}
 	}
 }
 
-func TestBatchFollowFlagErrors(t *testing.T) {
+func TestBatchFlagErrors(t *testing.T) {
 	cases := []struct {
 		name string
 		argv []string
 		want string
 	}{
-		{"follow", []string{"--follow", "hi"}, "--follow needs --batch"},
-		{"follow-idle", []string{"--follow-idle", "5s", "hi"}, "--follow-idle needs --batch"},
-		{"retry-agent", []string{"--retry-agent", "codex", "hi"}, "--retry-agent needs --batch"},
-		{"follow on stdin", []string{"--batch", "-", "--follow"}, "stdin cannot be followed"},
-		{"unknown retry agent", []string{"--batch", "-", "--retry-agent", "nope-agent"}, "nope-agent"},
+		{"jobs", []string{"--jobs", "2", "hi"}, "--jobs needs --batch"},
+		{"fail-fast", []string{"--fail-fast", "hi"}, "--fail-fast needs --batch"},
 		{"text format", []string{"--batch", "-", "--format", "text"}, "--batch always prints JSON"},
 	}
 	for _, c := range cases {

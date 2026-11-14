@@ -44,9 +44,9 @@ feeds it (one turn in flight, ≤4 sessions).
 - **Pin hop left out**: inside an overlay `provider: databricks, profile: <p>` when the pin is another workspace
   (the arm refuses it; the skip reads `outside databricks:<p>`), and with `--native`. An own-login pin (copilot's
   GitHub profile) stays, so unless `--fallback none` the confined dispatch can end on that login, then `claude`.
-- **Gates**: `off` (`claude-code <agent> off`), no table row, binary/login missing, Copilot's pinned GitHub profile only
-  while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota error). A gated
-  step is skipped; the order does not change.
+- **Gates**: `off` (`claude-code <agent> profile --off`), no table row, binary/login missing, Copilot's pinned GitHub
+  profile only while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota
+  error). A gated step is skipped; the order does not change.
 - **`--fallback all|agents|none`** (default `all` when `AGENT_ERROR_FALLBACK` is set in the shell or vault env, else
   `none`): `all` is the full order, `agents` stops after the pin, `none` runs the requested target only and exits
   non-zero with the reason; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
@@ -64,4 +64,4 @@ feeds it (one turn in flight, ≤4 sessions).
 ## Verify and compare
 
 Fan-in: `../SKILL.md` → Fan-in. A leaf told to use an agent that did the work itself skipped the dispatch. Tally per
-agent: `agents ask --log`.
+agent: `agents status`.

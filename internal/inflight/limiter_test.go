@@ -374,7 +374,7 @@ func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 		writeFile(t, path, "a\n"+transcript)
 		setMtime(t, path, old)
 	}
-	live := liveness(time.Now()) // the read-only rule `agents reap` and the status line use
+	live := liveness(time.Now()) // the read-only rule `agents cancel --lost` and the status line use
 	if !live(markerName(sib, "toolu_long")) || live(markerName(sib, "toolu_done")) {
 		t.Error("Liveness disagrees with the limiter on a sibling's long and finished agents")
 	}

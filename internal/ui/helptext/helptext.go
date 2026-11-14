@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -54,7 +55,7 @@ func Paint(text string) string {
 	return strings.Join(lines, "\n")
 }
 
-// Page is a verb's help: synopsis, blurb, command rows, flags and an optional trailing hint.
+// Page is a verb's help: synopsis, blurb, command rows (printed A-Z), flags and a trailing hint.
 type Page struct {
 	Usage, About string
 	Commands     [][2]string
@@ -81,13 +82,16 @@ func (p Page) Fprint(w io.Writer) {
 		secs = append(secs, strings.Join(about, "\n"))
 	}
 	flags := flagRows(p.Flags)
+	cmds := slices.SortedStableFunc(slices.Values(p.Commands), func(a, b [2]string) int {
+		return strings.Compare(a[0], b[0])
+	})
 	lw := 0
-	for _, r := range append(append([][2]string{}, p.Commands...), flags...) {
+	for _, r := range append(slices.Clone(cmds), flags...) {
 		lw = max(lw, utf8.RuneCountInString(r[0])+4)
 	}
 	lw = min(lw, 30)
-	if len(p.Commands) > 0 {
-		secs = append(secs, "COMMANDS\n"+rowsText(p.Commands, lw, term))
+	if len(cmds) > 0 {
+		secs = append(secs, "COMMANDS\n"+rowsText(cmds, lw, term))
 	}
 	if len(flags) > 0 {
 		secs = append(secs, "FLAGS\n"+rowsText(flags, lw, term))

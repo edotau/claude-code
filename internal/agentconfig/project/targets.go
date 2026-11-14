@@ -43,14 +43,14 @@ func sub(parts ...string) func(string) string {
 	return func(home string) string { return filepath.Join(append([]string{home}, parts...)...) }
 }
 
-// Root is an agent's local rendering under harness state (gitignored, rebuilt by every sync).
-func Root(root, name string) string {
-	return filepath.Join(root, "state", "projections", name)
+// stateRoot is an agent's local rendering: <state>/projections/<name>[/elem...] (gitignored, rebuilt by every sync).
+func stateRoot(state, name string, elem ...string) string {
+	return filepath.Join(append([]string{state, "projections", name}, elem...)...)
 }
 
 // Dir holds an agent's rendered agents: <config>/state/projections/<agent>/agents/<name>.<ext>.
 func Dir(root, name string) string {
-	return filepath.Join(Root(root, name), "agents")
+	return stateRoot(filepath.Join(root, "state"), name, "agents")
 }
 
 // agentsSkillsDir is the cross-agent skills dir every CLI reads natively: $HOME/.agents/skills.

@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -29,20 +28,20 @@ import (
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, remoteBin, format, rubric, retry, job, batchSrc, retryAgent, overlay, overlayDebug string
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, showLog, background, failFast, follow                                                           bool
-	timeout, followIdle                                                                                                                                                                                                time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                                                       int
-	dirs, files                                                                                                                                                                                                        string
-	diff, index, withTests                                                                                                                                                                                             bool
-	pack                                                                                                                                                                                                               *pack.Spec
-	agents                                                                                                                                                                                                             agentsFlag
-	attach                                                                                                                                                                                                             attachFlag
-	keepEnv                                                                                                                                                                                                            []string
-	permAllow, permAsk, permDeny                                                                                                                                                                                       []string
-	permMode                                                                                                                                                                                                           string
-	leadProvider                                                                                                                                                                                                       string
-	env                                                                                                                                                                                                                []string
+	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay, overlayDebug string
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                                     bool
+	timeout                                                                                                                                                                                     time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                                int
+	dirs, files                                                                                                                                                                                 string
+	diff, index, withTests                                                                                                                                                                      bool
+	pack                                                                                                                                                                                        *pack.Spec
+	agents                                                                                                                                                                                      agentsFlag
+	attach                                                                                                                                                                                      attachFlag
+	keepEnv                                                                                                                                                                                     []string
+	permAllow, permAsk, permDeny                                                                                                                                                                []string
+	permMode                                                                                                                                                                                    string
+	leadProvider                                                                                                                                                                                string
+	env                                                                                                                                                                                         []string
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
@@ -117,7 +116,6 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.DurationVar(&f.timeout, "timeout", 10*time.Minute, "per-attempt deadline (45m default with --tools)")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
-	fs.StringVar(&f.remoteBin, "host-bin", "", "remote claude-code path for --host (default $"+remote.BinEnv+", then claude-code)")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
 	fs.StringVar(&f.dirs, "dirs", "", "comma-separated dirs whose tracked files are inlined (never .env*, state/, keys)")
 	fs.StringVar(&f.files, "files", "", "comma-separated file globs to inline")
@@ -127,17 +125,13 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
 	fs.BoolVar(&f.withTests, "with-tests", false, "inline test files and testdata under --dirs (skipped by default)")
 	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
-	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see --log")
+	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see agents status")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
-	fs.BoolVar(&f.showLog, "log", false, "list the 20 most recent dispatches and exit")
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
 	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
-	fs.BoolVar(&f.follow, "follow", false, "batch: claim appended lines; {\"end\":true} ends")
-	fs.DurationVar(&f.followIdle, "follow-idle", 30*time.Second, "batch: --follow idle limit")
-	fs.StringVar(&f.retryAgent, "retry-agent", "", "batch: retry a failure once on these agents")
 	registerOverlayFlag(fs, f)
 	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "log child env names + salted hashes, never values")
 }
@@ -320,18 +314,6 @@ func askExclusive(background bool, job string, tools, noTools bool) error {
 	return nil
 }
 
-// askPositional is the task words; on resume the first positional sets session.
-func askPositional(positional []string, resume bool, session *string) ([]string, error) {
-	if !resume {
-		return positional, nil
-	}
-	if len(positional) < 1 {
-		return nil, errors.New("resume needs a session id: <agent> resume [flags] <id> <task>")
-	}
-	*session = positional[0]
-	return positional[1:], nil
-}
-
 // askReselect re-resolves the agent after --job/--retry; it returns the new selector and agent.
 func askReselect(ref, ag string, name *string, persona **agent.Schema, defs map[string]*agent.Schema) (string, string, error) {
 	if *name != ag { // --job/--retry replaced the agent: resolve the record's (or re-typed) value instead
@@ -405,7 +387,7 @@ type askTarget struct {
 	Tools, ReadOnly, NoTools, Autonomous, Fleet, EnableMemory, Direct *bool
 	NoPersist, SafeMode, Native                                       *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema         *string
-	Host, RemoteBin, Fallback, Coworker                               *string
+	Host, Fallback, Coworker                                          *string
 	Timeout                                                           *time.Duration
 	Persona                                                           **agent.Schema
 	Pack                                                              **pack.Spec
@@ -422,7 +404,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.KeepEnv, *t.Direct, *t.NoTools, *t.ReadOnly = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools, rec.Request.ReadOnly
 	*t.NoPersist, *t.SafeMode, *t.DebugFile = rec.Request.NoPersist, rec.Request.SafeMode, rec.Request.DebugFile
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
-	*t.Host, *t.RemoteBin = rec.Host, rec.RemoteBin
+	*t.Host = rec.Host
 	p := rec.Request.Permissions
 	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, agent.RuleStrings(p.Allow), agent.RuleStrings(p.Ask), agent.RuleStrings(p.Deny)
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona

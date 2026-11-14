@@ -168,3 +168,18 @@ func TestReadOnlyAgentsWait(t *testing.T) {
 		{"claude-code agents dispatch --waves plan --background", false},
 	})
 }
+
+func TestReadOnlyAgentsMergedVerbs(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{"claude-code agents result -f job", true},
+		{"claude-code agents result job --events -f", true},
+		{"claude-code agents result job --agent codex", true},
+		{"claude-code agents status", true},
+		{"claude-code agents status job --agent codex --all", true},
+		{"claude-code agents result job --save /tmp/x", false},
+		{"claude-code agents cancel job", false},
+		{"claude-code agents cancel --lost", false},
+		{"claude-code agents tail job", false},
+		{"claude-code agents reap", false},
+	})
+}
