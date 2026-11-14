@@ -103,6 +103,9 @@ var spawnServed = func(cwd string) bool {
 }
 
 func Recall(in *core.Input) core.Result {
+	if core.AutomatedDelivery(in.Prompt) {
+		return core.Result{}
+	}
 	return core.Result{Context: memory.PromptRecall(in.SessionID, in.CWD, in.Prompt, os.Stderr)}
 }
 

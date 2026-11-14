@@ -268,6 +268,9 @@ var defaultResolver = paths.Default
 
 // ResolvePaths binds pathResolverResult to the host's mount view, read only when a token needs the mount table.
 func ResolvePaths(in *core.Input) core.Result {
+	if core.AutomatedDelivery(in.Prompt) {
+		return core.Result{}
+	}
 	win, posix := scanWinTokens(in.Prompt), scanPosixTokens(in.Prompt)
 	if len(win)+len(posix) == 0 {
 		return core.Result{}

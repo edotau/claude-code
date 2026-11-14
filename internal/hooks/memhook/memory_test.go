@@ -315,3 +315,18 @@ func TestAgentKind(t *testing.T) {
 		})
 	}
 }
+
+// An agent hand-back is not a human turn: recall stays silent, while typed text beside it still recalls.
+func TestMemoryRecallSkipsAutomatedDelivery(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(memory.UpdateChildEnv, "")
+	cwd := t.TempDir()
+	writeBank(t, "conventions.md", "# Conventions\n\n- alpha bravo charlie delta strong match\n")
+	msg := "Another Claude session sent a message:\n<agent-message from=\"a1\">\nalpha bravo charlie delta\n</agent-message>"
+	if got := recall(t, msg, cwd); got != "" {
+		t.Errorf("hand-back must be silent, got %q", got)
+	}
+	if got := recall(t, msg+"\n\nalpha bravo charlie delta", cwd); got == "" {
+		t.Error("a prompt with typed text must still recall")
+	}
+}

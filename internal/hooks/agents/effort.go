@@ -396,11 +396,53 @@ func (e *effortPlan) recall(in *core.Input, promptField, task string, auto bool)
 		return ""
 	}
 	if auto {
+		if recallBlock = freshPointers(in.SessionID, recallBlock); recallBlock == "" {
+			return ""
+		}
 		return "memory-recall for this dispatch (paste into the brief if relevant):" + recallBlock
 	}
 	e.updated[promptField] = task + recallBlock
 	e.changed = true
 	return ""
+}
+
+// freshPointers drops pointer lines already noted this session and records the rest; "" when none are new.
+func freshPointers(session, block string) string {
+	id := filepath.Base(session)
+	if session == "" || id == "." || id == string(filepath.Separator) {
+		return block
+	}
+	path := filepath.Join(memory.StateDir(), "dispatch-recall-seen", id)
+	data, _ := os.ReadFile(path)
+	seen := strings.Fields(string(data))
+	var out, fresh []string
+	for l := range strings.SplitSeq(block, "\n") {
+		if ptr, ok := strings.CutPrefix(l, "- "); ok {
+			key, _, _ := strings.Cut(ptr, " ")
+			if slices.Contains(seen, key) {
+				continue
+			}
+			fresh = append(fresh, key)
+		}
+		out = append(out, l)
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	_ = appendSeen(path, fresh)
+	return strings.Join(out, "\n")
+}
+
+// appendSeen adds one id per line to the session's dispatch-recall seen file.
+func appendSeen(path string, ids []string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(strings.Join(ids, "\n") + "\n")
+	return err
 }
 
 // label prefixes the description with the run's model: a rewrite, or in auto mode (rewrites rejected) a one-time deny.

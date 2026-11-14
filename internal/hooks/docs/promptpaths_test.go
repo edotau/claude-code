@@ -271,3 +271,18 @@ func TestResolvePathsReadsMountsOnlyForPathTokens(t *testing.T) {
 		t.Fatalf("path prompt: calls=%d context=%q message=%q, want no context", calls, res.Context, res.SystemMessage)
 	}
 }
+
+// A hand-back naming an existing path is not a human prompt: no path note.
+func TestResolvePathsSkipsAutomatedDelivery(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(f, []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msg := "<task-notification>\n<summary>wrote " + f + " ok</summary>\n</task-notification>"
+	if res := ResolvePaths(&core.Input{Prompt: msg}); res.SystemMessage != "" || res.Context != "" {
+		t.Errorf("notification must be silent, got %+v", res)
+	}
+	if res := ResolvePaths(&core.Input{Prompt: msg + "\nread " + f}); res.SystemMessage == "" {
+		t.Error("typed text beside it must still resolve paths")
+	}
+}

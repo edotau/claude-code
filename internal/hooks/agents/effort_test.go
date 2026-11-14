@@ -791,3 +791,20 @@ func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
 		}
 	}
 }
+
+// A second auto-mode dispatch in one session must not repeat pointers the first recall note already gave.
+func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
+	effortHome(t)
+	seedHomeRecallBlock(t, 1)
+	payload := `{"session_id":"11111111-2222-3333-4444-555555555555","permission_mode":"auto","tool_name":"Agent",` +
+		`"tool_input":{"prompt":"` + recallPrompt + `","model":"opus","description":"opus: deploy"}}`
+	first := runAgentEffortFull(t, payload).HSO.AdditionalContext
+	if !strings.Contains(first, "memory-recall for this dispatch") {
+		t.Fatalf("first dispatch lacks the recall note: %q", first)
+	}
+	var out bytes.Buffer
+	runEffortHook(strings.NewReader(payload), &out)
+	if strings.Contains(out.String(), "memory-recall for this dispatch") {
+		t.Errorf("second dispatch repeated the pointers: %q", out.String())
+	}
+}

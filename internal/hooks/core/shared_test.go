@@ -58,3 +58,23 @@ func TestSafetyMessageCapsCommandOnRuneBoundary(t *testing.T) {
 		t.Fatalf("short command must appear whole: %q", short)
 	}
 }
+
+func TestAutomatedDelivery(t *testing.T) {
+	msg := "Another Claude session sent a message:\n<agent-message from=\"a1\">\n[Subagent hand-back] done\n</agent-message>"
+	note := "<task-notification>\n<task-id>b1</task-id>\n</task-notification>"
+	cases := map[string]bool{
+		msg:  true,
+		note: true,
+		"<system-reminder>x</system-reminder>\n" + note:               true,
+		"[SYSTEM NOTIFICATION - NOT USER INPUT]\nbackground job done": true,
+		msg + "\n\nnow fix the deploy pipeline":                       false,
+		"fix the deploy pipeline\n" + note:                            false,
+		"fix the deploy pipeline":                                     false,
+		"":                                                            false,
+	}
+	for prompt, want := range cases {
+		if got := AutomatedDelivery(prompt); got != want {
+			t.Errorf("AutomatedDelivery(%.40q) = %v, want %v", prompt, got, want)
+		}
+	}
+}
