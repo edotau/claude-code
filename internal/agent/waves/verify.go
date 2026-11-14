@@ -70,6 +70,7 @@ type CheckUnionResult struct {
 	Violations   []CheckViolation
 	Unattributed []string // changed files owned by another package whose writer the run windows cannot tell
 	Gates        []agent.GateResult
+	Fallback     []string // packages whose dispatch recorded no writes, judged by run window and last write time
 }
 
 // checkSlack covers the sub-second part `agents diff --verify` drops from a dispatch's end time.
@@ -97,6 +98,7 @@ func CheckUnion(env CheckEnv, in CheckUnionInput) (CheckUnionResult, error) {
 	if res.Violations, res.Unattributed, err = checkAttribute(env, in, pkgs); err != nil {
 		return CheckUnionResult{}, err
 	}
+	res.Fallback = checkUnrecorded(pkgs)
 	switch {
 	case slices.ContainsFunc(rep.Gates, func(g agent.GateResult) bool { return g.Status == "FAIL" }):
 		res.Exit = CheckExitGate
@@ -104,6 +106,17 @@ func CheckUnion(env CheckEnv, in CheckUnionInput) (CheckUnionResult, error) {
 		res.Exit = CheckExitOutside
 	}
 	return res, nil
+}
+
+// checkUnrecorded is the ids of the packages whose dispatch recorded no writes.
+func checkUnrecorded(pkgs []checkPkg) []string {
+	var ids []string
+	for _, p := range pkgs {
+		if p.wrote == nil {
+			ids = append(ids, p.ID)
+		}
+	}
+	return ids
 }
 
 // checkOwned is the deduplicated union of every package's owns; a package that owns nothing is an error.
@@ -140,15 +153,29 @@ func checkFilter(env CheckEnv, in CheckUnionInput, files []string) ([]string, er
 	return out, nil
 }
 
-// checkPkg is a package with the files outside its own scope and the run window of its dispatch (zero: unknown).
+// checkPkg is a package with its out-of-scope files, its dispatch's run window (zero: unknown) and recorded writes.
 type checkPkg struct {
 	CheckPackage
 	outside    map[string]bool
 	start, end time.Time
+	wrote      map[string]bool
 }
 
 func (p checkPkg) covers(t time.Time) bool {
 	return !p.start.IsZero() && !t.Before(p.start) && t.Before(p.end.Add(checkSlack))
+}
+
+// mayHaveWritten is whether p could have written f, last written at mt: its record says so, else its window does.
+func (p checkPkg) mayHaveWritten(f string, mt time.Time) bool {
+	if p.wrote != nil {
+		return p.wrote[f]
+	}
+	return p.covers(mt)
+}
+
+// blind is true when p cannot be ruled out or in for a file last written at mt.
+func (p checkPkg) blind(mt time.Time) bool {
+	return p.wrote == nil && (p.start.IsZero() || mt.IsZero())
 }
 
 // checkPackages diffs each package against its own scope; a file outside it is another package's or no one's.
@@ -170,14 +197,34 @@ func checkPackages(env CheckEnv, in CheckUnionInput) ([]checkPkg, error) {
 			if serr == nil && eerr == nil {
 				cp.start, cp.end = s, e
 			}
+			cp.wrote = checkWrote(in.Dir, v.Wrote)
 		}
 		out = append(out, cp)
 	}
 	return out, nil
 }
 
-// checkAttribute finds, for each changed file owned by some package, who wrote it: the file's last write time
-// falling in an owner's run window is the owner's; else the non-owners running then are the violators.
+// checkWrote is the recorded writes as paths relative to dir, as `agents diff` names files; nil when none recorded
+// or the list was cut at its cap (a cut list cannot rule a file out).
+func checkWrote(dir string, files *[]string) map[string]bool {
+	if files == nil || slices.Contains(*files, agent.WroteTruncated) {
+		return nil
+	}
+	root := dir
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		root = real
+	}
+	out := make(map[string]bool, len(*files))
+	for _, f := range *files {
+		rel, err := filepath.Rel(root, f)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			out[filepath.ToSlash(rel)] = true
+		}
+	}
+	return out
+}
+
+// checkAttribute names the writer of each changed owned file: the dispatch that recorded it, else the one running then.
 func checkAttribute(env CheckEnv, in CheckUnionInput, pkgs []checkPkg) ([]CheckViolation, []string, error) {
 	files := map[string]bool{}
 	for _, p := range pkgs {
@@ -219,13 +266,13 @@ func checkFile(env CheckEnv, in CheckUnionInput, pkgs []checkPkg, f string) ([]C
 		return nil, false, err
 	}
 	if len(owners) == 0 { // nobody owns it: the sole package running then is named, else the file alone is reported
-		culprits, _ := checkWriters(nil, others, mt, false)
+		culprits, _ := checkWriters(nil, others, f, mt, false)
 		if len(culprits) != 1 {
 			return nil, true, nil
 		}
 		return []CheckViolation{{Package: culprits[0].ID, File: f}}, true, nil
 	}
-	culprits, ok := checkWriters(owners, others, mt, true)
+	culprits, ok := checkWriters(owners, others, f, mt, true)
 	var viol []CheckViolation
 	for _, c := range culprits {
 		viol = append(viol, CheckViolation{Package: c.ID, File: f, Owners: checkIDs(owners)})
@@ -234,16 +281,18 @@ func checkFile(env CheckEnv, in CheckUnionInput, pkgs []checkPkg, f string) ([]C
 }
 
 // checkWriters is the non-owners that could have written f at mt; ok is false with no name or a rival beside the owner.
-func checkWriters(owners, others []checkPkg, mt time.Time, skipScoped bool) (culprits []checkPkg, ok bool) {
+func checkWriters(owners, others []checkPkg, f string, mt time.Time, skipScoped bool) (culprits []checkPkg, ok bool) {
 	rivals := slices.DeleteFunc(slices.Clone(others), func(p checkPkg) bool {
-		return !p.covers(mt) || (skipScoped && p.Scoped)
+		// a scoped rival with no record is trusted to be refused; a recorded one is judged by what it wrote
+		return !p.mayHaveWritten(f, mt) || (skipScoped && p.Scoped && p.wrote == nil)
 	})
 	switch {
-	case mt.IsZero():
-		return nil, false
-	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.covers(mt) }):
+	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.wrote[f] }):
+		// a recorded list holds its peers' writes too, so a recorded rival listing it proves nothing
+		return nil, !slices.ContainsFunc(rivals, func(p checkPkg) bool { return p.wrote == nil })
+	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.mayHaveWritten(f, mt) }):
 		return nil, len(rivals) == 0
-	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.start.IsZero() }):
+	case slices.ContainsFunc(owners, func(p checkPkg) bool { return p.blind(mt) }):
 		return nil, false
 	}
 	return rivals, len(rivals) > 0

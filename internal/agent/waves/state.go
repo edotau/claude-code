@@ -47,6 +47,7 @@ type WaveState struct {
 	Reason       string             `json:"reason,omitempty"`
 	Outside      []string           `json:"outside"`
 	Unattributed []string           `json:"unattributed,omitempty"` // changed files with no attributable writer
+	Fallback     []string           `json:"fallback,omitempty"`     // leaves whose dispatch recorded no writes
 	Gates        []agent.GateResult `json:"gates"`
 	Verifier     *stepResult        `json:"verifier,omitempty"`
 	Proof        []RoutingResult    `json:"proof"`

@@ -769,6 +769,7 @@ type VerifyReport struct {
 	Proxy      ProxyMatch    `json:"proxy"`
 	Mismatch   bool          `json:"mismatch"`
 	Mismatches []string      `json:"mismatches,omitempty"`
+	Wrote      *[]string     `json:"wrote,omitempty"` // Record.Wrote; nil: not observed
 
 	owned []string // the Owned: paths of the dispatch's brief; unset for a brief without that line
 }
@@ -787,7 +788,7 @@ func verifyDispatch(id, logPath string) (*VerifyReport, error) {
 	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: rec.Route, Model: rec.Model,
 		Status: rec.Status, Fallback: fallbackText(rec), DurationMs: rec.DurationMs, Tokens: logTokens(rec.LogPath()),
 		Start: start.Local().Format(time.RFC3339), End: end.Local().Format(time.RFC3339),
-		Mismatches: routingMismatches(rec), owned: ParseOwned(rec.Request.Prompt)}
+		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, owned: ParseOwned(rec.Request.Prompt)}
 	rep.Mismatch = len(rep.Mismatches) > 0
 	rep.Proxy = matchProxy(logPath, rec, start, end.Add(windowSlack))
 	return rep, nil
@@ -1117,6 +1118,13 @@ func renderVerify(w io.Writer, v *VerifyReport) {
 		took += fmt.Sprintf(", tokens in=%d out=%d", v.Tokens.In, v.Tokens.Out)
 	}
 	fmt.Fprintln(w, took)
+	if v.Wrote != nil {
+		n, more := len(*v.Wrote), ""
+		if n > 0 && (*v.Wrote)[n-1] == WroteTruncated {
+			n, more = n-1, "+"
+		}
+		fmt.Fprintf(w, "  wrote: %d%s files\n", n, more)
+	}
 	p := v.Proxy
 	fmt.Fprintf(w, "  proxy: %d requests; %s\n", p.Requests, p.Note)
 	if p.Match != "none" {

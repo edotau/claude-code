@@ -418,6 +418,27 @@ func TestVerifyCountsProxyLinesInTheWindow(t *testing.T) {
 	}
 }
 
+// The routing proof carries the dispatch's recorded writes, and a record with none carries no list.
+func TestVerifyCarriesRecordedWrites(t *testing.T) {
+	wrote := []string{"/r/a.go"}
+	logPath := saveVerifyFixture(t, Record{ID: "w1", Agent: "codex", Provider: "prod", Model: "m1", Wrote: &wrote})
+	v, err := verifyDispatch("w1", logPath)
+	if err != nil || v.Wrote == nil || !slices.Equal(*v.Wrote, wrote) {
+		t.Fatalf("Wrote = %v, err %v", v.Wrote, err)
+	}
+	var out strings.Builder
+	renderVerify(&out, v)
+	wantInOutput(t, out.String(), "wrote: 1 files")
+	cut := []string{"/r/a.go", WroteTruncated}
+	out.Reset()
+	renderVerify(&out, &VerifyReport{Wrote: &cut})
+	wantInOutput(t, out.String(), "wrote: 1+ files")
+	saveVerifyFixture(t, Record{ID: "w2", Agent: "codex", Provider: "prod", Model: "m1"})
+	if v, err = verifyDispatch("w2", logPath); err != nil || v.Wrote != nil {
+		t.Fatalf("an old record must carry no list: %v, err %v", v.Wrote, err)
+	}
+}
+
 // A dispatch= tag selects its own lines exactly, even from a concurrent dispatch on the same workspace and model.
 func TestVerifyMatchesByDispatchTag(t *testing.T) {
 	logPath := saveVerifyFixture(t, Record{ID: "d3", Agent: "codex", Provider: "prod", Model: "m1"})
