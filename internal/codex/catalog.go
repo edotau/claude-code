@@ -28,23 +28,20 @@ func codexSlug(id string) string {
 	return models.WireOrOriginal("dotted", id)
 }
 
-// codexCatalogArgs returns a validated Databricks model catalog override, or lets launch continue without one.
-func codexCatalogArgs(ctx context.Context, p *providers.Provider) []string {
+// codexCatalog returns a validated Databricks model catalog path, or lets launch continue without one.
+func codexCatalog(ctx context.Context, p *providers.Provider) string {
 	if p.Preset != providers.PresetDatabricks {
-		return nil
+		return ""
 	}
 	path, missing, err := codexCatalogPath(ctx, p)
 	if err != nil {
 		fmt.Fprintln(agentconfig.CatalogWarn, "codex catalog:", err)
-		return nil
+		return ""
 	}
 	if missing != "" {
 		fmt.Fprintln(agentconfig.CatalogWarn, "codex is missing metadata for "+missing+"; update codex")
 	}
-	if path == "" {
-		return nil
-	}
-	return []string{"-c", "model_catalog_json=" + agentconfig.TOMLQuote(path)}
+	return path
 }
 
 func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, string, error) {

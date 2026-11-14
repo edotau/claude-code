@@ -80,7 +80,7 @@ func codexFileOverrides(path string) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, value.Args("-c")...)
+			out = append(out, "-c", value)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -89,14 +89,14 @@ func codexFileOverrides(path string) ([]string, error) {
 	return out, nil
 }
 
-func codexOverrideValue(line, table, path string, n int) (proc.Values, error) {
+func codexOverrideValue(line, table, path string, n int) (string, error) {
 	k, v, ok := strings.Cut(line, "=")
 	v = strings.TrimSpace(v)
 	if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasSuffix(v, ",") ||
 		strings.HasPrefix(v, `"""`) || strings.HasPrefix(v, "'''") {
-		return nil, fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
+		return "", fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
 	}
-	return proc.Values{table + strings.TrimSpace(k): v}, nil
+	return table + strings.TrimSpace(k) + "=" + v, nil
 }
 
 // RouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
