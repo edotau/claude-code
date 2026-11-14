@@ -1259,11 +1259,12 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 		old := armPrepare
 		armPrepare = prepare
 		t.Cleanup(func() { armPrepare = old })
-		if err := ApplyCoworker("databricks:auto", "", "", "", "none"); err != nil {
+		ctx, err := ApplyCoworker(t.Context(), "databricks:auto", "", "", "", "none")
+		if err != nil {
 			t.Fatal(err)
 		}
-		task, err := buildTask(t.Context(), parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
-			batchOpts{Agent: req.Agent, Fallback: "none"}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+		task, err := buildTask(ctx, parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
+			batchOpts{Agent: req.Agent, Fallback: "none", Auto: router.ArmProfileContext(ctx)}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}

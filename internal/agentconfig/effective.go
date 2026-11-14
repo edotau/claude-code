@@ -28,48 +28,8 @@ type Launch struct {
 	CanServe                       func(agent string, p *providers.Provider) bool
 }
 
-// ErrUnknownProfile marks a profile that is no registry row; For still returns the Effective it resolved.
+// ErrUnknownProfile marks a profile that is no registry row; ForContext still returns the Effective it resolved.
 var ErrUnknownProfile = errors.New("not in the registry")
-
-// For is agent's pin overlaid by the launch flags, then the last-used profile; a registry profile must exist.
-func For(agent string, l Launch) (Effective, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return Effective{}, err
-	}
-	if l.Routed {
-		lead, err := resolveLead(reg, agent, l)
-		return Effective{Agent: agent, Profile: lead}, err
-	}
-	recs, err := vault.ReadAgentRecords([]string{agent})
-	if err != nil {
-		return Effective{}, err
-	}
-	rec := recs[agent]
-	cfg := Effective{Agent: agent, AgentRecord: rec}
-	if cfg.Profile == "" && agent == agentid.Gemini {
-		cfg.Profile = geminiLogin
-	}
-	if cfg.Profile, err = launchProfile(reg, agent, l, cfg.Profile, rec.Profile != ""); err != nil {
-		return Effective{}, err
-	}
-	return cfg, checkProfile(reg, agent, cfg.Profile)
-}
-
-// launchProfile is cur after the launch flags, else the last-used profile; active is false for an off agent (no pin).
-func launchProfile(reg *providers.Registry, agent string, l Launch, cur string, active bool) (string, error) {
-	switch {
-	case l.Profile != "" || l.Provider != "":
-		lead, err := resolveLead(reg, agent, l)
-		if err != nil {
-			return "", fmt.Errorf("agent %s: %w", agent, err)
-		}
-		return cmp.Or(lead, cur), nil // an empty lead keeps the agent's pin
-	case l.LastProfile != "" && active && slices.Contains(agentid.External(), agent) && reg.Providers[l.LastProfile] != nil:
-		return l.LastProfile, nil
-	}
-	return cur, nil
-}
 
 // checkProfile refuses a registry profile that does not exist; own logins skip the check.
 func checkProfile(reg *providers.Registry, agent, p string) error {
@@ -86,25 +46,6 @@ func ownsProfile(agent, p string) bool {
 
 // vaultSession is the --profile value naming the session's own profile (agent.LeadSession).
 const vaultSession = "session"
-
-// resolveLead is the profile a launch leads with: l.Profile ("session" = the session's), narrowed to l.Provider.
-func resolveLead(reg *providers.Registry, agent string, l Launch) (string, error) {
-	profile := l.Profile
-	fromSession := profile == vaultSession
-	if fromSession {
-		profile = providers.SessionLead(nil, true)
-		if keepsGeminiPin(reg, agent, profile, l.Provider) {
-			return "", nil
-		}
-	}
-	if profile != "" && reg.Providers[profile] == nil && l.Routed {
-		return "", fmt.Errorf("profile %s is not in the registry", profile)
-	}
-	if l.Provider == "" {
-		return profile, nil
-	}
-	return leadForProvider(reg, agent, l, profile, fromSession)
-}
 
 // keepsGeminiPin reports a session-inherited lead, which never moves gemini off its pin.
 func keepsGeminiPin(reg *providers.Registry, agent, profile, provider string) bool {
@@ -140,14 +81,14 @@ func serves(l Launch, agent string, p *providers.Provider) bool {
 	return l.CanServe(agent, p)
 }
 
-// ForContext resolves For using the run snapshot.
+// ForContext is agent's pin overlaid by the launch flags, then the last-used profile; a registry profile must exist.
 func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return Effective{}, err
 	}
 	if l.Routed {
-		lead, err := resolveLeadContext(ctx, reg, agent, l)
+		lead, err := resolveLead(ctx, reg, agent, l)
 		return Effective{Agent: agent, Profile: lead}, err
 	}
 	recs, err := vault.ReadAgentRecords([]string{agent})
@@ -159,17 +100,17 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 	if cfg.Profile == "" && agent == agentid.Gemini {
 		cfg.Profile = geminiLogin
 	}
-	if cfg.Profile, err = launchProfileContext(ctx, reg, cfg, l, rec.Profile != ""); err != nil {
+	if cfg.Profile, err = launchProfile(ctx, reg, cfg, l, rec.Profile != ""); err != nil {
 		return Effective{}, err
 	}
 	return cfg, checkProfile(reg, agent, cfg.Profile)
 }
 
-// launchProfileContext applies launch selection to cfg using the run snapshot.
-func launchProfileContext(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch, active bool) (string, error) {
+// launchProfile is cfg.Profile after the launch flags, else the last-used profile; active is false for an off agent.
+func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch, active bool) (string, error) {
 	switch {
 	case l.Profile != "" || l.Provider != "":
-		lead, err := resolveLeadContext(ctx, reg, cfg.Agent, l)
+		lead, err := resolveLead(ctx, reg, cfg.Agent, l)
 		if err != nil {
 			return "", fmt.Errorf("agent %s: %w", cfg.Agent, err)
 		}
@@ -180,8 +121,8 @@ func launchProfileContext(ctx context.Context, reg *providers.Registry, cfg Effe
 	return cfg.Profile, nil
 }
 
-// resolveLeadContext resolves resolveLead using the run snapshot.
-func resolveLeadContext(ctx context.Context, reg *providers.Registry, agent string, l Launch) (string, error) {
+// resolveLead is the profile a launch leads with: l.Profile ("session" = the run's), narrowed to l.Provider.
+func resolveLead(ctx context.Context, reg *providers.Registry, agent string, l Launch) (string, error) {
 	profile := l.Profile
 	fromSession := profile == vaultSession
 	if fromSession {

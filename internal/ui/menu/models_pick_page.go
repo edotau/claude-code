@@ -572,7 +572,7 @@ func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 
 // pinModel writes alias's audited pin, qualified to profile when it is not the session's own (as --pin does).
 func pinModel(d *dialog, profile, alias, id string) {
-	spec := providers.QualifyPinSpec(d.reg, profile, id)
+	spec := providers.QualifyPinSpec(context.Background(), d.reg, profile, id)
 	if _, err := writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", spec); err != nil {
 		d.println(err)
 		return

@@ -44,19 +44,15 @@ func resolveAccountContext(ctx context.Context, agentName string, c router.Cell)
 }
 
 func billedAgentTargetContext(ctx context.Context, agentName, model string) providers.Target {
-	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: sessionProviderContext(ctx, agentName), Model: model, Values: contextValues(ctx)})
+	t, own, _, err := SchemaFor(agentName).targetNote(RunOptions{Provider: SessionProviderContext(ctx, agentName), Model: model, Values: contextValues(ctx)})
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == agentName {
 		return providers.Target{}
 	}
 	return t
 }
 
-// SessionProvider is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
-func SessionProvider(agentName string) string {
-	return sessionProviderContext(context.Background(), agentName)
-}
-
-func sessionProviderContext(ctx context.Context, agentName string) string {
+// SessionProviderContext is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
+func SessionProviderContext(ctx context.Context, agentName string) string {
 	reg, err := providers.Load()
 	if err != nil {
 		return ""

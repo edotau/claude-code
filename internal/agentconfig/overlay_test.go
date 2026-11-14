@@ -51,13 +51,13 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		cases[fifo] = "not a regular file"
 	}
 	for doc, want := range cases {
-		if _, err := LoadOverlay(doc, nil); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("LoadOverlay(%.40q): err = %v, want %q", doc, err, want)
+		if _, err := LoadOverlayContext(t.Context(), doc, nil); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("LoadOverlayContext(t.Context(), %.40q): err = %v, want %q", doc, err, want)
 		} else if strings.Contains(err.Error(), "\a") || strings.Contains(err.Error(), "evil") {
-			t.Errorf("LoadOverlay(%.40q): err %q echoes a value", doc, err)
+			t.Errorf("LoadOverlayContext(t.Context(), %.40q): err %q echoes a value", doc, err)
 		}
 	}
-	if o, err := LoadOverlay(own, nil); err != nil || o.Confinement() != "databricks:dev" {
+	if o, err := LoadOverlayContext(t.Context(), own, nil); err != nil || o.Confinement() != "databricks:dev" {
 		t.Errorf("own 0600 file: overlay %+v, err %v; want databricks:dev", o, err)
 	}
 }
@@ -86,11 +86,11 @@ func TestRefRuleRefusesRouteCredentialAndInternalRefs(t *testing.T) {
 		`{"set":{"MY_PAT":"@secret:DATABRICKS_DEV_PAT"}}`: "@secret:DATABRICKS_DEV_PAT is a profile's route credential: use --profile",
 		`{"set":{"A":"@secret:HARNESS_VAULT_KEY"}}`:       "@secret:HARNESS_VAULT_KEY is harness-internal",
 	} {
-		if _, err := LoadOverlay(doc, nil); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("LoadOverlay(%s): err = %v, want %q", doc, err, want)
+		if _, err := LoadOverlayContext(t.Context(), doc, nil); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("LoadOverlayContext(t.Context(), %s): err = %v, want %q", doc, err, want)
 		}
 	}
-	if _, err := LoadOverlay(`{"set":{"A":"@secret:MY_OWN"}}`, nil); err != nil {
+	if _, err := LoadOverlayContext(t.Context(), `{"set":{"A":"@secret:MY_OWN"}}`, nil); err != nil {
 		t.Errorf("an ordinary ref: %v", err)
 	}
 }
@@ -99,11 +99,11 @@ func TestRefRuleRefusesRouteCredentialAndInternalRefs(t *testing.T) {
 func TestOverlayUnsetKeepRefuseRouteEndpoints(t *testing.T) {
 	for _, doc := range []string{`{"unset":["ANTHROPIC_BASE_URL"]}`, `{"unset":["HTTPS_PROXY"]}`,
 		`{"keep":["OPENAI_BASE_URL"]}`, `{"set":{"AGY_LLM_GATEWAY_URL":"https://evil.example"}}`} {
-		_, err := LoadOverlay(doc, nil)
+		_, err := LoadOverlayContext(t.Context(), doc, nil)
 		if !errors.Is(err, errBaseURL) {
-			t.Errorf("LoadOverlay(%s): err = %v, want %q", doc, err, errBaseURL)
+			t.Errorf("LoadOverlayContext(t.Context(), %s): err = %v, want %q", doc, err, errBaseURL)
 		} else if strings.Contains(err.Error(), "evil") {
-			t.Errorf("LoadOverlay(%s): err %q echoes the value", doc, err)
+			t.Errorf("LoadOverlayContext(t.Context(), %s): err %q echoes the value", doc, err)
 		}
 	}
 }
@@ -167,12 +167,12 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 		{"nested keeps its inherited confinement, never the stored one", "", qa, qa},
 	} {
 		t.Setenv(OverlayVar, tc.env)
-		if got := DispatchOverlay(tc.flag); got != tc.want {
+		if got := DispatchOverlayContext(t.Context(), tc.flag); got != tc.want {
 			t.Errorf("%s: DispatchOverlay = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 	t.Setenv(OverlayVar, "")
-	o, err := LoadOverlay(DispatchOverlay(""), strings.NewReader(""))
+	o, err := LoadOverlayContext(t.Context(), DispatchOverlayContext(t.Context(), ""), strings.NewReader(""))
 	if err != nil || o.Confinement() != "databricks:auto" {
 		t.Errorf("stored overlay loaded as %q (err %v), want confinement databricks:auto", o.Confinement(), err)
 	}

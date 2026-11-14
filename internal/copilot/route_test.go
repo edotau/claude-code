@@ -68,7 +68,7 @@ func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
 // A pin naming a provider other than github-copilot is never checked against the copilot catalog.
 func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 	hosttest.PinScratch(t)
-	warn, err := ValidateCopilotPins("", []string{"opus=openai:gpt-5"})
+	warn, err := ValidateCopilotPins(t.Context(), "", []string{"opus=openai:gpt-5"})
 	if err != nil || warn != "" {
 		t.Fatalf("warn=%q err=%v, want no-op for a non-copilot pin", warn, err)
 	}
@@ -78,7 +78,7 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	hosttest.PinScratch(t)
 	for flag, pin := range map[string]string{"": "opus=personal:claude-opus-5.5", "personal": "opus=claude-opus-5.5"} {
-		warn, err := ValidateCopilotPins(flag, []string{pin})
+		warn, err := ValidateCopilotPins(t.Context(), flag, []string{pin})
 		if err != nil || !strings.Contains(warn, "could not verify") {
 			t.Errorf("ValidateCopilotPins(%q, %s) = %q, %v; want the unreachable-catalog warning", flag, pin, warn, err)
 		}
@@ -90,7 +90,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	hosttest.PinScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
-	warn, _ := ValidateCopilotPins("", []string{"opus=personal:claude-opus-5.5"})
+	warn, _ := ValidateCopilotPins(t.Context(), "", []string{"opus=personal:claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
 		t.Errorf("warn leaked a credential: %q", warn)
 	}
@@ -121,7 +121,7 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := ValidateCopilotPins("", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
+	_, err := ValidateCopilotPins(t.Context(), "", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
 	if err == nil || !strings.Contains(err.Error(), "bogus-id") {
 		t.Fatalf("err = %v, want the bogus-id pin rejected after the unreachable one", err)
 	}

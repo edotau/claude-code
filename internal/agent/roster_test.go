@@ -31,12 +31,12 @@ func (fixtureDriver) Exec(context.Context, CLIPrep, RunOptions, wire.Sink) (wire
 type fixtureCopilot struct{ fixtureDriver }
 
 // DescribeRoute is copilot's no-route terminal (internal/copilot/route.go:83); the fixture has no route to find.
-func (fixtureCopilot) DescribeRoute(*providers.Registry) RouteInfo {
+func (fixtureCopilot) DescribeRoute(context.Context, *providers.Registry) RouteInfo {
 	return RouteInfo{Agent: "copilot", Route: RouteNone, Reason: "no route for copilot: " + SchemaFor("copilot").CLI.ConfigureHint}
 }
 
-func (e fixtureCopilot) NoRoute(reg *providers.Registry, _ providers.Target) error {
-	return RouteErr(e.DescribeRoute(reg))
+func (e fixtureCopilot) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
+	return RouteErr(e.DescribeRoute(ctx, reg))
 }
 
 // fixtureGemini keeps agy on its Google login like geminiEngine.FollowsPin (internal/gemini/gemini.go:110).
@@ -51,7 +51,7 @@ func (fixtureGemini) FollowsPin(p *providers.Provider) bool {
 }
 
 // NoRoute refuses an unpinned Databricks gateway row like geminiEngine.NoRoute (internal/gemini/gemini.go:115).
-func (fixtureGemini) NoRoute(_ *providers.Registry, t providers.Target) error {
+func (fixtureGemini) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
 	if GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
 	}
@@ -338,11 +338,11 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 func TestAgentPinsRejectUnreadableRecords(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
-	pins, err := AgentPins()
+	pins, err := AgentPinsContext(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "agent pins: vault: agent-records is corrupt") || pins != nil {
 		t.Fatalf("AgentPins = %v, %v; want no pins and the vault read error", pins, err)
 	}
-	if _, err := rosterPick(router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
+	if _, err := rosterPick(context.Background(), router.PickOpts{}); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("RosterPick error = %v", err)
 	}
 }
@@ -352,7 +352,7 @@ func TestAgentPinsRejectVaultIOError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	pins, err := AgentPins()
+	pins, err := AgentPinsContext(context.Background())
 	var pathErr *os.PathError
 	if pins != nil || !errors.As(err, &pathErr) {
 		t.Fatalf("AgentPins = %v, %v; want no pins and the wrapped filesystem error", pins, err)
@@ -418,7 +418,7 @@ func newSessFix(t *testing.T) *sessFix {
 
 func (s *sessFix) pickAgent(t *testing.T, agent string, state router.State, opts router.PickOpts) router.PickResult {
 	t.Helper()
-	opts, err := rosterPick(opts)
+	opts, err := rosterPick(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}

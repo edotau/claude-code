@@ -45,7 +45,7 @@ func TestAskPackFlagCombos(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.pack, _ = askPack(fs, f)
-	req := (&askRun{f: f}).request("task")
+	req := (&askRun{ctx: t.Context(), f: f}).request("task")
 	if p := req.Pack; p == nil || len(p.Dirs) != 2 || !p.Diff || !p.Index || !p.IndexOnly {
 		t.Fatalf("request.Pack = %+v, want dirs a,b + diff + index + index-only", p)
 	}
@@ -226,7 +226,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			if err := fs.Parse(args); err != nil {
 				t.Fatal(err)
 			}
-			r := &askRun{fs: fs, f: f}
+			r := &askRun{ctx: t.Context(), fs: fs, f: f}
 			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}

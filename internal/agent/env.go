@@ -283,13 +283,16 @@ func stderrTail(s string) string {
 	return textutil.RedactSecrets(t)
 }
 
-// runValues captures inherited values once and copies them at each run boundary.
-func runValues(ctx context.Context, values proc.Values) (context.Context, proc.Values) {
+// RunValues is the run's values (values, else ctx's snapshot, else one of the process env) set on ctx, plus a copy.
+func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.Values) {
 	if values == nil {
 		var ok bool
 		values, ok = proc.ValuesFromContext(ctx)
 		if !ok {
 			values = proc.ValuesFromEnv(os.Environ())
+			if values[agentconfig.OverlayVar] == "" { // an ambient empty overlay must not suppress the stored one
+				delete(values, agentconfig.OverlayVar)
+			}
 		}
 	}
 	return proc.WithValues(ctx, values), values.Merge(nil)

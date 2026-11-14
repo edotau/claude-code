@@ -11,8 +11,8 @@ import (
 )
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
-func databricksResponses(reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
-	profile, p, ok := sessionDatabricks(reg, "codex", canServe)
+func databricksResponses(ctx context.Context, reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
+	profile, p, ok := sessionDatabricks(ctx, reg, "codex", canServe)
 	if !ok {
 		return "", "", false
 	}
@@ -35,8 +35,8 @@ type pickGate struct {
 }
 
 // codexHop is codex's Databricks model and effort at alias: pin, else tier, else cell; non-Responses → first Responses.
-func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
-	profile, first, ok := databricksResponses(reg, now, o.canServe)
+func (t *RouteTable) codexHop(ctx context.Context, reg *providers.Registry, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
+	profile, first, ok := databricksResponses(ctx, reg, now, o.canServe)
 	if !ok {
 		return "", "", "", false
 	}
@@ -55,10 +55,10 @@ func (t *RouteTable) codexHop(reg *providers.Registry, alias string, o PickOpts,
 
 // gateDatabricksCodex gates codex on Databricks; disabled or unusable Databricks returns false without a Skip.
 func (t *RouteTable) gateDatabricksCodex(
-	pg *pickGate, alias string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
+	ctx context.Context, pg *pickGate, alias string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
 ) (Candidate, bool) {
 	reg := pg.reg
-	profile, model, effort, ok := t.codexHop(reg, alias, o, now)
+	profile, model, effort, ok := t.codexHop(ctx, reg, alias, o, now)
 	if !ok {
 		return Candidate{}, false
 	}
@@ -90,7 +90,7 @@ func (t *RouteTable) gateCandidate(
 		res.Skipped = append(res.Skipped, Skip{agent, GateOff, "deactivated (no profile set)"})
 		return nil
 	}
-	if arm := ArmProfile(); arm != "" {
+	if arm := ArmProfileContext(ctx); arm != "" {
 		return t.gateArm(ctx, pg, alias, agent, arm, spec, st, o, now, configured, res)
 	}
 	group := t.gateBase(ctx, pg, alias, agent, spec, st, o, now, configured, res)
@@ -294,13 +294,13 @@ func (t *RouteTable) gateCodexExtras(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	var extra []Candidate
-	if d, ok := t.gateDatabricksCodex(pg, alias, st, o, now, configured, res); ok && !slices.ContainsFunc(group, func(c Candidate) bool { return c.Account == d.Account }) {
+	if d, ok := t.gateDatabricksCodex(ctx, pg, alias, st, o, now, configured, res); ok && !slices.ContainsFunc(group, func(c Candidate) bool { return c.Account == d.Account }) {
 		extra = append(extra, d)
 	}
 	if res.Want != "codex" {
 		return extra
 	}
-	if _, model, effort, ok := t.codexHop(pg.reg, alias, o, now); ok {
+	if _, model, effort, ok := t.codexHop(ctx, pg.reg, alias, o, now); ok {
 		hop := t.gateSessionCopilot(ctx, pg, alias, model, effort, copilotSpec, nil, st, o, now, configured, res)
 		for _, c := range hop {
 			pg.held[c.Account] = true
@@ -319,7 +319,7 @@ func (t *RouteTable) gateSessionCopilot(
 	if spec.Off || reg == nil || !copilotPinOK(reg, spec) {
 		return nil
 	}
-	profile, _, ok := sessionDatabricks(reg, "copilot", o.canServe)
+	profile, _, ok := sessionDatabricks(ctx, reg, "copilot", o.canServe)
 	if !ok {
 		return nil
 	}
@@ -361,11 +361,11 @@ func (t *RouteTable) copilotCellOn(alias, account string, spec PinSpec, o PickOp
 }
 
 // sessionDatabricks is the session or pinned profile when it is a signed-in Databricks row agent can use.
-func sessionDatabricks(reg *providers.Registry, agent string, canServe func(string, *providers.Provider) bool) (profile string, p *providers.Provider, ok bool) {
+func sessionDatabricks(ctx context.Context, reg *providers.Registry, agent string, canServe func(string, *providers.Provider) bool) (profile string, p *providers.Provider, ok bool) {
 	if reg == nil {
 		return "", nil, false
 	}
-	profile = providers.SessionLead(nil, true)
+	profile = providers.SessionLeadContext(ctx, nil, true)
 	p = reg.Providers[profile]
 	if p == nil || p.Preset != providers.PresetDatabricks || !canServe(agent, p) || !providers.CredentialPresent(p) {
 		return "", nil, false

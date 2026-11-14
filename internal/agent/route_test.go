@@ -320,7 +320,7 @@ func leadRegistry(t *testing.T) *providers.Registry {
 
 // With a lead, the wanted agent's lead row is its own route and its pin is the other route.
 func TestOtherRouteFollowsLead(t *testing.T) {
-	rc := routeCtx{want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
+	rc := routeCtx{ctx: context.Background(), want: "codex", lead: "dev", pins: map[string]router.PinSpec{"codex": {Profile: "pin"}}}
 	if rc.otherRoute(router.Candidate{Agent: "codex", Profile: "dev"}) {
 		t.Error("lead row marked as another route")
 	}
@@ -332,7 +332,7 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 // Under overlay databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
 func TestOtherRouteFollowsArm(t *testing.T) {
 	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
-	rc := routeCtx{want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
+	rc := routeCtx{ctx: context.Background(), want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
 	if rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "qa"}) {
 		t.Error("the coworker workspace marked as another route")
 	}
@@ -464,7 +464,7 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 
 // A pinned caller's own profile:model runs the bare model in its cell; buildDispatch adds the profile once.
 func TestPinnedCellStripsOwnProfile(t *testing.T) {
-	rc := routeCtx{want: "codex", explicitModel: true, callerModel: "dev:databricks-gpt-6-1-sol",
+	rc := routeCtx{ctx: context.Background(), want: "codex", explicitModel: true, callerModel: "dev:databricks-gpt-6-1-sol",
 		pins: map[string]router.PinSpec{"codex": {Profile: "dev"}}}
 	cell, skip := rc.candidateCell(router.Candidate{Agent: "codex", Profile: "dev"})
 	if skip != "" || cell.Model != "databricks-gpt-6-1-sol" {

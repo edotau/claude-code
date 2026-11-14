@@ -87,7 +87,7 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	w = appendOpt(w, "--profile", req.Provider)
 	w = appendOpt(w, "--effort", req.Effort)
 	w = appendOpt(w, "--as", req.Identity)
-	w = appendOpt(w, "--overlay", confinementDoc()) // ApplyCoworker exports the confinement as env, which ssh does not carry
+	w = appendOpt(w, "--overlay", confinementDoc(req)) // ApplyCoworker exports the confinement as env, which ssh does not carry
 	w = appendOpt(w, "--session", req.SessionID)
 	w = appendOpt(w, "--system-prompt", req.SystemPrompt)
 	w = appendOpt(w, "--append-system-prompt", req.AppendSystemPrompt)
@@ -136,7 +136,7 @@ func appendOpt(w []string, flag, v string) []string {
 }
 
 func validateRemoteScript(bin, agentName string, req RunOptions) error {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(), req.WorkDir, req.SessionID, req.SystemPrompt,
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(req), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {

@@ -524,7 +524,7 @@ func TestArmLabelIsPick(t *testing.T) {
 			}
 			first := res.Candidates[0]
 			want := strings.TrimPrefix(first.Model, first.Profile+":")
-			pins, _ := agentpkg.AgentPins()
+			pins, _ := agentpkg.AgentPinsContext(context.Background())
 			if predicted := tableCellModel(newDispatchRun(nil), "codex", "sonnet", pins["codex"]); armed == (want == first.Model) || !armed && want == predicted {
 				t.Fatalf("fixture: pick %q (profile %q), prediction %q; want a prefixed pick armed, a pick unlike the prediction unarmed", first.Model, first.Profile, predicted)
 			}
@@ -766,24 +766,26 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 }
 
-// Concurrent picks under different confinements each see their own overlay, never a peer's swap.
-func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
+// Concurrent picks under different confinements each see only their own overlay, and the process env never moves.
+func TestCoworkerPickIsolatesConfinementsInContext(t *testing.T) {
 	oc := labelCell
 	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(context.Context, *dispatchRun, string, string) string {
-		before := os.Getenv(agentconfig.OverlayVar)
+	labelCell = func(ctx context.Context, _ *dispatchRun, _, _ string) string {
+		before := proc.Value(ctx, agentconfig.OverlayVar)
 		runtime.Gosched()
-		if os.Getenv(agentconfig.OverlayVar) != before {
+		if proc.Value(ctx, agentconfig.OverlayVar) != before {
 			return "torn"
 		}
 		return before
 	}
+	env := os.Environ()
+	shared := proc.WithValues(context.Background(), proc.Values{"RUN_MARK": "shared"})
 	profiles := []string{"dev", "qa"}
 	got := make([]string, 40)
 	var wg sync.WaitGroup
 	for i := range got {
 		wg.Go(func() {
-			got[i] = coworkerPick(context.Background(), newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet")
+			got[i] = coworkerPick(shared, newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet")
 		})
 	}
 	wg.Wait()
@@ -791,6 +793,9 @@ func TestCoworkerPickSerializesEnvSwap(t *testing.T) {
 		if want := agentconfig.InlineOverlay("databricks", profiles[i%2]); g != want {
 			t.Fatalf("pick %d saw overlay %q, want %q", i, g, want)
 		}
+	}
+	if after := os.Environ(); strings.Join(after, "\x00") != strings.Join(env, "\x00") {
+		t.Fatalf("process env changed across the picks: %d entries before, %d after", len(env), len(after))
 	}
 }
 

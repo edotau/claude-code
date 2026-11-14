@@ -147,7 +147,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	}
 	f := askFlags{}
 	s := (&askRun{f: &f}).askState()
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
 	recs := agent.RecentRecords(1)
@@ -215,7 +215,7 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		if mode == "live" {
 			f := askFlags{noTools: true}
-			return startLive((&askRun{f: &f}).askState(), agent.Permissions{}, "codex", "", "json")
+			return startLive(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "codex", "", "json")
 		}
 		fs, _ := askFlagSet()
 		var job *agent.Record

@@ -401,13 +401,14 @@ func codexUseKey(d *dialog) bool {
 func copilotMenu(d *dialog) agentMenu {
 	auth := agent.AuthStatus("copilot")
 	loggedIn := auth.Present
-	plan := agent.AuthPlan(context.Background(), "copilot", auth)
+	ctx := context.Background() // the menu is a command entry: no caller ctx
+	plan := agent.AuthPlan(ctx, "copilot", auth)
 	auth.Account = cmp.Or(auth.Account, plan.Account)
 	st := loginOrKey(d, loggedIn, plan)
 	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	chain := namedRouteChain(d, auth.Account)
+	chain := namedRouteChain(ctx, d, auth.Account)
 	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK { // a usable pinned Databricks profile is the route
 		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
 	}
@@ -444,8 +445,8 @@ func copilotMenu(d *dialog) agentMenu {
 
 // namedRouteChain is copilot's route chain with the GitHub step labelled by account (the offline chain cannot name a
 // token-only account).
-func namedRouteChain(d *dialog, account string) []copilot.RouteStep {
-	chain := copilot.RouteChain(d.reg)
+func namedRouteChain(ctx context.Context, d *dialog, account string) []copilot.RouteStep {
+	chain := copilot.RouteChain(ctx, d.reg)
 	for i := range chain {
 		if chain[i].Label == "GitHub" && account != "" {
 			chain[i].Label += " " + account

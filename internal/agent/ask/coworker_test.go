@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -45,7 +46,7 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 	}
 	for _, c := range cases {
 		confine(t, c.coworker)
-		profile, provider := router.ConfineLead(c.agent, "", c.provider, c.model)
+		profile, provider := router.ConfineLeadContext(t.Context(), c.agent, "", c.provider, c.model)
 		if profile != c.wantProfile || provider != c.wantProvider {
 			t.Errorf("%s %s --provider %q --model %q: ConfineLead = (%q, %q), want (%q, %q)",
 				c.coworker, c.agent, c.provider, c.model, profile, provider, c.wantProfile, c.wantProvider)
@@ -95,6 +96,32 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	}
 	if _, err := confineLine(free, "copilot", agent.RunOptions{}); err != nil {
 		t.Errorf("copilot line under an empty snapshot: err = %v, want none though the env is confined", err)
+	}
+}
+
+// A run's confinement, egress host and carried overlay live on its ctx: the process env is never written.
+func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(providers.EnvSessionProfile, "qa")
+	t.Setenv(egress.EnvHost, "")
+	ctx, err := ApplyCoworker(t.Context(), "openai", "", "", "", router.FallbackNone)
+	if err == nil {
+		ctx, err = overlayEgress(ctx, "syn-host")
+	}
+	if err == nil {
+		ctx, err = carryOverlay(ctx, agentconfig.Overlay{Provider: "openai", Remote: "syn-host"})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := router.ConfinedContext(ctx); p != "openai" || egress.HostContext(ctx) != "syn-host" {
+		t.Errorf("run values hold confinement %q and egress %q, want openai and syn-host", p, egress.HostContext(ctx))
+	}
+	for name, want := range map[string]string{agentconfig.OverlayVar: "", providers.EnvSessionProfile: "qa", egress.EnvHost: ""} {
+		if got := os.Getenv(name); got != want {
+			t.Errorf("process env %s = %q, want %q: a run's exports belong on its ctx", name, got, want)
+		}
 	}
 }
 

@@ -49,7 +49,7 @@ type Prepared struct {
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Prepared, error) {
-	ctx, o.Values = runValues(ctx, o.Values)
+	ctx, o.Values = RunValues(ctx, o.Values)
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 
 // Record builds the dispatch record for o without routing, persona refusal or rubric (live sessions, review jobs).
 func (c *Client) Record(ctx context.Context, o RunOptions, claim *Record) (Record, error) {
-	ctx, o.Values = runValues(ctx, o.Values)
+	ctx, o.Values = RunValues(ctx, o.Values)
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return Record{}, err
@@ -216,7 +216,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	if d.Notify == nil {
 		d.Notify = c.Notify
 	}
-	ctx, _ = runValues(ctx, p.Opts.Values)
+	ctx, _ = RunValues(ctx, p.Opts.Values)
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
@@ -288,7 +288,7 @@ func (c *Client) streamWith(
 
 // Run drops unsupported fields loudly, then runs r under DefaultPolicy with req.Timeout per attempt.
 func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
-	ctx, req.Values = runValues(ctx, req.Values)
+	ctx, req.Values = RunValues(ctx, req.Values)
 	if sink == nil {
 		sink = wire.Discard
 	}

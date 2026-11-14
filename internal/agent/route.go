@@ -72,11 +72,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	o, err = contextPickOpts(ctx, o)
-	if err != nil {
-		return Chain{}, router.PickResult{}, err
-	}
-	o, pins, err := routePickOpts(o, mode)
+	o, pins, err := routePickOpts(ctx, o, mode)
 	if err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
@@ -105,21 +101,6 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 		return Chain{}, pick, err
 	}
 	return rc.finishChain(c, pick), pick, nil
-}
-
-// contextPickOpts fills o's account resolver and pins from the dispatch's context values when the caller left them unset.
-func contextPickOpts(ctx context.Context, o router.PickOpts) (router.PickOpts, error) {
-	if _, ok := proc.ValuesFromContext(ctx); ok && o.Account == nil {
-		o.Account = func(name string, cell router.Cell) (string, string) { return resolveAccountContext(ctx, name, cell) }
-	}
-	if o.Pins == nil {
-		pins, err := AgentPinsContext(ctx)
-		if err != nil {
-			return o, err
-		}
-		o.Pins = pins
-	}
-	return o, nil
 }
 
 // finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.
@@ -154,13 +135,17 @@ func loadRegistryWarn() *providers.Registry {
 	return reg
 }
 
-// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins.
-func routePickOpts(o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
+// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins; a dispatch's
+// context values resolve the account.
+func routePickOpts(ctx context.Context, o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
 	o.Fallback = mode
+	if _, ok := proc.ValuesFromContext(ctx); ok && o.Account == nil {
+		o.Account = func(name string, cell router.Cell) (string, string) { return resolveAccountContext(ctx, name, cell) }
+	}
 	if o.Account == nil {
 		o.Account = ResolveAccount
 	}
-	o, err := rosterPick(o)
+	o, err := rosterPick(ctx, o)
 	if err != nil {
 		return o, nil, err
 	}
@@ -188,7 +173,7 @@ type step struct {
 // steps is the fallback order over the pick: the requested target, the wanted agent's pin, then the last claude hop.
 func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool) (out []step, req int) {
 	pin := rc.pinIndex(cands, alias)
-	req = router.RequestedIndex(cands, rc.want, rc.lead, pin)
+	req = router.RequestedIndex(rc.ctx, cands, rc.want, rc.lead, pin)
 	if nativeLead { // opencode's own config is the requested target, and its hub pin is no hop of a native run
 		req, pin = -1, -1
 	}
@@ -293,7 +278,7 @@ func routerChose(rc routeCtx) bool { return rc.lead == "" && rc.pins[rc.want].Pr
 
 // otherRoute reports a candidate that is not the wanted agent's own login, pinned profile or overlay workspace.
 func (rc routeCtx) otherRoute(cand router.Candidate) bool {
-	if router.AskedWorkspace(cand, rc.want) {
+	if router.AskedWorkspace(rc.ctx, cand, rc.want) {
 		return false
 	}
 	if rc.lead != "" && cand.Agent == rc.want {

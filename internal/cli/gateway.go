@@ -249,15 +249,17 @@ func gatewayRoute(args []string) int {
 	if !helptext.Explicit(fs, "fallback") {
 		q.Fallback = router.DefaultFallback()
 	}
-	ov, err := gatewayOverlay(fs, *overlay)
+	ctx := context.Background()
+	ov, err := gatewayOverlay(ctx, fs, *overlay)
 	if err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	if code := checkCoworkerFlags(name, ov.Confinement(), q.Profile, *format, q.Fallback, q.Agent, q.Model); code != 0 {
+	ctx, code := checkCoworkerFlags(ctx, name, ov.Confinement(), q.Profile, *format, q.Fallback, q.Agent, q.Model)
+	if code != 0 {
 		return code
 	}
 
-	return resolveGatewayRoute(*q, *format)
+	return resolveGatewayRoute(ctx, *q, *format)
 }
 
 // gatewayFlags makes bare gateway's flag set: the route request, --overlay and --format.
@@ -274,12 +276,11 @@ func gatewayFlags() (fs *flag.FlagSet, q *agent.RouteReq, overlay, format *strin
 	return fs, q, overlay, helptext.FormatFlag(fs)
 }
 
-func resolveGatewayRoute(q agent.RouteReq, format string) int {
+func resolveGatewayRoute(ctx context.Context, q agent.RouteReq, format string) int {
 	const name = "gateway"
-	if err := ask.CheckArm(q.Agent, q.Profile, q.Provider, q.Model, false); err != nil {
+	if err := ask.CheckArm(ctx, q.Agent, q.Profile, q.Provider, q.Model, false); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	ctx := context.Background()
 	q.Profile, q.Provider = router.ConfineLeadContext(ctx, q.Agent, q.Profile, q.Provider, q.Model)
 	_, res, err := agent.Resolve(ctx, q)
 	if _, ok := errors.AsType[*agent.LeadError](err); ok {
@@ -293,34 +294,35 @@ func resolveGatewayRoute(q agent.RouteReq, format string) int {
 }
 
 // gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
-func gatewayOverlay(fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
+func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
 	busy := ""
 	if proc.IsTerminal(os.Stdin) {
 		busy = "stdin is a terminal; pipe the JSON document in, or pass a file"
 	}
-	cfg, err := ask.LoadOverlay(value, busy)
+	cfg, err := ask.LoadOverlay(ctx, value, busy)
 	if err == nil {
 		cfg.Fold(fs)
 	}
 	return cfg, err
 }
 
-// checkCoworkerFlags applies the overlay's confinement and validates the flags; nonzero is the exit (preflight: 1).
-func checkCoworkerFlags(name, confinement, profile, format, fallback, want, model string) int {
-	if err := ask.ApplyCoworker(confinement, profile, want, model, fallback); err != nil {
+// checkCoworkerFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit (preflight: 1).
+func checkCoworkerFlags(ctx context.Context, name, confinement, profile, format, fallback, want, model string) (context.Context, int) {
+	ctx, err := ask.ApplyCoworker(ctx, confinement, profile, want, model, fallback)
+	if err != nil {
 		helptext.Fail(name+": %v", err)
-		return ask.ApplyCode(err)
+		return ctx, ask.ApplyCode(err)
 	}
 	if err := helptext.CheckFormat(format); err != nil {
-		return helptext.BadFormat(name, err)
+		return ctx, helptext.BadFormat(name, err)
 	}
 	if !slices.Contains(router.FallbackModes, fallback) {
-		return helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
+		return ctx, helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(router.FallbackModes, "|"))
 	}
 	if want != "" && !slices.Contains(router.TableAgents, want) {
-		return helptext.Fail(name+": --agent %q unknown (%s)", want, strings.Join(router.TableAgents, "|"))
+		return ctx, helptext.Fail(name+": --agent %q unknown (%s)", want, strings.Join(router.TableAgents, "|"))
 	}
-	return 0
+	return ctx, 0
 }
 
 func renderGatewayRoute(ctx context.Context, name string, res router.PickResult, format string) int {

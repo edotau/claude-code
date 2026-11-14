@@ -121,12 +121,12 @@ func checkProviderHealth(ctx context.Context, check func(bool, bool, string, str
 		for _, c := range providerCredentialChecks(ctx, reg, sel, serr, reg.Names()) {
 			check(c.OK, c.Hard, c.Name, c.Detail)
 		}
-		check(true, false, "opencode route", routeDetail("opencode"))
+		check(true, false, "opencode route", routeDetail(ctx, "opencode"))
 		staticOK, staticDetail := opencodeStaticKeysDetail(reg)
 		check(staticOK, false, "opencode auth.json", staticDetail)
-		check(true, false, "copilot route", routeDetail("copilot"))
-		check(true, false, "codex route", routeDetail("codex"))
-		check(true, false, "gemini route", routeDetail("gemini"))
+		check(true, false, "copilot route", routeDetail(ctx, "copilot"))
+		check(true, false, "codex route", routeDetail(ctx, "codex"))
+		check(true, false, "gemini route", routeDetail(ctx, "gemini"))
 		for _, pin := range preflight.Check(ctx, reg, time.Now()) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}
@@ -170,8 +170,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
-func routeDetail(name string) string {
-	detail, _ := agent.RouteDetail(name)
+func routeDetail(ctx context.Context, name string) string {
+	detail, _ := agent.RouteDetail(ctx, name)
 	return detail
 }
 

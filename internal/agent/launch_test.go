@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -22,12 +23,12 @@ import (
 func TestPinnedProfileOpencodeGo(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.SetRecord(t, "opencode", "profile", "opencode-go")
-	got, err := PinnedProfile("opencode")
+	got, err := PinnedProfile(t.Context(), "opencode")
 	if err != nil || got != "" {
-		t.Errorf("pinnedProfile(opencode) = %q, %v; want empty profile and no error", got, err)
+		t.Errorf("PinnedProfile(opencode) = %q, %v; want empty profile and no error", got, err)
 	}
 	vaulttest.SetRecord(t, "opencode", "profile", "no-such-profile")
-	if _, err := PinnedProfile("opencode"); err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
+	if _, err := PinnedProfile(t.Context(), "opencode"); err == nil || !strings.Contains(err.Error(), `unknown profile "no-such-profile"`) {
 		t.Errorf("an invalid pin must still be an error with the ValidAgentPin cause, got %v", err)
 	}
 }
@@ -373,5 +374,26 @@ func TestConfigureRouteRefusesAIGatewayWire(t *testing.T) {
 				t.Errorf("%s on %s: err = %v; refused = %v", name, wire, err, refused)
 			}
 		}
+	}
+}
+
+// ApplyOverlay reads the run's overlay from req.Values, never from the parent's own environment.
+func TestApplyOverlayIgnoresAmbientOverlay(t *testing.T) {
+	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
+	if got := (RunOptions{Values: proc.Values{"PST_RUN": "x"}}).ApplyOverlay(t.Context(), agentconfig.Resolved{}); len(got.Unset) != 0 {
+		t.Errorf("ambient $%s reached a run whose Values do not name it: Unset = %v", agentconfig.OverlayVar, got.Unset)
+	}
+	named := RunOptions{Values: proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`}}
+	if got := named.ApplyOverlay(t.Context(), agentconfig.Resolved{}); !slices.Contains(got.Unset, agentconfig.OverlayVar) {
+		t.Errorf("a run whose Values name the overlay must unset it for the child; Unset = %v", got.Unset)
+	}
+}
+
+// With nil Values, ApplyOverlay reads the overlay from ctx's snapshot, not the parent's environment.
+func TestApplyOverlayReadsCtxSnapshot(t *testing.T) {
+	t.Setenv(agentconfig.OverlayVar, "")
+	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`})
+	if got := (RunOptions{}).ApplyOverlay(ctx, agentconfig.Resolved{}); !slices.Contains(got.Unset, agentconfig.OverlayVar) {
+		t.Errorf("nil Values must read the overlay from ctx's snapshot; Unset = %v", got.Unset)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -19,7 +18,7 @@ import (
 // overlayEnv is agentconfig.OverlayVar (no import: agentconfig imports router); the router reads provider and profile.
 const overlayEnv = "COWORKER_OVERLAY"
 
-// RouteDatabricks is the provider whose confinement arms one workspace (ArmProfile); any other only filters accounts.
+// RouteDatabricks is the provider whose confinement arms one workspace (ArmProfileContext); any other filters accounts.
 const RouteDatabricks = "databricks"
 
 // AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
@@ -48,42 +47,11 @@ func JoinCoworker(provider, profile string) string {
 	return provider + ":" + profile
 }
 
-// Coworker is the provider and profile an inline $COWORKER_OVERLAY names; a path, - or bare databricks[:auto]: none.
-func Coworker() (provider, profile string, err error) {
-	v := strings.TrimSpace(os.Getenv(overlayEnv))
-	var doc struct{ Provider, Profile string }
-	switch {
-	case !strings.HasPrefix(v, "{"):
-		return "", "", nil
-	case json.Unmarshal([]byte(v), &doc) != nil:
-		return "", "", errors.New(overlayEnv + ": not valid JSON")
-	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
-		return "", "", nil // the ask applying this document resolves the workspace
-	}
-	if provider, profile, err = ParseCoworker(JoinCoworker(doc.Provider, doc.Profile)); err != nil {
-		return "", "", fmt.Errorf("%s: %w", overlayEnv, err)
-	}
-	return provider, profile, nil
-}
-
-// BadOverlay is the provider Confined reports for an unparseable overlay: it names no account, so nothing routes.
+// BadOverlay is the provider ConfinedContext reports for an unparseable overlay: no account, so nothing routes.
 const BadOverlay = "invalid-overlay"
 
-// unresolvedProfile is the lead profile ConfineLead returns when the registry cannot load: no row has this name.
+// unresolvedProfile is the lead profile ConfineLeadContext returns when the registry cannot load: no row has this name.
 const unresolvedProfile = "confinement-unresolved"
-
-// Confined is the non-Databricks confinement Coworker names: its provider and optional profile; "" outside one.
-// A set overlay Coworker rejects fails closed as BadOverlay.
-func Confined() (provider, profile string) {
-	provider, profile, err := Coworker()
-	switch {
-	case err != nil:
-		return BadOverlay, ""
-	case provider == RouteDatabricks:
-		return "", ""
-	}
-	return provider, profile
-}
 
 // OwnProfiles lists agent's own-login rows under provider, in name order (claude: the anthropic CLI-login rows).
 func OwnProfiles(reg *providers.Registry, agent, provider string) []string {
@@ -95,37 +63,6 @@ func CanUse(reg *providers.Registry, agent, provider string) bool {
 	return provider == RouteDatabricks || len(OwnProfiles(reg, agent, provider)) > 0
 }
 
-// ConfineLead fills an untyped lead from a non-Databricks confinement: its pinned profile, else its provider.
-func ConfineLead(agentName, profile, provider, model string) (string, string) {
-	cp, cprof := Confined()
-	switch {
-	case cp == "" || profile != "" || strings.Contains(model, ":"):
-		return profile, provider
-	case cprof != "": // a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
-		return cprof, ""
-	case provider != "":
-		return profile, provider
-	case agentName != "claude":
-		return "", cp
-	}
-	reg, err := providers.Load()
-	if err != nil { // fail closed: a profile no row has, never an unconfined lead
-		return unresolvedProfile, ""
-	}
-	if own := OwnProfiles(reg, agentName, cp); len(own) > 0 { // claude reads a profile, never a provider lead
-		return own[0], ""
-	}
-	return "", ""
-}
-
-// ArmProfile is the workspace a databricks:<p> confinement confines the pick to; "" when the route is anything else.
-func ArmProfile() string {
-	if mode, profile, err := Coworker(); err == nil && mode == RouteDatabricks {
-		return profile
-	}
-	return ""
-}
-
 // gateLadder drops a candidate the confinement rules out, or whose rung model its account can't serve.
 const gateLadder = "ladder"
 
@@ -135,8 +72,8 @@ func ownLoginAccount(account string) bool {
 }
 
 // ladderName is databricks only when the confinement arms a workspace; any other one filters the default ladder.
-func ladderName() string {
-	if ArmProfile() != "" {
+func ladderName(ctx context.Context) string {
+	if ArmProfileContext(ctx) != "" {
 		return providers.LadderDatabricks
 	}
 	return providers.LadderDefault
@@ -154,16 +91,16 @@ type pickLadder struct {
 }
 
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
-func (t *RouteTable) ladderFor() pickLadder {
-	name := ladderName()
+func (t *RouteTable) ladderFor(ctx context.Context) pickLadder {
+	name := ladderName(ctx)
 	l := pickLadder{rungs: t.Ladders[name]}
-	if p, profile := Confined(); profile != "" {
+	if p, profile := ConfinedContext(ctx); profile != "" {
 		l.only, l.onlyAccount = p, p+"·"+profile
 	} else {
 		l.only = p
 	}
 	if name == providers.LadderDatabricks {
-		l.arm = ArmProfile()
+		l.arm = ArmProfileContext(ctx)
 		l.armAccount = ProviderAccount(l.arm)
 	}
 	l.claudeRungs = slices.ContainsFunc(l.rungs, func(g providers.Rung) bool { return g.Agent == "claude" })
@@ -434,7 +371,7 @@ func sortUnits(us []rungGroup) {
 	})
 }
 
-// CoworkerContext resolves Coworker using the run snapshot.
+// CoworkerContext is the provider and profile an inline $COWORKER_OVERLAY names; a path, - or bare databricks[:auto]: none.
 func CoworkerContext(ctx context.Context) (provider, profile string, err error) {
 	v := strings.TrimSpace(proc.Value(ctx, overlayEnv))
 	var doc struct{ Provider, Profile string }
@@ -452,7 +389,8 @@ func CoworkerContext(ctx context.Context) (provider, profile string, err error) 
 	return provider, profile, nil
 }
 
-// ConfinedContext resolves Confined using the run snapshot.
+// ConfinedContext is the non-Databricks confinement CoworkerContext names: its provider and optional profile; "" outside one.
+// A set overlay CoworkerContext rejects fails closed as BadOverlay.
 func ConfinedContext(ctx context.Context) (provider, profile string) {
 	provider, profile, err := CoworkerContext(ctx)
 	switch {
@@ -464,7 +402,7 @@ func ConfinedContext(ctx context.Context) (provider, profile string) {
 	return provider, profile
 }
 
-// ConfineLeadContext resolves ConfineLead using the run snapshot.
+// ConfineLeadContext fills an untyped lead from a non-Databricks confinement: its pinned profile, else its provider.
 func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model string) (string, string) {
 	cp, cprof := ConfinedContext(ctx)
 	switch {
@@ -487,7 +425,7 @@ func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model
 	return "", ""
 }
 
-// ArmProfileContext resolves ArmProfile using the run snapshot.
+// ArmProfileContext is the workspace a databricks:<p> confinement confines the pick to; "" for any other route.
 func ArmProfileContext(ctx context.Context) string {
 	if mode, profile, err := CoworkerContext(ctx); err == nil && mode == RouteDatabricks {
 		return profile

@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/roles"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
@@ -77,56 +78,58 @@ func (r *RouteFlags) Args() ([]string, error) {
 	return out, nil
 }
 
-// apply resolves the flags and overlay as ask does and puts them on q: permissions, fallback, env layer, confinement.
-func (r *RouteFlags) apply(q *roles.Request, agentName, format string, background bool) error {
+// apply resolves the flags and overlay as ask does onto q; the returned ctx holds the confinement, egress and overlay.
+func (r *RouteFlags) apply(ctx context.Context, q *roles.Request, agentName, format string, background bool) (context.Context, error) {
 	f := &r.f
 	perms, err := agent.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
 	if err != nil {
-		return err
+		return ctx, err
 	}
-	ov, err := LoadOverlay(f.overlay, "")
+	ov, err := LoadOverlay(ctx, f.overlay, "")
 	if err != nil {
-		return err
+		return ctx, err
 	}
 	if key := unsupportedKey(ov); key != "" {
-		return fmt.Errorf("overlay key %q is not supported by dispatch (use ask)", key)
+		return ctx, fmt.Errorf("overlay key %q is not supported by dispatch (use ask)", key)
 	}
 	fallback := cmp.Or(f.fallback, ov.Fallback)
 	if err := validateAskFlags(format, fallback); err != nil {
-		return err
+		return ctx, err
 	}
 	resolved, err := resolveOverlay(ov, nil, nil, background)
 	if err != nil {
-		return err
+		return ctx, err
 	}
-	if err := r.confine(q, ov, agentName, fallback); err != nil {
-		return err
+	if ctx, err = r.confine(ctx, q, ov, agentName, fallback); err != nil {
+		return ctx, err
 	}
-	if err := overlayEgress(ov.Remote); err != nil {
-		return err
+	if ctx, err = overlayEgress(ctx, ov.Remote); err != nil {
+		return ctx, err
 	}
-	if err := carryOverlay(ov); err != nil {
-		return err
+	if ctx, err = carryOverlay(ctx, ov); err != nil {
+		return ctx, err
 	}
 	q.Permissions, q.Fallback, q.Overlay = perms, fallback, resolved
-	return nil
+	return ctx, nil
 }
 
 // confine applies the overlay's confinement and puts the auto pick and the narrowed lead on q, as ask's checkArm does.
-func (r *RouteFlags) confine(q *roles.Request, ov agentconfig.Overlay, agentName, fallback string) error {
+func (r *RouteFlags) confine(ctx context.Context, q *roles.Request, ov agentconfig.Overlay, agentName,
+	fallback string) (context.Context, error) {
 	f := &r.f
-	picks := armAutoPick(ov.Confinement())
-	if err := ApplyCoworker(ov.Confinement(), "", agentName, "", fallback); err != nil {
-		return err
+	picks := armAutoPick(ctx, ov.Confinement())
+	ctx, err := ApplyCoworker(ctx, ov.Confinement(), "", agentName, "", fallback)
+	if err != nil {
+		return ctx, err
 	}
 	if picks {
-		q.Auto = router.ArmProfile()
+		q.Auto = router.ArmProfileContext(ctx)
 	}
 	typed := f.fallback != ""
 	f.fallback = fallback
-	lead, err := narrowLead(agentName, f, confineLead(agentName, f) || typed)
+	lead, err := narrowLead(agentName, f, confineLead(ctx, agentName, f) || typed)
 	q.Lead, q.Profile = lead, f.provider
-	return err
+	return ctx, err
 }
 
 // Dispatch is `agents dispatch`: resolve the role and --output-schema, then run or detach the legs.
@@ -141,12 +144,14 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 	if q.OutputSchema, err = resolveOutputSchema(o.Schema); err != nil {
 		return helptext.FailUsage("dispatch: %v", err)
 	}
+	ctx := context.Background()
 	if o.Route != nil {
-		if err := o.Route.apply(&q, role.Agent, o.Format, o.Background); err != nil {
+		if ctx, err = o.Route.apply(ctx, &q, role.Agent, o.Format, o.Background); err != nil {
 			return helptext.FailUsage("dispatch: %v", err)
 		}
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	_, q.Values = agent.RunValues(ctx, nil)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return dispatchRun(ctx, role, q, o.Jobs, o.Format, o.Background)
 }
@@ -154,10 +159,13 @@ func Dispatch(q roles.Request, o DispatchOptions) int {
 // dispatchRun builds the legs (splitting explore when no --part) and runs or detaches them.
 func dispatchRun(ctx context.Context, role roles.Role, q roles.Request, jobs int, format string, background bool) int {
 	cl := newClient()
+	if q.Values != nil {
+		ctx = proc.WithValues(ctx, q.Values)
+	}
 	if role.Name == "explore" && len(q.Parts) == 0 && !background {
 		q.Parts = roles.Split(ctx, cl, q.Task)
 	}
-	legs := roles.Legs(role, q)
+	legs := roles.Legs(ctx, role, q)
 	if len(legs) == 0 {
 		return helptext.FailUsage("dispatch: role %q builds no legs (a renamed role must be explore, fleet or compare)", role.Name)
 	}
@@ -219,7 +227,10 @@ func spawnLeg(ctx context.Context, client *agent.Client, leg roles.Leg) (agent.R
 	if err := prepared.Record.Save(); err != nil {
 		return agent.Record{}, err
 	}
-	if err := agent.Spawn(&prepared.Record, nil); err != nil {
+	if prepared.Opts.Values != nil {
+		ctx = proc.WithValues(ctx, prepared.Opts.Values)
+	}
+	if err := agent.SpawnContext(ctx, &prepared.Record, nil); err != nil {
 		return agent.Record{}, failSpawn(&prepared.Record, err)
 	}
 	return prepared.Record, nil

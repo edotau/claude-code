@@ -82,7 +82,7 @@ func TestStageCellDeniesWhatAReadOnlyLaunchCannotDo(t *testing.T) {
 	if c = stageCell(judge, why, "read-only", []string{"read"}, probes); c.Verdict != "ok" {
 		t.Fatalf("a read stage is granted: %+v", c)
 	}
-	if c = stageCell(nil, "OS sandbox", "tools", []string{"edit"}, probes); c.Verdict != "n/e" || c.Why != "OS sandbox" {
+	if c = stageCell(nil, "OS sandbox", "tools", []string{"edit"}, probes); c.Verdict != verdictRuntime || c.Why != "OS sandbox" {
 		t.Fatalf("no judge is not evaluable: %+v", c)
 	}
 }

@@ -129,21 +129,21 @@ func (codexEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headles
 	return codex(ctx, r.Provider, r.Base, r.Model, r.Cred, h)
 }
 
-func (e codexEngine) FallbackTarget(reg *providers.Registry) (providers.Target, string, bool) {
+func (e codexEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
 	if p, ok := reg.LoginProfile("openai", "codex"); ok && codexChatGPTLogin() == nil {
 		// Codex's own config.toml model beats the catalog; the model pin beats both.
 		model := p.Models[models.Opus]
 		if own := codexOwnModel(); own != "" {
 			model = own
 		}
-		t, _ := agent.ResolveAgentModel(agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: model}})
+		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: model}})
 		return t, "chatgpt (codex login)", true
 	}
 	return providers.Target{}, "", false
 }
 
-func (codexEngine) Render(reg *providers.Registry, sel providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	return renderCodex(reg, sel, o, out)
+func (codexEngine) Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	return renderCodex(ctx, reg, sel, o, out)
 }
 
 func (codexEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
@@ -318,12 +318,11 @@ func codexHeaderEnv(k string) string {
 }
 
 // Login runs codex on its own ChatGPT sign-in: the built-in openai provider, no key injected.
-func (codexEngine) Login(_ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+func (codexEngine) Login(ctx context.Context, _ *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
 	if err := codexChatGPTLogin(); err != nil {
 		return nil, nil, err
 	}
-	// Login carries no ctx (the interface is agent.Engine), so the sandbox opt-ins come from the ambient env.
-	return nil, codexHeadless(context.Background(), proc.Values{"model_provider": agentconfig.TOMLQuote("openai"), "model": agentconfig.TOMLQuote(model)}.Args("-c"), h), nil
+	return nil, codexHeadless(ctx, proc.Values{"model_provider": agentconfig.TOMLQuote("openai"), "model": agentconfig.TOMLQuote(model)}.Args("-c"), h), nil
 }
 
 // codexHome is $CODEX_HOME or ~/.codex, where codex keeps auth.json and config.toml; unresolvable is an unusable path.

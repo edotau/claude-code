@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -323,127 +322,39 @@ func TestJobRetryKeepsOneRecord(t *testing.T) {
 	}
 }
 
-// holdArm runs an attempt on arm that stays inside the gate until the returned release (also run at cleanup).
-func holdArm(t *testing.T, arm string) (release func()) {
-	t.Helper()
-	started, done := make(chan struct{}), make(chan struct{})
-	go (&armRetry{tried: []string{arm}}).exec(t.Context(), nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
-		close(started)
-		<-done
-		return wire.Result{}, nil
-	})
-	<-started
+// Two attempts on different workspaces both reach Prepare before either finishes, each on its own run values.
+func TestArmAttemptsOnDifferentWorkspacesRunTogether(t *testing.T) {
+	armRateFixture(t, nil, nil)
+	entered, release := make(chan string, 2), make(chan struct{})
 	var once sync.Once
-	release = func() { once.Do(func() { close(done) }) }
-	t.Cleanup(release)
-	return release
-}
-
-// A leg waiting at the gate for another workspace leaves with ctx's error instead of waiting for the holder.
-func TestArmGateCancelledWaiterLeaves(t *testing.T) {
-	armRateFixture(t, nil, nil)
-	holdArm(t, "dev")
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	var ran bool // written before the res send, read after the receive
-	res := make(chan error, 1)
-	go func() {
-		_, err := (&armRetry{tried: []string{"qa"}}).exec(ctx, nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
-			ran = true
-			return wire.Result{}, nil
-		})
-		res <- err
-	}()
-	select {
-	case err := <-res:
-		if !errors.Is(err, context.DeadlineExceeded) || ran {
-			t.Errorf("waiter err %v ran %v, want the deadline error and no run", err, ran)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled waiter still blocked at the gate")
+	open := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(open) // a failed run must not leave an attempt parked
+	old := armPrepare
+	armPrepare = func(_ *agent.Client, _ context.Context, req agent.RunOptions, _ *agent.Record) (*agent.Prepared, error) {
+		entered <- req.Values[providers.EnvSessionProfile]
+		<-release
+		return nil, errors.New("stub: not prepared")
 	}
-}
-
-// The gate's edges: no legs, one leg, a leg re-entering its own workspace, and a context cancelled before it joins.
-func TestArmGateEdges(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
-		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
-	t.Setenv(agentconfig.OverlayVar, "")
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancel()
-	live, stop := context.WithTimeout(t.Context(), 2*time.Second) // a deadlocked entry fails here instead of hanging
-	defer stop()
-	for _, c := range []struct {
-		name    string
-		ctx     context.Context
-		arms    []string
-		wantN   int
-		wantArm string
-		wantErr bool
-	}{
-		{"no legs", live, nil, 0, "", false},
-		{"one leg", live, []string{"dev"}, 1, "dev", false},
-		{"re-entering its own workspace", live, []string{"dev", "dev"}, 2, "dev", false},
-		{"cancelled before joining", cancelled, []string{"dev"}, 0, "", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Setenv(providers.EnvSessionProfile, "")
-			var err error
-			for _, arm := range c.arms {
-				if err = enterArm(c.ctx, arm); err != nil {
-					break
-				}
-			}
-			n, queued := gateState()
-			arm := os.Getenv(providers.EnvSessionProfile)
-			for range n {
-				leaveArm()
-			}
-			if got := fmt.Sprint(n, queued, arm, err != nil); got != fmt.Sprint(c.wantN, 0, c.wantArm, c.wantErr) {
-				t.Errorf("entered/queued/arm/failed = %s, want %d 0 %q %v (err %v)", got, c.wantN, c.wantArm, c.wantErr, err)
-			}
-		})
-	}
-	if n, queued := gateState(); n != 0 || queued != 0 {
-		t.Errorf("gate left at n=%d queue=%d, want idle", n, queued)
-	}
-}
-
-// gateState is how many legs the arm gate holds and how many wait at it.
-func gateState() (n, queued int) {
-	armGate.cond.L.Lock()
-	defer armGate.cond.L.Unlock()
-	return armGate.n, len(armGate.queue)
-}
-
-// Once another workspace waits, a new same-workspace leg queues behind it instead of joining the holders.
-func TestArmGateWaitingWorkspaceIsNotStarved(t *testing.T) {
-	armRateFixture(t, nil, nil)
-	release := holdArm(t, "dev")
-	var mu sync.Mutex
-	var order []string
+	t.Cleanup(func() { armPrepare = old })
 	var wg sync.WaitGroup
-	enter := func(arm string) {
+	for _, arm := range []string{"dev", "qa"} {
 		wg.Go(func() {
-			_, _ = (&armRetry{tried: []string{arm}}).exec(t.Context(), nil, func(context.Context, *agent.Prepared) (wire.Result, error) {
-				mu.Lock()
-				order = append(order, arm)
-				mu.Unlock()
-				return wire.Result{}, nil
-			})
+			_, _ = (&armRetry{tried: []string{arm}}).prepare(t.Context(), newClient(), agent.RunOptions{}, nil)
 		})
-		time.Sleep(50 * time.Millisecond) // let it reach the gate before the next one starts
 	}
-	enter("qa")
-	enter("dev")
-	mu.Lock()
-	early := slices.Clone(order)
-	mu.Unlock()
-	release()
+	var got []string
+	for range 2 {
+		select {
+		case arm := <-entered:
+			got = append(got, arm)
+		case <-time.After(5 * time.Second): // reached only when an attempt is held back by the other
+			t.Fatalf("attempts entered %v, want both workspaces in Prepare before either finishes", got)
+		}
+	}
+	open()
 	wg.Wait()
-	if len(early) != 0 || !slices.Equal(order, []string{"qa", "dev"}) {
-		t.Errorf("ran %v before release, %v overall; want none, then qa before dev", early, order)
+	if slices.Sort(got); !slices.Equal(got, []string{"dev", "qa"}) {
+		t.Errorf("attempts ran on %v, want dev and qa each on its own", got)
 	}
 }
 
@@ -468,11 +379,11 @@ func retryUnitFixture(t *testing.T) {
 		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
 	t.Setenv(agentconfig.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "")
-	oldFind, oldLive, oldCool, oldAuto := armFindings, armLive, armCooling, autoPickedArm
+	oldFind, oldLive, oldCool := armFindings, armLive, armCooling
 	armFindings = noCredential(nil)
 	armLive = func([]*providers.Provider) map[string]int { return nil }
 	armCooling = func(*providers.Provider, time.Time) bool { return false }
-	t.Cleanup(func() { armFindings, armLive, armCooling, autoPickedArm = oldFind, oldLive, oldCool, oldAuto })
+	t.Cleanup(func() { armFindings, armLive, armCooling = oldFind, oldLive, oldCool })
 }
 
 func retryUnit(t *testing.T, run func(*testing.T)) {

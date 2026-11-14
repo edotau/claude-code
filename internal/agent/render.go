@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -55,7 +56,7 @@ func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool,
 	if err != nil {
 		return nil, false, fmt.Errorf("generate: %w", err)
 	}
-	drift, err = prepareSelectedConfigs(agents, reg, sel, home, o, out)
+	drift, err = prepareSelectedConfigs(context.Background(), agents, reg, sel, home, o, out)
 	if err != nil {
 		return nil, drift, err
 	}
@@ -66,13 +67,13 @@ func skipConfigHomes(o agentconfig.RenderOptions) bool {
 	return !o.ForceHomes && !paths.ConfigDirIsDefault() && !paths.ConfigDirIsInstall()
 }
 
-func prepareSelectedConfigs(agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+func prepareSelectedConfigs(ctx context.Context, agents []string, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	if err := knownAgents(agents); err != nil {
 		return false, err
 	}
 	var drift bool
 	for _, name := range agents {
-		d, err := SchemaFor(name).Eng().Render(reg, sel, home, o, out)
+		d, err := SchemaFor(name).Eng().Render(ctx, reg, sel, home, o, out)
 		if err != nil {
 			return drift, err
 		}

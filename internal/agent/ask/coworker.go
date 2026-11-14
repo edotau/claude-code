@@ -24,36 +24,40 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// ApplyCoworker exports confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
-func ApplyCoworker(value, profile, agentName, model, fallback string) error {
-	autoPickedArm = ""
-	ctx := context.Background()
+// ApplyCoworker is ctx with the confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
+func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
 	ip, iprof, err := router.CoworkerContext(ctx)
 	if err != nil {
-		return err
+		return ctx, err
 	}
 	provider, p, err := router.ParseCoworker(value)
 	switch {
 	case err != nil:
-		return err
+		return ctx, err
 	case provider == "": // an inherited non-Databricks confinement is re-checked for agentName; a workspace was applied
 		if ip == "" || ip == router.RouteDatabricks {
-			return nil
+			return ctx, nil
 		}
-		return applyProvider(ip, iprof, agentName)
+		return applyProvider(ctx, ip, iprof, agentName)
 	}
 	if err := checkLeave(ip, iprof, provider, p); err != nil {
-		return err
+		return ctx, err
 	}
 	if provider != router.RouteDatabricks {
-		return applyProvider(provider, cmp.Or(p, iprof), agentName)
+		return applyProvider(ctx, provider, cmp.Or(p, iprof), agentName)
 	}
 	return applyArm(ctx, p, profile, agentName, model, fallback)
 }
 
-// exportConfinement sets $COWORKER_OVERLAY to provider[:p] alone: the router and nested dispatches read it there.
-func exportConfinement(provider, p string) error {
-	return proc.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, p))
+// withValues is ctx whose run values are set laid over its own: what the run exports, with nothing set process-wide.
+func withValues(ctx context.Context, set proc.Values) context.Context {
+	_, values := agent.RunValues(ctx, nil)
+	return proc.WithValues(ctx, values.Merge(set))
+}
+
+// confinement is $COWORKER_OVERLAY as provider[:p] alone: the router and nested dispatches read it there.
+func confinement(provider, p string) proc.Values {
+	return proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, p)}
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -66,19 +70,19 @@ func checkLeave(ip, iprof, provider, p string) error {
 	return nil
 }
 
-// applyProvider checks profile p and agentName against a non-Databricks provider, then exports the confinement.
-func applyProvider(provider, p, agentName string) error {
+// applyProvider checks profile p and agentName against a non-Databricks provider, then sets the confinement on ctx.
+func applyProvider(ctx context.Context, provider, p, agentName string) (context.Context, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return fmt.Errorf("overlay provider %s: %w", provider, err)
+		return ctx, fmt.Errorf("overlay provider %s: %w", provider, err)
 	}
 	if row := reg.Providers[p]; p != "" && (row == nil || row.Provider != provider) {
-		return fmt.Errorf("overlay profile: not a profile of %s", provider) // never echo the document's value
+		return ctx, fmt.Errorf("overlay profile: not a profile of %s", provider) // never echo the document's value
 	}
 	if err := canUse(reg, agentName, provider); err != nil {
-		return err
+		return ctx, err
 	}
-	return exportConfinement(provider, p)
+	return withValues(ctx, confinement(provider, p)), nil
 }
 
 // canUse refuses a table agent with no account on provider; another agent name (a batch's "") passes.
@@ -104,7 +108,7 @@ func confinedAgent(ctx context.Context, agentName string) error {
 
 // confineLine fills a batch line's untyped lead for its own agent, as checkArm and resolveLead do for a single ask.
 func confineLine(ctx context.Context, agentName string, req agent.RunOptions) (agent.RunOptions, error) {
-	err := cmp.Or(checkNative(ctx, req.Native), confinedAgent(ctx, agentName), CheckArm(agentName, req.Provider, "", req.Model, false))
+	err := cmp.Or(checkNative(ctx, req.Native), confinedAgent(ctx, agentName), CheckArm(ctx, agentName, req.Provider, "", req.Model, false))
 	if err != nil {
 		return req, err // the line's own profile and model, checked like the typed flags
 	}
@@ -133,29 +137,21 @@ func routedLead(q agent.RouteReq, readsProvider bool) (lead, provider string, er
 	return lead, "", nil
 }
 
-// autoPickedArm retains auto intent after confinement exports the selected workspace.
-var autoPickedArm string
+// armValues is the run values of workspace p: its confinement and session profile.
+func armValues(p string) proc.Values {
+	return confinement(router.RouteDatabricks, p).With(providers.EnvSessionProfile, p)
+}
 
-// applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks the row and exports it.
-func applyArm(ctx context.Context, p, profile, agentName, model, fallback string) error {
-	auto := p == router.AutoArm && router.ArmProfileContext(ctx) == ""
+// applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks it, sets it on ctx.
+func applyArm(ctx context.Context, p, profile, agentName, model, fallback string) (context.Context, error) {
 	p, explicit, err := armWorkspace(ctx, p, profile, agentName, model)
 	if err != nil {
-		return err
+		return ctx, err
 	}
 	if err := checkArmRow(ctx, p, explicit, fallback); err != nil {
-		return err
+		return ctx, err
 	}
-	if err := exportConfinement(router.RouteDatabricks, p); err != nil {
-		return err
-	}
-	if err := proc.Setenv(providers.EnvSessionProfile, p); err != nil {
-		return err
-	}
-	if auto {
-		autoPickedArm = p
-	}
-	return nil
+	return withValues(ctx, armValues(p)), nil
 }
 
 // armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.
@@ -346,8 +342,7 @@ func bareArm(ctx context.Context, profile string) string {
 }
 
 // CheckArm refuses a flag taking the dispatch out of an overlay's provider[:profile]; nil outside a confinement.
-func CheckArm(agentName, profile, provider, model string, direct bool) error {
-	ctx := context.Background()
+func CheckArm(ctx context.Context, agentName, profile, provider, model string, direct bool) error {
 	arm := router.ArmProfileContext(ctx)
 	if arm == "" {
 		return confineFlags(ctx, profile, provider, model)
@@ -434,30 +429,29 @@ func outsideRow(ctx context.Context, reg *providers.Registry, name, cp, cprof st
 	return p != nil && (p.Provider != cp || (cprof != "" && name != cprof))
 }
 
-// overlayEgress exports an overlay's remote as the egress host, like the global --remote; one already set must agree.
-func overlayEgress(h string) error {
+// overlayEgress is ctx with an overlay's remote as the egress host (like --remote); one already set must agree.
+func overlayEgress(ctx context.Context, h string) (context.Context, error) {
 	if h == "" {
-		return nil
+		return ctx, nil
 	}
 	h, err := remote.ResolveAuto(h)
 	if err != nil {
-		return fmt.Errorf("overlay remote: %w", err)
+		return ctx, fmt.Errorf("overlay remote: %w", err)
 	}
 	if err := egress.Valid(h); err != nil {
-		return fmt.Errorf("overlay remote: %w", err)
+		return ctx, fmt.Errorf("overlay remote: %w", err)
 	}
-	if cur := egress.HostContext(context.Background()); cur != "" && cur != h {
-		return fmt.Errorf("overlay remote %s: requests already leave through %s", h, cur)
+	if cur := egress.HostContext(ctx); cur != "" && cur != h {
+		return ctx, fmt.Errorf("overlay remote %s: requests already leave through %s", h, cur)
 	}
-	return proc.Setenv(egress.EnvHost, h)
+	return withValues(ctx, proc.Values{egress.EnvHost: h}), nil
 }
 
-// carryOverlay re-exports the loaded document for --job relaunches as JSON, its remote and confinement resolved.
-func carryOverlay(ov agentconfig.Overlay) error {
+// carryOverlay is ctx with the loaded document for --job relaunches as JSON, its remote and confinement resolved.
+func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context, error) {
 	if !ov.Routed() && ov.Empty() {
-		return nil
+		return ctx, nil
 	}
-	ctx := context.Background()
 	if ov.Remote != "" {
 		ov.Remote = egress.HostContext(ctx)
 	}
@@ -465,7 +459,7 @@ func carryOverlay(ov agentconfig.Overlay) error {
 	ov.Provider, ov.Profile, _ = router.CoworkerContext(ctx)
 	doc, err := json.Marshal(ov) // set holds names and @secret refs: validation refused credential values
 	if err != nil {
-		return err
+		return ctx, err
 	}
-	return proc.Setenv(agentconfig.OverlayVar, string(doc))
+	return withValues(ctx, proc.Values{agentconfig.OverlayVar: string(doc)}), nil
 }

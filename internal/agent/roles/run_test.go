@@ -52,7 +52,7 @@ func fakeStream(t *testing.T, failOn ...string) *[]agent.RunOptions {
 func TestRoleExploreLegsOnePerPart(t *testing.T) {
 	vaulttest.Use(t)
 	r := Role{Name: "explore", Agent: "copilot"}
-	legs := Legs(r, Request{Task: "t", Parts: []string{"a", "b"}, WorkDir: "/w", Web: true})
+	legs := Legs(t.Context(), r, Request{Task: "t", Parts: []string{"a", "b"}, WorkDir: "/w", Web: true})
 	if len(legs) != 2 || legs[0].Label != "a" || legs[1].Label != "b" {
 		t.Fatalf("want legs a,b; got %+v", legs)
 	}
@@ -70,7 +70,7 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 		if r.Name == "explore" {
 			r.Agent = "copilot"
 		}
-		legs := Legs(r, Request{Task: "t", Parts: []string{"a"}, WorkDir: "/w", OutputSchema: schema})
+		legs := Legs(t.Context(), r, Request{Task: "t", Parts: []string{"a"}, WorkDir: "/w", OutputSchema: schema})
 		if len(legs) == 0 {
 			t.Fatalf("%s: no legs", tc.role)
 		}
@@ -84,7 +84,7 @@ func TestRoleLegsCarryOutputSchema(t *testing.T) {
 
 func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 	vaulttest.Use(t)
-	legs := Legs(Role{Name: "explore", Agent: "codex"}, Request{Task: "whole", Web: false})
+	legs := Legs(t.Context(), Role{Name: "explore", Agent: "codex"}, Request{Task: "whole", Web: false})
 	if len(legs) != 1 || legs[0].Opts.Prompt != prompt("whole", false) {
 		t.Fatalf("want one leg on the task; got %+v", legs)
 	}
@@ -94,7 +94,7 @@ func TestRoleExploreNoPartsUsesTask(t *testing.T) {
 func TestLegsCarryAutoArm(t *testing.T) {
 	vaulttest.Use(t)
 	for auto, want := range map[string]bool{"dev": true, "": false} {
-		for _, l := range Legs(mustRole(t, "fleet"), Request{Task: "t", Auto: auto}) {
+		for _, l := range Legs(t.Context(), mustRole(t, "fleet"), Request{Task: "t", Auto: auto}) {
 			if l.Opts.AutoArm != want {
 				t.Errorf("Auto %q: leg %s AutoArm = %v, want %v", auto, l.Label, l.Opts.AutoArm, want)
 			}
@@ -104,7 +104,7 @@ func TestLegsCarryAutoArm(t *testing.T) {
 
 func TestRoleFleetOneLeg(t *testing.T) {
 	vaulttest.Use(t)
-	legs := Legs(mustRole(t, "fleet"), Request{Task: "do it"})
+	legs := Legs(t.Context(), mustRole(t, "fleet"), Request{Task: "do it"})
 	if len(legs) != 1 || legs[0].Label != "fleet" {
 		t.Fatalf("want one fleet leg; got %+v", legs)
 	}
@@ -116,7 +116,7 @@ func TestRoleFleetOneLeg(t *testing.T) {
 func TestRoleCompareUnknownModelPreFailed(t *testing.T) {
 	vaulttest.Use(t)
 	seen := fakeStream(t)
-	legs := Legs(mustRole(t, "compare"), Request{Task: "q", Models: []string{"claude-haiku-5-5", "bogus"}})
+	legs := Legs(t.Context(), mustRole(t, "compare"), Request{Task: "q", Models: []string{"claude-haiku-5-5", "bogus"}})
 	if legs[0].Err != "" || legs[1].Err != "not on the opencode menu" {
 		t.Fatalf("errs: %q %q", legs[0].Err, legs[1].Err)
 	}
@@ -150,7 +150,7 @@ func TestReportTextPropagatesWriteError(t *testing.T) {
 func TestRoleCompareDefaultsToRoleModels(t *testing.T) {
 	vaulttest.Use(t)
 	r := Role{Name: "compare", Agent: "opencode", Models: []string{"kimi-k3"}}
-	legs := Legs(r, Request{Task: "q"})
+	legs := Legs(t.Context(), r, Request{Task: "q"})
 	if len(legs) != 1 || legs[0].Opts.Model != "kimi-k3" || legs[0].Opts.Prompt != "q" {
 		t.Fatalf("got %+v", legs)
 	}
@@ -248,7 +248,7 @@ func TestLegsCarryRolePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"explore", "fleet", "compare"} {
-		legs := Legs(Role{Name: name, Agent: "codex", Models: []string{"m"}, Permissions: p}, Request{Task: "t"})
+		legs := Legs(t.Context(), Role{Name: name, Agent: "codex", Models: []string{"m"}, Permissions: p}, Request{Task: "t"})
 		if len(legs) == 0 || len(legs[0].Opts.Permissions.Deny) != 1 {
 			t.Errorf("%s legs %+v lost the role's deny", name, legs)
 		}
@@ -264,7 +264,7 @@ func TestLegsAddFlagPermissionsAndFallbackToRole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legs := Legs(Role{Name: "fleet", Agent: "codex", Permissions: role}, Request{Task: "t", Permissions: flags, Fallback: "none"})
+	legs := Legs(t.Context(), Role{Name: "fleet", Agent: "codex", Permissions: role}, Request{Task: "t", Permissions: flags, Fallback: "none"})
 	got := legs[0].Opts
 	if got.Permissions.Mode != "auto" || len(got.Permissions.Deny) != 1 || len(got.Permissions.Allow) != 1 || got.Fallback != "none" {
 		t.Errorf("leg opts %+v: want flag mode, one deduped deny, the added allow and fallback none", got)
@@ -276,7 +276,7 @@ func TestLegsFleetOnUnsupportedAgentRuns(t *testing.T) {
 	vaulttest.Use(t)
 	seen := fakeStream(t)
 	r := Role{Name: "fleet", Agent: "codex"}
-	legs := Legs(r, Request{Task: "t"})
+	legs := Legs(t.Context(), r, Request{Task: "t"})
 	if len(legs) != 1 || legs[0].Err != "" {
 		t.Fatalf("want one runnable leg; got %+v", legs)
 	}
@@ -290,7 +290,7 @@ func TestLegsFleetOnUnsupportedAgentRuns(t *testing.T) {
 func TestRunLegsOwnValuesSnapshots(t *testing.T) {
 	vaulttest.Use(t)
 	parent := proc.Values{"SYN_RUN": "parent"}
-	legs := Legs(mustRole(t, "compare"), Request{Task: "t", Models: []string{"kimi-k3", "gpt-6-1-sol"}, Values: parent})
+	legs := Legs(t.Context(), mustRole(t, "compare"), Request{Task: "t", Models: []string{"kimi-k3", "gpt-6-1-sol"}, Values: parent})
 	var ready sync.WaitGroup
 	ready.Add(len(legs))
 	var mu sync.Mutex
@@ -321,7 +321,7 @@ func TestLegsOverlaySeesRequestValues(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv(agentconfig.OverlayVar, "") // the ambient value must not stand in for the request's
 	q := Request{Task: "t", Values: proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`}}
-	for _, l := range Legs(mustRole(t, "fleet"), q) {
+	for _, l := range Legs(t.Context(), mustRole(t, "fleet"), q) {
 		if !slices.Contains(l.Opts.Unset, agentconfig.OverlayVar) {
 			t.Errorf("leg %s: Unset = %v, want %s", l.Label, l.Opts.Unset, agentconfig.OverlayVar)
 		}
@@ -353,7 +353,7 @@ func TestRoleVaultOverlayMovesExplore(t *testing.T) {
 	if _, err := Lookup("fleet"); err == nil {
 		t.Error("overlay replaces the table: fleet must be unknown")
 	}
-	if got := Legs(r, Request{Task: "x"})[0].Err; !strings.Contains(got, "explore on opencode") {
+	if got := Legs(t.Context(), r, Request{Task: "x"})[0].Err; !strings.Contains(got, "explore on opencode") {
 		t.Errorf("prompt-only overlay must be refused: %q", got)
 	}
 }
@@ -491,7 +491,7 @@ func TestExploreRejectsPromptOnlyAgents(t *testing.T) {
 			_, err = options(agent.RunOptions{Agent: vendor}, "inspect", true)
 			assertExploreRefusal(t, err, want)
 			r := Role{Name: "explore", Agent: vendor}
-			legs := Legs(r, Request{Task: "inspect", WorkDir: "/work", Web: true})
+			legs := Legs(t.Context(), r, Request{Task: "inspect", WorkDir: "/work", Web: true})
 			if len(legs) != 1 {
 				t.Fatalf("want one refused leg, got %+v", legs)
 			}

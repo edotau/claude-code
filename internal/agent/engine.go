@@ -40,21 +40,21 @@ type Driver interface {
 	// LoginServes reports whether p's sign-in is one this CLI can run on.
 	LoginServes(p *providers.Provider) bool
 	// Login wires the CLI's own subscription sign-in.
-	Login(p *providers.Provider, model string, h *Headless) (env, argv []string, err error)
+	Login(ctx context.Context, p *providers.Provider, model string, h *Headless) (env, argv []string, err error)
 	// Wire builds env and argv for a resolved harness route.
 	Wire(ctx context.Context, r WireRoute, h *Headless) (env, argv []string, err error)
 	// FallbackTarget is the CLI's own route to a working credential when the session provider has none.
-	FallbackTarget(reg *providers.Registry) (providers.Target, string, bool)
+	FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool)
 	// DescribeRoute reports the fallback dispatch the CLI resolves to today.
-	DescribeRoute(reg *providers.Registry) RouteInfo
+	DescribeRoute(ctx context.Context, reg *providers.Registry) RouteInfo
 	// PreRoute resolves the target ahead of the session provider; ok reports the CLI decided (err may be ErrOwnLogin).
-	PreRoute(reg *providers.Registry, explicit bool) (t providers.Target, note string, ok bool, err error)
+	PreRoute(ctx context.Context, reg *providers.Registry, explicit bool) (t providers.Target, note string, ok bool, err error)
 	// Gate vets a target the session or the caller named, returning the target to run and a notice.
-	Gate(reg *providers.Registry, t providers.Target) (providers.Target, string, error)
+	Gate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
 	// GateExplicit is gate for a caller-named provider or model, plus the CLI's own quota and tier handling.
-	GateExplicit(req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
+	GateExplicit(ctx context.Context, req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
 	// NoRoute is the error when neither the session nor the CLI's fallback chain resolved a target; nil keeps t.
-	NoRoute(reg *providers.Registry, t providers.Target) error
+	NoRoute(ctx context.Context, reg *providers.Registry, t providers.Target) error
 	// FallbackNote is the notice that replaces the generic one for fallback target ft; ok is false for the generic text.
 	FallbackNote(ft providers.Target, note string) (string, bool)
 	// FollowsPin reports whether the CLI runs on session provider p.
@@ -62,11 +62,11 @@ type Driver interface {
 	// LaunchEnv is the env every launch of the CLI carries ahead of the agent spec's.
 	LaunchEnv() []string
 	// Presence is the CLI-specific no-network readiness check for a routed cell.
-	Presence(c router.Cell) error
+	Presence(ctx context.Context, c router.Cell) error
 	// OwnLogin is the headless form of the CLI running on its own stored login.
-	OwnLogin(h Headless) (env, argv []string, err error)
+	OwnLogin(ctx context.Context, h Headless) (env, argv []string, err error)
 	// Render writes the CLI's config files and reports drift.
-	Render(reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
+	Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
 	// ConfigPaths lists the files render writes, for revert.
 	ConfigPaths(home string) ([]agentconfig.LabelPath, error)
 	// LaunchArgs applies the -f file to the launch argv.
@@ -78,7 +78,7 @@ type Driver interface {
 	// RegistryLaunch builds the native-registry launch NativeRegistry reported; dry mints and writes nothing.
 	RegistryLaunch(ctx context.Context, reg *providers.Registry, t providers.Target, args []string, dry bool) (RegistryLaunch, error)
 	// RouteDetail is the "<agent> route" doctor detail; ok is false when there is none.
-	RouteDetail() (detail string, ok bool)
+	RouteDetail(ctx context.Context) (detail string, ok bool)
 	// RenderSettings applies s to a built launch; emulated names what a shim honoured; cleanup is never nil.
 	RenderSettings(ctx context.Context, s Settings, env, argv []string) (outEnv, outArgv, emulated []string, cleanup func(), err error)
 }
@@ -174,23 +174,23 @@ func (BaseEngine) RanModel(t providers.Target) string { return t.Model }
 
 func (b BaseEngine) LoginServes(p *providers.Provider) bool { return p.Auth.Login == b.name }
 
-func (b BaseEngine) DescribeRoute(*providers.Registry) RouteInfo {
+func (b BaseEngine) DescribeRoute(context.Context, *providers.Registry) RouteInfo {
 	return RouteInfo{Agent: b.name, Route: RouteNone, Reason: "no fallback chain defined for " + b.name}
 }
 
-func (BaseEngine) PreRoute(*providers.Registry, bool) (providers.Target, string, bool, error) {
+func (BaseEngine) PreRoute(context.Context, *providers.Registry, bool) (providers.Target, string, bool, error) {
 	return providers.Target{}, "", false, nil
 }
 
-func (BaseEngine) Gate(_ *providers.Registry, t providers.Target) (providers.Target, string, error) {
+func (BaseEngine) Gate(_ context.Context, _ *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	return t, "", nil
 }
 
-func (BaseEngine) GateExplicit(_ RunOptions, _ *providers.Registry, t providers.Target) (providers.Target, string, error) {
+func (BaseEngine) GateExplicit(_ context.Context, _ RunOptions, _ *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	return t, "", nil
 }
 
-func (BaseEngine) NoRoute(*providers.Registry, providers.Target) error { return nil }
+func (BaseEngine) NoRoute(context.Context, *providers.Registry, providers.Target) error { return nil }
 
 func (BaseEngine) FallbackNote(providers.Target, string) (string, bool) { return "", false }
 
@@ -198,9 +198,9 @@ func (BaseEngine) FollowsPin(*providers.Provider) bool { return true }
 
 func (BaseEngine) LaunchEnv() []string { return nil }
 
-func (BaseEngine) Presence(router.Cell) error { return nil }
+func (BaseEngine) Presence(context.Context, router.Cell) error { return nil }
 
-func (b BaseEngine) OwnLogin(h Headless) ([]string, []string, error) {
+func (b BaseEngine) OwnLogin(_ context.Context, h Headless) ([]string, []string, error) {
 	if err := CheckPrompt(h); err != nil {
 		return nil, nil, err
 	}
@@ -215,7 +215,7 @@ func CheckPrompt(h Headless) error {
 	return nil
 }
 
-func (BaseEngine) Render(*providers.Registry, providers.Selection, string, agentconfig.RenderOptions, io.Writer) (bool, error) {
+func (BaseEngine) Render(context.Context, *providers.Registry, providers.Selection, string, agentconfig.RenderOptions, io.Writer) (bool, error) {
 	return false, nil
 }
 
@@ -236,7 +236,7 @@ func (b BaseEngine) RegistryLaunch(context.Context, *providers.Registry, provide
 	return RegistryLaunch{}, fmt.Errorf("%s has no native model registry", b.name)
 }
 
-func (BaseEngine) RouteDetail() (string, bool) { return "", false }
+func (BaseEngine) RouteDetail(context.Context) (string, bool) { return "", false }
 
 // RenderSettings appends the CLI's LaunchEnv and Record.Launch env (route keys win) and, interactive only, its args.
 func (b BaseEngine) RenderSettings(_ context.Context, s Settings, env, argv []string) ([]string, []string, []string, func(), error) {
@@ -250,7 +250,7 @@ func (b BaseEngine) RenderSettings(_ context.Context, s Settings, env, argv []st
 	return RouteEnvLast(launchEnv, env), argv, nil, func() {}, nil
 }
 
-func (b BaseEngine) Login(*providers.Provider, string, *Headless) ([]string, []string, error) {
+func (b BaseEngine) Login(context.Context, *providers.Provider, string, *Headless) ([]string, []string, error) {
 	return nil, nil, errUnknownAgent(b.name)
 }
 
@@ -258,7 +258,7 @@ func (b BaseEngine) Wire(context.Context, WireRoute, *Headless) ([]string, []str
 	return nil, nil, errUnknownAgent(b.name)
 }
 
-func (BaseEngine) FallbackTarget(*providers.Registry) (providers.Target, string, bool) {
+func (BaseEngine) FallbackTarget(context.Context, *providers.Registry) (providers.Target, string, bool) {
 	return providers.Target{}, "", false
 }
 
@@ -328,7 +328,9 @@ type RouteInfo struct {
 }
 
 // DescribeRoute reports the fallback dispatch opencode|copilot resolves to; any other agent reports RouteNone.
-func (s Schema) DescribeRoute(reg *providers.Registry) RouteInfo { return s.Eng().DescribeRoute(reg) }
+func (s Schema) DescribeRoute(ctx context.Context, reg *providers.Registry) RouteInfo {
+	return s.Eng().DescribeRoute(ctx, reg)
+}
 
 // RouteTarget converts a resolved RouteInfo into a Target; ok is false for RouteNone or a provider the registry lost.
 func RouteTarget(reg *providers.Registry, ri RouteInfo) (providers.Target, bool) {
@@ -351,8 +353,8 @@ func RouteErr(ri RouteInfo) error {
 }
 
 // RouteDetail is the agent's doctor "<agent> route" detail; ok is false for an unknown agent or a registry load error.
-func RouteDetail(name string) (detail string, ok bool) {
-	return SchemaFor(name).Eng().RouteDetail()
+func RouteDetail(ctx context.Context, name string) (detail string, ok bool) {
+	return SchemaFor(name).Eng().RouteDetail(ctx)
 }
 
 // LoadSelection is the registry and its unpinned selection; ok is false when the registry does not load.
@@ -366,24 +368,24 @@ func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr e
 }
 
 // ResolveTarget is sel's target when it serves the agent, else (explicit false) its own login or a keyed fallback.
-func (s Schema) ResolveTarget(reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+func (s Schema) ResolveTarget(ctx context.Context, reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
 	name, e := s.Name, s.Eng()
 	t, ok := sel.Aliases[models.Opus]
 	if !ok {
 		return providers.Target{}, "", fmt.Errorf("%s: no opus target resolved", name)
 	}
 	// A CLI's own login is preferred ahead of a session provider that could serve it; an explicit --provider still wins.
-	if pt, pnote, ok, perr := e.PreRoute(reg, explicit); ok {
+	if pt, pnote, ok, perr := e.PreRoute(ctx, reg, explicit); ok {
 		return pt, pnote, perr
 	}
 	if explicit || (CanServe(name, t.Provider) && e.FollowsPin(t.Provider)) {
-		return e.Gate(reg, t)
+		return e.Gate(ctx, reg, t)
 	}
-	if ft, fallbackNote, ok := e.FallbackTarget(reg); ok {
+	if ft, fallbackNote, ok := e.FallbackTarget(ctx, reg); ok {
 		return s.fallbackTarget(t, ft, fallbackNote)
 	}
 	// opencode and copilot have a defined fallback chain (DescribeRoute); nothing in it resolved either.
-	if err := e.NoRoute(reg, t); err != nil {
+	if err := e.NoRoute(ctx, reg, t); err != nil {
 		return providers.Target{}, "", err
 	}
 	return t, "", nil

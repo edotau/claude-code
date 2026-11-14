@@ -58,7 +58,7 @@ func onAnthropic(t providers.Target) bool {
 
 // gateOffAnthropic gates a --tools run off Anthropic (read-only runs on any route); plan and --safe-mode keep theirs.
 func gateOffAnthropic(ctx context.Context, req agent.RunOptions) (context.Context, agent.RunOptions) {
-	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || onAnthropic(launchTarget(req)) && !req.ReadOnly {
+	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || onAnthropic(launchTarget(ctx, req)) && !req.ReadOnly {
 		return ctx, req
 	}
 	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, agent.ReadOnlyAllow) { // a caller that skipped checkRun
@@ -114,9 +114,9 @@ func editPair(r agent.Rule) (agent.Rule, bool) {
 }
 
 // refuseUngatedBypass keeps bypassPermissions to a gated launch or a bare --autonomous one on Anthropic.
-func refuseUngatedBypass(args []string, req agent.RunOptions) error {
+func refuseUngatedBypass(ctx context.Context, args []string, req agent.RunOptions) error {
 	if req.Gate || !slices.Contains(args, "bypassPermissions") ||
-		req.Autonomous && req.Permissions.IsZero() && onAnthropic(launchTarget(req)) {
+		req.Autonomous && req.Permissions.IsZero() && onAnthropic(launchTarget(ctx, req)) {
 		return nil
 	}
 	return retry.Fatal("claude", errors.New("bypassPermissions without the permission-gate refused"))

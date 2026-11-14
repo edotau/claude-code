@@ -49,7 +49,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 		return t, own, note, err
 	}
 	t = servedTarget(s.Name, t)
-	t, modelNote := resolveAgentModelContext(valuesContext(context.Background(), req.Values), ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote := ResolveAgentModel(valuesContext(context.Background(), req.Values), ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
 	}
@@ -58,9 +58,10 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 
 // targetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
+	ctx := valuesContext(context.Background(), req.Values)
 	reg, loadErr := providers.Load()
 	if req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
-		if req.Provider, err = pinnedProfile(valuesContext(context.Background(), req.Values), s.Name); err != nil {
+		if req.Provider, err = PinnedProfile(ctx, s.Name); err != nil {
 			return t, false, "", true, err
 		}
 	}
@@ -70,11 +71,11 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 	reg, t, err = resolveIn(reg, req)
 	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
 		if err == nil { // an explicit login still passes the CLI's own gate
-			t, note, err = s.Eng().GateExplicit(req, reg, t)
+			t, note, err = s.Eng().GateExplicit(ctx, req, reg, t)
 		}
 		return t, false, note, true, err
 	}
-	return s.sessionTargetContext(valuesContext(context.Background(), req.Values), reg, t)
+	return s.sessionTargetContext(ctx, reg, t)
 }
 
 func (s Schema) sessionTargetContext(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
@@ -82,7 +83,7 @@ func (s Schema) sessionTargetContext(ctx context.Context, reg *providers.Registr
 	if err != nil {
 		return t, false, "", true, err
 	}
-	ft, note, err := s.ResolveTarget(reg, sel, false)
+	ft, note, err := s.ResolveTarget(ctx, reg, sel, false)
 	own := errors.Is(err, ErrOwnLogin)
 	if own {
 		err = nil
@@ -131,7 +132,7 @@ func (s Schema) checkPromptCap(prompt string) error {
 
 // prepare resolves req's route and headless argv; the Result comes back populated even on error.
 func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error) {
-	ctx, req.Values = runValues(ctx, req.Values)
+	ctx, req.Values = RunValues(ctx, req.Values)
 	name := v.Name()
 	s := SchemaFor(name)
 	t, own, err := s.Target(req)
@@ -156,7 +157,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	}
 	h := cliHeadless(s, p.Prompt, req)
 	if own {
-		p.Env, p.Argv, err = v.OwnLogin(h)
+		p.Env, p.Argv, err = v.OwnLogin(ctx, h)
 	} else {
 		p.Env, p.Argv, err = s.ConfigureHeadless(ctx, ct, h)
 	}

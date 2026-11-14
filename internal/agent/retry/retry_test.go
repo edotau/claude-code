@@ -443,7 +443,7 @@ func newPathRun(t *testing.T) *pathRun {
 
 func (r *pathRun) do(ctx context.Context, fn func(via string) *Error) *Error {
 	return Do(ctx, r.policy, func(c context.Context, _ int) *Error {
-		via := egress.Via(c)
+		via := egress.HostContext(c)
 		r.calls = append(r.calls, via)
 		return fn(via)
 	})

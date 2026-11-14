@@ -326,7 +326,7 @@ func previewProfilesContext(ctx context.Context, q RouteReq, lead string) []*pro
 	reg := loadRegistryWarn()
 	typed, _, _ := strings.Cut(q.Model, ":")
 	names := []string{typed, router.ArmProfileContext(ctx), q.Profile, lead}
-	if pins, err := AgentPins(); err == nil {
+	if pins, err := AgentPinsContext(ctx); err == nil {
 		names = append(names, pins[q.Agent].Profile)
 	}
 	var out []*providers.Provider

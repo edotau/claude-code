@@ -554,7 +554,7 @@ func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
 	checks, _ := runChecks(context.Background())
 	for _, vendor := range []string{"codex", "gemini", "opencode", "copilot"} {
-		detail, ok := agent.RouteDetail(vendor)
+		detail, ok := agent.RouteDetail(context.Background(), vendor)
 		c := findCheck(checks, vendor+" route")
 		switch {
 		case !ok:
@@ -570,7 +570,7 @@ func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 // An unknown vendor reports ok=false, never a stale/zero detail string.
 func TestRouteDetailUnknownVendor(t *testing.T) {
 	doctorScratch(t)
-	if detail, ok := agent.RouteDetail("not-a-vendor"); ok || detail != "" {
+	if detail, ok := agent.RouteDetail(context.Background(), "not-a-vendor"); ok || detail != "" {
 		t.Errorf("RouteDetail(unknown) = (%q, %v), want (\"\", false)", detail, ok)
 	}
 }

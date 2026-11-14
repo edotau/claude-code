@@ -69,14 +69,6 @@ func SessionBase(base, provider string) string { return base + "/p/" + provider 
 // ViaPrefix opens a router path whose upstream workspace requests leave through an egress host: /via/<host>/….
 const ViaPrefix = "/via/"
 
-// ViaBase is base, plus /via/<host> when this process runs under an egress host (`claude-code --remote`).
-func ViaBase(base string) string {
-	if h := egress.Host(); h != "" {
-		return base + ViaPrefix + url.PathEscape(h)
-	}
-	return base
-}
-
 // ViaBaseContext uses the request's pinned host, including direct routing, before the run's egress default.
 func ViaBaseContext(ctx context.Context, base string) string {
 	if h := egress.HostContext(ctx); h != "" {

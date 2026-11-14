@@ -208,8 +208,7 @@ func liveRequest(ctx context.Context, s *askState, perms agent.Permissions, name
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}
 }
 
-func startLive(s *askState, perms agent.Permissions, name, as, format string) int {
-	ctx := context.Background()
+func startLive(ctx context.Context, s *askState, perms agent.Permissions, name, as, format string) int {
 	req := liveRequest(ctx, s, perms, name)
 	req.Identity = as
 	if err := agent.CheckCapabilities(name, req); err != nil {
