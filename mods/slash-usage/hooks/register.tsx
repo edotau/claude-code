@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PromptDecoration, Register } from 'claude-code'
+import type { EngineInterface, Hook, MatchedHook, PromptDecoration, Register } from 'claude-code'
 
 import type { Part, Usage } from '../types'
 
@@ -243,78 +243,86 @@ async function reindex($: EngineInterface): Promise<void> {
   last = undefined
 }
 
+const onStart: Hook<'session.start'> = async ($, e, next) => {
+  await reindex($)
+  return next(e)
+}
+
+const onSlashComplete: MatchedHook<'prompt.autocomplete', { token: RegExp }> = async ($, e, next) => {
+  const base = await next(e)
+  if (e.text.slice(0, e.start).trim() === '') return base // a leading slash is the engine's own typeahead
+  const prefix = e.token.slice(1).toLowerCase()
+  const rows = [...descriptions]
+    .filter(([name]) => name.toLowerCase().startsWith(prefix))
+    .slice(0, MAX_SUGGESTIONS)
+    .map(([name, description]) => ({ text: `/${name}`, description }))
+  return { suggestions: [...base.suggestions, ...rows] }
+}
+
+const onComplete: Hook<'prompt.autocomplete'> = async ($, e, next) => {
+  const base = await next(e)
+  const c = e.token.startsWith('/') ? undefined : contextAt(e.text, e.cursor)
+  return c ? { suggestions: [...base.suggestions, ...completions(c, e.token)] } : base
+}
+
+const onEdit: Hook<'prompt.edit'> = async ($, e, next) => {
+  const box = await next(e)
+  try {
+    await refresh($, box.text, box.cursor)
+    const mine = decorationsOf(box.text, box.cursor)
+    return mine.length ? { ...box, decorations: [...(box.decorations ?? []), ...mine] } : box
+  } catch {
+    return box // a failed hint must never cost the person their keystroke
+  }
+}
+
+const onChange: Hook<'prompt.change'> = async ($, e, next) => {
+  await refresh($, e.text, e.cursor).catch(() => undefined) // a failed hint must never cost the person their keystroke
+  return next(e)
+}
+
+const onSubmit: Hook<'prompt.submit'> = async ($, e, next) => {
+  await update($, active, () => []).catch(() => undefined) // a failed clear must not block the submit
+  reindex($).catch(() => undefined) // a failed refresh must not escape the hook; the next submit retries
+  return next(e)
+}
+
+const onRender: MatchedHook<'ui.render', { component: 'AbovePrompt' }> = async ($, e, next) => {
+  const rows = await read($, active)
+  if (e.props.hasSurvey || rows.length === 0) return next(e)
+  const { Box, Text } = $.ui.resolve(e)
+  return (
+    <Box flexDirection="column">
+      {rows.map(u =>
+        u.parts ? (
+          <Box key={u.name} flexDirection="row" gap={1}>
+            {u.parts.map(p => (
+              <Text
+                key={p.text}
+                bold={p.state === 'now'}
+                dimColor={p.state !== 'now'}
+                strikethrough={p.state === 'done'}
+              >
+                {p.text}
+              </Text>
+            ))}
+          </Box>
+        ) : (
+          <Text key={u.name} dimColor>
+            {u.line}
+          </Text>
+        ),
+      )}
+    </Box>
+  )
+}
+
 export const register: Register = on => {
-  on('session.start', async ($, e, next) => {
-    await reindex($)
-    return next(e)
-  })
-
-  on('prompt.autocomplete', { token: /^\// }, async ($, e, next) => {
-    const base = await next(e)
-    if (e.text.slice(0, e.start).trim() === '') return base // a leading slash is the engine's own typeahead
-    const prefix = e.token.slice(1).toLowerCase()
-    const rows = [...descriptions]
-      .filter(([name]) => name.toLowerCase().startsWith(prefix))
-      .slice(0, MAX_SUGGESTIONS)
-      .map(([name, description]) => ({ text: `/${name}`, description }))
-    return { suggestions: [...base.suggestions, ...rows] }
-  })
-
-  on('prompt.autocomplete', async ($, e, next) => {
-    const base = await next(e)
-    const c = e.token.startsWith('/') ? undefined : contextAt(e.text, e.cursor)
-    return c ? { suggestions: [...base.suggestions, ...completions(c, e.token)] } : base
-  })
-
-  on('prompt.edit', async ($, e, next) => {
-    const box = await next(e)
-    try {
-      await refresh($, box.text, box.cursor)
-      const mine = decorationsOf(box.text, box.cursor)
-      return mine.length ? { ...box, decorations: [...(box.decorations ?? []), ...mine] } : box
-    } catch {
-      return box // a failed hint must never cost the person their keystroke
-    }
-  })
-
-  on('prompt.change', async ($, e, next) => {
-    await refresh($, e.text, e.cursor)
-    return next(e)
-  })
-
-  on('prompt.submit', async ($, e, next) => {
-    await update($, active, () => [])
-    reindex($).catch(() => undefined) // a failed refresh must not escape the hook; the next submit retries
-    return next(e)
-  })
-
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const rows = await read($, active)
-    if (e.props.hasSurvey || rows.length === 0) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="column">
-        {rows.map(u =>
-          u.parts ? (
-            <Box key={u.name} flexDirection="row" gap={1}>
-              {u.parts.map(p => (
-                <Text
-                  key={p.text}
-                  bold={p.state === 'now'}
-                  dimColor={p.state !== 'now'}
-                  strikethrough={p.state === 'done'}
-                >
-                  {p.text}
-                </Text>
-              ))}
-            </Box>
-          ) : (
-            <Text key={u.name} dimColor>
-              {u.line}
-            </Text>
-          ),
-        )}
-      </Box>
-    )
-  })
+  on('session.start', onStart)
+  on('prompt.autocomplete', { token: /^\// }, onSlashComplete)
+  on('prompt.autocomplete', onComplete)
+  on('prompt.edit', onEdit)
+  on('prompt.change', onChange)
+  on('prompt.submit', onSubmit)
+  on('ui.render', { component: 'AbovePrompt' }, onRender)
 }

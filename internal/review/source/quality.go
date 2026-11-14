@@ -24,8 +24,8 @@ var qualityThresholds = map[string]int{
 	"max_imports":         15,
 }
 
-// jsFunctionPattern has one (name, params) group pair per alternative: `function f(a)` or `const f = (a) =>`.
-const jsFunctionPattern = `function\s+(\w+)\s*(?:<(?:[^<>]|<[^<>]*>)*>)?\s*\(([^)]*)\)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>`
+// jsFunctionPattern captures declarations and assigned arrows, including typed consts and bare parameters.
+const jsFunctionPattern = `function\s+(\w+)\s*(?:<(?:[^<>]|<[^<>]*>)*>)?\s*\(([^)]*)\)|(?:const|let|var)\s+(\w+)\s*(?::[^=;\n]+)?=\s*(?:async\s+)?(?:\(([^)]*)\)|(\w+))\s*=>`
 
 // Regexes compile lazily (sync.OnceValue): this binary runs once per hook/tool invocation.
 var functionPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
@@ -116,11 +116,15 @@ func calcCyclomaticComplexity(content string) int {
 	return 1 + len(cyclomaticKeywords().FindAllString(content, -1))
 }
 
-// functionNameParams reads a match's name and parameter text from (name, params) group pairs, first non-empty wins.
+// functionNameParams reads paired names and parameters, with a final bare-parameter capture for JS arrows.
 func functionNameParams(groups []string) (string, string) {
 	for i := 0; i+1 < len(groups); i += 2 {
 		if groups[i] != "" {
-			return groups[i], groups[i+1]
+			params := groups[i+1]
+			if i == 2 && len(groups) > 4 && groups[4] != "" {
+				params = groups[4]
+			}
+			return groups[i], params
 		}
 	}
 	return "anonymous", ""
@@ -135,12 +139,21 @@ func findFunctions(content, language string) ([]FunctionInfo, error) {
 	if !ok {
 		pattern = functionPatterns()["python"]
 	}
+	scan := content
+	if language == "typescript" || language == "javascript" {
+		scan = jsCode(content)
+	}
 	var out []FunctionInfo
-	for _, loc := range pattern.FindAllStringSubmatchIndex(content, -1) {
+	for _, loc := range pattern.FindAllStringSubmatchIndex(scan, -1) {
 		name, paramsStr := functionNameParams(submatchStrings(content, loc, pattern))
 		params := splitParams(paramsStr)
 		matchEnd := loc[1]
-		body := functionBody(content, matchEnd, pattern)
+		var body string
+		if language == "typescript" || language == "javascript" {
+			body = content[matchEnd : matchEnd+len(jsFunctionBody(scan, matchEnd))]
+		} else {
+			body = functionBody(content, matchEnd, pattern)
+		}
 		out = append(out, FunctionInfo{
 			Name:       name,
 			Parameters: len(params),
