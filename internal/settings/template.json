@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage:~/.claude/mods/agents-band"
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage"
   },
   "permissions": {
     "deny": [
