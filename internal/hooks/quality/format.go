@@ -215,7 +215,7 @@ func runMake(root string, timeout time.Duration, args ...string) (string, bool) 
 	proc.OwnGroup(cmd)          // the timeout kills make's whole group, so a recipe's formatter cannot outlive it
 	cmd.WaitDelay = time.Second // grandchildren holding the output pipe must not outlive the timeout
 	// MAKEFLAGS from a parent make run would leak -n or a jobserver into this invocation.
-	cmd.Env = append(os.Environ(), "MAKEFLAGS=", "MFLAGS=", "MAKELEVEL=")
+	cmd.Env = proc.ValuesFromEnv(os.Environ()).Merge(proc.Values{"MAKEFLAGS": "", "MFLAGS": "", "MAKELEVEL": ""}).Env()
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
 }

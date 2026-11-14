@@ -181,7 +181,7 @@ func TestPrepareCopilotHomeSeedsLoginFree(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := copilotRegistryHome()
-	if !slices.Contains(ph.Env, "COPILOT_HOME="+home) || !slices.Contains(ph.Unset, "GH_TOKEN") {
+	if ph.Env["COPILOT_HOME"] != home || !slices.Contains(ph.Unset, "GH_TOKEN") {
 		t.Errorf("env = %v unset = %v, want the private COPILOT_HOME and GH_TOKEN stripped", ph.Env, ph.Unset)
 	}
 	assertPerm(t, home, 0o700)

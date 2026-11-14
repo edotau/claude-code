@@ -82,7 +82,7 @@ var errNoImage = errors.New("no image in the Windows clipboard — copy or scree
 func wlPaste(args ...string) ([]byte, error) {
 	env := os.Environ()
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
-		env = append(env, "WAYLAND_DISPLAY="+wslgSocket, "CLAUDE_WL_PASTE_PROXY=0")
+		env = proc.ValuesFromEnv(env).Merge(proc.Values{"WAYLAND_DISPLAY": wslgSocket, "CLAUDE_WL_PASTE_PROXY": "0"}).Env()
 	}
 	return captureWlPaste("wl-paste", env, args)
 }

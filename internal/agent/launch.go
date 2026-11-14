@@ -451,10 +451,7 @@ func (p Plan) envMode() EnvMode {
 
 // plainEnv is the plan as an EnvSpec: base scrubbed, minus Unset and Set names, then Set in name order.
 func (p Plan) plainEnv(base []string) []string {
-	set := make([]string, 0, len(p.Set))
-	for _, k := range slices.Sorted(maps.Keys(p.Set)) {
-		set = append(set, k+"="+p.Set[k])
-	}
+	set := proc.Values(p.Set).Env()
 	spec := EnvSpec{Mode: p.envMode(), Base: append([]string{}, base...), Keep: p.Keep, Unset: p.Unset, Set: set}
 	return spec.Environ(context.Background()) // interactive: no batch isolation
 }
@@ -618,11 +615,7 @@ func (req RunOptions) ApplyOverlay(r agentconfig.Resolved) RunOptions {
 	if overlayIdle(r) {
 		return req
 	}
-	env := make([]string, 0, len(r.Set)+len(req.Env))
-	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
-		env = append(env, k+"="+r.Set[k])
-	}
-	req.Env = append(env, req.Env...)
+	req.Env = append(proc.Values(r.Set).Env(), req.Env...)
 	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
 	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar}) // Environ re-adds the confinement
 	req.OverlaySet, req.OverlayUnset = slices.Sorted(maps.Keys(r.Set)), r.Unset

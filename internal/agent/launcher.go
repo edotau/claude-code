@@ -338,7 +338,7 @@ func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan,
 	if err != nil {
 		return Plan{}, err
 	}
-	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...), Profile: o.Provider}, nil
+	return Plan{Binary: bin, Set: proc.ValuesFromEnv(env), Argv: append(prefix, args...), Profile: o.Provider}, nil
 }
 
 // cliTarget resolves spec's target, then applies the model flag and pin to it.
@@ -415,7 +415,7 @@ func registryPlan(
 	lenv, lprefix := spec.LaunchSpec()
 	fmt.Fprintln(NoticeOut, cr.Banner)
 	return Plan{
-		Binary: bin, Set: envMap(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
+		Binary: bin, Set: proc.ValuesFromEnv(append(lenv, cr.Env...)), Unset: cr.Unset, Warnings: cr.Warnings,
 		Files:      cr.Files,
 		Argv:       append(append(lprefix, cr.Argv...), cr.Args...),
 		OnExecFail: cr.Revoke,
@@ -480,18 +480,7 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 		return Plan{}, err
 	}
 	env, prefix := spec.LaunchSpec()
-	return Plan{Binary: bin, Set: envMap(env), Argv: append(prefix, args...)}, nil
-}
-
-// envMap turns a KEY=VALUE env list into a map, dropping malformed entries.
-func envMap(env []string) map[string]string {
-	out := map[string]string{}
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			out[k] = v
-		}
-	}
-	return out
+	return Plan{Binary: bin, Set: proc.ValuesFromEnv(env), Argv: append(prefix, args...)}, nil
 }
 
 // lookPath is the seam for resolving an agent binary.

@@ -39,7 +39,7 @@ var copilotStripEnv = []string{
 
 // copilotPrivateHome is the private login-free copilot home: the env to set and the names to strip.
 type copilotPrivateHome struct {
-	Env      []string
+	Env      proc.Values
 	Unset    []string // exact names; also strip anything with proc.CopilotProviderPrefix
 	Warnings []string
 }
@@ -48,9 +48,9 @@ type copilotPrivateHome struct {
 func prepareCopilotHome(dry bool) (copilotPrivateHome, error) {
 	home, xdg := copilotRegistryHome(), copilotRegistryXDG()
 	out := copilotPrivateHome{
-		Env: []string{
-			"COPILOT_HOME=" + home, "XDG_CONFIG_HOME=" + xdg,
-			"DBUS_SESSION_BUS_ADDRESS=", // no session bus, so no keyring: nothing to log in with
+		Env: proc.Values{
+			"COPILOT_HOME": home, "XDG_CONFIG_HOME": xdg,
+			"DBUS_SESSION_BUS_ADDRESS": "", // no session bus, so no keyring: nothing to log in with
 		},
 		Unset: append(slices.Clone(copilotStripEnv), "COPILOT_MODEL"),
 	}

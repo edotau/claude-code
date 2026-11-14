@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -438,7 +439,7 @@ func refreshStampFresh(stamp string, now time.Time) bool {
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
 func spawnEmbedRefresh(root, profile string) bool {
 	args := []string{"memory", "index", "--mint-only", "--repo", root}
-	return spawnSelf(args, root, "", providers.EnvSessionProfile+"="+profile, UpdateChildEnv+"=1")
+	return spawnSelf(args, root, "", proc.Values{providers.EnvSessionProfile: profile, UpdateChildEnv: "1"}.Env()...)
 }
 
 // RefreshStaleEmbeddings schedules only stale vector mints; no endpoint work runs in the hook.

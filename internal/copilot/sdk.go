@@ -190,35 +190,28 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 
 // providerFromEnv lifts BYOK env into the session (server mode ignores COPILOT_PROVIDER_*); last duplicate wins.
 func providerFromEnv(env []string) *copilot.ProviderConfig {
-	get := func(key string) string {
-		for _, kv := range slices.Backward(env) {
-			if v, ok := strings.CutPrefix(kv, key+"="); ok {
-				return v
-			}
-		}
-		return ""
-	}
-	base := get(proc.EnvCopilotProviderBaseURL)
+	vals := proc.ValuesFromEnv(env)
+	base := vals[proc.EnvCopilotProviderBaseURL]
 	if base == "" {
 		return nil
 	}
-	atoi := func(key string) int { n, _ := strconv.Atoi(get(key)); return n }
-	model := get("COPILOT_MODEL")
+	atoi := func(key string) int { n, _ := strconv.Atoi(vals[key]); return n }
+	model := vals["COPILOT_MODEL"]
 	modelID := wellKnownModel(model)
-	if id := get(proc.EnvCopilotProviderModelID); id != "" {
+	if id := vals[proc.EnvCopilotProviderModelID]; id != "" {
 		modelID = id
 	}
 	return &copilot.ProviderConfig{
-		Type:            get(proc.EnvCopilotProviderType),
-		WireAPI:         get(proc.EnvCopilotProviderWireAPI),
+		Type:            vals[proc.EnvCopilotProviderType],
+		WireAPI:         vals[proc.EnvCopilotProviderWireAPI],
 		BaseURL:         base,
-		APIKey:          get(proc.EnvCopilotProviderAPIKey),
-		BearerToken:     get(proc.EnvCopilotProviderBearerToken),
+		APIKey:          vals[proc.EnvCopilotProviderAPIKey],
+		BearerToken:     vals[proc.EnvCopilotProviderBearerToken],
 		ModelID:         modelID,
 		WireModel:       model,
 		MaxPromptTokens: atoi(proc.EnvCopilotProviderMaxPromptTokens),
 		MaxOutputTokens: atoi(proc.EnvCopilotProviderMaxOutputTokens),
-		Headers:         parseProviderHeaders(get(proc.EnvCopilotProviderHeaders)),
+		Headers:         parseProviderHeaders(vals[proc.EnvCopilotProviderHeaders]),
 	}
 }
 

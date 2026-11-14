@@ -242,8 +242,8 @@ func sandboxSnapshot(dir string, files []string) error {
 	if err != nil {
 		return err
 	}
-	commit, err := proc.RunGit(ctx, dir, "-c", "user.name=Memory sandbox", "-c", "user.email=sandbox@localhost",
-		"commit-tree", tree, "-m", "chore(memory): seed sandbox")
+	args := proc.Values{"user.name": "Memory sandbox", "user.email": "sandbox@localhost"}.Args("-c")
+	commit, err := proc.RunGit(ctx, dir, append(args, "commit-tree", tree, "-m", "chore(memory): seed sandbox")...)
 	if err != nil {
 		return err
 	}

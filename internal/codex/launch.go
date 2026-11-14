@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -80,7 +80,7 @@ func codexFileOverrides(path string) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, "-c", value)
+			out = append(out, value.Args("-c")...)
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -89,14 +89,14 @@ func codexFileOverrides(path string) ([]string, error) {
 	return out, nil
 }
 
-func codexOverrideValue(line, table, path string, n int) (string, error) {
+func codexOverrideValue(line, table, path string, n int) (proc.Values, error) {
 	k, v, ok := strings.Cut(line, "=")
 	v = strings.TrimSpace(v)
 	if !ok || v == "" || strings.HasSuffix(v, "[") || strings.HasSuffix(v, "{") || strings.HasSuffix(v, ",") ||
 		strings.HasPrefix(v, `"""`) || strings.HasPrefix(v, "'''") {
-		return "", fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
+		return nil, fmt.Errorf("-f %s:%d: want one-line `key = value`", path, n)
 	}
-	return table + strings.TrimSpace(k) + "=" + v, nil
+	return proc.Values{table + strings.TrimSpace(k): v}, nil
 }
 
 // RouteDetail reports CODEX_MODEL/CODEX_EFFORT pins without credentials; unset uses codex defaults.
@@ -141,14 +141,14 @@ func codexToolsEnv(env []string, tools bool, sandbox string) (out, notes []strin
 	if err != nil {
 		return env, notes, remove, fmt.Errorf("codex: go cache dir: %w", err)
 	}
-	out = slices.Clone(env)
+	values := proc.ValuesFromEnv(env)
 	for _, c := range codexCaches {
 		_, inProcess := os.LookupEnv(c[0])
-		if !inProcess && !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, c[0]+"=") }) {
-			out = append(out, c[0]+"="+filepath.Join(dir, c[1]))
+		if _, inEnv := values[c[0]]; !inProcess && !inEnv {
+			values = values.With(c[0], filepath.Join(dir, c[1]))
 		}
 	}
-	return out, notes, func() { _ = os.RemoveAll(dir) }, nil
+	return values.Env(), notes, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.

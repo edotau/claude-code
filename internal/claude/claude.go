@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -255,12 +256,12 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 			return nil, nil, cl, err
 		}
 	}
-	if err := agent.CheckRouteNames(launcherSet(cl.Set), req.OverlaySet, req.OverlayUnset); err != nil {
+	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
 	cmd, tail := agent.ChildCmd(ctx, cl.Binary, cl.Argv, nil, req.WorkDir, prompt, req.KeepEnv, false)
 	keep := append(slices.Clone(req.KeepEnv), slices.Collect(maps.Keys(cl.Set))...)
-	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), launcherSet(cl.Set))
+	set := agent.RouteEnvLast(dropLaunchOwned(launchEnv), proc.Values(cl.Set).Env())
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvPrescrubbed, Base: cl.Env, Keep: keep, Set: set, Extra: req.Env}.Environ(ctx) // --env last, so it wins
 	if err := refuseGateEnv(req, cmd.Env); err != nil {
 		return nil, nil, cl, err
@@ -323,9 +324,8 @@ func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
 	if at < 0 {
 		return append(slices.Clone(argv), "--settings", string(merged)), nil
 	}
-	out := slices.Clone(argv)
-	out[at+1] = string(merged)
-	return out, nil
+	out := append(slices.Clone(argv[:at+1]), string(merged)) // a bare trailing --settings gets the document as its value
+	return append(out, argv[min(at+2, len(argv)):]...), nil
 }
 
 // claudeEvent is the union of stream-json fields the agent reads.
@@ -596,15 +596,6 @@ func claudeAttach(prompt string, attach []string, tools bool) (string, error) {
 	}
 	prompt += sb.String()
 	return prompt, nil
-}
-
-// launcherSet is the launch's own route values as KEY=VALUE, re-added after Unset so an overlay never drops them.
-func launcherSet(set map[string]string) []string {
-	out := make([]string, 0, len(set))
-	for _, k := range slices.Sorted(maps.Keys(set)) {
-		out = append(out, k+"="+set[k])
-	}
-	return out
 }
 
 func init() {

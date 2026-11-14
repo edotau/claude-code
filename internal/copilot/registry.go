@@ -110,7 +110,7 @@ func (rt *copilotRegistryRoute) apply(o *sdkOptions) {
 	o.Providers, o.Models, o.Model = rt.providers, rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
 	o.GitHubToken, o.UseLoggedInUser, o.Env = "", false, nil
-	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env, rt.home.Unset, proc.CopilotProviderPrefix
+	o.ChildEnv, o.ChildUnset, o.ChildUnsetPrefix = rt.home.Env.Env(), rt.home.Unset, proc.CopilotProviderPrefix
 }
 
 // close revokes the run's token; the daemon also expires it, so a failure is not worth failing the run.
@@ -448,7 +448,7 @@ func configureCopilotRegistry(
 	}
 	// OFFLINE removes /login but needs the registry file at startup; the SDK path has none, so it stays here.
 	return agent.RegistryLaunch{
-		Env:   append([]string{"COPILOT_PROVIDERS_CONFIG=" + file, "COPILOT_OFFLINE=true"}, ph.Env...),
+		Env:   ph.Env.Merge(proc.Values{"COPILOT_PROVIDERS_CONFIG": file, "COPILOT_OFFLINE": "true"}).Env(),
 		Unset: ph.Unset, Argv: []string{"--model", ref}, Args: rest,
 		Warnings: warnings, Files: files, Revoke: revoke, Banner: copilotRegistryBanner,
 	}, nil
