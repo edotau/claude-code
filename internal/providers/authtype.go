@@ -110,14 +110,18 @@ func readOAuth(p *Provider) (oauthValue, error) {
 	return ov, nil
 }
 
-// writeOAuth seals ov, stamped now, as the one JSON value under p's oauth secret name.
+// writeOAuth seals ov, stamped now, as the one JSON value under p's oauth secret name; a sealed record ends a dead mark.
 func writeOAuth(p *Provider, ov oauthValue) error {
 	ov.Sealed = time.Now().UnixNano()
 	b, err := json.Marshal(ov)
 	if err != nil {
 		return err
 	}
-	return vault.Store(AuthSecretName(p), string(b))
+	if err := vault.Store(AuthSecretName(p), string(b)); err != nil {
+		return err
+	}
+	clearLoginMark(p.Name)
+	return nil
 }
 
 // sealedAuth reports whether the auth type keeps its credential in the vault.
@@ -382,6 +386,9 @@ func userMint(ctx context.Context, p *Provider, force bool, margin time.Duration
 		return v, false, finishCredential(p, v, time.Time{})
 	}
 	v, base, err := mintAndCache(ctx, p, force)
+	if err != nil && Verdict(err).Condemns() && sealedSince(p, base) { // a login sealed while the IdP judged the older token
+		v, base, err = mintAndCache(ctx, p, force)
+	}
 	if err == nil {
 		clearLoginMark(p.Name)
 		sealAccess(p, v, base)
@@ -556,11 +563,17 @@ func sealAccess(p *Provider, tok string, base int64) {
 	}
 }
 
-// mintAndCache mints, caches and returns the access token with the vault stamp the mint started from.
+// sealedSince reports whether the vault holds a record sealed after stamp; a missing stamp is older than any.
+func sealedSince(p *Provider, stamp int64) bool {
+	ov, err := readOAuth(p)
+	return err == nil && ov.Sealed > stamp
+}
+
+// mintAndCache mints, caches and returns the access token with the vault stamp the mint started from, on failure too.
 func mintAndCache(ctx context.Context, p *Provider, force bool) (string, int64, error) {
 	tok, base, err := mintAuth(ctx, p, force)
 	if err != nil {
-		return "", 0, err
+		return "", base, err
 	}
 	if err := finishCredential(p, tok.Access, tok.Expiry); err != nil {
 		return "", 0, err
@@ -814,7 +827,6 @@ func sealLogin(p *Provider, tok oauth.Token) (time.Duration, error) {
 			return fmt.Errorf("%s: seal refresh token: %w", p.Name, err)
 		}
 		unsealedRefresh.Delete(p.Name)
-		clearLoginMark(p.Name)
 		return finishCredential(p, tok.Access, tok.Expiry)
 	}
 	err := withRefreshLock(p, seal)
