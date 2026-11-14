@@ -256,8 +256,13 @@ func loginForward(args []string) ([]string, int) {
 // withForward adds a local forward of port on a connection of its own: ssh keeps the first value of each option.
 func withForward(argv []string, port int) []string {
 	p := strconv.Itoa(port)
+	return withTunnel(argv, "-L", p+":localhost:"+p)
+}
+
+// withTunnel adds one -L or -R forward on a connection of its own that fails when the forward cannot be made.
+func withTunnel(argv []string, flag, spec string) []string {
 	return slices.Insert(slices.Clone(argv), 1, "-o", "ControlMaster=no", "-o", "ControlPath=none",
-		"-o", "ExitOnForwardFailure=yes", "-L", p+":localhost:"+p)
+		"-o", "ExitOnForwardFailure=yes", flag, spec)
 }
 
 // tailnetHosts lists the other tailnet machines' DNS names; tests swap it.

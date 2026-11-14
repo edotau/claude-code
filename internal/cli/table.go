@@ -284,6 +284,9 @@ func Run(argv []string) int {
 
 // runRouted handles --host (verb over ssh on a tailnet host) and --remote (egress via an ssh host).
 func runRouted(argv []string, name string) (code int, ok bool) {
+	if err := remote.CheckLogin(argv[1:], egressFlag); err != nil {
+		return helptext.FailUsage("%v", err), true
+	}
 	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") {
 		if rest, local := remote.LocalArgs(remote.Flag, argv[1:]); local { // the named host is this machine: run here
 			return Run(append(argv[:1:1], rest...)), true
@@ -315,6 +318,9 @@ func runVia(argv []string) int {
 		return helptext.FailUsage("%s: %v", egressFlag, err)
 	}
 	if err := proc.Setenv(egress.EnvHost, host); err != nil {
+		return helptext.Fail("%s: %v", egressFlag, err)
+	}
+	if err := remote.PinLogin(host, rest); err != nil {
 		return helptext.Fail("%s: %v", egressFlag, err)
 	}
 	return Run(append(argv[:1:1], rest...))

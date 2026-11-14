@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/databricks/oauth"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -27,21 +28,28 @@ var loginU2M = providers.LoginU2M
 // validU2M is the cached-login check, a var so tests need no sealed token.
 var validU2M = providers.ValidU2M
 
+// loginDeadline bounds one browser login, a var so tests that never get a callback end fast.
+var loginDeadline = 6 * time.Minute
+
 // loginIn is the stdin --paste reads the redirected URL from, a var so tests inject one.
 var loginIn io.Reader = os.Stdin
 
-// headless holds the three opt-in U2M flags for logins without a local browser.
+// headless holds the three opt-in U2M flags for logins without a local browser; via is the --remote host.
 type headless struct {
 	port      int
 	noBrowser bool
 	paste     bool
+	via       string
 }
 
 func (h headless) set() bool { return h.port != 0 || h.noBrowser || h.paste }
 
 // options is the oauth.LoginOptions for h: no flag set gives the interactive default.
 func (h headless) options() oauth.LoginOptions {
-	o := oauth.LoginOptions{Open: proc.OpenURL, Out: os.Stderr, NoBrowser: h.noBrowser}
+	if h.via != "" {
+		return h.remoteOptions()
+	}
+	o := oauth.LoginOptions{Open: openLocal, Out: os.Stderr, NoBrowser: h.noBrowser}
 	if h.noBrowser {
 		o.Open = nil
 	}
@@ -80,7 +88,8 @@ var loginPage = helptext.Page{
 	Usage: "claude-code databricks login [--profile <name>] [flags]",
 	About: "Sign in through the browser for a profile with auth type oauth;\n" +
 		"the refresh token is sealed in the vault.\n" +
-		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.",
+		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.\n" +
+		"Under --remote <host> the browser opens on <host>; the token is sealed here.",
 }
 
 // loginFlags is login's parsed command line; fs is kept so loginProfile can tell an explicit --auth-type.
@@ -128,6 +137,10 @@ func login(args []string) int {
 	if code, bad := checkLoginFlags(f.as, f.authType); bad {
 		return code
 	}
+	f.h.via = os.Getenv(remote.LoginRemoteEnv)
+	if code, bad := checkRemote(f.h); bad {
+		return code
+	}
 	if code, bad := checkHeadless(f.h, f.as); bad {
 		return code
 	}
@@ -140,12 +153,16 @@ func loginRowAs(ctx context.Context, f loginFlags) int {
 	if err != nil {
 		return fail("login: %v", err)
 	}
-	mode, err := providers.ResolveIdentity(p.Identity, f.as)
+	as := f.as
+	if f.h.via != "" && as == "" { // --remote renews the user's login, whatever service principal is paired
+		as = providers.IdentityUser
+	}
+	mode, err := providers.ResolveIdentity(p.Identity, as)
 	if err != nil {
 		return fail("login: %s: %v", p.Name, err)
 	}
 	// A paired service principal mints with no browser, so the browser-only flags would be dropped: refuse them.
-	if mode == providers.IdentitySP || mode == providers.IdentityAuto && f.as == "" && providers.SPPresent(p) {
+	if mode == providers.IdentitySP || mode == providers.IdentityAuto && as == "" && providers.SPPresent(p) {
 		if code, bad := checkHeadless(f.h, providers.IdentitySP); bad {
 			return code
 		}
@@ -164,13 +181,26 @@ var identityNote = map[string]string{
 func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse bool) int {
 	if dryRun {
 		fmt.Printf("identity %s: %s\n", mode, identityNote[mode])
-		if h.set() {
+		how := "open a browser login"
+		switch {
+		case h.via != "":
+			fmt.Println(h.describeRemote(p.Name) + "; no ssh connection made")
+			how = "sign in through the browser on " + h.via
+		case h.noBrowser:
+			how = "print the sign-in URL"
+		}
+		if h.set() && h.via == "" {
 			fmt.Println("would use " + h.describe())
 		}
-		return loginDryRun(p, reuse, h.noBrowser)
+		return loginDryRun(p, reuse, how)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), loginDeadline)
 	defer cancel()
+	if h.via != "" { // Ctrl-C ends the login normally, so its forward and listener close
+		var stop context.CancelFunc
+		ctx, stop = signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
+	}
 	if reuse {
 		if left, ok := validU2M(ctx, p); ok {
 			fmt.Printf("already logged in · expires in %dm\n", int(left.Minutes()))
@@ -291,7 +321,7 @@ func checkHeadless(h headless, as string) (code int, bad bool) {
 }
 
 // loginDryRun reports what login would do for p without opening a browser or writing anything.
-func loginDryRun(p *providers.Provider, reuse, noBrowser bool) int {
+func loginDryRun(p *providers.Provider, reuse bool, how string) int {
 	if reuse && cachedLoginUsable(p) {
 		fmt.Printf("would reuse the cached token for %s; no browser\n", p.Name)
 		return 0
@@ -302,10 +332,6 @@ func loginDryRun(p *providers.Provider, reuse, noBrowser bool) int {
 		}
 		fmt.Printf("would log in to %s\n", loginHost(p))
 		return 0
-	}
-	how := "open a browser login"
-	if noBrowser {
-		how = "print the sign-in URL"
 	}
 	fmt.Printf("would %s for %s and seal the refresh token as %s; nothing written\n", how, p.Name, providers.AuthSecretName(p))
 	return 0

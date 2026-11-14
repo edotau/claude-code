@@ -24,7 +24,7 @@ var menuHeader = []string{
 	"usage: claude-code [<command>] [subcommand] [flags]",
 	"       claude-code <command> -h      per-command help",
 	"       claude-code --host <h> ...    run a command on a tailnet host",
-	"       claude-code --remote <h> ...  Databricks requests leave via <h>",
+	"       claude-code --remote <h> ...  Databricks via <h>; login browser on <h>",
 }
 
 // menuRow is one line after the header: blank, a group head, or a verb (name + summary at gradient position frac).

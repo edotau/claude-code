@@ -332,6 +332,8 @@ type LoginOptions struct {
 	NoBrowser bool
 	// Paste, when set, also reads one pasted redirect URL from it; whichever of that and the callback comes first wins.
 	Paste io.Reader
+	// Forward, when set, is called with the local callback port and returns the port the browser is redirected to.
+	Forward func(ctx context.Context, local int) (port int, stop func(), err error)
 }
 
 // loopback serves one callback port on every loopback family the host has.
@@ -524,6 +526,14 @@ func LoginU2M(ctx context.Context, host string, opts LoginOptions) (Token, error
 	srv := serveCallback(ln, cb)
 	defer stopCallback(srv)
 
+	if opts.Forward != nil {
+		fport, stop, err := opts.Forward(ctx, port)
+		if err != nil {
+			return Token{}, err
+		}
+		defer stop()
+		port = fport
+	}
 	redirect := "http://localhost:" + strconv.Itoa(port)
 	authURL := authorizeURL(h, redirect, state, verifier)
 	paste := presentLogin(opts, h, authURL, port)
@@ -544,7 +554,9 @@ func presentLogin(opts LoginOptions, h, authURL string, port int) <-chan string 
 	if openErr != nil {
 		fmt.Fprintf(opts.Out, "No browser opened here (%v); open the URL above yourself.\n", openErr)
 	}
-	fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser || openErr != nil))
+	if opts.Forward == nil {
+		fmt.Fprint(opts.Out, forwardHint(port, opts.NoBrowser || openErr != nil))
+	}
 	if opts.Paste == nil {
 		return nil
 	}

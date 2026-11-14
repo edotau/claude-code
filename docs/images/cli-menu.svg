@@ -6,7 +6,7 @@
 <text x="22.0" y="46" fill="#d7d4dc">usage: claude-code [&lt;command&gt;] [subcommand] [flags]</text>
 <text x="22.0" y="65" fill="#d7d4dc">       claude-code &lt;command&gt; -h      per-command help</text>
 <text x="22.0" y="84" fill="#d7d4dc">       claude-code --host &lt;h&gt; ...    run a command on a tailnet host</text>
-<text x="22.0" y="103" fill="#d7d4dc">       claude-code --remote &lt;h&gt; ...  Databricks requests leave via &lt;h&gt;</text>
+<text x="22.0" y="103" fill="#d7d4dc">       claude-code --remote &lt;h&gt; ...  Databricks via &lt;h&gt;; login browser on &lt;h&gt;</text>
 <text x="22.0" y="141" fill="#8a7e90" font-weight="bold">AGENTS</text>
 <text x="22.0" y="160" fill="#d7d4dc">  </text>
 <text x="38.8" y="160" fill="#4796e4" font-weight="bold">anthropic       </text>

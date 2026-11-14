@@ -116,7 +116,7 @@ func cutFlag(args []string, flag string) ([]string, bool) {
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
-	"config": config, "rescue": rescue, "login": login, "token": mint, "import": importCfg, "export": export,
+	"config": config, "rescue": rescue, "login": login, "open-url": openURLVerb, "token": mint, "import": importCfg, "export": export,
 }
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
@@ -327,6 +327,7 @@ var page = helptext.Page{
 	Commands: [][2]string{
 		{"check", "--all: one tiny call per profile (serving; --wire all)"},
 		{"login", "sign in: browser for oauth, a mint for an sp row"},
+		{"open-url", "open an https sign-in URL here (login --remote runs it)"},
 		{"token", "fresh token, never printed; --copy, --auth kind"},
 		{"import", "import a .databrickscfg (dry-run unless --apply)"},
 		{"export", "export profiles as .databrickscfg, no secrets"},
@@ -622,6 +623,7 @@ func Spec() *helptext.Node {
 			valuedFlag("wire", func() []string { return []string{providers.WireServing, providers.WireAIGateway, "all"} })}},
 		"login": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities),
 			flag("port"), boolFlag("no-browser"), boolFlag("paste")}},
+		"open-url": {},
 		"token": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run"), boolFlag("copy"), flag("clear-after"),
 			valuedFlag("as", identities), valuedFlag("auth", func() []string { return []string{"oauth", "m2m", "pat"} })}},
 		"import": {Flags: []helptext.Flag{flag("dbxcfg"), boolFlag("pick"), flag("rename"), boolFlag("replace"),
