@@ -21,24 +21,24 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// applyLabel rewrites the description to `<model>: <task>`; canonical is false when its prefix is missing or wrong.
-func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, task string) (changed, canonical bool) {
+// applyLabel rewrites the description to `<model>: <task>`; note names the rewrite or the route it could not resolve.
+func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, task string) (changed bool, note string) {
 	st, _ := updated["subagent_type"].(string)
 	orig, _ := updated["description"].(string)
 	if strings.TrimSpace(orig) == "" {
-		return false, true
+		return false, ""
 	}
-	label := labelModel(ctx, run, updated, st, task)
+	label, note := labelModel(ctx, run, updated, st, task)
 	rest := stripLabels(orig, st, label)
 	out := lowerFirst(rest)
 	if label != "" {
 		out = label + ": " + out
 	}
 	if out == orig {
-		return false, true
+		return false, note
 	}
 	updated["description"] = out
-	return true, label == "" || orig == label+": "+rest
+	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description %q rewritten to %q.", orig, out))
 }
 
 // stripLabels cuts every leading label-shaped `<head>:` so a doubled or wrong prefix is replaced, never stacked.
@@ -182,35 +182,41 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
-// labelModel is the model the dispatch's ask runs: the resolver's wire id for the Run: line, else the own model.
-func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) string {
+// labelModel is the model the dispatch's ask runs (the resolver's wire id, else the own model) and the route's note.
+func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (label, note string) {
 	r, ok, err := labelRoute(ctx, run, updated, st, task)
-	if err != nil || !ok {
-		return ""
+	switch {
+	case err != nil:
+		return "", fmt.Sprintf("dispatch-effort: no description label: the %s route does not resolve offline (%v); "+
+			"check it with `claude-code gateway resolve %s`.", r.Agent, err, r.Agent)
+	case !ok:
+		return "", ""
+	case r.Note != "":
+		note = fmt.Sprintf("dispatch-effort: label %s: %s.", r.Label(), r.Note)
 	}
-	return r.Label()
+	return r.Label(), note
 }
 
-// labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, else the tier's default.
+// labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, as `agents ask` reads them.
 func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
 	line := run.opening(ctx, task)
 	agent := line.workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
-		Profile: cmp.Or(line.profile, line.cfg.Profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
+		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
 		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback)}
 	if m, _ := updated["model"].(string); q.Model == "" && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
-	if q.Model == "" {
-		if agent == "" && q.Profile == "" && q.Provider == "" {
+	if q.Model == "" && agent == "" {
+		if q.Profile == "" && q.Provider == "" {
 			return q, false // an in-context leaf: its own model
 		}
-		q.Default = pickTier(run, updated, st, agent, cmp.Or(line.prompt, task))
+		q.Default = labelTier(run, updated, st) // claude's ask runs the alias; a vendor CLI drops it (its pin, else opus)
 	}
 	return q, true
 }
 
-// labelRoute resolves labelQuery on the registry; ok is false when the label is the leaf's own model.
+// labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
 func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelRoute, bool, error) {
 	q, ok := labelQuery(ctx, run, updated, st, task)
 	if !ok {
@@ -218,22 +224,26 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	}
 	reg, err := run.registry()
 	if err != nil {
-		return agentpkg.ModelRoute{}, false, err
+		return agentpkg.ModelRoute{Agent: q.Agent}, false, err
 	}
-	r, err := resolveModel(reg, agentpkg.QueryFor(ctx, q), time.Now())
-	return r, err == nil, err
+	hint := router.RuleClassifier{}.Alias(cmp.Or(run.opening(ctx, task).prompt, task)) // ask classifies its prompt
+	hop, note, err := runQuery(ctx, reg, q, hint)
+	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
+		return agentpkg.ModelRoute{Agent: q.Agent}, false, fmt.Errorf("%v", err)
+	}
+	r, err := resolveModel(reg, agentpkg.QueryFor(ctx, hop), time.Now())
+	if err != nil {
+		return agentpkg.ModelRoute{Agent: hop.Agent}, false, err
+	}
+	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
+	return r, true, nil
 }
 
-// resolveModel is a seam: tests stub it so a dispatch label never reads the live vault or route table.
-var resolveModel = agentpkg.ResolveModel
-
-// pickTier is the alias the run picks from: an external agent's ask classifies its prompt, as ask does with no --model.
-func pickTier(run *dispatchRun, updated map[string]any, st, agent, task string) string {
-	if agent != "" {
-		return router.RuleClassifier{}.Alias(task)
-	}
-	return labelTier(run, updated, st)
-}
+// resolveModel and runQuery are seams: tests stub them so a label never reads the live vault or route table.
+var (
+	resolveModel = agentpkg.ResolveModel
+	runQuery     = agentpkg.RunQuery
+)
 
 // labelTier is the alias the pick starts from: the dispatch's model, else the agent file's, else sonnet.
 func labelTier(run *dispatchRun, updated map[string]any, st string) string {

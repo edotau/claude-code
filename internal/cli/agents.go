@@ -34,7 +34,7 @@ func agentsSpec() *helptext.Node {
 			formatFlag()}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("finished"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
-		"label": {Flags: []helptext.Flag{flag("model"), flag("task"), flag("session-model"), formatFlag()}},
+		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
@@ -266,6 +266,7 @@ func checkTreeFlags(format string, watch bool, interval time.Duration) error {
 func cmdAgentsLabel(args []string) int {
 	fs := agentsFlags("label")
 	model := fs.String("model", "", "the dispatch's model (default unset: the hook classifies the brief)")
+	profile := fs.String("profile", "", "the ask --profile the leaf runs on, when the brief's Run: line names none")
 	taskFile := fs.String("task", "", "the task file the leaf gets; - reads stdin")
 	sessionModel := fs.String("session-model", "", "the session's model id (default: from this session's transcript)")
 	format := helptext.FormatFlag(fs)
@@ -288,13 +289,16 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	row := hooks.Label(hooks.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: *sessionModel},
+	row := hooks.Label(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task, SessionModel: *sessionModel},
 		cwd, os.Getenv(memory.SessionIDEnv))
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
 	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
+	}
+	if row.Note != "" {
+		fmt.Fprintln(os.Stderr, row.Note)
 	}
 	if row.Label != "" {
 		if _, err := fmt.Println(row.Label + ": "); err != nil {

@@ -511,6 +511,7 @@ func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.
 // leafTxCmd is leafTx where every result answers the given Bash command.
 func leafTxCmd(t *testing.T, agentType, command, brief string, toolResults ...string) *core.Input {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // fresh dispatch records and hook-run markers per leaf
 	dir := t.TempDir()
 	first, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": brief}})
 	body := string(first) + "\n"
@@ -540,46 +541,28 @@ func leafTxCmd(t *testing.T, agentType, command, brief string, toolResults ...st
 // `agents result -f` carries the ran-on receipt the way `tail -f` did; the removed `agents tail` earns none.
 func TestRanOnReceiptFromResultFollow(t *testing.T) {
 	const receipt = "ask: ran on codex · gpt-5 · profile x\nresult"
-	for command, wantBlocked := range map[string]bool{
+	for command, wantNote := range map[string]bool{
 		"claude-code agents result -f job1": false, "claude-code agents result job1": false, "claude-code agents tail -f job1": true,
 	} {
 		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt)
-		if _, blocked := leafStopBlock(in, "a1"); blocked != wantBlocked {
-			t.Errorf("%q: blocked = %v, want %v", command, blocked, wantBlocked)
+		if r, blocked := leafStopBlock(in, "a1"); blocked || strings.Contains(r.SystemMessage, relayNote) != wantNote {
+			t.Errorf("%q: got %+v blocked=%v, want the relay note %v", command, r, blocked, wantNote)
 		}
 	}
 }
 
-// The ran-on gate covers every leaf type that can request an agent and spares claude.
+// relayNote is the note a gated leaf that did the work itself passes with.
+const relayNote = "NOTE: the work was done on the relay model"
+
+// The ran-on gate covers every leaf type that can request an agent and spares claude; it notes, never blocks.
 func TestRanOnGateTypes(t *testing.T) {
 	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
-		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nAgent: codex\n", "ls output"), "a1")
-		if blocked != want {
-			t.Errorf("%s: blocked = %v, want %v", st, blocked, want)
+		for _, brief := range []string{"Objective: x\nAgent: codex\n", "Objective: x\nOwns: /tmp/x\n"} {
+			r, blocked := leafStopBlock(leafTx(t, st, brief, "ls output"), "a1")
+			if blocked || strings.Contains(r.SystemMessage, relayNote) != want {
+				t.Errorf("%s %q: got %+v blocked=%v, want the relay note %v and no block", st, brief, r, blocked, want)
+			}
 		}
-	}
-}
-
-// A pinned leaf type is the agent request: with no Agent: line it is still blocked, while claude is not.
-func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
-	for st, want := range map[string]bool{"codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
-		_, blocked := leafStopBlock(leafTx(t, st, "Objective: x\nOwns: /tmp/x\n", "ls output"), "a1")
-		if blocked != want {
-			t.Errorf("%s with no Agent: line: blocked = %v, want %v", st, blocked, want)
-		}
-	}
-}
-
-// A gated leaf whose brief requests an agent but shows no ran-on line in its tool results is blocked.
-func TestRanOnNoRanOnBlocks(t *testing.T) {
-	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls output")
-	r, blocked := leafStopBlock(in, "a1")
-	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, "ran on") {
-		t.Fatalf("got %+v blocked=%v, want a Block naming the ran-on line", r, blocked)
-	}
-	var out, errb bytes.Buffer
-	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock {
-		t.Fatalf("Emit = %d, want ExitBlock", code)
 	}
 }
 
@@ -590,16 +573,6 @@ func TestRanOnRanOnReleases(t *testing.T) {
 		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
 			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
 		}
-	}
-}
-
-// The repeat stop (stop_hook_active) passes with a visible message, so a leaf is never trapped.
-func TestRanOnRanOnFailOpenCap(t *testing.T) {
-	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls")
-	in.StopHookActive = true
-	r, blocked := leafStopBlock(in, "a1")
-	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, "a1: hand-back BLOCKED: no `ask: ran on` receipt") {
-		t.Fatalf("got %+v blocked=%v, want an allow with the ran-on message", r, blocked)
 	}
 }
 
@@ -615,7 +588,7 @@ func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
 }
 
 func TestRanOnBriefContentRepresentations(t *testing.T) {
-	brief := "Objective: inspect only\nAgent: codex\n"
+	brief := "Run: claude-code agents ask --agent codex 'inspect only'\nAgent: codex\n"
 	for _, tc := range []struct {
 		name    string
 		content any
@@ -637,15 +610,15 @@ func TestRanOnBriefContentRepresentations(t *testing.T) {
 			if err := os.WriteFile(in.AgentTranscriptPath, append(line, '\n'), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			r, blocked := leafStopBlock(in, "a1")
-			if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, "ran on") {
-				t.Fatalf("got %+v blocked=%v, want missing ran-on evidence to block", r, blocked)
+			spawned := stubSpawn(t)
+			if _, blocked := leafStopBlock(in, "a1"); !blocked || len(*spawned) != 1 {
+				t.Fatalf("blocked=%v spawns %v, want the brief's Run: line read in every content shape", blocked, *spawned)
 			}
 		})
 	}
 }
 
-// A gated leaf hand-back with no ran-on line is denied; a delivered hand-back lets the later stop pass.
+// A gated leaf hand-back with no ran-on line passes with the relay note; a delivered hand-back lets the stop pass.
 func TestHandbackGatesRanOn(t *testing.T) {
 	src := gatedLeafTx(t, "Objective: x\nProfile: dev\n", "ls output")
 	parent := filepath.Join(t.TempDir(), "session.jsonl")
@@ -659,9 +632,11 @@ func TestHandbackGatesRanOn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	payload := `{"hook_event_name":"PreToolUse","tool_name":"SubagentHandback","agent_id":"a1","transcript_path":"` + parent + `"}`
-	if r := Handback(core.ParseInput(strings.NewReader(payload))); r.Decision != core.Block || !strings.Contains(r.Reason, ranOnGateMark) {
-		t.Fatalf("first hand-back must be denied with the gate reason, got %+v", r)
+	payload := `{"hook_event_name":"PreToolUse","tool_name":"SubagentHandback","agent_id":"a1","transcript_path":"` + parent +
+		`","tool_input":{"message":"my findings"}}`
+	r := Handback(core.ParseInput(strings.NewReader(payload)))
+	if msg, _ := r.UpdatedInput["message"].(string); r.Decision == core.Block || !strings.HasPrefix(msg, relayNote) || !strings.HasSuffix(msg, "my findings") {
+		t.Fatalf("hand-back = %+v, want it through with the relay note on top of the report", r)
 	}
 	in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", `{"success":true,"message":"`+handedBackMark+`."}`)
 	if r, blocked := leafStopBlock(in, "a1"); blocked {
@@ -684,30 +659,69 @@ func appendLines(t *testing.T, path string, lines ...string) {
 	}
 }
 
-// gateBlockLines is one prior ran-on block as Claude Code records it: a denied hand-back, or SubagentStop feedback.
-func gateBlockLines(reason string) []string {
-	denied, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{{"type": "tool_result",
-		"is_error": true, "content": "PreToolUse:SubagentHandback hook error: [$HOME/.claude/bin/claude-code hook PreToolUse]: " + reason}}}})
-	feedback, _ := json.Marshal(map[string]any{"type": "user", "isMeta": true, "message": map[string]any{"content": "SubagentStop hook feedback:\n" + reason}})
-	return []string{string(denied), string(feedback)}
+// stubSpawn records each detached launch of a brief's Run: line instead of starting it.
+func stubSpawn(t *testing.T) *[][]string {
+	t.Helper()
+	var got [][]string
+	orig := spawnBriefLine
+	t.Cleanup(func() { spawnBriefLine = orig })
+	spawnBriefLine = func(words []string, _ string, _ *os.File) error {
+		got = append(got, words)
+		return nil
+	}
+	return &got
 }
 
-// A gemini leaf with no ran-on line is blocked on its 1st, 2nd and 3rd stop and passes the 4th with the visible note.
-func TestRanOnGateBlocksThreeTimes(t *testing.T) {
-	for form := range 2 {
-		in := leafTx(t, "gemini", "Objective: review internal/gemini, read-only\n", "ls output")
-		for n := 1; n <= 3; n++ { // literal: the 4th stop passes
-			r, blocked := leafStopBlock(in, "a1")
-			if !blocked || !strings.Contains(r.Reason, "Run the brief's `Run:` line exactly as written, flags unchanged.") {
-				t.Fatalf("form %d stop %d: got %+v blocked=%v, want a Block naming the Run: line", form, n, r, blocked)
-			}
-			appendLines(t, in.AgentTranscriptPath, gateBlockLines(r.Reason)[form])
-			in.StopHookActive = form == 1
-		}
-		r, blocked := leafStopBlock(in, "a1")
-		if blocked || !strings.Contains(r.SystemMessage, "a1: hand-back BLOCKED: no `ask: ran on` receipt") {
-			t.Fatalf("form %d stop %d: got %+v blocked=%v, want a pass with the ran-on note", form, 4, r, blocked)
-		}
+// A never-run Run: line is run by the hook, unchanged; the hand-back is held, then passes with result and receipt.
+func TestRanOnHookRunsTheLine(t *testing.T) {
+	spawned := stubSpawn(t)
+	const line = "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'"
+	in := leafTx(t, "codex", "Run: "+line+"\n\nObjective: review\n", "ls output")
+	in = handbackOf(in, "my report")
+	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	want := []string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}
+	if !blocked || !strings.Contains(r.Reason, "held, not refused") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(want) {
+		t.Fatalf("first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", r, blocked, *spawned, want)
+	}
+	m, _ := loadRelayRun("a1")
+	if err := os.WriteFile(m.Output, []byte("the answer\nask: ran on codex · databricks·prod · databricks-gpt-6-1-sol · fallback none\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	msg, _ := r.UpdatedInput["message"].(string)
+	if blocked || len(*spawned) != 1 || !strings.HasPrefix(msg, "NOTE: the hook ran the brief's `Run:` line itself: ask: ran on codex") ||
+		!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
+		t.Fatalf("second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", r, blocked)
+	}
+}
+
+// A relay that edited files passes with the note on top and the Run: line is never run by the hook.
+func TestRanOnRelayDidTheWork(t *testing.T) {
+	spawned := stubSpawn(t)
+	in := leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'fix it'\n", "ls output")
+	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": "e1", "name": "Edit", "input": map[string]any{}}}}})
+	appendLines(t, in.AgentTranscriptPath, string(edit))
+	in = handbackOf(in, "fixed it")
+	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	msg, _ := r.UpdatedInput["message"].(string)
+	if blocked || len(*spawned) != 0 || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not on codex") || !strings.HasSuffix(msg, "fixed it") {
+		t.Fatalf("got %+v blocked=%v spawns %v, want the hand-back through with the relay note, no launch", r, blocked, *spawned)
+	}
+}
+
+// Every held hand-back saves the report it carried to the reports home and names the file.
+func TestRanOnHeldReportPreserved(t *testing.T) {
+	stubSpawn(t)
+	in := leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output")
+	in = handbackOf(in, "the full report")
+	in.CWD = t.TempDir()
+	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	_, path, ok := strings.Cut(r.Reason, "is saved at ")
+	path = strings.TrimSuffix(path, ".")
+	got, err := os.ReadFile(path)
+	if !blocked || !ok || err != nil || string(got) != "the full report" {
+		t.Fatalf("held = %+v blocked=%v; saved %q (%v), want the report preserved and named", r, blocked, got, err)
 	}
 }
 
@@ -934,10 +948,10 @@ func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
 // Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated.
 func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
-	src := "const ranOnGateMark = \"" + ranOnGateMark + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
+	src := "const relayNote = \"" + relayNote + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
 	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
-	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
-		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
+	if r, _ := leafStopBlock(in, "a1"); !strings.Contains(r.SystemMessage, relayNote) {
+		t.Fatalf("got %+v, want the relay note: prose mentions are not a ran-on line", r)
 	}
 }
 
@@ -957,14 +971,14 @@ func TestStopReapsAfterRetiringSlot(t *testing.T) {
 	}
 }
 
-// An expired dispatch note and the ran-on fail-open note both reach the user.
+// An expired dispatch note and the receipt gate's cap note both reach the user.
 func TestLeafGateKeepsBothNotes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", startedLine())
 	in.StopHookActive = true
 	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
 	r, blocked := leafStopBlock(in, "a1")
-	if blocked || !strings.Contains(r.SystemMessage, "hand-back BLOCKED: no `ask: ran on` receipt") || !strings.Contains(r.SystemMessage, "limit reached") {
+	if blocked || !strings.Contains(r.SystemMessage, "still running at the 2h0m0s limit") || !strings.Contains(r.SystemMessage, "limit reached") {
 		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
 	}
 }
@@ -1005,8 +1019,8 @@ func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
 	}
 	empty := bgOutputFile(t, "working\n")
-	if _, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !blocked {
-		t.Fatal("an output with no receipt must still block")
+	if r, _ := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !strings.Contains(r.SystemMessage, relayNote) {
+		t.Fatalf("an output with no receipt and no record: got %+v, want the relay note", r)
 	}
 	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
 	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
@@ -1021,5 +1035,109 @@ func TestRanOnResumedLeafWording(t *testing.T) {
 	r, blocked := leafStopBlock(in, "a1")
 	if blocked || !strings.Contains(r.SystemMessage, "resumed after its hand-back; no new `ask: ran on` receipt this round") {
 		t.Fatalf("got %+v blocked=%v, want the resumed wording", r, blocked)
+	}
+}
+
+// timedLeafTx is a codex leaf transcript whose one ask call (made at `at`) returned result, with its meta.json.
+func timedLeafTx(t *testing.T, at time.Time, result string) *core.Input {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(t.TempDir(), "subagents")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	brief, _ := json.Marshal(map[string]any{"type": "user", "timestamp": at.Add(-time.Minute), "message": map[string]any{"content": "Objective: x\nAgent: codex\n"}})
+	call, _ := json.Marshal(map[string]any{"type": "assistant", "timestamp": at, "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": map[string]any{"command": `claude-code agents ask --agent codex "x"`}}}}})
+	res, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_result", "tool_use_id": "toolu_1", "content": result}}}})
+	tx := filepath.Join(dir, "agent-a1.jsonl")
+	if err := os.WriteFile(tx, []byte(string(brief)+"\n"+string(call)+"\n"+string(res)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return leafInput(tx)
+}
+
+// No receipt: pass with the record's ran-on line, hold while it runs, note relay work when no record shows a job.
+func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
+	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
+	const id = "20261116T120000.000-codex"
+	rec := func(agent, status string, start time.Time, extra string) string {
+		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":%q,"status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol","provider":"prod"%s}`,
+			id, start.Format(time.RFC3339), agent, status, os.Getpid(), extra)
+	}
+	moved := bgNotice("/nonexistent/tasks/bX1.output")
+	for _, tc := range []struct {
+		name, result, record string
+		wantBlock            bool
+		want                 string // in the reason when blocked, else in the system message
+	}{
+		{"printed id, finished", `{"id":"` + id + `","status":"ok"}`, rec("codex", "ok", at.Add(-time.Hour), ""), false,
+			"supplied the receipt: ask: ran on codex · own login · databricks-gpt-6-1-sol · fallback none"},
+		{"moved to background, finished", moved, rec("codex", "ok", at.Add(5*time.Second), ""), false,
+			"(launched by its ask call) supplied the receipt: ask: ran on codex"},
+		{"fallback shown", moved, rec("claude", "ok", at.Add(5*time.Second), `,"fallback":"codex"`), false, "fallback from codex"},
+		{"still running", moved, rec("codex", "running", time.Now(), ""), true, "held, not refused. Run `claude-code agents result -f " + id},
+		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), false, relayNote},
+		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), false, relayNote},
+		{"no record", "ls output", "", false, relayNote},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "still running" {
+				at = time.Now().Add(-5 * time.Second)
+			}
+			in := timedLeafTx(t, at, tc.result)
+			if tc.record != "" {
+				writeDispatch(t, id, tc.record)
+			}
+			r, blocked := leafStopBlock(in, "a1")
+			got := r.SystemMessage
+			if blocked {
+				got = r.Reason
+			}
+			if blocked != tc.wantBlock || !strings.Contains(got, tc.want) {
+				t.Errorf("got %+v blocked=%v, want blocked=%v with %q", r, blocked, tc.wantBlock, tc.want)
+			}
+		})
+	}
+}
+
+// handbackOf is in as a SubagentHandback call carrying message.
+func handbackOf(in *core.Input, message string) *core.Input {
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "SubagentHandback", "agent_id": "a1",
+		"agent_transcript_path": in.AgentTranscriptPath, "cwd": in.CWD, "tool_input": map[string]any{"message": message}})
+	return core.ParseInput(bytes.NewReader(payload))
+}
+
+// An early hand-back is held while its job runs (report saved), then passes with the job's receipt and result attached.
+func TestHandbackHeldUntilJobDone(t *testing.T) {
+	at := time.Now().Add(-time.Minute).Truncate(time.Second)
+	const id = "20261116T120000.000-codex"
+	in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+	in.CWD = t.TempDir()
+	body := func(status string) string {
+		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol","log":%q}`,
+			id, at.Add(3*time.Second).Format(time.RFC3339), status, os.Getpid(), filepath.Join(t.TempDir(), "job.log"))
+	}
+	writeDispatch(t, id, body("running"))
+	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	if !blocked || !strings.Contains(r.Reason, "held, not refused") || !strings.Contains(r.Reason, "is saved at ") {
+		t.Fatalf("running = %+v blocked=%v, want a hold naming the saved report", r, blocked)
+	}
+	rec := body("ok")
+	writeDispatch(t, id, rec)
+	var log struct{ Log string }
+	_ = json.Unmarshal([]byte(rec), &log)
+	if err := os.WriteFile(log.Log, []byte("job answer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	msg, _ := r.UpdatedInput["message"].(string)
+	if blocked || !strings.HasPrefix(msg, "NOTE: dispatch "+id) || !strings.Contains(msg, "ask: ran on codex") ||
+		!strings.Contains(msg, "early report") || !strings.Contains(msg, "job answer") {
+		t.Fatalf("finished = %+v blocked=%v, want the hand-back through with note, receipt, report and result", r, blocked)
 	}
 }

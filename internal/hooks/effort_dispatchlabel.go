@@ -45,15 +45,21 @@ func briefHeader(task string) string {
 	return paras[0]
 }
 
-// LabelInput is one dispatch to label: its leaf type, model pin ("" = unset), brief and the session's model id.
+// LabelInput is one dispatch to label: leaf type, model pin ("" = unset), ask --profile, brief and session model id.
 type LabelInput struct {
-	Type, Model, Brief, SessionModel string
+	Type, Model, Profile, Brief, SessionModel string
 }
 
 // dispatchLabel runs the hook's type gate, pin and label on a synthetic spawn; blocked is the type gate's deny.
 func dispatchLabel(ctx context.Context, in LabelInput) (label, model, blocked string) {
+	label, model, blocked, _ = dispatchLabelNote(ctx, in)
+	return label, model, blocked
+}
+
+// dispatchLabelNote is dispatchLabel plus the label's note: the route's substitution, or why none resolved.
+func dispatchLabelNote(ctx context.Context, in LabelInput) (label, model, blocked, note string) {
 	if deny := typeBlock(in.Type, in.Brief); deny != nil {
-		return "", "", deny.Reason
+		return "", "", deny.Reason, ""
 	}
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{
 		"subagent_type": in.Type, "model": in.Model, "prompt": in.Brief}})
@@ -61,12 +67,13 @@ func dispatchLabel(ctx context.Context, in LabelInput) (label, model, blocked st
 	updated := ci.CloneToolInput()
 	_, task := spawnTask(ci)
 	run := newDispatchRun(func() string { return in.SessionModel })
+	run.profile = in.Profile
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
-	label = labelModel(ctx, run, updated, in.Type, task) // applyLabel's prefix, whatever the description
+	label, note = labelModel(ctx, run, updated, in.Type, task) // applyLabel's prefix, whatever the description
 	model, _ = updated["model"].(string)
-	return label, model, ""
+	return label, model, "", note
 }
 
 // LabelRow is `agents label`'s result: the leaf type, the model it carries, its prefix and where the model came from.
@@ -77,13 +84,14 @@ type LabelRow struct {
 	Source string `json:"source"`
 	// Blocked is the hook's deny reason for a type it refuses ("" = allowed).
 	Blocked string `json:"blocked,omitempty"`
+	Note    string `json:"note,omitempty"` // the route's substitution, or why no label resolved offline
 }
 
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
-	label, pinned, blocked := dispatchLabel(context.Background(), in)
-	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked}
+	label, pinned, blocked, note := dispatchLabelNote(context.Background(), in)
+	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked, Note: note}
 }
 
 // labelSource names where the label's model came from: the dispatch's --model, the session, or the pin and route.

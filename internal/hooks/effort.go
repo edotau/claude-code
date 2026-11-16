@@ -3,8 +3,6 @@ package hooks
 
 import (
 	"context"
-	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,6 +32,7 @@ type dispatchRun struct {
 	registry func() (*providers.Registry, error)
 	line     *askLine // the brief's opening ask command, parsed (and its overlay loaded) once
 	lineTask string
+	profile  string // `agents label --profile`: the ask --profile when the brief's Run: line names none
 }
 
 // Per-run read seams: tests count them; production reads the roster file and the provider registry.
@@ -82,27 +81,23 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 
 	promptField, task := spawnTask(in)
 
-	// a direct ask run is not rewritten: its non-functional edits ride additionalContext
+	// a direct ask run's prompt stays byte-identical: its recall rides additionalContext
 	direct := opensWithAsk(task)
-	auto := direct
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
 	if deny := preflightBlock(ctx, e.run, task); deny != nil {
 		return *deny
 	}
-	if deny := e.retype(in, fixType, auto); deny != nil {
-		return *deny
-	}
-	recallNote := e.recall(ctx, in, promptField, task, auto)
+	e.retype(in, fixType)
+	// auto mode refuses a hook-modified input, so its recall rides additionalContext too
+	recallNote := e.recall(ctx, in, promptField, task, direct || in.Nested("permission_mode") == "auto")
 	if !direct {
-		var pinMsg string
-		e.note, pinMsg = pinModel(e.run, in, updated, task)
+		pinNote, pinMsg := pinModel(e.run, in, updated, task)
+		e.fix(pinNote)
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
-		e.changed = e.changed || e.note != ""
+		e.changed = e.changed || pinNote != ""
 	}
-	if deny := e.label(ctx, task, auto); deny != nil {
-		return *deny
-	}
+	e.label(ctx, task)
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
 }
@@ -122,13 +117,13 @@ type effortPlan struct {
 	changed       bool
 }
 
-// recall appends the memory-recall block to the prompt, or returns it as a note on a direct ask run.
-func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, auto bool) string {
+// recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
+func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
 	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, in.CWD, task)
 	if recallBlock == "" {
 		return ""
 	}
-	if auto {
+	if asNote {
 		if recallBlock = freshPointers(in.SessionID, recallBlock); recallBlock == "" {
 			return ""
 		}
@@ -177,19 +172,18 @@ func appendSeen(path string, ids []string) error {
 	return err
 }
 
-// label prefixes the description with the run's model: a rewrite, or on a direct ask run a one-time deny.
-func (e *effortPlan) label(ctx context.Context, task string, auto bool) *core.Result {
-	if !auto {
-		changed, _ := applyLabel(ctx, e.run, e.updated, task)
-		e.changed = changed || e.changed
-		return nil
+// label prefixes the description with the run's model, on every brief: only the description changes.
+func (e *effortPlan) label(ctx context.Context, task string) {
+	changed, note := applyLabel(ctx, e.run, e.updated, task)
+	e.changed = changed || e.changed
+	e.fix(note)
+}
+
+// fix adds one note line per fix; every fix of a call rides the same updatedInput, so auto mode resends once.
+func (e *effortPlan) fix(note string) {
+	if note != "" {
+		e.note = strings.TrimSpace(e.note + "\n" + note)
 	}
-	probe := maps.Clone(e.updated)
-	if _, canonical := applyLabel(ctx, e.run, probe, task); canonical { // a right prefix passes; case alone never blocks
-		return nil
-	}
-	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: the description must start with the model the "+
-		"dispatch runs on. Resend this dispatch with description %q (or print the prefix with `claude-code agents label <type>`).", probe["description"])}
 }
 
 func (e *effortPlan) result() core.Result {

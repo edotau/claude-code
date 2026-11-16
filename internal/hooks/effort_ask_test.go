@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 )
@@ -56,13 +57,13 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan.addCalls(content)
+	scan.addCalls(content, time.Time{})
 	scan.scanResult(leafToolResult{ToolUseID: "call", Content: json.RawMessage(`"ask: ran on codex · pinned"`)})
 	if !scan.ranOn {
 		t.Fatalf("no receipt for %q", command)
 	}
 	e := &effortPlan{updated: map[string]any{"subagent_type": "codex", "description": "inspect hook"}, run: newDispatchRun(nil)}
-	if denied := e.label(context.Background(), brief, true); denied == nil || !strings.Contains(denied.Reason, "pinned: inspect hook") {
-		t.Fatalf("missing label enforcement for %q: %+v", brief, denied)
+	if e.label(context.Background(), brief); e.updated["description"] != "pinned: inspect hook" || !e.changed {
+		t.Fatalf("missing label rewrite for %q: %+v", brief, e.updated)
 	}
 }

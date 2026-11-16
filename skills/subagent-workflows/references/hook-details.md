@@ -32,24 +32,39 @@ removed by hand or explicit `configure --restore`
 
 ## dispatch-effort
 
-Gates type; for a type with no `model:` line (built-ins such as `Explore`, `general-purpose`) and no explicit model,
-pins model and effort from the task's tier (effort only when neither the call nor the agent file sets one), never for
-a `Run: claude-code agents ask` brief; claims slots, recalls context and labels the row. A `Run:` line naming a
-missing Databricks workspace, or (with `--fallback none`) a model that workspace's fresh cached listing does not
-serve, is denied with `agents ask`'s own preflight text; a stale or missing listing passes. Brief routing:
-`skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
-validation: `internal/workflows/workflowlint.go`. Auto mode accepts these rewrites (measured); hosts without
-`updatedInput` deny with the fix instead
+Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
+line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
+(effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief; claims
+slots, recalls context and labels the row. Recall is a context note in auto mode for every brief, otherwise only on a
+`Run:` brief; any other brief gets it appended. A `Run:` line naming a missing Databricks workspace, or (with
+`--fallback none`) a model that workspace's fresh cached listing does not serve, is denied with `agents ask`'s own
+preflight text plus the fix (code cannot pick the workspace or model); a stale or missing listing passes. The label is
+the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
+pin, else opus; claude runs the brief's alias), an untyped external dispatch takes the route ladder's first hop; a route
+that does not resolve offline leaves the description unlabelled with a note. Every fix (type, label, pin) rides one
+`updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
+Implementation: `internal/hooks/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In auto mode a
+rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a hook-modified input
+once)
 
 ## dispatch-failure · dispatch-workflow · dispatch-stop
 
 Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 hours from the dispatch's start, then a
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
-result -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf is also blocked up to 3
-times at a stop whose tool results carry no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves and
-`Agent: in-context` briefs are exempt; the type is the request; prior blocks are counted from hook errors and feedback
-in its transcript); the 4th stop passes with a visible message. A stop it isn't blocking kills the leaf's leftover
-background shells (its own task ids only)
+result -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf whose tool results carry
+no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves are exempt; the type is the request) is never
+refused. Its job is an id its results printed, else a record of that agent started within 2 minutes after one of its ask
+calls (or after the hook's own launch). (1) Job running: the hand-back or stop is held, not counted, naming `claude-code
+agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); once ended it passes with a
+top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's result appended to
+`message`. (2) No job, the brief opens with a `Run:` ask line and the leaf made no Edit/Write/MultiEdit/NotebookEdit
+call: the hook starts that line detached with its flags unchanged (marker and output under
+`state/harness/dispatch-relay/`), holds the leaf (`sleep 60`, then hand back again) and attaches the output and receipt
+with a note saying the hook ran it. (3) The leaf edited files, or the brief has no `Run:` line: it passes with a
+top-line note that the work was done on the relay model, not on the agent; the line is not run. (4) Every hold saves the
+report it carried (`message`, else the last assistant text) to the reports home and names the path. A stop has no input
+to rewrite, so it gets the note as a system message only. Unreadable transcripts fail open. A stop it isn't blocking
+kills the leaf's leftover background shells (its own task ids only)
 
 ## worktree-claim-check
 

@@ -253,24 +253,33 @@ func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
-// TestAgentEffortAutoModeRecallAppendsToPrompt: auto mode rewrites like any other mode, recall lands in the prompt.
-func TestAgentEffortAutoModeRecallAppendsToPrompt(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	seedHomeRecallBlock(t, 2)
-	in := fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
-	res := effortResult(in)
-	if p, _ := res.UpdatedInput["prompt"].(string); !strings.Contains(p, "memory-recall") {
-		t.Errorf("updatedInput prompt = %q, want the recall block appended", p)
-	}
-	if strings.Contains(res.Context, "memory-recall for this dispatch") {
-		t.Errorf("context = %q, want no recall note outside a direct ask run", res.Context)
+// Auto mode refuses a modified input: a non-Run brief's recall rides additionalContext there, else the prompt.
+func TestAgentEffortRecallByPermissionMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode     string
+		wantNote bool
+	}{{"auto", true}, {"default", false}, {"", false}} {
+		t.Run(cmp.Or(tc.mode, "unset"), func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			seedHomeRecallBlock(t, 2)
+			res := effortResult(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"prompt":%q,"model":"opus"}}`,
+				tc.mode, recallPrompt))
+			note := strings.Contains(res.Context, "memory-recall for this dispatch") && strings.Contains(res.Context, "<memory-recall>")
+			p, _ := res.UpdatedInput["prompt"].(string)
+			switch {
+			case tc.wantNote && (!note || res.UpdatedInput != nil):
+				t.Errorf("context %q, updatedInput %v; want the recall note and no updatedInput", res.Context, res.UpdatedInput)
+			case !tc.wantNote && (note || !strings.HasPrefix(p, recallPrompt) || !strings.Contains(p, "<memory-recall>")):
+				t.Errorf("context %q, prompt %q; want the recall block appended and no note", res.Context, p)
+			}
+		})
 	}
 }
 
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
 	stubLabelModels(t, "")
-	stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Agent + "-" + q.Default })
+	stubResolve(t, tierOracle)
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
 	r := effortResult(payload)
@@ -287,14 +296,22 @@ func stubLabelModels(t *testing.T, cell string) {
 	stubResolve(t, func(agentpkg.ModelQuery) string { return cell })
 }
 
-// stubResolve replaces the resolver with f's model for each query; the registry still loads from the test vault.
+// stubResolve replaces the resolver with f's model for each query, and the ladder with the query as typed.
 func stubResolve(t *testing.T, f func(agentpkg.ModelQuery) string) {
 	t.Helper()
-	orig := resolveModel
-	t.Cleanup(func() { resolveModel = orig })
+	orig, origRun := resolveModel, runQuery
+	t.Cleanup(func() { resolveModel, runQuery = orig, origRun })
 	resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
-		return agentpkg.ModelRoute{Model: f(q)}, nil
+		return agentpkg.ModelRoute{Agent: q.Agent, Model: f(q)}, nil
 	}
+	runQuery = func(_ context.Context, _ *providers.Registry, q agentpkg.ModelQuery, _ string) (agentpkg.ModelQuery, string, error) {
+		return q, "", nil
+	}
+}
+
+// tierOracle labels a query `<agent>-<model>`; "pin" stands for a vendor CLI's own pin (no alias reaches it).
+func tierOracle(q agentpkg.ModelQuery) string {
+	return q.Agent + "-" + cmp.Or(q.Model, q.Default, "pin")
 }
 
 func TestDispatchAgentLabels(t *testing.T) {
@@ -312,11 +329,11 @@ func TestDispatchAgentLabels(t *testing.T) {
 		t.Errorf("Explore label = %q, want its own model prefix", got)
 	}
 	cases := []struct{ st, agent, want string }{
-		{"claude", "copilot", "copilot-sonnet: task"},
-		{"copilot", "claude", "copilot-sonnet: task"},
+		{"claude", "copilot", "copilot-pin: task"},
+		{"copilot", "claude", "copilot-pin: task"},
 		{"claude", "claude (in-context)", "sonnet: task"},
 		{"claude", "claude", "sonnet: task"},
-		{"codex", "codex → gemini", "codex-sonnet: task"},
+		{"codex", "codex → gemini", "codex-pin: task"},
 	}
 	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
 	for _, c := range []struct{ prompt, want string }{
@@ -340,17 +357,17 @@ func TestDispatchAgentLabels(t *testing.T) {
 func TestDispatchLabelLowercase(t *testing.T) {
 	useAgentsDir(t, "claude", "copilot", "Plan")
 	lower := []struct{ st, agent, desc, want string }{
-		{"claude", "copilot", "Fix bug", "copilot-sonnet: fix bug"},
-		{"claude", "copilot", "copilot: Fix bug", "copilot-sonnet: fix bug"},
+		{"claude", "copilot", "Fix bug", "copilot-pin: fix bug"},
+		{"claude", "copilot", "copilot: Fix bug", "copilot-pin: fix bug"},
 		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
 		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
-		{"claude", "copilot", "CLAUDE.md rewrite", "copilot-sonnet: CLAUDE.md rewrite"},
+		{"claude", "copilot", "CLAUDE.md rewrite", "copilot-pin: CLAUDE.md rewrite"},
 		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
 		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
 		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
 		{"claude", "none", "Done. Next", "sonnet: done. Next"},
 		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "copilot-sonnet: repair tests"},
+		{"copilot", "none", "copilot: repair tests", "copilot-pin: repair tests"},
 		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
 	}
 	for _, c := range lower {
@@ -395,6 +412,38 @@ func TestDispatchLabelAutoModeRewrites(t *testing.T) {
 	r = effortResult(autoDispatch("claude", "sonnet: fix bug"))
 	if r.Decision == core.Block || r.UpdatedInput != nil {
 		t.Fatalf("right prefix = %+v, want it untouched", r)
+	}
+}
+
+// A Run: brief's wrong label and coworker type are fixed in one updatedInput, any mode; its prompt is byte-identical.
+func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
+	useAgentsDir(t, "claude", "copilot")
+	stubLabelModels(t, "claude-sonnet-5.5")
+	const brief = "Run: claude-code agents ask --agent copilot --profile copilot 'fix it'\n\nObjective: fix it"
+	for _, tc := range []struct {
+		mode, st, desc string
+		notes          int // one note line per fix
+	}{
+		{"default", "copilot", "sonnet: fix it", 1},
+		{"auto", "copilot", "fix it", 1},
+		{"auto", "coworker:copilot", "databricks-gpt-6-1-sol: fix it", 2},
+		{"auto", "copilot", "claude-sonnet-5.5: fix it", 0},
+	} {
+		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": tc.mode,
+			"tool_input": map[string]any{"subagent_type": tc.st, "prompt": brief, "description": tc.desc}})
+		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
+		d, _ := r.UpdatedInput["description"].(string)
+		fixed := tc.notes > 0
+		switch {
+		case r.Decision == core.Block:
+			t.Errorf("%s/%s/%q denied: %s", tc.mode, tc.st, tc.desc, r.Reason)
+		case fixed && (d != "claude-sonnet-5.5: fix it" || r.UpdatedInput["subagent_type"] != "copilot" || r.UpdatedInput["prompt"] != brief):
+			t.Errorf("%s/%s/%q: updatedInput %v, want the label and type fixed, prompt byte-identical", tc.mode, tc.st, tc.desc, r.UpdatedInput)
+		case !fixed && r.UpdatedInput != nil:
+			t.Errorf("%s/%s/%q: right label rewritten: %v", tc.mode, tc.st, tc.desc, r.UpdatedInput)
+		case strings.Count(r.Context, "dispatch-effort: ") != tc.notes:
+			t.Errorf("%s/%s/%q: context %q, want %d fix notes", tc.mode, tc.st, tc.desc, r.Context, tc.notes)
+		}
 	}
 }
 
@@ -467,7 +516,7 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 	}{
 		{"claude-sonnet-5-5", 0, "", "databricks-claude-sonnet-5-5"},
 		{"claude-nonexistent-9", 0, "dispatch-effort: preflight: served: dev lists no endpoint claude-nonexistent-9 " +
-			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK)", ""},
+			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK). Fix the brief's `Run:` line", ""},
 		{"claude-nonexistent-9", 48 * time.Hour, "", ""}, // a stale listing proves nothing: ask's own preflight decides
 	}
 	for _, tc := range cases {
@@ -482,8 +531,8 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 		if r.Decision == core.Block {
 			got = r.Reason
 		}
-		if got != tc.wantDeny {
-			t.Errorf("%s (listing age %v): deny %q, want %q", tc.model, tc.age, got, tc.wantDeny)
+		if !strings.HasPrefix(got, tc.wantDeny) || (got == "") != (tc.wantDeny == "") {
+			t.Errorf("%s (listing age %v): deny %q, want it to start %q", tc.model, tc.age, got, tc.wantDeny)
 		}
 	}
 }
@@ -536,10 +585,10 @@ func writeAgentFile(t *testing.T, cfg, spec string) {
 // allowedTypes are the dispatch types the inventory covers: the seven-file roster shape plus the built-ins.
 var allowedTypes = []string{"claude", "codex", "copilot", "gemini", "opencode", "Explore", "Plan", "general-purpose"}
 
-// inventoryLabel is the label oracle: an external type shows "<agent>-sonnet", else its model.
+// inventoryLabel is the label oracle: an external type shows "<agent>-pin", else its model.
 func inventoryLabel(st, model string) string {
 	if externalTypes[st] {
-		return st + "-sonnet" // the ask classifies "review the diff" as sonnet, whatever the relay's own model
+		return st + "-pin" // a vendor CLI runs its pin (else opus), never the classifier's alias nor the relay's model
 	}
 	return model
 }
@@ -551,7 +600,7 @@ func TestDispatchLabelInventory(t *testing.T) {
 		for _, src := range []string{"explicit", "file", "none"} {
 			cfg := useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode", "Plan")
 			stubLabelModels(t, "")
-			stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Agent + "-" + q.Default })
+			stubResolve(t, tierOracle)
 			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
 			if src == "file" {
 				writeAgentFile(t, cfg, st+":haiku")

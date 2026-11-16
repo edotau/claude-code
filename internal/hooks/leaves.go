@@ -216,11 +216,14 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	}
 	expired, block := liveDispatchVerdict(lr.ids, agentID)
 	if block {
-		return expired, true
+		return preserveReport(in, agentID, lr, expired), true
 	}
 	res, block := ranOnVerdict(in, agentID, lr)
-	if block || expired.SystemMessage == "" {
-		return res, block
+	if block {
+		return preserveReport(in, agentID, lr, res), true
+	}
+	if expired.SystemMessage == "" {
+		return res, false
 	}
 	if res.SystemMessage != "" {
 		expired.SystemMessage = res.SystemMessage + "; " + expired.SystemMessage
@@ -269,11 +272,8 @@ var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
 })
 
-// ranOnGateMark opens the ran-on gate's reason; a hook block carrying it counts as one prior gate.
-const ranOnGateMark = "No tool result of yours carries an `ask: ran on` line"
-
-// ranOnMaxBlocks is how many times the gate blocks one leaf before it fails open with a visible note.
-const ranOnMaxBlocks = 3
+// askLaunchWindow is how long after a leaf's ask call its dispatch record may start; a later one is another job.
+const askLaunchWindow = 2 * time.Minute
 
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
@@ -292,12 +292,15 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 // leafScan is what the gates read from a leaf transcript: ask calls and their results, the hand-back, prior blocks.
 type leafScan struct {
 	seenBrief         bool
+	runLine           string          // the brief's opening `Run:` command, the one the hook runs
+	askTimes          []time.Time     // when each ask call was made, to find its dispatch record
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask or result
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	resumed           bool
+	edited            bool   // the leaf called a file-editing tool: it did the work itself
+	lastText          string // the leaf's last assistant text, its report at a stop
 	bgAsks            []string
-	gates             int
 }
 
 // leafToolResult is one tool_result item of a user message.
@@ -321,8 +324,9 @@ type leafToolUse struct {
 // addLine reads one transcript line: the brief, tool calls and results, hook blocks; assistant text never counts.
 func (s *leafScan) addLine(b []byte) {
 	var m struct {
-		Type    string `json:"type"`
-		Message struct {
+		Type      string    `json:"type"`
+		Timestamp time.Time `json:"timestamp"`
+		Message   struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
@@ -331,10 +335,16 @@ func (s *leafScan) addLine(b []byte) {
 	}
 	switch {
 	case m.Type == "assistant":
-		s.addCalls(m.Message.Content)
+		s.addCalls(m.Message.Content, m.Timestamp)
+		if text := transcript.ContentText(m.Message.Content); strings.TrimSpace(text) != "" {
+			s.lastText = text
+		}
 	case m.Type != "user":
 	case !s.seenBrief: // the first user message is the brief
 		s.seenBrief = true
+		if first, _, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
+			s.runLine = strings.TrimSpace(strings.TrimPrefix(first, "Run:"))
+		}
 	default:
 		s.addResults(m.Message.Content)
 	}
@@ -359,18 +369,22 @@ func askOutputRan(paths []string) (ran, failed bool) {
 	return ran, failed
 }
 
-// addCalls records the ids of the Bash calls in an assistant message that run an ask or result.
-func (s *leafScan) addCalls(content json.RawMessage) {
+// addCalls records the ids (and time, when known) of the Bash calls in an assistant message that run an ask or result.
+func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 	var items []leafToolUse
 	if json.Unmarshal(content, &items) != nil {
 		return
 	}
 	for _, it := range items {
+		s.edited = s.edited || it.Type == "tool_use" && editTools[it.Name]
 		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCmdRe().MatchString(it.Input.Command) {
 			if s.askCalls == nil {
 				s.askCalls = map[string]bool{}
 			}
 			s.askCalls[it.ID] = true
+			if !at.IsZero() {
+				s.askTimes = append(s.askTimes, at)
+			}
 		}
 	}
 }
@@ -379,10 +393,7 @@ func (s *leafScan) addCalls(content json.RawMessage) {
 func (s *leafScan) addResults(content json.RawMessage) {
 	var items []leafToolResult
 	if json.Unmarshal(content, &items) != nil {
-		text := transcript.ContentText(content)
-		if strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
-			s.gates++
-		} else if s.handedBack {
+		if s.handedBack && !strings.Contains(transcript.ContentText(content), "hook feedback:") {
 			s.resumed = true
 		}
 		return
@@ -404,9 +415,6 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
 	}
 	if it.IsError {
-		if strings.Contains(text, " hook error: ") && strings.Contains(text, ranOnGateMark) {
-			s.gates++
-		}
 		return
 	}
 	s.handedBack = s.handedBack || strings.Contains(text, handedBackMark)
@@ -482,7 +490,7 @@ var externalTypes = func() map[string]bool {
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
-// ranOnVerdict blocks a gated leaf's stop or hand-back up to ranOnMaxBlocks times when no ran-on line was seen.
+// ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, runs, attaches or notes, and never drops the report.
 func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	// only leaves that call an external agent (codex|copilot|gemini|opencode) and show no ran-on receipt
 	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
@@ -496,24 +504,13 @@ func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, boo
 	if lr.scan.askFailed { // the ask ran and refused or found no agent: the failure is the report, not a reason to re-ask
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: its ask did not run an agent", agentID)}, false
 	}
-	return ranOnBlock(lr.scan, agentID, in.StopHookActive)
-}
-
-// ranOnBlock blocks a leaf with no receipt until ranOnMaxBlocks prior blocks, then passes with a visible BLOCKED note.
-func ranOnBlock(s leafScan, agentID string, stopActive bool) (core.Result, bool) {
-	if stopActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf
-		s.gates = ranOnMaxBlocks
-	}
-	if s.resumed {
+	switch {
+	case lr.scan.resumed:
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: resumed after its hand-back; no new `ask: ran on` receipt this round", agentID)}, false
+	case lr.scan.handedBack: // the delivered hand-back already carried the fix
+		return core.Result{}, false
 	}
-	if s.handedBack || s.gates >= ranOnMaxBlocks {
-		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: hand-back BLOCKED: no `ask: ran on` receipt, "+
-			"the external agent was never called", agentID)}, false
-	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s (or a `ran_on` field), so the external agent was never called "+
-		"(block %d of %d). Run the `claude-code agents ask` the brief requests, or report BLOCKED with the reason. "+
-		"Run the brief's `Run:` line exactly as written, flags unchanged.", ranOnGateMark, s.gates+1, ranOnMaxBlocks)}, true
+	return receiptFix(in, agentID, lr)
 }
 
 // Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.
