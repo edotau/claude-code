@@ -99,6 +99,9 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
+	if dir == core.CanonPath(memory.StoreDir()) { // the store is its own git repo; notes at its root are the point
+		return core.ExitProceed
+	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
 }
 
