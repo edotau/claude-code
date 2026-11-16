@@ -29,35 +29,20 @@ func hookSession(t *testing.T) (tr string, payload func() *core.Input) {
 	return tr, func() *core.Input { return core.ParseInput(strings.NewReader(updatePayload(tr, cwd))) }
 }
 
-// A failed Stop spawn blocks with the live work units, never mislabeled as file edits.
-func TestFailedWorkerMessageUsesWorkUnits(t *testing.T) {
-	tr, payload := hookSession(t)
-	hosttest.WriteUserTurns(t, tr, 6)
-	memory.StubSpawn(t, false)
-	for range 2 {
-		r := Stop(payload())
-		if r.Decision != core.Block || !strings.Contains(r.Reason, "~3 work units this session") {
-			t.Fatalf("six user turns and zero edits: %+v, want block with 3 work units", r)
-		}
-		if !strings.Contains(r.Reason, "claude-code memory update") || strings.Contains(r.Reason, "file edits") {
-			t.Fatalf("block reason %q", r.Reason)
-		}
-	}
-}
-
-// At the block cap Stop fails open once with the not-saved notice; later Stops stay quiet.
-func TestStopFailOpenSaysUpdateNotSaved(t *testing.T) {
+// A failed Stop spawn never blocks: it proceeds with the not-saved note and leaves the work for SessionEnd.
+func TestFailedWorkerSpawnProceedsWithNote(t *testing.T) {
 	tr, payload := hookSession(t)
 	hosttest.WriteEdits(t, tr, 5)
 	memory.StubSpawn(t, false)
-	for range 3 {
-		Stop(payload())
+	for i := range 3 {
+		if r := Stop(payload()); r.Decision == core.Block || r.SystemMessage != updateNotSaved {
+			t.Fatalf("Stop %d = %+v, want proceed with %q", i, r, updateNotSaved)
+		}
 	}
-	if r := Stop(payload()); r.Decision == core.Block || r.SystemMessage != updateNotSaved {
-		t.Fatalf("Stop at the cap = %+v, want proceed with %q", r, updateNotSaved)
-	}
-	if r := Stop(payload()); r.Decision == core.Block || r.SystemMessage != "" {
-		t.Fatalf("Stop past the cap = %+v, want a quiet proceed", r)
+	spawns := memory.StubSpawn(t, true)
+	End(payload())
+	if got := spawns.Update.Load(); got != 1 {
+		t.Fatalf("SessionEnd dispatched %d updates after failed Stops, want 1", got)
 	}
 }
 

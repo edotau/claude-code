@@ -252,7 +252,7 @@ func memorySpec() *helptext.Node {
 		"index":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
 		"path":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys)}},
 		"report":   {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.RepoKeys)}},
-		"fmt":      {Flags: []helptext.Flag{helptext.BoolFlag("check")}},
+		"fmt":      {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
@@ -493,11 +493,18 @@ func printReportPaths(out []string, format string) int {
 func cmdMemoryFmt(args []string) int {
 	fs := memoryFlagSet("fmt")
 	check := fs.Bool("check", false, "report would-change files; write nothing")
+	own := fs.Bool("own", false, "wrap only this repo's and the home bank")
 	if code, done := memoryParseNoArgs(fs, "fmt", args); done {
 		return code
 	}
 	var dirty bool
 	var err error
+	if *own {
+		if err = memory.FormatOwn(os.Stdout); err != nil {
+			return helptext.Fail("memory fmt: %v", err)
+		}
+		return 0
+	}
 	if *check {
 		dirty, err = memory.FormatCheck(os.Stdout)
 	} else {
