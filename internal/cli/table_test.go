@@ -207,7 +207,8 @@ func TestCompletionMatchesHelpFlags(t *testing.T) {
 
 // helpFlagDriftExempt maps spec paths whose help and completion differ to the reason.
 func helpFlagDriftExempt() map[string]string {
-	m := map[string]string{"anthropic science": "-h is forwarded to the external claude-science CLI"}
+	m := map[string]string{"anthropic science": "-h is forwarded to the external claude-science CLI",
+		"clip paste": "-h is forwarded verbatim to the real wl-paste"}
 	for _, v := range []string{"copilot", "codex", "gemini", "opencode"} {
 		m[v] = "bare launcher: its native flags never complete before a subword (noComplete)"
 	}

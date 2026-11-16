@@ -49,7 +49,8 @@ var modelsPage = helptext.Page{
 	About: "Shows which model each alias (opus, sonnet, haiku, fable) resolves to on\n" +
 		"the session profile. --pin and --unpin write claude's agent record; --live\n" +
 		"lists the profile's catalog.",
-	Commands: [][2]string{{"discover", "live-list models per profile; --apply saves them"}},
+	Commands: [][2]string{{"discover", "live-list models per profile; --apply saves them"},
+		{"preflight", "each agent's pin check; --live runs the pong round"}},
 	Hint: "An alias pin on claude's agent record beats the profile's own model.\n" +
 		"claude-code models discover -h lists its flags.",
 }
@@ -161,8 +162,8 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 
 var switchPage = helptext.Page{
 	Usage: "claude-code switch <profile> [flags]",
-	About: "Sets the profile on claude and every other agent that is on and can serve it, and forgets last-used " +
-		"profiles; relaunch to apply. One launch only: claude-code --profile <p>.",
+	About: "Sets the profile on claude and every other agent that is on and can serve it; relaunch to apply. " +
+		"One launch only: claude-code --profile <p>.",
 	Hint: "claude-code configure provider --list shows each profile's credential state.",
 }
 
@@ -213,8 +214,8 @@ func switchUsage() {
 
 var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
-	About: "Resolves and prints the session profile's credential: the apiKeyHelper\n" +
-		"Claude Code calls. --proxy prints a scoped proxy session token, never the client secret:\n" +
+	About: "Resolves and prints the session profile's credential: the apiKeyHelper Claude Code calls. " +
+		"--proxy prints a scoped proxy session token, never the client secret: " +
 		"the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
 }
 
