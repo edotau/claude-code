@@ -84,8 +84,8 @@ A PR over ~200 lines, or touching a shared module, API serializer/schema, migrat
 
 ## Detectors
 
-`claude-code review <sub>` verbs: advisory, never a hard gate. Index, flags, enforcement levels:
-`references/detectors.md`.
+`claude-code review <sub>` verbs: advisory by default (`simplify --fail` is a hard gate in `make lint`). Index, flags,
+enforcement levels: `references/detectors.md`.
 
 ## Review a diff
 

@@ -12,9 +12,10 @@ through a symlink, `..` or glob, beside `ln`/`truncate`;
 an interpreter script — `python`, `node`, `perl`, `ruby`, `deno`, `bun` — naming one beside a write call **asks**;
 reads pass), and a `commit --amend`/`rebase`/`reset <commit>` in a shared checkout (`~/.claude`, a tree a peer session
 works in, a main tree where this session has live leaves or the caller is a leaf; own linked worktree exempt; an infra
-error allows with a warning); **ask** on Claude (block on codex/copilot) for `git
-stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too) — linked worktrees exempt — and a
-commit with an AI-attribution footer, and on intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a
+error allows with a warning); **ask** on Claude (block on codex/copilot) for
+`git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt), an
+unstrippable AI-attribution footer (strippable footers and `; git push` after a gate are rewritten on Claude/Codex in
+default and auto mode, else denied with the fix), and on intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a
 force-push of main/master: spelled out, after git global flags, or with no refspec while main/master is checked out)
 naming the safer alternative; **warn** only prints. Every shape ignores inert text (commit/tag/`gh` messages,
 `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc bodies for the pipe, exfil and SQL shapes) unless
@@ -39,8 +40,8 @@ a `Run: claude-code agents ask` brief; claims slots, recalls context and labels 
 missing Databricks workspace, or (with `--fallback none`) a model that workspace's fresh cached listing does not
 serve, is denied with `agents ask`'s own preflight text; a stale or missing listing passes. Brief routing:
 `skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
-validation: `internal/hooks/quality/workflowlint.go`. Auto mode avoids recall rewrites and denies wrong labels, but
-model and some inline-Workflow paths still rewrite input and may be refused by the classifier
+validation: `internal/hooks/quality/workflowlint.go`. Auto mode accepts these rewrites (measured); hosts without
+`updatedInput` deny with the fix instead
 
 ## dispatch-failure · dispatch-workflow · dispatch-stop
 
@@ -72,8 +73,8 @@ touches (an older plan only with a live claim); `git commit -q` prints no sha, s
 Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the prompt) it spawns a
 detached `claude-code memory update` and asks for a handoff then `/compact`, once per crossing and only with no
 background task, subagent marker or live dispatch (a dip below the threshold re-arms; never blocks Stop). Then the
-memory update, weighing edits and user turns (2 turns = 1 edit); with no spawn possible it blocks ≤3 times, then
-prints once that the update was NOT saved
+memory update, weighing edits and user turns (2 turns = 1 edit); it never blocks Stop; a failed spawn prints
+a NOT-saved note naming `claude-code memory update` (SessionEnd/PreCompact retry)
 
 ## worktree-busy
 

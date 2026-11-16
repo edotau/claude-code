@@ -46,9 +46,9 @@ commands.
 - Sign-in: `claude-code configure agents --agent copilot` → Login (`copilot login`); `configure github` picks the
   account.
 - Databricks: `claude-code configure databricks` → Set up signs in, saves the token to the vault and applies the
-  profile to copilot (`COPILOT_PROFILE`); `claude-code copilot profile <p>|--clear` sets it by hand.
+  profile to copilot (the copilot agent record's `profile`); `claude-code copilot profile <p>|--clear` sets it by hand.
 - Copilot reads as off while it has no account to bill (no GitHub login under 95%, no usable Databricks profile, no
-  Anthropic key); the `COPILOT_ACTIVE` pin is untouched, so it comes back on its own.
+  Anthropic key); its agent record's `profile` is untouched, so it comes back on its own.
 - Model, effort and context: the copilot agent record (`claude-code configure agents --agent copilot`).
 - `claude-code copilot profile --off` stops routing and `claude-code copilot profile --clear` resumes it on its own
   login; `claude-code copilot setup` checks the route.
@@ -80,7 +80,7 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
   `cost-routing.md` → Fallback. On a Databricks profile copilot gets native `/model` across the profile's served
   models (per-launch registry, private login-free `COPILOT_HOME` at `state/copilot/registry-home`, session-token
   auth, an unregistered model fails closed); `--direct` keeps the single-model route; macOS skips the registry
-  (Keychain GitHub login still readable). `ask` uses it via the SDK. A pinned copilot (`COPILOT_PROFILE`) at ≥95%
+  (Keychain GitHub login still readable). `ask` uses it via the SDK. A pinned copilot GitHub profile at ≥95%
   ends as a quota hop instead. Headless quota → handoff file and `KindQuota` (`handoff` in the JSON envelope); the
   next agent in the loop resumes from it.
 
@@ -193,4 +193,4 @@ the agent's verdict under `## Result`).
 
 Per `agent-verbs.md` → Don't: don't invent a verb.
 
-[lf]: ../rules/standards/testing-guidelines.md#live-first-then-tests--no-core-contract-exception
+[lf]: ../rules/standards/testing-guidelines.md#live-first-then-tests

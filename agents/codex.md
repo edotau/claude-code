@@ -36,8 +36,8 @@ shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 - Sign-in: `claude-code configure agents --agent codex` → Login (`codex login`, ChatGPT) or an API key.
 - Model ids: `codex debug models`; effort: `claude-code configure codex` (the codex agent record).
-- `claude-code codex profile <profile>` pins `CODEX_PROFILE`; `codex profile --off` stops routing and `--clear`
-  returns to its own login; `codex setup` checks.
+- `claude-code codex profile <profile>` pins the codex agent record's `profile`; `codex profile --off` stops routing and
+  `--clear` returns to its own login; `codex setup` checks.
 
 ## Usage
 

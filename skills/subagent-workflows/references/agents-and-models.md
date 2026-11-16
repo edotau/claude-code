@@ -32,6 +32,7 @@ package when a task depends on a boundary.
 ## Measurements
 
 The audit's historical runs are preserved in the source handoff at
-`memory/claude-code/handoffs/2026-11-11-prompt-audit/leg-D.result.md` and its sibling reports. Measurements describe
-a particular machine, date and configuration; they do not establish current pins, workspace availability, model
-accuracy or a required default agent. Verify a representative task before making a performance claim.
+`memory/claude-code/handoffs/2026-11-01-system-prompt-e2e-audit.md` and
+`memory/claude-code/reports/2026-11-01-system-prompt-e2e-audit.md`. Measurements describe a particular machine, date and
+configuration; they do not establish current pins, workspace availability, model accuracy or a required default agent.
+Verify a representative task before making a performance claim.

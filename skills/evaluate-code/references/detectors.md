@@ -1,7 +1,8 @@
 # Detectors — `claude-code review` reference
 
-Advisory: findings never fail a verb; `gate` always exits 0. Structured output is `--json` (`gate` has none). Flags:
-`claude-code review <tool> -h`. Run the mechanical gate first (`rules/standards/quality.md` → Verification Order).
+Advisory by default (`simplify --fail` exits 1 on new comment or size violations); `gate` always exits 0. Structured
+output is `--json` (`gate` has none). Flags: `claude-code review <tool> -h`. Run the mechanical gate first
+(`rules/standards/quality.md` → Verification Order).
 
 ## Detector index
 
@@ -9,12 +10,12 @@ Advisory: findings never fail a verb; `gate` always exits 0. Structured output i
 |---|---|---|
 | `complexity` | #2 Simplicity | `<targets...> [--threshold strict\|medium\|relaxed] [--ext py,ts,tsx,js,jsx,go]` |
 | `diff` | #3 Surgical | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff |
-| `assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
-| `goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
-| `quality` | smells, SOLID | `<file\|dir> [-l <language>] [-o FILE]` |
+| `plan assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
+| `plan goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
+| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [-o FILE] [--comments [--format text\|tsv\|json]]` |
 | `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
 | `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
-| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …]` |
+| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]` |
 | `gate` | staged-change summary | `[--repo DIR]` |
 
 ## What each reports

@@ -27,7 +27,7 @@ update`; the rest print none.
 - Read: `recall <terms>` (`--load` appends top bodies), `search [--repo R | --all] <terms>`, `show <id>`, `timeline`,
   `path`, `review` (caps, staleness; `--candidates` prints the promotion-ranking procedure).
 - Write: `remember <fact> [--type]`, `init` (prints a procedure while `projectContext.md` is the template), `update`
-  (live session or `--transcript`; neither prints the procedure), `report`, `digest`, `fmt [--check]`.
+  (live session or `--transcript`; neither prints the procedure), `report`, `digest`, `fmt [--check|--own]`.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
   (consolidation; `--dry-run` is a deterministic audit, no model), `revise <old-id> --with <new-id>`.
 - Move: `promote <id> --to <target>` (ladder below), `alias --repo <checkout> --into <key>`, `import --from <dir> |
