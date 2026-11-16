@@ -336,7 +336,7 @@ func MenuAddServed(arg string, responses, responsesSet, force bool,
 	if !force {
 		p, infos, err := lookup()
 		if err != nil {
-			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
+			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %w", id, err)
 		}
 		info, ok := servedInfo(byName(infos), p, id)
 		if !ok {
@@ -361,7 +361,7 @@ func MenuImportDiff(file string) (next []providers.OpencodeModel, changes []Menu
 	}
 	next, err = parseMenuImport(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %v", file, err)
+		return nil, nil, fmt.Errorf("%s: %w", file, err)
 	}
 	return next, diffMenu(providers.OpencodeMenu(), next), nil
 }
