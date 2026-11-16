@@ -143,7 +143,7 @@ func remoteStamp(checkout string) string {
 
 // hasInclude reports whether a git config has an [include] or [includeIf] section header.
 func hasInclude(cfg []byte) bool {
-	for _, line := range strings.Split(string(cfg), "\n") {
+	for line := range strings.SplitSeq(string(cfg), "\n") {
 		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "[include") {
 			return true
 		}
