@@ -48,20 +48,16 @@ func typeBlock(st, task string) *core.Result {
 		st, strings.Join(allowed, ", "), typeSuggestion(st, task))}
 }
 
-// retype swaps a coworker subagent_type for the roster agent it wraps; a direct ask run denies instead.
-func (e *effortPlan) retype(in *core.Input, to string, auto bool) *core.Result {
+// retype swaps a coworker subagent_type for the one roster agent it wraps, on every brief (a Run: prompt is untouched).
+func (e *effortPlan) retype(in *core.Input, to string) {
 	if to == "" {
-		return nil
+		return
 	}
 	from := in.Nested("tool_input", "subagent_type")
-	if auto {
-		return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: subagent_type %q is a coworker type; "+
-			"resend this dispatch with subagent_type %q.", from, to)}
-	}
 	e.updated["subagent_type"] = to
 	e.changed = true
 	e.systemMessage = fmt.Sprintf("dispatch-effort: subagent_type %q rewritten to %q.", from, to)
-	return nil
+	e.fix(e.systemMessage)
 }
 
 // coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.

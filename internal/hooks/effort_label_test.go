@@ -9,6 +9,7 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -22,25 +23,45 @@ func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	t.Setenv(agentconfig.OverlayVar, "")
 	for _, flags := range []string{"--profile dev --model claude-opus-5", "--model dev:claude-opus-5"} {
 		task := "Run: claude-code agents ask --agent claude " + flags + " 'do x'"
-		if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
+		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
 			t.Errorf("label for %q = %q, want databricks-claude-opus-5", flags, got)
 		}
 	}
 }
 
-// A Run: line's flags reach the resolver whole: agent, typed model, --profile and --fallback.
+// A Run: line's flags reach the resolver whole; a vendor CLI gets no classifier alias (it runs its pin, else opus).
 func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(agentconfig.OverlayVar, "")
-	var seen agentpkg.ModelQuery
-	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
-	task := "Run: claude-code agents ask --agent codex --profile dev --model sonnet --fallback none 'do x'"
-	if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "wire-id" {
-		t.Errorf("label = %q, want the resolver's wire id", got)
-	}
-	if seen.Agent != "codex" || seen.Model != "sonnet" || seen.Profile != "dev" || seen.Fallback != router.FallbackNone {
-		t.Errorf("query = %+v, want codex/sonnet/dev/none", seen)
+	for _, tc := range []struct {
+		flags                     string
+		agent, model, profile, df string
+		hint                      string // the alias the ladder classifies ("" = no ladder asked)
+	}{
+		{"--agent codex --profile dev --model sonnet --fallback none", "codex", "sonnet", "dev", "", "haiku"},
+		{"--agent opencode --profile dev", "opencode", "", "dev", "", "haiku"},
+		{"--agent opencode --profile dev --model databricks-claude-opus-5-5", "opencode", "databricks-claude-opus-5-5", "dev", "", "haiku"},
+		{"--agent codex", "codex", "", "", "", "haiku"},
+		{"--agent codex --model gpt-6-1-sol", "codex", "gpt-6-1-sol", "", "", "haiku"},
+		{"--agent copilot --profile aueric_boehcp", "copilot", "", "aueric_boehcp", "", "haiku"},
+		{"--agent gemini", "gemini", "", "", "", "haiku"},
+		{"--agent claude --profile dev", "claude", "", "dev", "sonnet", "haiku"}, // claude's ask runs the alias
+	} {
+		var seen agentpkg.ModelQuery
+		stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
+		hint := ""
+		runQuery = func(_ context.Context, _ *providers.Registry, q agentpkg.ModelQuery, alias string) (agentpkg.ModelQuery, string, error) {
+			hint = alias
+			return q, "", nil
+		}
+		task := "Run: claude-code agents ask " + tc.flags + " 'rename x'"
+		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "wire-id" {
+			t.Errorf("%s: label = %q, want the resolver's wire id", tc.flags, got)
+		}
+		if seen.Agent != tc.agent || seen.Model != tc.model || seen.Profile != tc.profile || seen.Default != tc.df || hint != tc.hint {
+			t.Errorf("%s: query = %+v hint %q, want %s/%q/%q default %q hint %q", tc.flags, seen, hint, tc.agent, tc.model, tc.profile, tc.df, tc.hint)
+		}
 	}
 }
 
@@ -68,7 +89,7 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	}
 	for _, model := range []string{"glm-5-2", "custom-model"} {
 		task := "Run: claude-code agents ask --agent claude --profile dev --model " + model + " 'do x'"
-		if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-"+model {
+		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-"+model {
 			t.Errorf("label for %s = %q, want databricks-%s", model, got, model)
 		}
 	}

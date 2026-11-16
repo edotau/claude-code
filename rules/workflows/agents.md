@@ -15,8 +15,8 @@ agent: `skills/subagent-workflows/SKILL.md`.
   opencode/copilot verbs): `skills/subagent-workflows/references/agent-verbs.md`. Ask flags, `--live`, `--host`,
   stream-json: `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 - Not in those: `claude-code agents sync [--agent a] [--dry-run|--check]` projects agents and CLAUDE.md into every
-  agent CLI (`install` runs it); `agents tree [--watch|--finished]`; `agents label <type> --task F` prints the
-  description prefix; `review scope --range <r> --caps`.
+  agent CLI (`install` runs it); `agents tree [--watch|--finished]`; `agents label <type> [--profile p]
+  [--model m] --task F` prints the description prefix; `review scope --range <r> --caps`.
 - Read an exit code, not output: `agents wait`, `agents diff --check --path <p>...`.
 - Review a diff: `/code-review`, `claude-code codex review [--adversarial] [--base <b>]`, or `@agent-codex`.
 - `claude-code agents list` lists the CLI agents, not this roster; `--format json` gives the capability schema.
@@ -33,8 +33,10 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
   `{"provider":"databricks","profile":"auto","remote":"auto"}`; `--overlay` replaces it). Not a new agent type.
   Overlay keys and precedence: `rules/harness/agent.md`; what `auto` resolves to: `rules/harness/network.md`.
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
-- A brief opening `Run: claude-code agents ask …` passes `dispatch-effort` unchanged; a missing or wrong `<model>:`
-  description prefix is denied once, naming the text to resend.
+- A brief opening `Run: claude-code agents ask …` keeps its prompt byte-identical through `dispatch-effort`; a missing
+  or wrong `<model>:` description prefix (the model the run resolves) is rewritten, never denied. Its hand-back is
+  never lost: with no `ask: ran on` line it is held while the job runs, the hook runs a never-run `Run:` line itself,
+  and relay-done work passes with a top-line note naming the relay model.
 
 ## Agent and command files
 
@@ -45,7 +47,8 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
   the report; procedure lives in the agent or skill. Skill shell logic lives in `skills/<name>/scripts/`, anything
   else in a Go verb or Makefile target.
 - Agents hold no memory scope: they propose memory in their report and the main session writes it; the dispatch hook
-  appends recall pointers to every brief (a brief opening `Run: claude-code agents ask` gets a context note instead).
+  appends recall pointers to a brief; in auto mode, or on a brief opening `Run: claude-code agents ask`, they arrive
+  as a context note instead.
 
 ## Authoring: file, skill or brief
 
