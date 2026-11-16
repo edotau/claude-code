@@ -38,6 +38,17 @@ type foldPlan struct {
 
 func (f foldPlan) empty() bool { return len(f.Moves) == 0 && len(f.Caches) == 0 }
 
+// deleted names every secret applyFold removes: each moved or dropped source secret, then the token caches.
+func (f foldPlan) deleted() []string {
+	var out []string
+	for _, m := range f.Moves {
+		if m.Secret {
+			out = append(out, secretName(m.From, providers.AuthM2M))
+		}
+	}
+	return append(out, f.Caches...)
+}
+
 // foldLegacy is explicit import work, never a registry-load migration: plan, apply when asked, drop folded rows.
 func foldLegacy(top map[string]json.RawMessage, tx *vault.Tx, key *vault.Key, apply bool) (foldPlan, error) {
 	plan, err := planFold(top, tx)

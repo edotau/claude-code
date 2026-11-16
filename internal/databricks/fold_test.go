@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -261,6 +263,9 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 			if c.wantFolded && (slices.Contains(after, src+"_ACCESS") || slices.Contains(after, foldHashCache)) {
 				t.Fatalf("caches remain: %v", after)
 			}
+			if got, want := auditedDeletes(t), removedSecrets(before, after); !reflect.DeepEqual(got, want) {
+				t.Fatalf("audited deletes %v, want %v", got, want)
+			}
 		})
 	}
 	t.Run("no credentials needs no key", func(t *testing.T) {
@@ -272,6 +277,35 @@ func TestImportFoldSealedCredentials(t *testing.T) {
 			t.Fatal("row without credentials was not folded")
 		}
 	})
+}
+
+// removedSecrets is the sorted names in before that after no longer holds: what the fold must have audited.
+func removedSecrets[V any](before map[string]V, after []string) []string {
+	var out []string
+	for n := range before {
+		if !slices.Contains(after, n) {
+			out = append(out, n)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// auditedDeletes is the sorted resources of every secret_delete line in the hermetic audit log.
+func auditedDeletes(t *testing.T) []string {
+	t.Helper()
+	events, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range events {
+		if e.Action == audit.SecretDelete {
+			out = append(out, e.Resource)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func assertFoldSecretOutcome(t *testing.T, name string, folded bool, code int, out string) {
