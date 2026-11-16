@@ -134,7 +134,8 @@ Build every plan for the widest parallel delegation, so the main session never r
 - **Proof** — each package carries its verification command and the observable output that proves it.
 - **Verifier** — end each wave with one read-only leaf (diffs stayed inside owned files, gates pass) before the next
   wave starts.
-- **Small context** — every leaf writes its full report to `<store>/reports/` and returns a verdict of at most 8 lines.
+- **Small context** — every leaf writes its full report to `$(claude-code memory path reports NAME)` and returns a
+  verdict of at most 8 lines.
 - **Leaf rules once** — state the standing leaf rules once in the plan (`## Leaf rules`); briefs point at them.
 
 ### Self-review before returning
