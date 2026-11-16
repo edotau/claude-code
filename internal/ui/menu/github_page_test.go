@@ -201,3 +201,22 @@ func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestGithubProfileNeverClaimsLoginlessRow(t *testing.T) {
+	hosttest.GithubScratch(t)
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, err := githubProfile(reg, "alice"); err != nil || name != "alice" {
+		t.Fatalf("githubProfile = %q, %v; want alice, nil", name, err)
+	}
+	reg, err = providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Providers["alice"] == nil || reg.Providers["copilot"] == nil {
+		t.Errorf("want rows alice and copilot, got %v", reg.ProfilesOf("github"))
+	}
+}
