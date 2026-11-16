@@ -18,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -365,23 +364,18 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 	}
 }
 
-func repoLastProfileCached() bool {
-	_, err := os.Stat(filepath.Join(paths.StateDir(), "last-profile.json"))
-	return err == nil
-}
-
 func assertSwitchDryRunWritesNothing(t *testing.T) {
 	t.Helper()
-	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 || !repoLastProfileCached() {
-		t.Fatalf("dry-run exit %d stderr=%q cache kept=%v", code, stderr, repoLastProfileCached())
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 {
+		t.Fatalf("dry-run exit %d stderr=%q", code, stderr)
 	}
 	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
 		t.Fatalf("dry-run wrote records: %+v", recs)
 	}
 }
 
-// switch skips an agent that cannot serve the profile, clears the repo cache; --dry-run writes neither.
-func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
+// switch skips an agent that cannot serve the profile; --dry-run writes no record.
+func TestSwitchSkipsUnservable(t *testing.T) {
 	srv, _ := dbxCLIServer(t)
 	qaProfile(t, srv.URL, false)
 	t.Chdir(t.TempDir())
@@ -390,10 +384,6 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	providers.RecordLastProfile("codex", "chatgpt")
-	if !repoLastProfileCached() {
-		t.Fatal("fixture: no last-profile cache written")
-	}
 	assertSwitchDryRunWritesNothing(t)
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
@@ -401,9 +391,6 @@ func TestSwitchSkipsUnservableAndClearsRepoCache(t *testing.T) {
 	recs := vault.AgentRecords(agent.RosterNames())
 	if recs["codex"].Profile != "qa" || recs["gemini"].Profile != "antigravity" {
 		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].Profile, recs["gemini"].Profile)
-	}
-	if repoLastProfileCached() {
-		t.Error("switch left the repo last-profile cache")
 	}
 }
 

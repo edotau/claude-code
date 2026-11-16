@@ -136,7 +136,7 @@ func (e codexEngine) FallbackTarget(ctx context.Context, reg *providers.Registry
 		if own := codexOwnModel(); own != "" {
 			model = own
 		}
-		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: model}})
+		t := agent.PinnedTarget(ctx, e.Name(), providers.Target{Provider: p, Model: model})
 		return t, "chatgpt (codex login)", true
 	}
 	return providers.Target{}, "", false
@@ -253,21 +253,11 @@ var (
 		"not", "if", "then", "else", "anyOf", "oneOf", "allOf"}
 )
 
-// RanModel is the model codex runs for t: t.Model unless the Responses swap replaced it.
-func (codexEngine) RanModel(t providers.Target) string {
-	if t.Provider == nil {
-		return t.Model
-	}
-	wire := t.Provider.WireModel(models.Strip1M(t.Model))
-	if swapped := codexResponsesModel(t.Provider, wire); swapped != wire {
-		return swapped
-	}
-	return t.Model
-}
-
 // codex speaks only the Responses API (`wire_api = "chat"` is rejected by current builds).
 func codex(ctx context.Context, p *providers.Provider, base, model, cred string, h *agent.Headless) ([]string, []string, error) {
-	model = codexResponsesModel(p, model)
+	if err := codexRefuse(p, model); err != nil {
+		return nil, nil, err
+	}
 	id, err := agentconfig.OwnedID(p)
 	if err != nil {
 		return nil, nil, err

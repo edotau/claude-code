@@ -43,7 +43,8 @@ paths:
   given as a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-`; an unknown key
   or bad value exits 2. A dispatch never writes it to its own env: it rides the run's context. Precedence: typed flag >
   `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent
-  pin > table default. Nested dispatches inherit only the
+  pin > table default; profile and fallback order: `providers.md` → Routing precedence.
+  Nested dispatches inherit only the
   confinement (`provider`/`profile`); `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and
   credential env names are refused (use `--profile`). Provider/agent compatibility, relaunch, `--retry`, interactive
   and `--env` rules: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay.
@@ -53,7 +54,7 @@ paths:
   | `schema` | `1` | document version |
   | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
-  | `fallback` | `none\|pin\|agents\|all` | `--fallback` |
+  | `fallback` | `none\|pin\|agents\|all` (`1`/`true`/`yes` = `all`) | `--fallback`, `AGENT_ERROR_FALLBACK` |
   | `host` / `remote` | ssh host (not both) | `--host`, remote run |
   | `account` | copilot GitHub account (`business`, `personal`) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
@@ -65,7 +66,8 @@ paths:
   (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. A model with no openai route is
   left out of the chat list with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router — use codex or copilot.
-- **copilot** follows the session profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
+- **copilot** follows the session profile (then its pin) through the proxy
+  (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
   credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the copilot record's
   GitHub profile's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub
   account).
@@ -76,9 +78,6 @@ paths:
   unregistered model fails closed; `--direct` keeps the single-model route; macOS skips the registry (Keychain
   GitHub login still readable).
   `ask --agent copilot` uses the same registry via the SDK.
-- **copilot** and **opencode** interactive launches reuse the repo's last-used profile before the agent record's
-  profile and treat it like the record (copilot's credit gate applies); `<agent> profile` or `configure` record
-  changes clear it.
 - **gemini** runs on `agy`: its Google sign-in by default, a named Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 

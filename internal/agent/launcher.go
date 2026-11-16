@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -72,117 +73,82 @@ type UsageError struct{ Msg string }
 
 func (e *UsageError) Error() string { return e.Msg }
 
-// SessionSelection loads the registry and applies --profile/--model > last profile > pins; session marks Claude.
+// SessionSelection loads the registry; a Claude launch (session) routes --model through ResolveModel, else the pins.
 func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, providers.Selection{}, err
 	}
-	if prof, rest, perr := splitProfile(reg, o.Model); perr != nil {
-		return nil, providers.Selection{}, &UsageError{Msg: perr.Error()}
-	} else if prof != "" {
-		o.Provider, o.Model = prof, rest
+	if o.Model == "" || !session { // an external launch routed o.Model already (routeLaunch) and sets it on its target
+		sel, err := providers.Select(reg, o.Provider)
+		return reg, sel, err
 	}
-	if session && o.Provider == "" { // this workspace beats the global pin, which only seeds new workspaces
-		o.Provider = lastProfile(reg, "claude")
+	r, err := launchRoute(context.Background(), reg, agentid.Claude, o)
+	if err != nil {
+		return nil, providers.Selection{}, err
 	}
-	sel, err := providers.Select(reg, o.Provider)
-	if o.Model != "" && sel.Provider != nil {
-		applyModel(&sel, o.Model, session, o.Alias)
-		err = nil
+	sel, err := providers.Select(reg, r.Profile)
+	if err != nil {
+		return nil, providers.Selection{}, err
 	}
-	return reg, sel, err
+	applyRoute(&sel, r, o, session)
+	return reg, sel, nil
 }
 
-// splitProfile reads a "<profile>:<model>" --model: a profile name, or a provider type with one row, selects that row.
-// A prefix that is neither is an error only when the rest is a Claude model, so local tags like "qwen3:30b" pass.
-func splitProfile(reg *providers.Registry, spec string) (profile, model string, err error) {
-	name, rest, ok := strings.Cut(strings.TrimSpace(spec), ":")
-	if !ok || rest == "" {
-		return "", spec, nil
+// launchRoute is ResolveModel for an interactive launch: o.Provider is the typed --profile, the agent pin the rest.
+func launchRoute(ctx context.Context, reg *providers.Registry, name string, o LaunchOptions) (ModelRoute, error) {
+	q := QueryFor(valuesContext(ctx, o.Values), ModelQuery{Agent: name, Model: o.Model, Profile: o.Provider, Interactive: true})
+	q.Session = "" // a launch has no session lead: the pin decides
+	r, err := ResolveModel(reg, q, time.Now())
+	if errors.Is(err, ErrModelRoute) {
+		return r, &UsageError{Msg: "--model " + o.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
 	}
-	if _, found := reg.Providers[name]; found {
-		return name, rest, nil
-	}
-	var rows []string
-	for n, p := range reg.Providers {
-		if p.Provider == name {
-			rows = append(rows, n)
-		}
-	}
-	slices.Sort(rows)
-	switch {
-	case len(rows) == 1:
-		return rows[0], rest, nil
-	case len(rows) > 1:
-		return "", "", fmt.Errorf("--model %s: %q is a provider type with several profiles (%s); name one", spec, name, strings.Join(rows, ", "))
-	}
-	if _, _, known := models.Resolve(rest); known {
-		return "", "", fmt.Errorf("--model %s: unknown profile %q", spec, name)
-	}
-	return "", spec, nil
+	return r, err
 }
 
-// lastProfile is the profile this workspace last launched agentName with, "" unless registered and usable by the agent.
-func lastProfile(reg *providers.Registry, agentName string) string {
-	name := providers.LastProfile(agentName)
-	p, err := reg.Get(name)
-	if name == "" || err != nil {
-		return ""
+// applyRoute points sel's main alias at r: a bare alias keeps that alias's resolution, else the spelled model.
+func applyRoute(sel *providers.Selection, r ModelRoute, o LaunchOptions, session bool) {
+	dst := models.Opus
+	if session {
+		dst = MainAlias(o)
 	}
-	if agentName == "claude" && p.Auth.Login != "" || agentName != "claude" && !CanServe(agentName, p) {
-		return ""
+	if t, ok := sel.Aliases[r.Alias]; ok && r.Alias != "" && strings.ToLower(modelPart(o.Model)) == r.Alias {
+		sel.Aliases[dst] = t // bare alias, e.g. opus or ultra:opus
+		return
 	}
-	return name
+	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: r.Model, OneM: r.OneM}
 }
 
 // MainAlias is the alias whose model is the launch's main model: the one --model names, else the verb's, else opus.
 func MainAlias(o LaunchOptions) string {
-	if t, _, _ := parseModelFlag(o.Model); t != "" {
-		return t
+	if a := typedAlias(o.Model); a != "" {
+		return a
 	}
 	return cmp.Or(o.Alias, models.Opus)
 }
 
-// parseModelFlag reads --model: the Claude family alias, its catalog id, and whether it was a bare (floating) alias.
-func parseModelFlag(s string) (alias, canonical string, bare bool) {
-	s = strings.TrimSpace(s)
-	name := strings.ToLower(models.Strip1M(s))
-	if c, ok := models.Alias(name); ok && slices.Contains(models.AliasNames, name) {
-		return name, c, !models.Has1M(s) || !models.Keeps1M(c+"[1m]")
+// modelPart is a --model without its "<profile>:" prefix.
+func modelPart(s string) string {
+	if _, rest, ok := strings.Cut(strings.TrimSpace(s), ":"); ok && rest != "" {
+		return rest
 	}
-	canonical, _, ok := models.Resolve(s)
-	if !ok {
-		return "", "", false
-	}
-	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.AliasNames, f) {
-		return f, canonical, false
-	}
-	return "", canonical, false
+	return strings.TrimSpace(s)
 }
 
-// applyModel applies --model to sel: a bare alias keeps the alias's resolution, else the main alias.
-func applyModel(sel *providers.Selection, model string, session bool, verbAlias string) {
-	alias, canonical, bare := parseModelFlag(model)
-	dst := models.Opus
-	if session {
-		dst = MainAlias(LaunchOptions{Model: model, Alias: verbAlias})
+// typedAlias is the Claude family alias a --model names (alias or catalog id, after any "<profile>:"), "" when none.
+func typedAlias(s string) string {
+	s = modelPart(s)
+	if name := strings.ToLower(models.Strip1M(strings.TrimSpace(s))); slices.Contains(models.AliasNames, name) {
+		return name
 	}
-	if bare {
-		if t, ok := sel.Aliases[alias]; ok && dst != alias {
-			sel.Aliases[dst] = t
-		}
-		return
+	canonical, _, ok := models.Resolve(strings.TrimSpace(s))
+	if !ok {
+		return ""
 	}
-	wire := strings.TrimSpace(model)
-	oneM := models.Has1M(wire) && models.Keeps1M(canonical+"[1m]")
-	wire = models.Strip1M(wire)
-	if canonical != "" {
-		wire = sel.Provider.WireModel(canonical)
-	} else if sel.Provider != nil { // preflight's spelling: a bare id the workspace serves runs as databricks-<id>
-		wire = launchWire("claude", sel.Provider, wire)
+	if f, _, _, ok := models.ParseClaudeID(canonical); ok && slices.Contains(models.AliasNames, f) {
+		return f
 	}
-	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: wire, OneM: oneM}
+	return ""
 }
 
 // IsHeadless reports a `claude -p`/`--print` run, the only launch that carries the setup-token.
@@ -287,7 +253,16 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	if err != nil {
 		return Plan{}, err
 	}
-	flagModel := o.Model // the flag alone; the agent's model pin is applied after the target resolves
+	own := false
+	if o.Model != "" { // the typed model resolves once; every launch below spells from that route, never the raw string
+		if o, own, err = routeLaunch(ctx, name, o); err != nil {
+			return Plan{}, err
+		}
+	}
+	flagModel := o.Model // the spelled flag alone; the agent's model pin is applied after the target resolves
+	if own {
+		return ownLoginPlan(spec, withFlagModel(args, flagModel), "", ownLoginNoteShown(o, args))
+	}
 	o, err = launchProfile(name, o)
 	if err != nil {
 		return Plan{}, err
@@ -302,11 +277,31 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	return cliLaunch(ctx, spec, name, o, args, flagModel, reg, sel)
 }
 
+// routeLaunch resolves o.Model into the row and wire id the launch runs; own is true on the agent's own sign-in.
+func routeLaunch(ctx context.Context, name string, o LaunchOptions) (_ LaunchOptions, own bool, _ error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return o, false, err
+	}
+	r, err := launchRoute(ctx, reg, name, o)
+	if err != nil {
+		return o, false, err
+	}
+	o.Model, o.Provider = r.Model, r.Profile
+	if r.Effort != "" && name == "gemini" {
+		o.Model += "-" + r.Effort // gemini reads its effort off the id's suffix
+	}
+	if r.Dialect == "own-login" {
+		o.Provider = ""
+	}
+	return o, r.Dialect == "own-login", nil
+}
+
 // cliLaunch resolves the target for a selected profile and builds the registry, configured or own-login plan.
 func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, args []string, flagModel string,
 	reg *providers.Registry, sel providers.Selection) (Plan, error) {
 	// --profile or the agent profile pin is explicit: the session pin is the default, not a per-agent choice.
-	explicit := o.Provider != ""
+	explicit := o.Provider != "" || typedProfile(o.Model)
 	target, note, err := cliTarget(ctx, spec, name, reg, sel, explicit, flagModel)
 	showOwnLoginNote := ownLoginNoteShown(o, args)
 	if errors.Is(err, ErrOwnLogin) {
@@ -363,6 +358,9 @@ func configureFailed(ctx context.Context, spec Schema, name string, o LaunchOpti
 	if errors.Is(err, ErrOwnLogin) {
 		return plainPlan(spec, plainArgs)
 	}
+	if usage, ok := errors.AsType[*UsageError](err); ok {
+		return Plan{}, usage // a typed refusal exits 2, never a "sign in" passthrough
+	}
 	if err != nil {
 		return passthrough(spec, name, reason, plainArgs)
 	}
@@ -378,31 +376,29 @@ func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan,
 	return Plan{Binary: bin, Set: proc.ValuesFromEnv(env), Argv: append(prefix, args...), Profile: o.Provider}, nil
 }
 
-// cliTarget resolves spec's target, then applies the model flag and pin to it.
+// cliTarget resolves spec's target, then sets the routed model, else the agent's pin, on it.
 func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
 	target, note, err := spec.ResolveTarget(ctx, reg, sel, explicit)
-	if err == nil {
-		var modelNote string
-		if target, modelNote = ResolveAgentModel(ctx, ModelAsk{Agent: name, Flag: flagModel, Target: target, Applied: target.Provider == nil || target.Provider == sel.Aliases[models.Opus].Provider}); modelNote != "" {
-			note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(s string) bool { return s == "" }), "; ")
-		}
+	if err != nil {
+		return target, note, err
 	}
-	return target, note, err
+	if flagModel != "" {
+		target.Model = flagModel
+		return target, note, nil
+	}
+	return PinnedTarget(ctx, name, target), note, nil
 }
 
-// launchProfile resolves the profile: --profile (passed through untouched) > this workspace last-used > the agent pin.
+// launchProfile resolves the profile: --profile (passed through untouched), else the agent pin.
 func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	if o.Provider != "" {
 		return o, nil
 	}
-	last := lastUsedProfile(name)
-	cfg, err := agentconfig.ForContext(valuesContext(context.Background(), o.Values), name, agentconfig.Launch{LastProfile: last})
+	cfg, err := agentconfig.ForContext(valuesContext(context.Background(), o.Values), name, agentconfig.Launch{})
 	if err != nil {
 		return LaunchOptions{}, err
 	}
-	if o.Provider = cfg.Profile; cfg.Profile != last {
-		o.Provider, err = pinRoute(name, cfg.Profile)
-	}
+	o.Provider, err = pinRoute(name, cfg.Profile)
 	return o, err
 }
 
@@ -419,17 +415,6 @@ func pinRoute(name, pin string) (string, error) {
 		return "", err
 	}
 	return pin, nil
-}
-
-// lastUsedProfile is this workspace's last-used profile for an active agent CLI, "" when none applies.
-func lastUsedProfile(name string) string {
-	if !slices.Contains(agentid.External(), name) || !AgentActive(name) {
-		return ""
-	}
-	if reg, err := providers.Load(); err == nil {
-		return lastProfile(reg, name)
-	}
-	return ""
 }
 
 // registryPlan is the launch on a CLI native model registry (copilot on Databricks); it fails closed, no passthrough.
@@ -533,3 +518,9 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 
 // lookPath is the seam for resolving an agent binary.
 var lookPath = paths.AgentBin
+
+// typedProfile is true for a --model carrying a "<profile>:" prefix, which SessionSelection strips into a local copy.
+func typedProfile(model string) bool {
+	reg, err := providers.Load()
+	return err == nil && namesProvider(reg, model)
+}

@@ -214,13 +214,11 @@ func runSeed(d *dialog) {
 
 // saveSeed stores choice's profiles in one update, leaving every other record field as it was.
 func saveSeed(d *dialog, choice map[string]string) bool {
-	agents := make([]string, 0, len(choice))
 	for a, p := range choice {
 		if err := configure.ValidProfile([]string{a}, p); err != nil {
 			d.printf("seed: %v\n", err)
 			return false
 		}
-		agents = append(agents, a)
 	}
 	err := vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		for a, p := range choice {
@@ -233,11 +231,7 @@ func saveSeed(d *dialog, choice map[string]string) bool {
 		d.printf("seed: %v\n", err)
 		return false
 	}
-	d.changed = true // the profiles are persisted: configs must re-render even if the cache cleanup below fails
-	if err := providers.ClearLastProfilesFor(agents...); err != nil {
-		d.printf("seed: %v\n", err)
-		return false
-	}
+	d.changed = true
 	d.println("agent profiles saved")
 	return true
 }

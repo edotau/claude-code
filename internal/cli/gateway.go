@@ -269,7 +269,7 @@ func gatewayFlags() (fs *flag.FlagSet, q *agent.RouteReq, overlay, format *strin
 	fs.StringVar(&q.Model, "model", "", "alias (opus), version (opus-5-5) or wire id (default: classify --task, else sonnet)")
 	fs.StringVar(&q.Agent, "agent", "", "the agent asked for; it leads when it passes the gates")
 	fs.StringVar(&q.Task, "task", "", "task text the classifier reads when --model is absent")
-	fs.StringVar(&q.Fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	fs.StringVar(&q.Fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
 	fs.StringVar(&q.Profile, "profile", "", "lead profile, or session")
 	fs.StringVar(&q.Provider, "provider", "", "lead on this provider's signed-in profile")
 	overlay = fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)

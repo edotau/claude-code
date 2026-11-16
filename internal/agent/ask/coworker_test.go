@@ -249,7 +249,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
 		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
 		{"", "--provider openai: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
-		{"", "--model: its profile is outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
+		{"", "--model: profile gw is outside overlay databricks:dev", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
 		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
 		{"", "--model: not served to claude", // external agents' models are the chain's preflight
 			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},
@@ -556,6 +556,15 @@ func TestArmFlagsAcceptsQualifiedArm(t *testing.T) {
 	for _, profile := range []string{"qa", "databricks·qa", "github·dev"} {
 		if err := armFlags("dev", profile, "", false); err == nil {
 			t.Errorf("armFlags(dev, %q) = nil, want refusal", profile)
+		}
+	}
+}
+
+// The shared pool and every spelling of the armed workspace pass; another workspace is refused naming both.
+func TestArmFlagsPoolInsideConfinement(t *testing.T) {
+	for _, profile := range []string{"databricks:", "auto", "databricks:auto"} {
+		if err := armFlags("dev", profile, "", false); err != nil {
+			t.Errorf("armFlags(dev, %q) = %v, want nil", profile, err)
 		}
 	}
 }

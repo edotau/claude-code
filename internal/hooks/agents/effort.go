@@ -4,6 +4,7 @@ package agents
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -23,7 +24,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -203,6 +203,9 @@ func preflightBlock(ctx context.Context, run *dispatchRun, task string) *core.Re
 		return nil
 	}
 	if err := l.refusal(reg, agent); err != nil {
+		return &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + err.Error()}
+	}
+	if _, _, err := labelRoute(ctx, run, map[string]any{}, "", task); errors.Is(err, agentpkg.ErrModelRoute) {
 		return &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + err.Error()}
 	}
 	return nil
@@ -645,69 +648,50 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
-// labelModel is the one precedence: Run: line model, its overlay's pick, work agent's cell, own model.
+// labelModel is the model the dispatch's ask runs: the resolver's wire id for the Run: line, else the own model.
 func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) string {
+	r, ok, err := labelRoute(ctx, run, updated, st, task)
+	if err != nil || !ok {
+		return ""
+	}
+	return r.Label()
+}
+
+// labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, else the tier's default.
+func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
 	line := run.opening(ctx, task)
 	agent := line.workAgent(st, task)
-	confine := labelConfinement(line.cfg)
-	ctx = withAskFlags(ctx, line.profile, cmp.Or(line.fallback, line.cfg.Fallback))
-	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
-		if confine == "" {
-			return line.rowLabel(ctx, run, cmp.Or(agent, agentid.Claude), m)
+	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
+		Profile: cmp.Or(line.profile, line.cfg.Profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
+		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback)}
+	if m, _ := updated["model"].(string); q.Model == "" && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
+		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
+	}
+	if q.Model == "" {
+		if agent == "" && q.Profile == "" && q.Provider == "" {
+			return q, false // an in-context leaf: its own model
 		}
-		return explicitLabel(ctx, run, confine, cmp.Or(agent, agentid.Claude), m)
+		q.Default = pickTier(run, updated, st, agent, cmp.Or(line.prompt, task))
 	}
-	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
-		line.model = m // an exact dispatch model, spelled as a --model ask runs it
-		return line.exactLabel(ctx, run, agent, m)
-	}
-	switch tier := pickTier(run, updated, st, agent, cmp.Or(line.prompt, task)); {
-	case confine != "":
-		return coworkerPick(ctx, run, confine, cmp.Or(agent, agentid.Claude), tier)
-	case agent != "":
-		return labelCell(ctx, run, agent, tier)
-	}
-	return ownModel(ctx, run, updated, st)
+	return q, true
 }
 
-// explicitLabel is the ask's model as the run spells it inside confine (a Databricks endpoint name).
-func explicitLabel(ctx context.Context, run *dispatchRun, confine, agent, model string) string {
-	return cmp.Or(coworkerPick(ctx, run, confine, agent, model), model)
-}
-
-// rowLabel is the line's model as its --profile (or typed `<row>:`) row serves it, else as typed.
-func (l askLine) rowLabel(ctx context.Context, run *dispatchRun, agent, model string) string {
+// labelRoute resolves labelQuery on the registry; ok is false when the label is the leaf's own model.
+func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelRoute, bool, error) {
+	q, ok := labelQuery(ctx, run, updated, st, task)
+	if !ok {
+		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, nil
+	}
 	reg, err := run.registry()
 	if err != nil {
-		return model
+		return agentpkg.ModelRoute{}, false, err
 	}
-	if p, bare, _ := l.target(reg, func() bool { return false }); p != nil {
-		if agent != agentid.Claude && slices.Contains(models.AliasNames, models.Strip1M(bare)) {
-			return labelCell(withAskFlags(ctx, p.Name, cmp.Or(l.fallback, l.cfg.Fallback)), run, agent, bare)
-		}
-		return router.SpellServed(p, p.WireModel(bare), time.Now())
-	}
-	return model
+	r, err := resolveModel(reg, agentpkg.QueryFor(ctx, q), time.Now())
+	return r, err == nil, err
 }
 
-// exactLabel is rowLabel, else for an external agent the exact model its preview serves, else m as typed.
-func (l askLine) exactLabel(ctx context.Context, run *dispatchRun, agent, m string) string {
-	if reg, err := run.registry(); err == nil {
-		if p, _, _ := l.target(reg, func() bool { return false }); p != nil || agent == "" {
-			return l.rowLabel(ctx, run, cmp.Or(agent, agentid.Claude), m)
-		}
-	}
-	return cmp.Or(labelPick(withAskFlags(ctx, l.profile, l.fallback), agent, m), m)
-}
-
-// askFlagsKey carries the ask line's --profile and --fallback to the no-run preview.
-type askFlagsKey struct{}
-
-type askFlags struct{ profile, fallback string }
-
-func withAskFlags(ctx context.Context, profile, fallback string) context.Context {
-	return context.WithValue(ctx, askFlagsKey{}, askFlags{profile, fallback})
-}
+// resolveModel is a seam: tests stub it so a dispatch label never reads the live vault or route table.
+var resolveModel = agentpkg.ResolveModel
 
 // pickTier is the alias the run picks from: an external agent's ask classifies its prompt, as ask does with no --model.
 func pickTier(run *dispatchRun, updated map[string]any, st, agent, task string) string {
@@ -727,92 +711,6 @@ func labelTier(run *dispatchRun, updated map[string]any, st string) string {
 		return models.Sonnet
 	}
 	return tier
-}
-
-// labelConfinement is the provider[:profile] the label picks inside: the Run: line overlay's.
-func labelConfinement(cfg agentconfig.Overlay) string {
-	if cfg.Provider == router.RouteDatabricks && (cfg.Profile == "" || cfg.Profile == "auto") {
-		return "" // auto resolves at run time: the pin-based label stands
-	}
-	return cfg.Confinement()
-}
-
-// coworkerPick is labelCell inside confinement confine: ask's values for it laid over the run's, in the pick ctx only.
-func coworkerPick(ctx context.Context, run *dispatchRun, confine, agent, tier string) string {
-	provider, profile, _ := strings.Cut(confine, ":")
-	env := proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, profile)}
-	if p, ok := strings.CutPrefix(confine, router.RouteDatabricks+":"); ok {
-		env[providers.EnvSessionProfile] = p
-	}
-	return labelCell(pickContext(ctx, env), run, agent, tier)
-}
-
-// pickContext is ctx's run values (else the process environment) with env laid over them.
-func pickContext(ctx context.Context, env proc.Values) context.Context {
-	base, ok := proc.ValuesFromContext(ctx)
-	if !ok {
-		base = proc.ValuesFromEnv(os.Environ())
-	}
-	return proc.WithValues(ctx, base.Merge(env))
-}
-
-// Label lookups are seams: tests stub them so a dispatch label never reads the live vault or route table.
-var (
-	labelCell = cellModelFor
-	labelPick = previewModel
-)
-
-// cellModelFor is the model a leaf runs: the no-run preview's first candidate, else the route table's prediction.
-func cellModelFor(ctx context.Context, run *dispatchRun, agent, alias string) string {
-	pins, err := agentpkg.AgentPinsContext(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch-effort label: %v\n", err)
-		return ""
-	}
-	if slices.ContainsFunc(slices.Collect(maps.Values(pins)), func(s router.PinSpec) bool { return s.Model == router.DiscoveryModel }) {
-		return "" // a discovery pick advances the rotation in quota.json; a label never writes state
-	}
-	if m := labelPick(ctx, agent, alias); m != "" {
-		return m
-	}
-	if flags, _ := ctx.Value(askFlagsKey{}).(askFlags); flags.profile != "" || flags.fallback != "" {
-		return ""
-	}
-	return tableCellModel(run, agent, alias, pins[agent])
-}
-
-// previewModel is the preview's first candidate model without its `<profile>:` prefix; "" when nothing runs.
-func previewModel(ctx context.Context, agent, alias string) string {
-	flags, _ := ctx.Value(askFlagsKey{}).(askFlags)
-	profile, provider := router.ConfineLeadContext(ctx, agent, flags.profile, "", alias)
-	q := agentpkg.RouteReq{Agent: agent, Model: alias, Profile: profile, Provider: provider,
-		Fallback: cmp.Or(flags.fallback, router.FallbackAll), Preview: true}
-	_, res, err := agentpkg.Resolve(ctx, q)
-	if err != nil || len(res.Candidates) == 0 {
-		return ""
-	}
-	c := res.Candidates[0]
-	return strings.TrimPrefix(c.Model, c.Profile+":")
-}
-
-// tableCellModel predicts the model from the route table cell and the agent's pin, without running the pick.
-func tableCellModel(run *dispatchRun, agent, alias string, pin router.PinSpec) string {
-	t, err := router.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch-effort label: %v\n", err)
-		return ""
-	}
-	c, _ := t.Cell(agent, alias)
-	if pin.Profile == "" && pin.Model == "" {
-		return c.Model
-	}
-	reg, err := run.registry()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch-effort label: %v\n", err)
-		return c.Model
-	}
-	m, _ := router.PinnedModel(agent, alias, c, reg.Providers[pin.Profile], pin.Model)
-	return m
 }
 
 // briefAgents are the agents the `Agent:` line names, claude when the line is absent; nil for in-context.

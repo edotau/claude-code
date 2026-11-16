@@ -329,10 +329,8 @@ func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 	if providerFlag == "" || spec == "" {
 		return spec
 	}
-	if name, model, ok := strings.Cut(spec, ":"); ok {
-		if _, found := reg.Providers[name]; found && model != "" {
-			return spec
-		}
+	if ms, err := SplitModelSpec(reg, spec); err == nil && ms.Row != "" {
+		return spec
 	}
 	if providerFlag == cmp.Or(strings.TrimSpace(AgentRecord("claude").Profile), reg.Default) { // Select's own baseline
 		return spec

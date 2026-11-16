@@ -32,18 +32,15 @@ type Selection struct {
 	Aliases  map[string]Target
 }
 
-// ParseTarget splits "provider:model" when the prefix names a registered provider; otherwise the
-// whole string is a model on def (local tags like "qwen3:30b" keep their colon).
+// ParseTarget splits "provider:model" by SplitModelSpec; a bad or absent prefix leaves the whole string a model on def.
 func ParseTarget(reg *Registry, spec string, def *Provider) Target {
-	spec = strings.TrimSpace(spec)
-	if name, model, ok := strings.Cut(spec, ":"); ok {
-		if p, found := reg.Providers[name]; found && model != "" {
-			base, oneM := models.Canonical(model)
-			return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
-		}
+	ms, err := SplitModelSpec(reg, spec)
+	p, model := def, strings.TrimSpace(spec)
+	if err == nil && ms.Row != "" {
+		p, model = reg.Providers[ms.Row], ms.Model
 	}
-	base, oneM := models.Canonical(spec)
-	return Target{Provider: def, Model: def.WireModel(base), OneM: oneM}
+	base, oneM := models.Canonical(model)
+	return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
 }
 
 // Select resolves the session: profile = flag → record profile → default; alias = record alias → model → table.

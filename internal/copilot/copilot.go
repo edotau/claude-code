@@ -323,39 +323,62 @@ func (copilotEngine) DescribeRoute(ctx context.Context, reg *providers.Registry)
 	return describeCopilotRoute(ctx, reg)
 }
 
+// Gate reads COWORKER_OVERLAY from ctx because Engine.Gate carries no RunOptions (until an engine-signature cleanup).
 func (copilotEngine) Gate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	return copilotGate(ctx, reg, t)
+	t, err := overlayAccount(ctx, reg, t, "", "")
+	if err != nil {
+		return t, "", err
+	}
+	return copilotGate(ctx, reg, t, typedOffPin(t), "")
+}
+
+// overlayAccount moves t to the GitHub row the overlay's account key names, with the model spelled on it.
+func overlayAccount(ctx context.Context, reg *providers.Registry, t providers.Target, model, account string) (providers.Target, error) {
+	if account == "" {
+		ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+		if err != nil {
+			return t, copilotFatal(err)
+		}
+		account = ov.Account
+	}
+	if account == "" || t.Provider == nil || t.Provider.Provider != "github" {
+		return t, nil
+	}
+	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: model, Account: account})
+	r, err := agent.ResolveModel(reg, q, time.Now())
+	if err != nil {
+		return t, copilotFatal(err)
+	}
+	return providers.Target{Provider: reg.Providers[r.Profile], Model: r.Model}, nil
+}
+
+// copilotFatalIf is copilotFatal(err), nil for no error.
+func copilotFatalIf(err error) error {
+	if err == nil {
+		return nil
+	}
+	return copilotFatal(err)
 }
 
 // GateExplicit also turns a gate move off the pinned GitHub profile into a quota error and keeps the requested tier.
 func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	t, err := overlayAccount(ctx, reg, t, req.Model, req.Account)
+	if err != nil {
+		return t, "", err
+	}
 	if req.Fallback == router.FallbackNone {
-		if err := gateNoFallback(ctx, t); err != nil {
-			return providers.Target{}, "", err
-		}
-		return t, "", nil
+		t, _, err := copilotGate(ctx, reg, t, true, router.FallbackNone)
+		return t, "", copilotFatalIf(err)
 	}
 	from := t.Provider
-	t, note, err := copilotGate(ctx, reg, t)
+	t, note, err := copilotGate(ctx, reg, t, typedOffPin(t), req.Fallback)
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
-	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && tierModel(t.Provider, tier) != "" {
+	if tier := resumeAlias(reg, req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {
 		t.Model = tierModel(t.Provider, tier) // the fallback serves the requested tier, not its default opus
 	}
 	return t, note, err
-}
-
-// gateNoFallback refuses an unworkable GitHub target under fallback none instead of moving it to Databricks.
-func gateNoFallback(ctx context.Context, t providers.Target) error {
-	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
-		return nil
-	}
-	if detail, ok := pinnedHeadroom(ctx, t.Provider.Login); !ok {
-		return copilotFatal(fmt.Errorf("%s; GitHub profile %s refused: fallback none forbids the Databricks "+
-			"move (fix the account or drop fallback none)", detail, t.Provider.Name))
-	}
-	return nil
 }
 
 func (e copilotEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
@@ -465,9 +488,9 @@ func copilotQuotaHandoff(
 }
 
 // resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (opus).
-func resumeAlias(model string) string {
-	if _, alias, ok := strings.Cut(model, ":"); ok {
-		model = alias
+func resumeAlias(reg *providers.Registry, model string) string {
+	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
+		model = spec.Model
 	}
 	if slices.Contains(models.AliasNames, model) {
 		return model

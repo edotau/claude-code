@@ -21,11 +21,11 @@ type Effective struct {
 	vault.AgentRecord
 }
 
-// Launch is the typed flags plus the last-used profile; Routed leads a router run, CanServe filters --provider picks.
+// Launch is the typed flags; Routed leads a router run, CanServe filters --provider picks.
 type Launch struct {
-	Profile, Provider, LastProfile string
-	Routed                         bool
-	CanServe                       func(agent string, p *providers.Provider) bool
+	Profile, Provider string
+	Routed            bool
+	CanServe          func(agent string, p *providers.Provider) bool
 }
 
 // ErrUnknownProfile marks a profile that is no registry row; ForContext still returns the Effective it resolved.
@@ -100,14 +100,14 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 	if cfg.Profile == "" && agent == agentid.Gemini {
 		cfg.Profile = geminiLogin
 	}
-	if cfg.Profile, err = launchProfile(ctx, reg, cfg, l, rec.Profile != ""); err != nil {
+	if cfg.Profile, err = launchProfile(ctx, reg, cfg, l); err != nil {
 		return Effective{}, err
 	}
 	return cfg, checkProfile(reg, agent, cfg.Profile)
 }
 
-// launchProfile is cfg.Profile after the launch flags, else the last-used profile; active is false for an off agent.
-func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch, active bool) (string, error) {
+// launchProfile is cfg.Profile after the launch flags.
+func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch) (string, error) {
 	switch {
 	case l.Profile != "" || l.Provider != "":
 		lead, err := resolveLead(ctx, reg, cfg.Agent, l)
@@ -115,8 +115,6 @@ func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, 
 			return "", fmt.Errorf("agent %s: %w", cfg.Agent, err)
 		}
 		return cmp.Or(lead, cfg.Profile), nil
-	case l.LastProfile != "" && active && slices.Contains(agentid.External(), cfg.Agent) && reg.Providers[l.LastProfile] != nil:
-		return l.LastProfile, nil
 	}
 	return cfg.Profile, nil
 }

@@ -55,3 +55,10 @@ func checkConfigFixCLIStatus(t *testing.T, command, status string, wantFailure b
 		t.Errorf("successful token extraction: output = %q, err = %v", out, err)
 	}
 }
+
+func writeTestFile(t *testing.T, path, content string, perm os.FileMode) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -53,5 +55,23 @@ func TestCodexCatalogPathCacheHitSkipsSpawnAndTempHome(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(spawns); len(raw) != 0 {
 		t.Fatalf("codex spawned on a cache hit: %q", raw)
+	}
+}
+
+// A typed model Responses cannot serve is refused with the model named and a Responses model suggested; no silent swap.
+func TestCodexRefuseNamesModelAndSuggestsResponses(t *testing.T) {
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, BaseURL: "https://dbx.test",
+		Routes: map[string]string{providers.ProtocolResponses: "/responses", providers.ProtocolOpenAI: "/chat", providers.ProtocolAnthropic: "/anthropic"}}
+	for _, m := range []string{"databricks-claude-opus-5-5", "databricks-gpt-6-1-terra", "databricks-deepseek-v4-1-flash"} {
+		err := codexRefuse(p, m)
+		if err == nil || !strings.Contains(err.Error(), m) || !strings.Contains(err.Error(), "Responses") {
+			t.Errorf("codexRefuse(%s) = %v, want a refusal naming the model", m, err)
+		}
+		if _, ok := err.(*agent.UsageError); !ok {
+			t.Errorf("codexRefuse(%s) = %T, want *agent.UsageError (exit 2)", m, err)
+		}
+	}
+	if err := codexRefuse(p, "databricks-gpt-6-sol"); err != nil {
+		t.Errorf("codexRefuse(gpt-6-sol) = %v, want nil", err)
 	}
 }

@@ -44,24 +44,80 @@ func (s Schema) Target(req RunOptions) (providers.Target, bool, error) {
 
 // targetNote is target without printing: the router resolves every candidate's backend through it.
 func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note string, err error) {
+	ctx := valuesContext(context.Background(), req.Values)
+	req.Account = cmp.Or(req.Account, overlayAccount(ctx))
 	t, own, note, applied, err := s.targetBase(req)
 	if err != nil {
 		return t, own, note, err
 	}
 	t = servedTarget(s.Name, t)
-	t, modelNote := ResolveAgentModel(valuesContext(context.Background(), req.Values), ModelAsk{Agent: s.Name, Flag: req.Model, Target: t, Applied: applied})
+	t, modelNote, err := s.routedModel(ctx, req, t, applied)
+	if err != nil {
+		return t, own, note, err
+	}
 	if modelNote != "" {
 		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
 	}
 	return t, own, note, nil
 }
 
+// overlayAccount is the overlay's account key, read once at the ask entry; "" when none or unreadable.
+func overlayAccount(ctx context.Context) string {
+	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return ""
+	}
+	return ov.Account
+}
+
+// routedModel is t with the model ResolveModel spells for t's row: req.Model typed, else the record pin, else opus.
+func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Target, applied bool) (providers.Target, string, error) {
+	if t.Provider == nil || applied && req.Model != "" {
+		if t.Provider == nil && req.Model != "" && !slices.Contains(models.AliasNames, req.Model) {
+			t.Model = req.Model
+		}
+		return t, "", nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return t, "", err
+	}
+	r, err := ResolveModel(reg, QueryFor(ctx, ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name}), time.Now())
+	switch {
+	case errors.Is(err, ErrModelRoute) && req.Model == "":
+		return t, "", nil // a record model the row cannot serve keeps the row's own tier model
+	case errors.Is(err, ErrModelRoute):
+		return t, "", &UsageError{Msg: "--model " + req.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
+	case err != nil:
+		return t, "", err
+	}
+	t.Model, t.OneM = r.Model, r.OneM
+	return t, r.Note, nil
+}
+
+// leadProfile is the lead of an untyped request: the overlay account's row, else the pin when no session row serves (D3).
+func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, account string) (string, error) {
+	if reg != nil && account != "" {
+		if p := accountRow(reg, account); p != nil {
+			return p.Name, nil
+		}
+	}
+	if reg != nil {
+		if p := reg.Row(providers.SessionProfileContext(ctx)); p != nil {
+			if ok, _ := rowServes(s.Name, p); ok {
+				return "", nil
+			}
+		}
+	}
+	return PinnedProfile(ctx, s.Name)
+}
+
 // targetBase picks the target; applied is true when t.Model already carries req.Model (no fallback respelled it).
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
 	ctx := valuesContext(context.Background(), req.Values)
 	reg, loadErr := providers.Load()
-	if req.Provider == "" && !namesProvider(reg, req.Model) { // the vault pin outranks the session
-		if req.Provider, err = PinnedProfile(ctx, s.Name); err != nil {
+	if req.Provider == "" && !namesProvider(reg, req.Model) {
+		if req.Provider, err = s.leadProfile(ctx, reg, req.Account); err != nil {
 			return t, false, "", true, err
 		}
 	}

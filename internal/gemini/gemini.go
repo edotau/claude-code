@@ -82,7 +82,7 @@ func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registr
 	}
 	if p, ok := reg.LoginProfile("google", e.Name()); ok && present {
 		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: e.Name(), Target: providers.Target{Provider: p, Model: p.Models[models.Opus]}})
+		t := agent.PinnedTarget(ctx, e.Name(), providers.Target{Provider: p, Model: p.Models[models.Opus]})
 		return t, "gemini (Google login via agy)", true
 	}
 	return providers.Target{}, "", false
@@ -643,7 +643,10 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	if req.Values != nil {
 		ctx = proc.WithValues(ctx, req.Values)
 	}
-	gt, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: "gemini", Flag: req.Model, Target: t, Applied: true})
+	gt := t
+	if req.Model == "" {
+		gt = agent.PinnedTarget(ctx, "gemini", t)
+	}
 	if !agent.GeminiGatewayRow(t.Provider) {
 		return gt.Model, ""
 	}

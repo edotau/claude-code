@@ -18,8 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// copilotGate keeps t unless copilot's GitHub login is unworkable; then the Databricks fallback, never another account.
-func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+// copilotGate keeps t unless copilot's GitHub login is unworkable; then the pin (explicit) or Databricks, never another account.
+func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Target, explicit bool, mode string,
+) (providers.Target, string, error) {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
 		return t, "", nil
 	}
@@ -30,6 +31,18 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 	}
 	if arm := router.ArmProfileContext(ctx); arm != "" { // the route's chain picks the next hop; a silent Databricks move would leak
 		return providers.Target{}, "", fmt.Errorf("copilot: %s; GitHub hop refused inside databricks:%s", detail, arm)
+	}
+	mode = cmp.Or(mode, fallbackMode(ctx))
+	if explicit && mode == router.FallbackNone {
+		return providers.Target{}, "", fmt.Errorf("copilot: %s; the %s account was named explicitly", detail, t.Provider.Name)
+	}
+	if pt, ok := pinHop(reg, t); explicit && ok {
+		if got, _, err := copilotGate(ctx, reg, pt, false, mode); err == nil && got.Provider == pt.Provider {
+			return pt, fmt.Sprintf("copilot: %s; %s has no credits, using pin %s", detail, t.Provider.Name, pt.Provider.Name), nil
+		}
+		if mode == router.FallbackPin {
+			return providers.Target{}, "", fmt.Errorf("copilot: %s; neither %s nor the pin %s can run", detail, t.Provider.Name, pt.Provider.Name)
+		}
 	}
 	ri := copilotDatabricksFallback(ctx, reg, detail)
 	ft, ok := agent.RouteTarget(reg, ri)
@@ -42,6 +55,34 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 		}
 	}
 	return ft, ri.Reason, nil
+}
+
+// fallbackMode is the run's AGENT_ERROR_FALLBACK mode (process, run values, then vault env).
+func fallbackMode(ctx context.Context) string {
+	if v := strings.TrimSpace(proc.Value(ctx, router.EnvFallback)); v != "" {
+		return router.ParseFallback(v)
+	}
+	return router.DefaultFallback()
+}
+
+// pinHop is copilot's record profile as a target other than t's row; false when the pin is t, unset or unusable.
+func pinHop(reg *providers.Registry, t providers.Target) (providers.Target, bool) {
+	pin := reg.Row(vault.GetAgentRecord("copilot").Profile)
+	switch {
+	case pin == nil || pin == t.Provider:
+		return providers.Target{}, false
+	case pin.Auth.Login == "copilot":
+		model, _ := providers.CopilotModel(reg)
+		return providers.Target{Provider: pin, Model: model}, true
+	case pin.DatabricksUsable():
+		return providers.Target{Provider: pin, Model: tierModel(pin, models.Opus)}, true
+	}
+	return providers.Target{}, false
+}
+
+// typedOffPin reports a target row other than copilot's record profile: the caller typed it.
+func typedOffPin(t providers.Target) bool {
+	return t.Provider != nil && t.Provider.Name != vault.GetAgentRecord("copilot").Profile
 }
 
 // tierModel is copilot's Databricks tier model at alias on p (router table), else p's own alias model.
@@ -89,7 +130,7 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 	}
 	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile wins
 		p := reg.Providers[pin]
-		t, _ := agent.ResolveAgentModel(ctx, agent.ModelAsk{Agent: "copilot", Target: providers.Target{Provider: p, Model: tierModel(p, models.Opus)}})
+		t := agent.PinnedTarget(ctx, "copilot", providers.Target{Provider: p, Model: tierModel(p, models.Opus)})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
 			Reason: "copilot: pinned databricks profile " + p.Name, OK: true}
 	}
@@ -321,7 +362,11 @@ func (v *pinValidator) check(ctx context.Context, p string) error {
 	if !ok {
 		return nil
 	}
-	name, model := pinTarget(spec, v.fallback)
+	ms, err := providers.SplitModelSpec(v.reg, spec)
+	if err != nil {
+		return err
+	}
+	name, model := cmp.Or(ms.Row, v.fallback), ms.Model
 	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
 		w, err := validateDatabricksCopilotPin(ctx, v.reg, name, model, v.served)
 		if err != nil {
@@ -352,15 +397,6 @@ func (v *pinValidator) fetchCatalog(ctx context.Context) {
 		v.catalogDown = true
 		v.firstWarn = cmp.Or(v.firstWarn, fmt.Sprintf("could not verify against the live github-copilot catalog (pin written anyway): %v", err))
 	}
-}
-
-// pinTarget splits a pin spec into provider and model; a bare model takes fallback as its provider.
-func pinTarget(spec, fallback string) (name, model string) {
-	name, model, hasProvider := strings.Cut(spec, ":")
-	if !hasProvider || model == "" {
-		return fallback, spec
-	}
-	return name, model
 }
 
 // unknownGithubModel is the refusal for a model missing from profile's live catalog, naming near matches.

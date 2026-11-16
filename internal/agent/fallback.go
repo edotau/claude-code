@@ -197,7 +197,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
-	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: disp.Account, Profile: cmp.Or(res.Provider, req.Provider),
+	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: ranAccount(disp.Account, res.Provider), Profile: cmp.Or(res.Provider, req.Provider),
 		Model: cmp.Or(res.Model, req.Model), NotStarted: res.NotStarted}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
@@ -207,6 +207,19 @@ func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	}
 	h.Errors = append(h.Errors, envelopeErrors(res.Recovered...)...) // a dispatch that answered after retries lists them too
 	return h
+}
+
+// ranAccount is the account of the row that ran when it differs from the dispatch's lead account.
+func ranAccount(account, ran string) string {
+	if _, lead, _ := strings.Cut(account, "·"); ran == "" || lead == ran {
+		return account
+	}
+	if reg, err := providers.Load(); err == nil {
+		if p := reg.Row(ran); p != nil {
+			return p.Account()
+		}
+	}
+	return account
 }
 
 // envelopeErrors is the redacted envelope entry for each attempt, in order.

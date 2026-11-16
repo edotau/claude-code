@@ -423,6 +423,10 @@ func configureCopilotRegistry(
 ) (agent.RegistryLaunch, error) {
 	p := t.Provider
 	requested, rest := splitModelFlags(args)
+	requested, err := routedModels(ctx, reg, p, requested)
+	if err != nil {
+		return agent.RegistryLaunch{}, err
+	}
 	r, ref, err := registrySelection(ctx, reg, t, requested, dry)
 	if err != nil {
 		return agent.RegistryLaunch{}, err
@@ -452,6 +456,27 @@ func configureCopilotRegistry(
 		Unset: ph.Unset, Argv: []string{"--model", ref}, Args: rest,
 		Warnings: warnings, Files: files, Revoke: revoke, Banner: copilotRegistryBanner,
 	}, nil
+}
+
+// routedModels is each requested --model as the resolver spells it on p; one typed for another row is dropped (gate moved).
+func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Provider, requested []string) ([]string, error) {
+	var out []string
+	for _, m := range requested {
+		spec, err := providers.SplitModelSpec(reg, m)
+		if err != nil {
+			return nil, fmt.Errorf("copilot: %w", err)
+		}
+		if spec.Row != "" && spec.Row != p.Name {
+			continue
+		}
+		q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: spec.Model, Profile: p.Name, Interactive: true})
+		r, err := agent.ResolveModel(reg, q, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("copilot: %w", err)
+		}
+		out = append(out, r.Model)
+	}
+	return out, nil
 }
 
 // registrySelection discovers t's profile models and selects requested (else t.Model, pin, default) on the router.

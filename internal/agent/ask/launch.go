@@ -26,9 +26,6 @@ func Launch(name string, args []string) int {
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {
 		warnVersion(name, plan.Binary, opts, rest)
-		if !opts.PrintEnv && !agent.IsHeadless(rest) {
-			providers.RecordLastProfile(name, plan.Profile)
-		}
 	}
 	return agent.RunPlan(name, plan, opts, err)
 }

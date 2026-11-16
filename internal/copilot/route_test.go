@@ -151,7 +151,7 @@ func TestCopilotGateUsesTargetLogin(t *testing.T) {
 	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "work" }
 	t.Cleanup(func() { CopilotUsedPct = orig })
 	target := providers.Target{Provider: &providers.Provider{Name: "w", Login: "work", Auth: providers.Auth{Login: "copilot"}}}
-	got, notice, err := copilotGate(t.Context(), nil, target)
+	got, notice, err := copilotGate(t.Context(), nil, target, false, "")
 	if err != nil || notice != "" || got.Provider == nil || got.Provider.Name != "w" {
 		t.Fatalf("gate moved an explicit workable GitHub target: got %+v notice %q err %v", got.Provider, notice, err)
 	}
@@ -268,11 +268,11 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh := &providers.Provider{Name: "personal", Auth: providers.Auth{Login: "copilot"}}
-	if got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}); err != nil ||
+	if got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}, false, ""); err != nil ||
 		got.Provider == nil || got.Provider.Name != "dbx" {
 		t.Fatalf("served kimi: gate = %+v, %v; want the dbx fallback", got.Provider, err)
 	}
-	_, _, err = copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-glm-5-3"})
+	_, _, err = copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-glm-5-3"}, false, "")
 	if err == nil || !strings.Contains(err.Error(), "dbx serves no databricks-glm-5-3") {
 		t.Fatalf("unserved glm: gate err = %v, want a refusal naming dbx and databricks-glm-5-3", err)
 	}
@@ -290,9 +290,37 @@ func TestArmCopilotGateRefusalIsError(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh := &providers.Provider{Name: "personal", Login: "free", Auth: providers.Auth{Login: "copilot"}}
-	got, notice, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh})
+	got, notice, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh}, false, "")
 	if err == nil || got.Provider != nil || notice != "" || !strings.Contains(err.Error(), "inside databricks:dbx") {
 		t.Fatalf("armed gate = %+v, %q, %v; want an error naming databricks:dbx, no Databricks move",
 			got.Provider, notice, err)
+	}
+}
+
+// A typed GitHub account with no credits is refused under none, falls to the pin under pin, and never moves to Databricks.
+func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
+	macFallbackScratch(t)
+	orig := CopilotUsedPct
+	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "biz" }
+	t.Cleanup(func() { CopilotUsedPct = orig })
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
+		`"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"free","auth":{"type":"cli","login":"copilot"}},`+
+		`"business":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"biz","auth":{"type":"cli","login":"copilot"}}}}}`)
+	vaulttest.SetRecord(t, "copilot", "profile", "business")
+	hosts := "github.com:\n    users:\n        biz:\n            oauth_token: x\n    user: biz\n"
+	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	typed := providers.Target{Provider: reg.Providers["personal"], Model: "claude-opus-5.5"}
+	if _, _, err := copilotGate(t.Context(), reg, typed, true, "none"); err == nil || !strings.Contains(err.Error(), "named explicitly") {
+		t.Fatalf("none: err = %v, want a refusal naming the explicit account", err)
+	}
+	got, note, err := copilotGate(t.Context(), reg, typed, true, "pin")
+	if err != nil || got.Provider.Name != "business" || !strings.Contains(note, "personal") || !strings.Contains(note, "business") {
+		t.Fatalf("pin: got %+v note %q err %v, want the business pin and a note naming both", got.Provider, note, err)
 	}
 }

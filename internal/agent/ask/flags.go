@@ -91,7 +91,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 
 // registerFallbackFlag, registerPermFlags and registerOverlayFlag are the flag definitions ask and dispatch share.
 func registerFallbackFlag(fs *flag.FlagSet, f *askFlags) {
-	fs.StringVar(&f.fallback, "fallback", "", "all|agents|none; all if "+router.EnvFallback+" set")
+	fs.StringVar(&f.fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
 }
 
 func registerPermFlags(fs *flag.FlagSet, f *askFlags) {

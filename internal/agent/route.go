@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Dispatch is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
@@ -183,10 +185,22 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	if pin >= 0 && rc.want != "claude" && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
 		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
 	}
+	if fb := rc.recordFallbackIndex(cands); fb >= 0 && fb != req && fb != pin {
+		out = append(out, step{i: fb, rc: rc.asPin(), pin: true})
+	}
 	if last := router.ClaudeBackstop(cands, req, rc.mode); last >= 0 {
 		out = append(out, step{i: last, rc: rc})
 	}
 	return out, req
+}
+
+// recordFallbackIndex is the wanted agent's candidate on its record's fallback profile, the hop after the pin; -1 = none.
+func (rc routeCtx) recordFallbackIndex(cands []router.Candidate) int {
+	fb := vault.GetAgentRecord(rc.want).Fallback
+	if fb == "" || rc.mode == router.FallbackNone || rc.want == "claude" {
+		return -1
+	}
+	return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == rc.want && c.Profile == fb })
 }
 
 // pinIndex is the pick candidate running the wanted agent on its own pin (profile, else its own login); -1 = none.
@@ -383,6 +397,9 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
 func resolveExplicit(q RouteReq) (Chain, error) {
+	if err := explicitRouteErr(q); err != nil {
+		return Chain{}, err
+	}
 	pf := &Preflight{}
 	r, err := explicitEngine(q, pf)
 	if err != nil {
@@ -396,6 +413,19 @@ func resolveExplicit(q RouteReq) (Chain, error) {
 		pf.Chosen, chain.Preflight = hopTarget(chain.Dispatches[0]), pf
 	}
 	return chain, nil
+}
+
+// explicitRouteErr refuses a typed profile or prefix the agent cannot run as written, a usage error (exit 2).
+func explicitRouteErr(q RouteReq) error {
+	reg, err := providers.Load()
+	if err != nil || q.Agent == "" || q.Profile == "" && !namesProvider(reg, q.Model) {
+		return nil
+	}
+	_, err = ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile}, time.Now())
+	if errors.Is(err, ErrModelRoute) {
+		return clientUsageError{err}
+	}
+	return nil
 }
 
 // explicitEngine is q's engine after its explicit backend passes preflight; a hub agent on a hub profile is its ladder.
@@ -498,8 +528,8 @@ func (rc routeCtx) onWire(agent string) bool {
 
 // callerProfileCell runs the caller's model as cand's profile serves it, or skips the row naming why it cannot.
 func (rc routeCtx) callerProfileCell(cand router.Candidate, cell router.Cell) (router.Cell, string) {
-	model := strings.TrimPrefix(rc.callerModel, cand.Profile+":")
-	wire, failed := CheckModelNoted(cand.Agent, rc.reg.Providers[cand.Profile], model, time.Now(), rc.pf)
+	p := rc.reg.Providers[cand.Profile]
+	wire, failed := CheckModelNoted(cand.Agent, p, routedWire(RouteReq{Agent: cand.Agent, Model: rc.callerModel}, p, time.Now()), time.Now(), rc.pf)
 	if failed != nil {
 		rc.pf.fail(*failed)
 		return cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + failed.String()
