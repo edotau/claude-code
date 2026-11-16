@@ -170,8 +170,9 @@ func leafWants(in *core.Input) leafWant {
 type leafRead struct {
 	ids, files []string
 	scan       leafScan
-	openErr    error // the transcript could not be opened
-	scanErr    error // reading stopped early: scan is partial and files are dropped
+	openErr    error     // the transcript could not be opened
+	scanErr    error     // reading stopped early: scan is partial and files are dropped
+	until      time.Time // Handback's deadline for waiting on a running job; zero never waits
 }
 
 // readLeaf reads the transcript once; an empty path reads nothing and reports an open error.
@@ -214,7 +215,7 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" || lr.openErr != nil {
 		return core.Result{}, false
 	}
-	expired, block := liveDispatchVerdict(lr.ids, agentID)
+	expired, block := liveDispatchVerdict(in, lr, agentID)
 	if block {
 		return preserveReport(in, agentID, lr, expired), true
 	}
@@ -222,23 +223,39 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	if block {
 		return preserveReport(in, agentID, lr, res), true
 	}
-	if expired.SystemMessage == "" {
-		return res, false
+	return mergeGate(expired, res), false
+}
+
+// mergeGate joins the dispatch note and the receipt verdict; the receipt's attached message wins.
+func mergeGate(expired, res core.Result) core.Result {
+	if expired.SystemMessage == "" || (res.UpdatedInput != nil && expired.UpdatedInput != nil) {
+		return res
 	}
 	if res.SystemMessage != "" {
 		expired.SystemMessage = res.SystemMessage + "; " + expired.SystemMessage
 	}
-	return expired, false
+	if res.UpdatedInput != nil {
+		expired.UpdatedInput = res.UpdatedInput
+	}
+	return expired
 }
 
-// liveDispatchVerdict blocks on the first live dispatch within its wait limit, else carries the first expiry note.
-func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, block bool) {
-	for _, id := range ids {
+// liveDispatchVerdict blocks on the first live dispatch within its wait limit, else carries the first note.
+func liveDispatchVerdict(in *core.Input, lr leafRead, agentID string) (expired core.Result, block bool) {
+	for _, id := range lr.ids {
 		rec, err := loadDispatch(id)
-		if err != nil || !inflight.DispatchAlive(rec.Status, rec.PID, rec.Time) || pidReused(rec) {
+		if err != nil || !jobRunning(rec) {
 			continue
 		}
-		res, block := leafStopVerdict(agentID, rec)
+		if rec, err = awaitDispatch(rec, lr.until); err != nil {
+			continue
+		}
+		res, block := core.Result{}, false
+		if jobRunning(rec) {
+			res, block = leafStopVerdict(agentID, rec)
+		} else {
+			res = endedReceipt(in, rec, "ended while the hand-back waited", "")
+		}
 		if block {
 			return res, true
 		}
@@ -247,6 +264,28 @@ func liveDispatchVerdict(ids []string, agentID string) (expired core.Result, blo
 		}
 	}
 	return expired, false
+}
+
+// jobRunning is a live dispatch whose pid still belongs to it.
+func jobRunning(rec agent.Record) bool { return rec.Alive() && !pidReused(rec) }
+
+// Handback's wait seams: the poll interval and the budget, its spec's less two HookMargins for the read and render.
+var (
+	handbackPoll = 250 * time.Millisecond
+	handbackWait = func() time.Duration { s, _ := core.SpecOf("dispatch-handback"); return s.Budget - 2*core.HookMargin }()
+)
+
+// awaitDispatch re-reads a running rec until it ends or until passes; an unreadable record returns the error.
+func awaitDispatch(rec agent.Record, until time.Time) (agent.Record, error) {
+	for jobRunning(rec) && time.Since(rec.Time) < leafStopMaxWait && time.Now().Add(handbackPoll).Before(until) {
+		time.Sleep(handbackPoll)
+		next, err := loadDispatch(rec.ID)
+		if err != nil {
+			return rec, err
+		}
+		rec = next
+	}
+	return rec, nil
 }
 
 // pidReused is true when rec.PID now runs a process that started after the dispatch did; no recorded start is unknown.
@@ -525,7 +564,9 @@ func Handback(in *core.Input) core.Result {
 	if leaf.AgentTranscriptPath == "" {
 		leaf.AgentTranscriptPath = filepath.Join(inflight.SubagentDir(in.TranscriptPath), "agent-"+id+".jsonl")
 	}
-	res, _ := leafStopBlock(&leaf, id)
+	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf))
+	lr.until = time.Now().Add(handbackWait)
+	res, _ := leafGate(&leaf, id, lr)
 	return res
 }
 
