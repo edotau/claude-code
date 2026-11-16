@@ -41,7 +41,7 @@ func WorkflowResult(in *core.Input) core.Result {
 		if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), args)); b != nil {
 			return *b
 		}
-		return workflowSaved(path, data)
+		return workflowSaved(in, path, data)
 	}
 	if name := in.Nested("tool_input", "name"); name != "" {
 		return workflowByName(in, name)
@@ -50,8 +50,7 @@ func WorkflowResult(in *core.Input) core.Result {
 }
 
 func workflowInline(in *core.Input, script string) core.Result {
-	model := models.AliasModel(models.EffortMedium)
-	out, amb := fillModel(script, model)
+	out, amb, notes := autofixPins(script, models.AliasModel(models.EffortMedium))
 	vals := badPinValues(workflowLintName, out)
 	if len(amb) > 0 || len(vals) > 0 {
 		var b strings.Builder
@@ -68,24 +67,50 @@ func workflowInline(in *core.Input, script string) core.Result {
 	if out == script {
 		return core.Result{}
 	}
-	filled := filledModelLines(script, amb)
+	return inlineScript(in, out, notes)
+}
+
+// inlineScript is the one rewrite: the tool input with script = src (name and scriptPath dropped) plus notes.
+func inlineScript(in *core.Input, src string, notes []string) core.Result {
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}
 	}
-	updated["script"] = out
-	note := fmt.Sprintf("dispatch-effort: filled model:'%s' on %d unpinned agent() call(s) at line(s)"+
-		" %s; pin model explicitly to override", model, len(filled), strings.Join(filled, ", "))
-	return core.Result{UpdatedInput: updated, Context: note}
+	delete(updated, "name")
+	delete(updated, "scriptPath")
+	updated["script"] = src // inline, not scriptPath: the tool refuses a path outside the session's cwd
+	return core.Result{UpdatedInput: updated, Context: strings.Join(notes, "; ")}
 }
 
-func workflowSaved(path string, data []byte) core.Result {
+// workflowSaved auto-pins a scriptPath script and sends it inline; other faults, or sibling reads, keep the block.
+func workflowSaved(in *core.Input, path string, data []byte) core.Result {
 	hits := lintSaved(path, data)
 	if len(hits) == 0 {
 		return core.Result{}
 	}
-	return blockSavedLint(path, hits)
+	out, notes, ok := fixSaved(path, data)
+	if !ok {
+		return blockSavedLint(path, hits)
+	}
+	if readsRelative().Match(data) {
+		b := blockSavedLint(path, hits)
+		b.Reason += "\n(not auto-pinned: the script reads files relative to its own path, which an inline run cannot)"
+		return b
+	}
+	return inlineScript(in, out, append(notes, fmt.Sprintf("dispatch-effort: scriptPath → inline script from %s;"+
+		" the file on disk is unchanged — pin it there to drop this rewrite", path)))
 }
+
+// fixSaved is data with its pins auto-fixed; ok only when the gate's own lint then finds nothing.
+func fixSaved(path string, data []byte) (string, []string, bool) {
+	out, amb, notes := autofixPins(string(data), models.AliasModel(models.EffortMedium))
+	return out, notes, len(amb) == 0 && len(lintSaved(path, []byte(out))) == 0
+}
+
+// readsRelative spots a script resolving files against its own location (import.meta, __dirname, './' literals).
+var readsRelative = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("import\\.meta|__dirname|__filename|['\"`]\\.\\.?/")
+})
 
 // workflowByName redirects a by-name call to its on-disk script via updatedInput.script and lints it; misses fail open.
 func workflowByName(in *core.Input, name string) core.Result {
@@ -101,21 +126,19 @@ func workflowByName(in *core.Input, name string) core.Result {
 	if err != nil {
 		return core.Result{} // no readable on-disk script for this name — built-in or bogus, pass through
 	}
+	src, notes := string(data), []string{fmt.Sprintf("dispatch-effort: name → inline script from %s (the by-name"+
+		" registry is read at session start; the file on disk is current)", path)}
 	if hits := lintSaved(path, data); len(hits) > 0 {
-		return blockSavedLint(path, hits)
+		out, fixes, ok := fixSaved(path, data)
+		if !ok {
+			return blockSavedLint(path, hits)
+		}
+		src, notes = out, append(notes, fixes...)
 	}
 	if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), in.ToolInput()["args"])); b != nil {
 		return *b
 	}
-	updated := in.CloneToolInput()
-	if updated == nil {
-		return core.Result{}
-	}
-	delete(updated, "name")
-	updated["script"] = string(data) // inline, not scriptPath: the tool refuses a path outside the session's cwd
-	note := fmt.Sprintf("dispatch-effort: name → inline script from %s (the by-name registry is read at session"+
-		" start; the file on disk is current)", path)
-	return core.Result{UpdatedInput: updated, Context: note}
+	return inlineScript(in, src, notes)
 }
 
 // workflowsDir is where saved workflow scripts live ("" when the config dir is unknown).

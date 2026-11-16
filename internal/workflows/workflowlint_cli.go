@@ -329,17 +329,26 @@ func hasTopLevelKey(src, key string) bool { return len(topLevelKeyAt(src, key)) 
 
 func badPinValuesForKey(name string, line int, window, key string) []string {
 	var out []string
+	for _, span := range pinLiterals(window, key) {
+		if v := window[span[0]:span[1]]; !pinAllowed[key][v] {
+			out = append(out, fmt.Sprintf("%s:%d: agent() %s value %q is not one of %s"+
+				" — an unknown value silently falls back to the session", name, line, key, v, allowedList(key)))
+		}
+	}
+	return out
+}
+
+// pinLiterals is the [start,end) offset in window of each quoted literal's text in the key's top-level value.
+func pinLiterals(window, key string) [][2]int {
+	var out [][2]int
 	masked := stripStrings(window)
 	for _, valStart := range topLevelKeyAt(window, key) {
-		for _, m := range quotedLit().FindAllStringSubmatch(window[valStart:valueEnd(masked, valStart)], -1) {
-			v := m[1]
-			if v == "" {
-				v = m[2]
+		for _, m := range quotedLit().FindAllStringSubmatchIndex(window[valStart:valueEnd(masked, valStart)], -1) {
+			s, e := m[2], m[3]
+			if s < 0 {
+				s, e = m[4], m[5]
 			}
-			if !pinAllowed[key][v] {
-				out = append(out, fmt.Sprintf("%s:%d: agent() %s value %q is not one of %s"+
-					" — an unknown value silently falls back to the session", name, line, key, v, allowedList(key)))
-			}
+			out = append(out, [2]int{valStart + s, valStart + e})
 		}
 	}
 	return out

@@ -129,3 +129,38 @@ func fillModel(src, model string) (string, []string) {
 	}
 	return out, ambiguous
 }
+
+// foldPinCase lowercases model:/effort: literals that miss the allow-list only by case; notes name each fold.
+func foldPinCase(src string) (string, []string) {
+	out := []byte(src)
+	var notes []string
+	scanAgentCalls(src, func(at, line int, window string, marked bool) {
+		if marked {
+			return // badPinValues exempts a lint:opus-ok call, so it never blocks on case
+		}
+		for _, key := range pinKeys {
+			for _, span := range pinLiterals(window, key) {
+				v := window[span[0]:span[1]]
+				if low := strings.ToLower(v); low != v && len(low) == len(v) && pinAllowed[key][low] {
+					copy(out[at+span[0]:], low)
+					notes = append(notes, fmt.Sprintf("%s:'%s' → '%s' at line %d", key, v, low, line))
+				}
+			}
+		}
+	})
+	return string(out), notes
+}
+
+// autofixPins folds pin case, then fills missing model pins; ambiguous calls are left for the caller to block.
+func autofixPins(src, model string) (out string, ambiguous, notes []string) {
+	folded, folds := foldPinCase(src)
+	out, ambiguous = fillModel(folded, model)
+	if len(folds) > 0 {
+		notes = append(notes, "dispatch-effort: lowercased "+strings.Join(folds, ", "))
+	}
+	if filled := filledModelLines(folded, ambiguous); out != folded && len(filled) > 0 {
+		notes = append(notes, fmt.Sprintf("dispatch-effort: filled model:'%s' on %d unpinned agent() call(s) at"+
+			" line(s) %s; pin model explicitly to override", model, len(filled), strings.Join(filled, ", ")))
+	}
+	return out, ambiguous, notes
+}

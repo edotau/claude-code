@@ -122,7 +122,7 @@ func wfLintSaved(t *testing.T, file, body string) string {
 	return path
 }
 
-// Inline and saved scripts: block names the file or the defect, proceed is silent, a saved script is never rewritten.
+// Inline and saved scripts: block names the file or the defect, proceed is silent (rewrites: TestWorkflowLintAutofix).
 func TestWorkflowLintInlineAndSaved(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := []struct {
@@ -137,9 +137,13 @@ func TestWorkflowLintInlineAndSaved(t *testing.T) {
 		{name: "inline string mention not miscounted", script: "export const meta = { description: 'calls agent() with pins' };\nagent('x', { model: 'sonnet' });\n"},
 		{name: "inline ambiguous options", script: "const opts = { model: 'sonnet' };\nagent('x', opts);\n", block: true, wantErr: []string{"ambiguous", "line"}},
 		{name: "inline bad model value", script: "agent('x', { model: 'gpt-5' });\n", block: true, wantErr: []string{"gpt-5"}},
-		{name: "saved unpinned", file: "saved.js", body: "agent('x');\n", block: true, wantErr: []string{"{path}"}},
+		{name: "saved unpinned reads a sibling", file: "saved.js", body: "const u = import.meta.url;\nagent('x');\n", block: true,
+			wantErr: []string{"{path}", "relative to its own path"}},
 		{name: "saved under skills/scripts", file: "skills/problem-solving/scripts/code-evaluator.js", block: true, wantErr: []string{"{path}"},
-			body: "export const meta = { name: 'code-evaluator' }\nagent('x');\n"},
+			body: "export const meta = { name: 'code-evaluator' }\nagent('x', { model: 'gpt-5' });\n"},
+		{name: "saved unpinned plus bad value", file: "saved.js", body: "agent('x');\nagent('y', { model: 'gpt-5' });\n", block: true, wantErr: []string{"{path}", "gpt-5"}},
+		{name: "saved ambiguous options", file: "saved.js", body: "agent('x', opts);\n", block: true, wantErr: []string{"{path}"}},
+		{name: "saved case miss, sibling reader", file: "saved.js", body: "agent(__dirname, { model: 'Sonnet' });\n", block: true, wantErr: []string{"Sonnet", "relative to"}},
 		{name: "saved missing effort only", file: "saved.js", body: "agent('x', { model: 'sonnet' });\n"},
 		{name: "saved missing on disk fails open", file: "-"},
 	}
@@ -196,14 +200,56 @@ func TestWorkflowLintInlineUnpinnedFillsModel(t *testing.T) {
 	wfLintArgsK1(t, doc)
 }
 
-// By name: an unknown name proceeds silently, a resolved unpinned file blocks naming it.
+// A case-only pin miss is lowercased and a saved unpinned call is pinned, both sent as one inline rewrite.
+func TestWorkflowLintAutofix(t *testing.T) {
+	cases := []struct {
+		name, script, saved, byName, want, note string
+	}{
+		{name: "inline case fold", script: "agent('x', { model: 'Sonnet', effort: 'HIGH' });\n",
+			want: "agent('x', { model: 'sonnet', effort: 'high' });\n", note: "effort:'HIGH' → 'high'"},
+		{name: "scriptPath unpinned", saved: "agent('x', { label: 'l' });\n",
+			want: "agent('x', { model: 'sonnet', label: 'l' });\n", note: "file on disk is unchanged"},
+		{name: "scriptPath case fold", saved: "agent('x', { model: 'Haiku' });\n",
+			want: "agent('x', { model: 'haiku' });\n", note: "model:'Haiku' → 'haiku'"},
+		{name: "by-name fold and fill", byName: "agent('x', { model: 'Opus' });\nagent('y');\n",
+			want: "agent('x', { model: 'opus' });\nagent('y', { model: 'sonnet' });\n", note: "line(s) 2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, path := wfLintConfig(t, &c.byName)
+			in := wfM{"name": "gate-loop"}
+			if c.script != "" {
+				in = wfM{"script": c.script}
+			} else if c.saved != "" {
+				path = wfLintSaved(t, "saved.js", c.saved)
+				in = wfM{"scriptPath": path}
+			}
+			code, out, errb := runWorkflowLint(wfLintPayload(t, in))
+			if code != core.ExitProceed {
+				t.Fatalf("exit = %d, want a rewrite (stderr=%q)", code, errb)
+			}
+			doc := decodeWfLintInline(t, out)
+			if got, _ := doc.HSO.UpdatedInput["script"].(string); got != c.want || doc.HSO.UpdatedInput["scriptPath"] != nil {
+				t.Errorf("updatedInput = %v, want script %q only", doc.HSO.UpdatedInput, c.want)
+			}
+			if ctx := doc.HSO.AdditionalContext; !strings.Contains(ctx, c.note) || strings.Contains(ctx, "\n") {
+				t.Errorf("additionalContext = %q, want one line containing %q", ctx, c.note)
+			}
+			if path != "" && c.script == "" && readScript(t, path) == c.want {
+				t.Errorf("%s was rewritten on disk", path)
+			}
+		})
+	}
+}
+
+// By name: an unknown name proceeds silently, a resolved file with a bad pin blocks naming it.
 func TestWorkflowLintByNameNotInlined(t *testing.T) {
-	unpinned := "agent('x');\n"
+	unpinned := "agent('x', { model: 'gpt-5' });\n"
 	cases := []struct {
 		name  string
 		body  *string
 		block bool
-	}{{"unknown proceeds", nil, false}, {"resolved file unpinned blocks", &unpinned, true}}
+	}{{"unknown proceeds", nil, false}, {"resolved file bad pin blocks", &unpinned, true}}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			_, path := wfLintConfig(t, c.body)
