@@ -149,7 +149,6 @@ func githubQuota(ctx context.Context, login string) quota {
 // NoPremiumCredits is the note for a seat GitHub says holds no premium credits; it records no reading, never 100%.
 const NoPremiumCredits = "no Copilot premium credits"
 
-// parseCopilot turns a /copilot_internal/user body into its premium-credit row.
 func parseCopilot(login string, body []byte) quota {
 	var u struct {
 		Plan  string `json:"copilot_plan"`
@@ -194,10 +193,8 @@ func parseCopilot(login string, body []byte) quota {
 	return q
 }
 
-// whamURL is ChatGPT's plan-usage endpoint codex itself polls.
 const whamURL = "https://chatgpt.com/backend-api/wham/usage"
 
-// openaiQuotas reads codex's ChatGPT rate-limit windows (5h + weekly).
 func openaiQuotas(ctx context.Context) []quota {
 	tok, acct, keyringNote := codex.CodexAccessToken()
 	if tok == "" {
@@ -221,7 +218,6 @@ func openaiQuotas(ctx context.Context) []quota {
 	return parseWham(body)
 }
 
-// parseWham turns a wham/usage body into one row per rate-limit window.
 func parseWham(body []byte) []quota {
 	type window struct {
 		UsedPct float64 `json:"used_percent"`
@@ -269,7 +265,6 @@ func windowLabel(sec int64) string {
 	}
 }
 
-// bar generates a 10-cell filled/empty bar for a percentage (0-100).
 func bar(pct float64) string {
 	capped := int(math.Round(math.Min(math.Max(pct, 0), 100)))
 	filled := (capped * 10) / 100
@@ -402,7 +397,6 @@ func antigravityQuotas(ctx context.Context) []quota {
 	return agyUsageRows(res)
 }
 
-// agyNote is the single google row shown when agy can't report numbers.
 func agyNote(note string) []quota {
 	return []quota{{Provider: "google", Plan: "Antigravity", Note: note}}
 }
@@ -601,8 +595,7 @@ func resetTime(q quota) time.Time {
 	return time.Time{}
 }
 
-// RefreshAccount re-fetches one account (3 s; Anthropic's 60 s cache reused) and records it; false on no data.
-// A fetch that records nothing stamps the account checked, so picks back off for StaleAfter instead of re-fetching.
+// RefreshAccount re-fetches one account and records it; false on no data.
 func RefreshAccount(parent context.Context, key string) bool {
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()

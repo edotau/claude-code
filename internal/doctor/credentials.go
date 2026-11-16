@@ -21,7 +21,6 @@ const credentialProbeWorkers = 4
 // probeCredential is the live credential probe; a var so tests can substitute a fake.
 var probeCredential = providers.ProbeCredential
 
-// readAudit is the audit read; a var so tests can substitute a fake.
 var readAudit = audit.Read
 
 // providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
@@ -111,8 +110,7 @@ func probeCredentialLabel(ctx context.Context, p *providers.Provider, label stri
 	return present, label
 }
 
-// userLoginLabel reports an oauth row's user login from what is already recorded, with no network call: the dead-login
-// cache says dead, an expiry record says healthy (""), and neither says unknown. sp-only rows have no user login.
+// userLoginLabel reports an oauth row's user login from what is already recorded, with no network call
 func userLoginLabel(p *providers.Provider) (label string, dead bool) {
 	if p.Identity == providers.IdentitySP || !providers.CredentialPresent(p) {
 		return "", false

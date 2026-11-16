@@ -20,8 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// renderGeminiSettings merges the spec's exact-match guard denies into agy's
-// ~/.gemini/antigravity-cli/settings.json permissions.deny, preserving every other key.
 func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings(agentid.Gemini)
 	if err != nil {
@@ -123,7 +121,6 @@ func mergeAgyDeny(existing []any, rules []string) []string {
 	return merged
 }
 
-// loadAgentConfig is the agents.json loader; a package var so tests can fail it.
 var loadAgentConfig = agentconfig.LoadConfig
 
 // RenderSettings adds --effort and, headless, the per-run --settings after the default launch env and args.
@@ -171,8 +168,7 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 	return append(argv, "--effort", s.Effort), emulated, nil
 }
 
-// agyPermissionSettings renders p as agy's per-run --settings JSON (plus guard denies when guard); notes name each
-// Ask that runs as Allow (O1: agy has no headless judge) and each unmapped rule; a Deny agy cannot hold is an error.
+// agyPermissionSettings renders p as agy's per-run --settings JSON (plus guard denies when guard)
 func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (settings string, notes []string, err error) {
 	if p.IsZero() {
 		return "", nil, nil
@@ -216,8 +212,6 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (
 	return string(b), append(notes, agent.RuleStrings(unAllow)...), nil
 }
 
-// agyPlanRefusal refuses plan mode where agy cannot deny unmatched calls: with --tools every tool runs, and without
-// them reads in the workspace still run unless the permission-gate hook judges read_file.
 func agyPlanRefusal(p agent.Permissions, tools bool, cwd string) error {
 	switch {
 	case p.Mode != "plan":
@@ -260,7 +254,6 @@ func agyRefusedCall(ev agyEvent) (agent.Rule, bool) {
 	return agent.Rule{}, false
 }
 
-// report prints notes to stderr, where agy's own denial line goes.
 func (d *agyDenier) report(calls []agent.Rule) {
 	for _, n := range d.notes(calls) {
 		fmt.Fprintln(os.Stderr, n)
@@ -378,7 +371,6 @@ func agyPreToolGroups(path string) []settings.MatcherGroup {
 	return groups
 }
 
-// agyGroupsRunGate reports whether a blocking group on tool runs the gate.
 func agyGroupsRunGate(groups []settings.MatcherGroup, command, tool string) bool {
 	return slices.ContainsFunc(groups, func(g settings.MatcherGroup) bool { return g.RunsGate("gemini", command, tool) })
 }
@@ -389,7 +381,6 @@ const agyHookName = "claude-code"
 // agyGateMatcher is the agy tool names the permission gate judges (run_command, read_file, write_file, edit_file).
 const agyGateMatcher = "run_command|read_file|write_file|edit_file"
 
-// agyShellMatcher is agy's shell tool name, the only call safety-scan judges.
 const agyShellMatcher = "run_command"
 
 // renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping every other hook.

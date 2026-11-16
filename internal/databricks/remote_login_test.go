@@ -21,8 +21,7 @@ import (
 
 const remoteHost = "wks.example.ts.net"
 
-// remoteWorld is a Databricks profile with a paired service principal on a fake token endpoint, plus fakes for the
-// two ssh calls and this machine's opener; the fake host browser follows the authorization URL back through the "forward".
+// remoteWorld is a Databricks profile with a paired service principal on a fake token endpoint, ssh calls and opener.
 type remoteWorld struct {
 	codes, mints, opensLocal atomic.Int32
 	forwards                 [][4]any // host, first, last, local of each ReverseForward

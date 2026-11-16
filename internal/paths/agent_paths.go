@@ -74,7 +74,6 @@ func OpencodeDBPath() string {
 	return filepath.Join(OpencodeDataDir(), db)
 }
 
-// pidOf parses "<pid>.json"; ok is false for any other name.
 func pidOf(path string) (int, bool) {
 	name, ok := strings.CutSuffix(filepath.Base(path), ".json")
 	if !ok {

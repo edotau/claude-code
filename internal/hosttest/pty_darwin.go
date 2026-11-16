@@ -9,10 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ptyIoctl is the raw TIOCPTY* ioctl darwin has no golang.org/x/sys/unix wrapper for (unlike Linux's
-// IoctlGetInt/IoctlSetPointerInt); arg is a pointer for TIOCPTYGNAME, nil for TIOCPTYGRANT/TIOCPTYUNLK.
-// The Pointer->uintptr conversion stays inline in the Syscall call so the compiler keeps arg alive
-// until the call completes; a stack-moved buffer would otherwise invalidate the address first.
+// ptyIoctl is the raw TIOCPTY* ioctl; the Pointer->uintptr conversion stays inline so arg stays alive during the call.
 func ptyIoctl(fd uintptr, req uint, arg unsafe.Pointer) error {
 	//lint:ignore SA1019 darwin has no libSystem wrapper for a buffer-filling ioctl
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL, fd, uintptr(req), uintptr(arg)) //nolint:staticcheck // see lint:ignore above

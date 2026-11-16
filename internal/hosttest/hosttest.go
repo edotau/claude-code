@@ -70,7 +70,6 @@ func Setup() (cleanup func()) {
 	return func() { _ = os.RemoveAll(root) }
 }
 
-// makeRoot creates the host's temp dir with symlinks resolved.
 func makeRoot() string {
 	root, err := os.MkdirTemp("", "hosttest-")
 	if err != nil {

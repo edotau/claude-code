@@ -9,8 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// Slug lowercases s into one safe path element: runs outside [a-z0-9]+keep become one '-', edges trimmed,
-// capped at max bytes (0 = uncapped); an empty result yields fallback.
+// Slug lowercases s into one safe path element
 func Slug(s, keep string, max int, fallback string) string {
 	var b strings.Builder
 	dash := false
@@ -45,9 +44,7 @@ func ProjectSlug(root string) string {
 	return string(b)
 }
 
-// RepoSlug is root's tag for repo-scoped artifacts; the config dir itself is "" so its artifacts sit untagged.
-// A linked worktree is tagged by its main checkout, so every worktree of a repo shares one bank instead of each
-// branch directory ("main", "fix-x") minting its own and colliding across repos.
+// RepoSlug is root's tag for repo-scoped artifacts
 func RepoSlug(root string) string {
 	main := MainCheckout(root)
 	if root == "" || SamePath(root, ConfigDir()) || SamePath(main, ConfigDir()) {
@@ -102,9 +99,7 @@ func MainCheckout(root string, gitOut ...func(string, ...string) (string, error)
 	return root
 }
 
-// CheckoutOf walks up from dir to the nearest directory holding .git: top is that dir, main its MainCheckout.
-// ("", "") when dir is not inside a repo; a linked worktree is top != "" && main != top. An empty .git dir (a stray
-// /tmp/.git) is no repo, as to git.
+// CheckoutOf walks up from dir to the nearest directory holding .git
 func CheckoutOf(dir string) (top, main string) {
 	dir, err := filepath.Abs(dir)
 	if err != nil {
@@ -122,7 +117,6 @@ func CheckoutOf(dir string) (top, main string) {
 	}
 }
 
-// hasGit reports whether path is a gitfile or a non-empty .git directory.
 func hasGit(path string) bool {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -154,11 +148,9 @@ func Canon(p string) string {
 	return p
 }
 
-// maxLinkDepth bounds dangling-symlink chasing in CanonDeep.
 const maxLinkDepth = 40
 
-// CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved;
-// a dangling symlink is followed to its target.
+// CanonDeep resolves symlinks in p's deepest existing ancestor and rejoins the missing tail unresolved
 func CanonDeep(p string) string { return canonDeep(p, 0) }
 
 func canonDeep(p string, depth int) string {

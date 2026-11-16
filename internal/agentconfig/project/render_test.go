@@ -11,8 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hasGeneratedBanner only recognises the banner as the FIRST non-empty body line; a hand-authored file that
-// merely quotes the banner text further down must read as hand-authored (KEEP).
+// hasGeneratedBanner only recognises the banner as the FIRST non-empty body line
 func TestGeneratedBannerMustBeFirstBodyLine(t *testing.T) {
 	dir := t.TempDir()
 
@@ -69,8 +68,7 @@ func TestRenderCodexAgent(t *testing.T) {
 	}
 }
 
-// Gemini's agent schema is strict: name, description and translated tools only — never tier words, colors, or a
-// Claude tool name Gemini would reject; an agent with only unmappable tools omits the key (inherit all).
+// Gemini's agent schema is strict
 func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
 	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Agent, Bash", "model": "sonnet", "color": "cyan"}, body: "body\n"}
 	fm, body := textutil.ParseFrontmatter(renderGeminiAgent(agent))

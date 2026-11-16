@@ -21,14 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 )
 
-// TestInstallContinuesAfterSettingsFailure: installSettings failing (settings.json is a directory, so
-// os.ReadFile returns an error that is not ErrNotExist) must not short-circuit Install — syncVendors and
-// installGitHooks still run, and the error Install returns still names settings so the failure is legible.
-// A corrupt state/vault.db (the seam the brief suggested) does not isolate this: providers.Load, called
-// from config.Migrate before installSettings ever runs, opens the same vault.db and fails Migrate first,
-// so Install returns at the earlier "migration incomplete" guard instead (already covered by
-// TestInstallMigrationFailureKeepsOldBinary). Making settings.json itself unreadable is the seam that
-// actually reaches installSettings without disturbing Migrate.
+// TestInstallContinuesAfterSettingsFailure
 func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 	hermetic(t)
 	self := filepath.Join(t.TempDir(), "claude-code")
@@ -59,8 +52,7 @@ func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
 	}
 }
 
-// compactStepPrefix classifies one line of installCompact's default output by step; an unrecognized
-// line fails immediately, so a renamed/new step's line must be taught here too.
+// compactStepPrefix classifies one line of installCompact's default output by step
 func compactStepPrefix(t *testing.T, line string) string {
 	t.Helper()
 	switch {
@@ -82,8 +74,7 @@ func compactStepPrefix(t *testing.T, line string) string {
 	}
 }
 
-// shortTempDir is a t.TempDir() alternative that doesn't embed the (often long) test name, so a
-// path built under it stays representative of a real ~/.claude install for an 80-column check.
+// shortTempDir is a t.TempDir() without the test name, so paths stay representative for an 80-column check.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
 	base := ""
@@ -101,13 +92,7 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-// setupCompactFixture wires a hermetic install where every name in linked resolves on PATH, so
-// installCompact's "vendors" line folds them all into "linked"/"kept" instead of printing one of
-// them in full. The config dir and HOME are re-rooted under a short path (hermetic's own t.TempDir()
-// embeds the test name, which makes every path artificially long for the 80-column check) and real
-// git stays reachable after the vendor fixtures (installGitHooks/history need it; it's absent from a
-// bare vendor-only PATH). The host reads as non-WSL with HARNESS_WINDOWS_PROFILE empty, so no "settings (windows)"
-// line prints on any machine unless a test sets the env.
+// setupCompactFixture wires a hermetic install where every linked name resolves on PATH, under a short config path.
 func setupCompactFixture(t *testing.T, linked []string) {
 	t.Helper()
 	hermetic(t)
@@ -117,8 +102,7 @@ func setupCompactFixture(t *testing.T, linked []string) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	// hermetic() already redirected userBinDir/tmuxConfPaths, but at its own (long, test-name-based)
-	// root; re-point them at the short root so their lines stay realistic-width too.
+	// hermetic() already redirected userBinDir/tmuxConfPaths, but at its own (long, test-name-based) root
 	oldUserBin := userBinDir
 	userBinDir = func() string { return filepath.Join(root, "localbin") }
 	t.Cleanup(func() { userBinDir = oldUserBin })
@@ -138,13 +122,11 @@ func setupCompactFixture(t *testing.T, linked []string) {
 		source := pathstest.FakeVendorOutsideConfig(t, vendor, "")
 		dirs = append(dirs, filepath.Dir(source))
 	}
-	// Only git rides in from the real PATH (installGitHooks/history need it); every vendor not in
-	// linked must resolve to nothing, not fall back to whatever this box happens to have installed.
+	// Only git rides in from the real PATH (installGitHooks/history need it)
 	if p, err := exec.LookPath("git"); err == nil {
 		dirs = append(dirs, filepath.Dir(p))
 	}
 	// userBinDir on PATH too, same as a real shell profile — otherwise linkOnPath's "not on PATH"
-	// warning fires on every run here and this wouldn't be an all-ok fixture anymore.
 	dirs = append(dirs, filepath.Join(root, "localbin"))
 	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
 	noWindowsProfile(t)
@@ -159,9 +141,7 @@ func noWindowsProfile(t *testing.T) {
 	t.Setenv(windowsProfileEnv, "")
 }
 
-// TestInstallCompactDefaultOutputHasExactlyTheStepLines: an all-ok real run prints exactly one line
-// per step (install, vendors, settings, settings (windows) only when applicable, agents, extras) —
-// never a per-vendor or per-sub-step line, since nothing here failed or needed a full report.
+// TestInstallCompactDefaultOutputHasExactlyTheStepLines
 func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 	for _, windowsProfile := range []bool{false, true} {
 		t.Run(fmt.Sprintf("windows profile %v", windowsProfile), func(t *testing.T) {
@@ -189,8 +169,7 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 	}
 }
 
-// TestInstallCompactDefaultOutputLinesFitEightyColumns: the same all-ok fixture as above, checked for
-// width — a compact line is meant to read on one terminal row.
+// TestInstallCompactDefaultOutputLinesFitEightyColumns
 func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
 	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
 	var out bytes.Buffer
@@ -204,9 +183,7 @@ func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
 	}
 }
 
-// TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull: a vendor installCompact
-// can't link (copilot, left off PATH) and a settings.json read failure both still print their full
-// detail line, even though the surrounding run is otherwise compact.
+// TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull
 func TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull(t *testing.T) {
 	setupCompactFixture(t, []string{"claude", "codex", "opencode", "gemini"}) // copilot left unlinked
 	file := settings.SettingsFile()
@@ -226,13 +203,10 @@ func TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull(t *te
 	}
 }
 
-// historySnapshotHash normalizes the pre-install snapshot's commit hash, which is unique per git
-// commit (tree/time/author) and so differs between two otherwise-identical fresh fixtures.
+// historySnapshotHash normalizes the pre-install snapshot's commit hash, which differs between identical fixtures.
 var historySnapshotHash = regexp.MustCompile(`history  [0-9a-f]+ \(pre-install snapshot\)`)
 
 // runVerboseFixture sets up one hermetic, vendor-free install (so every vendor reports "missing"
-// identically in both runs) and calls fn, returning its output plus the config-dir root and the
-// self-binary path so the caller can normalize the two fixtures' distinct temp-dir names away.
 func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, self string) {
 	t.Helper()
 	hermetic(t)
@@ -258,9 +232,7 @@ func normalizeVerboseOutput(out, root, self string) string {
 	return out
 }
 
-// TestInstallVerboseFlagMatchesInstallVerboseDirectly: install(w, false, true) must route to the same
-// installVerbose pipeline called directly — the --verbose/--dry-run contract this refactor promised
-// to keep byte-identical, checked here without a stored golden (none existed before this change).
+// TestInstallVerboseFlagMatchesInstallVerboseDirectly
 func TestInstallVerboseFlagMatchesInstallVerboseDirectly(t *testing.T) {
 	outA, rootA, selfA := runVerboseFixture(t, func(w io.Writer) error { return install(w, false, true) })
 	outB, rootB, selfB := runVerboseFixture(t, func(w io.Writer) error { return installVerbose(w, false) })

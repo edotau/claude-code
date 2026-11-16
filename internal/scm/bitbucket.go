@@ -85,7 +85,6 @@ func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Value
 	return data, nil
 }
 
-// statusErr maps a non-2xx status to an error; 401 and 403 name different fixes.
 func statusErr(method, path string, code int) error {
 	switch {
 	case code == http.StatusUnauthorized:
@@ -149,7 +148,6 @@ func prState(s string) string {
 	return "open"
 }
 
-// pages reads every page of a paged PR list until limit rows (0 = all).
 func (h *BitbucketHost) pages(ctx context.Context, path string, q url.Values, limit int) ([]bbPR, error) {
 	var all []bbPR
 	for start := 0; ; {

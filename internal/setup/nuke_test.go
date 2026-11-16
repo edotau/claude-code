@@ -116,7 +116,6 @@ func TestNukePlanListsClassesAndSecretNamesOnly(t *testing.T) {
 	assertPlanOutputNamesOnly(t, plan)
 }
 
-// assertPlanClasses checks CLAUDE.md plans as tracked and skills as untracked.
 func assertPlanClasses(t *testing.T, plan nukePlan) {
 	t.Helper()
 	byName := map[string]entry{}
@@ -165,8 +164,7 @@ func TestNukePlanWithoutSecrets(t *testing.T) {
 	}
 }
 
-// TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing: an unreadable/corrupt vault must not block the
-// nuke — planNuke now reports it as VaultWarning (still archived opaquely by nuke) rather than failing outright.
+// TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing
 func TestNukePlanWarnsOnUnreadableVaultInsteadOfFailing(t *testing.T) {
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Meta, "schema", "999")
@@ -190,8 +188,7 @@ func TestNukeApplyRefusedOnWrongConfirm(t *testing.T) {
 	}
 }
 
-// TestCreateBackupFileMode0600: the nuke backup tarball must be created 0600, never world/group
-// readable — it holds the sealed vault and archived settings.
+// TestCreateBackupFileMode0600
 func TestCreateBackupFileMode0600(t *testing.T) {
 	home := t.TempDir()
 	dest, f, err := createBackupFile(home)
@@ -208,8 +205,7 @@ func TestCreateBackupFileMode0600(t *testing.T) {
 	}
 }
 
-// TestNukeApplyProceedsWhenVaultUnreadable: an unreadable vault (bad schema) only warns in the plan;
-// Apply still archives (the vault.db bytes raw) and removes dir rather than refusing outright.
+// TestNukeApplyProceedsWhenVaultUnreadable
 func TestNukeApplyProceedsWhenVaultUnreadable(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	vaulttest.Put(t, vault.Meta, "schema", "999")
@@ -368,8 +364,7 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 	}
 }
 
-// A symlinked projects/*/memory dir anywhere above a real one is still skipped: Lstat gates the
-// candidate root itself before WalkDir ever runs, so a symlinked root contributes nothing.
+// A symlinked projects/*/memory dir anywhere above a real one is still skipped
 func TestNukeKeepMemorySkipsSymlinkedCandidateRoot(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
@@ -405,8 +400,7 @@ func tarNames(entries map[string][]byte) []string {
 	return out
 }
 
-// --keep-memory archives the local memory Git store whole (incl. .git) and real native dirs, but a
-// symlinked projects/*/memory (the store's own duplicate) and symlinked files are skipped, never followed.
+// --keep-memory archives the memory store whole (with .git) but skips symlinked dirs and files.
 func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
@@ -457,9 +451,7 @@ func assertKeepMemoryPaths(t *testing.T, got []string) {
 	}
 }
 
-// TestKeepMemoryPathsPropagatesWalkError is the GREEN for the audited bug: an unreadable subdir under
-// memory/ must surface an error, never a silently truncated file list that a nuke would archive as if
-// it were complete.
+// TestKeepMemoryPathsPropagatesWalkError is the GREEN for the audited bug
 func TestKeepMemoryPathsPropagatesWalkError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")

@@ -30,7 +30,6 @@ const workspaceIgnoreLine = ".claude/settings.local.json"
 // workspaceSettings is the only project settings.json init writes: project-scoped keys, no hooks.
 const workspaceSettings = "{\n  \"permissions\": {\n    \"allow\": []\n  },\n  \"env\": {}\n}\n"
 
-// workspaceInitOpts drives workspaceInit; Out receives one line per action.
 type workspaceInitOpts struct {
 	Root   string
 	With   []string
@@ -76,8 +75,7 @@ func workspaceWith(with []string) ([]string, error) {
 	return with, nil
 }
 
-// workspaceInit scaffolds root/.claude/ (project settings, empty agents/commands/skills, gitignore line,
-// memory bank) without ever overwriting what is already there.
+// workspaceInit scaffolds root/.claude/ (settings, empty agent/command/skill dirs, gitignore) without overwriting.
 func workspaceInit(o workspaceInitOpts) error {
 	with, err := workspaceWith(o.With)
 	if err != nil {
@@ -113,7 +111,6 @@ func runWorkspaceActions(o workspaceInitOpts, actions []workspaceAction) error {
 	return nil
 }
 
-// workspacePlan lists every action init would take for root, in a stable order.
 func workspacePlan(root string, with []string) []workspaceAction {
 	dot := filepath.Join(root, ".claude")
 	var out []workspaceAction
@@ -170,7 +167,6 @@ func workspaceDirAction(dir string) workspaceAction {
 	}}
 }
 
-// workspaceFileAction writes body to path only when path is absent.
 func workspaceFileAction(path, body string) workspaceAction {
 	present, err := workspaceExists(path)
 	if err != nil {
@@ -213,8 +209,7 @@ func workspaceIgnoreAction(root string) workspaceAction {
 	}}
 }
 
-// workspaceHasIgnore reports whether path already lists the settings.local.json line; a missing file
-// counts as absence, but any other read error propagates instead of being mistaken for it.
+// workspaceHasIgnore reports whether path already lists the settings.local.json line
 func workspaceHasIgnore(path string) (bool, error) {
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -244,8 +239,6 @@ func workspaceMemoryAction(root string) workspaceAction {
 	}}
 }
 
-// workspaceRel maps a link name to its path under <kind>/: agents and commands are .md files
-// ("ns:cmd" → ns/cmd.md), skills are directories.
 func workspaceRel(kind, name string) (string, error) {
 	if name == "" || name == "." || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
 		return "", fmt.Errorf("%w: bad %s name %q", errWorkspaceUsage, kind, name)
@@ -265,8 +258,7 @@ func workspaceRel(kind, name string) (string, error) {
 	return "", fmt.Errorf("%w: kind %q: want one of %s", errWorkspaceUsage, kind, strings.Join(workspaceKinds, "|"))
 }
 
-// workspaceLink symlinks root/.claude/<kind>/<name> to the harness's global copy so a project pins
-// a subset of the harness without copying it.
+// workspaceLink symlinks root/.claude/<kind>/<name> to the global copy so a project pins a subset without copying.
 func workspaceLink(root, kind, name string, out io.Writer) error {
 	root, err := workspaceRoot(root)
 	if err != nil {
@@ -295,8 +287,7 @@ func workspaceLink(root, kind, name string, out io.Writer) error {
 	return nil
 }
 
-// workspaceStatus lists each project entry as linked, local, or shadowing a global one of the same name,
-// then the settings, memory and gitignore state.
+// workspaceStatus lists each project entry as linked, local or shadowing a global one, then settings/memory/gitignore.
 func workspaceStatus(root string, out io.Writer) error {
 	root, err := workspaceRoot(root)
 	if err != nil {
@@ -362,8 +353,6 @@ func workspaceStatusRow(kind, dir, p string, d fs.DirEntry, out io.Writer) error
 	return nil
 }
 
-// workspaceEntryState classifies one entry: a symlink is linked; a local copy whose name also exists
-// globally shadows it; anything else is local.
 func workspaceEntryState(kind, rel, p string) (state, target string, err error) {
 	if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
 		t, rerr := os.Readlink(p)

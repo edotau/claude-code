@@ -90,8 +90,7 @@ func assertCredentialProbeRows(t *testing.T, rows []check, names []string) {
 	}
 }
 
-// A key-auth built-in nothing routes to (not session, default, fallback or pinned) is a soft note, not ✗;
-// pinning it for an agent makes the missing key a real ✗ again.
+// A key-auth built-in nothing routes to (not session, default, fallback or pinned) is a soft note, not ✗
 func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
 	doctorScratch(t)
 	checks, _ := runChecks(context.Background())
@@ -106,10 +105,7 @@ func TestDoctorUnusedProviderMissingKeyIsSoft(t *testing.T) {
 	}
 }
 
-// altAuthScratch isolates the machine state altAuth reads: CLAUDE_CONFIG_DIR (keyring/secrets.env),
-// HOME (the gemini agy login marker, and the claude login probe has nowhere real to run), and a PATH with
-// neither `claude` nor `security`/`secret-tool` on it, so the real Keychain and a real claude login
-// can never answer for this test by accident.
+// altAuthScratch isolates the machine state altAuth reads
 func altAuthScratch(t *testing.T) (home string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -163,8 +159,7 @@ func TestAltAuthUnknownProvider(t *testing.T) {
 	}
 }
 
-// loginRig runs the credential check of one stored oauth row (the session profile) with a verified service-principal
-// probe; record is "dead", "healthy" (an expiry record) or "" (nothing recorded).
+// loginRig runs one stored oauth row's credential check; record is "dead", "healthy" or "" (nothing recorded).
 func loginRig(t *testing.T, record string, seals []audit.Event) check {
 	t.Helper()
 	vaulttest.Use(t)
@@ -207,8 +202,7 @@ func plantLoginRecord(t *testing.T, record string) {
 	}
 }
 
-// A dead user login reads from the cache as a soft warning (never a hard failure); healthy adds nothing, no record
-// says unknown, and the diagnostic leaves the cache untouched.
+// A dead user login reads from the cache as a soft warning (never a hard failure)
 func TestCredentialRowReportsUserLoginFromRecords(t *testing.T) {
 	assertDeadLoginRow(t, loginRig(t, "dead", nil))
 	if healthy := loginRig(t, "healthy", nil); !healthy.OK || !healthy.Hard || strings.Contains(healthy.Detail, "user login") {

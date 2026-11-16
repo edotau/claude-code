@@ -55,7 +55,6 @@ func launchModeOf(args []string, tools *bool) string {
 	return "no flag"
 }
 
-// leafMode is the permModes column an agent runs a launch mode in.
 func leafMode(name, launch string) string {
 	if launch == "tools" {
 		return stageLaunchMode(name, "edit")
@@ -89,8 +88,6 @@ func parseStages(script, src string) []stageDef {
 	return defs
 }
 
-// stageDepth is how far into the declarations a prompt names its commands count: a read-only stage's second level
-// (a task table) is quoted for it to read, not run.
 func stageDepth(tools string) int {
 	if tools == "" {
 		return 1
@@ -129,8 +126,6 @@ func stageNeeds(prompt []string, gate, web bool) []string {
 	return out
 }
 
-// stageLaunchMode is the permModes column a stage runs in on agent name: stepOf passes --read-only only to a
-// copilot stage with no tools default, and claude through `ask` is the gateway route.
 func stageLaunchMode(name, tools string) string {
 	switch {
 	case tools == "" && name == "copilot":

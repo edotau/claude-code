@@ -18,8 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// scienceWipePrefixes are Claude Code / harness namespaces: a live session's IPC tokens and routing ride them.
-// ANTHROPIC_ is exact-match only (providers.WipeKeys): claude-science reads its own ANTHROPIC_* SSO/BYOK knobs.
+// scienceWipePrefixes are Claude Code / harness namespaces; ANTHROPIC_ is exact-match only (providers.WipeKeys).
 var scienceWipePrefixes = []string{"CLAUDE_", "CLAUDECODE", "HARNESS_", "GEMINI_"}
 
 // scienceWiped reports whether key must not reach claude-science, which signs in with its own OAuth.
@@ -33,8 +32,6 @@ func scienceWiped(key string) bool {
 	return slices.ContainsFunc(scienceWipePrefixes, func(p string) bool { return strings.HasPrefix(key, p) })
 }
 
-// science resolves `claude-code anthropic science`: the real claude-science binary, minus the harness env that
-// would send its login to the router or gateway (HTTP 401). args pass through untouched.
 func science(env, args []string) (agent.Plan, error) {
 	bin, err := paths.LookPathReal("claude-science")
 	if err != nil {
@@ -137,8 +134,7 @@ func scienceArgs(args []string, defPort int) (port int, rest []string, err error
 	return port, args, nil
 }
 
-// scienceArgv appends --config (every verb: it is global, and `status` type-checks it) and, for serve, the
-// pinned --port/--sandbox-port pair; a busy pin is an error, never a silent move that breaks ssh -L tunnels.
+// scienceArgv appends --config to every verb and, for serve, the pinned ports; a busy pin is an error, never a move.
 func scienceArgv(args []string, cfg string, port int, busy func(int) bool) ([]string, error) {
 	argv := slices.Clone(args)
 	if cfg != "" && !hasArg(args, "--config") {
@@ -172,7 +168,6 @@ func isServe(args []string) bool {
 	return false
 }
 
-// hasArg reports a flag in either `--f v` or `--f=v` form.
 func hasArg(args []string, flag string) bool {
 	return slices.ContainsFunc(args, func(a string) bool { return a == flag || strings.HasPrefix(a, flag+"=") })
 }

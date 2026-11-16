@@ -24,14 +24,12 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// call is one recorded spawn of the child.
 type call struct {
 	bin  string
 	argv []string
 	env  []string
 }
 
-// fakeChild records every spawn and answers the smoke prompt from its script.
 type fakeChild struct {
 	calls []call
 	smoke string // stdout for the smoke prompt
@@ -48,7 +46,6 @@ func (f *fakeChild) spawn(bin string, argv, env []string, stdin io.Reader, stdou
 	return f.code, nil
 }
 
-// useFake swaps the spawn seam for f and restores the real one at cleanup.
 func useFake(t *testing.T, f *fakeChild) {
 	t.Helper()
 	old := spawn
@@ -60,7 +57,6 @@ func useFake(t *testing.T, f *fakeChild) {
 	t.Cleanup(func() { spawn, spawnCtx = old, oldCtx })
 }
 
-// argValue returns the element after flag in argv, or "".
 func argValue(argv []string, flag string) string {
 	for i := 0; i+1 < len(argv); i++ {
 		if argv[i] == flag {

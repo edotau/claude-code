@@ -17,14 +17,12 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// clientRouteCase is one model's expected client route, path and request body.
 type clientRouteCase struct {
 	name, id, path, body string
 	responses            bool
 	anthropic            bool
 }
 
-// seenProbe is what the fake workspace saw of one probe call.
 type seenProbe struct {
 	method, path string
 	header       http.Header

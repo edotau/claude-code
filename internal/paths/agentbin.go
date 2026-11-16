@@ -46,7 +46,6 @@ func AgentBin(name string) (string, error) {
 	return p, nil
 }
 
-// checkVendorLink rejects a missing, broken or retired-shim entry at p.
 func checkVendorLink(bin, p string) error {
 	fi, err := os.Lstat(p)
 	if os.IsNotExist(err) {
@@ -69,7 +68,6 @@ func checkVendorLink(bin, p string) error {
 	return nil
 }
 
-// checkVendorExec rejects a p that is not an executable regular file.
 func checkVendorExec(bin, p string) error {
 	fi, err := os.Stat(p)
 	if err != nil {
@@ -81,8 +79,7 @@ func checkVendorExec(bin, p string) error {
 	return nil
 }
 
-// LookPathReal finds name on PATH skipping BinDir and any symlink to the running executable, so a
-// `claude` shim never re-execs itself.
+// LookPathReal finds name on PATH skipping BinDir and symlinks to this executable, so a shim never re-execs itself.
 func LookPathReal(name string) (string, error) {
 	self, _ := SelfBinary()
 	shimDir, _ := filepath.Abs(BinDir())

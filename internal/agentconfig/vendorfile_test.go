@@ -112,8 +112,7 @@ func TestRevertRestoresNewestMirror(t *testing.T) {
 	}
 }
 
-// TestLostLinesEmptyWhenTheirsMatchesBaseline: theirs (current file) equal to the last-written baseline
-// means the user made no local edits — no lost lines, even when the upcoming render (next) differs.
+// TestLostLinesEmptyWhenTheirsMatchesBaseline
 func TestLostLinesEmptyWhenTheirsMatchesBaseline(t *testing.T) {
 	base := []byte("a\nb\nc\n")
 	theirs := base // no hand edit since the last render
@@ -123,8 +122,7 @@ func TestLostLinesEmptyWhenTheirsMatchesBaseline(t *testing.T) {
 	}
 }
 
-// TestLostLinesDetectsHandAddedLine: a line present in theirs but absent from both base and next is the
-// user's own edit, lost by the upcoming render.
+// TestLostLinesDetectsHandAddedLine
 func TestLostLinesDetectsHandAddedLine(t *testing.T) {
 	base := []byte("a\nb\n")
 	theirs := []byte("a\nb\nuser-added\n")
@@ -135,8 +133,7 @@ func TestLostLinesDetectsHandAddedLine(t *testing.T) {
 	}
 }
 
-// TestLostLinesForSurfacesUnreadableBaseline: a baseline that exists but cannot be read (here a directory)
-// is an error, not "no baseline"; only a missing one skips hand-edit protection.
+// TestLostLinesForSurfacesUnreadableBaseline
 func TestLostLinesForSurfacesUnreadableBaseline(t *testing.T) {
 	path, _ := backupEnv(t)
 	const label = "unit-no-ops"

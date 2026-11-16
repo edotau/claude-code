@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// renameFlag collects repeatable --rename old=new pairs.
 type renameFlag map[string]string
 
 func (r renameFlag) String() string { return "" }
@@ -83,7 +82,6 @@ func importCfg(args []string) int {
 	return runImport(path, cands, options, *apply && !*dryRun, *fold, *seal)
 }
 
-// warnUnmatchedRenames notes each --rename OLD that matches no config section.
 func warnUnmatchedRenames(cands []cfgCandidate, rename map[string]string) {
 	for _, old := range slices.Sorted(maps.Keys(rename)) {
 		if !slices.ContainsFunc(cands, func(c cfgCandidate) bool { return c.Name == old }) {
@@ -300,7 +298,6 @@ func pickPairings(cands []cfgCandidate, existing map[string]json.RawMessage, opt
 	return choices, nil
 }
 
-// hostPairs is every unresolved service principal × user pair on host.
 func hostPairs(plan []importRow, host string) [][2]cfgCandidate {
 	var pairs [][2]cfgCandidate
 	for _, principal := range plan {
@@ -321,7 +318,6 @@ func openPrincipal(r importRow, host string) bool {
 	return r.Host == host && r.Auth == providers.AuthM2M && r.Action != "skip" && !r.PairSet
 }
 
-// openUser is a user (oauth) row on host that is still unpaired and not skipped.
 func openUser(r importRow, host string) bool {
 	return r.Auth == providers.AuthOAuth && r.Action != "skip" && !r.PairingSet && r.Host == host
 }
@@ -359,7 +355,6 @@ func pickHostPair(pairs [][2]cfgCandidate, host string, choices map[string]strin
 	return nil
 }
 
-// importRow is the planned outcome for one candidate.
 type importRow struct {
 	cfgCandidate
 	ID           string // vault provider id
@@ -373,7 +368,6 @@ type importRow struct {
 	existed      bool
 }
 
-// importOptions steer importPlan.
 type importOptions struct {
 	Rename  map[string]string // source name to row id
 	Replace bool
@@ -505,7 +499,6 @@ type existingRow struct {
 	Readable   bool // every field above decoded without error
 }
 
-// readExisting decodes raw once into the facts import needs.
 func readExisting(raw json.RawMessage) existingRow {
 	var p struct {
 		Identity string `json:"identity"`
@@ -590,7 +583,6 @@ func setFields(dst map[string]json.RawMessage, fields map[string]any) error {
 	return nil
 }
 
-// applyRows writes the add/replace rows into the overlay doc's providers map.
 func applyRows(top map[string]json.RawMessage, rows []importRow) error {
 	if raw, ok := top["providers"]; ok {
 		var probe map[string]json.RawMessage
@@ -621,7 +613,6 @@ func applyRows(top map[string]json.RawMessage, rows []importRow) error {
 	return nil
 }
 
-// existingRows returns the overlay's provider rows by id.
 func existingRows(top map[string]json.RawMessage) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	if raw, ok := top["providers"]; ok {
@@ -708,7 +699,6 @@ func pairingTags(c cfgCandidate) []string {
 	return tags
 }
 
-// existingHost reads a row without expanding or redacting it.
 func existingHost(raw json.RawMessage) string {
 	var p providers.Provider
 	if json.Unmarshal(raw, &p) != nil {

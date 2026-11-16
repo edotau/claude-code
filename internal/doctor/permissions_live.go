@@ -25,8 +25,6 @@ func (l argvLauncher) Claude(_ context.Context, _ agent.ClaudeOptions, args []st
 	return agent.ClaudeLaunch{Binary: "claude", Argv: args}, nil
 }
 
-// liveLaunch is the `ask --live` session of name. A live holder hands its record's request to the backend as it is,
-// so the policy it runs under is the one the backend resolves, not the ask path's checkRun layering.
 func liveLaunch(readOnly bool) func(string, string) pathLaunch {
 	return func(name, wd string) pathLaunch {
 		row, _ := agent.LookupSchema(name)
@@ -53,7 +51,6 @@ func resolvedLive(name string, readOnly bool, wd string) pathLaunch {
 	return l
 }
 
-// liveMode is the column a live session of the request runs in.
 func liveMode(name string, readOnly bool) pathLaunch {
 	flags := []string{"--tools"}
 	if readOnly {
@@ -127,8 +124,7 @@ func relayLaunch(name, _ string) pathLaunch {
 	return relayIn(paths.ConfigDir(), name)
 }
 
-// relayIn reads dir/agents/<name>.md: [optional] flags count, <placeholders> and quoted tasks do not. A wrapper lists
-// several commands (vet, gate, rescue); its ceiling is the widest, so that one is judged.
+// relayIn reads dir/agents/<name>.md; a wrapper listing several commands is judged on its widest ceiling.
 func relayIn(dir, name string) pathLaunch {
 	file := filepath.Join(dir, "agents", name+".md")
 	raw, err := os.ReadFile(file)

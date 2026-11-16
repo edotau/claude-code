@@ -398,7 +398,6 @@ var codexToolsOffArgs = proc.Values{"skills.include_instructions": "false", "fea
 // codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
 const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
 
-// codexSchema is the registered codex roster row.
 func codexSchema() agent.Schema {
 	s, _ := agent.LookupSchema("codex")
 	return s

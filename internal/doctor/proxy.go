@@ -11,8 +11,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// proxyStatus is the running proxy's port, pid and build; bad is true when it runs an older binary than this one
-// or its proxy.json is unreadable (so the build cannot be checked).
 func proxyStatus(ctx context.Context) (detail string, bad bool) {
 	st, err := gateway.ReadState()
 	if errors.Is(err, os.ErrNotExist) {

@@ -133,7 +133,6 @@ func TestFoldMatchesHostAndClientID(t *testing.T) {
 	}
 }
 
-// seedFoldReference makes acme-sp-dev referenced in the way kind names.
 func seedFoldReference(t *testing.T, dir, kind string) {
 	t.Helper()
 	const old = "acme-sp-dev"
@@ -318,7 +317,6 @@ func foldSecretSnapshot(t *testing.T) map[string]vault.Record {
 	return records
 }
 
-// planFor runs planFold against the seeded overlay without writing.
 func planFor(t *testing.T) foldPlan {
 	t.Helper()
 	var plan foldPlan

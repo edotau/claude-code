@@ -210,8 +210,7 @@ func fakeRetiredKeyTool(t *testing.T, kid string) {
 	t.Setenv("EXPECTED_ACCOUNT", "vault-key/"+id+"."+kid)
 }
 
-// TestDoctorUnreadableVaultIsFailure: a vault whose schema the running binary refuses to read must
-// fail the gate, never read as "no credentials stored" (checkMasterKey -> NamesErr).
+// TestDoctorUnreadableVaultIsFailure
 func TestDoctorUnreadableVaultIsFailure(t *testing.T) {
 	doctorTestVault(t)
 	vaulttest.Put(t, vault.Meta, "schema", strconv.Itoa(currentVaultSchema(t)+1))
@@ -245,7 +244,6 @@ func TestDoctorPermsIgnoreWindowsModeBits(t *testing.T) {
 	}
 }
 
-// writeTestFile writes content to path with perm, failing the test on error.
 func writeTestFile(t *testing.T, path, content string, perm os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), perm); err != nil {

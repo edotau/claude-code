@@ -85,7 +85,6 @@ func servingRouteOK(u *url.URL, host string) bool {
 	return plain && "https://"+strings.TrimSuffix(strings.ToLower(u.Host), ":443") == host && servingPathOK(u.Path)
 }
 
-// servingPathOK reports whether p is a clean path at or under /serving-endpoints.
 func servingPathOK(p string) bool {
 	if path.Clean(p) != p || strings.ContainsAny(p, "\\%") {
 		return false
@@ -121,7 +120,6 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	return parseIdentity(body)
 }
 
-// parseIdentity is the SCIM user id of an active identity response body.
 func parseIdentity(body []byte) (string, error) {
 	var identity struct {
 		ID     string `json:"id"`
@@ -241,7 +239,6 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 		CheckedAt: old.CheckedAt, Checks: old.Checks, Identity: identity}, nil
 }
 
-// identityTTL bounds how long a validated subject stands in for a SCIM /Me call.
 const identityTTL = 15 * time.Minute
 
 // validated is the sealed sidecar: the SCIM subject validated for the credential whose JWT sub is TokenSub.

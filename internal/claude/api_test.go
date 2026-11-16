@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// registry points two test providers (one per dialect) at srv.
 func registry(t *testing.T, srv *httptest.Server) {
 	t.Helper()
 	dir := t.TempDir()
@@ -263,8 +262,7 @@ func TestClaudeNoToolsSessionSkipsOneShot(t *testing.T) {
 	}
 }
 
-// The tool-less one-shot takes the stored effort like the CLI path on both wires: flag over record, none without
-// either, and an effort off claude's scale is refused before any request leaves.
+// The tool-less one-shot takes the stored effort like the CLI path on both wires
 func TestClaudeNoToolsRecordEffort(t *testing.T) {
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

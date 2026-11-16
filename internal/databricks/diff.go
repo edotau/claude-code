@@ -24,7 +24,6 @@ var credWords = map[string]bool{
 	"BEARER": true, "PAT": true, "AUTHORIZATION": true,
 }
 
-// camelGap splits lowerUpper boundaries so apiKey reads as api_Key.
 var camelGap = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
 // credLeaf reports a key whose name segment marks its string value as a credential (api_key, clientSecret).
@@ -117,7 +116,6 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string
 	return oo, nn
 }
 
-// maskSlices masks two arrays element by element.
 func maskSlices(oa, na []any, secret bool, key string) (any, any) {
 	oo, nn := make([]any, len(oa)), make([]any, len(na))
 	for i := range max(len(oa), len(na)) {
@@ -178,10 +176,8 @@ func normalize(v any) []string {
 	return strings.Split(string(raw), "\n")
 }
 
-// blank reports a document that is empty or only whitespace.
 func blank(doc []byte) bool { return strings.TrimSpace(string(doc)) == "" }
 
-// parseDoc decodes an overlay document; ok is false for empty or non-JSON input.
 func parseDoc(doc []byte) (any, bool) {
 	var v any
 	if blank(doc) || json.Unmarshal(doc, &v) != nil {
@@ -240,7 +236,6 @@ func diffLines(a, b []string) []edit {
 	return edits
 }
 
-// lcsTable is the longest-common-subsequence length of a[i:] and b[j:] at [i][j].
 func lcsTable(a, b []string) [][]int {
 	lcs := make([][]int, len(a)+1)
 	for i := range lcs {

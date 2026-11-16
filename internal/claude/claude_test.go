@@ -40,7 +40,6 @@ const claudeFixture = `{"type":"system","subtype":"init","session_id":"sess-1","
 {"type":"result","subtype":"success","is_error":false,"result":"Hello\nworld","session_id":"sess-1","num_turns":2,"total_cost_usd":0.01,"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":4}}
 `
 
-// parseClaudeStream reads a whole stream with no idle watch.
 func parseClaudeStream(br *bufio.Reader, sink wire.Sink, logs ...wire.StreamLog) (wire.Result, error) {
 	return parseClaudeEvents(br, false, nil, sink, nil, logs...)
 }
@@ -147,15 +146,10 @@ func TestParseClaudeStreamNewlineError(t *testing.T) {
 	}
 }
 
-// permissionDeniedEvent is sampled from the real claude CLI binary (2.1.304, strings -a dump of the
-// installed `claude` bundle): a "system","permission_denied" event carries "message" as a plain
-// string, not the {model, content[]} object every assistant/user event uses. It is the real shape
-// behind the production failure recorded in state/harness/dispatch (decode stream-json: json: cannot
-// unmarshal string into Go struct field claudeEvent.message).
+// permissionDeniedEvent is sampled from the real claude CLI (2.1.304); its "message" is a plain string, not an object.
 const permissionDeniedEvent = `{"type":"system","subtype":"permission_denied","tool_name":"Bash","tool_use_id":"toolu_1","agent_id":"","decision_reason_type":"rule","decision_reason_code":"deny","decision_reason":"blocked by settings","message":"Bash is not allowed in this session","session_id":"sess-2"}`
 
-// TestParseClaudeStreamStringMessage is the RED fixture: one odd event (a string "message") must
-// never abort decoding of the rest of a real stream (a normal assistant turn plus the result event).
+// TestParseClaudeStreamStringMessage is the RED fixture
 func TestParseClaudeStreamStringMessage(t *testing.T) {
 	stream := permissionDeniedEvent + "\n" +
 		`{"type":"assistant","session_id":"sess-2","message":{"model":"claude-opus-5","content":[{"type":"text","text":"done"}]}}` + "\n" +
@@ -235,8 +229,7 @@ type failingStreamWriter struct{}
 
 func (failingStreamWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
-// Reconstructed from dispatch 20261101T214810.199-claude's log (raw bytes are not kept): a background subagent
-// makes the session emit a result, resume, emit another, then close on an empty result.
+// Reconstructed from dispatch 20261101T214810.199-claude's log (raw bytes are not kept)
 func TestParseClaudeStreamKeepsLastNonEmptyResult(t *testing.T) {
 	stream := `{"type":"assistant","session_id":"s","message":{"content":[{"type":"tool_use","name":"Agent","id":"toolu_1"}]}}
 {"type":"result","subtype":"success","is_error":false,"result":"The codex agent is still running.","session_id":"s"}
@@ -315,8 +308,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 	}
 }
 
-// Auto mode's judge calls a fixed Anthropic model a Databricks endpoint does not serve: off Anthropic the rules
-// decide alone (dontAsk), so a leaf's Bash/Edit is not refused as "cannot determine the safety".
+// Auto mode's judge calls a fixed Anthropic model a Databricks endpoint does not serve
 func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
@@ -346,8 +338,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	}
 }
 
-// The record's effort, permissions and launch env reach a headless claude child through claudeCmd, the flag beats the
-// stored effort, and off Anthropic (Databricks included) the mode stays dontAsk because the auto judge is not served.
+// The record's effort, permissions and launch env reach a headless child; off Anthropic the mode stays dontAsk.
 func TestClaudeCmdRendersRecord(t *testing.T) {
 	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	launch := &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1", "ANTHROPIC_SMALL_FAST_MODEL=elsewhere"}, Args: []string{"--launch-arg"}}
@@ -817,8 +808,7 @@ func TestLiveIdleTimeoutEndsOK(t *testing.T) {
 	}
 }
 
-// fakeNoisyClaude writes 200 KB to stdout before it reads stdin, so an undrained stdout blocks claude and,
-// with a large prompt, the holder's stdin write too.
+// fakeNoisyClaude writes 200 KB to stdout before reading stdin, so an undrained stdout deadlocks the run.
 const fakeNoisyClaude = `#!/bin/sh
 printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 /dev/zero | tr '\0' x)"
 ` + fakeLiveClaude
@@ -918,7 +908,6 @@ func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
 	}
 }
 
-// syncBuffer is a bytes.Buffer safe for Tail writing while the test reads.
 type syncBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer

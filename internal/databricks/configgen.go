@@ -21,7 +21,6 @@ import (
 var tmplFS embed.FS
 
 const (
-	// placeholderHost is the host baked into the embedded templates.
 	placeholderHost = "https://example.cloud.databricks.com"
 	authHarness     = "harness"
 	authCLI         = "cli"
@@ -39,12 +38,10 @@ type renderOptions struct {
 	Set, Unset               []string
 }
 
-// renderResult is the rendered file.
 type renderResult struct {
 	Text string
 }
 
-// renderConfig produces the config text for o.
 func renderConfig(o renderOptions) (renderResult, error) {
 	if err := o.validate(); err != nil {
 		return renderResult{}, err
@@ -115,7 +112,6 @@ func checkSetPair(kv string) error {
 	return nil
 }
 
-// checkModel enforces which models each target can reach without the router.
 func (o renderOptions) checkModel() error {
 	if o.Model == "" {
 		return nil
@@ -164,7 +160,6 @@ func cliTokenCmd(host string) string {
 	return "databricks auth token --host " + host + " --output json | jq -r '.access_token'"
 }
 
-// headerLines renders p.Headers as ANTHROPIC_CUSTOM_HEADERS lines, sorted.
 func headerLines(h map[string]string) string {
 	var ls []string
 	for k, v := range h {
@@ -275,7 +270,6 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 // tomlNumberRE is a TOML decimal integer or float; Go's ParseFloat also takes Infinity and hex floats, TOML does not.
 var tomlNumberRE = regexp.MustCompile(`^[+-]?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
-// tomlValue writes v raw when it is a bool or number, else as a quoted string.
 func tomlValue(v string) string {
 	if tomlNumberRE.MatchString(v) || v == "true" || v == "false" {
 		return v
@@ -283,7 +277,6 @@ func tomlValue(v string) string {
 	return agentconfig.TOMLQuoteRaw(v)
 }
 
-// replaceLine rewrites the first `key = ...` line of head to key = val.
 func replaceLine(head, key, val string) string {
 	lines := strings.Split(head, "\n")
 	for i, l := range lines {
@@ -325,7 +318,6 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	return renderResult{Text: text}, nil
 }
 
-// keyOf returns the trimmed key of a `k = v` line.
 func keyOf(l string) string {
 	k, _, _ := strings.Cut(l, "=")
 	return strings.TrimSpace(k)

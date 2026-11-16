@@ -28,7 +28,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
-// agentModel is one provider+profile+model row under an agentUsage.
 type agentModel struct {
 	Provider string    `json:"provider"`
 	Profile  string    `json:"profile,omitempty"`
@@ -39,7 +38,6 @@ type agentModel struct {
 	Mix      *tokenMix `json:"mix,omitempty"`
 }
 
-// agentUsage is one agent CLI's rollup for the usage window.
 type agentUsage struct {
 	Agent      string        `json:"agent"`
 	Sessions   int           `json:"sessions"`
@@ -61,7 +59,6 @@ type tokenMix struct {
 	CacheWrite int `json:"cache_write"`
 }
 
-// add folds another mix in, in place.
 func (m *tokenMix) add(o tokenMix) {
 	m.Input += o.Input
 	m.Output += o.Output
@@ -84,7 +81,6 @@ type dailyBucket struct {
 	Turns  int    `json:"turns"`
 }
 
-// dayCount is the mutable accumulator dailyFromCounts sorts into []dailyBucket.
 type dayCount struct{ tokens, turns int }
 
 // dailyFromCounts turns a date->totals map into an ascending, date-sorted []dailyBucket.
@@ -97,8 +93,6 @@ func dailyFromCounts(counts map[string]*dayCount) []dailyBucket {
 	return out
 }
 
-// claudeSessionCount is the number of sessions the scan covered: one for an explicit --session with any files,
-// else the distinct session dirs the in-window transcript files live under.
 func claudeSessionCount(session string, files []string) int {
 	if session != "" {
 		if len(files) > 0 {
@@ -118,8 +112,7 @@ func claudeSessionCount(session string, files []string) int {
 	return len(dirs)
 }
 
-// buildAgentsUsage runs the codex/opencode/copilot store reads concurrently (10s budget) and folds the
-// already-computed claude transcript scan in; always returns all four agents, in this order.
+// buildAgentsUsage reads the codex/opencode/copilot stores concurrently (10s budget); always returns all four agents.
 func buildAgentsUsage(scan *transcriptScan, session string, days int) []agentUsage {
 	claudeRow := claudeAgentUsage(scan, claudeSessionCount(session, scan.files))
 	if session != "" {
@@ -147,8 +140,7 @@ func sortModelsByTokens(models []agentModel) {
 	slices.SortFunc(models, func(a, b agentModel) int { return cmp.Compare(b.Tokens, a.Tokens) })
 }
 
-// claudeAgentUsage folds the verb's own transcript scan (already scoped to the window) into an agentUsage
-// row; the total's Turns come from the in-window daily buckets, each model's from the aggregate.
+// claudeAgentUsage folds the verb's own transcript scan (already scoped to the window) into an agentUsage row
 func claudeAgentUsage(scan *transcriptScan, sessions int) agentUsage {
 	if scan == nil || scan.agg == nil || len(scan.agg.Models) == 0 {
 		return agentUsage{Agent: "claude", Note: "no sessions in window"}
@@ -195,8 +187,7 @@ type codexEventMsg struct {
 	} `json:"info"`
 }
 
-// codexSessionSummary is one rollout file's in-window share: its model, the token_count lines inside the window,
-// the tokens/mix they added, and the same split per local day.
+// codexSessionSummary is one rollout file's in-window share
 type codexSessionSummary struct {
 	Model  string
 	Tokens int
@@ -212,8 +203,7 @@ type codexCumulative struct {
 	Mix    tokenMix
 }
 
-// cumulativeOf maps codex's usage to disjoint kinds: OpenAI's input_tokens already contains cached_input_tokens
-// and cache_write_input_tokens, so Input is what remains; any total the parts don't explain stays in Input.
+// cumulativeOf maps codex's usage to disjoint kinds
 func cumulativeOf(u codexTokenUsage) codexCumulative {
 	in := max(u.InputTokens-u.CachedInputTokens-u.CacheWriteInputTokens, 0)
 	mix := tokenMix{Input: in, Output: u.OutputTokens, CacheRead: u.CachedInputTokens, CacheWrite: u.CacheWriteInputTokens}
@@ -244,11 +234,7 @@ func (c ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-// parseCodexSessionCtx streams one session jsonl. Every token_count line carries the session's cumulative totals,
-// so a line's own usage is its growth over the previous line; only lines stamped at or after cutoff count (a zero
-// cutoff counts all), each dated to its own local day. A line with no RFC3339 stamp counts on fallbackDay. The
-// model is the last turn_context seen. Malformed lines are skipped rather than aborting the scan. A cancelled ctx
-// stops the read mid-file and reports ctx.Err() in s.err.
+// parseCodexSessionCtx streams one session jsonl.
 func parseCodexSessionCtx(ctx context.Context, path string, cutoff time.Time, fallbackDay string) codexSessionSummary {
 	f, err := os.Open(path)
 	if err != nil {
@@ -390,7 +376,6 @@ func codexIncomplete(errs []error) string {
 }
 
 // codexSessionFiles lists *.jsonl under dir modified since cutoff, with each one's mtime day (the fallback day).
-// Walk and stat errors come back with the files; a cancelled ctx stops the walk.
 func codexSessionFiles(ctx context.Context, dir string, cutoff time.Time) ([]string, map[string]string, []error) {
 	var files []string
 	var errs []error
@@ -445,8 +430,6 @@ func sqliteStoreNote(dbPath string) string {
 	return ""
 }
 
-// sqliteRows runs q through run and decodes its JSON rows; note is the usage note on failure. emptyOK treats the
-// zero-row case (sqlite3 -json prints nothing) as no rows instead of unreadable output.
 func sqliteRows[T any](ctx context.Context, run func(context.Context, string, string) ([]byte, error), dbPath, q string, emptyOK bool) (rows []T, note string) {
 	out, err := run(ctx, dbPath, q)
 	if err != nil {
@@ -486,8 +469,7 @@ type opencodeModelRow struct {
 	CostUSD  float64 `json:"cost_usd"`
 }
 
-// opencodeUsage reads opencode's sqlite store: assistant messages since cutoff, overall and by providerID/modelID.
-// tokens.total includes reasoning, so the mix's output does too.
+// opencodeUsage reads opencode's sqlite store
 func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dbPath := paths.OpencodeDBPath() // honors OPENCODE_DB like opencode's own login probe
 	if dbPath == "" {
@@ -566,7 +548,6 @@ func fetchDailyBuckets(ctx context.Context, dbPath, query string, run func(conte
 	return daily, ""
 }
 
-// copilotDBPath honors COPILOT_HOME, else ~/.copilot/session-store.db.
 func copilotDBPath() (string, error) {
 	base, err := paths.CopilotHome()
 	if err != nil {
@@ -604,8 +585,6 @@ func copilotProvider(r copilotModelRow) string {
 // copilotTokenSum is the shared input+output+cache-read+cache-write expression, no cost column exists.
 const copilotTokenSum = `SUM(COALESCE(input_tokens,0)+COALESCE(output_tokens,0)+COALESCE(cache_read_tokens,0)+COALESCE(cache_write_tokens,0))`
 
-// copilotUsage reads the GitHub Copilot CLI's local sqlite store: assistant_usage_events since cutoff
-// (created_at is ISO 'YYYY-MM-DDTHH:MM:SS.sssZ', so datetime() normalizes it), grouped overall and by model.
 func copilotUsage(ctx context.Context, cutoff time.Time) agentUsage {
 	dbPath, err := copilotDBPath()
 	if err != nil {

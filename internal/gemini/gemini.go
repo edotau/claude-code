@@ -175,7 +175,6 @@ func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
 }
 
 // geminiLoginProbe reports whether agy's cached Google login is on disk, plus the first real read failure.
-// A missing marker is absent, not an error; agy itself owns and refreshes the token.
 func geminiLoginProbe() (bool, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -194,8 +193,6 @@ func geminiLoginProbe() (bool, error) {
 }
 
 // AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
-// agy 1.4.2 moved this from jetski-standalone-oauth-token to antigravity-cli/antigravity-oauth-token;
-// this is the current path a fresh sign-in writes.
 func AgyLoginMarker(home string) string {
 	return agyLoginMarkers(home)[0]
 }
@@ -315,8 +312,7 @@ func agyGatewayModels(p *providers.Provider, base string, now time.Time) (list, 
 	return strings.Join(append([]string{base}, others...), ","), lite
 }
 
-// agyRequest is one headless agy run: the prompt rides stdin as a single stream-json NDJSON line.
-// Env carries extra launch vars; agy authenticates with its own cached Google sign-in, never a key.
+// agyRequest is one headless agy run
 type agyRequest struct {
 	Prompt, Model, Cwd, SessionID string
 	Effort                        string // a gateway pin's effort suffix; a --effort in SettingsArgv wins
@@ -334,7 +330,6 @@ func effortSuffixed(model string) bool {
 	return ok
 }
 
-// splitEffort cuts a trailing native effort off id.
 func splitEffort(id string) (base, effort string, ok bool) {
 	base, effort, cut := strings.CutLast(id, "-")
 	return base, effort, cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
@@ -369,7 +364,6 @@ func agyArgv(r agyRequest) []string {
 	return append(append(argv, r.SettingsArgv...), "-p=")
 }
 
-// agyStdin is the one NDJSON line agy reads behind --input-format stream-json.
 func agyStdin(r agyRequest) (string, error) {
 	content := r.Prompt
 	if !r.Tools {
@@ -382,8 +376,6 @@ func agyStdin(r agyRequest) (string, error) {
 	return string(line) + "\n", nil
 }
 
-// runAgy drives `agy` headless over stream-json: agent_response text deltas stream live, and the
-// result event carries the final answer, usage, conversation id and status.
 func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, error) {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
@@ -404,7 +396,6 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 // agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.
 const agyToolStep = "tool"
 
-// agyEvent mirrors agy's stream-json schema: one JSON object per line.
 type agyEvent struct {
 	Event      string `json:"event"`
 	ConvID     string `json:"conversation_id"` // init event only
@@ -468,7 +459,6 @@ func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamL
 	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, once)
 }
 
-// agyTurn is parseAgyEvents' state across one turn's stream-json events.
 type agyTurn struct {
 	sink      wire.Sink
 	lg        wire.StreamLog
@@ -490,7 +480,6 @@ func (t *agyTurn) flush() {
 	t.pending.Reset()
 }
 
-// handle applies one event; done reports that a once-turn reached its result.
 func (t *agyTurn) handle(ev agyEvent) (done bool, _ error) {
 	switch ev.Event {
 	case "init":
@@ -567,8 +556,6 @@ func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg wire.StreamLog) {
 // agyStepEnded: DONE and ERROR both end a step; a tool call a hook refused ends in ERROR, not unfinished.
 func agyStepEnded(state string) bool { return state == "DONE" || state == "ERROR" }
 
-// finishAgyTurn flushes the pending log line and sets the answer; a run whose text arrived only in
-// result.response (no agent_response deltas) still answers.
 func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response string, flush func(), openStep string, once bool) (wire.Result, error) {
 	flush()
 	var emitErr error
@@ -616,8 +603,7 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 	return nil
 }
 
-// --- gemini: no auth-type setting to render (auth is the cached login marker, see geminiLoginProbe); guard denies
-// and hooks are rendered separately by renderGeminiSettings and renderGeminiHooks.
+// --- gemini: no auth-type setting to render; guard denies and hooks render separately.
 
 func reportGemini(sel providers.Selection, out io.Writer) {
 	if sel.Provider.Auth.Method() == providers.AuthCLI {
@@ -627,8 +613,7 @@ func reportGemini(sel providers.Selection, out io.Writer) {
 	fmt.Fprintln(out, "gemini: no auth setting to render; agy has no settings-auth equivalent (launch-time env/login only)")
 }
 
-// geminiRouteDetail reports agy's own GEMINI_MODEL pin (effort rides the id's own suffix) — unset
-// means agy's own default (agyDefaultModel).
+// geminiRouteDetail reports agy's own GEMINI_MODEL pin; unset means agy's own default (agyDefaultModel).
 func geminiRouteDetail() string {
 	model, source := providers.GeminiModel()
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)

@@ -52,7 +52,6 @@ func defaultScanTargets() []string {
 	return dedupExisting(out)
 }
 
-// resolvedPath is p with symlinks resolved, or p itself when they cannot be.
 func resolvedPath(p string) string {
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
@@ -61,7 +60,6 @@ func resolvedPath(p string) string {
 }
 
 // dedupExisting drops duplicates (by resolved path) and anything that doesn't exist, preserving order.
-// A path that cannot be statted for another reason stays, so the scan reports it instead of skipping it.
 func dedupExisting(files []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(files))

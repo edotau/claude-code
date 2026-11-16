@@ -14,8 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// pathLaunch is one launch path's launch of one agent, derived from that path's own builders; the zero reason fields
-// mean mode (and judge, when the path builds its own policy) are set.
+// pathLaunch is one launch path's launch of one agent, derived from that path's own builders
 type pathLaunch struct {
 	mode, via string
 	judge     permVerdict // the policy the path itself builds, in place of the column's (live)
@@ -24,8 +23,6 @@ type pathLaunch struct {
 	fail      string      // the path's builder refused or found nothing
 }
 
-// pathCase is one row of the launch-path section: derive is what the path launches, ref what the ask path launches for
-// the same request (nil: the path has no ask twin, so only the mode's expectations are judged).
 type pathCase struct {
 	path, name  string
 	derive, ref func(agent, wd string) pathLaunch
@@ -50,7 +47,6 @@ func argsLaunch(name string, args []string, tools *bool) pathLaunch {
 	return pathLaunch{mode: leafMode(name, launchModeOf(args, tools)), via: strings.Join(args, " ")}
 }
 
-// askRef is the ask path's launch of the request the flags name.
 func askRef(flags ...string) func(string, string) pathLaunch {
 	return func(name, _ string) pathLaunch { return argsLaunch(name, flags, nil) }
 }
@@ -64,14 +60,12 @@ func builtLaunch(name string, build func() ([]string, error)) pathLaunch {
 	return argsLaunch(name, args, nil)
 }
 
-// exploreLaunch is the `explore` argv, detached or not.
 func exploreLaunch(background bool) func(string, string) pathLaunch {
 	return func(name, wd string) pathLaunch {
 		return builtLaunch(name, func() ([]string, error) { return ask.ExploreArgs(name, wd, "q", false, background) })
 	}
 }
 
-// transferLaunch is the `transfer` argv, detached or waited on.
 func transferLaunch(background bool) func(string, string) pathLaunch {
 	return func(name, wd string) pathLaunch {
 		return builtLaunch(name, func() ([]string, error) { return transcript.TransferArgs(name, wd, "p", !background), nil })

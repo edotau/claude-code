@@ -50,8 +50,7 @@ func (p Pin) Line() string {
 	return s
 }
 
-// Check resolves cached pins from ctx's run snapshot (the process environment when it has none) without network or
-// writes; an unreadable vault returns one StatusError diagnostic.
+// Check resolves cached pins from ctx's run snapshot with no network or writes; an unreadable vault is one StatusError.
 func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	pins, err := agent.AgentPinsContext(ctx)
 	if err != nil {

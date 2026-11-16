@@ -10,7 +10,6 @@ import (
 // exampleRe lazily compiles the example-block regex: every claude-code process links crossgen via the cli table.
 var exampleRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<example>.*?</example>`) })
 
-// cleanDescription strips <example>...</example> blocks and collapses whitespace.
 func cleanDescription(raw string) string {
 	return strings.Join(strings.Fields(exampleRe().ReplaceAllString(raw, "")), " ")
 }
@@ -21,7 +20,6 @@ func yamlQuote(value string) string {
 	return `"` + strings.ReplaceAll(escaped, `"`, `\"`) + `"`
 }
 
-// formatYAMLScalar renders a simple scalar for YAML frontmatter.
 func formatYAMLScalar(value any) string {
 	switch v := value.(type) {
 	case bool, int:
@@ -31,7 +29,6 @@ func formatYAMLScalar(value any) string {
 	}
 }
 
-// orderedField is one frontmatter key/value; emit order is explicit.
 type orderedField struct {
 	Key   string
 	Value any
@@ -54,12 +51,10 @@ func formatYAML(fields []orderedField) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildFrontmatterFile assembles a Markdown file with YAML frontmatter.
 func buildFrontmatterFile(fields []orderedField, body string) string {
 	return "---\n" + formatYAML(fields) + "\n---\n\n" + body
 }
 
-// toString coerces a parsed frontmatter value to its string form for emit.
 func toString(v any) string {
 	switch t := v.(type) {
 	case string:

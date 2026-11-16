@@ -118,7 +118,6 @@ var chatClient = &http.Client{Transport: func() http.RoundTripper {
 	return t
 }()}
 
-// httpError carries an upstream status and Retry-After into Classify.
 type httpError struct {
 	status int
 	after  time.Duration
@@ -167,7 +166,6 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	return parseChatStream(resp.Body, w)
 }
 
-// chatChunk is one data: payload of a chat-completions stream.
 type chatChunk struct {
 	Model   string `json:"model"`
 	Choices []struct {

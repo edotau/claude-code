@@ -76,16 +76,13 @@ func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	return &document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
 }
 
-// transcriptScan is claude's share of the window: the aggregate and the daily buckets are built from the same
-// in-window responses, so they always agree.
 type transcriptScan struct {
 	agg   *transcript.UsageAggregate
 	files []string
 	daily []dailyBucket
 }
 
-// scanUsage aggregates the transcripts selected by session or days, dropping zero-token model rows. With --days
-// only responses stamped inside the window count (a long-lived file is cut per turn); --session counts them all.
+// scanUsage aggregates the transcripts selected by session or days, dropping zero-token model rows.
 func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcriptScan, error) {
 	var files []string
 	var err error
@@ -117,8 +114,7 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 	return &transcriptScan{agg: agg, files: files, daily: dailyFromCounts(counts)}, nil
 }
 
-// foldResponses keeps the responses stamped at or after cutoff (a zero cutoff keeps all; an unstamped response
-// is dated by its file's mtime) and adds each token-bearing one to its local day in counts.
+// foldResponses keeps responses stamped at or after cutoff (zero keeps all) and adds each to its local day.
 func foldResponses(path string, resps []transcript.Response, cutoff time.Time, counts map[string]*dayCount) []transcript.Response {
 	var mtimeDay string
 	var kept []transcript.Response
@@ -145,10 +141,8 @@ func foldResponses(path string, resps []transcript.Response, cutoff time.Time, c
 	return kept
 }
 
-// maxDays caps --days (100 years) so days*24h cannot overflow time.Duration.
 const maxDays = 36500
 
-// usageOpts are the validated `usage` flags.
 type usageOpts struct {
 	session      string
 	days         int
@@ -211,7 +205,6 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	return o, nil
 }
 
-// checkReportFlags refuses the report flags that cannot combine.
 func checkReportFlags(o usageOpts) error {
 	if o.workflows && o.jsonOut {
 		return errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
@@ -222,7 +215,6 @@ func checkReportFlags(o usageOpts) error {
 	return nil
 }
 
-// checkSessionID requires a bare session id.
 func checkSessionID(session string) error {
 	if strings.ContainsAny(session, `*?[]\/`) || session == "." || session == ".." {
 		return fmt.Errorf("--session must be a bare session id, without glob characters or path separators (got %q)", session)
@@ -230,7 +222,6 @@ func checkSessionID(session string) error {
 	return nil
 }
 
-// checkDays validates --days.
 func checkDays(days int) error {
 	if days > maxDays {
 		return fmt.Errorf("--days must be at most %d (got %d)", maxDays, days)
@@ -271,8 +262,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 // runUsageText prints the five text sections, overlapping the quota fetch and agent aggregation with the local scan.
 func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	session, days, show := o.session, o.days, o.show
-	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of
-	// following them; startQuotaFetch yields an empty result immediately when quotas aren't wanted.
+	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of following them
 	quotasCh := startQuotaFetch(o.wantProvider)
 
 	scan, err := scanUsage(claudeDir, session, days, errw)
@@ -325,7 +315,6 @@ func loadLedger(errw io.Writer) ([]ledgerAgg, []tokenledger.Entry) {
 	return aggregateLedger(entries, time.Now()), entries
 }
 
-// windowCutoff is the start of a trailing window of the given days.
 func windowCutoff(days int) time.Time {
 	return time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 }
@@ -354,9 +343,7 @@ func startQuotaFetch(enabled bool) <-chan []quota {
 // readLedger is the ledger read seam; a var so tests can stub it without touching the real ledger file.
 var readLedger = tokenledger.Read
 
-// usageFilesForSession globs every project dir for <id>/subagents/*.jsonl and the workflow agents at
-// <id>/subagents/workflows/*/agent-*.jsonl — a session id is unique but its parent project-dir
-// encoding isn't known to the caller, so every project dir is tried.
+// usageFilesForSession globs every project dir for a session's subagent and workflow-agent transcripts.
 func usageFilesForSession(claudeDir, id string) ([]string, error) {
 	matches, err := transcript.SessionAgentFiles(filepath.Join(claudeDir, "projects", "*", id))
 	if err != nil {
@@ -365,9 +352,7 @@ func usageFilesForSession(claudeDir, id string) ([]string, error) {
 	return dedupeFiles(matches), nil
 }
 
-// usageFilesWithinDays walks every session dir's subagents/*.jsonl plus its workflow agents, keeping
-// only files modified within the last N days: a session dir that was merely touched recently contributes
-// just its fresh transcripts, not its whole history. The dir gate (newest mtime under it) bounds the walk.
+// usageFilesWithinDays keeps only subagent and workflow transcripts modified in the last N days, not whole histories.
 func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 	sessionDirs, err := usageSessionDirsWithinDays(claudeDir, days)
 	if err != nil {
@@ -418,8 +403,7 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 	return dirs, nil
 }
 
-// dedupeFiles sorts and uniques the scanned-file list — it drives `files scanned` as well as the
-// totals, so one file is never summarized twice.
+// dedupeFiles sorts and uniques the scanned-file list so one file is never summarized twice.
 func dedupeFiles(files []string) []string {
 	slices.Sort(files)
 	return slices.Compact(files)
@@ -499,10 +483,7 @@ func renderContext(rep *transcript.ContextReport, session string) string {
 	return b.String()
 }
 
-// newestModTime is the latest mtime of dir or anything under it: appending to a transcript in subagents/ leaves
-// the session dir's own mtime untouched, so a resumed session would otherwise fall outside --days. A walk
-// error (e.g. an unreadable subdir) propagates instead of returning a partial, too-old timestamp that would
-// silently drop the session from --days.
+// newestModTime is the latest mtime of dir or anything under it
 func newestModTime(dir string) (time.Time, error) {
 	var newest time.Time
 	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
@@ -527,7 +508,6 @@ func newestModTime(dir string) (time.Time, error) {
 	return newest, nil
 }
 
-// printQuotaWarnings prints warn/exceeded rows to errw.
 func printQuotaWarnings(errw io.Writer, qs []quota) {
 	for _, q := range qs {
 		if q.State == "warn" || q.State == "exceeded" {

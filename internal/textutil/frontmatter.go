@@ -8,7 +8,6 @@ import (
 	"sync"
 )
 
-// fmRes lazily compiles the frontmatter regexes.
 var fmRes = sync.OnceValue(func() (r struct {
 	list, kv *regexp.Regexp
 }) {
@@ -47,7 +46,6 @@ type fmParser struct {
 	haveList bool
 }
 
-// feed consumes one non-blank frontmatter line.
 func (p *fmParser) feed(line string) {
 	// YAML allows block-list items at the key's own indent, so an open list also takes "- item".
 	if p.key != "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") || (p.haveList && strings.HasPrefix(line, "-"))) {

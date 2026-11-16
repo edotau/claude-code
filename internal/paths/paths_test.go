@@ -76,8 +76,7 @@ func TestBackupPathOutsideHome(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	home := filepath.Join(dir, "home")
 	t.Setenv("HOME", home)
-	// src lives entirely outside $HOME (e.g. a Windows WSL profile under /mnt): rel falls back to the
-	// absolute path with its leading separator stripped, not a ".." escape.
+	// src lives entirely outside $HOME (e.g. a Windows WSL profile under /mnt)
 	outside := filepath.Join(dir, "mnt", "c", "Users", "eric", ".claude", "settings.json")
 	got := BackupPath(outside, backupTS)
 	want := filepath.Join(dir, "state", "harness", "backups", filepath.Clean(outside[1:])+".bak-20261021-150405.123456789")

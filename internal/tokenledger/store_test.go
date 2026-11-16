@@ -46,8 +46,7 @@ func TestReadMissingFileIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestReadSkipsMalformedLines: a truncated/garbage line is dropped, not failed on; well-formed
-// lines around it still come through.
+// TestReadSkipsMalformedLines
 func TestReadSkipsMalformedLines(t *testing.T) {
 	withLedgerDir(t)
 	good1 := `{"ts":"2026-10-20T00:00:00Z","provider":"openai","model":"gpt-5","input":1,"output":1,"cache_read":0}`
@@ -74,8 +73,7 @@ func TestReadSkipsMalformedLines(t *testing.T) {
 	}
 }
 
-// TestEntryFieldShape: the on-disk line carries only ts/provider/model/input/output/cache_read —
-// never a credential, header or prompt/response content.
+// TestEntryFieldShape
 func TestEntryFieldShape(t *testing.T) {
 	b, err := json.Marshal(Entry{Ts: time.Now(), Provider: "openai", Model: "gpt-5", Input: 1, Output: 1, CacheRead: 1})
 	if err != nil {
@@ -125,8 +123,7 @@ func checkEntryFields(t *testing.T, m map[string]json.RawMessage, want map[strin
 	}
 }
 
-// TestAppendBestEffortOnUnwritableDir: Append writes nothing and does not panic when the config dir path is
-// blocked by an existing plain file (os.MkdirAll fails).
+// TestAppendBestEffortOnUnwritableDir
 func TestAppendBestEffortOnUnwritableDir(t *testing.T) {
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "blocker")

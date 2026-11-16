@@ -10,7 +10,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// setup has Databricks rows dev (signed in) and dev2, and claude pinned to ultra.
 func setup(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)

@@ -69,7 +69,6 @@ func (e *oauthError) Error() string {
 	return s
 }
 
-// loginCodes are the RFC 6749 error codes a fresh browser login fixes.
 var loginCodes = map[string]bool{
 	"invalid_grant": true, "invalid_client": true, "unauthorized_client": true, "access_denied": true, "invalid_scope": true,
 }
@@ -336,7 +335,6 @@ type LoginOptions struct {
 	Forward func(ctx context.Context, local int) (port int, stop func(), err error)
 }
 
-// loopback serves one callback port on every loopback family the host has.
 type loopback struct{ ls []net.Listener }
 
 // listenPorts binds 127.0.0.1 (and ::1 if present) on the first free port in first..last; first == last is exact.
@@ -374,7 +372,6 @@ func listenPorts(first, last int) (*loopback, int, error) {
 	return nil, 0, fmt.Errorf("oauth: login callback ports %d-%d on localhost are busy (another login running?)", first, last)
 }
 
-// randomB64 returns n random bytes, base64url without padding.
 func randomB64(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -397,7 +394,6 @@ type callbackResult struct {
 	miss bool        // the redirect carried neither code nor error
 }
 
-// classify turns a state-checked redirect into its result.
 func classify(q url.Values) callbackResult {
 	res := callbackResult{code: q.Get("code")}
 	if e := q.Get("error"); e != "" {
@@ -434,7 +430,6 @@ func (c *callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.res <- res
 }
 
-// authorizeURL builds the PKCE authorization request for the loopback redirect.
 func authorizeURL(host, redirect, state, verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return host + authorizePath + "?" + url.Values{
@@ -487,7 +482,6 @@ func await(ctx context.Context, h string, cb *callback, paste <-chan string) (st
 	}
 }
 
-// codeOf returns the authorization code of a redirect result, or its error.
 func codeOf(h string, res callbackResult) (string, error) {
 	if res.err != nil {
 		res.err.Host = h
@@ -564,7 +558,6 @@ func presentLogin(opts LoginOptions, h, authURL string, port int) <-chan string 
 	return readPaste(opts.Paste)
 }
 
-// withDefaults fills the zero port, timeout and output of opts.
 func (opts LoginOptions) withDefaults() LoginOptions {
 	if opts.Port == 0 {
 		opts.Port = DefaultPort
@@ -587,7 +580,6 @@ func stopCallback(srv *http.Server) {
 	}
 }
 
-// serveCallback starts the loopback server on every listener of ln.
 func serveCallback(ln *loopback, cb *callback) *http.Server {
 	srv := &http.Server{Handler: cb, ReadHeaderTimeout: 10 * time.Second}
 	for _, l := range ln.ls {

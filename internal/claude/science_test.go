@@ -10,8 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// science unsets the harness's own session/routing env (shell and vault custom env), keeps claude-science's own
-// CLAUDE_SCIENCE_* and ANTHROPIC_* knobs, and passes argv through untouched.
+// science unsets the harness's session/routing env but keeps claude-science's own CLAUDE_SCIENCE_*/ANTHROPIC_* knobs.
 func TestScienceLaunchPlanStripsHarnessEnvOnly(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Env, "HARNESS_WORKTREE", "off")

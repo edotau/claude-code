@@ -20,7 +20,6 @@ import (
 
 var hexRe = regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`)
 
-// maxList stands in for "unlimited", which gh's --limit rejects.
 const maxList = 100000
 
 const prFields = "number,title,state,author,headRefName,baseRefName,url,headRefOid"
@@ -59,7 +58,6 @@ func ghError(err error, stderr string) error {
 	return fmt.Errorf("gh: %s (%v)", strings.TrimPrefix(first, "gh: "), err) // gh api already prefixes its errors
 }
 
-// gitHubHost is a GitHub repository.
 type gitHubHost struct{ Repo string }
 
 // NewGitHub binds owner/name.
@@ -175,7 +173,6 @@ func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error
 	}
 }
 
-// conclusionState folds a check-run conclusion; an empty one is still running.
 func conclusionState(c string) string {
 	switch c {
 	case "success", "neutral", "skipped":

@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// writeFile creates path (with parents) holding content at 0o600.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -28,8 +27,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// writeUsageFixture writes one project/session/subagents/agent-*.jsonl tree under claudeDir and
-// backdates the transcript and directories — usageFilesWithinDays uses the newest mtime.
+// writeUsageFixture writes a project/session/subagents transcript tree, backdated for usageFilesWithinDays.
 func writeUsageFixture(t *testing.T, claudeDir, project, session string, age time.Duration, lines ...string) string {
 	t.Helper()
 	p := filepath.Join(claudeDir, "projects", project, session, "subagents", "agent-a.jsonl")
@@ -116,7 +114,6 @@ func TestUsageCmdNoMatches(t *testing.T) {
 	}
 }
 
-// findLineContaining returns the first line of s containing substr, or "".
 func findLineContaining(s, substr string) string {
 	for line := range strings.SplitSeq(s, "\n") {
 		if strings.Contains(line, substr) {
@@ -126,9 +123,7 @@ func findLineContaining(s, substr string) string {
 	return ""
 }
 
-// indexOfFields finds header somewhere in got allowing arbitrary whitespace between its fields
-// (the real column widths are the implementation's choice), returning the byte index of the match
-// start or -1.
+// indexOfFields finds header in got allowing any whitespace between fields; -1 when absent.
 func indexOfFields(got, header string) int {
 	fields := strings.Fields(header)
 	searchFrom := 0
@@ -169,8 +164,7 @@ func TestUsageShowBogusExitsTwo(t *testing.T) {
 	}
 }
 
-// TestUsageShowModesRendering: each --show mode renders the quota column/detail its contract
-// promises, from a fixed fake quota list via the fetchQuotas seam.
+// TestUsageShowModesRendering
 func TestUsageShowModesRendering(t *testing.T) {
 	isolateAgentStores(t)
 	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 25, Used: 1750, Limit: 7000, Resets: "2026-11-01"}}
@@ -210,8 +204,7 @@ func TestUsageShowModesRendering(t *testing.T) {
 	}
 }
 
-// TestUsageShowTotalSkipsSubscriptionFetch: --show total never calls the subscription quota fetch
-// (it only exists to show the API-key ledger section).
+// TestUsageShowTotalSkipsSubscriptionFetch
 func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
 	called := false
 	orig := fetchQuotas
@@ -230,8 +223,7 @@ func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
 	}
 }
 
-// TestUsageLedgerAggregationWindows: today/30d/all-time roll up correctly from a fixture ledger with
-// timestamps fixed relative to the real now (the readLedger seam, not wall-clock fetch, is injected).
+// TestUsageLedgerAggregationWindows
 func TestUsageLedgerAggregationWindows(t *testing.T) {
 	now := time.Now()
 	entries := []tokenledger.Entry{
@@ -269,8 +261,7 @@ func TestUsageLedgerAggregationWindows(t *testing.T) {
 	}
 }
 
-// TestUsageLedgerEmptyPrintsStartedMessage: no ledger entries prints the "no per-token calls" line
-// instead of a header with zero rows.
+// TestUsageLedgerEmptyPrintsStartedMessage
 func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 	origRead, origQuotas := readLedger, fetchQuotas
 	readLedger = func() ([]tokenledger.Entry, error) { return nil, nil }
@@ -305,8 +296,7 @@ func TestAggregateLedgerByProfile(t *testing.T) {
 	}
 }
 
-// TestScanUsageCountsOnlyTurnsInsideWindow: a session dir touched today still contributes only its fresh
-// transcripts, and from those only the turns stamped inside the window; the daily buckets use the same set.
+// TestScanUsageCountsOnlyTurnsInsideWindow
 func TestScanUsageCountsOnlyTurnsInsideWindow(t *testing.T) {
 	claudeDir := t.TempDir()
 	fresh := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour,
@@ -337,8 +327,7 @@ func TestScanUsageCountsOnlyTurnsInsideWindow(t *testing.T) {
 	}
 }
 
-// TestScanUsageServesSettledFilesFromCache: a second scan reads a settled transcript from the turn cache, with
-// the same totals, so `usage` does not re-parse every file on every run.
+// TestScanUsageServesSettledFilesFromCache
 func TestScanUsageServesSettledFilesFromCache(t *testing.T) {
 	claudeDir := t.TempDir()
 	p := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour, usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
@@ -362,8 +351,7 @@ func TestScanUsageServesSettledFilesFromCache(t *testing.T) {
 	}
 }
 
-// syncBuf is a mutex-guarded io.Writer so a test goroutine can read Run's output while Run (on its own
-// goroutine) is still writing to it — bytes.Buffer alone would race under -race.
+// syncBuf is a mutex-guarded io.Writer; a bare bytes.Buffer would race while Run is still writing.
 type syncBuf struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -381,8 +369,7 @@ func (s *syncBuf) String() string {
 	return s.buf.String()
 }
 
-// waitUntil polls cond (each check synchronized via syncBuf) until true or the deadline, failing the
-// test on timeout — no fixed sleep, so the test runs as fast as the streaming actually completes.
+// waitUntil polls cond until true or the deadline, failing the test on timeout; no fixed sleep.
 func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -409,9 +396,7 @@ func assertSectionOrder(t *testing.T, s string) {
 	}
 }
 
-// TestUsageStreamsSectionsInOrder: section 1 (MODEL) is fully written while the quota fetch is still
-// blocked; releasing it then yields PROVIDER QUOTAS -> API KEYS -> AGENTS in that order, with the
-// warn/exceeded trailer landing on errw only after Run finishes.
+// TestUsageStreamsSectionsInOrder
 func TestUsageStreamsSectionsInOrder(t *testing.T) {
 	claudeDir := t.TempDir()
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -475,9 +460,7 @@ func TestStartQuotaFetch(t *testing.T) {
 	}
 }
 
-// TestUsageJSONFixtureRegression: --format json stays one valid document with the pre-streaming key
-// set and values intact — the JSON path gathers everything before encoding, so streaming must not leak
-// a partial or duplicated document.
+// TestUsageJSONFixtureRegression
 func TestUsageJSONFixtureRegression(t *testing.T) {
 	claudeDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the vault must be scratch, never the real one
@@ -541,7 +524,6 @@ func assertUsageJSONValues(t *testing.T, doc map[string]json.RawMessage) {
 	assertUsageJSONProviders(t, doc)
 }
 
-// assertUsageJSONProviders: one github provider row at 10% and a 1-day window.
 func assertUsageJSONProviders(t *testing.T, doc map[string]json.RawMessage) {
 	t.Helper()
 	var providers []quota
@@ -561,9 +543,7 @@ func assertUsageJSONProviders(t *testing.T, doc map[string]json.RawMessage) {
 	}
 }
 
-// TestUsageAgentsClaudeRowMatchesModelTotals guards the agentsCh goroutine's closure: it must capture
-// the SAME agg/files/days/session/claudeDir the caller already computed, not a later-mutated copy, so
-// the AGENTS claude row's token total always equals the MODEL table's TOTAL column.
+// TestUsageAgentsClaudeRowMatchesModelTotals guards the agentsCh goroutine's closure
 func TestUsageAgentsClaudeRowMatchesModelTotals(t *testing.T) {
 	claudeDir := t.TempDir()
 	ts := time.Now().UTC().Format(time.RFC3339)

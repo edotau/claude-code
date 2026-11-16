@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// fakeMemoClock pins memoNow to a settable instant for the test.
 func fakeMemoClock(t *testing.T) *time.Time {
 	t.Helper()
 	now := time.Unix(1_000_000, 0)
@@ -127,7 +126,6 @@ func TestMemoKeysDoNotBlockEachOther(t *testing.T) {
 	}
 }
 
-// memoLen is m's entry count, read under its lock.
 func memoLen[K comparable, V any](m *Memo[K, V]) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

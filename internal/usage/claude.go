@@ -24,14 +24,12 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// claudeNow is the wall-clock seam; tests point it at a fixed instant.
 var claudeNow = time.Now
 
 // claudeOAuthURL is Claude Code's own OAuth usage endpoint; a var so tests can point it at httptest.
 var claudeOAuthURL = "https://api.anthropic.com/api/oauth/usage"
 
-// claudeKeychainCmd runs the OS secret-store lookup (security on macOS, secret-tool on Linux); tests
-// replace it so none of this reaches the real keychain.
+// claudeKeychainCmd runs the OS secret-store lookup (security on macOS, secret-tool on Linux)
 var claudeKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error) {
 	name := "security"
 	if runtime.GOOS == "linux" {
@@ -229,7 +227,6 @@ func writeClaudeOwnerSidecar(creds claudeOAuthCreds) {
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.
 var claudeCacheDir string
 
-// claudeCacheFileName is the cache file's name within claudeCacheDir.
 const claudeCacheFileName = "claude-oauth-usage.json"
 
 // claudeUsageCachePath is the one cache file every run reads/writes, scoped by CLAUDE_CONFIG_DIR like StateDir.
@@ -297,9 +294,6 @@ func markCached(rows []quota) []quota {
 	return rows
 }
 
-// claudeQuotas reads Claude.ai's OAuth usage endpoint: the 5h and weekly windows plus the Fable weekly cap.
-// A shared on-disk cache keeps the VS Code poller and manual runs from hammering the endpoint and backs off
-// on a 429 until the server's Retry-After elapses.
 func claudeQuotas(ctx context.Context) []quota {
 	creds, ok := claudeCredentials(ctx)
 	if !ok {
@@ -403,7 +397,6 @@ func markClaudeNoWindow(path string, cache *claudeUsageCache, creds claudeOAuthC
 	writeClaudeUsageCache(path, entry)
 }
 
-// claudePlanName is the plan name ~/.claude.json shows ("Ultra"); "" when absent.
 func claudePlanName() string {
 	b, err := os.ReadFile(paths.ClaudeJSON())
 	if err != nil {

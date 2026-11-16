@@ -40,8 +40,7 @@ var CredentialRE = regexp.MustCompile(strings.Join([]string{
 	`-----BEGIN [A-Z ]*PRIVATE KEY`,               // private keys only, never certificates or public keys
 }, "|"))
 
-// LooksSecret reports a credential-shaped value: known token prefixes or a bearer-style value; ${ENV}
-// references, file paths, and obvious placeholders are never flagged.
+// LooksSecret reports a credential-shaped value
 func LooksSecret(val string) bool {
 	return looksSecretToken(val) || val != "" && !notCredentialShaped(val) && bearerToken().MatchString(val)
 }

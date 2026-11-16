@@ -22,7 +22,6 @@ type Options struct {
 	StateDir string    // holds projections/; "" = <Root>/state
 }
 
-// writeResult classifies one projection write.
 type writeResult int
 
 const (
@@ -61,7 +60,6 @@ func (r *syncResult) add(o syncResult) {
 	r.pruned += o.pruned
 }
 
-// syncInputs is everything Sync discovers before it writes anything.
 type syncInputs struct {
 	home, root, state, skillsDir string
 	names                        []string
@@ -161,7 +159,6 @@ func emptySourceNote(skillsDir string) string {
 	return "skills directory not found, no agents/skills discovered"
 }
 
-// syncFail reports a fatal sync error on stderr and returns the exit code.
 func syncFail(err error) int {
 	fmt.Fprintln(os.Stderr, "sync:", err)
 	return 1
@@ -202,7 +199,6 @@ func mkdirUnlessDry(res *syncResult, dryRun bool, dirs ...string) bool {
 	return true
 }
 
-// finishSync prints the run summary and maps the totals onto Sync's exit code.
 func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 	summary := fmt.Sprintf("\nDone: %d synced, %d skipped", res.synced, res.skipped)
 	if dryRun {

@@ -50,7 +50,6 @@ func DiscoverAgents(agentsDir string) ([]Source, error) {
 	return agents, nil
 }
 
-// validateUniqueNames rejects skills that would write to the same output name.
 func validateUniqueNames(sources []Source) error {
 	seen := make(map[string]string, len(sources))
 	for _, source := range sources {
@@ -63,7 +62,6 @@ func validateUniqueNames(sources []Source) error {
 	return nil
 }
 
-// readDirOrNil lists dir, treating a missing dir as empty.
 func readDirOrNil(dir string) ([]os.DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
@@ -140,7 +138,6 @@ func symlinkInside(root, link string) bool {
 	return err == nil && info.IsDir()
 }
 
-// loadSource reads and parses one agent or skill definition file.
 func loadSource(path, dirName string) (Source, error) {
 	f, err := paths.OpenNoFollow(path, os.O_RDONLY, 0)
 	if err != nil {

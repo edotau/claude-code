@@ -37,7 +37,6 @@ var permsGOOS = runtime.GOOS
 // loosePerm reports a file open beyond its owner; Windows has no such bits (Stat reports 0666), as vault's looseMode.
 func loosePerm(fi os.FileInfo) bool { return permsGOOS != "windows" && fi.Mode().Perm()&0o077 != 0 }
 
-// checkVaultPerms flags a vault.db readable/writable by anyone but its owner.
 func checkVaultPerms() []vaultCheck {
 	file := vault.Path()
 	fi, err := os.Stat(file)
@@ -139,7 +138,6 @@ func checkKeyNames(reg *providers.Registry) []vaultCheck {
 	return []vaultCheck{{Name: "vault key names", Detail: strings.Join(typos, ", ")}}
 }
 
-// editDistance is the Levenshtein distance between a and b.
 func editDistance(a, b string) int {
 	prev := make([]int, len(b)+1)
 	for j := range prev {

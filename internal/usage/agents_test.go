@@ -1,9 +1,6 @@
 package usage
 
-// Mirrors antigravity_test.go / claude_test.go's seam-stub style against agents.go's real seams:
-// lookPathSqlite3 (the sqlite3-installed check), opencodeSqliteCmd / copilotSqliteCmd (the sqlite3
-// -json exec seams, keyed on dbPath+query), and codexUsage's plain filesystem walk under
-// CODEX_HOME/sessions (no exec seam — paths.CodexHome() honors the env var directly).
+// Mirrors antigravity_test.go / claude_test.go's seam-stub style against agents.go's real seams
 import (
 	"bytes"
 	"context"
@@ -35,8 +32,7 @@ func stubLookPathSqlite3(t *testing.T, fn func() error) {
 	t.Cleanup(func() { lookPathSqlite3 = orig })
 }
 
-// stubOpencodeSqlite replaces opencodeSqliteCmd, routing a GROUP BY query to the models fixture and
-// everything else to the totals fixture.
+// stubOpencodeSqlite replaces opencodeSqliteCmd: GROUP BY queries get the models fixture, the rest the totals.
 func stubOpencodeSqlite(t *testing.T, totals, models []byte) {
 	t.Helper()
 	orig := opencodeSqliteCmd
@@ -49,7 +45,6 @@ func stubOpencodeSqlite(t *testing.T, totals, models []byte) {
 	t.Cleanup(func() { opencodeSqliteCmd = orig })
 }
 
-// stubCopilotSqlite mirrors stubOpencodeSqlite for copilotSqliteCmd.
 func stubCopilotSqlite(t *testing.T, totals, models []byte) {
 	t.Helper()
 	orig := copilotSqliteCmd
@@ -62,8 +57,7 @@ func stubCopilotSqlite(t *testing.T, totals, models []byte) {
 	t.Cleanup(func() { copilotSqliteCmd = orig })
 }
 
-// writeOpencodeStore creates an empty file at the opencode DB path so the store's existence check
-// passes (opencodeUsage only stats the path; the real sqlite3 call is stubbed).
+// writeOpencodeStore creates an empty file at the opencode DB path; only the stat is real, sqlite3 is stubbed.
 func writeOpencodeStore(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -89,9 +83,7 @@ func writeCopilotStore(t *testing.T) {
 
 // --- codex: parseCodexSession + codexUsage ---
 
-// TestParseCodexSessionFixture: token_count lines are cumulative, so each line adds only its growth (850 then
-// 1350); turns counts the lines, the model comes from turn_context, the malformed line is skipped silently, and
-// the mix splits input_tokens (which already contains cached_input_tokens) into disjoint kinds.
+// TestParseCodexSessionFixture
 func TestParseCodexSessionFixture(t *testing.T) {
 	path := filepath.Join("testdata", "codex-session-fixture.jsonl")
 	got := parseCodexSessionCtx(context.Background(), path, time.Time{}, "")
@@ -114,8 +106,7 @@ func TestParseCodexSessionFixture(t *testing.T) {
 	}
 }
 
-// TestParseCodexSessionCountsOnlyGrowthInsideWindow: with a cutoff between the two token_count lines only the
-// second line's growth (1350 = 2200-850) counts, and its mix is the delta, still summing to its tokens.
+// TestParseCodexSessionCountsOnlyGrowthInsideWindow
 func TestParseCodexSessionCountsOnlyGrowthInsideWindow(t *testing.T) {
 	cutoff := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
 	got := parseCodexSessionCtx(context.Background(), filepath.Join("testdata", "codex-session-fixture.jsonl"), cutoff, "")
@@ -143,8 +134,7 @@ func codexFixtureUsage(t *testing.T) agentUsage {
 	return codexUsage(context.Background(), time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC))
 }
 
-// TestCodexUsageParsesFixture: one fixture session file under CODEX_HOME/sessions becomes a codex
-// agentUsage row: 1 session, tokens/turns/model from parseCodexSession, provider openai.
+// TestCodexUsageParsesFixture
 func TestCodexUsageParsesFixture(t *testing.T) {
 	got := codexFixtureUsage(t)
 	if got.Agent != "codex" {
@@ -172,8 +162,7 @@ func TestCodexUsageFixtureModelRow(t *testing.T) {
 	}
 }
 
-// TestCodexUsageCutoffExcludesOldSessions: a session file whose mtime is older than the window is
-// excluded, leaving no sessions in window.
+// TestCodexUsageCutoffExcludesOldSessions
 func TestCodexUsageCutoffExcludesOldSessions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
@@ -207,8 +196,7 @@ func TestCodexUsageMissingStore(t *testing.T) {
 
 // --- opencode: opencodeUsage ---
 
-// TestOpencodeUsageParsesFixture: the sqlite3 -json fixtures become one agentUsage row, cost summed
-// and sessions the distinct count the totals query reports.
+// TestOpencodeUsageParsesFixture
 func TestOpencodeUsageParsesFixture(t *testing.T) {
 	writeOpencodeStore(t)
 	stubLookPathSqlite3(t, func() error { return nil })
@@ -284,8 +272,7 @@ func TestOpencodeUsageSqlite3Missing(t *testing.T) {
 
 // --- copilot: copilotUsage ---
 
-// TestCopilotUsageParsesFixture: tokens is the sum of the four columns the totals query already added,
-// sessions the distinct count.
+// TestCopilotUsageParsesFixture
 func TestCopilotUsageParsesFixture(t *testing.T) {
 	writeCopilotStore(t)
 	stubLookPathSqlite3(t, func() error { return nil })
@@ -356,8 +343,7 @@ func TestSortModelsByTokens(t *testing.T) {
 
 // --- claudeAgentUsage ---
 
-// TestClaudeAgentUsageFoldsAggregate: a transcript.UsageAggregate with two models folds into one
-// agentUsage row, tokens summed and the model list sorted tokens descending.
+// TestClaudeAgentUsageFoldsAggregate
 func TestClaudeAgentUsageFoldsAggregate(t *testing.T) {
 	agg := transcript.NewUsageAggregate()
 	agg.Models["sonnet"] = &transcript.ModelUsage{InputTokens: 100}
@@ -392,8 +378,7 @@ func TestClaudeAgentUsageEmptyAggregate(t *testing.T) {
 
 // --- buildAgentsUsage: the composed entry point ---
 
-// TestBuildAgentsUsageAlwaysReturnsFour: all four agents are always present, in order
-// claude/codex/opencode/copilot, even when every store is missing.
+// TestBuildAgentsUsageAlwaysReturnsFour
 func TestBuildAgentsUsageAlwaysReturnsFour(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -432,8 +417,7 @@ func TestBuildAgentsUsageSessionScopesOnlyClaude(t *testing.T) {
 
 // --- claudeSessionCount ---
 
-// TestClaudeSessionCountExplicitSession: an explicit --session with files found counts as 1 session,
-// 0 when no files were found for it.
+// TestClaudeSessionCountExplicitSession
 func TestClaudeSessionCountExplicitSession(t *testing.T) {
 	if n := claudeSessionCount("sess-1", []string{"a.jsonl", "b.jsonl"}); n != 1 {
 		t.Errorf("explicit session with files = %d, want 1", n)
@@ -443,8 +427,7 @@ func TestClaudeSessionCountExplicitSession(t *testing.T) {
 	}
 }
 
-// TestClaudeSessionCountDaysWindow: with no --session, the count is the distinct session dirs the in-window
-// files live under (workflow agents share their session's dir).
+// TestClaudeSessionCountDaysWindow
 func TestClaudeSessionCountDaysWindow(t *testing.T) {
 	sep := string(filepath.Separator)
 	p := func(parts ...string) string { return strings.Join(parts, sep) }
@@ -510,8 +493,7 @@ func mixSum(m *tokenMix) int {
 	return m.Input + m.Output + m.CacheRead + m.CacheWrite
 }
 
-// TestAgentMixSumsToTokens: for every agent the four mix kinds add up to the agent's tokens, i.e. no kind is
-// counted twice (codex input contains its cached tokens) or dropped (opencode's reasoning tokens).
+// TestAgentMixSumsToTokens
 func TestAgentMixSumsToTokens(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeUsageFixture(t, claudeDir, "-p", "s", time.Hour, usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))

@@ -36,8 +36,7 @@ type Format struct {
 
 var (
 	// ErrNewer means the data was written by a newer build than this one.
-	ErrNewer = errors.New("schema is newer than this build")
-	// errNoMigration means an older version has no migration step to the current one.
+	ErrNewer       = errors.New("schema is newer than this build")
 	errNoMigration = errors.New("no migration from this schema version")
 
 	mu   sync.Mutex
@@ -75,7 +74,6 @@ func All() []Format {
 	return out
 }
 
-// peek returns the document's "schema" number; a missing field is version 0.
 func peek(raw []byte) (int, error) {
 	var p struct {
 		Schema *int `json:"schema"`
@@ -95,7 +93,6 @@ func peek(raw []byte) (int, error) {
 	return *p.Schema, nil
 }
 
-// upgrade applies Migrate step by step from the document's version to f.Version.
 func upgrade(f Format, raw []byte) (out []byte, from int, err error) {
 	from, err = peek(raw)
 	if err != nil {

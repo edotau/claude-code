@@ -22,8 +22,7 @@ func Title(s string) string {
 	return string(unicode.ToUpper(r)) + s[size:]
 }
 
-// Truncate cuts s to at most n runes, replacing the tail with "…" when it does not fit so the
-// result (including the ellipsis) never exceeds n runes.
+// Truncate cuts s to at most n runes, ending in "…" when it does not fit, so the result never exceeds n.
 func Truncate(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

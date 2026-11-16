@@ -28,7 +28,6 @@ import (
 //go:embed agents.json
 var defaultsJSON []byte
 
-// agentConfig is one CLI's full spec.
 type agentConfig struct {
 	Permission permission        `json:"permission"`
 	Launch     vault.AgentLaunch `json:"launch"`

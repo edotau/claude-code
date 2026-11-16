@@ -74,7 +74,6 @@ func checkVaultImportApply(t *testing.T, base []string) {
 	}
 }
 
-// writeCfg writes a databrickscfg fixture and returns its path.
 func writeCfg(t *testing.T, body string) string {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "cfg")

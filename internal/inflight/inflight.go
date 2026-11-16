@@ -32,8 +32,7 @@ const Prefix = "agent-"
 // Dir is the machine-wide marker directory.
 func Dir() string { return filepath.Join(paths.StateDir(), "agents-inflight") }
 
-// Owner parses the owning pid out of a marker name; ok=false means the entry is not a marker
-// (the lock file, a stray), which is NOT the same as a marker whose pid parsed as 0.
+// Owner parses the owning pid out of a marker name
 func Owner(name string) (int, bool) {
 	rest, ok := strings.CutPrefix(name, Prefix)
 	if !ok {
@@ -44,12 +43,10 @@ func Owner(name string) (int, bool) {
 	return pid, true
 }
 
-// probeTrusted says whether proc.Alive answers here (off unix it never does): only a trusted probe may read
-// a silent owner as dead, otherwise TTL is the sole backstop.
+// probeTrusted says whether proc.Alive answers here (off unix it never does)
 func probeTrusted() bool { return proc.Alive(os.Getpid()) }
 
-// ownerLive is the owner-level rule: a provably dead owner never counts; a batch dispatch lives with its owner; anything
-// else (or any marker when the probe is untrusted) stops counting after TTL. Self's spawn rules live in scan.
+// ownerLive is the owner-level rule
 func ownerLive(name string, mod, now time.Time, trusted bool) bool {
 	owner, ok := Owner(name)
 	if !ok {
@@ -94,8 +91,7 @@ func liveness(now time.Time) func(name string) bool {
 	}
 }
 
-// DispatchAlive is the shared liveness rule for a dispatch record (status, pid, start time): a
-// non-running record is dead; a recorded pid is probed; an unrecorded pid counts for one minute.
+// DispatchAlive is the shared liveness rule for a dispatch record (status, pid, start time)
 func DispatchAlive(status string, pid int, t time.Time) bool {
 	if status != "running" {
 		return false

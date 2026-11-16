@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// The copilot pass manages ~/.copilot/skills: links added, stale re-pointed, orphans pruned; real dirs, foreign
-// symlinks and the `synced` link survive.
+// The copilot pass manages ~/.copilot/skills
 func TestCopilotSkillsDirOwnership(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "demo", "demo")

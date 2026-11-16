@@ -15,7 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// orphanAccessLog allows only the two legacy names without a corresponding store.
 func orphanAccessLog(p string) bool {
 	if filepath.Dir(p) != filepath.Clean(memory.AccessStateDir()) {
 		return false
@@ -141,8 +140,7 @@ func sandboxKeep(p string) string {
 	return ""
 }
 
-// isSandbox is true for a real (non-symlink) sandbox-named dir outside the live config dir whose memory/ repo
-// starts with the sandbox seed commit.
+// isSandbox is true for a real sandbox-named dir outside the config dir whose memory/ repo starts at the seed commit.
 func isSandbox(p string) bool {
 	p = filepath.Clean(p)
 	if !strings.HasPrefix(filepath.Base(p), sandboxPrefix) || paths.Within(p, paths.ConfigDir()) {
@@ -159,7 +157,6 @@ func isSandbox(p string) bool {
 	return err == nil && root == sandboxSeed
 }
 
-// sandboxGit runs git in a sandbox's memory repo under a timeout.
 func sandboxGit(dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

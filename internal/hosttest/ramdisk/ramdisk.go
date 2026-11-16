@@ -31,7 +31,6 @@ var (
 	diskWaitDelay = 10 * time.Second
 )
 
-// page is the help for `claude-code test ramdisk`.
 var page = helptext.Page{
 	Usage: "claude-code test ramdisk [--] <command> [args...]",
 	About: "Run <command> with TMPDIR on a throwaway 4 GiB APFS RAM disk, then remove it.\n" +
@@ -94,7 +93,6 @@ func diskCmd(name string, args ...string) (cmd *exec.Cmd, cancel context.CancelF
 	return cmd, cancel
 }
 
-// attachDisk makes the RAM disk and returns its device and a TMPDIR on it.
 func attachDisk(volume string) (dev, tmp string, err error) {
 	cmd, cancel := diskCmd("hdiutil", "attach", "-nomount", fmt.Sprintf("ram://%d", sectors))
 	out, err := cmd.Output()

@@ -11,7 +11,6 @@ import (
 //go:embed catalog.json
 var catalogJSON []byte
 
-// entry is one catalog model: canonical id and capabilities.
 type entry struct {
 	ID            string            `json:"id"`
 	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
@@ -130,8 +129,7 @@ func Alias(name string) (canonical string, ok bool) {
 // AliasOf returns the alias a canonical id currently backs, or "" when none.
 func AliasOf(canonical string) string { return load().aliasOf[canonical] }
 
-// Limits resolves id like Resolve and returns the catalog limits; false when id is not a catalog model or
-// the catalog documents neither limit.
+// Limits resolves id like Resolve and returns the catalog limits
 func Limits(id string) (TokenLimits, bool) {
 	canonical, _, ok := Resolve(id)
 	if !ok {
@@ -141,7 +139,6 @@ func Limits(id string) (TokenLimits, bool) {
 	return l, l != (TokenLimits{})
 }
 
-// wirePrefixes carry no model identity on any wire spelling.
 var wirePrefixes = [...]string{"databricks-", "system.ai.", "system.ai-"}
 
 // stripWirePrefix cuts the first wire prefix s carries; ok is false (rest == s) when it has none.
@@ -166,8 +163,7 @@ func ModelKey(id string) string {
 	return rest
 }
 
-// Resolve maps an alias, short Claude form, canonical id or any wire spelling to the canonical id; oneM is true
-// when the input carried the client-only [1m] marker.
+// Resolve maps an alias, short Claude form, canonical id or any wire spelling to the canonical id
 func Resolve(s string) (canonical string, oneM bool, ok bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	marked := Has1M(s)

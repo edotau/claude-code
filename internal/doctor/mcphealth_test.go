@@ -111,8 +111,7 @@ func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 	}
 }
 
-// TestFindSecrets: inline tokens in env/headers/url query strings flag; ${ENV} refs, file paths, and
-// placeholders stay clean.
+// TestFindSecrets
 func TestFindSecrets(t *testing.T) {
 	defs := []def{
 		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi" + "0123456789abcdef0123456789abcdef"}}},
@@ -146,8 +145,7 @@ func TestFindSecretsClean(t *testing.T) {
 	}
 }
 
-// TestRunHealthSkipsOpenWithNoClaudeBinary: a missing `claude` binary fails OPEN — it is reported,
-// not scored as a Failed server, and must not block the exit code on its own.
+// TestRunHealthSkipsOpenWithNoClaudeBinary
 func TestRunHealthSkipsOpenWithNoClaudeBinary(t *testing.T) {
 	res := runHealth("")
 	if res.Skipped == "" || res.Failed != 0 || res.Connected != 0 {
@@ -173,8 +171,7 @@ func TestRunHealthCountsServers(t *testing.T) {
 	}
 }
 
-// TestRunHealthReportsListErrorEvenWithParsedLines: a `claude mcp list` that dies after printing a
-// parseable line must still surface the run error instead of silently dropping it.
+// TestRunHealthReportsListErrorEvenWithParsedLines
 func TestRunHealthReportsListErrorEvenWithParsedLines(t *testing.T) {
 	dir := t.TempDir()
 	claude := fakeBin(t, dir, "claude", "echo 'ctx7: ✔ connected'\nexit 1")
@@ -184,8 +181,7 @@ func TestRunHealthReportsListErrorEvenWithParsedLines(t *testing.T) {
 	}
 }
 
-// TestRunHealthKillsHungListOnTimeout: a hung/cold-starting `claude mcp list` must be killed by the
-// context, not block forever.
+// TestRunHealthKillsHungListOnTimeout
 func TestRunHealthKillsHungListOnTimeout(t *testing.T) {
 	orig := listTimeout
 	listTimeout = 50 * time.Millisecond
@@ -207,8 +203,7 @@ func TestRunHealthKillsHungListOnTimeout(t *testing.T) {
 	}
 }
 
-// TestHealthCapturesListThroughAFileNotAPipe: stdout/stderr must be captured via a file, not a pipe,
-// or a non-flushing CLI exit truncates the output and a dropped failure line reads as an all-clear.
+// TestHealthCapturesListThroughAFileNotAPipe
 func TestHealthCapturesListThroughAFileNotAPipe(t *testing.T) {
 	dir := t.TempDir()
 	claude := fakeBin(t, dir, "claude", `if [ -p /dev/stdout ]; then
@@ -223,8 +218,7 @@ fi`)
 	}
 }
 
-// TestRedactScrubsEnvHeadersAndURL: redact() must blank every secret-shaped value it is handed —
-// the report embeds Defs verbatim, so a missed field leaks a credential straight into --json/text.
+// TestRedactScrubsEnvHeadersAndURL
 func TestRedactScrubsEnvHeadersAndURL(t *testing.T) {
 	defs := []def{{"s", "user", serverDef{
 		Env:     map[string]string{"TOKEN": "dapi" + "0123456789abcdef0123456789abcdef", "CA": "/etc/ssl/ca.pem"},
@@ -286,8 +280,7 @@ func TestDoctorJSONRoundTrips(t *testing.T) {
 	}
 }
 
-// TestDoctorTextReportNeverEchoesSecretValues: the human report names scope/server/field, never the
-// flagged value itself.
+// TestDoctorTextReportNeverEchoesSecretValues
 func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
@@ -358,8 +351,7 @@ func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 	}
 }
 
-// TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines: args and `claude mcp list` output are printed verbatim by
-// the report, so a token in either must be scrubbed too.
+// TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines
 func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 	dir := t.TempDir()
 	const tok = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

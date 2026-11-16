@@ -9,7 +9,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
-// codexEvent mirrors the JSON events from codex exec.
 type codexEvent struct {
 	Type      string `json:"type"`
 	ThreadID  string `json:"thread_id"`

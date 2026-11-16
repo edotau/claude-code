@@ -11,7 +11,6 @@ import (
 // racyWindow excludes recent modification or change times that may hide a same-tick rewrite.
 const racyWindow = 2 * time.Second
 
-// stampNow is the clock behind the racy-window check; tests advance it.
 var stampNow = time.Now
 
 // SetStampNowForTest replaces the stamp clock and returns its restore; callers must not run in parallel.
@@ -82,7 +81,6 @@ func statStamp(path string) (stamp, error) {
 	return stamp{present: true, mtime: fi.ModTime().UnixNano(), size: fi.Size(), ino: ino, ctime: ctime}, nil
 }
 
-// settled reports whether both timestamps are outside the racy window.
 func settled(st stamp, now time.Time) bool {
 	return !st.present || max(st.mtime, st.ctime) <= now.Add(-racyWindow).UnixNano()
 }

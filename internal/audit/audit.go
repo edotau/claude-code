@@ -58,13 +58,11 @@ type Event struct {
 	Detail   string    `json:"detail,omitempty"`
 }
 
-// maxBytes rotates the log to audit.jsonl.1; a var so tests can shrink it.
 var maxBytes int64 = 1 << 20
 
 // Include JSON escaping and the newline in the single-write limit.
 const maxLineBytes = 4 << 10
 
-// logFile is the live log.
 func logFile() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
 
 // Log appends one event. Fail-open: callers are hooks and the router hot path, so nothing is returned.
@@ -190,7 +188,6 @@ func Summary(events []Event) map[Action]int {
 	return out
 }
 
-// schemaVersion is the audit log's current schema version.
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{

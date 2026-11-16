@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// write creates path with contents, making parent dirs as needed.
 func write(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -92,8 +91,7 @@ var agedDebris = []string{
 	"mcp-needs-auth-cache.json",
 }
 
-// protectedDebris must never be candidates, at any age — credentials, live config, and the memory bank
-// (including its archive subtrees, which are never a clean target at all).
+// protectedDebris (credentials, live config, the memory bank and its archives) must never be candidates at any age.
 var protectedDebris = []string{
 	"docs/memory/bank/activeContext.md", "docs/memory/bank/decisionLog.md",
 	"docs/memory/bank/archive/sessionHistory-2025-01.md",
@@ -120,8 +118,7 @@ func seedFiles(t *testing.T, dir string, rels []string, contents string, old tim
 	}
 }
 
-// seedDebris lays down one aged entry per target, plus everything that must survive at any age,
-// and returns the isolated config dir.
+// seedDebris lays down one aged entry per target plus everything that must survive, and returns the config dir.
 func seedDebris(t *testing.T) string {
 	t.Helper()
 	dir := vaulttest.Use(t)
@@ -136,8 +133,7 @@ func seedDebris(t *testing.T) string {
 	if err := os.Chtimes(vault.Path(), old, old); err != nil {
 		t.Fatal(err)
 	}
-	// Age the containing dir too: clean ages a subtree by its NEWEST entry, so a dir that gained a
-	// file yesterday must survive even though this seeded file is old.
+	// Age the containing dir too
 	seedFiles(t, dir, agedDebris, "x", old, true)
 	seedFiles(t, dir, protectedDebris, "keep", old, false)
 	return dir
@@ -295,8 +291,7 @@ func (t target) roots() []string {
 	return out
 }
 
-// TestCleanTargetsNeverIncludeCredentialsOrMemoryBank guards the two invariants clean.go states:
-// credentials are never touched, and the memory bank (including its archive) is never a target.
+// TestCleanTargetsNeverIncludeCredentialsOrMemoryBank guards the two invariants clean.go states
 func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, tg := range targets() {
@@ -309,7 +304,6 @@ func TestCleanTargetsNeverIncludeCredentialsOrMemoryBank(t *testing.T) {
 	}
 }
 
-// checkNoVaultMatch fails when a target glob matches the vault or its key.
 func checkNoVaultMatch(t *testing.T, tg target, pattern string) {
 	t.Helper()
 	for _, path := range []string{vault.Path(), vault.Path() + ".key"} {
@@ -390,7 +384,6 @@ func ageProtected(t *testing.T, keep []string, old time.Time) {
 	}
 }
 
-// assertPinIntact fails when the vault pin no longer reads want.
 func assertPinIntact(t *testing.T, name, want string) {
 	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
@@ -403,8 +396,7 @@ func assertPinIntact(t *testing.T, name, want string) {
 	}
 }
 
-// Only plugin version dirs absent from installed_plugins.json are stale; the live installPath is never a target,
-// and a missing manifest makes the whole cache off-limits.
+// Only plugin version dirs absent from installed_plugins.json are stale
 func TestStalePluginVersions(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -459,8 +451,7 @@ func TestNestedConfig(t *testing.T) {
 	}
 }
 
-// TestNestedConfigKeepsWorktrees: a linked git worktree under the nested dir is never swept,
-// and is reported with its own reason rather than the generic "not a settings file" wording.
+// TestNestedConfigKeepsWorktrees
 func TestNestedConfigKeepsWorktrees(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -519,8 +510,7 @@ func TestCleanListShowsBackupsTarget(t *testing.T) {
 	}
 }
 
-// TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles: the new CacheDir glob never reaches outside
-// state/harness/backups — a root-level file that merely starts with the same prefix survives.
+// TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles
 func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -533,9 +523,7 @@ func TestCleanOnlyTouchesCacheBackupsNotUnrelatedRootDotfiles(t *testing.T) {
 	}
 }
 
-// TestSessionsTargetOptInKeepsAutoMemory: transcripts and their <id>/ dirs go only under --target sessions
-// (confirmed via --yes, since the test process has no TTY); projects/<slug>/memory and any other sibling
-// survive at any age.
+// TestSessionsTargetOptInKeepsAutoMemory
 func TestSessionsTargetOptInKeepsAutoMemory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -591,8 +579,7 @@ func seedAgedSession(t *testing.T, dir string) (transcript, sessDir string) {
 	return transcript, sessDir
 }
 
-// TestCleanSessionsRefusesWithoutTTYOrYes: --target sessions with no TTY and no --yes deletes nothing
-// and exits 2 with the refusal, rather than silently reading as "nothing to clean".
+// TestCleanSessionsRefusesWithoutTTYOrYes
 func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -610,8 +597,7 @@ func TestCleanSessionsRefusesWithoutTTYOrYes(t *testing.T) {
 	}
 }
 
-// TestCleanSessionsOlderThanStillFilters: --yes bypasses the prompt, not the age filter — a young
-// transcript must survive even when sessions are confirmed.
+// TestCleanSessionsOlderThanStillFilters
 func TestCleanSessionsOlderThanStillFilters(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -708,8 +694,7 @@ func TestCleanHelpDefaultExcludesOptIn(t *testing.T) {
 	}
 }
 
-// seedRegistryEntry lays down a sessions/<pid>.json + sessions/<pid>.<hex>.key pair (or any name,
-// for the unparsable case) at the given mtime and returns both paths.
+// seedRegistryEntry lays down a sessions/<pid>.json and .key pair at the given mtime and returns both paths.
 func seedRegistryEntry(t *testing.T, dir, name string, mtime time.Time) (jsonPath, keyPath string) {
 	t.Helper()
 	jsonPath = filepath.Join(dir, "sessions", name+".json")
@@ -723,7 +708,6 @@ func seedRegistryEntry(t *testing.T, dir, name string, mtime time.Time) (jsonPat
 	return jsonPath, keyPath
 }
 
-// stubPidAlive swaps the liveness probe for alive until the test ends.
 func stubPidAlive(t *testing.T, alive func(int) bool) {
 	t.Helper()
 	old := pidAlive
@@ -760,8 +744,7 @@ func TestSessionsRegistryKeepsLiveOrUnparsable(t *testing.T) {
 	}
 }
 
-// TestSessionsRegistrySplitFromSessionsTarget: bare clean prunes dead registry entries and keeps live
-// ones; --target sessions (transcripts only) leaves the registry alone.
+// TestSessionsRegistrySplitFromSessionsTarget
 func TestSessionsRegistrySplitFromSessionsTarget(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -901,8 +884,7 @@ func (fx sandboxFixture) dryRun(t *testing.T) {
 	}
 }
 
-// TestCleanMemorySandboxes: aged real sandboxes go (and --dry-run only previews); young ones, look-alikes
-// without the seed commit, symlinks and the real memory store and vault survive.
+// TestCleanMemorySandboxes
 func TestCleanMemorySandboxes(t *testing.T) {
 	fx := newSandboxFixture(t)
 	fx.dryRun(t)

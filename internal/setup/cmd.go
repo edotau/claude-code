@@ -27,12 +27,10 @@ var setupPage = helptext.Page{
 	Hint: "claude-code install --setup <mode> -h lists that mode's flags.",
 }
 
-// wantsHelp is an empty argument list or a leading -h, --help or help.
 func wantsHelp(args []string) bool {
 	return len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help"
 }
 
-// run is the `install --setup` verb.
 func run(args []string) int {
 	if wantsHelp(args) {
 		setupPage.Fprint(os.Stderr)
@@ -127,7 +125,6 @@ var setupWorkspacePage = helptext.Page{
 	},
 }
 
-// setupWorkspaceOps is each op's own -h page.
 var setupWorkspaceOps = map[string]helptext.Page{
 	"init": {Usage: "claude-code install --setup workspace init [<root>] [flags]",
 		About: "Scaffold the project's .claude/."},
@@ -159,7 +156,6 @@ func cmdSetupWorkspace(args []string) int {
 	return setupWorkspaceInitArgs(fs, args[1:])
 }
 
-// setupWorkspaceInitArgs parses init's flags and positional root, then runs it.
 func setupWorkspaceInitArgs(fs *flag.FlagSet, args []string) int {
 	with := fs.String("with", "", "subset of agents,commands,skills,settings,memory (default all)")
 	dryRun := fs.Bool("dry-run", false, "print the plan, write nothing")
@@ -185,7 +181,6 @@ func setupWorkspaceReadOrLink(op string, pos []string) int {
 	return setupExit(workspaceLink(setupWorkspaceRoot(pos[2:]), pos[0], pos[1], os.Stdout), "setup workspace")
 }
 
-// setupWorkspaceInit runs init on the optional positional root.
 func setupWorkspaceInit(pos []string, with string, dryRun bool) int {
 	if len(pos) > 1 {
 		setupWorkspacePage.Fprint(os.Stderr)
@@ -208,7 +203,6 @@ func setupWorkspaceRoot(pos []string) string {
 	return "."
 }
 
-// modes lists the install --setup modes.
 func modes() []string { return []string{"adopt", "nuke", "workspace"} }
 
 // CleanSpec is the completion node for the clean verb.

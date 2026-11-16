@@ -42,7 +42,6 @@ func markerExists(owner int, id string) bool {
 	return err == nil
 }
 
-// writeFile writes body to path or fails the test.
 func writeFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -50,7 +49,6 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
-// setMtime stamps path's modification time or fails the test.
 func setMtime(t *testing.T, path string, mod time.Time) {
 	t.Helper()
 	if err := os.Chtimes(path, mod, mod); err != nil {
@@ -58,7 +56,6 @@ func setMtime(t *testing.T, path string, mod time.Time) {
 	}
 }
 
-// mkdirAll creates dir or fails the test.
 func mkdirAll(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -74,8 +71,7 @@ func probeClaim(t *testing.T, owner int, transcript string) {
 	}
 }
 
-// Claim burst: of 2×Base racers on one account, exactly Base win, Base markers hold the
-// account key, a second account still admits, and Total binds across accounts.
+// Claim burst: of 2×Base racers on one account exactly Base win, and Total binds across accounts.
 func TestTryClaimBurst(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
@@ -126,8 +122,7 @@ func raceClaims(owner int, lim Limits, n int) int32 {
 	return wins.Load()
 }
 
-// TryClaim N>1 writes the N leaf markers as one decision: refused whole when N does not fit,
-// Fits writes nothing, and Release removes every leaf.
+// TryClaim N>1 writes the N leaf markers as one decision
 func TestTryClaimN(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
@@ -213,8 +208,7 @@ func assertNoMarker(t *testing.T, sub, format string) {
 	}
 }
 
-// Dispatch owner liveness: a dead owner's dispatch marker is neither counted nor allowed to survive a
-// prune; a live owner's dispatch marker counts even past TTL.
+// A dead owner's dispatch marker is never counted; a live owner's counts even past TTL.
 func TestDispatchOwnerLiveness(t *testing.T) {
 	if !probeTrusted() {
 		t.Skip("proc probing untrusted on this platform; TTL is the sole backstop here")
@@ -254,8 +248,7 @@ func TestDispatchOwnerLiveness(t *testing.T) {
 	}
 }
 
-// RetireAgent releases exactly the slot recorded in the agent's meta.json; no meta retires
-// nothing and a second stop is a no-op that never touches a sibling marker.
+// RetireAgent releases exactly the slot recorded in the agent's meta.json
 func TestRetireAgent(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
@@ -293,9 +286,7 @@ func TestRetireAgent(t *testing.T) {
 	}
 }
 
-// Self spawn prune: a spawn marker with meta but an idle agent transcript is pruned; one the
-// session answered with NO meta is pruned (refused spawn); one WITH meta and a fresh agent
-// transcript survives even though the session answered it (the 2026-09-15 leak class).
+// Self spawn prune: refused or idle spawns are pruned; one with meta and a fresh transcript survives (2026-09-15 leak).
 func TestSelfSpawnPrune(t *testing.T) {
 	setupDir(t)
 	owner := os.Getpid()
@@ -345,8 +336,7 @@ func writeSpawnMeta(t *testing.T, subDir, agent, id string, finished bool) {
 	writeFile(t, filepath.Join(subDir, "agent-"+agent+".meta.json"), m)
 }
 
-// A sibling session's long-running agent keeps counting past TTL (its marker carries that session's transcript),
-// and its finished agent is pruned by the same rule, whoever scans.
+// A sibling session's long-running agent keeps counting past TTL, and its finished agent is pruned by the same rule.
 func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
 	setupDir(t)
 	if !probeTrusted() {
