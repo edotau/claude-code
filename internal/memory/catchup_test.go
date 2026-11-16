@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,5 +110,46 @@ func TestTranscriptInteractiveAdversarial(t *testing.T) {
 				t.Fatalf("interactive=%v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// Row 5: a sweep error names the live `memory update --catchup` verb, not the deleted `memory catchup`.
+func TestCatchUpSweepErrorNamesLiveVerb(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	write(t, StateDir(), "a file where the state dir should be")
+	var errOut bytes.Buffer
+	if rc := CatchUpSweep(SweepOptions{Stdout: io.Discard, Stderr: &errOut}); rc != 1 {
+		t.Fatalf("exit = %d, want 1", rc)
+	}
+	if got := errOut.String(); !strings.HasPrefix(got, "memory update --catchup: ") {
+		t.Errorf("stderr = %q", got)
+	}
+}
+
+// Row 16: a failed catch-up retries once more after 24 h, then never again (two retries in all).
+func TestRunSweepRetriesFailedCatchupOnceMore(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const id = "88888888-8888-4888-8888-888888888888"
+	tr := filepath.Join(paths.ConfigDir(), "projects", "p", id+".jsonl")
+	write(t, tr, `{"type":"user","entrypoint":"cli","message":{"content":"hello"}}`+"\n")
+	idle(t, tr, 72*time.Hour)
+	now := time.Now()
+	if err := writeStamp(stampPath(id), now.Add(-48*time.Hour), "catchup", 0); err != nil {
+		t.Fatal(err)
+	}
+	fail := func(at time.Time) {
+		if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fail(now.Add(-47 * time.Hour))
+	calls := 0
+	orig := runHistoricalUpdate
+	t.Cleanup(func() { runHistoricalUpdate = orig })
+	runHistoricalUpdate = func(context.Context, string, sweepCand, io.Writer) error { calls++; fail(time.Now()); return nil }
+	runSweep("", now, io.Discard)
+	runSweep("", now.Add(48*time.Hour), io.Discard)
+	if calls != 1 {
+		t.Errorf("retries after the first = %d, want 1", calls)
 	}
 }

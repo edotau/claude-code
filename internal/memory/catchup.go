@@ -19,12 +19,14 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 const (
 	catchupWindow = 14 * 24 * time.Hour // transcripts older than this are never swept
 	catchupMax    = 3                   // sessions saved per sweep, newest first
+	catchupRetry  = 24 * time.Hour      // gap before a failed catch-up gets its one second retry
 )
 
 // sweepCand is one finished session the sweep would save.
@@ -132,13 +134,28 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) strin
 		covered = st.edits
 	}
 	c.edits = count(c.path, countPath(c.id))
-	if hasResult && res.needsAttention(now) && (!hasStamp || st.state != "catchup") {
+	if hasResult && res.needsAttention(now) && (!hasStamp || st.state != "catchup" || secondRetryDue(st, res, now)) {
 		return "update " + res.Status
 	}
 	if c.edits >= updateMinEdits && c.edits > covered {
 		return fmt.Sprintf("%d edits, %d covered", c.edits, covered)
 	}
 	return ""
+}
+
+// secondRetryDue: the failed receipt is the first retry's (within a day of its stamp) and a day has passed.
+func secondRetryDue(st updateStamp, res UpdateResult, now time.Time) bool {
+	return now.Sub(st.at) > catchupRetry && res.Time.Sub(st.at) < catchupRetry
+}
+
+// retryStampTime keeps a failed catch-up's stamp time, so the second retry's own receipt ends the retries.
+func retryStampTime(id string, now time.Time) time.Time {
+	st, ok := readStamp(stampPath(id))
+	res, hasResult := readUpdateResult(id)
+	if ok && st.state == "catchup" && hasResult && res.needsAttention(now) {
+		return st.at
+	}
+	return time.Now()
 }
 
 // sweepCandidates lists finished sessions needing a save, newest first; all=false stops at catchupMax.
@@ -168,7 +185,7 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 // recentTranscripts lists transcripts modified inside the catch-up window, newest first.
 func recentTranscripts(now time.Time) []sweepCand {
 	var recent []sweepCand
-	for _, p := range globIn(paths.ConfigDir(), "projects/*/*.jsonl") {
+	for _, p := range transcript.GlobIn(paths.ConfigDir(), "projects/*/*.jsonl") {
 		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
 		fi, err := os.Stat(p)
 		if err != nil || !looksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
@@ -205,7 +222,7 @@ func CatchUpSweep(o SweepOptions) int {
 		return 0
 	}
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
-		fmt.Fprintf(stderr, "memory catchup: %v\n", err)
+		fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
 		return 1
 	}
 	_, err := paths.TryFileLock(filepath.Join(StateDir(), "catchup.lock"), 0, func() error {
@@ -213,7 +230,7 @@ func CatchUpSweep(o SweepOptions) int {
 		return nil
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "memory catchup: %v\n", err)
+		fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
 		return 1
 	}
 	return 0 // a busy lock means another sweep is running
@@ -223,14 +240,14 @@ func CatchUpSweep(o SweepOptions) int {
 func runSweep(current string, now time.Time, out io.Writer) {
 	self, err := os.Executable()
 	if err != nil {
-		fmt.Fprintln(out, "memory catchup:", err)
+		fmt.Fprintln(out, "memory update --catchup:", err)
 		return
 	}
 	cands, _ := sweepCandidates(current, now, false, countEdits)
 	saved := 0
 	for _, c := range cands {
-		// Stamped first, so a crash or failure retries at most once.
-		if err := writeStamp(stampPath(c.id), time.Now(), "catchup", c.edits); err != nil {
+		// Stamped first, so a crash or failure retries at most twice.
+		if err := writeStamp(stampPath(c.id), retryStampTime(c.id, now), "catchup", c.edits); err != nil {
 			fmt.Fprintf(out, "catchup %s: write retry stamp: %v\n", c.id, err)
 			continue
 		}
@@ -249,7 +266,7 @@ func runSweep(current string, now time.Time, out io.Writer) {
 	if saved > 0 {
 		prev := catchupDoneCount()
 		if err := paths.AtomicWrite(catchupDonePath(), []byte(strconv.Itoa(prev+saved)), 0o600); err != nil {
-			fmt.Fprintf(out, "memory catchup: %d session(s) saved but the done note failed: %v\n", saved, err)
+			fmt.Fprintf(out, "memory update --catchup: %d session(s) saved but the done note failed: %v\n", saved, err)
 		}
 	}
 }
