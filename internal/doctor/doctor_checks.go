@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -25,11 +26,10 @@ var detectBrowsers = func() (browser.Report, error) { return browser.DetectDefau
 
 // strayClaudeJSON flags ~/.claude/.claude.json, which claude reads instead of ~/.claude.json under CLAUDE_CONFIG_DIR.
 func strayClaudeJSON() (ok bool, detail string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false, "cannot resolve the home directory to look for a stray .claude.json: " + err.Error()
+	if !paths.ConfigDirIsDefault() {
+		return true, "none (CLAUDE_CONFIG_DIR holds the real .claude.json)"
 	}
-	stub := filepath.Join(home, ".claude", ".claude.json")
+	stub := filepath.Join(paths.ConfigDir(), ".claude.json")
 	if _, err := os.Stat(stub); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return true, "none (~/.claude.json is the only one)"

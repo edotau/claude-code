@@ -33,7 +33,7 @@ var doctorPage = helptext.Page{
 	Usage: "claude-code doctor [flags] [--scan [path...]]",
 	About: "Check binaries, providers, credentials and the proxy; exits 1 when a hard check fails " +
 		"(claude binary, provider registry, session credential), soft rows only report. " +
-		"Changes nothing except the version cache and --refresh's model cache. --audit prints the action log (profile " +
+		"Writes only caches: the version cache, --refresh's model cache and the credential probe's refreshed token slots. --audit prints the action log (profile " +
 		"switches, pins, secret sets, key use, safety blocks, failovers, tailscale and setup actions) " +
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
 		"and exit 1 on any finding. --mcp prints every MCP server's live health, cross-scope drift " +
