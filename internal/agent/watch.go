@@ -187,7 +187,7 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 		return classifyRunning(r, now, lim, rel)
 	}
 	end := r.Time.Add(time.Duration(r.DurationMs) * time.Millisecond)
-	if r.PID <= 0 || r.Status == "error" && end.Sub(r.Time) < quickFailure { // PID is set only by `ask --background`
+	if !r.Background || r.Status == "error" && end.Sub(r.Time) < quickFailure {
 		return StaleJob{}, false
 	}
 	if now.Sub(end) > collectHorizon || collected(r.ID) || rel.finished && !rel.at.Before(end) {
