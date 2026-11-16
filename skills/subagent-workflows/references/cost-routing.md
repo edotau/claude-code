@@ -45,7 +45,8 @@ feeds it (one turn in flight, ≤4 sessions).
   (<first reason>)`; the envelope carries `requested`. Codex asked for a model its workspace cannot serve over
   Responses fails the `wire` check instead of running another model.
 - **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `--model auto` >
-  `<AGENT>_MODEL`/record model > ranked default; `gateway resolve <a> --model auto --task F [--tools]` prints the pick
+  `<AGENT>_MODEL`/record model > the task tier (a `Tier: fast|standard|deep` line in the brief wins, else its wording)
+  ranked on the row; `gateway resolve <a> --model auto --task F [--tools]` prints the pick
   and why; `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any
   other explicit `--fallback`.
   Without a fresh listing an untyped Databricks run takes the row's tier model and says so; with one it takes

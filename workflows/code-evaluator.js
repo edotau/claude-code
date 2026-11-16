@@ -10,7 +10,7 @@ export const meta = {
   description: 'A/B eval: mid-tier agents run trap scenarios with vs without a skill under test; judges score each run',
   whenToUse:
     'USE: A/B-test a skill: agents run trap scenarios with and without it; judges score each run. CALL: Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base, skill}}); base/pristine/<id> must exist first; a setup leaf copies it to each missing base/runs/<id>-<cond><seed>. OPTIONAL: scenarios (["s2","s9","s13","s14"]), seeds (2), conditions (["control","method"]), steps {run, judge} each {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED; defaults run haiku, judge sonnet; replaces the old model arg). OPTIONAL: profile, provider (run-wide override for external stages). RETURNS {exit (green when every run was scored | review when one failed | error), runs, cells, deltas (per scenario: method minus control mean), coworkers}.',
-  phases: [{ title: 'Execute' }, { title: 'Judge' }],
+  phases: [{ title: 'Preflight' }, { title: 'Setup' }, { title: 'Execute' }, { title: 'Judge' }],
 }
 
 // ── Args ────────────────────────────────────────────────────────────────────

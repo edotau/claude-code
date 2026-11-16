@@ -9,8 +9,9 @@ rebuild the plan. `Agent: in-context` = the leaf does it itself.
 Agent: <in-context | work agent matching the selected leaf type>
 Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`. Terminal
 leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
-Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree = stop, report).
-After a defect fix write ISSUE: searched P, found N. Report both as plain sentences.
+Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree: fix the side the spec
+contradicts, or stop and report). After a defect fix write ISSUE: searched <pattern> — found <N> other sites:
+<files|none>; before reporting PENDING: <skipped follow-up or none>. Report all as plain sentences.
 Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
 Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only)>.
 ```
@@ -55,10 +56,10 @@ with file:line findings.
 
 ```markdown
 Simplify, behavior-preserving: `Skill(simplify)` under `rules/standards/quality.md` → Simplify (a terminal leaf runs
-its four angles itself). Scope: base <rev>, head <rev>. May edit: <changed files>; out-of-diff only as the [extended]
-case. Behavior gate, before AND after (both green): `<verification command>`
-Return also: one [File]/[Lines]/[Type]/[Scope]/[Impact]/[Description] block per change; flagged-not-cut items with the
-assumption left; gate output before/after; DONE (applied N, flagged M) | BLOCKED (gate red first).
+its four angles itself). Scope: base <rev>, head <rev>. May edit: <changed files>; an out-of-diff edit only with
+its blast radius in the report. Behavior gate, before AND after (both green): `<verification command>`
+Return also: the simplify report (Applied file:line + assumption · Flagged · Bugs found · Skipped; Δ lines and
+Δ complexity per touched function); gate output before/after; DONE (applied N, flagged M) | BLOCKED (gate red first).
 ```
 
 ## Code Quality Reviewer

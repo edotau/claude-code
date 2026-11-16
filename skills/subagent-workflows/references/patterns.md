@@ -18,19 +18,19 @@ site in a script (`internal/hooks/leaves.go` `Effort`).
 | --- | --- | --- | --- |
 | Pipeline | `code-workers.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
 | Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
-| Expert pool | `code-engineer.js` sizing router | `haiku` sizer picks the route | tier table, `dispatch-effort` |
-| Producer-reviewer | fix, guard test, gate · rederive | implementer vs blind re-deriver | guard test and gate exit codes |
+| Expert pool | `code-engineer.js` sizing router | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort` |
+| Producer-reviewer | fix, test repair, gate · rederive | implementer vs blind re-deriver | repaired tests and gate exit codes |
 | Supervisor | main session + leaves | `claude`, `codex`/`copilot`/`gemini`/`opencode`, `Explore` | dispatch cap, `dispatch-stop` ran-on |
 | Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
 
 ### Pipeline
 
 ```text
-package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fix -> guard test -> gate(p)
+package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fix -> test repair -> gate(p)
 ```
 
-- Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped plus
-  `internal/schemas` when a writer changed.
+- Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped:
+  `go build ./... && go vet <pkg> && go test <pkg>` from `claude-code worktree gate --scope`, or `args.gate`.
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
 
 ### Fan-out / fan-in
@@ -55,13 +55,13 @@ task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers per top-level dir in 
 
 - Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
   Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
-- Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` only by a
-  `steps` pin.
+- Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; code-analyzer's
+  per-package implementer runs `opus` for high-severity findings; any other `opus`/`fable` only by a `steps` pin.
 
 ### Producer-reviewer
 
 ```text
-fix -> test agent writes guard test -> gate
+fix -> test repair (new tests are proposed, never written) -> gate(p)
 finder claim -> blind re-derivation from file:line + symptom -> reproduced | dropped | unverified
 ```
 
@@ -81,7 +81,7 @@ main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -
 
 ```text
 main -> Workflow code-engineer -> workflow(code-workers | code-analyzer) -> in-script stages -> agent() leaves
-main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script stageGate
+main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script stageLoop
 ```
 
 - `code-engineer` returns its children's merged result plus tier, route, polish, files, `verdict` and `reportPath`.

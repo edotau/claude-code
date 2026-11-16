@@ -5,7 +5,9 @@ Fill-in templates for the harness's composites. Shapes: [patterns.md](patterns.m
 
 Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 114 / 8.8M). code-workers estimate is
 `6 x packages + 3 x fixed packages` (the script logs it at launch) plus 2 (size, record). Dispatch cap:
-24 per account, one slot per `agent()` site, so a 15-package run is claimed at the cap, not its real count.
+24 per account; the hook claims one slot per `agent(` call site in the script text (code-workers 5, code-engineer 11,
+code-evaluator 4, code-analyzer 2, code-looper 1), clamped to the 24 per-account cap and the machine total, so a run
+is claimed at its script's call-site count, not its real agent count.
 
 ## A. code-engineer: size, route, stream, record
 
@@ -15,15 +17,16 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
-| Size | sizer, `haiku` low | task, `git status`, `go list` | `{tier, packages, paths, focus}` | tier enum | decision line |
+| Size | sizer, `haiku` low | task, `git status`, `go list` | `{kind, packages, paths, focus, reason}`; the script computes the tier | kind enum fix\|feature\|refactor\|audit\|consolidate\|architecture | decision line |
 | Route | none (code) | tier | `code-workers:paths` · `code-workers:packages` · `plan` (prefixed `code-analyzer→` or `code-evaluator→` when they run first) | EPIC returns early | route line |
 | Run | code-workers (composite B) | paths or packages | code-workers result | exit `green\|red\|review` | child decisions |
 | Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
 | Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |
-| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one Fix-all, guard test and gate per package (no second child run) | decision |
+| Review | reviewer, `sonnet` high, read-only | that merged diff | findings | any finding (lows too) earns one Fix-all, test and gate per package (no second child run) | decision |
 | Record | recorder, `haiku` low | report, decisions | paths written | two files exist | the memory files |
 
-- **Args**: [saved-workflows.md](saved-workflows.md) → `code-engineer` row. Exits `green|red|review|plan|error`.
+- **Args**: [saved-workflows.md](saved-workflows.md) → `code-engineer` row. Exits `green|red|review|plan|error`, or a
+  child's `blocked|stalled|incomplete|capped`.
 - **Cost**: HIGH over N packages is code-workers's estimate plus 2; R10 6 packages 60 agents, R11 15 packages 114.
 - **Failure modes and guards**: sizer returns nothing, so pass `tier`; owner messages reach running agents (open);
   classifier outage blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
@@ -31,7 +34,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
   `agent()` calls replay from cache (R7's fix round re-ran only 12 new agents; R8's resumed the same way). Results land
   in `$(claude-code memory path reports DATE-<label>.md)` and `DATE-decisions.md`.
 
-## B. code-workers: find, rederive, fix, guard test, gate, simplify, review, fix-all
+## B. code-workers: find, rederive, fix, test repair, gate, simplify, review, fix-all
 
 - **Use when**: audit and repair named packages or files; `fix:false` for review only (R7, R8 shape).
 
@@ -40,37 +43,40 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Find x2 lenses | `sonnet` medium, read-only | package | findings (file, line, symbol, severity) | merge by file +-10 or symbol | merged count |
 | Rederive | `sonnet` medium, blind | file:line + symptom | reproduced, scenario, severity | reproduced=false drops; null = unverified | dropped, unverified |
 | Fix | `sonnet` medium | confirmed >= `minFix` | `{status, files, callers}` | status `done` or red | fixed count |
-| Guard test | `sonnet` medium | the diff | one test per fix | guard test passes | test report |
-| Gate | `haiku` low | package | `{green, output}` | build, vet, test; plus `internal/schemas` for a writer | green or red |
-| Simplify | `sonnet` medium | the package's changed files | applied, flagged, Δ lines | simplify gate; reverts its own regressing edit; skipped if `polish:false`, budget < 150k, or fix not done/green | "simplify: N applied" |
-| Review | `sonnet` high, read-only | the package diff | findings (file, line, symbol, symptom, severity) | correctness + contract lenses | "review: N findings (sev counts)" |
-| Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate` | every review finding, lows included | fixed count; guard tests; `{green}` | one cycle per package; red re-gate or unfinished fix-all = red | "fix-all: N fixed" |
+| Test | `steps.test` `sonnet` medium | the diff | repairs the tests the fix broke, writes no new test (proposed in `proposedTests`) | the tests pass | test report |
+| Gate | `haiku` low | package | `{exit, residual, ...}` from `stageLoop` | `claude-code worktree gate --scope <pkg>` (build ./..., vet, test of the package) or `args.gate` | green or red |
+| Dedupe / Simplify | `sonnet` medium | once over the merged diff of the packages that went green after the stream (Dedupe needs 2+ packages) | applied, flagged, Δ lines | simplify gate; reverts its own regressing edit; skipped if `polish:false` or budget < 150k | "simplify: N applied" |
+| Review | `sonnet` high, read-only | that merged diff | findings (file, line, symbol, symptom, severity) | correctness + contract lenses | "review: N findings (sev counts)" |
+| Fix-all, Test, re-Gate | `steps.fix`, `test`, `gate` | every review finding, lows included | fixed count; repaired tests; `{green}` | each package with review findings gets one cycle; red re-gate or unfinished fix-all = red | "fix-all: N fixed" |
 
 - **Foreign re-route**: a finding citing a file outside its finder's package is fixed after the stream by the owning
   directory (`d51420fb`); a live re-route run is still owed.
 - **Args**: [saved-workflows.md](saved-workflows.md) → `code-workers` row; `slice` (first N packages) for a first run.
-- **Cost**: `6 x P + 3 x fixed` (+4 per fixed package with polish: simplify, review,
-  and when findings exist fix-all, test, re-gate); yield 7.0 to 7.5 confirmed findings per 1M tokens.
+- **Cost**: `6 x P + 3 x fixed`, plus polish once over the merged diff: +2-3 agents
+  and +3 per package with review findings; yield 7.0 to 7.5 confirmed findings per 1M tokens.
 - **Failure modes**: scoped gate misses cross-package breakage (`16d36662`): full suite before push; fixer blocked
   but gate green is red (`07f86477`); an out-of-scope hunk in a fix is reverted by the supervisor.
-- **Results**: returns `{exit, confirmed, dropped, unverified, fixed (each with simplify, review, fixall), red,
-  decisions, report}`; direct runs record nothing, so go through (A) when the run should be filed.
+- **Results**: returns `{exit, route, packages, merged, confirmed, dropped, unverified, fixed [{pkg, findings,
+  attempted, status, landed, impl, test, gate, files}], red, residual, polish, files, foreign, seams, lines,
+  proposedTests, over, gates, decisions, report, coworkers}`; direct runs record nothing, so go through (A) when the
+  run should be filed.
 
 ## C. MEDIUM feature: intel, implementer, code-workers harden
 
-- **Use when**: a 2 to 5 file task with a feature verb (`build|add|implement|create|introduce|support|write`, not
-  `audit|review`); this is code-engineer's MEDIUM route.
+- **Use when**: a task of 2 to 8 files in at most 3 dirs whose `kind` is feature or refactor (`kind` arg, else the
+  sizer's; with neither, the leading task verb: `build|add|implement|create|introduce|support|write|finish|refactor|
+  move|migrate|replace|rewire|fold|extract|retire|remove|delete|rename|phase`); this is code-engineer's MEDIUM route.
 
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
 | Intel | `sonnet` medium, read-only | task, sized paths | `{paths, focus}` | empty keeps sized paths | decision |
 | Implementer | `sonnet` medium | files, task, focus | `{status, summary}` | gofmt, go vet; writes no tests | status line |
-| Harden | code-workers on the files | paths | composite B result | guard test, gate | child decisions |
+| Harden | code-workers on the files | paths | composite B result | test repair, gate | child decisions |
 
 - **Call**: `Workflow({scriptPath: ".../code-engineer.js", args: {cwd, task: "add X", tier: "MEDIUM"}})`.
 - **Cost**: 2 + code-workers on 1 to 3 packages, about 8 to 20 agents (about 0.6M to 1.6M tokens, extrapolated).
 - **Failure modes**: code-workers only fixes bugs, so a build is the implementer's job.
-- **Resume**: re-run with `paths` set to the files the implementer touched and no feature verb, which skips it.
+- **Resume**: re-run with `paths` set to the files the implementer touched and `kind: 'fix'`, which skips it.
 
 ## D. EPIC: plan draft, owner approval, rounds over package groups
 
@@ -137,9 +143,11 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
   `whenToUse` (USE / CALL / OPTIONAL / RETURNS) and `phases`.
 - A row in the table of [saved-workflows.md](saved-workflows.md); `claude-code workflow lint` fails on a script
   missing from it or a row naming no script.
-- Copy `stepOf` verbatim (markers `── stepOf: copied verbatim` to `── end stepOf ──`) from
-  `~/.claude/workflows/code-workers.js`; every stage reads its pin through it.
-- Every `agent()` call pins `model:` and `effort:`; external-stage overrides follow `saved-workflows.md`.
+- Copy the `stepOf` block (`// ── stepOf:` to `// ── end stepOf ──`) from `~/.claude/workflows/code-looper.js`, the
+  canonical file; after editing it run `claude-code workflow sync ~/.claude/workflows/code-looper.js`; every stage
+  reads its pin through it.
+- Every `agent()` call pins `model:` (an `agentType:` alone does not count) and `effort:`; external-stage overrides
+  follow `saved-workflows.md`.
 - Return the shared result shape above; `ERR(...)` for bad args; no shell state outside agents; plain JavaScript.
 - A log line with the agent estimate at launch, and a `slice` arg for the first run.
 - Run once on a small slice, then update the table and `whenToUse`.
