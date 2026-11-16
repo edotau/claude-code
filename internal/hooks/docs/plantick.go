@@ -38,7 +38,7 @@ var leadingCD = sync.OnceValue(func() *regexp.Regexp {
 // Tick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
 func Tick(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.ToolName != "Bash" || !core.GitCommitCmd.MatchString(cmd) {
+	if in.ToolName != "Bash" || !core.GitCommitCmd().MatchString(cmd) {
 		return core.Result{}
 	}
 	out := in.Nested("tool_response", "stdout")
@@ -48,7 +48,7 @@ func Tick(in *core.Input) core.Result {
 	var blocks []string
 	var stderr bytes.Buffer
 	seen := map[string]bool{}
-	for _, m := range core.CommitLine.FindAllStringSubmatch(out, -1) {
+	for _, m := range core.CommitLine().FindAllStringSubmatch(out, -1) {
 		if !seen[m[1]] {
 			seen[m[1]] = true
 			blocks = append(blocks, tickCommit(in, cmd, m[1], &stderr)...)
@@ -134,7 +134,7 @@ func commitCandidates(cwd, cmd string) []string {
 	}
 	var cands []string
 	for _, seg := range cmdSegment().Split(cmd, -1) { // only commit invocations name a candidate repo
-		if !core.GitCommitCmd.MatchString(seg) {
+		if !core.GitCommitCmd().MatchString(seg) {
 			continue
 		}
 		if m := gitDirArg().FindStringSubmatch(seg); m != nil {

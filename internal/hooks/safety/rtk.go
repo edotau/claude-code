@@ -204,7 +204,7 @@ func rtkWrapped(word, bin string) bool {
 // rtkVetoed reports whether cmd stays out of rtk: wrapped, linked-worktree git, any commit, machine flags, value git.
 func rtkVetoed(cmd, cwd, bin string) bool {
 	tokens := shell.Tokens(cmd)
-	if len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd.MatchString(cmd) {
+	if len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd().MatchString(cmd) {
 		return true
 	}
 	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git

@@ -20,9 +20,11 @@ import (
 
 var (
 	// GitCommitCmd matches a shell segment that runs `git commit`.
-	GitCommitCmd = regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`)
+	GitCommitCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`) })
 	// CommitLine matches the `[branch sha] subject` line git prints for a landed commit.
-	CommitLine = regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
+	CommitLine = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
+	})
 )
 
 // AnchorPath anchors a relative path to cwd; an empty path or cwd leaves it unchanged.
@@ -68,16 +70,30 @@ func NestedIn(top string, worktrees []string) []string {
 	return out
 }
 
-// LazyCompile compiles the patterns on first use and caches them.
-func LazyCompile(pats ...string) func() []*regexp.Regexp {
-	return sync.OnceValue(func() []*regexp.Regexp {
-		out := make([]*regexp.Regexp, len(pats))
-		for i, p := range pats {
-			out[i] = regexp.MustCompile(p)
-		}
-		return out
-	})
+// Gated is a regexp compiled on first use and tried only on text holding one of its required literals.
+type Gated struct {
+	src  string
+	lits []string
+	re   func() *regexp.Regexp
 }
+
+// Gate is pat gated on lits: every string pat can match must contain one of them; no lits means ungated.
+func Gate(pat string, lits ...string) *Gated {
+	return &Gated{src: pat, lits: lits, re: sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(pat) })}
+}
+
+// MayMatch reports whether s holds one of the literals, the precondition for any match.
+func (g *Gated) MayMatch(s string) bool {
+	return len(g.lits) == 0 || slices.ContainsFunc(g.lits, func(l string) bool { return strings.Contains(s, l) })
+}
+
+// MatchString is the regexp's MatchString, skipped (and never compiled) when s lacks every literal.
+func (g *Gated) MatchString(s string) bool { return g.MayMatch(s) && g.re().MatchString(s) }
+
+// Regexp is the compiled pattern with no gate.
+func (g *Gated) Regexp() *regexp.Regexp { return g.re() }
+
+func (g *Gated) String() string { return g.src }
 
 // CapContext trims merged context to ContextCapChars, cutting the later blocks first.
 func CapContext(s string) string {
@@ -102,9 +118,11 @@ func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) str
 }
 
 var (
-	deliveryRe = regexp.MustCompile(`(?s)<(agent-message|task-notification)\b.*?</(?:agent-message|task-notification)>` +
-		`|Another Claude session sent a message:`)
-	reminderRe = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+	deliveryRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?s)<(agent-message|task-notification)\b.*?</(?:agent-message|task-notification)>` +
+			`|Another Claude session sent a message:`)
+	})
+	reminderRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`) })
 )
 
 // AutomatedDelivery reports whether prompt is only an agent hand-back or task notification, with no user-typed text.
@@ -113,8 +131,8 @@ func AutomatedDelivery(prompt string) bool {
 	if strings.HasPrefix(p, "[SYSTEM NOTIFICATION - NOT USER INPUT]") {
 		return true
 	}
-	rest := deliveryRe.ReplaceAllString(p, "")
-	return rest != p && strings.TrimSpace(reminderRe.ReplaceAllString(rest, "")) == ""
+	rest := deliveryRe().ReplaceAllString(p, "")
+	return rest != p && strings.TrimSpace(reminderRe().ReplaceAllString(rest, "")) == ""
 }
 
 // seenWait bounds the seen-store lock wait; hooks must not stall, so a held lock fails open.
