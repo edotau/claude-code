@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,6 +62,35 @@ func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool,
 		return nil, drift, err
 	}
 	return p, drift, nil
+}
+
+// SyncConfigs renders each agent's config alone and returns those that differ; skipped = not a harness home.
+func SyncConfigs(o agentconfig.RenderOptions) (changed []string, skipped bool, err error) {
+	if skipConfigHomes(o) {
+		return nil, true, nil
+	}
+	agents := o.Agents
+	if len(agents) == 0 {
+		agents = DefaultAgents
+	}
+	for _, a := range agents {
+		probe := o
+		probe.Agents, probe.Check, probe.Out = []string{a}, true, io.Discard
+		drift, rerr := RenderConfigs(probe)
+		if rerr == nil && drift && !o.Check && !o.DryRun {
+			write := o
+			write.Agents, write.Out = []string{a}, io.Discard
+			_, rerr = RenderConfigs(write)
+		}
+		if rerr != nil {
+			err = errors.Join(err, fmt.Errorf("%s: %w", a, rerr))
+			continue
+		}
+		if drift {
+			changed = append(changed, a)
+		}
+	}
+	return changed, false, err
 }
 
 func skipConfigHomes(o agentconfig.RenderOptions) bool {
