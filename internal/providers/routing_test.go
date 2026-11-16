@@ -8,8 +8,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// TestRoutingOverlayMergesWeightsCellsAndOpencode checks a `routing` overlay object merges its weights,
-// cells and opencode.* fields onto the defaults, cell by cell for Cells, whole-value for the rest.
 func TestRoutingOverlayMergesWeightsCellsAndOpencode(t *testing.T) {
 	overlay := []byte(`{"routing": {
 		"weights": {"price": 0.3, "headroom": 0.7},
@@ -66,8 +64,6 @@ func TestValidateRejectsBadFreeFirstOutput(t *testing.T) {
 	}
 }
 
-// TestUpdateRoutingRoundTripsAndKeepsPrev checks UpdateRouting writes the merged routing object, reads
-// back the same value on reload, and keeps the previous overlay generation as providers.prev.
 func TestUpdateRoutingRoundTripsAndKeepsPrev(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := UpdateRouting(func(r *Routing) error {
@@ -104,10 +100,7 @@ func TestUpdateRoutingRoundTripsAndKeepsPrev(t *testing.T) {
 	}
 }
 
-// TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit checks an explicitly-empty freeTiers ("none", a
-// pointer to an empty slice, not nil/unset) round-trips through UpdateRouting and a reload, blocks zen-free
-// at every alias, and survives an unrelated field's own UpdateRouting write (the pointer distinction from
-// OpencodeRouting's doc comment: nil is unset, &[]string{} is explicitly empty).
+// An explicitly empty freeTiers (pointer to an empty slice) round-trips, blocks zen-free and survives unrelated edits.
 func TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	empty := []string{}
@@ -143,8 +136,6 @@ func TestFreeTiersNoneRoundTripsAndSurvivesUnrelatedEdit(t *testing.T) {
 	}
 }
 
-// TestUpdateRoutingRejectsInvalidResult checks a fn that leaves the routing object invalid (an out-of-range
-// weight) fails UpdateRouting without writing the vault.
 func TestUpdateRoutingRejectsInvalidResult(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	err := UpdateRouting(func(r *Routing) error {
@@ -172,8 +163,7 @@ func TestValidateRouteCellsOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// TestDefaultLadderSplitsCopilotRungByProvider checks the default ladder's first two rungs are copilot,
-// one per provider (databricks, github), each carrying a model list, so the provider is never left open.
+// The default ladder's first two rungs are copilot, one per provider (databricks, github), each carrying a model list.
 func TestDefaultLadderSplitsCopilotRungByProvider(t *testing.T) {
 	reg, err := Parse(defaultsJSON, nil)
 	if err != nil {

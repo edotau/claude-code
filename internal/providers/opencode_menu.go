@@ -240,7 +240,8 @@ func AppendPickerModels(p *Provider, live []ModelInfo) (added []ModelInfo, err e
 	name, scope := pickerKey(p), pickerScope(p)
 	baseline := OpencodeMenu()
 	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		added = nil // UpdateSealed may retry after a concurrent key rotation.
+		// UpdateSealed may retry after a concurrent key rotation.
+		added = nil
 		c := pickerCatalog{Schema: 1, Scope: scope}
 		record, found, err := tx.Record(name)
 		if err != nil {

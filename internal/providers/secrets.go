@@ -53,8 +53,7 @@ func RouteSecretGuard() func(string) bool {
 	}
 }
 
-// SecretNames unions every env var the harness itself reads (each enabled provider's auth.env, the
-// setup-token) with the names index `vault set` has already written — never a hand copy of either.
+// SecretNames unions every env var the harness reads (provider auth.env, setup-token) with the `vault set` names index.
 func SecretNames() []string {
 	var out []string
 	if reg, err := Load(); err == nil {
@@ -104,7 +103,8 @@ func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, 
 			vals[k] = v
 			continue
 		}
-		if InternalSecretName(name) || route(name) { // a ref must not alias past the scrub, its own name included
+		// a ref must not alias past the scrub, its own name included
+		if InternalSecretName(name) || route(name) {
 			missing = append(missing, k)
 			continue
 		}

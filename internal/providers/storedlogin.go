@@ -12,8 +12,7 @@ import (
 // loginSecretSuffix ends every oauth profile's login secret name (SecretName upper-cases the method).
 var loginSecretSuffix = "_" + strings.ToUpper(AuthOAuth)
 
-// LoginSecretProvider is the configured oauth row whose login secret is name; nil for any other name. The suffix test
-// only skips the registry load for ordinary secrets; the row is matched by AuthSecretName.
+// LoginSecretProvider is the oauth row whose login secret is name, else nil; the suffix test only skips a load.
 func LoginSecretProvider(name string) *Provider {
 	if !strings.HasSuffix(name, loginSecretSuffix) {
 		return nil
@@ -39,9 +38,7 @@ func CheckLoginRecord(name, value string) error {
 	return nil
 }
 
-// VerifyStoredLogin tries p's just-stored login once under its refresh lock and returns the one line to print. A
-// working login is sealed like a fresh one (rotated refresh token and seal time kept) and its dead mark cleared; a
-// refused one stays stored and marked; a network or lock failure clears the mark so the next request tries it once.
+// VerifyStoredLogin tries p's just-stored login once under its refresh lock and returns the line to print.
 func VerifyStoredLogin(ctx context.Context, p *Provider) string {
 	tok, _, err := lockedUserMint(ctx, p, true, expiryMargin)
 	switch {

@@ -11,8 +11,8 @@ import (
 // Target is one resolved (provider, wire model id) pair.
 type Target struct {
 	Provider *Provider
-	Model    string // plain wire id, never [1m]-marked
-	OneM     bool   // the user typed [1m]; ClientModel keeps it only where models.Keeps1M honours it
+	Model    string
+	OneM     bool
 }
 
 // ClientModel is t's id on its own provider: [1m]-marked only as the user typed it.
@@ -69,8 +69,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	return sel, nil
 }
 
-// ClientModel is the id Claude Code is given for alias: a same-provider id (with [1m] where the provider
-// serves it), or a "provider:model" spec the router resolves.
+// ClientModel is the id Claude Code gets for alias: a same-provider id (with [1m] where served) or a router spec.
 func (s Selection) ClientModel(alias string) string {
 	t, ok := s.Aliases[alias]
 	if !ok {
@@ -82,8 +81,7 @@ func (s Selection) ClientModel(alias string) string {
 	return t.ClientModel()
 }
 
-// NeedsRouter reports whether the session must go through the loopback router: an alias crosses providers, a model
-// rides a non-anthropic wire, the provider lacks an Anthropic route or renames ids, or a failover ladder is set.
+// NeedsRouter reports whether the session needs the loopback router: cross-provider alias, other wire, renamed ids.
 func (s Selection) NeedsRouter(reg *Registry) bool {
 	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
 		return true
@@ -101,8 +99,7 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthCLI
 }
 
-// FailoverTarget maps a request that failed on from/model to the equivalent model on next: same alias when from's
-// table knows the model, else the id's exact Claude version where next spells ids, else its family slot, else opus.
+// FailoverTarget maps a failed from/model to its equivalent on next: same alias, else Claude version, family, opus.
 func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool) {
 	alias := from.AliasOf(model)
 	if alias == "" {
@@ -119,9 +116,7 @@ func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool)
 	return Target{}, false
 }
 
-// WireFor is the one rule for which wire model uses on p, from p's routes and the catalog: a Claude model takes the
-// anthropic route; a Responses model the responses route; anything else the openai route. ok is false, with why, when p
-// has no such route.
+// WireFor picks the wire model uses on p: Claude anthropic, a Responses model responses, else openai; why when not ok.
 func WireFor(p *Provider, model string) (wire string, ok bool, why string) {
 	has := func(d string) bool { _, ok := p.Route(d); return ok }
 	claude := models.FamilyKind(model) == models.FamilyClaude
@@ -147,8 +142,7 @@ func ClaudeCodeError(p *Provider, model string) error {
 	return nil
 }
 
-// AnthropicRoute is the anthropic route model rides on p, or false: WireFor picked it, or the model is unservable on a
-// non-Databricks row (third-party hosts serve their own models there; Databricks' anthropic route is Claude-only).
+// AnthropicRoute is the anthropic route model rides on p, or false when unservable on a non-Databricks row.
 func AnthropicRoute(p *Provider, model string) (string, bool) {
 	route, has := p.Route(ProtocolAnthropic)
 	if !has {

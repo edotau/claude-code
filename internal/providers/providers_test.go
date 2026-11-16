@@ -31,8 +31,8 @@ const overlay = `{
 
 func load(t *testing.T) *Registry {
 	t.Helper()
-	vaulttest.UseKeyring(t)         // scratch config dir + in-memory keyring: never the real OS keyring
-	t.Setenv(EnvSessionProfile, "") // a session launched with a provider pin must not leak into the registry tests
+	vaulttest.UseKeyring(t)
+	t.Setenv(EnvSessionProfile, "")
 	reg, err := Parse(defaultsJSON, []byte(overlay))
 	if err != nil {
 		t.Fatal(err)
@@ -89,8 +89,7 @@ func TestOverlayAndRoutes(t *testing.T) {
 	}
 }
 
-// opencode_fallback exists to substitute for a catalog "auto" id opencode can't resolve itself; letting
-// opencode_fallback itself be "auto" would recreate the exact value it's supposed to replace.
+// opencode_fallback substitutes for an "auto" id opencode cannot resolve, so it may not itself be "auto".
 func TestValidateRejectsOpencodeFallbackAuto(t *testing.T) {
 	bad := &Provider{Protocol: ProtocolAnthropic, BaseURL: "https://x", Auth: Auth{Type: AuthKey, Header: HeaderXAPIKey, Env: "X_KEY"}, OpencodeFallback: "auto"}
 	err := (&Registry{Providers: map[string]*Provider{"x": bad}}).validate()
@@ -153,7 +152,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	if sel.Provider.Name != "gw" {
 		t.Fatalf("provider %s", sel.Provider.Name)
 	}
-	if got := sel.ClientModel("opus"); got != "claude-opus-4-8" { // gw has one_m unset
+	if got := sel.ClientModel("opus"); got != "claude-opus-4-8" {
 		t.Errorf("opus client model %q", got)
 	}
 	if got := sel.ClientModel("haiku"); got != "openai:gpt-5-nano" {
@@ -175,7 +174,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	}
 }
 
-// A passthrough (login) session never routes on the fallback ladder alone: the router's base URL disables Remote Control.
+// A passthrough (login) session never routes on the fallback ladder alone: the router base URL disables Remote Control.
 func TestNeedsRouterPassthroughFallback(t *testing.T) {
 	reg := &Registry{Fallback: []string{"gw"}, Providers: map[string]*Provider{
 		"sub": {Name: "sub", Protocol: "anthropic", BaseURL: "https://api.anthropic.com", Auth: Auth{Type: AuthCLI}, Models: map[string]string{"opus": "o"}},
@@ -282,8 +281,7 @@ func TestStoredSecretAndCredentialOrder(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsUnknownRouteTierAndAgent checks Registry.validate catches an overlay cell naming a
-// agent or alias outside RouteAgents/RouteAliases before it ever reaches router.LoadFrom.
+// Registry.validate catches an overlay cell naming an agent or alias outside RouteAgents/RouteAliases.
 func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
 	badTier := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{"opencode": {"ultra": {Model: "x"}}}}}
 	if err := badTier.validate(); err == nil || !strings.Contains(err.Error(), "unknown alias") {
@@ -295,10 +293,7 @@ func TestValidateRejectsUnknownRouteTierAndAgent(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsUnknownAccountKeyAndOpencodePrefix checks Registry.validate catches an explicit
-// account_key naming no known billing entry and an opencode cell whose override model prefix has no
-// derivable billing account, while letting a "github·" dynamic key and an off-agent "/" model override
-// (no account-key rule applies outside opencode) through.
+// Registry.validate catches an unknown account_key and an opencode override prefix with no billing account.
 func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 	badAccount := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Cells: map[string]map[string]RouteCell{
 		"opencode": {"sonnet": {Model: "opencode-go/y", Account: "nobody:nothing"}},
@@ -326,8 +321,7 @@ func TestValidateRejectsUnknownAccountKeyAndOpencodePrefix(t *testing.T) {
 	}
 }
 
-// TestValidateRejectsOutOfRangeRouteWeight checks an overlay weight outside [0,1] (or one that doesn't sum
-// to 1 across the dimensions) fails Validate, rather than silently reaching router with a bad score.
+// An overlay weight outside [0,1], or not summing to 1, fails Validate before reaching router.
 func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
 	outOfRange := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Weights: map[string]float64{"price": 1.5, "headroom": -0.5}}}
 	if err := outOfRange.validate(); err == nil || !strings.Contains(err.Error(), "outside [0,1]") {
@@ -339,8 +333,7 @@ func TestValidateRejectsOutOfRangeRouteWeight(t *testing.T) {
 	}
 }
 
-// TestAPIKeyAuth: only a harness-held credential (x-api-key or bearer) is a per-token request worth
-// recording in the usage ledger — a vendor-CLI passthrough login (subscription) or no auth is not.
+// Only a harness-held credential (x-api-key or bearer) is a per-token request worth recording in the usage ledger.
 func TestAPIKeyAuth(t *testing.T) {
 	cases := []struct {
 		authType string
@@ -396,9 +389,9 @@ func TestSecretName(t *testing.T) {
 		{"databricks", "prod", AuthOAuth, "DATABRICKS_PROD_OAUTH"},
 		{"databricks", "dbx-dev.1", AuthM2M, "DATABRICKS_DBX_DEV_1_M2M"},
 		{"databricks", "qa", AuthPAT, "DATABRICKS_QA_PAT"},
-		{"anthropic", "anthropic", AuthKey, "ANTHROPIC_KEY"}, // collapse: profile == provider
-		{"anthropic", "work", AuthKey, "ANTHROPIC_WORK_KEY"}, // no collapse
-		{"openai", "openai", AuthKey, "OPENAI_KEY"},          // collapse
+		{"anthropic", "anthropic", AuthKey, "ANTHROPIC_KEY"},
+		{"anthropic", "work", AuthKey, "ANTHROPIC_WORK_KEY"},
+		{"openai", "openai", AuthKey, "OPENAI_KEY"},
 		{"github", "personal", AuthOAuth, "GITHUB_PERSONAL_OAUTH"},
 		{"anthropic", "ultra", AuthCLI, ""},
 		{"", "x", AuthKey, ""},

@@ -65,8 +65,7 @@ func codexCachedModels() ([]ModelInfo, error) {
 	return out, nil
 }
 
-// modelDeniedRE covers the narrow markers meaning "this key cannot use this MODEL at all" (a lower alias on
-// the same account may still serve): Gemini free tier ("limit: 0"), OpenAI ("insufficient_quota").
+// modelDeniedRE covers markers meaning this key cannot use this MODEL at all: Gemini free tier, OpenAI quota.
 var modelDeniedRE = regexp.MustCompile(`limit: 0|exceeded your current quota|insufficient_quota|quota exceeded for metric`)
 
 // accountTail is the account-exhaustion alternation shared by accountRE and hardAccountRE.
@@ -76,10 +75,7 @@ const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:mon
 // accountRE covers markers meaning this ACCOUNT is exhausted (plan window, credits, a 402), not a rate limit.
 var accountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
 
-// hardAccountRE is accountRE's subset ModelDenied vetoes on: a 402, "payment required", "usage limit", a
-// named monthly/weekly plan quota, or credits out. Deliberately drops accountRE's "exceeded your current
-// quota/limit" — Gemini's free-tier per-model denial reuses that exact phrase alongside "limit: 0"
-// (modelDeniedRE), and that one is a MODEL-specific denial, not account-wide exhaustion.
+// hardAccountRE is accountRE's subset ModelDenied vetoes on, minus "exceeded your current quota" (Gemini per-model).
 var hardAccountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
 
 // ModelDenied reports whether text denies this MODEL on the key (demote); hardAccountRE exhaustion vetoes it.
@@ -94,8 +90,7 @@ func IsQuota(text string) bool {
 	return accountRE.MatchString(low) || modelDeniedRE.MatchString(low)
 }
 
-// Demote returns p's next lower alias target below model (opus → sonnet → haiku); ok is false at the bottom
-// or when p has no distinct model there. Skipping models the caller already knows are dead is its job.
+// Demote returns p's next lower alias target below model (opus → sonnet → haiku); ok is false at the bottom.
 func Demote(p *Provider, model string) (Target, bool) {
 	alias := p.AliasOf(model)
 	if alias == "" {

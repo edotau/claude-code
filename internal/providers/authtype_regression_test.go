@@ -43,7 +43,7 @@ func rotRow(t *testing.T) (*Provider, *[]string, string) {
 	origDelay := sealRetryDelay
 	sealRetryDelay = time.Millisecond
 	t.Cleanup(func() { sealRetryDelay = origDelay; unsealedRefresh.Delete("rot-carry") })
-	broken := t.TempDir() // state is a file here, so every vault write fails
+	broken := t.TempDir()
 	if err := os.WriteFile(filepath.Join(broken, "state"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

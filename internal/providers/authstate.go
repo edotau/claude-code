@@ -14,13 +14,14 @@ import (
 
 // AuthState is one credential's sign-in as status rows render it, for an agent CLI or a provider row.
 type AuthState struct {
-	Present  bool      // a credential is on hand (not validated)
-	Account  string    // the identity it signs in as ("octocat"); "" when unknown offline
-	Source   string    // where it comes from: "ChatGPT login (codex login)", "gh (active)", "COPILOT_GITHUB_TOKEN (stored)"
-	Method   string    // AuthCLI, AuthPAT, AuthKey, AuthOAuth or AuthNone
-	PlanHint string    // the raw plan the offline probe reports ("max"); "" when none
-	Expires  time.Time // token expiry; zero when none is known
-	Err      error     // the local probe failed (spawn, timeout, unreadable file): unknown, never "logged out"
+	Present  bool
+	Account  string
+	Source   string
+	Method   string
+	PlanHint string
+	Expires  time.Time
+	// the local probe failed (spawn, timeout, unreadable file): unknown, never "logged out"
+	Err error
 }
 
 // Label renders "account via source", or the source alone when the account is unknown.
@@ -34,7 +35,8 @@ func (a AuthState) Label() string {
 // Subscription is the plan a sign-in holds: Raw feeds agent_plans matching, Name the "(Max 20x)" label.
 type Subscription struct {
 	Raw, Name string
-	Account   string // the identity a network lookup named when AuthState.Account was empty
+	// the identity a network lookup named when AuthState.Account was empty
+	Account string
 }
 
 var maxTierRE = regexp.MustCompile(`max_(\d+x)`)
@@ -76,10 +78,9 @@ func ClaudeAccount() ClaudeOAuthAccount {
 	return cfg.Account
 }
 
-// ProviderStatus is one provider's credential state: which source would serve it today, never the
-// value itself.
+// ProviderStatus is one provider's credential state: which source would serve it today, never the value.
 type ProviderStatus struct {
-	Source string // env | vault | auth.file | command | cli | none
+	Source string
 	Note   string
 }
 
@@ -129,14 +130,14 @@ func profileSecretSource(p *Provider, st *ProviderStatus) string {
 	mode, _ := ResolveIdentity(p.Identity, "")
 	oauth := p.Auth.Type == AuthOAuth && p.Auth.SPClientID != ""
 	spName := SecretName(p.Provider, p.Name, AuthM2M)
-	if oauth && mode == IdentitySP { // identity sp ignores the user login's slot
+	if oauth && mode == IdentitySP {
 		name = spName
 	}
 	if name == "" {
 		return ""
 	}
 	source, err := vault.HasSecretErr(name)
-	if source == "" && err == nil && oauth && mode == IdentityAuto { // auto falls back to the paired SP
+	if source == "" && err == nil && oauth && mode == IdentityAuto {
 		source, err = vault.HasSecretErr(spName)
 	}
 	if err != nil && st.Note == "" {

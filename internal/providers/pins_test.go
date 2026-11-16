@@ -159,8 +159,7 @@ func checkProviderDefault(t *testing.T, sel Selection, alias string) {
 	}
 }
 
-// HasSecret reports env|vault|"" from presence alone: it never resolves a key, so a wrong key, a
-// down keyring and no keyring at all change nothing.
+// HasSecret reports env|vault|"" from presence alone and never resolves a key.
 func TestHasSecretNeverResolvesAKey(t *testing.T) {
 	lockVault(t, "HAS_NAME", "sealed")
 	t.Setenv("HAS_NAME", "")
@@ -191,7 +190,7 @@ func TestHasSecretNeverResolvesAKey(t *testing.T) {
 	}
 }
 
-// CopilotModel resolves the copilot record's model first, else the github-copilot opus alias; COPILOT_MODEL env is ignored.
+// CopilotModel resolves the record's model, else the github-copilot opus alias; COPILOT_MODEL env is ignored.
 func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	reg := load(t)
 	t.Setenv("COPILOT_MODEL", "from-env")
@@ -208,8 +207,7 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	}
 }
 
-// Codex and gemini models resolve the shell env first (source "env VAR"), then the record pin, else ""/"default";
-// codex effort reads the record only.
+// Codex and gemini models resolve the shell env, then the record pin, else ""/"default"; codex effort reads the record.
 func TestAgentPinResolversEnvOverPin(t *testing.T) {
 	load(t)
 	for _, c := range []struct {
@@ -250,10 +248,10 @@ func TestAgentModelEnvNamesTheExternalAgents(t *testing.T) {
 	}
 }
 
-// TestSelectDoesNotTranslateLegacyDatabricksPin: a databricks-<env>[-oai] pin is taken as written, never mapped to <env>.
+// A databricks-<env>[-oai] pin is taken as written, never mapped to <env>.
 func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 	reg := selectTestRegistry(t)
-	row := *reg.Providers[reg.Default] // a migrated <env> preset row the old pin used to be rewritten to
+	row := *reg.Providers[reg.Default]
 	row.Name, row.Preset = "qa", PresetDatabricks
 	reg.Providers["qa"] = &row
 	for _, pin := range []string{"databricks-qa", "databricks-dev-oai"} {
@@ -304,8 +302,8 @@ func TestCopilotLogin(t *testing.T) {
 func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 	reg := copilotLoginReg(t, "")
 	for _, tc := range []struct{ in, name string }{
-		{"tester", "tester"},   // login -> profile
-		{"octocat", "octocat"}, // unmigrated login stays raw
+		{"tester", "tester"},
+		{"octocat", "octocat"},
 		{"", ""},
 	} {
 		if got := GithubAccountName(reg, tc.in); got != tc.name {

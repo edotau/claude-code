@@ -278,7 +278,7 @@ func mergeOverlay(reg *Registry, overlay []byte) error {
 
 // applyOverlay merges overlay fields o into base, cell by cell for routes and whole-value for scalars.
 func applyOverlay(base, o *Registry) error {
-	if err := applyProviderOverlay(base, o); err != nil { // first, so a refused overlay leaves base untouched
+	if err := applyProviderOverlay(base, o); err != nil {
 		return err
 	}
 	if o.Default != "" {
@@ -316,7 +316,8 @@ func applyProviderOverlay(base, o *Registry) error {
 		return errors.Join(errs...)
 	}
 	for n, p := range o.Providers {
-		if p == nil { // "name": null removes a built-in
+		// "name": null removes a built-in
+		if p == nil {
 			delete(base.Providers, n)
 			continue
 		}
@@ -325,12 +326,12 @@ func applyProviderOverlay(base, o *Registry) error {
 	return nil
 }
 
-// applyRoutingOverlay merges o into base: cells cell by cell (matching how router.LoadFrom applies
-// them), every other field replaced whole when the overlay sets it.
+// applyRoutingOverlay merges o into base: cells cell by cell, every other field replaced whole when set.
 func applyRoutingOverlay(base, o *Routing) {
 	mergeCells(base, o)
 	if o.Weights != nil {
-		base.Weights = o.Weights // an overlay replaces the weights whole, per its docstring
+		// an overlay replaces the weights whole, per its docstring
+		base.Weights = o.Weights
 	}
 	if o.ServedAware != nil {
 		base.ServedAware = o.ServedAware
@@ -342,7 +343,8 @@ func applyRoutingOverlay(base, o *Routing) {
 		if base.Ladders == nil {
 			base.Ladders = map[string][]Rung{}
 		}
-		base.Ladders[name] = ladder // a ladder is one owned list: replaced whole by name
+		// a ladder is one owned list: replaced whole by name
+		base.Ladders[name] = ladder
 	}
 	applyOpencodeOverlay(&base.Opencode, &o.Opencode)
 }

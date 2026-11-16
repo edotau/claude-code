@@ -20,10 +20,10 @@ import (
 
 // Wire protocols a provider route can speak.
 const (
-	ProtocolAnthropic = "anthropic" // POST {route}/v1/messages
-	ProtocolOpenAI    = "openai"    // POST {route}/chat/completions
-	ProtocolResponses = "responses" // POST {route}/responses
-	ProtocolGemini    = "gemini"    // Google-native generateContent
+	ProtocolAnthropic = "anthropic"
+	ProtocolOpenAI    = "openai"
+	ProtocolResponses = "responses"
+	ProtocolGemini    = "gemini"
 )
 
 const GroupDatabricks = "databricks"
@@ -52,15 +52,13 @@ type Provider struct {
 	// Protocol is the wire protocol BaseURL itself speaks; Routes add further dialects (gateway paths).
 	Protocol string            `json:"protocol"`
 	BaseURL  string            `json:"base_url"`
-	Routes   map[string]string `json:"routes,omitempty"` // dialect → path suffix or absolute URL
+	Routes   map[string]string `json:"routes,omitempty"`
 	Auth     Auth              `json:"auth"`
-	Models   map[string]string `json:"models,omitempty"` // alias (opus/sonnet/haiku/fable) → model id
+	Models   map[string]string `json:"models,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
-	// OpencodeFallback is the model id opencode's own render substitutes whenever an alias resolves to
-	// "auto" (a router alias some CLIs serve but opencode's provider catalog does not list).
+	// OpencodeFallback is the model id opencode substitutes when an alias resolves to "auto", absent from its catalog.
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
-	// OpencodeID is this provider's key in opencode's own auth.json/provider catalog (e.g. "openai",
-	// "github-copilot", "google", "nvidia"); empty means the opencode hub cannot route to it.
+	// OpencodeID is this provider's key in opencode's auth.json and catalog; empty means opencode cannot route to it.
 	OpencodeID string `json:"opencodeID,omitempty"`
 	// Preset names an expansion ("databricks") that derives protocol/base_url/routes/auth/models/env at load.
 	Preset string `json:"preset,omitempty"`
@@ -81,7 +79,7 @@ const oneMMarker = "[1m]"
 
 // UnmarshalJSON decodes a row and resolves a key row's default header from its protocol.
 func (p *Provider) UnmarshalJSON(b []byte) error {
-	type plain Provider // no UnmarshalJSON, so the alias cannot recurse
+	type plain Provider
 	if err := json.Unmarshal(b, (*plain)(p)); err != nil {
 		return err
 	}
@@ -89,10 +87,9 @@ func (p *Provider) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON redacts at the type: an inline gateway token in Headers never reaches a JSON dump, and
-// has_secret_headers says one exists. A writer that wants the raw map must not go through Marshal.
+// MarshalJSON redacts an inline Headers token and sets has_secret_headers; a raw-map writer must not use Marshal.
 func (p Provider) MarshalJSON() ([]byte, error) {
-	type plain Provider // no MarshalJSON, so the alias cannot recurse
+	type plain Provider
 	v := plain(p)
 	v.Headers = textutil.RedactSecretMap(p.Headers)
 	return json.Marshal(struct {
@@ -103,18 +100,19 @@ func (p Provider) MarshalJSON() ([]byte, error) {
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).
 type Auth struct {
-	Type    string `json:"type,omitempty"`    // oauth | m2m | pat | key | cli | none
-	Header  string `json:"header,omitempty"`  // key/oauth/m2m/pat: x-api-key | bearer (key defaults by dialect)
-	Env     string `json:"env,omitempty"`     // env var, also read from the vault
-	File    string `json:"file,omitempty"`    // file holding the credential (~ expanded)
-	Command string `json:"command,omitempty"` // shell command printing the credential (keychain, op, OAuth mint)
-	TTL     int    `json:"ttl,omitempty"`     // seconds a Command result may be cached; 0 = 300
-	Login   string `json:"login,omitempty"`   // cli only: agent CLI whose own sign-in serves it (codex, copilot)
+	Type    string `json:"type,omitempty"`
+	Header  string `json:"header,omitempty"`
+	Env     string `json:"env,omitempty"`
+	File    string `json:"file,omitempty"`
+	Command string `json:"command,omitempty"`
+	// seconds a Command result may be cached; 0 = 300
+	TTL   int    `json:"ttl,omitempty"`
+	Login string `json:"login,omitempty"`
 	// RefreshCommand forces a fresh credential; run when Command's token is near expiry or on a 401.
 	RefreshCommand string `json:"refreshCommand,omitempty"`
-	ClientID       string `json:"clientId,omitempty"`   // m2m service-principal client id (not secret)
-	SPClientID     string `json:"spClientId,omitempty"` // paired oauth service-principal client id (not secret)
-	// AccountID and WorkspaceID are non-secret Databricks ids; validated by authtype, shown in --list json and written to the databricks config plan.
+	ClientID       string `json:"clientId,omitempty"`
+	SPClientID     string `json:"spClientId,omitempty"`
+	// AccountID and WorkspaceID are non-secret Databricks ids, shown in --list json and in the databricks config plan.
 	AccountID   string `json:"accountId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
 }
@@ -124,8 +122,7 @@ func (p Provider) APIKeyAuth() bool {
 	return p.Auth.HeaderStyle() != ""
 }
 
-// Route returns the base URL serving dialect: an explicit route (absolute, or a path joined onto
-// BaseURL), else BaseURL itself when dialect == Protocol.
+// Route returns the base URL serving dialect: an explicit route (absolute or joined to BaseURL), else BaseURL.
 func (p Provider) Route(dialect string) (string, bool) {
 	if r, ok := p.Routes[dialect]; ok && r != "" {
 		if u, err := url.Parse(r); err == nil && u.IsAbs() {
@@ -182,8 +179,9 @@ type Registry struct {
 	// AgentPlanFormat renders a plan's mode column from {provider} {mode} {tier} {id}; empty = lowercase default.
 	AgentPlanFormat string `json:"agentPlanFormat,omitempty"`
 	// Routing is the one routing object (routing.go): weights, cells, switches, ladders, opencode's sub-pick knobs.
-	Routing Routing  `json:"routing,omitzero"`
-	order   []string // profile names in declared order (defaults first, then new overlay rows); see ProfilesOf
+	Routing Routing `json:"routing,omitzero"`
+	// profile names in declared order (defaults first, then new overlay rows); see ProfilesOf
+	order []string
 }
 
 // RouteCell is one overlay cell for internal/router's table.
@@ -199,8 +197,7 @@ var RouteAgents = []string{agentid.Claude, agentid.Copilot, agentid.Codex, agent
 // RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 
-// routeWeightNames are the dimension names a route weights map must sum to 1 over (internal/router's
-// Dimension.Name(); today "price", "headroom"); this package only validates shape, router owns the scoring.
+// routeWeightNames are the dimensions a route weights map must sum to 1 over; router owns scoring, this package shape.
 var routeWeightNames = []string{"price", "headroom"}
 
 // OwnLoginAccountKeys are each vendor's own CLI login on its own subscription (the hops a databricks route keeps).
@@ -230,8 +227,7 @@ func routeModelPrefix(model string) string {
 	return prefix
 }
 
-// ValidateRouteWeights requires one weight per routeWeightNames entry, each in [0,1], summing to 1; an
-// empty map is skipped (an overlay that does not touch weights leaves the table's own weights alone).
+// ValidateRouteWeights requires one weight per routeWeightNames entry in [0,1] summing to 1; an empty map is skipped.
 func ValidateRouteWeights(weights map[string]float64) error {
 	if len(weights) == 0 {
 		return nil
@@ -253,8 +249,7 @@ func ValidateRouteWeights(weights map[string]float64) error {
 	return nil
 }
 
-// Plan is one sign-in plan: ID matches the raw plan ID the login reports (* globs); Tier and Provider override
-// the detected plan name and the agent's agent.
+// Plan is one sign-in plan: ID matches the plan ID the login reports (* globs); Tier and Provider override detection.
 type Plan struct {
 	ID       string `json:"id"`
 	Tier     string `json:"tier,omitempty"`
@@ -297,8 +292,7 @@ func (p *Provider) DatabricksUsable() bool {
 	return Verdict(err) == VerdictOK
 }
 
-// ProfilesOf lists the profile names under one provider in declared order (dev, qa, prod); a row built in Go
-// without a declared position follows, sorted.
+// ProfilesOf lists a provider's profile names in declared order; a row built in Go without a position follows, sorted.
 func (r *Registry) ProfilesOf(provider string) []string {
 	var out []string
 	for _, n := range r.order {
@@ -455,8 +449,7 @@ func validateAuthKind(n string, p *Provider) []string {
 	return errs
 }
 
-// validateNameRefs checks default/fallback names against known providers (opencode ladder names are
-// checked by validateRouting, in routing.go).
+// validateNameRefs checks default/fallback names against known providers; validateRouting checks opencode ladder names.
 func validateNameRefs(r *Registry) []string {
 	var errs []string
 	for _, n := range append([]string{r.Default}, r.Fallback...) {

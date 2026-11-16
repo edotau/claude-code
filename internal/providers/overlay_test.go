@@ -60,8 +60,7 @@ func wantOverlay(t *testing.T, key, want, format string) {
 	}
 }
 
-// TestSetProviderModelSeedsBuiltinEntry: a provider absent from the overlay keeps its built-in auth/route/opencodeID
-// when one alias is changed (an overlay entry replaces the built-in whole, so a models-only entry would break it).
+// A models-only overlay entry replaces the built-in whole, so changing one alias must keep its auth and route.
 func TestSetProviderModelSeedsBuiltinEntry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := SetProviderModel("copilot", "haiku", "gpt-x-mini"); err != nil {

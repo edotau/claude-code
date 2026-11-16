@@ -25,9 +25,7 @@ func SetProviderFields(name string, fields map[string]any) error {
 	})
 }
 
-// UpdateOverlayDoc runs fn on the raw overlay/providers doc, returning it before and after; apply=false writes nothing.
-// fn sees top["providers"] as flat {profile: row}; the stored document is always nested by provider.
-// A write that changes an existing row's sealed auth.type is refused; use UpdateOverlayDocForce to allow it.
+// UpdateOverlayDoc runs fn on the flat providers doc and writes it nested; a sealed auth.type change needs ...Force.
 func UpdateOverlayDoc(apply bool, fn func(top map[string]json.RawMessage, tx *vault.Tx) error) (oldDoc, newDoc []byte, err error) {
 	return UpdateOverlayDocForce(apply, false, fn)
 }
@@ -228,7 +226,7 @@ func AddGithubAccount(login string) error {
 	}
 	return updateProviderFields(login, func(entry map[string]json.RawMessage) error {
 		maps.Copy(entry, base)
-		delete(entry, "opencodeID") // opencode's own Copilot sign-in belongs to one profile, the built-in one
+		delete(entry, "opencodeID")
 		entry["provider"], entry["login"] = json.RawMessage(`"github"`), quoted
 		return nil
 	})
@@ -330,7 +328,8 @@ func overlayAuthTypes(doc []byte) (map[string]string, error) {
 // checkAuthTypeChange refuses a write that changes an existing row's sealed auth.type (add/drop of a row is fine).
 func checkAuthTypeChange(oldDoc, newDoc []byte) error {
 	oldK, err := overlayAuthTypes(oldDoc)
-	if err != nil { // fail closed: an undecodable current overlay hides any auth.type change
+	// fail closed: an undecodable current overlay hides any auth.type change
+	if err != nil {
 		return fmt.Errorf("current provider overlay does not decode (%w); auth.type changes refused without force", err)
 	}
 	newK, err := overlayAuthTypes(newDoc)
@@ -390,8 +389,7 @@ func rawOrNull(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// decodeRows reads a providers value, nested {provider: {profile: row}}; known maps built-in profiles to providers.
-// It rejects a profile that appears under two providers.
+// decodeRows reads a nested {provider: {profile: row}} value and rejects a profile that appears under two providers.
 func decodeRows(raw json.RawMessage, known map[string]string) (map[string]rawRow, error) {
 	out := map[string]rawRow{}
 	if len(raw) == 0 || IsNull(raw) {

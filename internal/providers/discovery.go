@@ -156,8 +156,8 @@ func decodeCatalogPage(body []byte, source string) (doc catalogDoc, empty bool, 
 		return doc, false, errors.New("invalid catalog JSON object")
 	}
 	array := catalogArrayKey(source)
-	// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints.
-	if len(fields) == 0 && array != "data" { // an empty object has no array field either
+	// Protobuf JSON omits empty repeated fields for Gemini and serving endpoints, so an empty object has no array either.
+	if len(fields) == 0 && array != "data" {
 		return doc, true, nil
 	}
 	if !validCatalogArray(fields, array) {

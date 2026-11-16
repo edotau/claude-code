@@ -20,8 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// EnvSessionProfile is the env var a launcher stamps into a session's child env so its statusline and hooks
-// know the session's profile.
+// EnvSessionProfile is the env var a launcher stamps into a session's child env so its statusline and hooks see it.
 const EnvSessionProfile = "CLAUDE_PROFILE"
 
 // agentRecords reads every stored agent record in one vault transaction.
@@ -114,7 +113,7 @@ func EnvModel(ctx context.Context, agent string) (model, envVar string) {
 	return strings.TrimSpace(proc.Value(ctx, envVar)), envVar
 }
 
-// effectiveModel is the model a launch uses: the shell env over the record's model; source "env VAR", "pin" or "default".
+// effectiveModel is the launch model: the shell env over the record's model; source is "env VAR", "pin" or "default".
 func effectiveModel(agent string) (model, source string) {
 	if m, v := EnvModel(context.Background(), agent); m != "" {
 		return m, "env " + v
@@ -141,8 +140,7 @@ func pinned(v string) (value, source string) {
 	return "", "default"
 }
 
-// ReadEnvFile parses KEY=VALUE lines (# comments, optional export, optional quotes); a missing file is empty,
-// any other read error is noted on stderr (path only) with the keys read so far.
+// ReadEnvFile parses KEY=VALUE lines; a missing file is empty, any other read error is noted on stderr (path only).
 func ReadEnvFile(path string) map[string]string {
 	out := map[string]string{}
 	f, err := os.Open(path)
@@ -241,7 +239,7 @@ func recordFields(r vault.AgentRecord) map[string]string {
 
 // RenderPins renders the vault pins table as the plain-text snapshot history records.
 func RenderPins() ([]byte, error) {
-	var pins map[string]string // non-agent keys; agent settings live in records
+	var pins map[string]string
 	err := vault.View(func(tx *vault.Tx) error { pins = tx.All(vault.Pins); return nil })
 	if err != nil {
 		return nil, err
@@ -332,7 +330,7 @@ func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 	if ms, err := SplitModelSpec(reg, spec); err == nil && ms.Row != "" {
 		return spec
 	}
-	if providerFlag == cmp.Or(strings.TrimSpace(AgentRecord("claude").Profile), reg.Default) { // Select's own baseline
+	if providerFlag == cmp.Or(strings.TrimSpace(AgentRecord("claude").Profile), reg.Default) {
 		return spec
 	}
 	return providerFlag + ":" + spec
@@ -410,8 +408,7 @@ func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) str
 	return name
 }
 
-// SessionName: a loopback proxy base /p/<name> (a routed launch), else the session profile (CLAUDE_PROFILE env, then
-// the vault pin), else the registry default.
+// SessionName is the /p/<name> proxy base of a routed launch, else the session profile (env, pin), else the default.
 func SessionName() (name string, routed bool) {
 	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil {
 		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {

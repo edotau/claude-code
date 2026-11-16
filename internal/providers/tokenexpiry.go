@@ -50,7 +50,8 @@ func JWTExp(v string) (int64, bool) {
 type tokenExpiryRecord struct {
 	Schema int    `json:"schema"`
 	Exp    *int64 `json:"exp"`
-	Method string `json:"method,omitempty"` // statusline vocabulary of the minting credential: u2m, m2m, pat, ...
+	// statusline vocabulary of the minting credential: u2m, m2m, pat, ...
+	Method string `json:"method,omitempty"`
 }
 
 // recordTokenExpiry stores only the exp claim of a JWT credential and the method that minted it; errors are ignored.
@@ -67,7 +68,8 @@ func recordTokenExpiry(name, v, method string) {
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
-	_ = paths.AtomicWrite(path, b, 0o600) // temp+rename: a concurrent TokenExpiry never reads a truncated file
+	// temp+rename: a concurrent TokenExpiry never reads a truncated file
+	_ = paths.AtomicWrite(path, b, 0o600)
 }
 
 // spExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).
@@ -79,8 +81,7 @@ func TokenExpiry(name string) (time.Time, bool) {
 	return exp, ok
 }
 
-// TokenExpiryMethodFor is the row's expiry plus its method ("" when it names none) for a session identity: user and sp
-// read only their own record, auto the latest minted.
+// TokenExpiryMethodFor is the row's expiry and method for a session identity: user and sp read their own record.
 func TokenExpiryMethodFor(name, identity string) (time.Time, string, bool) {
 	exp, method, at, ok := readTokenExpiry(name)
 	spExp, spMethod, spAt, spOK := readTokenExpiry(name + spExpirySuffix)

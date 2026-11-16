@@ -29,7 +29,7 @@ func TestSPMintKeepsUserExpiryRecord(t *testing.T) {
 	if got, ok := TokenExpiry(p.Name); !ok || got.Unix() != userExp {
 		t.Errorf("user expiry = %d (%v), want the user token's %d, not the SP's %d", got.Unix(), ok, userExp, spExp)
 	}
-	old := time.Now().Add(-time.Minute) // the user record predates the SP mint past any mtime granularity
+	old := time.Now().Add(-time.Minute)
 	if err := os.Chtimes(tokenExpiryPath(p.Name), old, old); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestTokenExpiryReadTolerant(t *testing.T) {
 		`{"exp":"soon"}`:                false,
 		`not json`:                      false,
 		`{}`:                            false,
-		`{"schema":1,"exp":1893456000}`: false, // a v1 record is a cache miss
+		`{"schema":1,"exp":1893456000}`: false,
 		`{"schema":2,"exp":1893456000}`: true,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, "read-case.json"), []byte(body), 0o600); err != nil {

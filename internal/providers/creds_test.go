@@ -370,7 +370,7 @@ func (s *rotatingIdP) handle(_ *http.Request, f url.Values) (int, map[string]any
 		return 200, map[string]any{"access_token": "login-access", "refresh_token": s.rotate(), "expires_in": 3600}
 	}
 	s.refreshes.Add(1)
-	time.Sleep(5 * time.Millisecond) // widen the race window
+	time.Sleep(5 * time.Millisecond)
 	s.mu.Lock()
 	tok := f.Get("refresh_token")
 	s.presented = append(s.presented, tok)
@@ -424,7 +424,7 @@ func checkUniqueRefreshTokens(t *testing.T, tokens []string) {
 	}
 }
 
-// concurrentRefreshes fires n calls released together (even: Refresh, odd: Credential) and returns their closed error channel.
+// concurrentRefreshes fires n calls released together (even: Refresh, odd: Credential) and returns their error channel.
 func concurrentRefreshes(p *Provider, n int) <-chan error {
 	var wg sync.WaitGroup
 	errs := make(chan error, n)
@@ -556,8 +556,7 @@ func callbackOpener(port int) func(string) error {
 	}
 }
 
-// lockVault seeds name in the vault, then swaps HARNESS_VAULT_KEY for a different key with an empty
-// keyring behind it, so the record exists but nothing can open it.
+// lockVault seeds name in the vault, then swaps HARNESS_VAULT_KEY so the record exists but nothing can open it.
 func lockVault(t *testing.T, name, value string) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -793,7 +792,7 @@ func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 	done := make(chan struct{})
 	go func() { _, _ = Credential(context.Background(), p); close(done) }()
 	select {
-	case <-started: // the non-forced flight is registered, its mint is running
+	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("non-forced mint never started")
 	}
@@ -839,7 +838,7 @@ func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _, _ = Credential(lctx, p) }() // leader
+	go func() { _, _ = Credential(lctx, p) }()
 	waitFlightSignal(t, started.ready)
 	vals, errs := make([]string, 5), make([]error, 5)
 	var wg sync.WaitGroup
@@ -847,7 +846,7 @@ func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
 		wg.Add(1)
 		go func(i int) { defer wg.Done(); vals[i], errs[i] = Credential(context.Background(), p) }(i)
 	}
-	cancel() // leader's ctx dies mid-mint: the command is blocked on the gate and has already logged its start
+	cancel()
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -970,8 +969,7 @@ func killPID(pid int) {
 	}
 }
 
-// gone reports whether pid has exited; a zombie counts (a slow-reaping init must not fail the test), and an
-// inspection failure fails the test rather than passing it.
+// gone reports whether pid has exited; a zombie counts, and an inspection failure fails the test.
 func gone(t *testing.T, pid int) bool {
 	t.Helper()
 	if !proc.Alive(pid) {
@@ -1057,9 +1055,9 @@ func TestForcedRefreshServesNewerSealedToken(t *testing.T) {
 		t.Fatalf("Credential: hits %d, err %v", hits.Load(), err)
 	}
 	served, _ := cmdCache.Load(p.Name)
-	cmdCache.Store(p.Name, cached{value: served.(cached).value, until: time.Now().Add(-time.Second)}) // past its cache window
+	cmdCache.Store(p.Name, cached{value: served.(cached).value, until: time.Now().Add(-time.Second)})
 	peer := jwtExpIn(2*time.Hour, "https://x")
-	putAccess(t, p, peer) // another process sealed a newer token
+	putAccess(t, p, peer)
 	if got, err := Refresh(ctx, p); err != nil || got != peer || hits.Load() != 1 {
 		t.Fatalf("Refresh = %q, %v (hits %d); want the peer's sealed token with no mint", got, err, hits.Load())
 	}
@@ -1100,7 +1098,7 @@ func TestVaultErrorOnUserPathServesPairedSP(t *testing.T) {
 		name := map[bool]string{false: "auto", true: "dispatch"}[headless]
 		t.Run(name, func(t *testing.T) {
 			p, m2m, _, note := spHarness(t, IdentityAuto)
-			t.Setenv(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret") // the SP secret does not need the vault
+			t.Setenv(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret")
 			corruptVault(t)
 			ctx := context.Background()
 			if headless {
