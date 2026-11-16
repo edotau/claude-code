@@ -180,14 +180,14 @@ func recentTranscripts(now time.Time) []sweepCand {
 	return recent
 }
 
-// SweepOptions are `memory catchup`'s parsed flags: DryRun lists without saving, Skip is the session to leave alone.
+// SweepOptions are `memory update --catchup`'s flags: DryRun lists without saving, Skip is the session to leave alone.
 type SweepOptions struct {
 	DryRun         bool
 	Skip           string
 	Stdout, Stderr io.Writer
 }
 
-// CatchUpSweep is `memory catchup`: saves up to catchupMax finished sessions whose update was missed.
+// CatchUpSweep is `memory update --catchup`: saves up to catchupMax finished sessions whose update was missed.
 func CatchUpSweep(o SweepOptions) int {
 	stdout, stderr := o.Stdout, o.Stderr
 	current := o.Skip

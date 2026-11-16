@@ -539,7 +539,7 @@ var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
 
 const reapGrace = 2 * time.Second
 
-// Seams for tests: the process finder and the sleep; the group probe/killer live in leafreap_{unix,other}.go.
+// Seams for tests: the process finder and the sleep; the group probe/killer live in leaves_{unix,other}.go.
 var (
 	reapHolders = outputHolders
 	reapSleep   = time.Sleep

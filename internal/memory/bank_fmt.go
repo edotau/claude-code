@@ -1,6 +1,6 @@
 package memory
 
-// Wraps long lines in the bank markdown the harness writes (never index.md or MEMORY.md), across every store and home/.
+// Wraps long lines in the bank markdown the harness writes (never index.md or MEMORY.md), across the flat store.
 
 import (
 	"errors"

@@ -56,8 +56,8 @@ var memoryPlumbing = map[string][2]string{
 	"search":  {"<terms>", "rank blocks for terms, with scores"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"index":   {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
-	"path":    {"[SUB] [NAME]", "print the bank dir, or its handoffs|reports|knowledge|worktrees path"},
-	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
+	"path":    {"[SUB] [NAME]", "print a flat-store path: bank, handoffs|reports|knowledge|worktrees"},
+	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/<key>--*"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
 }

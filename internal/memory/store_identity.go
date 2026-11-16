@@ -17,7 +17,7 @@ import (
 type Identity struct {
 	Origin   string // canonical main checkout ("" when HomeBank)
 	Base     string // filepath.Base(Origin)
-	HomeBank bool   // non-repo cwd → memory/home/ (home tier)
+	HomeBank bool   // non-repo cwd → unprefixed files in the store (home tier)
 	Harness  bool   // the config checkout itself → Key harnessStoreKey()
 }
 

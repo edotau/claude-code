@@ -174,7 +174,7 @@ func root(repo string) string {
 	if !ran {
 		top = GitToplevel(cwd)
 	}
-	// Inside the store its own toplevel is the store root; keep cwd so memory/<repo>/ resolves to that repo.
+	// Inside the store its own toplevel is the store root; keep cwd so the <repo>-- files resolve to that repo.
 	if top != "" && !paths.SamePath(top, StoreDir()) {
 		return top
 	}
@@ -190,7 +190,7 @@ var bankFiles = []string{
 // BankFiles exports the six typed filenames for callers outside this package.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 
-// sessionHistoryMaxEntries rotates the oldest sessionHistory entries to <bank>/archive/.
+// sessionHistoryMaxEntries rotates the oldest sessionHistory entries to archive/<key>--*.
 const sessionHistoryMaxEntries = 30
 
 // bankLockFile is the ONE store-wide lock; every harness write and every memory Git operation runs under it.
