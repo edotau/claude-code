@@ -72,7 +72,7 @@ func overlayAccount(ctx context.Context) string {
 
 // routedModel is t with the model ResolveModel spells for t's row: req.Model typed, else the record pin, else opus.
 func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Target, applied bool) (providers.Target, string, error) {
-	if t.Provider == nil || applied && req.Model != "" {
+	if t.Provider == nil || applied && req.Model != "" && !req.CellModel {
 		if t.Provider == nil && req.Model != "" && !slices.Contains(models.AliasNames, req.Model) {
 			t.Model = req.Model
 		}
@@ -82,9 +82,13 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	if err != nil {
 		return t, "", err
 	}
-	r, err := ResolveModel(reg, QueryFor(ctx, ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name}), time.Now())
+	typed := req.Model
+	if req.CellModel {
+		typed = "" // a router cell's model is not the caller's: the resolver picks on the row (D3)
+	}
+	r, err := ResolveModel(reg, QueryFor(ctx, ModelQuery{Agent: s.Name, Model: typed, Profile: t.Provider.Name}), time.Now())
 	switch {
-	case errors.Is(err, ErrModelRoute) && req.Model == "":
+	case errors.Is(err, ErrModelRoute) && typed == "":
 		return t, "", nil // a record model the row cannot serve keeps the row's own tier model
 	case errors.Is(err, ErrModelRoute):
 		return t, "", &UsageError{Msg: "--model " + req.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}

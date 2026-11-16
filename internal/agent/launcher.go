@@ -97,7 +97,7 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 
 // launchRoute is ResolveModel for an interactive launch: o.Provider is the typed --profile, the agent pin the rest.
 func launchRoute(ctx context.Context, reg *providers.Registry, name string, o LaunchOptions) (ModelRoute, error) {
-	q := QueryFor(valuesContext(ctx, o.Values), ModelQuery{Agent: name, Model: o.Model, Profile: o.Provider, Interactive: true})
+	q := QueryFor(valuesContext(ctx, o.Values), ModelQuery{Agent: name, Model: o.Model, Profile: o.Provider, Interactive: !o.Dispatch})
 	q.Session = "" // a launch has no session lead: the pin decides
 	r, err := ResolveModel(reg, q, time.Now())
 	if errors.Is(err, ErrModelRoute) {

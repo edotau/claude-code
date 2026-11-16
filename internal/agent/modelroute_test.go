@@ -41,6 +41,7 @@ func TestResolveModel(t *testing.T) {
 		{"copilot", "business:claude-opus-5.5", "business", "claude-opus-5.5"},
 		{"copilot", "business:opus", "business", "gpt-6-astra"},
 		{"copilot", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
+		{"codex", "openai:opus", "openai", "gpt-5"},
 	}
 	for _, c := range cells {
 		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Model: c.model}, time.Now())

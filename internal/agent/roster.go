@@ -297,7 +297,7 @@ func servesModel(spec Schema, agent string, p *providers.Provider, model string)
 		return false, why
 	}
 	_, routed := spec.CLI.RouterSuffix[wire]
-	if !routed && !slices.Contains(spec.CLI.Dialects, wire) {
+	if !routed && !slices.Contains(spec.CLI.Dialects, wire) && p.Preset == providers.PresetDatabricks {
 		return false, fmt.Sprintf("%s does not speak the %s wire that provider %s uses for %s", agent, wire, p.Name, model)
 	}
 	return true, ""

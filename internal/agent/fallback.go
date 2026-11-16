@@ -651,7 +651,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Provider, out.SessionID = "", ""
 	}
 	if !disp.keepCaller {
-		out.Model = disp.Model
+		out.Model, out.CellModel = disp.Model, first && !strings.Contains(disp.Model, ":") // a <profile>: cell is a pin
 	}
 	if out.Effort == "" {
 		out.Effort = disp.Effort

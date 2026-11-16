@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
@@ -380,6 +381,9 @@ func (t *RouteTable) gateBase(
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
 		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		if fb := vault.GetAgentRecord(agent).Fallback; len(group) == 0 && fb != "" && fb != spec.Profile && o.Fallback != FallbackNone && o.Fallback != "" {
+			group = t.gatePinned(ctx, pg.reg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res) // record fallback hop
+		}
 		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
