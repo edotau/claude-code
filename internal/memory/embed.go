@@ -524,7 +524,7 @@ func decodeEmbeddings(raw []byte) ([][]float32, error) {
 }
 
 func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
-	for i := 0; i < len(texts) && embedErr == nil; i += embedBatch { // network calls stay outside any transaction
+	for i := 0; i < len(texts); i += embedBatch { // network calls stay outside any transaction
 		j := min(i+embedBatch, len(texts))
 		vecs, err := r.c.EmbedFunc(ctx, texts[i:j])
 		if err == nil && len(vecs) != j-i {
