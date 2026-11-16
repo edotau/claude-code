@@ -188,20 +188,23 @@ func readLeaf(path string, w leafWant) (r leafRead) {
 		return r
 	}
 	defer f.Close()
-	seenIDs, seenFiles := map[string]bool{}, map[string]bool{}
+	seenFiles := map[string]bool{}
 	r.scanErr = textutil.EachLineErr(f, func(b []byte) {
-		if w.ids {
-			r.ids = transcript.AppendDispatchIDs(r.ids, seenIDs, b)
-		}
 		if w.files {
 			r.files = appendOutputFiles(r.files, seenFiles, b)
 		}
-		if w.brief {
+		if w.brief || w.ids && (bytes.Contains(b, toolUseKey) || bytes.Contains(b, toolResultKey)) {
 			r.scan.addLine(b)
 		}
 	})
 	if r.scanErr != nil {
 		r.files = nil // an unreadable transcript reaps nothing
+	}
+	if w.ids {
+		for _, p := range r.scan.bgAsks {
+			r.scan.addIDs(readEnds(p, savedResultCap))
+		}
+		r.ids = r.scan.ids
 	}
 	return r
 }
@@ -329,6 +332,15 @@ var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
 })
 
+// ownIDRe matches the dispatch ids an ask prints of its own job: exit line, job start, json envelope.
+var ownIDRe = sync.OnceValue(func() *regexp.Regexp {
+	const id = `(\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+)`
+	return regexp.MustCompile(`ask: dispatch ` + id + `|job ` + id + ` started|"(?:id|dispatch_id)":\s*"` + id + `"`)
+})
+
+// toolUseKey and toolResultKey prefilter the lines an ids-only read parses; an escaped quote in prose never matches.
+var toolUseKey, toolResultKey = []byte(`"tool_use"`), []byte(`"tool_result"`)
+
 // askLaunchWindow is how long after a leaf's ask call its dispatch record may start; a later one is another job.
 const askLaunchWindow = 2 * time.Minute
 
@@ -338,7 +350,7 @@ const handedBackMark = "Report delivered to your caller"
 // askCmdRe matches a command segment running claude-code agents ask|result or <agent> ask; a quoted mention never.
 var askCmdRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+|(?:timeout\s+\S+|nohup|env|time|command)\s+)*` +
-		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
+		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|dispatch)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
 })
 
 // didNotRunRe matches the lines an ask prints when no agent ran: its `did not run` line or a pre-run refusal.
@@ -350,8 +362,9 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 type leafScan struct {
 	seenBrief         bool
 	runLine           string          // the brief's opening `Run:` command, the one the hook runs
-	askTimes          []time.Time     // when each ask call was made, to find its dispatch record
-	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask or result
+	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
+	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, dispatch or result
+	ids               []string        // dispatch ids those calls' own results printed, in order: the leaf's jobs
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	resumed           bool
@@ -397,7 +410,7 @@ func (s *leafScan) addLine(b []byte) {
 			s.lastText = text
 		}
 	case m.Type != "user":
-	case !s.seenBrief: // the first user message is the brief
+	case !s.seenBrief && !bytes.Contains(b, toolResultKey): // the first user message is the brief
 		s.seenBrief = true
 		if first, _, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
 			s.runLine = strings.TrimSpace(strings.TrimPrefix(first, "Run:"))
@@ -411,6 +424,15 @@ func (s *leafScan) addBgAsk(text string) {
 	for _, m := range bgOutputPattern().FindAllStringSubmatch(text, -1) {
 		if !slices.Contains(s.bgAsks, m[1]) {
 			s.bgAsks = append(s.bgAsks, m[1])
+		}
+	}
+}
+
+// addIDs adds the not yet seen dispatch ids text prints in ownIDRe's shapes.
+func (s *leafScan) addIDs(text string) {
+	for _, m := range ownIDRe().FindAllStringSubmatch(text, -1) {
+		if id := m[1] + m[2] + m[3]; !slices.Contains(s.ids, id) {
+			s.ids = append(s.ids, id)
 		}
 	}
 }
@@ -434,14 +456,15 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 	}
 	for _, it := range items {
 		s.edited = s.edited || it.Type == "tool_use" && editTools[it.Name]
-		askCall := askCmdRe().MatchString(it.Input.Command)
+		calls := askCmdRe().FindAllStringSubmatch(it.Input.Command, -1)
+		askCall := len(calls) > 0
 		s.edited = s.edited || it.Type == "tool_use" && it.Name == "Bash" && !askCall && bashWrites(it.Input.Command)
 		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCall {
 			if s.askCalls == nil {
 				s.askCalls = map[string]bool{}
 			}
 			s.askCalls[it.ID] = true
-			if !at.IsZero() {
+			if !at.IsZero() && slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
 				s.askTimes = append(s.askTimes, at)
 			}
 		}
@@ -469,6 +492,7 @@ func (s *leafScan) scanResult(it leafToolResult) {
 	text := resultText(transcript.ContentText(it.Content))
 	if s.askCalls[it.ToolUseID] {
 		s.addBgAsk(text)
+		s.addIDs(text)
 		ran := ranOnPattern().MatchString(text)
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)

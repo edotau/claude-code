@@ -302,14 +302,15 @@ func TestDispatchPinBlockClaimsNothing(t *testing.T) {
 
 const leafJob = "20261030T101500.123-codex-abcd"
 
-// leafEnv isolates the config dir and returns a leaf transcript whose Bash tool result printed the given lines.
+// leafEnv isolates the config dir and returns a leaf transcript whose Bash ask calls printed the given lines.
 func leafEnv(t *testing.T, toolResults ...string) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	var sb strings.Builder
-	for _, r := range toolResults {
+	for i, r := range toolResults {
+		sb.WriteString(askCallLine("toolu_" + strconv.Itoa(i)))
 		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
-			{"type": "tool_result", "content": r}}}})
+			{"type": "tool_result", "tool_use_id": "toolu_" + strconv.Itoa(i), "content": r}}}})
 		sb.Write(line)
 		sb.WriteByte('\n')
 	}
@@ -318,6 +319,13 @@ func leafEnv(t *testing.T, toolResults ...string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// askCallLine is an assistant line whose Bash call id runs an ask: only its results can name the leaf's jobs.
+func askCallLine(id string) string {
+	line, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": `claude-code agents ask --agent codex "x"`}}}}})
+	return string(line) + "\n"
 }
 
 func writeDispatch(t *testing.T, id, body string) {
@@ -431,8 +439,9 @@ func TestLeafStopBlockKeepsSlot(t *testing.T) {
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
 	sub := writeMeta(t, tx, "a1", "u1")
 	agentTx := filepath.Join(sub, "agent-a1.jsonl")
-	line, _ := json.Marshal(map[string]any{"type": "tool_result", "content": startedLine()})
-	if err := os.WriteFile(agentTx, append(line, '\n'), 0o600); err != nil {
+	line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_result", "tool_use_id": "u", "content": startedLine()}}}})
+	if err := os.WriteFile(agentTx, append([]byte(askCallLine("u")), append(line, '\n')...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
@@ -460,9 +469,10 @@ func TestLeafJobIDs(t *testing.T) {
 	lines := []string{
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"I saw job ` + proseID + ` started"}]}}`,
 		`{"type":"user","message":{"content":"job ` + proseID + ` started"}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"job ` + textID + ` started\n"}]}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"id\":\"` + jsonID + `\",\"status\":\"running\"}"}]}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"job ` + textID + ` started again"}]}}`,
+		strings.TrimSpace(askCallLine("t")),
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"job ` + textID + ` started\n"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"{\"id\":\"` + jsonID + `\",\"status\":\"running\"}"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"job ` + textID + ` started again"}]}}`,
 	}
 	if err := os.WriteFile(tx, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -482,8 +492,9 @@ func TestLeafJobIDsEnvelopeAndExitLine(t *testing.T) {
 	const envID, exitID = "20261030T101500.123-codex-aaaa", "20261030T101501.456-claude-bbbb"
 	tx := filepath.Join(t.TempDir(), "agent.jsonl")
 	lines := []string{
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"agent\":\"codex\",\"dispatch_id\":\"` + envID + `\"}"}]}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"ask: dispatch ` + exitID + ` (replay)"}]}}`,
+		strings.TrimSpace(askCallLine("t")),
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"{\"agent\":\"codex\",\"dispatch_id\":\"` + envID + `\"}"}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"ask: dispatch ` + exitID + ` (replay)"}]}}`,
 	}
 	if err := os.WriteFile(tx, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1342,5 +1353,53 @@ func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
 	first, second := strings.Index(msg, "FINAL ANSWER first"), strings.Index(msg, "FINAL ANSWER second")
 	if blocked || reads < 2 || first < 0 || second < first || !strings.HasPrefix(msg, "NOTE: dispatch second ") {
 		t.Fatalf("got %+v (reads=%d), want both answers in dispatch order under the second job's receipt", r, reads)
+	}
+}
+
+// Regression (2026-11-16): ids in a listing the leaf ran, or a sibling's job started near its ask, are never its own.
+func TestHandbackIgnoresForeignDispatches(t *testing.T) {
+	const own, b, c = "20261116T180732.880-opencode", "20261116T180927.796-opencode", "20261116T180930.100-opencode"
+	listing := `{"id":"` + b + `","status":"ok"}` + "\njob " + c + " started\nask: dispatch " + c + "\n"
+	for _, list := range []bool{false, true} {
+		t.Run(fmt.Sprintf("listing=%v", list), func(t *testing.T) {
+			at := time.Now().Add(-3 * time.Minute).Truncate(time.Second)
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			dir := t.TempDir()
+			msg := func(typ string, ts time.Time, content any) string {
+				line, _ := json.Marshal(map[string]any{"type": typ, "timestamp": ts, "message": map[string]any{"content": content}})
+				return string(line) + "\n"
+			}
+			call := func(id, cmd string, ts time.Time) string {
+				return msg("assistant", ts, []map[string]any{{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]any{"command": cmd}}})
+			}
+			result := func(id, text string) string {
+				return msg("user", at, []map[string]any{{"type": "tool_result", "tool_use_id": id, "content": text}})
+			}
+			body := msg("user", at.Add(-time.Minute), "Objective: x\nAgent: opencode\n") +
+				call("t1", `claude-code agents ask --agent opencode "x"`, at) + result("t1", bgNotice(bgOutputFile(t, "working\n")))
+			if list {
+				body += call("t2", "claude-code agents status --format json", at.Add(2*time.Minute)) + result("t2", listing)
+			}
+			tx := filepath.Join(dir, "agent-a1.jsonl")
+			if err := os.WriteFile(tx, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"opencode"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for id, start := range map[string]time.Duration{own: time.Second, b: 95 * time.Second, c: 98 * time.Second} {
+				status := map[bool]string{true: "running", false: "ok"}[id == own]
+				logPath := writeJobFiles(t, id, "ANSWER "+id+"\n", "")
+				writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"opencode","status":%q,"pid":%d,"model":"m","log":%q}`,
+					id, at.Add(start).Format(time.RFC3339), status, os.Getpid(), logPath))
+			}
+			shrinkHandbackWait(t, own, 0, "", false)
+			r := Handback(handbackOf(leafInput(tx), "relay report"))
+			msg2, _ := r.UpdatedInput["message"].(string)
+			all := r.Reason + r.SystemMessage + msg2
+			if r.Decision != core.Block || !strings.Contains(r.Reason, own) || strings.Contains(all, b) || strings.Contains(all, c) {
+				t.Fatalf("got %+v message %q, want a hold on %s naming neither %s nor %s", r, msg2, own, b, c)
+			}
+		})
 	}
 }
