@@ -42,8 +42,8 @@ type CLI struct {
 	MinVersion, MinReason string
 	MaxVersion, MaxReason string
 	Caps                  Caps
-	Events                []string        // typed event kinds the stream can carry
-	Cost                  bool            // reports a cost
+	Events                []string // typed event kinds the stream can carry
+	Cost                  bool
 	ResumeFormat          string          // "codex resume %s"; "" = none
 	ModelsArgv            []string        // args that list models; nil = no catalog verb
 	ModelsProvider        string          // list via models --live on this provider instead
@@ -326,7 +326,7 @@ func Names() []string {
 type Headless struct {
 	Prompt     string
 	Effort     string
-	SessionID  string // resume this session
+	SessionID  string
 	Tools      bool
 	Autonomous bool     // opencode: --auto
 	Attach     []string // opencode: one -f per path
