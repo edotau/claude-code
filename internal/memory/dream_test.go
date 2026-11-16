@@ -197,7 +197,7 @@ func TestDreamChangedFlatListsEachFileOnce(t *testing.T) {
 	}
 	write(t, filepath.Join(StoreDir(), "other--progress.md"), "x\n")
 	write(t, filepath.Join(StoreDir(), "other--topic.md"), "x\n")
-	got := dreamChanged(root, time.Time{})
+	got := dreamChanged(time.Time{})
 	for _, want := range []string{"proj--progress.md", "other--progress.md", "other--topic.md"} {
 		if n := countBase(got, want); n != 1 {
 			t.Errorf("dreamChanged lists %s %d times, want 1: %v", want, n, got)
