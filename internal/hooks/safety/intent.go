@@ -525,3 +525,11 @@ func expandWith(text string, vals map[string]string) string {
 	}
 	return text
 }
+
+// guardedWord matches a hard rule 4 git verb as a whole word anywhere in text.
+var guardedWord = core.Gate(`\b(?:stash|checkout|switch|reset|restore|clean)\b`, "stash", "checkout", "switch", "reset", "restore", "clean")
+
+// tooDeepNoVerb reports a too-deep call whose command text holds no guarded verb word, so nothing there can mutate.
+func tooDeepNoVerb(verb string, args []string, cmd string) bool {
+	return verb == shell.Uninspectable && shell.TooDeep(args) && !guardedWord.MatchString(cmd)
+}

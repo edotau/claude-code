@@ -30,8 +30,12 @@ agents`, `git commit|log`, `grep`/`rg`/`ag`, `jq`, `test`/`[` or an `echo`/`prin
 scanned. A command a Python script (stdin heredoc or `-c`) launches from literal text, a shell string (`os.system`,
 `os.popen`, `subprocess.*(…, shell=True)`) or an argv list (`subprocess.run([…])`, `os.spawn*`, `os.exec*`,
 `posix_spawn*`), gets the verdict the same command gets in the shell; one built at run time (a variable, join,
-f-string, base64) is not judged. `uv run`, `poetry run`, `pipx run`, `conda run` (options included) and `python -m`
-of one count as the interpreter they run, for the write ask and for launched commands. A Go or other compiled
+f-string, base64) is not judged, except that a `cwd=` (or earlier `os.chdir`) literal judges the launch in that
+directory and a `tempfile.*` directory counts as a fresh temp dir. `uv run`, `poetry run`, `pipx run`, `conda run` (options included) and `python -m`
+of one count as the interpreter they run, for the write ask and for launched commands.
+A command nested past four levels blocks only when its text holds a guarded git verb word (staging check:
+`add` or `commit`), and a `case … in a|b) …` pattern list is not a pipe into a shell.
+A Go or other compiled
 program's own `exec.Command("sudo", …)` is out of the hook's reach. An `apply_patch`
 call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of the command is.
 Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to

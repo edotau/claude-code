@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,11 @@ var shellKeywords = []string{"if", "then", "else", "elif", "do", "while", "until
 // Uninspectable is EachGit's verb (cwd as target) for nesting past maxNest, unseen code a guard must fail closed on.
 const Uninspectable = "<uninspectable>"
 
+const tooDeepArg = "<too-deep>"
+
+// TooDeep reports an Uninspectable call's args as nesting past maxNest, not a verb the shell expands.
+func TooDeep(args []string) bool { return len(args) == 1 && args[0] == tooDeepArg }
+
 // gitFn receives one git invocation: its target tree, verb and the verb's words; true stops the walk.
 type gitFn func(target, verb string, args []string) bool
 
@@ -29,7 +35,7 @@ func EachGit(cmd, cwd string, fn gitFn) bool {
 // eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
 func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if depth > maxNest {
-		return fn(cwd, Uninspectable, nil)
+		return fn(cwd, Uninspectable, []string{tooDeepArg})
 	}
 	masked, subs := extractSubstitutions(cmd, subMask)
 	executed := executedSubs(masked, len(subs))
@@ -167,7 +173,34 @@ func executedSubs(masked string, n int) []bool {
 
 // pipesIntoShell reports that segment i feeds a bare shell that reads its commands from stdin.
 func (w *segWalk) pipesIntoShell(i int) bool {
-	return (w.seps[i] == "|" || w.seps[i] == "|&") && i+1 < len(w.segs) && bareShell(commandWords(w.segs[i+1]))
+	return (w.seps[i] == "|" || w.seps[i] == "|&") && i+1 < len(w.segs) && bareShell(commandWords(w.segs[i+1])) &&
+		!w.casePattern(i)
+}
+
+// casePatternHead matches the segment `case WORD in PATTERN` that opens a case pattern list.
+var casePatternHead = regexp.MustCompile(`\bcase\s.*\sin\s+\S+$`)
+
+// casePattern reports the `|` after segment i as a case pattern separator (`in sh|bash) …`), not a pipe.
+func (w *segWalk) casePattern(i int) bool {
+	head, last := i, i+1
+	for head > 0 && w.seps[head-1] == "|" {
+		head--
+	}
+	for last < len(w.segs)-1 && w.seps[last] == "|" {
+		last++
+	}
+	bare := func(s string) bool { return s != "" && !strings.ContainsAny(strings.TrimSpace(s), " \t") }
+	opens := head == 0 || w.seps[head-1] == ";;" || w.seps[head-1] == "\n"
+	if h := strings.TrimSpace(w.segs[head]); !casePatternHead.MatchString(h) && (!opens || !bare(h)) {
+		return false
+	}
+	for _, s := range w.segs[head+1 : last] {
+		if !bare(s) {
+			return false
+		}
+	}
+	before, _, ok := strings.Cut(w.segs[last], ")")
+	return ok && bare(before)
 }
 
 // dirExists is the seam for "does this cd target exist"; a cd to a missing directory fails and leaves cwd alone.

@@ -286,7 +286,7 @@ func bannedVerb(cmd, cwd string) string {
 		if shell.UnknownDir(target) && !fresh { // a dynamic cd may land back in the shared tree
 			target = cwd
 		}
-		if !gitBannedUnder(target, verb, args) {
+		if !gitBannedUnder(target, verb, args) || tooDeepNoVerb(verb, args, cmd) {
 			return false
 		}
 		hit = verb

@@ -237,6 +237,12 @@ func TestSafetyScanChecksHeredocGitInHarness(t *testing.T) {
 		{`cd "$(mktemp -d)" && python3 -c "import subprocess; subprocess.run(['git', 'stash'])"`, core.Allow},
 		{pyStdin("import subprocess\nsubprocess.run(['git stash'], shell=True)"), core.Block},
 		{`cd "$(mktemp -d)" && python3 -c "import os; os.system('git status')" && git stash`, core.Allow},
+		{pyStdin("import subprocess\nsubprocess.run(['git', 'checkout', 'main'], cwd='/private/tmp/fx')"), core.Allow},
+		{pyStdin("import subprocess\nsubprocess.run(['git', 'checkout', 'main'], cwd='" + home + "')"), core.Block},
+		{pyStdin("import os, subprocess\nos.chdir('/private/tmp/fx')\nsubprocess.run(['git', 'reset', '--hard'])"), core.Allow},
+		{pyStdin("import subprocess, tempfile\nd = tempfile.mkdtemp()\nsubprocess.run(['git', 'reset', '--hard'], cwd=d)"), core.Allow},
+		{pyStdin("import subprocess\nd = os.getcwd()\nsubprocess.run(['git', 'reset', '--hard'], cwd=d)"), core.Block},
+		{pyStdin("import subprocess\nsubprocess.run(['git', 'reset', '--hard'])"), core.Block},
 	}
 	for _, c := range cases {
 		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": home, "tool_input": map[string]string{"command": c.cmd}})
@@ -911,6 +917,10 @@ func harnessGitNestedCases(cfg, outside string) []harnessGitCase {
 		{"non-git command", "ls -la", cfg, false},
 		{"nesting too deep to check", "eval eval eval eval eval git restore .", cfg, true},
 		{"deep nesting outside tree", "eval eval eval eval eval git restore .", outside, false},
+		{"case pattern list is not a pipe into a shell", "for i in 1 2; do case \"$(basename x)\" in sh|bash|zsh) p=1;; *) break;; esac; done", cfg, false},
+		{"too deep, no guarded word", "eval eval eval eval eval ls -la", cfg, false},
+		{"too deep, word as a file name", "eval eval eval eval eval cat reset.txt", cfg, true},
+		{"expanded verb is not nesting", "v=x; git $v .", cfg, true},
 		{"3-deep nesting of git status", "eval eval eval git status", cfg, false},
 		{"env cd does not move the shell", "env cd " + outside + "; git restore .", cfg, true},
 		{"nohup cd does not move the shell", "nohup cd " + outside + "; git stash", cfg, true},

@@ -375,7 +375,7 @@ func pyLaunches(code string) []string {
 			continue
 		}
 		if cmd, ok := pyLaunch(mask[m[2]:m[3]], args); ok && shellSafe(cmd) {
-			out = append(out, cmd)
+			out = append(out, pyInDir(code, mask, m[0], args, cmd))
 		}
 	}
 	return out
@@ -579,4 +579,62 @@ func shellSafe(cmd string) bool {
 	at := shell.QuoteAt(cmd + " x")
 	return cmd != "" && at[len(at)-1] == 0 && !strings.ContainsAny(cmd, "\x00") && !strings.Contains(cmd, "<<") &&
 		!strings.HasSuffix(cmd, `\`) && strings.Count(cmd, "(") == strings.Count(cmd, ")")
+}
+
+// pyInDir is cmd run in the directory its call sets: a literal `cwd=`/earlier os.chdir, or a fresh tempfile dir.
+func pyInDir(code, mask string, at int, args []string, cmd string) string {
+	val, set := "", false
+	for _, a := range args {
+		if m := pyKwarg().FindStringSubmatch(a); m != nil && m[1] == "cwd" {
+			val, set = strings.TrimSpace(m[2]), true
+		}
+	}
+	if !set {
+		val = lastPyChdir(code, mask[:at])
+	}
+	if dir, ok := pyStr(val); ok && dir != "" {
+		return "( cd " + shellJoin([]string{dir}) + " && " + cmd + " )"
+	}
+	if pyTempDir(code, val) {
+		return `( cd "$(mktemp -d)" && ` + cmd + " )"
+	}
+	return cmd
+}
+
+// pyChdir matches an os.chdir call.
+var pyChdir = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bos\.chdir\s*\(`) })
+
+// lastPyChdir is the argument of the last os.chdir call in before, or "".
+func lastPyChdir(code, before string) string {
+	ms := pyChdir().FindAllStringIndex(before, -1)
+	if len(ms) == 0 {
+		return ""
+	}
+	items, _, ok := pyItems(code, ms[len(ms)-1][1]-1)
+	if !ok || len(items) != 1 {
+		return ""
+	}
+	return items[0]
+}
+
+var pyIdent = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_]\w*$`) })
+
+// pyTempDir reports val as a tempfile call, or a name code only ever binds to a tempfile call.
+func pyTempDir(code, val string) bool {
+	if strings.HasPrefix(val, "tempfile.") {
+		return true
+	}
+	if !pyIdent().MatchString(val) {
+		return false
+	}
+	name := regexp.QuoteMeta(val)
+	via := regexp.MustCompile(`\btempfile\.\w+\([^)]*\)\s+as\s+` + name + `\b`).MatchString(code)
+	n, temp := 0, 0
+	for _, m := range regexp.MustCompile(`(?m)(?:^|[;\s])`+name+`\s*=([^=].*)$`).FindAllStringSubmatch(code, -1) {
+		n++
+		if strings.HasPrefix(strings.TrimSpace(m[1]), "tempfile.") {
+			temp++
+		}
+	}
+	return via && n == 0 || n > 0 && n == temp
 }
