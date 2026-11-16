@@ -25,7 +25,7 @@ func hookSpec() *helptext.Node { return &helptext.Node{Args: []func() []string{s
 // hookPage lists modules in Hint, not Commands: a COMMANDS row would invite `hook <name> -h`, which runs the hook.
 func hookPage() helptext.Page {
 	return helptext.Page{
-		Usage: "claude-code hook <Event> [--<module>|--all] < payload.json",
+		Usage: "claude-code hook <Event> [--<module>|--all|--async] < payload.json",
 		About: "Run one lifecycle hook on the event JSON on stdin; settings.json and the agent hook files invoke it.",
 		Hint: settings.HookModules() + "\n" + settings.HookHelp("events:  ", settings.HookEvents()) +
 			"\n<Event> alone runs the dispatcher; --<module> one module; --all every module",
