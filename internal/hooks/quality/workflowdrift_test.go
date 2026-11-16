@@ -13,7 +13,7 @@ const driftDocRel = "skills/subagent-workflows/references/saved-workflows.md"
 
 const okBody = "export const meta = { name: 'x' }\nawait agent('x', { model: 'sonnet', effort: 'low' })\n"
 
-// writeDriftRoot builds a config root with one workflows/<name>.js per script and, when doc is set, the saved-workflows doc.
+// writeDriftRoot builds a config root with a workflows/<name>.js per script and, if set, the saved-workflows doc.
 func writeDriftRoot(t *testing.T, scripts []string, doc *string) string {
 	t.Helper()
 	root := t.TempDir()

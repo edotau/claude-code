@@ -16,7 +16,7 @@ const savedWorkflowsDoc = "skills/subagent-workflows/references/saved-workflows.
 
 var docRowName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("^\\|\\s*`([^`|]+)`\\s*\\|") })
 
-// documentedWorkflows returns the backticked first-cell names of the doc's table rows (header/separator rows have none).
+// documentedWorkflows returns the backticked first-cell names of the doc's table rows.
 func documentedWorkflows(doc string) []string {
 	var names []string
 	for l := range strings.SplitSeq(doc, "\n") {
@@ -27,8 +27,7 @@ func documentedWorkflows(doc string) []string {
 	return names
 }
 
-// workflowDocDrift returns one message per workflows/*.js missing from the doc table and per documented name with
-// no script; nil when the doc is absent, one message when it exists but cannot be read.
+// workflowDocDrift returns one message per workflows/*.js missing from the doc table or documented name with no script.
 func workflowDocDrift(root string) []string {
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(savedWorkflowsDoc)))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -76,7 +75,7 @@ func lintTargets(root string) []string {
 	return append(workflowScripts(root), skillScripts(root)...)
 }
 
-// workflowHelperDrift returns one message per script that calls a block's functions with that block missing or differing.
+// workflowHelperDrift returns one message per script calling a block's functions with that block missing or differing.
 func workflowHelperDrift(root string) []string {
 	scripts := lintTargets(root)
 	srcs := map[string]string{}

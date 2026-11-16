@@ -508,7 +508,7 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	}
 }
 
-// useAgentsDir points CLAUDE_CONFIG_DIR at a fresh dir whose agents/ holds one file per name (`name: model` sets a model).
+// useAgentsDir points CLAUDE_CONFIG_DIR at a fresh dir whose agents/ holds one file per name.
 func useAgentsDir(t *testing.T, names ...string) string {
 	t.Helper()
 	cfg := t.TempDir()
@@ -538,7 +538,7 @@ func writeAgentFile(t *testing.T, cfg, spec string) {
 // allowedTypes are the dispatch types the inventory covers: the seven-file roster shape plus the built-ins.
 var allowedTypes = []string{"claude", "codex", "copilot", "gemini", "opencode", "Explore", "Plan", "general-purpose"}
 
-// inventoryLabel is the label oracle: an external type shows its ask's classified pick "<agent>-sonnet", else its model.
+// inventoryLabel is the label oracle: an external type shows "<agent>-sonnet", else its model.
 func inventoryLabel(st, model string) string {
 	if externalTypes[st] {
 		return st + "-sonnet" // the ask classifies "review the diff" as sonnet, whatever the relay's own model
@@ -610,7 +610,7 @@ func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
 	}
 }
 
-// The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set, nothing else does.
+// The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set.
 func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 	cfg := useAgentsDir(t, "claude", "codex", "Plan")
 	blocked := func(st, brief string) string {
@@ -652,7 +652,7 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 	}
 }
 
-// An agents dir that cannot be read or holds no agent never blocks the roster: it falls back to agentid plus the built-ins.
+// An unreadable or empty agents dir never blocks: the roster falls back to agentid plus the built-ins.
 func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
@@ -814,7 +814,7 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	}
 }
 
-// A Plan leaf runs on the session model: unset it labels with the session id, an explicit pin wins, and no session labels nothing.
+// A Plan leaf runs on the session model: unset it labels with the session id, an explicit pin wins.
 func TestDispatchLabelPlanUsesSessionModel(t *testing.T) {
 	useAgentsDir(t, "Plan")
 	stubLabelModels(t, "")

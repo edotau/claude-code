@@ -357,7 +357,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> (its own git repo) names the untagged harness plans dir.
+// TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> names the untagged harness plans dir.
 func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	cfg, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

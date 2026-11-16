@@ -340,7 +340,7 @@ func leafInput(tx string) *core.Input { return &core.Input{AgentTranscriptPath: 
 
 func startedLine() string { return "job " + leafJob + " started" }
 
-// A running dispatch blocks the stop, naming the id and the result -f command, and the Stop path exits 2 with the reason.
+// A running dispatch blocks the stop, naming the id and the result -f command, and exits 2.
 func TestLeafStopBlocksRunningDispatch(t *testing.T) {
 	tx := leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
@@ -378,7 +378,7 @@ func TestLeafStopReleases(t *testing.T) {
 	}
 }
 
-// A live dispatch blocks every stop (no block-count limit) until it is older than leafStopMaxWait, then allows with a message.
+// A live dispatch blocks every stop until it is older than leafStopMaxWait, then allows with a message.
 func TestLeafStopWaitLimit(t *testing.T) {
 	tx := leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-time.Minute)))
@@ -570,7 +570,7 @@ func TestRanOnGatePinnedTypeNeedsNoAgentLine(t *testing.T) {
 	}
 }
 
-// A gated leaf whose brief requests an agent but shows no ran-on line in its tool results is blocked; prose does not count.
+// A gated leaf whose brief requests an agent but shows no ran-on line in its tool results is blocked.
 func TestRanOnNoRanOnBlocks(t *testing.T) {
 	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", "ls output")
 	r, blocked := leafStopBlock(in, "a1")

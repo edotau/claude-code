@@ -330,7 +330,7 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 	}
 }
 
-// An oversized context on a module's own-process path is cut to the cap plus the truncation marker, blocks joined by a blank line.
+// An oversized context on a module's own-process path is cut to the cap plus the truncation marker.
 func TestRunDirectCapsContext(t *testing.T) {
 	orig := native["memory-start"]
 	native["memory-start"] = func(*core.Input) core.Result {
@@ -721,7 +721,7 @@ func TestNativeMemoryEntriesAreMemhookRunners(t *testing.T) {
 	}
 }
 
-// SessionStart for a UUID session with a due dream reaches the stubbed spawns, so the go test binary is never relaunched.
+// SessionStart for a UUID session with a due dream reaches the stubbed spawns, never relaunching the test binary.
 func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()

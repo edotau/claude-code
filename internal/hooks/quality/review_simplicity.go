@@ -46,7 +46,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 	return core.Result{Context: simplicityText(rel, found)}
 }
 
-// editBefore reverses an Edit on its post-edit content; false when the edit is a deletion or its occurrence is ambiguous.
+// editBefore reverses an Edit on its post-edit content; false for a deletion or an ambiguous occurrence.
 func editBefore(in *core.Input, after string) (string, bool) {
 	oldStr, newStr, all := in.Nested("tool_input", "old_string"), in.Nested("tool_input", "new_string"),
 		in.ToolInput()["replace_all"] == true

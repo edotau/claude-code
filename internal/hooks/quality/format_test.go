@@ -182,8 +182,7 @@ func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
 	}
 }
 
-// The declared python chain runs each declared tool from the project venv, in order; an undeclared
-// project falls through to ruff.
+// The declared python chain runs each declared tool from the project venv in order; an undeclared project uses ruff.
 func TestFormatPythonDeclaredChain(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not on PATH")

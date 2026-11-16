@@ -21,8 +21,7 @@ var writeHints = []string{">", "sed", "perl", "tee", "cp", "mv", "install"}
 // redirectTok matches a redirect word: optional fd or `&`, `>`/`>>`, then the target when glued on.
 var redirectTok = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:\d*|&)>>?\|?(.*)$`) })
 
-// WrittenPaths is the best-effort set of files a shell command writes (sed/perl -i, redirects, tee, cp/mv), made
-// absolute against cwd; interpreter bodies (`python -c`, `node -e`, a script file) are opaque and yield nothing.
+// WrittenPaths is the best-effort set of files a shell command writes, made absolute; interpreter bodies yield none.
 func WrittenPaths(cmd, cwd string) []string {
 	if !MayWrite(cmd) {
 		return nil

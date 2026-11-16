@@ -41,7 +41,7 @@ func stewardPct() (pct int, prompt bool) {
 	return n, true
 }
 
-// contextPct is the share of the window the transcript's last turn fills: Claude Code's reported size, else the model's.
+// contextPct is the share of the window the transcript's last turn fills.
 func contextPct(session, transcriptPath string) (int, bool) {
 	u, ok := transcript.LastUsage(transcriptPath)
 	if !ok {
