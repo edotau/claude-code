@@ -106,7 +106,7 @@ func DialectOf(name string) Dialect {
 	return Dialect{Build: func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }}
 }
 
-// Emit writes a merged Result and returns the exit code; a block with no JSON channel, or a failed stdout write, is exit 2.
+// Emit writes a merged Result and returns the exit code; a block with no JSON channel or a failed write is exit 2.
 func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	build := DialectOf(name).Build
 	if r.Stderr != "" {
@@ -128,8 +128,7 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	return ExitProceed
 }
 
-// outputCodex is exactly one JSON document in Codex's Claude-compatible schema: no ask decision (deny), and an
-// updatedInput on PreToolUse is an explicit allow.
+// outputCodex emits one Claude-schema JSON document: ask becomes deny and updatedInput on PreToolUse is an allow.
 func outputCodex(event string, r Result) string {
 	return claudeDoc(event, r, claudeStyle{askAsDeny: true, allowWithInput: true})
 }

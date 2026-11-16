@@ -195,10 +195,7 @@ func TestWorktreeRemoveKeepsUnmergedBranch(t *testing.T) {
 	}
 }
 
-// TestWorktreeRemoveRefusesWhenCWDIsInside is the hook-path regression test for InUseBy's cwd guard:
-// WorktreeRemove must refuse (and leave the worktree in place) when the calling process's own cwd is
-// still inside the worktree being removed, the one in-use case this package can trigger without
-// stubbing worktree's unexported process-discovery seam.
+// TestWorktreeRemoveRefusesWhenCWDIsInside pins InUseBy's cwd guard: removal refuses while the cwd is inside.
 func TestWorktreeRemoveRefusesWhenCWDIsInside(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := hosttest.Repo(t)
@@ -336,7 +333,7 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 	}
 }
 
-// TestDivergedAtTellsSiblingCommitsFromRewrite: two new commits on one base are not a rewrite; an amended pushed one is.
+// TestDivergedAtTellsSiblingCommitsFromRewrite: two new commits on one base are no rewrite; an amended pushed one is.
 func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
 	for _, tc := range []struct {
 		name          string

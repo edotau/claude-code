@@ -87,8 +87,7 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 			return *deny
 		}
 	}
-	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
-	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
+	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back.
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a Bash commit result.
+// tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a commit result.
 func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out string) string) {
 	t.Helper()
 	_, home := planGroupEnv(t, false)

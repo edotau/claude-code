@@ -34,7 +34,7 @@ func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 	}
 }
 
-// A panic in a module's own process: an advisory module proceeds (Go's own exit 2 would read as a block), a Blocks gate blocks.
+// A panic in a module's own process: an advisory module proceeds, a Blocks gate blocks.
 func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 	for _, name := range []string{"memory-start", "safety-scan"} {
 		orig := native[name]
@@ -638,7 +638,7 @@ func consumerRefuses(agent string, s settings.EventSpec, d core.Decision, reason
 	return ""
 }
 
-// writePayloads are agent's PreToolUse documents writing "hi" to files: one Claude Write each, or one Codex apply_patch.
+// writePayloads are agent's PreToolUse documents writing "hi" to files: a Claude Write each, or one Codex apply_patch.
 func writePayloads(agent, cwd string, files []string) []string {
 	if agent == core.AgentCodex {
 		var patch strings.Builder
@@ -692,7 +692,7 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 	}
 }
 
-// A Blocks module that outlasts its in-process deadline blocks with a retry reason, JSON-denied for agy; others never time out.
+// A Blocks module that outlasts its in-process deadline blocks with a retry reason; others never time out.
 func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
 	flagHarness(t)
 	orig := gateDeadline

@@ -152,7 +152,7 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 	}
 }
 
-// TestClaimCheckMainCommitsHandedBackLeaf: main asks on a live leaf's claim and a denied hand-back, passes once delivered.
+// TestClaimCheckMainCommitsHandedBackLeaf: main asks on a live leaf's claim, passes once handed back.
 func TestClaimCheckMainCommitsHandedBackLeaf(t *testing.T) {
 	repo := claimFixture(t)
 	useClaimOwner(t, liveOwner)
@@ -435,7 +435,7 @@ func TestFirstSightingFailsOpenOnHeldLock(t *testing.T) {
 	}
 }
 
-// TestStageOperandsAttachedValueTakesNoNextWord: git reads `-mc x` as message "c" with pathspec x, and `-um x` as -u<mode m>.
+// TestStageOperandsAttachedValueTakesNoNextWord: git reads `-mc x` as message "c" with pathspec x.
 func TestStageOperandsAttachedValueTakesNoNextWord(t *testing.T) {
 	cases := []struct {
 		args []string

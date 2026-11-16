@@ -116,8 +116,7 @@ func Recall(in *core.Input) core.Result {
 	return core.Result{Context: memory.PromptRecall(ctx, in.SessionID, in.CWD, in.Prompt, os.Stderr)}
 }
 
-// AgentInput returns in with TranscriptPath pointing at a Claude-shaped transcript synthesized from an opencode
-// export, a Copilot events.jsonl or a codex rollout; any other input, or a failed load, comes back unchanged.
+// AgentInput returns in with TranscriptPath set to a synthesized Claude-shaped transcript; others pass unchanged.
 func AgentInput(in *core.Input) *core.Input {
 	kind := agentKind(in)
 	if kind == "" {

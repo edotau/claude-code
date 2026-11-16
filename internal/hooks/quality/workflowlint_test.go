@@ -489,8 +489,7 @@ func TestBadPinValues(t *testing.T) {
 	}
 }
 
-// routeTier('<tier>') still counts as pinned and its literal is validated; routeTier(cfg.x) has no literal, so it
-// passes (current lenient behavior).
+// routeTier('<tier>') counts as pinned and its literal is validated; routeTier(cfg.x) has no literal and passes.
 func TestRouteTierWrappedModelPin(t *testing.T) {
 	t.Parallel()
 	if hits := LintPins("inline", []byte("agent('a', { model: routeTier('sonnet'), effort: 'low' })\n")); len(hits) != 0 {

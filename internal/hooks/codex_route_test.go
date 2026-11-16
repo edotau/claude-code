@@ -172,7 +172,7 @@ func mustCodexJSON(t *testing.T, value any) []byte {
 	return body
 }
 
-// TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
+// TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer pins that unstamped lines read and schema-2 lines are skipped.
 func TestCodexRoutingSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(settings.AgentEnv, core.AgentCodex)
