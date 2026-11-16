@@ -21,7 +21,8 @@ func permissionHandler(o sdkOptions, approved *atomic.Bool) copilot.PermissionHa
 	h := baseHandler(o)
 	return func(req copilot.PermissionRequest, inv copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 		d, err := h(req, inv)
-		switch d.(type) { // NoResult hands the call to managed org settings, which may run it
+		// NoResult hands the call to managed org settings, which may run it
+		switch d.(type) {
 		case *rpc.PermissionDecisionApproveOnce, *rpc.PermissionDecisionNoResult:
 			if err == nil {
 				approved.Store(true)
@@ -98,7 +99,7 @@ func refusedCall(p agent.Permissions, req copilot.PermissionRequest, group []age
 	return group[0], true
 }
 
-// ruleCalls are the Tool(arg) names a request is judged as, grouped by spelling: Deny on any refuses, Allow on any grants.
+// ruleCalls are the Tool(arg) names a request is judged as: Deny on any spelling refuses, Allow on any grants.
 func ruleCalls(req copilot.PermissionRequest, workDir string) [][]agent.Rule {
 	switch r := requestValue(req).(type) {
 	case rpc.PermissionRequestShell:
@@ -173,8 +174,10 @@ const readOnlyFeedback = "This run is read-only: only file reads, URL fetches, r
 // readOnlyGitEnv replaces all inherited GIT_*; GIT_PAGER beats pager.<verb>, command-scope config beats repo files.
 var readOnlyGitEnv = slices.Concat([]string{
 	"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_PAGER=cat",
-	"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none", // a partial clone's missing blob must not reach a transport
-	"GIT_OPTIONAL_LOCKS=0", // status and diff must not rewrite the index
+	// a partial clone's missing blob must not reach a transport
+	"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=none",
+	// status and diff must not rewrite the index
+	"GIT_OPTIONAL_LOCKS=0",
 }, gitConfigEnv(
 	"core.fsmonitor=false", "core.pager=cat", "core.sshCommand=false", "core.hooksPath=/dev/null",
 	"diff.external=", "diff.submodule=short", "log.showSignature=false", "log.diffMerges=separate",
@@ -198,7 +201,7 @@ func shellCommand(req copilot.PermissionRequest) (string, bool) {
 	return "", false
 }
 
-// isWebSearchMCP is the harness web_search server's one tool; the request carries no command, so name and tool must match.
+// isWebSearchMCP is the harness web_search server's one tool; the request has no command, so name and tool must match.
 func isWebSearchMCP(req copilot.PermissionRequest) bool {
 	r, ok := requestValue(req).(rpc.PermissionRequestMCP)
 	return ok && r.ServerName == webSearchServer && r.ToolName == webSearchTool

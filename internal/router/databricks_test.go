@@ -16,8 +16,7 @@ import (
 const routeDbxRow = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com",` +
 	`"auth":{"type":"pat"}}}}}`
 
-// dbxCandidates seeds a hermetic vault (a signed-in Databricks row "dev", the given menu), runs a codex pick
-// under session profile and returns the codex candidates' accounts plus the pick.
+// dbxCandidates seeds a vault with a signed-in Databricks row "dev", runs a codex pick, returns its accounts.
 func dbxCandidates(t *testing.T, profile string, menu []providers.OpencodeModel, st State) ([]string, PickResult) {
 	t.Helper()
 	tb := testTable(t)
@@ -55,7 +54,7 @@ const (
 	dbxAcct    = "databricks·dev"
 )
 
-// Databricks on + Responses model: candidate right behind ChatGPT (the menu GPT or the sonnet bucket's terra), never the Claude.
+// With Databricks on and a Responses model, the candidate sits right behind ChatGPT, never the Claude.
 func TestCodexDatabricksCandidateResponsesModel(t *testing.T) {
 	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxClaudeNoResp, dbxGPT}, nil)
 	if !slices.Equal(accts, []string{dbxChatgpt, dbxAcct}) {
@@ -145,7 +144,8 @@ func TestPickUnpinnedSessionDefaultOrder(t *testing.T) {
 }
 
 func TestPickGeminiStaysOnGoogle(t *testing.T) {
-	got := accountsOf(vendorPick(t, "gemini", true, nil, ""), "gemini") // no lead: the default path stays on Google
+	// no lead: the default path stays on Google
+	got := accountsOf(vendorPick(t, "gemini", true, nil, ""), "gemini")
 	if len(got) == 0 {
 		t.Fatal("no gemini candidate")
 	}

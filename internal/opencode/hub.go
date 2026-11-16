@@ -20,11 +20,7 @@ import (
 // opencodeLogins is a seam over listOpencodeLogins, so tests never shell out to opencode auth.
 var opencodeLogins = opencodeLoginsErr
 
-// HubStart resolves the provider a hub agent's first dispatch targets: explicitProvider when the caller set
-// one (forced, regardless of login or quota), else the first opencodeLadder entry that has a login,
-// falling back to the ladder's first entry at all so the page stays editable with no login anywhere.
-// The ladder orders opencode's own paid backends only — the free Zen catalog (opus excluded, alias- and
-// work-repo-gated) is the per-alias sub-pick's concern (router.RouteTable.Pick), not this cross-alias provider page.
+// HubStart picks explicitProvider, else the first opencodeLadder entry with a login, else the first entry.
 func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	if explicitProvider != "" {
 		p, err := reg.Get(explicitProvider)
@@ -37,7 +33,8 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		return p, nil
 	}
 	var first *providers.Provider
-	var logins []string // probed once, on the first ladder entry that resolves
+	// probed once, on the first ladder entry that resolves
+	var logins []string
 	var probeErr error
 	probed := false
 	for _, id := range reg.Routing.Opencode.LadderOrder() {
@@ -57,7 +54,8 @@ func HubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 		}
 	}
 	if first != nil {
-		if len(logins) == 0 && probeErr != nil { // a failed probe is not "logged out"
+		// a failed probe is not "logged out"
+		if len(logins) == 0 && probeErr != nil {
 			return nil, fmt.Errorf("%s: opencode logins could not be read: %w", agentName, probeErr)
 		}
 		return first, nil
@@ -146,7 +144,8 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
 	}
-	if runErr != nil { // a stall, then a tools-off answer that is only tool calls
+	// a stall, then a tools-off answer that is only tool calls
+	if runErr != nil {
 		return res, runErr
 	}
 	return res, refuseToolCallText(l.agent, req, res.Answer)
@@ -168,10 +167,12 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 	}
 	env, argv := opencodeRun(l.provider.OpencodeID+"/"+model, h)
 	st, err := agent.ResolveSettings("opencode", req, providers.Target{}, true)
-	if err != nil { // headless: a refused stored record fails the run, it never falls back to the built-ins
+	// headless: a refused stored record fails the run, it never falls back to the built-ins
+	if err != nil {
 		return "", nil, nil, err
 	}
-	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(ctx, st, env, argv) // never errs
+	// never errs
+	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(ctx, st, env, argv)
 	env = append(env, cred...)
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
@@ -184,7 +185,8 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 		return "", nil, nil, err
 	}
 	argv = opencodePolicyArgv(argv, req)
-	env = append(env, req.Env...) // --env goes last so it wins
+	// --env goes last so it wins
+	env = append(env, req.Env...)
 	return bin, env, argv, nil
 }
 

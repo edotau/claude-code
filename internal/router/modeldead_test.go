@@ -26,7 +26,8 @@ func TestMarkModelDead(t *testing.T) {
 	for _, step := range []struct {
 		name, model    string
 		until, now, at time.Time
-		dead           map[string]bool // model -> ModelDead at step.at
+		// model -> ModelDead at step.at
+		dead map[string]bool
 	}{
 		{"first mark", "m-a", now.Add(30 * time.Minute), now, now, map[string]bool{"m-a": true, "m-b": false}},
 		{"shorter ignored", "m-a", now.Add(time.Minute), now, now.Add(10 * time.Minute), map[string]bool{"m-a": true}},

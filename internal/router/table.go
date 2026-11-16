@@ -50,7 +50,8 @@ var parsedTable = sync.OnceValues(func() (fileTable, error) {
 
 // databricksTiers is table.json's "databricks" table: each alias's ordered bucket of canonical ids, shared by agents.
 func databricksTiers() map[string][]string {
-	f, _ := parsedTable() // a malformed table.json fails LoadFrom, which every pick runs first
+	// a malformed table.json fails LoadFrom, which every pick runs first
+	f, _ := parsedTable()
 	return f.Databricks
 }
 
@@ -60,11 +61,13 @@ func DatabricksModel(agent, alias string, p *providers.Provider) string {
 		return ""
 	}
 	now, st := time.Now(), LoadState()
-	dead := deadAccounts(ProviderAccount(p.Name)) // dead[0] is p's own account, where MarkUnserved writes
+	// dead[0] is p's own account, where MarkUnserved writes
+	dead := deadAccounts(ProviderAccount(p.Name))
 	for _, id := range databricksTiers()[alias] {
 		wire := SpellServed(p, id, now)
 		if _, _, known := models.Resolve(id); !known && wire == id {
-			continue // an unlisted id with no READY endpoint to spell it by
+			// an unlisted id with no READY endpoint to spell it by
+			continue
 		}
 		if bucketRunnable(agent, p, wire) && !tierUnusable(st, dead, p, wire, now) {
 			return wire
@@ -81,7 +84,8 @@ func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
 	case "gemini":
 		return models.FamilyKind(wire) == models.FamilyGemini
 	case "codex":
-		return providers.ServesResponses(p, wire) // the Responses wire codex speaks (providers.WireFor)
+		// the Responses wire codex speaks (providers.WireFor)
+		return providers.ServesResponses(p, wire)
 	}
 	return true
 }
@@ -89,7 +93,8 @@ func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
 // tierUnusable reports wire missing or not READY in p's fresh listing, marked unserved, or quota-dead on dead.
 func tierUnusable(st State, dead []string, p *providers.Provider, wire string, now time.Time) bool {
 	if _, ready, fresh := ServedListed(p, wire, now); fresh && !ready {
-		return true // ready is false for an unlisted endpoint too
+		// ready is false for an unlisted endpoint too
+		return true
 	}
 	return unservedMarked(st[dead[0]], p, wire, now) || st.modelDeadOn(dead, wire, now)
 }
@@ -128,7 +133,8 @@ type RouteTable struct {
 	// ClaudeAnywhere is routing.claudeAnywhere: claude scores into the ladder instead of going last.
 	ClaudeAnywhere bool `json:"-"`
 
-	reg *providers.Registry // the registry LoadFrom applied; AliasOf reads its provider aliases
+	// the registry LoadFrom applied; AliasOf reads its provider aliases
+	reg *providers.Registry
 }
 
 // fileTable is table.json's shape: rows keyed by canonical Claude id, then agent.
@@ -170,7 +176,8 @@ const copilotUnpinned = "github·unpinned"
 
 // Load parses the embedded table, applies the registry's route overlay cell by cell and resolves account keys.
 func Load() (*RouteTable, error) {
-	reg, _ := providers.Load() // a broken registry still routes on the embedded table
+	// a broken registry still routes on the embedded table
+	reg, _ := providers.Load()
 	return LoadFrom(reg, copilotUserFrom(reg))
 }
 
@@ -215,9 +222,11 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 		}
 	}
 	if len(reg.Routing.Weights) > 0 {
-		t.Weights = reg.Routing.Weights // an overlay replaces the weights whole, so they still sum to 1
+		// an overlay replaces the weights whole, so they still sum to 1
+		t.Weights = reg.Routing.Weights
 	}
-	t.OpencodeLadder = reg.Routing.Opencode.LadderOrder() // already normalized to sub ids by providers.Parse
+	// already normalized to sub ids by providers.Parse
+	t.OpencodeLadder = reg.Routing.Opencode.LadderOrder()
 	t.OpencodeRouting = reg.Routing.Opencode
 	t.Ladders, t.ClaudeAnywhere = reg.Routing.Ladders, reg.Routing.ClaudeAnywhereOn()
 	return nil
@@ -383,7 +392,8 @@ func ModelRow(model string) (alias, row, exact string) {
 	}
 	canonical, _, ok := models.Resolve(model)
 	switch {
-	case !ok && strings.TrimSpace(model) != "": // not in the catalog: still an exact request, never a silent default
+	// not in the catalog: still an exact request, never a silent default
+	case !ok && strings.TrimSpace(model) != "":
 		return "", "", strings.TrimSpace(model)
 	case !ok:
 		return "", "", ""

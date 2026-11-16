@@ -145,7 +145,7 @@ func TestServedPerProfileIsolation(t *testing.T) {
 	}
 }
 
-// an explicit pin the fresh listing lacks is never swapped; an alias pick is: copilot takes any READY entry, codex a Responses one.
+// An explicit pin the fresh listing lacks is never swapped; an alias pick is, to a READY (codex: Responses) entry.
 func TestPinnedModelNeverSwapsExplicitPin(t *testing.T) {
 	p := dbxProv("dev")
 	stubServed(t, []providers.OpencodeModel{chatX, respA},
@@ -164,7 +164,8 @@ func TestPinnedModelNeverSwapsExplicitPin(t *testing.T) {
 
 // an explicit unserved pin is refused with a Skip; an empty or discovery pin never is.
 func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
-	tb := testTable(t) // first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
+	// first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
+	tb := testTable(t)
 	stubServed(t, []providers.OpencodeModel{respA}, listing("dev", map[string]string{"m-a": "READY"}))
 	vaulttest.Put(t, vault.Overlay, "providers", routeDbxRow)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
@@ -246,7 +247,8 @@ func TestWarmServedNewerWins(t *testing.T) {
 		name  string
 		infos []providers.ModelInfo
 		at    time.Time
-		want  string // the one model id on disk afterwards
+		// the one model id on disk afterwards
+		want string
 	}{
 		{"older than the file", []providers.ModelInfo{{ID: "m-old"}}, base.Add(-time.Minute), "m-a"},
 		{"empty infos", nil, base.Add(time.Minute), "m-a"},
@@ -264,9 +266,11 @@ func TestWarmServedNewerWins(t *testing.T) {
 
 // TestSpellServedPrefixesOnlyAReadyListedBareName: a bare unlisted id takes databricks- only where listed READY.
 func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
-	const bare, wired = "gpt-9-zeta", "databricks-gpt-9-zeta" // not in the catalog
+	// not in the catalog
+	const bare, wired = "gpt-9-zeta", "databricks-gpt-9-zeta"
 	for _, c := range []struct {
-		name, ready, in, want string // ready "" writes no listing
+		// ready "" writes no listing
+		name, ready, in, want string
 	}{
 		{"ready", "READY", bare, wired},
 		{"marked", "READY", bare + "[1m]", wired},

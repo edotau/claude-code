@@ -77,7 +77,7 @@ func TestPrunePluginsKeepsCurrentAndRecent(t *testing.T) {
 	}
 }
 
-// TestInteractiveConfigCarriesPlugin: the TUI launch config appends the plugin to the user's own; a headless one leaves it to Exec.
+// The TUI launch config appends the plugin to the user's own; a headless one leaves it to Exec.
 func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cfg := map[string]any{"plugin": []any{"mine"}}
@@ -126,8 +126,7 @@ func runPluginNode(t *testing.T, dir string, body []byte, driver string, env []s
 	return string(out)
 }
 
-// idleHookExecs renders the plugin over a fake binary whose exec sleeps 300ms, drives two back-to-back session.idle
-// events, then a third once the first exec exited, and returns the memory-update exec count. Hosted runs wait a grace.
+// idleHookExecs drives three session.idle events around a slow first exec and returns the exec count.
 func idleHookExecs(t *testing.T, env []string) int {
 	t.Helper()
 	dir := t.TempDir()
@@ -188,7 +187,7 @@ try {
 	}
 }
 
-// TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked: a fail-closed hook that exits 0 unread (EPIPE) keeps its verdict.
+// A fail-closed hook that exits 0 without reading stdin (EPIPE) keeps its verdict.
 func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
 	for name, c := range map[string]struct{ echo, want string }{
 		"silent allow": {"", "RAN"},
@@ -221,7 +220,7 @@ try {
 	}
 }
 
-// TestPluginIdleKeepsOneMemoryUpdateInFlight: a session.idle while that session's memory-update still runs starts no second.
+// A session.idle while that session's memory-update still runs starts no second one.
 func TestPluginIdleKeepsOneMemoryUpdateInFlight(t *testing.T) {
 	// strip an inherited hosted marker: a shell that exports it would silence the plugin and pass vacuously
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, hostedEnv+"=") })
@@ -230,7 +229,7 @@ func TestPluginIdleKeepsOneMemoryUpdateInFlight(t *testing.T) {
 	}
 }
 
-// TestHostedDispatchSilencesPluginMemoryHooks: the env a hosted Exec hands the child makes the plugin fire no Stop hook.
+// The env a hosted Exec hands the child makes the plugin fire no Stop hook.
 func TestHostedDispatchSilencesPluginMemoryHooks(t *testing.T) {
 	if got := idleHookExecs(t, withHostedMarker(os.Environ(), &hookHost{})); got != 0 {
 		t.Errorf("hosted memory-update execs = %d, want 0 (the Go host fires Stop itself)", got)

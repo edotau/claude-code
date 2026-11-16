@@ -61,7 +61,8 @@ func TestToolApprovalMarksProgressOnFailure(t *testing.T) {
 		}
 		sink := &recSink{}
 		out := sdkResult{Text: "part", ToolRan: ok.Load()}
-		err := markToolRan(out, sink, errors.New("503 service unavailable")) // Run marks the tool before branching on err
+		// Run marks the tool before branching on err
+		err := markToolRan(out, sink, errors.New("503 service unavailable"))
 		_, _ = copilotPartial(wire.Result{}, out, err, sink)
 		return sink.types
 	}
@@ -124,7 +125,8 @@ func TestCopilotPartialKeepsUsage(t *testing.T) {
 	}
 }
 
-const runGHToken = "plainRunToken123456" // no token shape, so only Run's credential list can redact it
+// no token shape, so only Run's credential list can redact it
+const runGHToken = "plainRunToken123456"
 
 // runScratch routes copilot to gh user "work" (fake gh/copilot, free credits), stubs the SDK; returns the hand-off dir.
 func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []string) (sdkResult, error)) string {
@@ -172,7 +174,8 @@ func TestRunQuotaWritesRedactedHandoff(t *testing.T) {
 	if filepath.Dir(res.Handoff) != dir || res.SessionID != "abcdef1234567" || res.Provider != "work" {
 		t.Fatalf("result = %+v, want a hand-off in %s with the run's session and provider", res, dir)
 	}
-	body, _ := os.ReadFile(res.Handoff) // an unreadable file fails the partial-answer check below
+	// an unreadable file fails the partial-answer check below
+	body, _ := os.ReadFile(res.Handoff)
 	if s := string(body); strings.Contains(s, runGHToken) || !strings.Contains(s, "half done with REDACTED") {
 		t.Errorf("hand-off leaks the SDK token or lost the partial answer:\n%s", s)
 	}
@@ -228,14 +231,16 @@ func isFatal(err error) bool {
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live config or vault.
 func TestMain(m *testing.M) {
-	for _, name := range []string{"codex", "gemini", "opencode"} { // the render tests read these sibling rows
+	// the render tests read these sibling rows
+	for _, name := range []string{"codex", "gemini", "opencode"} {
 		if _, ok := agent.LookupSchema(name); !ok {
 			fmt.Fprintf(os.Stderr, "copilot tests: the %s roster row is not linked into this test binary\n", name)
 			os.Exit(2)
 		}
 	}
 	code := hosttest.Main(m)
-	removeFakeCLI() // the fake CLI is built once per package (sdk_test.go), so it outlives every test
+	// the fake CLI is built once per package (sdk_test.go), so it outlives every test
+	removeFakeCLI()
 	os.Exit(code)
 }
 
@@ -442,8 +447,7 @@ func TestArmedBYOKFromRunValues(t *testing.T) {
 	}
 }
 
-// byokKeyState: child carries a BYOK key (the router's credential for dbx; task 2.1 mints cct_ARM there), and whether
-// a planted GitHub token or the workspace token reached it.
+// byokKeyState reports whether the child carries a BYOK key and whether a planted GitHub or workspace token reached it.
 func byokKeyState(child []string) (keyed, leaked bool) {
 	for _, kv := range child {
 		k, v, _ := strings.Cut(kv, "=")
@@ -559,12 +563,10 @@ func TestRunWritesBannerBlocksAndIsIdempotent(t *testing.T) {
 	}
 }
 
-// TestScratchConfigDirSkipsVendorWritesWithoutFlag reproduces the P0: CLAUDE_CONFIG_DIR pointed at a
-// worktree while vendor destinations stay $HOME-rooted (agentconfig.RenderOptions.Home left unset, matching production,
-// where os.UserHomeDir() resolves the real process HOME). Without --vendors nothing is written under
-// that HOME's vendor dirs; with it, writes land exactly as before.
+// Reproduces the P0: with CLAUDE_CONFIG_DIR in a worktree and no --vendors, HOME's vendor dirs stay unwritten.
 func TestScratchConfigDirSkipsVendorWritesWithoutFlag(t *testing.T) {
-	agenttest.Scratch(t) // sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
+	// sets CLAUDE_CONFIG_DIR + a keyed provider overlay; its own returned Home is unused here
+	agenttest.Scratch(t)
 	vendorHome := t.TempDir()
 	t.Setenv("HOME", vendorHome)
 	t.Setenv("CODEX_HOME", filepath.Join(vendorHome, ".codex"))
@@ -688,8 +690,7 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 	}
 }
 
-// TestLookupKnownVendors: every external vendor is a registered, external schema with an engine of its own;
-// resume, catalog and read-permission facts are pinned by TestRosterFacts.
+// Every external vendor is a registered, external schema with its own engine; TestRosterFacts pins the rest.
 func TestLookupKnownVendors(t *testing.T) {
 	var engines []string
 	for _, e := range agent.Engines() {
@@ -710,8 +711,7 @@ func TestLookupKnownVendors(t *testing.T) {
 	}
 }
 
-// TestRosterPromptTransport: every uncapped row names its transport (the zero value is the capped argv),
-// and gemini's verified ceiling sits below its stdin transport.
+// Every uncapped row names its transport (zero value is capped argv); gemini's ceiling sits below stdin.
 func TestRosterPromptTransport(t *testing.T) {
 	want := map[string]agent.PromptTransport{"claude": agent.PromptStdin, "codex": agent.PromptStdin,
 		"copilot": agent.PromptMessage, "opencode": agent.PromptArgv, "gemini": agent.PromptStdin}

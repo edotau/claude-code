@@ -45,10 +45,7 @@ func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
 	}
 }
 
-// TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists checks that when opencode has a login for
-// another provider (openai) but none for its own "opencode" plan, an opencode-go cell (prefix "opencode-go"
-// maps to credential id "opencode") falls through to the OPENCODE_API_KEY vault key, erroring when that is
-// absent too — precedence never borrows the unrelated openai login.
+// With a login only for openai, an opencode-go cell falls to the OPENCODE_API_KEY vault key, else errors.
 func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	t.Setenv(opencodeAPIKeyEnv, "")
@@ -65,8 +62,7 @@ func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) 
 	}
 }
 
-// TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin checks the same opencode-go cell resolves once the
-// OPENCODE_API_KEY vault key is present, still with no "opencode" login stored.
+// The same opencode-go cell resolves once the OPENCODE_API_KEY vault key exists, still with no "opencode" login stored.
 func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
@@ -125,10 +121,10 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	})
 }
 
-// TestOpencodeOverlayModelsFollowTable checks the opencode overlay's model/small_model are the table's opencode cells,
-// with a vault route override reaching only the overridden cell.
+// The overlay's model/small_model are the table's opencode cells, and a vault route override reaches only its own cell.
 func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
-	isolateOpencodeRouteEnv(t) // the host's copilot-only login would swap in github-copilot/ ids
+	// the host's copilot-only login would swap in github-copilot/ ids
+	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	render := func() map[string]any {
 		_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
@@ -202,8 +198,7 @@ func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
 	}
 }
 
-// TestOpencodeLaunchEnvReportsErrors: no login and no key stays quiet; an unreadable login store and a failed
-// overlay write each print one notice line.
+// No login and no key stays quiet; an unreadable login store and a failed overlay write each print one notice line.
 func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, version string
@@ -238,8 +233,7 @@ func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
 	}
 }
 
-// TestOpencodeOwnLoginMemoKeepsUntilInvalidate: a vault key added behind the memo stays unseen within the keep,
-// and InvalidateOpencodeAuth forces a fresh probe that sees it.
+// A vault key added behind the memo stays unseen until InvalidateOpencodeAuth forces a fresh probe.
 func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
@@ -258,8 +252,7 @@ func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
 	}
 }
 
-// TestOpencodeRenderSettingsAppliesEffortAndPolicy: effort becomes --variant on `run` only, a policy becomes
-// --auto plus OPENCODE_PERMISSION; empty settings leave the run argv as built.
+// Effort becomes --variant on `run` only; a policy becomes --auto plus OPENCODE_PERMISSION.
 func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
@@ -318,7 +311,8 @@ func TestOpencodeChildMarksHostedRuns(t *testing.T) {
 		t.Fatalf("opencodeChild = host %v, err %v; want a safety-gate host", host, err)
 	}
 	if !slices.Contains(cmd.Env, hostedEnv+"=1") || cmd.Dir != dir {
-		t.Errorf("hosted child dir %q, want the hosted marker in its env and WorkDir", cmd.Dir) // never print cmd.Env: it holds tokens
+		// never print cmd.Env: it holds tokens
+		t.Errorf("hosted child dir %q, want the hosted marker in its env and WorkDir", cmd.Dir)
 	}
 	t.Setenv(memory.UpdateChildEnv, "1")
 	cmd, _, host, err = opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
@@ -327,17 +321,19 @@ func TestOpencodeChildMarksHostedRuns(t *testing.T) {
 	}
 }
 
-// isolateOpencodeRouteEnv clears every credential/login surface DescribeRoute's opencode/copilot chain
-// reads, so a test controls precisely which dispatch (if any) resolves, never a real machine's own key.
+// isolateOpencodeRouteEnv clears every credential and login surface DescribeRoute reads.
 func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
 	t.Helper()
 	dataHome, cfgHome = t.TempDir(), t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())          // no real `gh`: CopilotLoginPresent's shell-out dispatch can't fire by accident
-	t.Setenv("COPILOT_HOME", t.TempDir())  // no real copilot config.json: copilotStoredLogin reads nothing
-	t.Setenv("GH_CONFIG_DIR", t.TempDir()) // no real gh hosts.yml: GHActiveAccount reads nothing
+	// no real `gh`: CopilotLoginPresent's shell-out dispatch can't fire by accident
+	t.Setenv("PATH", t.TempDir())
+	// no real copilot config.json: copilotStoredLogin reads nothing
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	// no real gh hosts.yml: GHActiveAccount reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
 	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}
@@ -372,8 +368,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	}
 }
 
-// A pin that resolves the haiku alias to a real (non-"auto") id passes through untouched, even though
-// the registry's own haiku default is "auto".
+// A pin resolving the haiku alias to a real id passes through though the registry's haiku default is "auto".
 func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.SetRecord(t, "claude", "aliases.haiku", "claude-haiku-4.5")

@@ -76,12 +76,14 @@ func TestOpencodePermissionBashDeny(t *testing.T) {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
-	_, err = opencodeApplyPermissions(nil, req) // gate hooks are bound: the refusal names them and the way out
+	// gate hooks are bound: the refusal names them and the way out
+	_, err = opencodeApplyPermissions(nil, req)
 	requireFatal(t, err, "safety-scan", "without --safe-mode")
 	orig := bindHooks
 	t.Cleanup(func() { bindHooks = orig })
 	bindHooks = func() []hooks.Bound { return nil }
-	_, err = opencodeApplyPermissions(nil, req) // no gate bound: the Bash deny alone is refused
+	// no gate bound: the Bash deny alone is refused
+	_, err = opencodeApplyPermissions(nil, req)
 	requireFatal(t, err, "Bash(rm *)")
 }
 
@@ -285,8 +287,7 @@ func TestOpencodePolicyArgvAutoPrompt(t *testing.T) {
 	}
 }
 
-// TestOpencodeExecRefusesPolicyEnv: under a policy, --env may not set the names the policy pins (it would win, being
-// last); with tools on and no policy --env passes through as before.
+// Under a policy, --env may not set names the policy pins (it would win, being last).
 func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 	deny, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
 	if err != nil {
@@ -304,7 +305,8 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 		{"no policy", agent.RunOptions{Tools: true, Env: []string{opencodePermissionEnv + `="allow"`}}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no opencode installed: a run that gets past the check stops at Bin
+			// no opencode installed: a run that gets past the check stops at Bin
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			_, err := (opencodeEngine{agent.NewBaseEngine("opencode")}).Exec(context.Background(), agent.CLIPrep{}, tc.req, wire.Discard)
 			switch {
 			case tc.want == "" && (err == nil || strings.Contains(err.Error(), "permission policy")):

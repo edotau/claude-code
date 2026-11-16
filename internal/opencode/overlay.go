@@ -14,8 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// --- opencode: a tracked overlay (state/harness/opencode/{opencode,tui}.json), never opencode's own
-// ~/.config/opencode files; the harness only writes those for the custom theme (see internal/ui/theme). ---
+// --- opencode: a tracked overlay under state/harness/opencode/, never opencode's own ~/.config files. ---
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o agentconfig.RenderOptions, out io.Writer) (bool, error) {
@@ -82,7 +81,8 @@ func opencodeCommands() map[string]any {
 			cmd["description"] = d
 		}
 		if fm["context"] == "fork" {
-			cmd["subtask"] = true // a forked context is opencode's subtask
+			// a forked context is opencode's subtask
+			cmd["subtask"] = true
 		}
 		out[name] = cmd
 	}

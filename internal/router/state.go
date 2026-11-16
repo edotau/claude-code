@@ -52,21 +52,27 @@ const (
 
 // Entry is one account's remembered quota.
 type Entry struct {
-	UsedPct        float64              `json:"used_pct"`
-	Window         string               `json:"window,omitempty"`
-	ResetsAt       time.Time            `json:"resets_at,omitzero"`
-	ExhaustedUntil time.Time            `json:"exhausted_until,omitzero"`
-	Reason         string               `json:"reason,omitempty"`
-	Seen           time.Time            `json:"seen"`
-	Checked        time.Time            `json:"checked,omitzero"`     // last refresh that recorded no reading; backs off like Seen
-	CheckNote      string               `json:"check_note,omitempty"` // why that refresh recorded nothing
-	AuthReason     string               `json:"auth_reason,omitempty"`
-	AuthAt         time.Time            `json:"auth_at,omitzero"`
-	Discovery      map[string]time.Time `json:"discovery,omitempty"`
-	DiscoverySkip  map[string]time.Time `json:"discovery_skip,omitempty"` // "agent|entry" -> when it was marked unusable
-	Unserved       map[string]time.Time `json:"unserved,omitempty"`       // wire model -> when its endpoint was found gone
-	ModelDead      map[string]time.Time `json:"model_dead,omitempty"`     // canonical model -> quota-denied until
-	Cooling        map[string]time.Time `json:"cooling,omitempty"`        // "·" (the account) -> rate-limit hold until
+	UsedPct        float64   `json:"used_pct"`
+	Window         string    `json:"window,omitempty"`
+	ResetsAt       time.Time `json:"resets_at,omitzero"`
+	ExhaustedUntil time.Time `json:"exhausted_until,omitzero"`
+	Reason         string    `json:"reason,omitempty"`
+	Seen           time.Time `json:"seen"`
+	// last refresh that recorded no reading; backs off like Seen
+	Checked time.Time `json:"checked,omitzero"`
+	// why that refresh recorded nothing
+	CheckNote  string               `json:"check_note,omitempty"`
+	AuthReason string               `json:"auth_reason,omitempty"`
+	AuthAt     time.Time            `json:"auth_at,omitzero"`
+	Discovery  map[string]time.Time `json:"discovery,omitempty"`
+	// "agent|entry" -> when it was marked unusable
+	DiscoverySkip map[string]time.Time `json:"discovery_skip,omitempty"`
+	// wire model -> when its endpoint was found gone
+	Unserved map[string]time.Time `json:"unserved,omitempty"`
+	// canonical model -> quota-denied until
+	ModelDead map[string]time.Time `json:"model_dead,omitempty"`
+	// "·" (the account) -> rate-limit hold until
+	Cooling map[string]time.Time `json:"cooling,omitempty"`
 }
 
 // State is every account's entry, keyed by account key.
@@ -116,7 +122,8 @@ func update(fn func(State)) error {
 	return paths.WithFileLock(path, func() error { return writeState(path, fn) })
 }
 
-var authMarkWait = 2 * time.Second // bounds a request-path auth-mark write; a var so tests need not wait
+// bounds a request-path auth-mark write; a var so tests need not wait
+var authMarkWait = 2 * time.Second
 
 // tryUpdate is update that gives up after wait; ran=false means the lock stayed busy and nothing was written.
 func tryUpdate(wait time.Duration, fn func(State)) (bool, error) {
@@ -212,7 +219,8 @@ func (e Entry) Stale(now time.Time) bool {
 func MarkExhausted(key string, until, now time.Time, reason string) error {
 	return update(func(s State) {
 		e := s[key]
-		if until.After(e.ExhaustedUntil) || !e.ExhaustedUntil.After(now) { // a concurrent shorter default never wins
+		// a concurrent shorter default never wins
+		if until.After(e.ExhaustedUntil) || !e.ExhaustedUntil.After(now) {
 			e.ExhaustedUntil, e.Reason = until, reason
 		}
 		e.Seen = now
@@ -304,7 +312,8 @@ func ClearProviderAuth(provider string) error {
 		marked = marked || hit(account, e)
 	}
 	if !marked {
-		return nil // nothing is written when no mark exists
+		// nothing is written when no mark exists
+		return nil
 	}
 	return update(func(s State) {
 		for account, e := range s {
@@ -425,7 +434,8 @@ func parseInReset(low string, now time.Time) (time.Time, bool) {
 	const maxIn = 365 * 24 * time.Hour
 	n, err := strconv.Atoi(m[1])
 	if err != nil || n < 0 || time.Duration(n) > maxIn/unit {
-		return now.Add(maxIn), true // clamp: a huge N must not wrap into the past
+		// clamp: a huge N must not wrap into the past
+		return now.Add(maxIn), true
 	}
 	return now.Add(time.Duration(n) * unit), true
 }
@@ -442,7 +452,8 @@ func parseDateReset(low string, now time.Time) (time.Time, bool) {
 		if len(m[2]) == 8 {
 			layout, v = "2006-01-02T15:04:05", m[1]+"T"+m[2]
 		}
-		if m[3] != "" { // an explicit Z or offset wins over the local zone
+		// an explicit Z or offset wins over the local zone
+		if m[3] != "" {
 			layout, v = layout+"Z07:00", v+strings.ToUpper(normalizeOffset(m[3]))
 		}
 	}

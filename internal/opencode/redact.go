@@ -116,7 +116,8 @@ func redactURLQuery(entry map[string]any) {
 		return
 	}
 	u, err := url.Parse(raw)
-	if err != nil { // a templated URL ("https://${HOST}/mcp?token=…") does not parse but still carries secrets
+	// A templated URL ("https://${HOST}/mcp?token=…") does not parse but still carries secrets.
+	if err != nil {
 		entry["url"] = redactRawURL(raw)
 		return
 	}

@@ -40,8 +40,9 @@ var copilotStripEnv = []string{
 
 // copilotPrivateHome is the private login-free copilot home: the env to set and the names to strip.
 type copilotPrivateHome struct {
-	Env      proc.Values
-	Unset    []string // exact names; also strip anything with proc.CopilotProviderPrefix
+	Env proc.Values
+	// exact names; also strip anything with proc.CopilotProviderPrefix
+	Unset    []string
 	Warnings []string
 }
 
@@ -51,7 +52,8 @@ func prepareCopilotHome(dry bool) (copilotPrivateHome, error) {
 	out := copilotPrivateHome{
 		Env: proc.Values{
 			"COPILOT_HOME": home, "XDG_CONFIG_HOME": xdg,
-			"DBUS_SESSION_BUS_ADDRESS": "", // no session bus, so no keyring: nothing to log in with
+			// no session bus, so no keyring: nothing to log in with
+			"DBUS_SESSION_BUS_ADDRESS": "",
 		},
 		Unset: append(slices.Clone(copilotStripEnv), "COPILOT_MODEL"),
 	}
@@ -207,7 +209,8 @@ func jsonValuePresent(v json.RawMessage) bool {
 	}
 	var val any
 	if err := json.Unmarshal(v, &val); err != nil {
-		return true // unparseable but set: keep refusing, as before
+		// unparseable but set: keep refusing, as before
+		return true
 	}
 	switch t := val.(type) {
 	case nil:
@@ -260,8 +263,7 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 // extraDefaultPermissionMode is the record extras key copilot's settings.json takes as defaultPermissionMode.
 const extraDefaultPermissionMode = "defaultPermissionMode"
 
-// renderCopilotSettings merges the record's extras.defaultPermissionMode into ~/.copilot/settings.json,
-// keeping every other key untouched; a non-JSON existing file is skipped, never clobbered.
+// renderCopilotSettings merges extras.defaultPermissionMode into settings.json, never clobbering non-JSON.
 func renderCopilotSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings("copilot")
 	if err != nil {
@@ -331,16 +333,15 @@ func copilotMatcher(m string) string {
 	return strings.Join(out, "|")
 }
 
-// mergeCopilotHooks is mergeCodexHooks for Copilot's flat (non-grouped) hook entries and its top-level
-// {"version", "hooks"} shape: each entry is either kept whole, byte-identical (foreign) or dropped whole
-// (harness-owned, by its "bash" command prefix); every other top-level key survives untouched.
+// mergeCopilotHooks keeps foreign entries byte-identical and drops harness-owned ones by "bash" prefix.
 func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	next, renderedTop, err := agentconfig.MergeHooksTop(existingRaw, body, classifyCopilotEntry)
 	if err != nil {
 		return nil, err
 	}
 	var version int
-	_ = json.Unmarshal(renderedTop["version"], &version) // absent/malformed rendered version: fall through to 1
+	// absent/malformed rendered version: fall through to 1
+	_ = json.Unmarshal(renderedTop["version"], &version)
 	if version == 0 {
 		version = 1
 	}
@@ -352,9 +353,7 @@ func mergeCopilotHooks(existingRaw, body []byte) ([]byte, error) {
 	return textutil.MarshalIndentNoEscape(next)
 }
 
-// classifyCopilotEntry reports an entry's foreign remainder (nil when harness-owned, by its "bash"
-// command prefix via IsHarness) and whether it was harness-owned; a foreign entry is returned
-// byte-identical so powershell/cwd/env and any other field survive untouched.
+// classifyCopilotEntry returns a foreign entry byte-identical (nil if harness-owned) and the owned flag.
 func classifyCopilotEntry(e json.RawMessage) (*json.RawMessage, bool) {
 	var id struct {
 		Bash string `json:"bash"`

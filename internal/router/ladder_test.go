@@ -178,8 +178,7 @@ func TestParseCoworker(t *testing.T) {
 	}
 }
 
-// armPick runs want's pick under route databricks:dev on a hermetic registry: dev and qa workspaces, the built-in
-// own-login rows and a keyed openai row; codex is pinned to the keyed row and copilot to qa.
+// armPick runs want's pick under route databricks:dev on a hermetic registry with dev and qa workspaces.
 func armPick(t *testing.T, want, fallback string) PickResult {
 	t.Helper()
 	vaulttest.Use(t)
@@ -203,8 +202,7 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 		Pins: map[string]PinSpec{"codex": {Profile: "openai"}, "copilot": {Profile: "qa"}}})
 }
 
-// TestArmPickOrder: tier 1 is every agent on databricks·dev, wanted first; tier 2 the first-party logins in ladder
-// order; pins elsewhere are skipped as outside the route; none keeps one candidate and agents drops claude.
+// Tier 1 is every agent on databricks·dev, wanted first; tier 2 the first-party logins in ladder order.
 func TestArmPickOrder(t *testing.T) {
 	r := armPick(t, "codex", FallbackAll)
 	tier1, tier2 := armTiers(r)

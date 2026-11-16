@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// copilotGate keeps t unless copilot's GitHub login is unworkable; then the pin (explicit) or Databricks, never another account.
+// copilotGate keeps t unless the GitHub login is unworkable, then the pin or Databricks, never another account.
 func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Target, explicit bool, mode string,
 ) (providers.Target, string, error) {
 	if t.Provider == nil || t.Provider.Auth.Login != "copilot" {
@@ -29,7 +29,8 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 	if ok {
 		return t, "", nil
 	}
-	if arm := router.ArmProfileContext(ctx); arm != "" { // the route's chain picks the next hop; a silent Databricks move would leak
+	// the route's chain picks the next hop; a silent Databricks move would leak
+	if arm := router.ArmProfileContext(ctx); arm != "" {
 		return providers.Target{}, "", fmt.Errorf("copilot: %s; GitHub hop refused inside databricks:%s", detail, arm)
 	}
 	mode = cmp.Or(mode, fallbackMode(ctx))
@@ -49,7 +50,8 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 	if !ok {
 		return providers.Target{}, "", errors.New(ri.Reason)
 	}
-	if strings.HasPrefix(t.Model, models.DatabricksPrefix) { // a Databricks id moves only to a profile serving it
+	// a Databricks id moves only to a profile serving it
+	if strings.HasPrefix(t.Model, models.DatabricksPrefix) {
 		if _, why := agent.ProfileServes("copilot", ft.Provider, t.Model); why != "" {
 			return providers.Target{}, "", fmt.Errorf("copilot: %s; databricks profile %s %s", detail, ft.Provider.Name, why)
 		}
@@ -128,7 +130,8 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 	if reg == nil {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: no provider registry"}
 	}
-	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() { // a pinned Databricks profile wins
+	// a pinned Databricks profile wins
+	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() {
 		p := reg.Providers[pin]
 		t := agent.PinnedTarget(ctx, "copilot", providers.Target{Provider: p, Model: tierModel(p, models.Opus)})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
@@ -211,7 +214,8 @@ func RouteChain(ctx context.Context, reg *providers.Registry) []RouteStep {
 
 // copilotLogin runs copilot on its GitHub sign-in (`copilot login`, GH_TOKEN); blanked BYOK vars cannot redirect it.
 func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, error) {
-	if model == "auto" { // no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
+	// no pin: blank (copilot reads "" as unset) so copilot's own /model default applies
+	if model == "auto" {
 		model = ""
 	}
 	env := proc.Values{
@@ -221,7 +225,8 @@ func copilotLogin(model, login string, h *agent.Headless) ([]string, []string, e
 	if err != nil {
 		return nil, nil, err
 	}
-	if tok != "" { // the harness's chosen account beats any inherited token
+	// the harness's chosen account beats any inherited token
+	if tok != "" {
 		env = env.With(providers.CopilotTokenEnv, tok)
 	}
 	return env.Env(), copilotArgv(h), nil
@@ -301,10 +306,12 @@ func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed 
 	switch {
 	case w == providers.ProtocolAnthropic:
 		return "anthropic", base, "", "", nil
-	case routed: // the router's openai|responses passthrough
+	// the router's openai|responses passthrough
+	case routed:
 		return "openai", base + "/" + w, w, canonical, nil
 	}
-	if b, ok = p.Route(w); !ok { // --direct: the profile's own endpoint for that wire
+	// --direct: the profile's own endpoint for that wire
+	if b, ok = p.Route(w); !ok {
 		return "", "", "", "", fmt.Errorf("copilot: profile %s has no %s route for %s", p.Name, w, model)
 	}
 	return "openai", b, w, "", nil
@@ -352,8 +359,9 @@ type pinValidator struct {
 	fallback             string
 	ids                  []string
 	fetched, catalogDown bool
-	firstWarn            string // the first unverifiable-pin warning; later pins are still checked
-	served               map[string][]string
+	// the first unverifiable-pin warning; later pins are still checked
+	firstWarn string
+	served    map[string][]string
 }
 
 // check validates one "<agent>=<spec>" pin; a non-nil error is a hard refusal.
@@ -444,7 +452,8 @@ func servedIDs(
 	cat, err := CopilotModelSource(ctx, reg, name)
 	cancel()
 	if err != nil {
-		served[name] = nil // a nil entry marks a failed listing, so later pins don't wait on it again
+		// a nil entry marks a failed listing, so later pins don't wait on it again
+		served[name] = nil
 		return nil, fmt.Sprintf("could not verify against %s serving endpoints (pin written anyway): %v", name, err), false
 	}
 	ids = make([]string, 0, len(cat.Rows))

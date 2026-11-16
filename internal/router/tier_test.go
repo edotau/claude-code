@@ -2,9 +2,7 @@ package router
 
 import "testing"
 
-// TestEffortTierSignalRules pins each classifier rule to its tier AND the signal name the hook
-// surfaces in systemMessage — a tier without a matching signal name is a silent regression nobody
-// watching the message would ever notice.
+// Each classifier rule is pinned to its tier and the signal name the hook surfaces in systemMessage.
 func TestEffortTierSignalRules(t *testing.T) {
 	cases := []struct {
 		name, prompt, wantTier, wantSignal string
@@ -31,8 +29,7 @@ func TestEffortTierSignalRules(t *testing.T) {
 	}
 }
 
-// TestEffortTierSignalHighRulePriority: an explicit high-complexity keyword wins even when a prompt
-// would otherwise also match open-search or live-system, and names the specific keyword that fired.
+// An explicit high-complexity keyword wins over open-search or live-system matches and names the keyword that fired.
 func TestEffortTierSignalHighRulePriority(t *testing.T) {
 	tier, signal := EffortTierSignal("refactor the production deploy pipeline and investigate the outage")
 	if tier != "high" {

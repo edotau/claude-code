@@ -37,7 +37,8 @@ func ParseCoworker(v string) (provider, profile string, err error) {
 	case named && profile == "" && slices.Contains(providers.ProviderKeys(), provider):
 		return "", "", fmt.Errorf("empty profile: want %s or %s:<profile>", provider, provider)
 	}
-	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|")) // never quotes v
+	// never quotes v
+	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|"))
 }
 
 // JoinCoworker is ParseCoworker's inverse: provider[:profile]; a profile without a provider joins to "".
@@ -82,13 +83,19 @@ func ladderName(ctx context.Context) string {
 
 // pickLadder is the ladder one pick follows: its rungs, which accounts it admits, and claude's slot.
 type pickLadder struct {
-	rungs       []providers.Rung
-	only        string // a non-Databricks confinement's provider: admits only its accounts
-	onlyAccount string // provider·profile when that confinement pins a profile
-	arm         string // databricks:<arm> admits only that workspace's account and own-login ones
-	armAccount  string // ProviderAccount(arm)
-	anywhere    bool   // claude scores into the first rung it beats (no rung names claude)
-	claudeRungs bool   // a rung names claude, so claude is matched like any agent
+	rungs []providers.Rung
+	// a non-Databricks confinement's provider: admits only its accounts
+	only string
+	// provider·profile when that confinement pins a profile
+	onlyAccount string
+	// databricks:<arm> admits only that workspace's account and own-login ones
+	arm string
+	// ProviderAccount(arm)
+	armAccount string
+	// claude scores into the first rung it beats (no rung names claude)
+	anywhere bool
+	// a rung names claude, so claude is matched like any agent
+	claudeRungs bool
 }
 
 // ladderFor is the table's ladder for the resolved name; an unset ladder keeps today's score-only order.
@@ -138,7 +145,8 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 	var out []rungGroup
 	for _, g := range groups {
 		split := [][]Candidate{g}
-		if g[0].Agent != "opencode" || lp.l.arm != "" { // the arm runs no free+backup pair
+		// the arm runs no free+backup pair
+		if g[0].Agent != "opencode" || lp.l.arm != "" {
 			split = make([][]Candidate, len(g))
 			for i, c := range g {
 				split[i] = []Candidate{c}
@@ -368,7 +376,8 @@ func (l pickLadder) rungBest(us []rungGroup) ([]float64, []bool) {
 	seen := make([]bool, len(l.rungs))
 	for _, u := range us {
 		if u.rung >= 0 && u.rung < len(l.rungs) {
-			if t := u.cs[0].Total; !seen[u.rung] || t > best[u.rung] { // a cooling total can be negative
+			// a cooling total can be negative
+			if t := u.cs[0].Total; !seen[u.rung] || t > best[u.rung] {
 				best[u.rung] = t
 			}
 			seen[u.rung] = true
@@ -401,7 +410,7 @@ func sortUnits(us []rungGroup) {
 	})
 }
 
-// CoworkerContext is the provider and profile an inline $COWORKER_OVERLAY names; a path, - or bare databricks[:auto]: none.
+// CoworkerContext is the provider and profile an inline $COWORKER_OVERLAY names; a path or bare databricks gives none.
 func CoworkerContext(ctx context.Context) (provider, profile string, err error) {
 	v := strings.TrimSpace(proc.Value(ctx, overlayEnv))
 	var doc struct{ Provider, Profile string }
@@ -411,7 +420,8 @@ func CoworkerContext(ctx context.Context) (provider, profile string, err error) 
 	case json.Unmarshal([]byte(v), &doc) != nil:
 		return "", "", errors.New(overlayEnv + ": not valid JSON")
 	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
-		return "", "", nil // the ask applying this document resolves the workspace
+		// the ask applying this document resolves the workspace
+		return "", "", nil
 	}
 	if provider, profile, err = ParseCoworker(JoinCoworker(doc.Provider, doc.Profile)); err != nil {
 		return "", "", fmt.Errorf("%s: %w", overlayEnv, err)
@@ -419,8 +429,7 @@ func CoworkerContext(ctx context.Context) (provider, profile string, err error) 
 	return provider, profile, nil
 }
 
-// ConfinedContext is the non-Databricks confinement CoworkerContext names: its provider and optional profile; "" outside one.
-// A set overlay CoworkerContext rejects fails closed as BadOverlay.
+// ConfinedContext is the non-Databricks provider and profile CoworkerContext names; a bad overlay fails closed.
 func ConfinedContext(ctx context.Context) (provider, profile string) {
 	provider, profile, err := CoworkerContext(ctx)
 	switch {
@@ -438,7 +447,8 @@ func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model
 	switch {
 	case cp == "" || profile != "" || strings.Contains(model, ":"):
 		return profile, provider
-	case cprof != "": // a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
+	// a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
+	case cprof != "":
 		return cprof, ""
 	case provider != "":
 		return profile, provider
@@ -446,10 +456,12 @@ func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model
 		return "", cp
 	}
 	reg, err := providers.Load()
-	if err != nil { // fail closed: a profile no row has, never an unconfined lead
+	// fail closed: a profile no row has, never an unconfined lead
+	if err != nil {
 		return unresolvedProfile, ""
 	}
-	if own := OwnProfiles(reg, agentName, cp); len(own) > 0 { // claude reads a profile, never a provider lead
+	// claude reads a profile, never a provider lead
+	if own := OwnProfiles(reg, agentName, cp); len(own) > 0 {
 		return own[0], ""
 	}
 	return "", ""

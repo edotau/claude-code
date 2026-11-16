@@ -25,14 +25,12 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-// funcName compares function VALUES by the symbol they point to (PermissionHandlerFunc values are not
-// comparable with ==); it tells approveToolOnce apart from denyAllTools.
+// funcName compares function values by symbol, since PermissionHandlerFunc values are not comparable with ==.
 func funcName(f any) string {
 	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
 }
 
-// EnableMemory turns into SessionConfig.Memory only when set, and permissionHandler follows AllowAllTools
-// alone — a session (new or resumed) must carry both consistently.
+// EnableMemory sets SessionConfig.Memory only when set; permissionHandler follows AllowAllTools alone.
 func TestBuildSessionConfigMemoryAndPermission(t *testing.T) {
 	cfg := buildSessionConfig(sdkOptions{EnableMemory: true, AllowAllTools: true, Autonomous: true})
 	if cfg.Memory == nil || !cfg.Memory.Enabled {
@@ -181,7 +179,8 @@ func checkMiniFields(t *testing.T, m SDKModel) {
 // policyFixture is a four-model raw catalog covering efforts, context limit and each Policy.State shape.
 func policyFixture(ctxTokens *int) []copilot.ModelInfo {
 	return []copilot.ModelInfo{
-		{ // no Policy at all: enabled by default
+		// no Policy at all: enabled by default
+		{
 			ID: "claude-sonnet-5",
 			Capabilities: copilot.ModelCapabilities{
 				Limits: copilot.ModelLimits{MaxContextWindowTokens: ctxTokens},
@@ -189,22 +188,24 @@ func policyFixture(ctxTokens *int) []copilot.ModelInfo {
 			SupportedReasoningEfforts: []string{"low", "medium", "high"},
 			DefaultReasoningEffort:    "medium",
 		},
-		{ // explicit Policy.State == "enabled"
+		// explicit Policy.State == "enabled"
+		{
 			ID:     "gpt-5-mini",
 			Policy: &copilot.ModelPolicy{State: "enabled"},
 		},
-		{ // disabled by policy
+		// disabled by policy
+		{
 			ID:     "retired-model",
 			Policy: &copilot.ModelPolicy{State: "disabled"},
 		},
-		{ // no context limit reported at all
+		// no context limit reported at all
+		{
 			ID: "auto",
 		},
 	}
 }
 
-// SDKListModels also maps SupportedReasoningEfforts/DefaultReasoningEffort, MaxContextWindowTokens, and the
-// Policy.State enabled gate — Policy nil and Policy.State=="enabled" both count as enabled.
+// SDKListModels also maps reasoning efforts, context window and the Policy.State gate; nil Policy counts as enabled.
 func TestSDKListModelsMapsEffortsContextAndEnabled(t *testing.T) {
 	ctxTokens := 1_000_000
 	stubListModels(t, policyFixture(&ctxTokens))
@@ -239,8 +240,7 @@ func TestSDKListModelsMapsEffortsContextAndEnabled(t *testing.T) {
 	})
 }
 
-// CatalogOptions prefers an explicit token (GitHubToken) over UseLoggedInUser whenever the token is
-// non-empty; an empty token falls back to the CLI's own stored login.
+// CatalogOptions prefers a non-empty GitHubToken over UseLoggedInUser, else the CLI's stored login.
 func TestCatalogOptionsPrefersToken(t *testing.T) {
 	withToken := CatalogOptions("/fake/copilot", "gh-token-123")
 	if withToken.GitHubToken != "gh-token-123" {
@@ -414,8 +414,7 @@ func TestSystemPromptRidesSDKNotPrompt(t *testing.T) {
 	}
 }
 
-// A tools-off session sends no tool schemas, skill or agent roots and no tool-only prompt sections, yet keeps the
-// system text and the instruction root; a tools run keeps all of them.
+// A tools-off session sends no tool schemas, skill/agent roots or tool-only sections, but keeps system text.
 func TestToolsOffSessionConfigTrimsPrompt(t *testing.T) {
 	o := sdkOptions{System: "be ZEBRA", InstructionDirs: []string{"/i"}, SkillDirs: []string{"/s"}, AgentDirs: []string{"/a"}}
 	off := buildSessionConfig(o)
@@ -436,8 +435,7 @@ func TestToolsOffSessionConfigTrimsPrompt(t *testing.T) {
 	}
 }
 
-// A headless tools run is a leaf: no sub-agent or workflow tools and no agent listing, on create and resume alike;
-// a fleet run keeps them.
+// A headless tools run is a leaf (no sub-agent, workflow tools or listing) on create and resume.
 func TestToolsRunExcludesSubagentTools(t *testing.T) {
 	o := sdkOptions{AllowAllTools: true, AgentDirs: []string{"/a"}, SkillDirs: []string{"/s"}}
 	for name, cfg := range map[string]struct {
@@ -543,7 +541,8 @@ func buildFakeCLI(t *testing.T) string {
 		}
 		fakeCLIExe = filepath.Join(fakeCLIDir, "fake")
 		if runtime.GOOS == "windows" {
-			fakeCLIExe += ".exe" // exec resolves an extensionless path only through PATHEXT
+			// exec resolves an extensionless path only through PATHEXT
+			fakeCLIExe += ".exe"
 		}
 		if out, err := exec.Command("go", "build", "-o", fakeCLIExe, "./testdata/fakecli").CombinedOutput(); err != nil {
 			fakeCLIErr = fmt.Errorf("build fakecli: %w\n%s", err, out)
@@ -598,8 +597,7 @@ func calls(t *testing.T, log string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-// A pick outside the registry is refused with errUnregisteredPick, before any process starts (sdkOptions check) and
-// when the CLI itself rejects the switch (so the pick can never silently stay on a GitHub model).
+// A pick outside the registry is refused with errUnregisteredPick, before any process or when the CLI rejects it.
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")
 	o.Model = "dbx-openai/not-registered"

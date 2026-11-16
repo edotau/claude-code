@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// TestLoadEveryCellResolves exercises Load() directly (no registry overlay, an isolated empty vault):
-// every agent × alias cell has a model, account and billing, and AliasOf round-trips each cell's own
-// model back to its alias.
+// Load() with an empty vault gives every agent x alias cell a model, account and billing; AliasOf round-trips.
 func TestLoadEveryCellResolves(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
@@ -25,8 +23,7 @@ func TestLoadEveryCellResolves(t *testing.T) {
 	assertEveryCellResolves(t, tb)
 }
 
-// TestLoadFromOverlayCellAndWeights checks LoadFrom applies a registry's per-cell Route override and
-// replaces Weights whole, and rejects an overlay cell naming an unknown agent/alias.
+// LoadFrom applies a registry's per-cell Route override, replaces Weights whole, and rejects unknown cells.
 func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	reg := &providers.Registry{
 		// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
@@ -51,11 +48,7 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	}
 }
 
-// TestLoadFromOpencodeOverrideAccountKey checks moving an opencode cell to a different backend derives the
-// right billing account instead of keeping the table's opencode:go key (the HIGH quota-attribution finding).
-// A github-copilot override bills opencode's own Copilot login (opencode:github-copilot), not the pinned gh
-// user's copilot:<user> key — opencode authenticates independently, so conflating the two would misattribute
-// quota to an account that never made the call.
+// Moving an opencode cell to another backend re-derives its billing account, not the gh user's copilot key.
 func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	toCopilot := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}}},
@@ -95,9 +88,7 @@ func TestLoadFromOpencodeOverrideAccountKey(t *testing.T) {
 	}
 }
 
-// TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount checks the account re-derivation guard is scoped to
-// the opencode agent: a "/"-bearing model override on another agent (codex here) must not trigger
-// opencodeOverrideAccount at all, and the cell keeps the table's own billing account unchanged.
+// The account re-derivation guard is opencode-only: a "/" model override on codex keeps its billing account.
 func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	reg := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"codex": {"sonnet": {Model: "openrouter/some-model"}}}},
@@ -133,8 +124,7 @@ func TestLoadFromCopilotAccountKey(t *testing.T) {
 	}
 }
 
-// TestTierOfSlotNamesAndFamilies checks AliasOf's other paths: a bare alias name, a provider:model id, and an
-// unknown model (none of the table's cells, no alias name, no family match).
+// AliasOf's other paths: a bare alias name, a provider:model id, and an unknown model.
 func TestTierOfSlotNamesAndFamilies(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
@@ -155,8 +145,7 @@ func TestTierOfSlotNamesAndFamilies(t *testing.T) {
 	}
 }
 
-// TestRowsKeyedByClaudeID checks rows are keyed by canonical Claude id, aliases and spellings reach the same row,
-// and the alias view agrees with it.
+// Rows are keyed by canonical Claude id, aliases and spellings reach the same row, and the alias view agrees.
 func TestRowsKeyedByClaudeID(t *testing.T) {
 	vaulttest.Use(t)
 	tb, err := Load()
@@ -180,8 +169,7 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 	}
 }
 
-// TestOverlayAcceptsCanonicalAndTierKeys checks routing.cells keyed by canonical id and by the deprecated alias hit
-// the same cell.
+// routing.cells keyed by canonical id and by the deprecated alias hit the same cell.
 func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
 	for _, key := range []string{"sonnet", "claude-sonnet-5-5"} {
 		reg := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
@@ -327,7 +315,8 @@ func TestModelRow(t *testing.T) {
 		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
 		{"gpt-6.1-sol", "", "", "gpt-6-1-sol"},
 		{"glm-5.3", "", "", "glm-5-3"},
-		{"no-such-model", "", "", "no-such-model"}, // off-catalog is still an exact request, never a silent default
+		// off-catalog is still an exact request, never a silent default
+		{"no-such-model", "", "", "no-such-model"},
 		{"", "", "", ""},
 	}
 	for _, c := range cases {
@@ -347,7 +336,7 @@ func TestClaudeCellModelIsTheAlias(t *testing.T) {
 	}
 }
 
-// AsksModel matches a databricks- spelling of a non-catalog id, and LowestAliasServing a gemini cell with an effort suffix.
+// AsksModel matches a databricks- spelling of a non-catalog id; LowestAliasServing a gemini effort suffix.
 func TestAsksModelWireSpellingAndGeminiEffortCell(t *testing.T) {
 	if !AsksModel("dev:databricks-foo-9", Candidate{Profile: "dev"}, "foo-9") {
 		t.Error("AsksModel missed the databricks- spelling of a non-catalog id")

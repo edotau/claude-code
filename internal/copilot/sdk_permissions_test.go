@@ -267,7 +267,8 @@ func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
 	wd := t.TempDir()
 	for _, tc := range formerlyScoped(wd) {
 		if tc.deny == "" {
-			continue // memory maps to no rule tool, so no Deny can name it
+			// memory maps to no rule tool, so no Deny can name it
+			continue
 		}
 		r, err := agent.ParseRule(tc.deny)
 		if err != nil {
@@ -428,7 +429,7 @@ func TestPermissionAskAndToolsOffResume(t *testing.T) {
 	}
 }
 
-// checkAskResume expects a resumed ask rule to reject with tools off, and with tools on to defer only under managed settings.
+// A resumed ask rule rejects with tools off; with tools on it defers only under managed settings.
 func checkAskResume(t *testing.T, h copilot.PermissionHandlerFunc, req copilot.PermissionRequest, tools bool) {
 	t.Helper()
 	for _, managed := range []bool{false, true} {

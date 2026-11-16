@@ -22,12 +22,16 @@ type openCodeEvent struct {
 		Tool   string `json:"tool"`
 		CallID string `json:"callID"`
 		State  struct {
-			Status string         `json:"status"`
-			Input  map[string]any `json:"input"`  // the call's arguments, sent once the tool has run
-			Output any            `json:"output"` // its result (a string for the built-in tools)
+			Status string `json:"status"`
+			// the call's arguments, sent once the tool has run
+			Input map[string]any `json:"input"`
+			// its result (a string for the built-in tools)
+			Output any `json:"output"`
 		} `json:"state"`
-		Reason string  `json:"reason"` // step_finish: stop, length, tool-calls, ...
-		Cost   float64 `json:"cost"`   // step_finish: USD
+		// step_finish: stop, length, tool-calls, ...
+		Reason string `json:"reason"`
+		// step_finish: USD
+		Cost   float64 `json:"cost"`
 		Tokens struct {
 			Input, Output, Reasoning int
 			Cache                    struct{ Read, Write int }
@@ -41,7 +45,7 @@ type openCodeEvent struct {
 	} `json:"error"`
 }
 
-// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start is not (it only renews the idle timeout).
+// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start only renews the idle timeout.
 func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	switch ev.Type {
 	case "step_finish":
@@ -187,7 +191,8 @@ func refuseToolCallText(name string, req agent.RunOptions, answer string) error 
 		return nil
 	}
 	if rest := strings.TrimSpace(toolCallMarkupRE.ReplaceAllString(answer, "")); len(rest) > 40 {
-		return nil // prose around the markup is a real answer that quotes it
+		// prose around the markup is a real answer that quotes it
+		return nil
 	}
 	return retry.Fatal(name, errors.New(
 		"the model answered with tool calls, but tools are off so none ran; re-run with --tools or use another agent"))

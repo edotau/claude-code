@@ -85,8 +85,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	}
 }
 
-// doctor's/profile's output over a github-copilot pin or route never prints anything secret-looking:
-// no bearer token, no raw API key value, only the env var NAME.
+// Doctor and profile output over a github-copilot pin or route never prints a token or key, only its env name.
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	hosttest.PinScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
@@ -207,7 +206,8 @@ func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
 	copilotSettings(t, &vault.AgentRecord{Effort: "high", Context: "long_context"}, "", false)
 	setGOOS(t, "linux")
 	t.Setenv("COPILOT_HOME", t.TempDir())
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir()) // a bare Linux box (no login session) has no /run/user/<uid>
+	// a bare Linux box (no login session) has no /run/user/<uid>
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	stubSettingsRegistry(t)
 	reg, err := providers.Load()
 	if err != nil {
@@ -297,7 +297,7 @@ func TestArmCopilotGateRefusalIsError(t *testing.T) {
 	}
 }
 
-// A typed GitHub account with no credits is refused under none, falls to the pin under pin, and never moves to Databricks.
+// A typed GitHub account with no credits is refused under none, takes the pin under pin, never moves to Databricks.
 func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
 	macFallbackScratch(t)
 	orig := CopilotUsedPct

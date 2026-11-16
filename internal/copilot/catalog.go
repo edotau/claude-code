@@ -73,10 +73,11 @@ const catalogRecord = "copilot-catalog"
 
 // catalogSnapshot is the sealed catalog of one GitHub auth (account, credential source and token digest).
 type catalogSnapshot struct {
-	Schema       int
-	Account      string
-	Source       string
-	TokenHash    string // sha256 of the token listed with; a changed token (e.g. env) must not reuse the catalog
+	Schema  int
+	Account string
+	Source  string
+	// sha256 of the token listed with; a changed token (e.g. env) must not reuse the catalog
+	TokenHash    string
 	DiscoveredAt time.Time
 	Models       []SDKModel
 }
@@ -152,7 +153,8 @@ func spawnCatalogRefresh() {
 
 // refreshCatalog lists live on login's account ("" = the launch account's) and seals it, whatever the snapshot's age.
 func refreshCatalog(ctx context.Context, login string) ([]SDKModel, error) {
-	auth, tok, ok, err := catalogAuth(login) // read once, so the listing and its seal name the same account
+	// read once, so the listing and its seal name the same account
+	auth, tok, ok, err := catalogAuth(login)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +185,8 @@ func RefreshProfile(ctx context.Context, name string) error {
 	p := reg.Providers[name]
 	switch {
 	case isGithubProfile(p):
-		_, err = refreshCatalog(ctx, p.Login) // that row's own account, not the pin's
+		// that row's own account, not the pin's
+		_, err = refreshCatalog(ctx, p.Login)
 		return err
 	case p != nil && p.Preset == providers.PresetDatabricks:
 		_, err = relistCopilotEndpoints(ctx, reg, p)
@@ -198,7 +201,8 @@ func discoverySource(p *providers.Provider) (source, skip string) {
 	if isGithubProfile(p) {
 		skip = profileCatalogSupport(p)
 	}
-	if source == "" && skip != "" { // nothing to list live: name where its models are chosen instead
+	// nothing to list live: name where its models are chosen instead
+	if source == "" && skip != "" {
 		skip += "; choose its models in the vendor CLI itself"
 	}
 	return source, skip
@@ -266,7 +270,8 @@ func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *p
 		copilotRemember(ctx, p, old)
 		return old.Models, true, nil
 	}
-	listCtx, cancel := halfRemaining(ctx) // a failed refresh must leave the launch time to use the stale snapshot
+	// a failed refresh must leave the launch time to use the stale snapshot
+	listCtx, cancel := halfRemaining(ctx)
 	defer cancel()
 	infos, err = copilotRefresh(listCtx, reg, p, scope, old)
 	if err == nil || ctx.Err() != nil {
@@ -328,7 +333,8 @@ func copilotSnapshot(ctx context.Context, p *providers.Provider) (serving.Scope,
 	if err != nil {
 		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
-	old, found, err := serving.Read(scope, true) // true: an invalid payload reads as a miss, so a seal replaces it
+	// true: an invalid payload reads as a miss, so a seal replaces it
+	old, found, err := serving.Read(scope, true)
 	if err != nil {
 		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
@@ -347,8 +353,9 @@ func halfRemaining(ctx context.Context) (context.Context, context.CancelFunc) {
 // CopilotEndpoint is one serving endpoint copilot can reach; Tested marks endpoints on the curated menu.
 type CopilotEndpoint struct {
 	providers.ModelInfo
-	Tested   bool
-	Snapshot bool // read from a sealed snapshot, so it can lag the workspace
+	Tested bool
+	// read from a sealed snapshot, so it can lag the workspace
+	Snapshot bool
 }
 
 // discoverCopilotEndpoints reads the resolved Databricks profile p's READY chat endpoints for a launch.
@@ -403,7 +410,8 @@ func CopilotModelSource(ctx context.Context, reg *providers.Registry, profile st
 	if !ok || p == nil || p.Preset != providers.PresetDatabricks {
 		return CopilotCatalog{Source: "GitHub Copilot catalog"}, nil
 	}
-	rows, err := copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p)) // identity validated on every read
+	// identity validated on every read
+	rows, err := copilotEndpointRows(copilotCheckedModelInfos(ctx, reg, p))
 	if err != nil {
 		return CopilotCatalog{}, err
 	}

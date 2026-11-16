@@ -14,9 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 )
 
-// fakeOpencode swaps the exec seam for a scripted opencode: version answers --version, list answers
-// `auth list` (listErr makes it fail). It isolates PATH/XDG_DATA_HOME, resets the caches, and returns the
-// data home plus a pointer counting `auth list` calls.
+// fakeOpencode scripts the exec seam, isolates PATH/XDG_DATA_HOME and returns the data home and list-call count.
 func fakeOpencode(t *testing.T, version, list string, listErr error) (dataHome string, listCalls *int) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -86,7 +84,8 @@ func TestOpencodeMajorParsesVersionLine(t *testing.T) {
 
 func TestOpencodeAuthV2(t *testing.T) {
 	data, _ := fakeOpencode(t, "2.0.32", v2List, nil)
-	writeAuthJSON(t, data, `{"stale":{"type":"api"}}`) // 2.x ignores auth.json when its CLI answers
+	// 2.x ignores auth.json when its CLI answers
+	writeAuthJSON(t, data, `{"stale":{"type":"api"}}`)
 	got, err := OpencodeAuth()
 	if err != nil {
 		t.Fatal(err)
@@ -186,7 +185,8 @@ func TestOpencodeArgvPerVersion(t *testing.T) {
 	if got, err := OpencodeSwitchArgv("openai", "cred_2"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "switch", "openai", "cred_2"}) {
 		t.Errorf("2.x switch = %v, err = %v", got, err)
 	}
-	fakeOpencode(t, "1.19.3", "", nil) // fakeOpencode resets CLAUDE_CONFIG_DIR, so bin/opencode must be re-registered
+	// fakeOpencode resets CLAUDE_CONFIG_DIR, so bin/opencode must be re-registered
+	fakeOpencode(t, "1.19.3", "", nil)
 	bin = pathstest.FakeVendor(t, "opencode", "exit 0")
 	if got, err := OpencodeLogoutArgv("openai", "openai"); err != nil || !reflect.DeepEqual(got, []string{bin, "auth", "logout", "openai"}) {
 		t.Errorf("1.x logout = %v, err = %v", got, err)
@@ -196,10 +196,10 @@ func TestOpencodeArgvPerVersion(t *testing.T) {
 	}
 }
 
-// TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup: a missing bin/opencode must surface
-// AgentBin's "not installed" error, never the bare "opencode" string this used to fall back to.
+// A missing bin/opencode must surface AgentBin's "not installed" error, never fall back to the bare "opencode" string.
 func TestOpencodeArgvErrorsWithoutFallingBackToBarePATHLookup(t *testing.T) {
-	fakeOpencode(t, "2.0.32", "[]", nil) // CLAUDE_CONFIG_DIR is fresh here: bin/opencode was never written
+	// CLAUDE_CONFIG_DIR is fresh here: bin/opencode was never written
+	fakeOpencode(t, "2.0.32", "[]", nil)
 	if got, err := OpencodeLogoutArgv("openai", "cred_2"); err == nil || got != nil {
 		t.Errorf("logout = %v, err = %v, want (nil, AgentBin error)", got, err)
 	} else if strings.Contains(err.Error(), `"opencode"`) || err.Error() == "opencode" {
