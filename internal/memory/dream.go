@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -139,22 +138,15 @@ type dreamOptions struct {
 	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
-// dreamChanged lists the top-level .md files in the home, local and repo stores modified after since (all when zero).
-func dreamChanged(cwd string, since time.Time) []string {
+// dreamChanged lists the top-level store .md files modified after since (all when zero).
+func dreamChanged(since time.Time) []string {
 	var out []string
-	keys := BankKeys()
-	for _, b := range append([]Bank{HomeBank(), BankFor(cwd)}, Banks()...) {
-		for _, f := range globIn(b.SubDir(""), "*.md") {
-			if bankOfFile(f, keys).Key != b.Key {
-				continue
-			}
-			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
-				out = append(out, f)
-			}
+	for _, f := range globIn(StoreDir(), "*.md") {
+		if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
+			out = append(out, f)
 		}
 	}
-	slices.Sort(out)
-	return slices.Compact(out)
+	return out
 }
 
 // agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
@@ -225,7 +217,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 		return nil, archiveErr
 	}
 	since, _, _ := effectiveStamp(o.CWD, time.Now()) // no stamp: the zero time lists every file
-	changed := dreamChanged(o.CWD, since)
+	changed := dreamChanged(since)
 	prompt, err := agentDreamPrompt(o.CWD, changed)
 	if err != nil {
 		return err, archiveErr
@@ -238,7 +230,7 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	ctx = context.WithValue(ctx, gateBlocksKey{}, &blocks)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
 	fmt.Fprintln(o.Out, "memory dream: ran on", who)
-	if err == nil && len(changed) > 0 && len(dreamChanged(o.CWD, start)) == 0 {
+	if err == nil && len(changed) > 0 && len(dreamChanged(start)) == 0 {
 		if blocks > 0 { // refused, not idle: fail so the stamp backdates and the dream retries
 			err = fmt.Errorf("the gate refused %d call(s) and no bank file was edited; the dream will retry", blocks)
 			fmt.Fprintln(o.Out, "memory dream:", err)
