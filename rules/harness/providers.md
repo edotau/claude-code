@@ -99,6 +99,10 @@ static menu: routing never touches the network.
   any chat model the workspace serves when one is typed with `--model` (or `--model auto`); with no model or a tier
   alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,
   `gpt-5-5-pro`) are refused for it; run them with codex, copilot or opencode.
+- On its Google sign-in row agy's own models are typed as catalog id plus effort (`gemini-4-hydrogen-xhigh`,
+  `claude-sonnet-5-5-medium`, `gpt-oss-120b`); accepted efforts live in `internal/models/catalog.json` `efforts`, and
+  an unlisted one fails before agy launches. The profile in force picks the backend, never the model name.
+  `--autonomous` is dropped on gemini (agy's `--mode auto` is account-gated).
 - VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile into
   `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte. The file holds only
   `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name>` (printed once; the vault keeps its
