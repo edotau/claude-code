@@ -496,7 +496,13 @@ func cmdMemoryFmt(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "fmt", args); done {
 		return code
 	}
-	dirty, err := memory.FormatReport(os.Stdout, *check)
+	var dirty bool
+	var err error
+	if *check {
+		dirty, err = memory.FormatCheck(os.Stdout)
+	} else {
+		dirty, err = memory.FormatReport(os.Stdout, false)
+	}
 	if err != nil {
 		return helptext.Fail("memory fmt: %v", err)
 	}

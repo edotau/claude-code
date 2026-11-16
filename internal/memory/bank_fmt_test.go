@@ -549,3 +549,27 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	denyBankAccess(t, dir)
 	return fs.ErrPermission
 }
+
+// TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing: an over-width file in another repo's bank is a note, the
+// home bank's is a failure, and neither file's bytes change.
+func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
+	home, other := bankFmtRepoStore(t)
+	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
+	otherFile := filepath.Join(other, "reports", "r.md")
+	homeFile := filepath.Join(home, "decisionLog.md")
+	write(t, otherFile, body)
+	var out strings.Builder
+	if dirty, err := FormatCheck(&out); err != nil || dirty || !strings.Contains(out.String(), "note: 1 file(s)") {
+		t.Fatalf("other bank only: dirty=%v err=%v out=%q, want clean with a note", dirty, err, out.String())
+	}
+	write(t, homeFile, body)
+	out.Reset()
+	if dirty, err := FormatCheck(&out); err != nil || !dirty || !strings.Contains(out.String(), homeFile) {
+		t.Fatalf("home bank dirty: dirty=%v err=%v out=%q, want failure naming %s", dirty, err, out.String(), homeFile)
+	}
+	for _, f := range []string{otherFile, homeFile} {
+		if got, _ := os.ReadFile(f); string(got) != body {
+			t.Errorf("FormatCheck rewrote %s", f)
+		}
+	}
+}

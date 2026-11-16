@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -282,6 +284,34 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 		return false, nil
 	}
 	fmt.Fprintf(w, "wrapped %d file(s)\n", len(changed))
+	return false, nil
+}
+
+// FormatCheck is the lint-facing `memory fmt --check`: it writes nothing and fails only for this repo's bank and
+// the home bank; files other repos' banks would wrap get a one-line note.
+func FormatCheck(w io.Writer) (dirty bool, err error) {
+	changed, err := formatBank(true)
+	if err != nil {
+		return false, err
+	}
+	own := []string{harnessStoreDir(), HomeBankDir()}
+	var inScope, other int
+	for _, f := range changed {
+		if slices.ContainsFunc(own, func(d string) bool { return strings.HasPrefix(f, d+string(filepath.Separator)) }) {
+			inScope++
+			fmt.Fprintln(w, f)
+		} else {
+			other++
+		}
+	}
+	if other > 0 {
+		fmt.Fprintf(w, "note: %d file(s) in other repos' banks would wrap (not a failure)\n", other)
+	}
+	if inScope > 0 {
+		fmt.Fprintf(w, "%d file(s) would change (run `claude-code memory fmt`)\n", inScope)
+		return true, nil
+	}
+	fmt.Fprintln(w, "memory fmt --check: clean")
 	return false, nil
 }
 
