@@ -48,7 +48,7 @@ func Placement(in *core.Input, stderr io.Writer) int {
 
 // docsPlacementBash checks every markdown file a shell command writes (redirect, tee, sed -i, cp, mv).
 func docsPlacementBash(ctx context.Context, in *core.Input, stderr io.Writer) int {
-	for _, path := range core.WrittenPaths(in.ToolCommand(), in.CWD) {
+	for _, path := range core.WrittenPathsPrecise(in.ToolCommand(), in.CWD) {
 		if code := docsPlacementPath(ctx, in, path, stderr); code != core.ExitProceed {
 			return code
 		}

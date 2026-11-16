@@ -29,6 +29,87 @@ func WrittenPaths(cmd, cwd string) []string {
 	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, writeTargets)
 }
 
+// WrittenPathsPrecise is WrittenPaths minus quoted/commented `>`, stdin heredocs and relative paths after a dynamic cd.
+func WrittenPathsPrecise(cmd, cwd string) []string {
+	all := WrittenPaths(cmd, cwd)
+	if len(all) == 0 {
+		return nil
+	}
+	precise := appendPrecise(nil, dropComments(DropStdinHeredocs(DropDataHeredocs(cmd))), cwd, 0)
+	// Intersect: never more than WrittenPaths, so a gate moving here can only allow more.
+	return slices.DeleteFunc(all, func(p string) bool { return !slices.Contains(precise, p) })
+}
+
+// appendPrecise is appendTargets that reads only unquoted redirects and drops relative targets after a dynamic cd.
+func appendPrecise(out []string, cmd, cwd string, depth int) []string {
+	for _, seg := range shell.Segments(cmd) {
+		toks := shell.Tokens(seg)
+		if nested, ok := shell.NestedCommand(toks); ok && depth < nestedDepth {
+			out = appendPrecise(out, nested, cwd, depth+1)
+			continue
+		}
+		if dir, ok := shell.CdTarget(toks, cwd); ok {
+			cwd = dir
+			if dynamicCd(toks) {
+				cwd = "" // unknown: only absolute targets can still be judged
+			}
+			continue
+		}
+		rest, _ := shell.Unwrap(toks, cwd)
+		targets := commandTargets(rest)
+		if shell.FileRedirect(seg) {
+			targets = append(redirectTargets(toks), targets...)
+		}
+		for _, t := range targets {
+			if p := resolveTarget(t, cwd); filepath.IsAbs(p) && !slices.Contains(out, p) {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// dynamicCd reports a cd/pushd whose target is `-` or still holds an expansion, so the shell's cwd is unknown.
+func dynamicCd(toks []string) bool {
+	args := toks[1:]
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "-" {
+		opt := args[0]
+		if args = args[1:]; opt == "--" {
+			break
+		}
+	}
+	if len(args) == 0 {
+		return false
+	}
+	p := args[0]
+	for _, home := range []string{"$HOME", "${HOME}"} {
+		if rest, ok := strings.CutPrefix(p, home); ok && (rest == "" || rest[0] == '/') {
+			p = rest
+		}
+	}
+	return p == "-" || strings.ContainsAny(p, "$`*?\x00")
+}
+
+// dropComments cuts each unquoted `#` that starts a word through the end of its line.
+func dropComments(cmd string) string {
+	for from := 0; ; {
+		at, i := shell.QuoteAt(cmd), -1
+		for k := from; k < len(cmd) && i < 0; k++ {
+			if cmd[k] == '#' && at[k] == 0 && (k == 0 || strings.IndexByte(" \t\n;&|()", cmd[k-1]) >= 0) {
+				i = k
+			}
+		}
+		if i < 0 {
+			return cmd
+		}
+		end := strings.IndexByte(cmd[i:], '\n')
+		if end < 0 {
+			return cmd[:i]
+		}
+		cmd, from = cmd[:i]+cmd[i+end:], i+1
+	}
+}
+
 // RemovedPaths is the best-effort set of files a shell command deletes or moves away (rm, unlink, truncate, mv).
 func RemovedPaths(cmd, cwd string) []string {
 	if !strings.Contains(cmd, "rm") && !strings.Contains(cmd, "unlink") && !strings.Contains(cmd, "truncate") &&

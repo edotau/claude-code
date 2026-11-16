@@ -35,3 +35,32 @@ func TestWrittenPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestWrittenPathsPrecise(t *testing.T) {
+	for _, c := range []struct {
+		name, cmd string
+		want      []string
+	}{
+		{"quoted >", `grep -n '>' N.md`, nil},
+		{"quoted > in a commit message", `git commit -m x -m '> moved H.md'`, nil},
+		{"escaped >", `echo a \> b.md`, nil},
+		{"comment", `ls # then > N.md`, nil},
+		{"comment hides a chained redirect", `ls # build && copy > N.md`, nil},
+		{"stdin heredoc to gh", "gh issue create --body-file - <<'EOF'\n> N.md is stale\nEOF", nil},
+		{"heredoc piped to gh", "cat <<EOF | gh pr comment 1 -F -\n> N.md\nEOF", nil},
+		{"python heredoc", "python3 - <<'EOF'\n# > O.md\nEOF", nil},
+		{"while-read heredoc", "while read l; do echo $l; done <<'EOF'\n> W.md\nEOF", nil},
+		{"dynamic cd", `cd "$DIR" && printf x > N.md`, nil},
+		{"cd to a substitution", `cd "$(mktemp -d)" && echo x > N.md`, nil},
+		{"never more than WrittenPaths", "python3 - <<'EOF'\ncd /tmp\nEOF\necho x > A.md", nil},
+		{"real redirect beside a quoted >", `grep '>' a > R.md # c`, []string{"/w/a", "/w/R.md"}},
+		{"shell-fed heredoc body", "bash <<'EOF'\necho x > B.md\nEOF", []string{"/w/B.md"}},
+		{"absolute target after a dynamic cd", `cd "$X" && echo x > /r/A.md`, []string{"/r/A.md"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := WrittenPathsPrecise(c.cmd, "/w"); !slices.Equal(got, c.want) {
+				t.Errorf("WrittenPathsPrecise(%q) = %q, want %q", c.cmd, got, c.want)
+			}
+		})
+	}
+}
