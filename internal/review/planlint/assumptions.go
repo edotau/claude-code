@@ -250,7 +250,7 @@ func RunAssumptions(args []string, stdin io.Reader, stdout, stderr io.Writer) in
 		err = printAssumptions(stdout, source, findings, groups, verdict)
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "claude-code review assumptions: error: writing output: %v\n", err)
+		fmt.Fprintf(stderr, "claude-code plan assumptions: error: writing output: %v\n", err)
 		return 1
 	}
 	return 0
@@ -329,7 +329,7 @@ func readInput(input string, stdin io.Reader, stderr io.Writer) (text, source st
 // parseInputJSONArgs parses `review <tool> [<input>] [--json]`; -h anywhere prints usage (exit 0), a bad flag exits 2.
 func parseInputJSONArgs(tool, about string, args []string, stdout, stderr io.Writer) (input string, jsonOut bool, exitCode int, handled bool) {
 	fs := helptext.NewFlagSet("review "+tool, helptext.Page{
-		Usage: "claude-code review " + tool + " [<input>] [flags]",
+		Usage: "claude-code plan " + tool + " [<input>] [flags]",
 		About: about + " <input> is a file, or - (the default) for stdin.",
 	})
 	jsonFlag := fs.Bool("json", false, "Output in JSON format")
@@ -349,7 +349,7 @@ func parseInputJSONArgs(tool, about string, args []string, stdout, stderr io.Wri
 	case 1:
 		input = positional[0]
 	default:
-		fmt.Fprintf(stderr, "review %s: unexpected argument %q\n", tool, positional[1])
+		fmt.Fprintf(stderr, "plan %s: unexpected argument %q\n", tool, positional[1])
 		fs.Usage()
 		return "-", false, 2, true
 	}

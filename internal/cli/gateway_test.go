@@ -210,7 +210,7 @@ func TestSpecProxyCompletesRestart(t *testing.T) {
 	for _, f := range gatewaySpec().Sub["proxy"].Flags {
 		have[f.Name] = true
 	}
-	for _, name := range []string{"start", "stop", "restart", "status", "serve", "port"} {
+	for _, name := range []string{"start", "stop", "restart", "if-changed", "force", "dry-run", "status", "serve", "port"} {
 		if fs.Lookup(name) == nil || !have[name] {
 			t.Errorf("flag %q: defined=%v completed=%v", name, fs.Lookup(name) != nil, have[name])
 		}

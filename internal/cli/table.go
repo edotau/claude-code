@@ -77,7 +77,7 @@ func buildCommands() []command {
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: run a command with TMPDIR on a RAM disk", run: cmdTest, spec: testSpec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpec},
-		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists: status (ticked/total, claims), tick", run: cmdPlan, spec: planSpec},
+		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists and detectors: status, tick, assumptions, goals", run: cmdPlan, spec: planSpec},
 		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},

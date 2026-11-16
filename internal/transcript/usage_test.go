@@ -71,7 +71,7 @@ func TestUsageAggregateMissingFile(t *testing.T) {
 	}
 }
 
-// summarizeFile is pinned against the fixture AddFile uses; usage --workflows reuses it for wall time and turns.
+// summarizeFile is pinned against the fixture AddFile uses.
 func TestSummarizeFileFixtures(t *testing.T) {
 	s, err := summarizeFile("testdata/usage_a.jsonl")
 	if err != nil {

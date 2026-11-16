@@ -8,23 +8,20 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
-	"github.com/edotau/claude-code/internal/review/planlint"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.
 var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr io.Writer) int{
-	"quality":     func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunQuality(a, o, e) },
-	"complexity":  func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunComplexity(a, o, e) },
-	"simplify":    func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunSimplify(a, o, e) },
-	"assumptions": planlint.RunAssumptions,
-	"goals":       planlint.RunGoals,
-	"diff":        func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunDiff(a, o, e) },
-	"pr":          func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
-	"report":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
-	"gate":        func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
-	"scope":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
+	"quality":    func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunQuality(a, o, e) },
+	"complexity": func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunComplexity(a, o, e) },
+	"simplify":   func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunSimplify(a, o, e) },
+	"diff":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunDiff(a, o, e) },
+	"pr":         func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
+	"report":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
+	"gate":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
+	"scope":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
 }
 
 var reviewPage = helptext.Page{
@@ -39,8 +36,6 @@ var reviewPage = helptext.Page{
 		{"report", "pr + quality findings as one review report"},
 		{"gate", "advisory pre-commit summary of the staged change"},
 		{"scope", "files a change or path set touches, sized in bytes"},
-		{"assumptions", "vague or hopeful steps in a plan"},
-		{"goals", "plan steps with no verifiable goal"},
 	},
 	Hint: "claude-code review <tool> -h lists that tool's flags.",
 }

@@ -29,7 +29,7 @@ paths:
   `agent.md` → Dispatch behavior. A standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
   (`claude-code vault env set\|unset COWORKER_OVERLAY`). Brief fields: `skills/subagent-workflows/SKILL.md`.
 - `gateway proxy --restart` gaps only the respawn; a routed session's status line restarts a down proxy; `make install`
-  runs `network restart --if-changed`, which keeps a proxy whose recorded `exe` sha256 (`proxy.json`) matches.
+  runs `gateway proxy --restart --if-changed`, which keeps a proxy whose recorded `exe` sha256 (`proxy.json`) matches.
 
 ## Routing precedence
 

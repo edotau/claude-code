@@ -101,7 +101,7 @@ func TestRunGoalsHelpAfterPositional(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.HasPrefix(stdout.String(), "usage: claude-code review goals [<input>] [flags]\n") {
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code plan goals [<input>] [flags]\n") {
 		t.Errorf("stdout = %q, want the review goals usage page", stdout.String())
 	}
 	if stderr.Len() != 0 {

@@ -39,7 +39,7 @@ Advisory: findings never fail a verb; `gate` always exits 0. Structured output i
 ```bash
 claude-code review complexity src/auth/ --threshold strict --json
 claude-code review diff --diff HEAD~3..HEAD
-echo "I'll just export all user data" | claude-code review assumptions -
+echo "I'll just export all user data" | claude-code plan assumptions -
 ```
 
 ## Manual review cues (no detector flags these)

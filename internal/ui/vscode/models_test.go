@@ -72,23 +72,24 @@ func TestThemeVSCodeWritesDatabricksModelGroups(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	models := filepath.Join(t.TempDir(), modelsFileName)
 	writeFile(t, models, foreignProviders)
-	args := append([]string{"--template", tmpl, "--dest", dest, "--models-dest", models}, isolationFlags(t)...)
-	assertDryRun(t, args, models)
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(args) }); code != 0 {
+	o := isolated(t, tmpl, dest)
+	o.ModelsDest = models
+	assertDryRun(t, o, models)
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, false, false) }); code != 0 {
 		t.Fatalf("apply exit %d", code)
 	}
 	got, _ := os.ReadFile(models)
 	assertNoSecretAndForeignKept(t, got)
 	assertGroups(t, got)
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(append(args, "--check")) }); code != 0 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, true, false) }); code != 0 {
 		t.Errorf("--check after apply exit %d, want 0 (in sync)", code)
 	}
 }
 
 // assertDryRun runs --dry-run: it names dev's group and notes cold prod (not signed-out qa), writing nothing.
-func assertDryRun(t *testing.T, args []string, models string) {
+func assertDryRun(t *testing.T, o syncOptions, models string) {
 	t.Helper()
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(append(args, "--dry-run")) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, false, true) })
 	if code != 0 || !strings.Contains(stdout, "would merge chat models") || !strings.Contains(stdout, "Databricks dev (3 models)") {
 		t.Fatalf("dry-run exit %d stdout %q", code, stdout)
 	}

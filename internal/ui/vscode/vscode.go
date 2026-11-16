@@ -32,7 +32,7 @@ type mergeResult struct {
 
 // syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded and merges it into dest.
 func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mergeResult, error) {
-	rawTemplate := defaultTemplate // the embedded template ships with the binary; --template overrides it
+	rawTemplate := defaultTemplate // the embedded template ships with the binary
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
@@ -222,7 +222,7 @@ func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bo
 	}
 }
 
-// syncModelsFor resolves the chat models file next to the settings dest (or --models-dest) and merges it.
+// syncModelsFor resolves the chat models file next to the settings dest (or ModelsDest) and merges it.
 func syncModelsFor(o syncOptions) (modelsOutcome, error) {
 	var m modelsOutcome
 	var err error

@@ -1,6 +1,6 @@
 // Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
-// (<session>/subagents/workflows/<runId>/agent-*.jsonl); --workflows rolls each run up per phase, with a
-// per-model (MODEL column) split and a per-run plus cross-run model rollup. Live provider plan quotas and the
+// (<session>/subagents/workflows/<runId>/agent-*.jsonl)
+// with a per-model (MODEL column) split. Live provider plan quotas and the
 // local per-token ledger (API-key providers) follow the table (provider_quotas.go); --show picks
 // left/used/total for the quota column.
 package usage
@@ -149,7 +149,6 @@ type usageOpts struct {
 	show         string
 	jsonOut      bool
 	context      bool
-	workflows    bool
 	wantProvider bool
 }
 
@@ -166,13 +165,12 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	sessionFlag := fs.String("session", "", "scope to one session id (every project dir is searched)")
 	daysFlag := fs.Int("days", 1, "count the last N days (ignored with --session)")
 	formatFlag := helptext.FormatFlag(fs)
-	workflowsFlag := fs.Bool("workflows", false, "workflow phases and model rollups, newest first; text only")
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default) or left; total hides the quota table")
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
-	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, workflows: *workflowsFlag, wantProvider: *providersFlag, context: *contextFlag}
+	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, wantProvider: *providersFlag, context: *contextFlag}
 	o, err := buildUsageOpts(raw, *formatFlag)
 	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
@@ -190,9 +188,6 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 		return usageOpts{}, fmt.Errorf("--show must be left, used, or total (got %q)", o.show)
 	}
 	o.jsonOut = format == helptext.JSON
-	if err := checkReportFlags(o); err != nil {
-		return usageOpts{}, err
-	}
 	if err := checkSessionID(o.session); err != nil {
 		return usageOpts{}, err
 	}
@@ -203,16 +198,6 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	}
 	o.wantProvider = o.wantProvider && o.show != "total"
 	return o, nil
-}
-
-func checkReportFlags(o usageOpts) error {
-	if o.workflows && o.jsonOut {
-		return errors.New("--workflows has no JSON form; drop --format json (the per-model aggregate does)")
-	}
-	if o.context && o.workflows {
-		return errors.New("--context and --workflows are separate reports; pick one")
-	}
-	return nil
 }
 
 func checkSessionID(session string) error {
@@ -240,9 +225,6 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 	}
 	if o.context {
 		return runContext(o, out, errw)
-	}
-	if o.workflows {
-		return runUsageWorkflows(claudeDir, out, errw, o.session, o.days)
 	}
 	if o.jsonOut {
 		doc, err := report(claudeDir, o.session, o.days, o.wantProvider, errw)
@@ -523,5 +505,16 @@ func printQuotaWarnings(errw io.Writer, qs []quota) {
 // Spec is the completion node for the usage verb.
 func Spec() *helptext.Node {
 	flag, boolFlag := helptext.Plain, helptext.BoolFlag
-	return &helptext.Node{Flags: []helptext.Flag{boolFlag("context"), flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("workflows"), boolFlag("providers"), flag("show")}}
+	return &helptext.Node{Flags: []helptext.Flag{boolFlag("context"), flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("providers"), flag("show")}}
+}
+
+// inWindowResponses keeps the responses stamped at or after cutoff; an unstamped response is kept, as in foldResponses.
+func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcript.Response {
+	kept := make([]transcript.Response, 0, len(resps))
+	for _, r := range resps {
+		if r.At.IsZero() || !r.At.Before(cutoff) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
