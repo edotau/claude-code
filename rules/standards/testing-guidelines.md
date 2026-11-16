@@ -11,57 +11,47 @@ paths:
 
 # Testing Guidelines
 
-Order, always: **run it live → pin what you observed.** Gate order: `quality.md` →
-Verification Order. Loop shapes and caps: `skills/subagent-workflows/SKILL.md` → Test agent.
+Order, always: **run it live → pin what you observed** (gate order: `quality.md` → Verification Order).
 
-## Live first, then tests — no core-contract exception
+## Live first, then tests
 
-**Run the change on its real surface (verb, hook, endpoint, make target) with real input and SHOW the output
-before writing any NEW test.** A test written before the live run pins your guess, not the behavior.
+**Run the change on its real surface (verb, hook, endpoint, make target) with real input and show the output before
+writing any NEW test.** A test written first pins your guess, not the behavior.
 
 - **A bug fix's live run is the RED:** reproduce it, state the root cause ("X because Y"), fix, re-run the same
   command; the before/after output is the evidence.
-- **Repairing existing tests** the change breaks is not new testing — it runs concurrently (`copilot`).
-- **No real input:** say so, ask for exactly what's needed, and mark anything written as unverified.
+- **Repairing existing tests** the change breaks is not new testing; it runs concurrently (`copilot`).
+- **No real input:** say so, ask for exactly what is needed, and mark anything written as unverified.
 - **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code.
 
 ## Scope — logic, not a coverage number
 
 Per feature, one end-to-end test plus the corner cases found while building it; per bug, one regression test that
-fails without the fix. Nothing more unless asked. Renames, moves and deletions need none; a refactor that breaks
-only tests means rewriting them against behavior, not keeping fixtures for states the code can no longer produce.
-A test the `review-simplicity` hook flags (complexity > 10, > 50 lines) is testing too much at once: cut it to the
-corner cases you found or split it by behavior — never raise the limit.
+fails without the fix. Renames, moves and deletions need none; a refactor that breaks only tests means rewriting them
+against behavior, not keeping fixtures for states the code can no longer produce. A test `review-simplicity` flags
+(complexity > 10, > 50 lines) tests too much at once: cut or split it, never raise the limit.
 
 ## A test must guard
 
-- **Teeth, proven** — call the code under test (`got := vaultdoc.Text(doc, …)`), never an inline copy of its logic.
-  A new test must fail with the guarded behavior removed: flip it, watch the test fail, restore the source exactly,
-  and report that you did. A test that still passes is deleted, not kept.
+- **Teeth, proven** — call the code under test, never an inline copy of its logic. A new test must fail with the
+  guarded behavior removed: flip it, watch it fail, restore the source exactly, and report that you did. A test that
+  still passes is deleted.
 - **Shapes and edges, not values** — build the defect's worst case (empty, one element, the boundary, malformed,
-  concurrent, present-but-empty); derive expected values from the fixture and drive parsers with real bytes. Never
-  pin a config value, a help string or a generated file's bytes. Equivalence tests assert the fast path actually
-  ran (a call count, a cache key) against a deterministic oracle.
+  concurrent, present-but-empty); derive expected values from the fixture and drive parsers with real bytes. Never pin
+  a config value, a help string or a generated file's bytes. Equivalence tests assert the fast path actually ran (a
+  call count, a cache key) against a deterministic oracle.
 - **Mock only real boundaries** (network, model calls, clock, external CLIs, process scans), at the consumer; run
-  everything else against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two mocks is a
-  missing seam. In Go the seam is a package var, swapped and restored:
-
-  ```go
-  var peerAgents = worktree.PeerAgents // production: scans live processes
-
-  orig := peerAgents
-  peerAgents = func(string, []string) ([]worktree.Proc, error) { return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil }
-  t.Cleanup(func() { peerAgents = orig })
-  ```
-
+  everything else against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two mocks is a missing
+  seam; in Go the seam is a package var, swapped and restored with `t.Cleanup`.
 - **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
   after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
   `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
-  feature. Every other test is proposed in the final report with its reason (the case, what it guards, its runtime);
-  the owner decides from that report. Judging a proposal, speed weighs most, then teeth, then no overlap.
-- **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash
-  or 500 on bad input is a finding.
+  feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
+  decide; judge proposals by speed first, then teeth, then no overlap. Who writes tests and the "landed" handoff:
+  `skills/subagent-workflows/SKILL.md` → Test agent.
+- **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash or
+  500 on bad input is a finding.
 - **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB
   contract, auth, permissions or PII.
 
@@ -70,7 +60,3 @@ corner cases you found or split it by behavior — never raise the limit.
 The test is guilty until its expectation traces to the spec, the request or observed behavior — say which. Rerun a
 red seen under parallel load solo before calling it a regression. Never weaken an assertion, skip a test or edit a
 migration to go green; after 3 fix attempts on one test, report it.
-
-## Test agent
-
-Who writes tests, when, and the "landed" handoff: `skills/subagent-workflows/SKILL.md` → Test agent.

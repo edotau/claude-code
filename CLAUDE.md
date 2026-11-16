@@ -21,7 +21,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |
 | `commands/<command>.md` | Slash commands, flat — thin launchers into an agent or skill |
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
-| `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; scoping contract → `rules/README.md` |
+| `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
 | `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
 | `memory/` | The one memory store, a local-only git repo: `memory/<repo>/` per repo (harness `memory/claude-code/`, home `memory/home/`); `index.md` is generated, never hand-edit (`rules/workflows/memory-bank.md`) |
