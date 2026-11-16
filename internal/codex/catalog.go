@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// codexSlug is codex's own built-in slug for a menu id: the dotted spelling (gpt-6.1-sol); an unknown id stays as typed.
+// codexSlug is codex's built-in slug for a menu id, the dotted spelling (gpt-6.1-sol); an unknown id stays as typed.
 func codexSlug(id string) string {
 	return models.WireOrOriginal("dotted", id)
 }

@@ -169,7 +169,7 @@ type agySinkRec struct{ types []string }
 
 func (s *agySinkRec) Emit(ev wire.Event) error { s.types = append(s.types, ev.Type); return nil }
 
-// A tool step marks progress (one progress mark per step, never a tool_use) before a later decode failure; planning steps do not.
+// A tool step marks progress (never a tool_use) before a later decode failure; planning steps do not.
 func TestParseAgyToolStepMarksProgress(t *testing.T) {
 	run := func(stepType string) []string {
 		stream := `{"event":"step_update","step_update":{"step_type":"` + stepType + `","state":"ACTIVE"}}
@@ -320,7 +320,7 @@ func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
 	}
 }
 
-// pinFixture is a hermetic registry with two Databricks rows (dev, gw), a fake agy Google login and the session on session.
+// pinFixture is a hermetic registry with two Databricks rows (dev, gw), a fake agy Google login and the session row.
 func pinFixture(t *testing.T, session string) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -348,7 +348,7 @@ func resolveGemini(t *testing.T, req agent.RunOptions) (providers.Target, bool, 
 	return agent.SchemaFor("gemini").TargetCtx(context.Background(), req)
 }
 
-// D3: the session profile leads; the gemini record pin is read only when its row is the session row or --provider names it.
+// D3: the session profile leads; the record pin is read only when its row is the session row or --provider names it.
 func TestGeminiSessionFirstPinOnlyWhenConsulted(t *testing.T) {
 	for _, c := range []struct {
 		name, session, profile, model string
@@ -638,7 +638,7 @@ while IFS= read -r line; do
 done
 `
 
-// An explicit --no-tools is refused before launch: agy has no tools-off flag, so no guarantee is possible; the no-flag run is not.
+// An explicit --no-tools is refused before launch: agy has no tools-off flag, so no guarantee is possible.
 func TestGeminiNoToolsIsRefused(t *testing.T) {
 	err := agent.CheckCapabilities("gemini", agent.RunOptions{NoTools: true})
 	var re *retry.Error
