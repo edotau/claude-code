@@ -40,9 +40,16 @@ func IsPlainHTTPOffLoopback(u *url.URL) bool {
 
 // nonPublicRanges are what netip's predicates miss; CGNAT is separate since tailnet names resolve there.
 var nonPublicRanges = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),   // "this network"
-	netip.MustParsePrefix("240.0.0.0/4"), // reserved, with the limited broadcast 255.255.255.255
-	netip.MustParsePrefix("::/96"),       // IPv4-compatible IPv6 (::127.0.0.1), which Unmap does not unwrap
+	netip.MustParsePrefix("0.0.0.0/8"),       // "this network"
+	netip.MustParsePrefix("240.0.0.0/4"),     // reserved, with the limited broadcast 255.255.255.255
+	netip.MustParsePrefix("::/96"),           // IPv4-compatible IPv6 (::127.0.0.1), which Unmap does not unwrap
+	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // TEST-NET-1
+	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // TEST-NET-2
+	netip.MustParsePrefix("203.0.113.0/24"),  // TEST-NET-3
+	netip.MustParsePrefix("64:ff9b::/96"),    // NAT64, which can embed an RFC1918 IPv4
+	netip.MustParsePrefix("2001::/32"),       // Teredo
 }
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")

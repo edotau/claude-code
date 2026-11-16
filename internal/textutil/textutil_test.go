@@ -204,7 +204,8 @@ func TestIsNonPublicIPCGNATFlag(t *testing.T) {
 	if IsNonPublicIP(cgnat, false) || !IsNonPublicIP(cgnat, true) {
 		t.Errorf("CGNAT must follow blockCGNAT: false=%v true=%v", IsNonPublicIP(cgnat, false), IsNonPublicIP(cgnat, true))
 	}
-	for _, s := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "ff02::1", "0.1.2.3", "240.0.0.1", "::127.0.0.1", "::ffff:10.0.0.1"} {
+	for _, s := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "ff02::1", "0.1.2.3", "240.0.0.1", "::127.0.0.1", "::ffff:10.0.0.1",
+		"192.0.0.1", "192.0.2.1", "198.19.0.1", "198.51.100.1", "203.0.113.1", "64:ff9b::a00:1", "2001::1"} {
 		if !IsNonPublicIP(net.ParseIP(s), false) {
 			t.Errorf("IsNonPublicIP(%s) = false, want true", s)
 		}
