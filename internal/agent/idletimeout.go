@@ -35,15 +35,20 @@ func NewIdleTimeout(name string, d time.Duration, kill func()) *IdleTimeout {
 	}
 	w := &IdleTimeout{name: name, d: d, kill: kill, last: "none"}
 	w.mu.Lock()
+	w.armed, w.due = true, time.Now().Add(d) // due before the timer starts: a later due made the fire look early and dropped it
 	w.timer = time.AfterFunc(d, w.trip)
-	w.armed, w.due = true, time.Now().Add(d)
 	w.mu.Unlock()
 	return w
 }
 
 func (w *IdleTimeout) trip() {
 	w.mu.Lock()
-	if !w.armed || time.Now().Before(w.due) || w.done || w.tripped {
+	if !w.armed || w.done || w.tripped {
+		w.mu.Unlock()
+		return
+	}
+	if left := time.Until(w.due); left > 0 { // fired early: re-arm for the rest, never drop the window
+		w.timer.Reset(left)
 		w.mu.Unlock()
 		return
 	}
