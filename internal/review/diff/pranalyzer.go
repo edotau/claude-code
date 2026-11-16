@@ -209,7 +209,7 @@ func parseNameStatus(out string) []PRFileAnalysis {
 	return files
 }
 
-// patchFor returns the base...head patch for one file via a literal pathspec incl. a rename's oldPath; git failure errors.
+// patchFor returns the base...head patch for one file via a literal pathspec, including a rename oldPath.
 func patchFor(repo, path, oldPath, base, head string) (string, error) {
 	paths := []string{":(top,literal)" + path}
 	if oldPath != "" {

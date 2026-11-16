@@ -216,7 +216,7 @@ func inferProvider(name string, row json.RawMessage) string {
 	return providerLocal
 }
 
-// AddGithubAccount writes a github profile named after login: the built-in github row with that login, minus opencodeID.
+// AddGithubAccount writes a github profile named after login: the built-in github row minus opencodeID.
 func AddGithubAccount(login string) error {
 	base, err := builtinEntry(builtinGithubRow())
 	if err != nil {

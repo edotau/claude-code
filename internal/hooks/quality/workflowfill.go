@@ -106,7 +106,7 @@ func skipLeadingComments(s string) string {
 	}
 }
 
-// FillModel adds model: '<model>' to each agent() call missing a pin; non-object options are left alone and reported ambiguous.
+// FillModel adds model: '<model>' to each agent() call missing a pin; non-object options are reported ambiguous.
 func FillModel(src, model string) (string, []string) {
 	var edits []fillEdit
 	var ambiguous []string

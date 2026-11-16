@@ -170,8 +170,7 @@ func Digest(value string) string {
 	return textutil.SHA256Hex([]byte(value))
 }
 
-// ScheduleClear spawns a detached `clip --clear --after <after>` child that clears the clipboard if it
-// still holds value; only the sha256 digest crosses to the child, on stdin.
+// ScheduleClear spawns a detached `clip --clear` child; only value's sha256 reaches it, on stdin.
 func ScheduleClear(after time.Duration, value string) error {
 	if testing.Testing() {
 		return errors.New("clip --clear: refused under test")

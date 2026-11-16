@@ -268,7 +268,7 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 
-// copilotLoginReg is a hermetic vault with github profiles tester (login=tester, stored under the key personal) and bare (no login).
+// copilotLoginReg is a hermetic vault with github profiles tester (login=tester, key personal) and bare.
 func copilotLoginReg(t *testing.T, pin string) *Registry {
 	t.Helper()
 	vaulttest.Use(t)
