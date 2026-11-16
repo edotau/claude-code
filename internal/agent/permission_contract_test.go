@@ -13,12 +13,23 @@ func TestExplainPermissionReplay(t *testing.T) {
 	for _, call := range []Rule{{Tool: "Bash", Arg: "make lint"}, {Tool: "Read", Arg: "/tmp/a'b"}} {
 		assertPermissionReplay(t, call)
 	}
-	deny := Rule{Tool: "Bash", Arg: "rm:*"}
-	p := Permissions{Mode: "plan", Allow: []Rule{{Tool: "Bash"}}, Deny: []Rule{deny}}
-	d := p.Explain("Bash", "echo ok && rm file")
-	if d.Rule != deny || d.Source != "permissions.deny" || d.Layer != "permissions" || strings.Contains(d.Remedy, "--allow") || d.Replay != "" {
-		t.Fatalf("deny lost provenance or suggested an allow: %+v", d)
+	for _, tc := range []struct {
+		cwd, arg string
+		deny     Rule
+	}{
+		{arg: "echo ok && rm file", deny: Rule{Tool: "Bash", Arg: "rm:*"}},
+		{cwd: "/tmp/perm-explain-cwd", arg: "cd denied", deny: Rule{Tool: "Bash", Arg: "cd:/tmp/perm-explain-cwd/denied"}},
+	} {
+		p := Permissions{Mode: "plan", Allow: []Rule{{Tool: "Bash"}}, Deny: []Rule{tc.deny}}
+		if p.DecideAt(tc.cwd, "Bash", tc.arg) != Deny {
+			t.Fatalf("%s: expected denial", tc.arg)
+		}
+		d := p.ExplainAt(tc.cwd, "Bash", tc.arg)
+		if d.Rule != tc.deny || d.Source != "permissions.deny" || d.Layer != "permissions" || strings.Contains(d.Remedy, "--allow") || d.Replay != "" {
+			t.Fatalf("%s: deny lost provenance or suggested an allow: %+v", tc.arg, d)
+		}
 	}
+	p := Permissions{Mode: "plan", Allow: []Rule{{Tool: "Bash"}}, Deny: []Rule{{Tool: "Bash", Arg: "rm:*"}}}
 	if d := p.Explain("Bash", "echo ok"); d != (Denial{}) {
 		t.Fatalf("allowed call explained as denial: %+v", d)
 	}
