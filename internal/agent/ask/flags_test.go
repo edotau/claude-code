@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the request's spec.
@@ -253,6 +254,36 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			}
 			if got := f.provider + f.leadProvider; got != tc.wantRoute {
 				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
+			}
+		})
+	}
+}
+
+// --retry keeps the recorded fallback policy over AGENT_ERROR_FALLBACK; a record without one takes the env mode.
+func TestAskRetryFallbackFromEnv(t *testing.T) {
+	for _, tc := range []struct{ recorded, env, want string }{
+		{"pin", "all", "pin"}, {"none", "1", "none"}, {"", "pin", "pin"}, {"", "none", "none"}, {"", "1", "all"}, {"", "", "none"},
+	} {
+		t.Run(tc.recorded+"/"+tc.env, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			t.Setenv(router.EnvFallback, tc.env)
+			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, time.Now())
+			rec.FallbackPolicy = tc.recorded
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--retry", rec.ID}
+			fs, f := askFlagSet()
+			if err := fs.Parse(args); err != nil {
+				t.Fatal(err)
+			}
+			f.fallback = router.DefaultFallback() // runTo does this before the phases when --fallback is not typed
+			r := &askRun{ctx: t.Context(), fs: fs, f: f}
+			if code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+				t.Fatalf("loadAskRetry = %d, %v", code, done)
+			}
+			if f.fallback != tc.want {
+				t.Fatalf("fallback = %q, want %q", f.fallback, tc.want)
 			}
 		})
 	}

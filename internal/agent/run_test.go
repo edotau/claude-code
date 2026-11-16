@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -950,5 +951,27 @@ func TestRunDirectAuthFailureNamesRoutedDefault(t *testing.T) {
 		if got := strings.Contains(err.Error(), "drop --direct"); got != direct {
 			t.Errorf("direct=%v: hint present = %v: %v", direct, got, err)
 		}
+	}
+}
+
+// withDefaults reads AGENT_ERROR_FALLBACK as a mode: 1 is all, a mode is itself, unset is none, junk is refused.
+func TestWithDefaultsFallbackFromEnv(t *testing.T) {
+	for _, tc := range []struct{ env, want string }{
+		{"", router.FallbackNone}, {"1", router.FallbackAll}, {"yes", router.FallbackAll}, {"none", router.FallbackNone},
+		{"pin", router.FallbackPin}, {"agents", router.FallbackAgents}, {"all", router.FallbackAll}, {"maybe", ""},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			hermetic(t, "")
+			o, err := (&Client{}).withDefaults(RunOptions{Values: proc.Values{router.EnvFallback: tc.env}})
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("%q accepted as %q", tc.env, o.Fallback)
+				}
+				return
+			}
+			if err != nil || o.Fallback != tc.want {
+				t.Fatalf("%q = %q, %v; want %q", tc.env, o.Fallback, err, tc.want)
+			}
+		})
 	}
 }

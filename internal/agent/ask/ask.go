@@ -93,6 +93,10 @@ func runTo(args []string, verb string, out io.Writer) int {
 	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
+		if !slices.Contains(router.FallbackModes, f.fallback) {
+			err := fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(router.FallbackModes, "|"))
+			return failAskCode(f.format, f.name, err, 2)
+		}
 	}
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
