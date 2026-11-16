@@ -56,12 +56,13 @@ func dirFmtTargets(b Bank) ([]string, error) {
 		}
 		files = append(files, p)
 	}
+	keys := BankKeys()
 	for _, sub := range bankFmtTargetDirs {
 		matches, err := mdFilesIn(b.SubDir(sub))
 		if err != nil {
 			return nil, err
 		}
-		matches = slices.DeleteFunc(matches, func(p string) bool { return BankOfFile(p).Key != b.Key })
+		matches = slices.DeleteFunc(matches, func(p string) bool { return bankOfFile(p, keys).Key != b.Key })
 		files = append(files, matches...)
 	}
 	return files, nil
