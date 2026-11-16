@@ -178,6 +178,8 @@ var writers = map[string]string{
 	"internal/hooks/docs/plan.go:dropRecord":                    unversioned("marker: plan mirror record emptied when it cannot be removed"),
 	"internal/plans/tick.go:writePlan":                          unversioned("foreign: plan markdown in plans/"),
 	"internal/hooks/quality/stop_format.go:StopFormat":          "stop-format",
+	"internal/memory/migrate.go:saveRevertRecord":               unversioned("record: flat-layout migration revert record (pre/post sha, link targets, moves)"),
+	"internal/memory/migrate.go:mergeMigrationEdits":            unversioned("scratch: three-way merge inputs for edited files on revert"),
 	"internal/memory/watch.go:claimWatcher":                     unversioned("marker: idle watcher claim file"),
 	"internal/memory/watch.go:IdleUpdateWatch":                  unversioned("marker: idle watcher claim file, restamped with the watcher pid"),
 	"internal/setup/install_steps.go:installBinaryTarget":       unversioned("foreign: installed binary"),
