@@ -10,12 +10,12 @@ output is `--json` (`gate` has none). Flags: `claude-code review <tool> -h`. Run
 |---|---|---|
 | `complexity` | #2 Simplicity | `<targets...> [--threshold strict\|medium\|relaxed] [--ext py,ts,tsx,js,jsx,go]` |
 | `diff` | #3 Surgical | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff |
-| `plan assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
-| `plan goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
-| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [-o FILE] [--comments [--format text\|tsv\|json]]` |
+| `claude-code plan assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
+| `claude-code plan goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
+| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [-o FILE] [--comments --format tsv]` |
 | `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
 | `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
-| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]` |
+| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]`; `--fail` rejects `--threshold` and `--json` |
 | `gate` | staged-change summary | `[--repo DIR]` |
 
 ## What each reports
@@ -65,8 +65,9 @@ The gate is opt-in and not in the seeded `settings.json`; higher levels catch mo
 | 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 
 - **Level 3, git:** `.git/hooks/pre-commit` = `#!/bin/sh` + `exec claude-code review gate`, then `chmod +x`.
-- **Level 3, PreToolUse:** declare it in `internal/settings/hookspec.go` (matcher `Bash`, command
-  `claude-code review gate`); the owner runs `claude-code configure --restore` (or edits `settings.json`).
+- **Level 3, PreToolUse:** add a hook per `rules/harness/change-protocol.md` (a hookspec.go entry plus a handler in
+  `internal/hooks/dispatch.go`) that runs `claude-code review gate`; the owner runs `claude-code configure --restore`
+  (or edits `settings.json`).
 - **Level 4:** parse the JSON verdict, e.g.
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`
   (exits 1 when no file matches: skip on a diff with no source files) and

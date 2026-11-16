@@ -50,7 +50,7 @@ packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged 
 ### Expert pool
 
 ```text
-task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers x<=3 | code-analyzer (bare range) | plan draft
+task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers per top-level dir in waves of cap (default 16, max 24) | code-analyzer (bare range) | code-evaluator (skill) | plan draft
 ```
 
 - Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
@@ -84,7 +84,7 @@ main -> Workflow code-engineer -> workflow(code-workers | code-analyzer) -> in-s
 main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script stageGate
 ```
 
-- `code-engineer` returns its children's merged result plus tier, route, polish, files and `recorded` paths.
+- `code-engineer` returns its children's merged result plus tier, route, polish, files, `verdict` and `reportPath`.
 
 ### Sequential plan and tournament
 

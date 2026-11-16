@@ -13,7 +13,7 @@ failures no prose moved; only action-point lines (`TASK:`, `ISSUE:`) transferred
 | 4 | **Fake "done"** | Nobody, including the agent, can say how the result was checked | problem-solving Step 1: done defined with a named verification *before* work starts; review principle 4 (goal-driven) |
 | 5 | **Invented APIs** | Code calls signatures or endpoints that don't exist | problem-solving Step 2.2 primary sources; Step 4.2 recall gate at first use |
 | 6 | **Sequential crawling** | One lookup at a time; long tasks crawl | problem-solving Step 2.3: independent lookups in one batch (`subagent-workflows`) |
-| 7 | **Context flooding** | Whole files and logs dumped into the conversation | problem-solving Step 2.2 read narrow; Step 6 load-bearing quotes only |
+| 7 | **Context flooding** | Whole files and logs dumped into the conversation | problem-solving Step 2.2 read narrow |
 | 8 | **Analysis paralysis** | Research continues after it stopped changing the plan | problem-solving Step 2.4: two rounds, then a stated reason or stop |
 | 9 | **Plowing through surprises** | Evidence contradicted the plan; agent forced the plan anyway | problem-solving Step 2.6: surprises are stated and re-route the loop |
 | 10 | **Option-dump reports** | "You could do A, B, or C" with no recommendation | problem-solving Step 3: one recommendation; alternatives one line each |

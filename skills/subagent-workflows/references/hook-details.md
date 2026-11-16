@@ -8,20 +8,18 @@ Verbatim cells moved from `rules/harness/hooks.md` → Event → hook matrix (th
 fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
 redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the template's `Edit(...)` deny rules protect
 (an `rm`/`unlink`/`mv`-away of a literal path under a temp folder passes, never one inside the config dir or home,
-through a symlink, `..` or glob, beside `ln`/`truncate`;
-an interpreter script — `python`, `node`, `perl`, `ruby`, `deno`, `bun` — naming one beside a write call **asks**;
-reads pass), and a `commit --amend`/`rebase`/`reset <commit>` in a shared checkout (`~/.claude`, a tree a peer session
-works in, a main tree where this session has live leaves or the caller is a leaf; own linked worktree exempt; an infra
-error allows with a warning); **ask** on Claude (block on codex/copilot) for
-`git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt), an
-unstrippable AI-attribution footer (strippable footers and `; git push` after a gate are rewritten on Claude/Codex in
-default and auto mode, else denied with the fix), and on intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a
-force-push of main/master: spelled out, after git global flags, or with no refspec while main/master is checked out)
-naming the safer alternative; **warn** only prints. Every shape ignores inert text (commit/tag/`gh` messages,
-`echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc bodies for the pipe, exfil and SQL shapes) unless
-it is piped on or holds a `$(…)`; a hard-block shape found only in such text asks instead of blocking, but any `<<` in
-the command scans the heredoc bodies too and blocks. Blocks log to `claude-code doctor --audit` by reason and pattern,
-never the command
+through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`,
+`deno`, `bun` — naming one beside a write call **asks**; reads pass), and a `commit --amend`/`rebase`/`reset <commit>`
+in a shared checkout (`~/.claude`, a tree a peer session works in, a main tree where this session has live leaves or the
+caller is a leaf; own linked worktree exempt; an infra error allows with a warning); **ask** on Claude (block on
+codex/copilot) for `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees
+exempt), an AI-attribution footer (any footer asks; safety-scan never rewrites or strips a command), and on
+intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a force-push of main/master: spelled out, after git global
+flags, or with no refspec while main/master is checked out) naming the safer alternative; **warn** only prints. Every
+shape ignores inert text (commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc
+bodies for the pipe, exfil and SQL shapes) unless it is piped on or holds a `$(…)`; a hard-block shape found only in
+such text asks instead of blocking, but any `<<` in the command scans the heredoc bodies too and blocks. Blocks log to
+`claude-code doctor --audit` by reason and pattern, never the command
 
 ## rtk-rewrite
 
