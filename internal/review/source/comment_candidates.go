@@ -159,6 +159,7 @@ func restateCandidates(file *ast.File, fset *token.FileSet) []commentCandidate {
 
 func trailingCandidates(text string, file *ast.File, fset *token.FileSet) []commentCandidate {
 	lines := strings.Split(text, "\n")
+	declared := declaredLines(file, fset)
 	var out []commentCandidate
 	for _, g := range file.Comments {
 		for _, c := range g.List {
@@ -166,7 +167,7 @@ func trailingCandidates(text string, file *ast.File, fset *token.FileSet) []comm
 			if !strings.HasPrefix(c.Text, "//") || pos.Line > len(lines) || pos.Column > len(lines[pos.Line-1])+1 {
 				continue
 			}
-			if strings.TrimSpace(lines[pos.Line-1][:pos.Column-1]) == "" || textHasDirective(c.Text) {
+			if strings.TrimSpace(lines[pos.Line-1][:pos.Column-1]) == "" || textHasDirective(c.Text) || declared(pos.Line) {
 				continue
 			}
 			out = append(out, commentCandidate{line: pos.Line, kind: "trailing", symbol: enclosingFunc(file, fset, pos.Line),
@@ -174,6 +175,38 @@ func trailingCandidates(text string, file *ast.File, fset *token.FileSet) []comm
 		}
 	}
 	return out
+}
+
+// declaredLines reports whether a line's innermost enclosing node is a field, package const/var spec or literal key.
+func declaredLines(file *ast.File, fset *token.FileSet) func(line int) bool {
+	topSpecs := map[ast.Node]bool{}
+	for _, d := range file.Decls {
+		if gd, ok := d.(*ast.GenDecl); ok && (gd.Tok == token.CONST || gd.Tok == token.VAR) {
+			for _, sp := range gd.Specs {
+				topSpecs[sp] = true
+			}
+		}
+	}
+	return func(line int) bool {
+		inDecl := false
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil || fset.Position(n.Pos()).Line > line || fset.Position(n.End()).Line < line {
+				return false
+			}
+			switch n.(type) {
+			case *ast.BlockStmt:
+				inDecl = false
+			case *ast.StructType, *ast.InterfaceType, *ast.KeyValueExpr:
+				inDecl = true
+			default:
+				if topSpecs[n] {
+					inDecl = true
+				}
+			}
+			return true
+		})
+		return inDecl
+	}
 }
 
 func textHasDirective(c string) bool {
