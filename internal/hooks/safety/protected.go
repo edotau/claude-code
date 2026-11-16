@@ -94,7 +94,7 @@ func interpreterWrite(cmd string) string {
 		}
 		for _, g := range protectedGlobs() {
 			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
-			if needle != "" && strings.Contains(cmd, needle) {
+			if needle != "" && strings.Contains(foldCase(cmd), foldCase(needle)) {
 				return needle
 			}
 		}
@@ -104,8 +104,9 @@ func interpreterWrite(cmd string) string {
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.
 func matchesProtected(abs string) bool {
+	abs = foldCase(abs)
 	for _, g := range protectedGlobs() {
-		g = paths.ExpandHome(g)
+		g = foldCase(paths.ExpandHome(g))
 		switch {
 		case strings.HasPrefix(g, "**/"):
 			if strings.HasSuffix(abs, string(filepath.Separator)+g[3:]) {
