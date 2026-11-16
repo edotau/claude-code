@@ -56,6 +56,7 @@ func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpti
 	res.Model = areq.Model
 	res.Emulated = append(res.Emulated, p.Emulated...)
 	out, err := runAgy(ctx, areq, sink)
+	err = classifyAgyError(areq.Model, err)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
@@ -117,7 +118,7 @@ func (geminiEngine) FollowsPin(p *providers.Provider) bool {
 // NoRoute refuses a Databricks row that no GEMINI_PROFILE pin selected: never silently.
 func (geminiEngine) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
 	if agent.GeminiGatewayRow(t.Provider) {
-		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
+		return errors.New("gemini: agy needs a Google login (run `agy` and sign in; it has no auth subcommand) or a GEMINI_PROFILE pin")
 	}
 	return nil
 }
@@ -404,6 +405,36 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{})
 }
 
+func agyModelLimit(text string) bool {
+	low := strings.ToLower(text)
+	return strings.Contains(low, "usage limit reached") || strings.Contains(low, "individual quota reached")
+}
+
+// classifyAgyError names the held model on a rate limit and the sign-in flow on an auth failure; others pass through.
+func classifyAgyError(model string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, done := errors.AsType[*retry.Error](err); done {
+		return err
+	}
+	e := retry.Classify("gemini", err, false)
+	if e.Kind == retry.KindQuota && agyModelLimit(err.Error()) {
+		e.Kind = retry.KindRateLimit // agy's limits are per model, not the account's
+	}
+	detail := err.Error()
+	if _, rest, ok := strings.Cut(detail, `"short_error":"`); ok {
+		detail, _, _ = strings.Cut(rest, `"`)
+	}
+	switch e.Kind {
+	case retry.KindRateLimit:
+		e.Err = fmt.Errorf("agy: %s is rate limited (%s); that model's limit is held, try gemini-4-hydrogen-medium", model, detail)
+	case retry.KindAuth:
+		e.Err = fmt.Errorf("agy: not signed in or the token expired (%s); run `agy` and sign in with Google again", detail)
+	}
+	return e
+}
+
 // agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.
 const agyToolStep = "tool"
 
@@ -462,7 +493,7 @@ func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamL
 		res.Answer = t.ans.String()
 		return res, errors.New("agy: stream ended without a result event")
 	}
-	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, once)
+	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, t.deniedTools(), once)
 }
 
 type agyTurn struct {
@@ -472,6 +503,7 @@ type agyTurn struct {
 	res       *wire.Result
 	dn        *agyDenier // nil: refused calls are not explained
 	refused   []agent.Rule
+	actions   []string // denied_actions names from the result event
 	ans       wire.Answer
 	pending   strings.Builder
 	response  string
@@ -517,6 +549,7 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 	t.sawResult = true
 	t.response = ev.Result.Response
 	t.flush()
+	t.actions = agyDeniedActions(ev)
 	err := applyAgyResult(t.res, ev)
 	t.dn.report(t.refused)
 	if err != nil {
@@ -528,6 +561,24 @@ func (t *agyTurn) result(ev agyEvent) (bool, error) {
 	}
 	t.lg.Emit("result", cmp.Or(t.response, t.ans.String()))
 	return t.once, nil
+}
+
+// deniedTools names every tool a refusal hit this turn: the refused steps' tools, then the result's denied actions.
+func (t *agyTurn) deniedTools() []string {
+	var names []string
+	for _, r := range t.refused {
+		names = append(names, r.Tool)
+	}
+	return slices.Compact(slices.Sorted(slices.Values(append(names, t.actions...))))
+}
+
+// agyDeniedActions is the display name (else action) of each action agy reports denied.
+func agyDeniedActions(ev agyEvent) []string {
+	names := make([]string, len(ev.Result.DeniedActions))
+	for i, d := range ev.Result.DeniedActions {
+		names[i] = cmp.Or(d.DisplayName, d.Action)
+	}
+	return names
 }
 
 // emitAgyToolStart marks progress once per tool step: agy runs tools without tool events, so none can be shown.
@@ -562,7 +613,7 @@ func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg wire.StreamLog) {
 // agyStepEnded: DONE and ERROR both end a step; a tool call a hook refused ends in ERROR, not unfinished.
 func agyStepEnded(state string) bool { return state == "DONE" || state == "ERROR" }
 
-func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response string, flush func(), openStep string, once bool) (wire.Result, error) {
+func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response string, flush func(), openStep string, denied []string, once bool) (wire.Result, error) {
 	flush()
 	var emitErr error
 	if ans.Empty() && response != "" {
@@ -571,6 +622,10 @@ func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response s
 	res.Answer = ans.String()
 	if emitErr != nil {
 		return res, emitErr
+	}
+	if !once && res.Answer == "" && len(res.Structured) == 0 && len(denied) > 0 {
+		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools or --allow '<Tool>'"
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Err: errors.New(hint)}
 	}
 	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {
 		why := "empty answer"
@@ -596,11 +651,7 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 	if len(out.Structured) > 0 && string(out.Structured) != "null" {
 		res.Structured = out.Structured
 	}
-	if len(out.DeniedActions) > 0 {
-		names := make([]string, len(out.DeniedActions))
-		for i, d := range out.DeniedActions {
-			names[i] = cmp.Or(d.DisplayName, d.Action)
-		}
+	if names := agyDeniedActions(ev); len(names) > 0 {
 		fmt.Fprintf(os.Stderr, "agy: denied %s\n", strings.Join(names, ", "))
 	}
 	if out.Status != "SUCCESS" {

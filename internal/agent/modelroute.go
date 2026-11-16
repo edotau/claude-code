@@ -129,8 +129,39 @@ func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (
 		}
 		return p, typed.src, note, nil
 	}
+	if p, src, err := geminiModelRow(reg, q); p != nil || err != nil {
+		return p, src, note, err
+	}
 	p, src, err := implicitRow(reg, q)
 	return p, src, note, err
+}
+
+// geminiModelRow is the row a typed model picks for gemini with no --profile: databricks- the gateway, Gemini Google.
+func geminiModelRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, string, error) {
+	name := strings.ToLower(q.Model)
+	if q.Agent != agentid.Gemini || q.Profile != "" || name == "" {
+		return nil, "", nil
+	}
+	if strings.HasPrefix(name, models.DatabricksPrefix) {
+		for _, c := range []struct {
+			p   *providers.Provider
+			src string
+		}{{reg.Row(q.Session), "session"}, {reg.Row(q.PinProfile), "pin"}, {reg.Row(reg.Default), "default"}} {
+			if GeminiGatewayRow(c.p) {
+				return c.p, c.src, nil
+			}
+		}
+		return nil, "", fmt.Errorf("%w: %s needs a Databricks row and no session, pin or default is one; pass --profile", ErrModelRoute, q.Model)
+	}
+	if models.FamilyKind(name) != models.FamilyGemini || GeminiGatewayRow(reg.Row(q.PinProfile)) {
+		return nil, "", nil
+	}
+	for _, n := range reg.Names() {
+		if p := reg.Providers[n]; p.Auth.Login == agentid.Gemini {
+			return p, "own-login", nil
+		}
+	}
+	return nil, "", nil
 }
 
 type namedSource struct{ name, src string }

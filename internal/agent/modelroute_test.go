@@ -158,3 +158,30 @@ func TestAgyOwnTarget(t *testing.T) {
 		t.Error("only the gemini agent takes agy's own models")
 	}
 }
+
+// With no --profile a databricks- model takes a gateway row, a Gemini model the Google row unless a gateway pin holds.
+func TestResolveModelGeminiNoProfile(t *testing.T) {
+	reg := routeRegistry(t)
+	for _, c := range []struct{ name, model, session, pin, profile string }{
+		{"databricks- takes the session row over the Google pin", "databricks-claude-sonnet-5-5", "dev", "antigravity", "dev"},
+		{"databricks- takes a gateway pin with no session", "databricks-claude-sonnet-5-5", "", "qa", "qa"},
+		{"Gemini model takes Google over the session row", "gemini-4-hydrogen-medium", "dev", "", "antigravity"},
+		{"Gemini model follows a gateway pin", "gemini-4-hydrogen-medium", "dev", "qa", "dev"},
+		{"claude-* keeps the pin in force", "claude-sonnet-5-5", "dev", "antigravity", "antigravity"},
+		{"claude-* keeps the session when unpinned", "claude-sonnet-5-5", "dev", "", "dev"},
+	} {
+		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: c.model, Session: c.session, PinProfile: c.pin}, time.Now())
+		if err != nil || r.Profile != c.profile {
+			t.Errorf("%s: got %s, %v; want %s", c.name, r.Profile, err, c.profile)
+		}
+	}
+	q := ModelQuery{Agent: "gemini", Model: "databricks-claude-sonnet-5-5", Profile: "antigravity", Session: "dev"}
+	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
+		t.Errorf("explicit --profile antigravity must win and refuse a databricks- model: %v", err)
+	}
+	reg.Default = "antigravity"
+	q = ModelQuery{Agent: "gemini", Model: "databricks-claude-sonnet-5-5", PinProfile: "antigravity"}
+	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
+		t.Errorf("no Databricks row anywhere must refuse, got %v", err)
+	}
+}
