@@ -289,7 +289,11 @@ func harnessGitVerb(cmd, cwd string) string {
 // bannedVerb is harnessGitVerb's first hit in cmd, with no feed decoding.
 func bannedVerb(cmd, cwd string) string {
 	var hit string
+	fresh := mktempCdsOnly(cmd)
 	shell.EachGit(cmd, cwd, func(target, verb string, args []string) bool {
+		if shell.UnknownDir(target) && !fresh { // a dynamic cd may land back in the shared tree
+			target = cwd
+		}
 		if !gitBannedUnder(target, verb, args) {
 			return false
 		}
@@ -297,6 +301,39 @@ func bannedVerb(cmd, cwd string) string {
 		return true
 	})
 	return hit
+}
+
+// mktempCd: a cd/pushd's target word, a shell assignment, and a target that is a fresh `$(mktemp …)` dir or a var.
+var mktempCd = core.LazyCompile(
+	`(?:^|[\s;&|(])(?:cd|pushd)\s+(?:-[LPe@]+\s+)*(?:--\s+)?("[^"]*"|\$\([^)]*\)\S*|\S+)`,
+	`(?:^|[\s;&|(])([A-Za-z_]\w*)=`,
+	`^"?\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)"?(?:[\s;&|)]|$)`,
+	`^(?:\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)|\$\{?([A-Za-z_]\w*)\}?)(?:/[-\w./]*)?$`,
+)
+
+// mktempCdsOnly reports a command whose every dynamic cd lands in a fresh mktemp dir, never the shared tree.
+func mktempCdsOnly(cmd string) bool {
+	re := mktempCd()
+	vars := map[string]bool{} // false once any assignment is not a mktemp dir
+	for _, m := range re[1].FindAllStringSubmatchIndex(cmd, -1) {
+		name := cmd[m[2]:m[3]]
+		if prev, seen := vars[name]; !seen || prev {
+			vars[name] = re[2].MatchString(cmd[m[1]:])
+		}
+	}
+	fresh := false
+	for _, m := range re[0].FindAllStringSubmatch(cmd, -1) {
+		arg := strings.ReplaceAll(m[1], `"`, "")
+		if !strings.ContainsAny(arg, "$`*?") {
+			continue
+		}
+		t := re[3].FindStringSubmatch(arg)
+		if t == nil || strings.Contains(arg, "..") || t[1] != "" && !vars[t[1]] {
+			return false
+		}
+		fresh = true
+	}
+	return fresh
 }
 
 // runsGit reports text holding any git invocation or nesting EachGit cannot see into, wherever it would run.
@@ -995,9 +1032,10 @@ func interpreterWrite(cmd string) string {
 	return ""
 }
 
-// pyIndirectModule spots os/shutil reached by another name, which would make a module call read as a method call.
-var pyIndirectModule = regexp.MustCompile(`\bimport\s+(os|shutil|posix|nt)\s+as\b|` +
-	`\bfrom\s+(os|shutil|posix|nt)\s+import\b|__import__|import_module|getattr`)
+// pyIndirectModule spots os/shutil reached by another name (`as`, `fs = os`, `(os)`, `modules['os']`) or dynamically.
+var pyIndirectModule = regexp.MustCompile(`\bimport\s[^;\n]*\b(os|shutil|posix|nt)\s+as\b|` +
+	`\bfrom\s+(os|shutil|posix|nt)\s+import\b|__import__|import_module|getattr|` +
+	`[=(\[]\s*(os|shutil|posix|nt)\s*(?:[;\n,)\]]|$)|['"](os|shutil|posix|nt)['"]`)
 
 // scriptWrites reports a write indicator for lang in cmd; a Python str/list .replace(a, b)/.remove(x) is none.
 func scriptWrites(lang string, re *regexp.Regexp, cmd string) bool {

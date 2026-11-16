@@ -429,6 +429,8 @@ func falsePositiveCases(harness string) []safetyTierCase {
 	return []safetyTierCase{
 		{commit("docs: never run git stash or git checkout here"), harness, core.Allow},
 		{commit("x") + " && git stash", harness, core.Ask},
+		{`cd "$PWD" && git stash`, harness, core.Ask},
+		{`T=$(mktemp -d) && cd "$T" && git init -q && git stash`, harness, core.Allow},
 		{"git commit -m \"$(cat <<EOF\n$(git stash)\nEOF\n)\"", harness, core.Ask},
 		{commit("x") + " | bash", harness, core.Ask},
 		{"rg -n 'sudo ' rules | head", "", core.Allow},
@@ -905,6 +907,7 @@ func TestSafetyBlocksShellWritesToProtectedFiles(t *testing.T) {
 		{"python3 -c \"from os import remove; remove('/Users/me/.claude/settings.json')\"", core.Ask},
 		{"python3 -c \"from pathlib import Path; Path('/tmp/x').replace('/Users/me/.claude/settings.json')\"", core.Ask},
 		{"python3 -c \"import os as o; o.replace('/tmp/x', '/Users/me/.claude/settings.json')\"", core.Ask},
+		{"python3 -c \"import sys, os as o; o.replace('/tmp/x', '/Users/me/.claude/settings.json')\"", core.Ask},
 		{"python3 -c \"__import__('os').replace('/tmp/x', '/Users/me/.claude/settings.json')\"", core.Ask},
 		{"rm ~/.claude/state/vault.db", core.Block},
 		{"rm -f $HOME/.ssh/id_ed25519", core.Block},

@@ -98,6 +98,9 @@ func statDir(p string) bool {
 // unknownDir is the cwd reported after a cd whose target is dynamic: absolute, never a real dir or under one.
 var unknownDir = filepath.Join(string(filepath.Separator), "<unknown cwd>")
 
+// UnknownDir reports the target EachGit gives git run after a dynamic cd in the same `&&` chain.
+func UnknownDir(dir string) bool { return dir == unknownDir }
+
 // cwdTracker follows the shell cwd across subshells, pipes, `||` after a cd, missing targets and pushd/popd.
 type cwdTracker struct {
 	cwd, before string // before: the dir the previous segment's cd left, for a following `||`

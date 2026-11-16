@@ -95,7 +95,7 @@ func dropComments(cmd string) string {
 	for from := 0; ; {
 		at, i := shell.QuoteAt(cmd), -1
 		for k := from; k < len(cmd) && i < 0; k++ {
-			if cmd[k] == '#' && at[k] == 0 && (k == 0 || strings.IndexByte(" \t\n;&|()", cmd[k-1]) >= 0) {
+			if cmd[k] == '#' && at[k] == 0 && (k == 0 || at[k-1] == 0 && strings.IndexByte(" \t\n;&|()", cmd[k-1]) >= 0) {
 				i = k
 			}
 		}
