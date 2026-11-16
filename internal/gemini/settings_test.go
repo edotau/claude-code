@@ -57,7 +57,7 @@ func TestAgyPermissionSettings(t *testing.T) {
 	}
 }
 
-// Write and Edit each map to both native write tools; a path is absolute as given or joined to cwd, never to an empty cwd.
+// Write and Edit each map to both native write tools; a path is absolute as given or joined to a non-empty cwd.
 func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
 	both := func(p string) []string { return []string{"write_file(" + p + ")", "edit_file(" + p + ")"} }
 	for _, c := range []struct {
@@ -81,7 +81,7 @@ func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
 	}
 }
 
-// A Deny agy can't hold (a Bash deny with no gate hook installed, a glob path, a bare tool) or a failed guard load refuses the dispatch.
+// A Deny agy can't hold (no gate hook for a Bash deny, a glob path, a bare tool) or a failed guard load refuses.
 func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, r := range []agent.Rule{{Tool: "Bash", Arg: "touch x"}, {Tool: "Bash", Arg: "rm:*"}, {Tool: "Edit", Arg: "internal/**"}, {Tool: "WebFetch"}} {
@@ -120,7 +120,7 @@ func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
 	}
 }
 
-// With the gate hook installed a Bash Deny agy cannot express natively is the hook's: accepted, exact ones also ride native.
+// With the gate hook installed a Bash Deny agy cannot express natively is the hook's; exact ones also ride native.
 func TestAgyBashDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -182,7 +182,7 @@ func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
 	}
 }
 
-// --read-only on agy is the bare Bash/Write/Edit denies: refused without the gate hook, the hook's alone once it is installed.
+// --read-only on agy is the bare Bash/Write/Edit denies: refused without the gate hook, the hook's alone with it.
 func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

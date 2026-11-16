@@ -373,7 +373,7 @@ func TestAnthropicOAuthWithheldFromShellEndpoint(t *testing.T) {
 	}
 }
 
-// TestKeepShellEndpointDefaultBase: a shell base equal to the default Anthropic endpoint is not foreign when the plan sets none.
+// TestKeepShellEndpointDefaultBase: a shell base equal to the default Anthropic endpoint is not foreign.
 func TestKeepShellEndpointDefaultBase(t *testing.T) {
 	for _, tc := range []struct {
 		base    string
@@ -388,7 +388,7 @@ func TestKeepShellEndpointDefaultBase(t *testing.T) {
 	}
 }
 
-// TestKeepShellEndpointInheritedProxyBase: an enclosing session's /p/<other> base must not displace this launch's own proxy base.
+// TestKeepShellEndpointInheritedProxyBase: an enclosing session's /p/<other> base never displaces this launch's own.
 func TestKeepShellEndpointInheritedProxyBase(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
 	plan := agent.Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:18765/p/dev"}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}},
@@ -508,7 +508,7 @@ func TestClaudeInteractiveRendersRecord(t *testing.T) {
 	}
 }
 
-// Bare `anthropic` (no --profile) goes through claudePlan(), so it renders the record too; a refused record is a warning.
+// Bare `anthropic` (no --profile) goes through claudePlan(), so a refused record is a warning there too.
 func TestAnthropicRendersRecord(t *testing.T) {
 	hermetic(t, "")
 	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "high"}); err != nil {
@@ -531,7 +531,7 @@ func TestAnthropicRendersRecord(t *testing.T) {
 	}
 }
 
-// An invalid stored record on an interactive launch applies the built-ins and shows exactly one notice, in --print-env too.
+// An invalid stored record on an interactive launch applies the built-ins with exactly one notice, even in --print-env.
 func TestClaudeInteractiveRefusedRecordOneNotice(t *testing.T) {
 	hermetic(t, "")
 	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Effort: "turbo"}); err != nil {

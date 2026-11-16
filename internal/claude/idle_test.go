@@ -75,7 +75,7 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	}
 }
 
-// Given claude delivers a successful result and then lingers, Then the child is killed but the run succeeds with the answer.
+// A claude that delivers a successful result and then lingers is killed, but the run succeeds with the answer.
 func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	start := time.Now()

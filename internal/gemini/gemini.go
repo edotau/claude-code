@@ -88,7 +88,7 @@ func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registr
 	return providers.Target{}, "", false
 }
 
-// AuthStatus is agy's cached Google login from disk; Source is empty and Method is AuthNone when absent, Err when unreadable.
+// AuthStatus is agy's cached Google login from disk: AuthNone when absent, Err when unreadable.
 func (geminiEngine) AuthStatus() providers.AuthState {
 	ok, err := geminiLoginProbe()
 	if !ok {
@@ -208,7 +208,7 @@ func agyLoginMarkers(home string) []string {
 // agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const agyDefaultModel = "gemini-3.8-flash-high"
 
-// agyGatewayArg is model's Databricks name and gateway --model; a non-Gemini id falls back to the pin, then the default.
+// agyGatewayArg is model's Databricks name and gateway --model; a non-Gemini id falls back to the pin or default.
 func agyGatewayArg(model string) (base, arg string, err error) {
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {

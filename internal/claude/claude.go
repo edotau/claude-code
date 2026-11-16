@@ -269,7 +269,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	return cmd, tail, cl, err
 }
 
-// refuseClaudeCmd is the refusal claudeCmd makes before it resolves anything: a permission it cannot enforce, no launcher.
+// refuseClaudeCmd is claudeCmd's refusal before any resolution: an unenforceable permission or no launcher.
 func refuseClaudeCmd(req agent.RunOptions) error {
 	if err := refusePermissionCapabilities(req); err != nil {
 		return err

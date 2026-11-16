@@ -32,7 +32,7 @@ type anthropicOptions struct {
 	Name string // vault key holding the secret ("" for authLogin)
 }
 
-// parseAnthropicArgs strips --oauth[=NAME] and --x-api-key[=NAME] (a bare flag takes no value), then the shared launcher flags.
+// parseAnthropicArgs strips --oauth[=NAME] and --x-api-key[=NAME] (a bare flag takes no value), then launcher flags.
 func parseAnthropicArgs(args []string) (anthropicOptions, []string, error) {
 	o := anthropicOptions{Mode: authLogin}
 	var kept []string

@@ -164,7 +164,7 @@ func TestCodexGateInstalled(t *testing.T) {
 	}
 }
 
-// A dispatch's CODEX_HOME carries config.toml with its hook-trust keys moved to its own hooks.json, so the hooks still run.
+// A dispatch's CODEX_HOME moves config.toml's hook-trust keys to its own hooks.json, so the hooks still run.
 func TestLinkHomeRetargetsHookTrust(t *testing.T) {
 	real, home := t.TempDir(), t.TempDir()
 	trust := func(dir string) string {

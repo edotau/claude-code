@@ -197,7 +197,7 @@ func TestCodexHeadlessToolsOffTrimsPrompt(t *testing.T) {
 	}
 }
 
-// A headless exec is a leaf: it drops the sub-agent tools, request_user_input and their role text; interactive keeps all.
+// A headless exec is a leaf: it drops the sub-agent tools and request_user_input; interactive keeps all.
 func TestCodexHeadlessDropsLeafTools(t *testing.T) {
 	interactive := codexHeadless(context.Background(), []string{"--model", "m"}, nil)
 	for name, h := range map[string]*agent.Headless{"tools-off": {}, "tools": {Tools: true}} {

@@ -319,7 +319,7 @@ func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 			t.Errorf("profile %s: args %q, want --permission-mode %s", c.profile, got, c.want)
 		}
 	}
-	// No rules: off Anthropic the leaf allow list replaces settings.json's defaultMode auto; on Anthropic nothing is added.
+	// No rules: off Anthropic the leaf allow list replaces defaultMode auto; on Anthropic nothing is added.
 	tail := []string{"--exclude-dynamic-system-prompt-sections"}
 	if got := renderedArgs(t, agent.RunOptions{Tools: true, Provider: "ultra"}, anthropicTarget); !slices.Equal(got, tail) {
 		t.Errorf("ultra, no rules: args %q, want %q", got, tail)
@@ -382,7 +382,7 @@ func TestClaudeCmdRendersRecord(t *testing.T) {
 	}
 }
 
-// TestLaunchProviderReadsCtxSnapshot: a run whose ctx carries the snapshot launches on its session profile, not the process env's.
+// TestLaunchProviderReadsCtxSnapshot: a run whose ctx carries the snapshot launches on its session profile.
 func TestLaunchProviderReadsCtxSnapshot(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	t.Setenv(providers.EnvSessionProfile, "ultra")
@@ -392,7 +392,7 @@ func TestLaunchProviderReadsCtxSnapshot(t *testing.T) {
 	}
 }
 
-// TestClaudeLauncherChildEnvIsRunSnapshot: the launched child inherits the run's snapshot and pinned egress host, not the process env.
+// TestClaudeLauncherChildEnvIsRunSnapshot: the child inherits the run's snapshot and pinned egress host.
 func TestClaudeLauncherChildEnvIsRunSnapshot(t *testing.T) {
 	hermetic(t, "")
 	t.Setenv("FOO_AMBIENT", "ambient")
@@ -692,7 +692,7 @@ while IFS= read -r line; do
 done
 `
 
-// liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux) holding the fake claude.
+// liveEnv gives the test a short /tmp config dir (unix socket paths cap at 104 bytes on macOS) holding the fake claude.
 func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
 
 func liveEnvScript(t *testing.T, script string) {

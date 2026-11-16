@@ -96,7 +96,7 @@ func scienceConfigPort(raw []byte) int {
 	return 3000
 }
 
-// scienceDefaultsFile is the embedded config's path, "" when the box has claude-science's own config.toml; it writes nothing.
+// scienceDefaultsFile is the embedded config's path, "" when the box has claude-science's own config.toml.
 func scienceDefaultsFile() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

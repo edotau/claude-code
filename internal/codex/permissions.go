@@ -161,7 +161,7 @@ func codexRulesHome(rules string) (home string, remove func(), err error) {
 	return home, remove, nil
 }
 
-// keepSessionsLink removes home but its sessions link: the thread db records rollout paths under home, so a resume needs them.
+// keepSessionsLink removes home but its sessions link: the thread db records rollout paths under home.
 func keepSessionsLink(home string) {
 	sessions := filepath.Join(home, "sessions")
 	if fi, err := os.Lstat(sessions); err == nil && fi.Mode()&os.ModeSymlink == 0 {

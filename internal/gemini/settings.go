@@ -184,7 +184,7 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (
 	if guard {
 		deny = agyGuardRules(cfg.Guard().Deny, io.Discard)
 	}
-	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express (a pattern, a bare tool), is the gate hook's.
+	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express, is the gate hook's.
 	deny, unDeny := appendAgyRules(deny, p.Deny, cwd)
 	var unenforced []agent.Rule
 	for _, r := range p.Deny {
@@ -260,7 +260,7 @@ func (d *agyDenier) report(calls []agent.Rule) {
 	}
 }
 
-// notes names, per refused call, the exact --allow that repairs it; a denied call or one agy has no native rule for gets none.
+// notes names, per refused call, the exact --allow that repairs it; a denied call gets none.
 func (d *agyDenier) notes(calls []agent.Rule) []string {
 	if d == nil {
 		return nil
@@ -323,10 +323,10 @@ func agySettingsPath(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 }
 
-// agyGateTools are the agy tools the permission gate must judge to enforce a Deny on each rule tool (none: unenforceable).
+// agyGateTools are the agy tools the gate must judge to enforce a Deny on each rule tool (none: unenforceable).
 var agyGateTools = map[string][]string{"Bash": {"run_command"}, "Read": {"read_file"}, "Write": {"write_file", "edit_file"}, "Edit": {"write_file", "edit_file"}}
 
-// agyGateCovers reports whether the global or the workspace's .agents/hooks.json runs the permission gate on every tool.
+// agyGateCovers reports whether the global or workspace hooks.json runs the permission gate on every tool.
 func agyGateCovers(cwd string, tools ...string) bool {
 	if len(tools) == 0 {
 		return false
@@ -383,7 +383,7 @@ const agyGateMatcher = "run_command|read_file|write_file|edit_file"
 
 const agyShellMatcher = "run_command"
 
-// renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping every other hook.
+// renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping others.
 func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	var groups []any
 	for _, s := range settings.SpecsFor("gemini", "native") {
