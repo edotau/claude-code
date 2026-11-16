@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -690,5 +691,33 @@ func TestPlanGateCodexPatch(t *testing.T) {
 				requirePlanGateDenied(t, cfg, "plans/draft.md", &stderr)
 			}
 		})
+	}
+}
+
+// A first write of a plan-named markdown at the repo root is rewritten to the dated plans home; others pass untouched.
+func TestPlanGateRewritesStrandedPlan(t *testing.T) {
+	cfg, _ := planGroupEnv(t, true)
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	run := func(mode, path string) core.Result {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo, "permission_mode": mode,
+			"tool_input": map[string]string{"file_path": path, "content": "x"}})
+		return PlanGate(core.ParseInput(bytes.NewReader(b)))
+	}
+	res := run("default", filepath.Join(repo, "my-plan.md"))
+	got, _ := res.UpdatedInput["file_path"].(string)
+	want := filepath.Join(plans.Home(repo), time.Now().Format("2006-01-02")+"-my-plan.md")
+	if res.Decision == core.Block || got != want {
+		t.Errorf("rewrite = %+v, want file_path %s", res, want)
+	}
+	if r := run("auto", filepath.Join(repo, "my-plan.md")); r.Decision != core.Block || !strings.Contains(r.Reason, want) {
+		t.Errorf("auto = %+v, want a deny holding %s", r, want)
+	}
+	for _, p := range []string{filepath.Join(repo, "notes.md"), filepath.Join(repo, "src", "plan.md"), filepath.Join(cfg, "plans", "2026-01-01-x.md")} {
+		if r := run("default", p); r.UpdatedInput != nil || r.Decision == core.Block {
+			t.Errorf("%s = %+v, want untouched", p, r)
+		}
 	}
 }

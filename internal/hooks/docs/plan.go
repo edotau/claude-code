@@ -351,6 +351,61 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	return gateDraft(core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
 }
 
+// PlanGate rewrites a new plan-named markdown at a repo root or docs/ to the dated plans home, else runs Gate.
+func PlanGate(in *core.Input) core.Result {
+	if dest := strandedPlanDest(in); dest != "" {
+		return rewritePlanPath(in, dest)
+	}
+	var b bytes.Buffer
+	code := Gate(in, &b)
+	return core.ExitResult(code, b.String())
+}
+
+func rewritePlanPath(in *core.Input, dest string) core.Result {
+	from := in.Nested("tool_input", "file_path")
+	if in.Agent() != core.AgentClaude || in.Nested("permission_mode") == "auto" {
+		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("plan-path: %s is not the plans home; "+
+			"resend this write with file_path %q.", from, dest)}
+	}
+	updated := in.CloneToolInput()
+	if updated == nil {
+		return core.Result{}
+	}
+	updated["file_path"] = dest
+	return core.Result{UpdatedInput: updated, SystemMessage: fmt.Sprintf("plan-path: %s → %s (dated plans home)", from, dest)}
+}
+
+// strandedPlanDest is the dated plans-home path for a first Write of a plan-named markdown at a repo root or docs/.
+func strandedPlanDest(in *core.Input) string {
+	if tool := strings.ToLower(in.ToolName); tool != "write" && tool != "create" {
+		return ""
+	}
+	abs := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	base := filepath.Base(abs)
+	if !isMarkdownPath(abs) || !strings.Contains(strings.ToLower(base), "plan") {
+		return ""
+	}
+	if _, err := os.Stat(abs); err == nil {
+		return ""
+	}
+	dir := filepath.Dir(abs)
+	root := planRepoRoot(in.CWD)
+	if dir != root && dir != filepath.Join(root, "docs") {
+		return ""
+	}
+	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")
+	prefix := filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug)
+	for n := 1; ; n++ {
+		cand := prefix + ".md"
+		if n > 1 {
+			cand = fmt.Sprintf("%s-%d.md", prefix, n)
+		}
+		if _, err := os.Stat(cand); os.IsNotExist(err) {
+			return cand
+		}
+	}
+}
+
 // patchAdds yields each file an apply_patch body adds, with its content (the hunk's "+" lines).
 func patchAdds(patch string) iter.Seq2[string, string] {
 	return func(yield func(string, string) bool) {
