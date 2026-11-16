@@ -253,12 +253,18 @@ func TestRunSimplifyFailIgnoresUntouchedDebt(t *testing.T) {
 }
 
 func TestRunSimplifyFailRenameKeepsExistingDebt(t *testing.T) {
-	dir := gitFixture(t)
-	hosttest.WriteRel(t, dir, "fx.go", longGo())
-	hosttest.In(t, dir, "commit", "-qam", "debt")
-	hosttest.In(t, dir, "mv", "fx.go", "fy.go")
-	if code, out := runSimplifyFail(t); code != 0 {
-		t.Fatalf("a pure rename reported existing debt (code %d):\n%s", code, out)
+	for _, sub := range []string{"", "sub"} {
+		t.Run("from "+sub, func(t *testing.T) {
+			dir := gitFixture(t)
+			hosttest.WriteRel(t, dir, filepath.Join(sub, "fx2.go"), longGo())
+			hosttest.In(t, dir, "add", ".")
+			hosttest.In(t, dir, "commit", "-qm", "debt")
+			hosttest.In(t, dir, "mv", filepath.Join(sub, "fx2.go"), filepath.Join(sub, "fy.go"))
+			t.Chdir(filepath.Join(dir, sub))
+			if code, out := runSimplifyFail(t); code != 0 {
+				t.Fatalf("a pure rename reported existing debt (code %d):\n%s", code, out)
+			}
+		})
 	}
 }
 
