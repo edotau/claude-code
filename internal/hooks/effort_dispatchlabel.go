@@ -143,8 +143,8 @@ func dispatchLabelsLine(in *core.Input) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	if os.MkdirAll(filepath.Dir(file), 0o755) == nil {
-		_ = os.WriteFile(file, []byte(model), 0o644) // best effort: a failed write only re-shows the line next prompt
+	if os.MkdirAll(filepath.Dir(file), 0o700) == nil {
+		_ = os.WriteFile(file, []byte(model), 0o600) // best effort: a failed write only re-shows the line next prompt
 	}
 	return "Dispatch labels (description prefix): " + strings.Join(parts, " · ")
 }

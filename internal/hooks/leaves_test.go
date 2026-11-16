@@ -744,7 +744,7 @@ func TestPlanClaimOnSpawnClearedOnStop(t *testing.T) {
 	}
 }
 
-// A Workflow call through Effort is linted by quality.WorkflowResult: an unpinned leaf gets a model.
+// A Workflow call through Effort is linted by workflows.WorkflowResult: an unpinned leaf gets a model.
 func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	res := pre(`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)
