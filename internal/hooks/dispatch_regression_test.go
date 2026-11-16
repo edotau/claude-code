@@ -283,7 +283,7 @@ func TestDeclaredModuleOnWrongEventDecidesByBlocks(t *testing.T) {
 
 // A gate whose blocking call outlasts its HookContext fails open before the dispatcher's timer calls it an overrun.
 func TestHookContextExpiresBeforeDispatcherBudget(t *testing.T) {
-	spec := specOf("docs-plan-gate") // Blocks: an overrun would block the call
+	spec := specOf("docs-placement") // Blocks: an overrun would block the call
 	orig := core.HookMargin
 	t.Cleanup(func() { core.HookMargin = orig })
 	core.HookMargin = spec.Budget - 30*time.Millisecond // HookContext reads the registry budget: its deadline is 30ms in
@@ -678,7 +678,7 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 		{"docs-placement", []string{"NOTES.md"}, true},
 		{"docs-placement", []string{"README.md"}, false},
 		{"docs-placement", []string{"src/a.go", "STRAY.md"}, true},
-		{"docs-plan-gate", []string{filepath.Join(cfg, "plans", "draft.md")}, true},
+		{"docs-placement", []string{filepath.Join(cfg, "plans", "draft.md")}, true},
 	} {
 		if m := renderedMatcher(t, codex.CodexJSON, c.gate); !regexp.MustCompile(`^(?:` + m + `)$`).MatchString("apply_patch") {
 			t.Errorf("%s: Codex's rendered matcher %q never selects apply_patch", c.gate, m)

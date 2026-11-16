@@ -104,10 +104,8 @@ var Registry = []Group{
 		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec},
 	}},
 	{Name: "docs", Events: []EventSpec{
-		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
-		// A new plan-named root or docs/ markdown goes to the dated plans home; a first draft must carry the template.
-		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
+		// Root or ignored docs/ markdown is blocked, a new plan-named one goes to the plans home, a draft needs the template.
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// An approved plan is filed under plans/, tagged with its repo.

@@ -327,7 +327,7 @@ var specsByName = sync.OnceValue(func() map[string]settings.EventSpec {
 	return m
 })
 
-// SpecOf is the hookspec entry for a module, stamped with its group; false when unknown.
+// SpecOf is the hookspec entry for a module; false when unknown.
 func SpecOf(name string) (settings.EventSpec, bool) {
 	s, ok := specsByName()[name]
 	return s, ok

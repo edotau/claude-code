@@ -2,6 +2,7 @@
 package docs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,13 +30,28 @@ var rootAnchors = map[string]bool{
 
 var placementTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "create": true, "apply_patch": true, "bash": true}
 
-// Placement gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
-func Placement(in *core.Input, stderr io.Writer) int {
+// Placement is docs-placement: a placement block wins, else the plan path rewrite and template gate decide.
+func Placement(in *core.Input) core.Result {
+	dest, err := planDest(in)
+	var placed core.Result
+	if dest == "" { // a dated plan dest is rewritten (or blocked) below, never placement-denied
+		var b bytes.Buffer
+		if placed = core.ExitResult(placeFiles(in, &b), b.String()); placed.Decision == core.Block {
+			return placed
+		}
+	}
+	if tool := strings.ToLower(in.CanonicalTool()); tool != "write" && tool != "edit" {
+		return placed
+	}
+	gated := planGate(in, dest, err)
+	gated.Stderr = core.JoinNonEmpty("\n", placed.Stderr, gated.Stderr)
+	return gated
+}
+
+// placeFiles gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
+func placeFiles(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && !placementTools[tool] {
-		return core.ExitProceed
-	}
-	if strandedPlanDest(in) != "" { // docs-plan-gate rewrites (or blocks) this write; a parallel deny would mask it
 		return core.ExitProceed
 	}
 	ctx, cancel := core.HookContext("docs-placement")

@@ -367,9 +367,8 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	return gateDraft(core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
 }
 
-// PlanGate rewrites a new plan-named markdown at a repo root or docs/ to the dated plans home, else runs Gate.
-func PlanGate(in *core.Input) core.Result {
-	dest, err := planDest(in)
+// planGate rewrites a new plan-named markdown at a repo root or docs/ to dest, else runs Gate.
+func planGate(in *core.Input, dest string, err error) core.Result {
 	if err != nil {
 		return core.Result{Decision: core.Block, Reason: "plan-path: cannot choose a dated plans path: " + err.Error()}
 	}
@@ -399,13 +398,7 @@ func rewritePlanPath(in *core.Input, dest string) core.Result {
 	return core.Result{UpdatedInput: updated, SystemMessage: fmt.Sprintf("plan-path: %s → %s (dated plans home)", from, dest)}
 }
 
-// strandedPlanDest is the dated plans-home path for a first Write of a plan-named markdown at a repo root or docs/.
-func strandedPlanDest(in *core.Input) string {
-	dest, _ := planDest(in)
-	return dest
-}
-
-// planDest is strandedPlanDest with the first stat failure other than "does not exist" returned, naming its path.
+// planDest is the dated plans-home path for a first Write of a plan-named markdown at a repo root or docs/.
 func planDest(in *core.Input) (string, error) {
 	if tool := strings.ToLower(in.ToolName); tool != "write" && tool != "create" {
 		return "", nil

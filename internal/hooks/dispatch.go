@@ -295,7 +295,7 @@ func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
 var native = map[string]core.Runner{
 	"safety-scan":          safety.Scan,
 	"rtk-rewrite":          safety.RTKRewrite,
-	"docs-placement":       viaStderr(docs.Placement),
+	"docs-placement":       docs.Placement,
 	"memory-start":         WithDispatchLabels(memhook.Start),
 	"memory-recall":        WithDispatchLabels(memhook.Recall),
 	"paths-resolve":        docs.ResolvePaths,
@@ -310,7 +310,6 @@ var native = map[string]core.Runner{
 	"codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure":     Release,
 	"dispatch-workflow":    Release,
-	"docs-plan-gate":       docs.PlanGate,
 	"docs-plan-tick":       docs.Tick,
 	"docs-plan-reminder":   docs.Reminder,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),
