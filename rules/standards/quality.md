@@ -13,59 +13,49 @@ Language specifics: `rules/software/<lang>/`.
 
 ## Code Quality Checklist
 
-Functions < 50 lines, files < 1200 (200–400 typical; test files < 1500), ≤ 25 imports per file, nesting ≤ 4 (early
-returns); no hardcoded values, secrets, or leftover debug prints. Over the cap, trim first: cut stacked comment
-blocks to one line that names what the code does.
+Functions < 50 lines, files < 1200 (test files < 1500), ≤ 25 imports per file, nesting ≤ 4 (early returns); no
+hardcoded values, secrets or leftover debug prints. `review-simplicity` flags overruns; trim comments first.
 
 ## Comments
 
-**1 line MAX, ≤120 chars, per section**, any language — code comments and docstrings alike, never a stacked block.
-Exempt: provenance/audit blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped: a
-paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md`), never in source.
+**1 line MAX, ≤120 chars, per section**, any language, code comments and docstrings alike. Exempt: provenance/audit
+blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped; a paragraph belongs in the
+repo's docs, never in source. `review-simplicity` flags stacked blocks.
 
-- **No line-by-line narration**: no comment that restates the next line, the name, or the signature; no trailing
-  comments explaining ordinary code. Comment only a why, a gotcha, a unit or an invariant the code cannot show.
-- **Doc strings are short**: a function, method, struct or field gets one concise line (≤ ~80 chars) only when it
-  adds meaning; unexported ones usually get none. Never list parameters, returns or cases the code already shows.
-- **Shorten in place**: an over-long comment becomes one complete sentence that keeps its point, never a truncated
-  first line; when touching a file, trim the verbose comments you pass.
+- **No narration** — nothing that restates the next line, the name or the signature. Comment only a why, a gotcha, a
+  unit or an invariant the code cannot show.
+- **Doc strings** — one line (≤ ~80 chars) only when it adds meaning; unexported symbols usually get none; never list
+  parameters, returns or cases the code shows.
+- **Shorten in place** — an over-long comment becomes one complete sentence that keeps its point; trim the verbose
+  ones you pass.
 
 ## Simplify — the gate behind `skills/simplify`
 
-`skills/simplify` (overrides the built-in `/simplify`) applies these rules as its apply-gate:
-
-1. **Name the assumption before each cut** ("unreachable because ___"); can't finish the sentence → flag, don't cut.
-2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard whose
-   impossible state you can't prove.
-3. **No covering test → flag, don't cut.** Gate: the scoped tests and live check pass before AND after.
-4. **Reuse first**: grep the call sequence, sibling files and `git log -S`; a near-duplicate is compared with its
-   original for behavior the copy lost (isolation, error handling), then consolidated at the source (say so).
-5. **Altitude**: fix the root cause, not one more special case. Bugs found are reported, not fixed (`/code-review`).
-6. **Thresholds**: this file's checklist (functions < 50 lines, nesting ≤ 4) and `review-simplicity`'s complexity
-   > 10; input: `claude-code review simplify`. Under ~100 changed lines one in-context pass replaces the fan-out.
-7. **Report numbers**: Δ lines and Δ complexity per touched function, plus what was skipped and why.
+The apply-gate (assumption before each cut, never-cut list, reuse first, thresholds, numbers) lives in
+`skills/simplify/SKILL.md`.
 
 ## Verification Order — lint first, always
 
 | # | Step | When |
 | --- | --- | --- |
-| 1 | Parse/compile + **lint** (`ruff`, `go vet`, `make lint`/`fmt`) | Every edit, unprompted |
+| 1 | Parse/compile + **lint** (`ruff`, `go vet`, `make lint`/`fmt`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted |
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
 | 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
-| 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, before review, merge or commit — never skipped |
+| 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, before review, merge or commit |
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
-Steps 1, 2, 5 and 6 are prose-enforced; hooks only format at Stop and give advisory review.
-Report which steps ran and which did not. Judge a run by its own exit code (`set -o pipefail`), never `| tail`.
-
-Live first, test scope, what makes a test a guard, and the test agent: `testing-guidelines.md`.
+The IDE's diagnostics are a second gate, not a duplicate: the editor runs analyzers the repo's CLI lint does not
+(Ruff rules, Pylance types, Pylint hints), so a file that is flake8/black clean can still show errors the user sees
+— never call a file clean on CLI lint alone, and say which findings are pre-existing rather than silently fixing them.
+Steps 1, 2, 5 and 6 are prose-enforced; hooks only format at Stop and give advisory review. Report which steps ran
+and which did not. Judge a run by its own exit code (`set -o pipefail`), never `| tail`. Live first, test scope and
+what makes a test a guard: `testing-guidelines.md`.
 
 ## Completion
 
-Review done (`/code-review`), applicable scoped checks green, manual check for user-facing
-changes, docs and links current; approve when no CRITICAL/HIGH remains. Severity scale:
-`skills/evaluate-code/references/completion-criteria.md`.
-Every finding, LOW included, is fixed in the same round; only owner-judgment items go to a report. The same holds
-for a bug or issue noticed mid-task: fix it right away without asking (`CLAUDE.md` guideline 3).
+Review done (`/code-review`), applicable scoped checks green, manual check for user-facing changes, docs and links
+current; approve when no CRITICAL/HIGH remains (severity scale:
+`skills/evaluate-code/references/completion-criteria.md`). Every finding, LOW included, is fixed in the same round;
+only owner-judgment items go to a report. A bug noticed mid-task is fixed right away without asking.
