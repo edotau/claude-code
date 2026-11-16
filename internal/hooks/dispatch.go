@@ -247,7 +247,7 @@ var native = map[string]core.Runner{
 	"codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure":     Release,
 	"dispatch-workflow":    Release,
-	"docs-plan-gate":       viaStderr(docs.Gate),
+	"docs-plan-gate":       docs.PlanGate,
 	"docs-plan-tick":       docs.Tick,
 	"docs-plan-reminder":   docs.Reminder,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),

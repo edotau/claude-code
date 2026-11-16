@@ -433,3 +433,16 @@ func TestDocsPlacementBlocksShellWrites(t *testing.T) {
 		}
 	}
 }
+
+// A first write PlanGate rewrites passes docs-placement; a non-plan root markdown stays denied.
+func TestDocsPlacementYieldsToPlanRewrite(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := placementRepo(t)
+	for name, want := range map[string]int{"my-plan.md": core.ExitProceed, "notes.md": core.ExitBlock} {
+		b, _ := json.Marshal(map[string]any{"tool_name": "Write", "cwd": repo,
+			"tool_input": map[string]string{"file_path": filepath.Join(repo, name), "content": "x"}})
+		if code := Placement(core.ParseInput(bytes.NewReader(b)), io.Discard); code != want {
+			t.Errorf("%s: code = %d, want %d", name, code, want)
+		}
+	}
+}

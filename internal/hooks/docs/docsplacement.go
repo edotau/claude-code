@@ -38,6 +38,9 @@ func Placement(in *core.Input, stderr io.Writer) int {
 	if os.Getenv(docsPlacementDisableEnv) == "0" {
 		return core.ExitProceed
 	}
+	if strandedPlanDest(in) != "" { // docs-plan-gate rewrites (or blocks) this write; a parallel deny would mask it
+		return core.ExitProceed
+	}
 	ctx, cancel := core.HookContext("docs-placement")
 	defer cancel()
 	if tool == "apply_patch" {

@@ -81,8 +81,11 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
+	fixType := ""
 	if deny := typeBlock(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
-		return *deny
+		if fixType = coworkerTarget(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); fixType == "" {
+			return *deny
+		}
 	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
 	// dropping one (isolation, run_in_background, subagent_type, …) would silently alter the dispatch.
@@ -101,9 +104,14 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	if deny := preflightBlock(ctx, e.run, task); deny != nil {
 		return *deny
 	}
+	if deny := e.retype(in, fixType, auto); deny != nil {
+		return *deny
+	}
 	recallNote := e.recall(ctx, in, promptField, task, auto)
 	if !direct {
-		e.note, e.systemMessage = pinModel(e.run, in, updated, task)
+		var pinMsg string
+		e.note, pinMsg = pinModel(e.run, in, updated, task)
+		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || e.note != ""
 	}
 	if deny := e.label(ctx, task, auto); deny != nil {
@@ -371,6 +379,36 @@ func typeBlock(st, task string) *core.Result {
 	}
 	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster (%s); %s",
 		st, strings.Join(allowed, ", "), typeSuggestion(st, task))}
+}
+
+// retype swaps a coworker subagent_type for the roster agent it wraps; auto mode (rewrites rejected) denies instead.
+func (e *effortPlan) retype(in *core.Input, to string, auto bool) *core.Result {
+	if to == "" {
+		return nil
+	}
+	from := in.Nested("tool_input", "subagent_type")
+	if auto {
+		return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: subagent_type %q is a coworker type; "+
+			"resend this dispatch with subagent_type %q.", from, to)}
+	}
+	e.updated["subagent_type"] = to
+	e.changed = true
+	e.systemMessage = fmt.Sprintf("dispatch-effort: subagent_type %q rewritten to %q.", from, to)
+	return nil
+}
+
+// coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.
+func coworkerTarget(st, task string) string {
+	agent, isCoworker := strings.CutPrefix(st, "coworker:")
+	if st == "coworker" || isCoworker && agent == "databricks" {
+		agent = briefExternal(task)
+	} else if !isCoworker {
+		return ""
+	}
+	if !slices.Contains(dispatchTypes(), agent) {
+		return ""
+	}
+	return agent
 }
 
 // typeSuggestion is the redirect: a coworker type to the roster agent it wraps, anything else to general-purpose.

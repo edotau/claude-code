@@ -69,6 +69,10 @@ func workflowInline(in *core.Input, script string) core.Result {
 		return core.Result{}
 	}
 	filled := filledModelLines(script, amb)
+	if in.Nested("permission_mode") == "auto" {
+		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: auto mode can't review a rewritten call; "+
+			"resend the Workflow with model:'%s' pinned on the agent() call(s) at line(s) %s, script:\n%s", model, strings.Join(filled, ", "), out)}
+	}
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}

@@ -644,7 +644,6 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
 		"coworker:copilot":                          {"do it", `use "copilot"`},
 		"coworker:opencode":                         {"do it", `use "opencode"`},
-		"coworker:databricks":                       {"Agent: codex\ndo it", `use "codex"`},
 		"coworker":                                  {"do it", "name one roster agent"},
 	} {
 		want := fmt.Sprintf("dispatch-effort: subagent_type %q is not on the roster %s; %s", st, roster, c.use)
@@ -911,5 +910,24 @@ func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 		if label == "" || !strings.Contains(entry, label+":") {
 			t.Errorf("tier %s: hook label %q missing from %q", tier, label, entry)
 		}
+	}
+}
+
+// A coworker type naming exactly one roster agent is rewritten; an ambiguous one and auto mode stay denied.
+func TestDispatchCoworkerTypeRewrite(t *testing.T) {
+	dispatchEnv(t)
+	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "copilot")
+	payload := func(mode, st string) core.Result {
+		return pre(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"subagent_type":%q,"prompt":"do it","description":"do it"}}`, mode, st))
+	}
+	r := payload("default", "coworker:copilot")
+	if r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "copilot" || !strings.Contains(r.SystemMessage, `"copilot"`) {
+		t.Errorf("coworker:copilot = %+v, want subagent_type rewritten to copilot with a message", r)
+	}
+	if r := payload("default", "coworker"); r.Decision != core.Block {
+		t.Errorf("ambiguous coworker = %+v, want a block", r)
+	}
+	if r := payload("auto", "coworker:copilot"); r.Decision != core.Block || !strings.Contains(r.Reason, `subagent_type "copilot"`) {
+		t.Errorf("auto coworker:copilot = %+v, want a deny holding the corrected type", r)
 	}
 }

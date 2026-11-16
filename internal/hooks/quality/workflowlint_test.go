@@ -785,3 +785,22 @@ try { stepOf({fix:{profile:'qa'}}, 'fix', {}, {...opt, external:false}) }
 catch { refused = true }
 assert(refused, 'unwired route allowed')
 `
+
+// An unpinned literal-options agent() call is filled by rewrite; in auto mode it is denied with the corrected script.
+func TestWorkflowInlineFillRewriteAndAutoDeny(t *testing.T) {
+	script := "agent('x', { label: 'a' });\n"
+	run := func(mode string) core.Result {
+		in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":%q,"tool_input":{"script":%q}}`, mode, script)
+		return WorkflowResult(core.ParseInput(strings.NewReader(in)))
+	}
+	if res := run("default"); res.Decision == core.Block || !strings.Contains(fmt.Sprint(res.UpdatedInput["script"]), "model: 'sonnet'") {
+		t.Errorf("default = %+v, want model: 'sonnet' injected", res)
+	}
+	if res := run("auto"); res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "model: 'sonnet'") {
+		t.Errorf("auto = %+v, want a deny holding the corrected script", res)
+	}
+	script = "agent('x', opts);\n"
+	if res := run("default"); res.Decision != core.Block {
+		t.Errorf("non-literal options = %+v, want a block", res)
+	}
+}
