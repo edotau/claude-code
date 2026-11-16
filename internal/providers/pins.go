@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
@@ -96,20 +97,41 @@ func GithubAccountLogin(reg *Registry, name string) string {
 	return name
 }
 
-// CodexModel resolves the codex record's model; "" leaves codex's own default (config.toml, then its login's opus).
-func CodexModel() (model, source string) {
-	return pinned(AgentRecord("codex").Model)
+// AgentModelEnv is the agent's own shell model knob (GEMINI_MODEL), "" for claude and unknown agents.
+func AgentModelEnv(agent string) string {
+	if !slices.Contains(agentid.External(), agent) {
+		return ""
+	}
+	return strings.ToUpper(agent) + "_MODEL"
 }
+
+// EnvModel is the agent's shell model env value in ctx's run snapshot (the process env without one), with its var name.
+func EnvModel(ctx context.Context, agent string) (model, envVar string) {
+	envVar = AgentModelEnv(agent)
+	if envVar == "" {
+		return "", ""
+	}
+	return strings.TrimSpace(proc.Value(ctx, envVar)), envVar
+}
+
+// effectiveModel is the model a launch uses: the shell env over the record's model; source "env VAR", "pin" or "default".
+func effectiveModel(agent string) (model, source string) {
+	if m, v := EnvModel(context.Background(), agent); m != "" {
+		return m, "env " + v
+	}
+	return pinned(AgentRecord(agent).Model)
+}
+
+// CodexModel resolves the model a codex launch uses (shell env, then the record); "" leaves codex's own default.
+func CodexModel() (model, source string) { return effectiveModel("codex") }
 
 // CodexEffort resolves the codex record's effort: it if set, else "" — codex's own default effort.
 func CodexEffort() (effort, source string) {
 	return pinned(AgentRecord("codex").Effort)
 }
 
-// GeminiModel resolves the gemini record's model: it if set, else "" — agy's own default (AgyDefaultModel) decides.
-func GeminiModel() (model, source string) {
-	return pinned(AgentRecord("gemini").Model)
-}
+// GeminiModel resolves the model a gemini launch uses (shell env, then the record); "" leaves agy's own default.
+func GeminiModel() (model, source string) { return effectiveModel("gemini") }
 
 // pinned is a record field and its source: "pin" when set, else "" and "default".
 func pinned(v string) (value, source string) {

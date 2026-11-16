@@ -22,6 +22,7 @@ func init() {
 	agent.RegisterRowForTest(agent.Schema{Name: "codex", CLI: agent.CLI{Binary: "codex"}})
 	agent.RegisterRowForTest(agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode", OwnLoginProfile: "zen-free"}})
 	agent.RegisterRowForTest(agent.Schema{Name: "copilot", CLI: agent.CLI{Binary: "copilot"}})
+	agent.RegisterRowForTest(agent.Schema{Name: "gemini", CLI: agent.CLI{Binary: "gemini", OwnLoginProfile: "antigravity"}})
 }
 
 // hermeticVault gives the test its own empty vault and no session profile, so no pin from another test leaks in.
@@ -50,8 +51,8 @@ func pinAll(t *testing.T) {
 func TestCheckSkipsAgentsWithoutProfile(t *testing.T) {
 	hermeticVault(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if got := Check(context.Background(), reg, now); len(got) != 1 || got[0].Agent != "gemini" || got[0].Status != StatusOK {
-		t.Fatalf("with no profile every external agent but gemini (Google pin) is off, got %+v", got)
+	if got := Check(context.Background(), reg, now); len(got) != 0 {
+		t.Fatalf("with no profile every external agent is off, got %+v", got)
 	}
 	if line := StaticLine(reg, Check(context.Background(), reg, now)); line != "" {
 		t.Fatalf("static line %q, want none while no Databricks profile is in play", line)
@@ -72,17 +73,17 @@ func TestCheckReadsTheRunSnapshot(t *testing.T) {
 	}
 }
 
-// An agent on its own sign-in (codex on chatgpt, opencode on zen-free) is checked but unpinned: no Databricks pin.
-func TestCheckOwnLoginIsUnpinned(t *testing.T) {
+// An agent on its own sign-in (codex on chatgpt, opencode on zen-free) is pinned: ok, named by its record profile.
+func TestCheckOwnLoginIsPinned(t *testing.T) {
 	hermeticVault(t)
-	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": "zen-free"})
+	setPins(t, map[string]string{"CODEX_PROFILE": "chatgpt", "OPENCODE_PROFILE": "zen-free", "GEMINI_PROFILE": "antigravity"})
 	got := byAgent(Check(context.Background(), preflightRegistry(true), time.Now()))
 	if len(got) != 3 {
 		t.Fatalf("want codex, opencode and gemini checked, copilot off: %+v", got)
 	}
-	for _, name := range []string{"codex", "opencode"} {
-		if p := got[name]; p.Status != statusUnpinned || p.ProfileSource != "none" || p.Profile != "" || p.Detail != "own login, not Databricks" {
-			t.Errorf("%s on its own login = %+v, want unpinned with no profile", name, p)
+	for name, profile := range map[string]string{"codex": "chatgpt", "opencode": "zen-free", "gemini": "antigravity"} {
+		if p := got[name]; p.Status != StatusOK || p.ProfileSource != "own login" || p.Profile != profile {
+			t.Errorf("%s on its own login = %+v, want ok on %s", name, p, profile)
 		}
 	}
 }

@@ -234,6 +234,7 @@ func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
 // A pin on a CLI-login profile (gemini's Google login) counts as a credential, so the bare install step still pongs.
 func TestInstallStepPongsCLILoginPin(t *testing.T) {
 	hermeticVault(t)
+	setPins(t, map[string]string{"GEMINI_PROFILE": "antigravity"})
 	var asked []string
 	runAsk = func(_ context.Context, _, a, _ string) (wire.Envelope, error) {
 		asked = append(asked, a)

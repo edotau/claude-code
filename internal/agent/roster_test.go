@@ -359,14 +359,6 @@ func TestAgentPinsRejectVaultIOError(t *testing.T) {
 	}
 }
 
-// Ties agentModelEnv to the four external agents' model knobs; claude has none.
-func TestAgentModelEnvPinsTheExternalAgents(t *testing.T) {
-	want := map[string]string{"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL"}
-	if !reflect.DeepEqual(agentModelEnv, want) {
-		t.Errorf("agentModelEnv = %v, want %v", agentModelEnv, want)
-	}
-}
-
 const (
 	sessProfile       = "profile-r7"
 	sessGithubProfile = "profile-k3"

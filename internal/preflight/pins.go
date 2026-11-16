@@ -19,7 +19,7 @@ import (
 // Status values of a Pin.
 const (
 	StatusOK       = "ok"
-	statusUnpinned = "unpinned" // no profile resolves: the agent runs on its own login
+	statusUnpinned = "unpinned" // no profile resolves at all
 	statusStale    = "stale"    // the pin names a missing profile, or the cached listing is past its TTL
 	statusUnserved = "unserved" // the workspace does not serve the model (or the profile has no credential)
 	StatusError    = "error"    // the vault could not be read; no pins were resolved
@@ -29,7 +29,7 @@ const (
 type Pin struct {
 	Agent         string
 	Profile       string
-	ProfileSource string // pin | follows CLAUDE_PROFILE | none
+	ProfileSource string // pin | own login | none
 	Model         string
 	Served        string // yes | no | unknown | n/a
 	Status        string
@@ -57,6 +57,10 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	if err != nil {
 		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
 	}
+	recs, err := vault.ReadAgentRecords(router.TableAgents)
+	if err != nil {
+		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
+	}
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed
@@ -67,8 +71,12 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		out = append(out, row)
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
-		if a != "claude" && !pins[a].Off {
-			out = append(out, checkAgent(reg, a, pins[a], session, now))
+		switch spec := pins[a]; {
+		case a == "claude" || spec.Off:
+		case spec.Profile == "" && recs[a].Profile != "": // AgentPins clears an own-login record profile
+			out = append(out, Pin{Agent: a, Profile: recs[a].Profile, ProfileSource: "own login", Model: spec.Model, Served: "n/a", Status: StatusOK})
+		default:
+			out = append(out, checkAgent(reg, a, spec, session, now))
 		}
 	}
 	return out
@@ -106,15 +114,9 @@ func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, e
 
 func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {
 	p := Pin{Agent: name, Profile: spec.Profile, ProfileSource: "pin", Model: spec.Model, Served: "n/a"}
-	if p.Profile == "" && name == "codex" {
-		p.Profile, p.ProfileSource = session, "follows CLAUDE_PROFILE"
-	}
-	if p.Profile == "" && name == "gemini" { // gemini's pin is its own Google login, cleared by AgentPins
-		p.Profile = "antigravity"
-	}
 	if p.Profile == "" {
 		p.ProfileSource, p.Status = "none", statusUnpinned
-		p.Detail = "own login, not Databricks"
+		p.Detail = "no profile pinned"
 		p.Fix = fmt.Sprintf("claude-code %s profile %s", name, cmp.Or(session, "<profile>"))
 		return p
 	}

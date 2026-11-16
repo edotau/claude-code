@@ -13,7 +13,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -348,22 +347,13 @@ type ModelAsk struct {
 	Applied bool
 }
 
-// agentModelEnv is each CLI agent's own model knob; claude's ANTHROPIC_MODEL is handled in Claude().
-var agentModelEnv = func() map[string]string {
-	m := map[string]string{}
-	for _, a := range agentid.External() {
-		m[a] = strings.ToUpper(a) + "_MODEL"
-	}
-	return m
-}()
-
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
 func AgentModelPin(agent string) string {
 	return agentModelPinContext(context.Background(), agent)
 }
 
 func agentModelPinContext(ctx context.Context, agent string) string {
-	if v := strings.TrimSpace(proc.Value(ctx, agentModelEnv[agent])); v != "" && agentModelEnv[agent] != "" {
+	if v, _ := providers.EnvModel(ctx, agent); v != "" {
 		return v
 	}
 	return vault.GetAgentRecord(agent).Model
