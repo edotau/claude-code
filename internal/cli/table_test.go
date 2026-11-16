@@ -88,7 +88,7 @@ func TestCompletionExact(t *testing.T) {
 	}{
 		{"prefix filter", []string{"me"}, []string{"memory"}},
 		{"vault subcommand", []string{"vault", "s"}, []string{"set"}},
-		{"memory subcommand", []string{"memory", "rev"}, []string{"review", "revise"}},
+		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
 		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
@@ -420,7 +420,6 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		{"models --pin", []string{"models", "--pin", ""}},
 		{"configure", []string{"configure", ""}},
 		{"network tailscale --exit-node", []string{"network", "tailscale", "--exit-node", ""}},
-		{"memory alias", []string{"memory", "alias", ""}},
 		{"ask --agent=", []string{"agents", "ask", "--agent="}},
 	} {
 		if got := candidates(tc.words...); len(got) == 0 {
@@ -478,7 +477,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox", "migrate"},
+			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},

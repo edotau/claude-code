@@ -4,6 +4,8 @@ What Go cannot generate is the narrative: what actually happened this session, i
 account. The bank is injected every session, so keep it to what is wrong-and-dangerous to forget;
 don't fatten it with facts a lookup can serve.
 
+File names below are bare; edit the exact paths the prompt lists (`<key>--<name>`, unprefixed for home).
+
 ## Step 1: Session summary → `sessionHistory.md`
 
 Add a newest-first entry AT THE TOP (below the header/contract block):

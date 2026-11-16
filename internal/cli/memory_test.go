@@ -422,7 +422,7 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 		}
 	}
 	subs := memorySubcommands()
-	for _, v := range []string{"search", "show", "index", "path", "digest", "fmt", "watch", "timeline", "alias"} {
+	for _, v := range []string{"search", "show", "index", "path", "fmt", "watch"} {
 		if helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage lists private verb %q as if public", v)
 		}
@@ -481,91 +481,8 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	}
 }
 
-// aliasFixture: isolated config with a cut-over store and two checkouts, each with its own store.
-func aliasFixture(t *testing.T) (a, b, ka, kb string) {
-	t.Helper()
-	for _, k := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"} {
-		t.Setenv(k, "")
-		os.Unsetenv(k)
-	}
-	cfg, _ := filepath.EvalSymlinks(memCfg(t))
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	home, _ := filepath.EvalSymlinks(t.TempDir())
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	hosttest.WriteRel(t, cfg, "state/harness/migrate/20260101-000000.journal.json", `{"phase":"complete","manifest":"/m/done.json"}`)
-	memMust(t, memory.StoreRepo().Ensure())
-	parent, _ := filepath.EvalSymlinks(t.TempDir())
-	a, b = hosttest.RepoAt(t, filepath.Join(parent, "alpha")), hosttest.RepoAt(t, filepath.Join(parent, "beta"))
-	da, err := memory.EnsureRepoDir(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := memory.EnsureRepoDir(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hosttest.WriteRel(t, db, "topic.md", "t\n")
-	return a, b, filepath.Base(da), filepath.Base(db)
-}
-
-func TestMemoryAliasUsageErrors(t *testing.T) {
-	a, _, ka, _ := aliasFixture(t)
-	for name, args := range map[string][]string{
-		"no flags":    {},
-		"no into":     {"--repo", a},
-		"no repo":     {"--into", ka},
-		"extra arg":   {"--repo", a, "--into", ka, "stray"},
-		"unknown key": {"--repo", a, "--into", "nope"},
-		"self":        {"--repo", a, "--into", ka},
-		"bad flag":    {"--bogus"},
-	} {
-		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryAlias(args) }); code == 0 {
-			t.Errorf("%s: exit 0, want non-zero", name)
-		}
-	}
-	if code, _, _ := memCLI(t, "alias"); code == 0 {
-		t.Errorf("Run alias without flags exited 0")
-	}
-}
-
-func TestMemoryAliasDryRunThenApply(t *testing.T) {
-	_, b, ka, kb := aliasFixture(t)
-	db, _ := memory.RepoDir(b)
-	alias := func(extra ...string) (int, string) {
-		code, out, _ := hosttest.CaptureOutput(t, func() int {
-			return cmdMemoryAlias(append([]string{"--repo", b, "--into", ka}, extra...))
-		})
-		return code, out
-	}
-
-	code, out := alias("--dry-run")
-	if code != 0 || !strings.Contains(out, "dry run") || !strings.Contains(out, kb) {
-		t.Fatalf("dry run: code=%d out=%q", code, out)
-	}
-	if _, err := os.Stat(db); err != nil {
-		t.Fatalf("dry run removed the source store: %v", err)
-	}
-	code, out = alias()
-	if code != 0 || !strings.HasPrefix(out, "applied:") {
-		t.Fatalf("apply: code=%d out=%q", code, out)
-	}
-	if _, err := os.Stat(db); !os.IsNotExist(err) {
-		t.Errorf("source store survived apply: %v", err)
-	}
-	if got, _ := memory.RepoDir(b); filepath.Base(got) != ka {
-		t.Errorf("RepoDir(beta) = %s, want key %s", got, ka)
-	}
-	if code, _ = alias(); code == 0 {
-		t.Errorf("repeat apply exited 0, want non-zero")
-	}
-}
-
 func TestMemoryCompletion(t *testing.T) {
 	engine := memEngine()
-	if got := engine.Candidates([]string{"memory", "al"}); !slices.Equal(got, []string{"alias"}) {
-		t.Errorf("memory al* = %v, want [alias]", got)
-	}
 	cases := []struct {
 		name  string
 		words []string
@@ -574,10 +491,10 @@ func TestMemoryCompletion(t *testing.T) {
 		{"review flags", []string{"memory", "review", "--"}, []string{"--candidates"}},
 		{"update flags", []string{"memory", "update", "--"}, []string{"--dry-run", "--historical"}},
 		{"dream flags", []string{"memory", "dream", "--"}, []string{"--dry-run"}},
-		{"catchup flags", []string{"memory", "catchup", "--"}, []string{"--dry-run", "--skip"}},
+		{"update catchup flags", []string{"memory", "update", "--"}, []string{"--catchup", "--skip"}},
+		{"review timeline flags", []string{"memory", "review", "--"}, []string{"--timeline", "--n"}},
 		{"index flags", []string{"memory", "index", "--"}, []string{"--reembed", "--mint-only"}},
 		{"recall flags", []string{"memory", "recall", "--"}, []string{"--explain"}},
-		{"alias flags", []string{"memory", "alias", "--"}, []string{"--repo", "--into", "--dry-run"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -613,17 +530,6 @@ func TestMemoryShowFailReturnValue(t *testing.T) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryShow([]string{}) })
 	if code != 2 {
 		t.Errorf("memory show (no args) exit %d, want 2; stderr=%q", code, stderr)
-	}
-}
-
-// The install hint from claude.ClaudeBinary must reach the user.
-func TestMemoryDigestReportsMissingClaudeBinary(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "cfg"))
-	code, _, stderr := memCLI(t, "digest", "--repo", t.TempDir())
-	if code != 1 || !strings.Contains(stderr, "install --tools=claude") {
-		t.Errorf("memory digest without claude: code=%d stderr=%q, want 1 with the install hint", code, stderr)
 	}
 }
 
@@ -838,7 +744,7 @@ func TestMemoryNoArgVerbsRejectStray(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Chdir(hosttest.Repo(t))
 	before := treeNames(t, cfg)
-	for _, sub := range []string{"index", "digest", "review", "path", "init", "timeline", "watch", "catchup"} {
+	for _, sub := range []string{"index", "review", "path", "init", "watch"} {
 		code, out, stderr := memCLI(t, sub, "bogus")
 		if want := `memory ` + sub + `: unexpected argument "bogus"`; code != 2 || !strings.Contains(stderr, want) {
 			t.Errorf("memory %s bogus: code=%d stdout=%q stderr=%q, want exit 2 with %q", sub, code, out, stderr, want)
@@ -850,7 +756,7 @@ func TestMemoryNoArgVerbsRejectStray(t *testing.T) {
 }
 
 // --repo <store name> targets that store from another checkout's cwd.
-func TestMemoryIndexDigestRepoAcceptsStoreName(t *testing.T) {
+func TestMemoryIndexRepoAcceptsStoreName(t *testing.T) {
 	memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	memFakeClaude(t)
@@ -868,14 +774,10 @@ func TestMemoryIndexDigestRepoAcceptsStoreName(t *testing.T) {
 	if !strings.Contains(out, "indexed "+dirA) {
 		t.Errorf("memory index --repo %s: stdout=%q stderr=%q, want it to index %s", name, out, stderr, dirA)
 	}
-	_, _, stderr = memCLI(t, "digest", "--repo", name)
-	if !strings.Contains(stderr, filepath.Join(dirA, "archive")) {
-		t.Errorf("memory digest --repo %s: stderr=%q, want it to read %s", name, stderr, dirA)
-	}
 }
 
 // A --repo that is no path and no store fails and writes nothing.
-func TestMemoryIndexDigestUnknownRepoNamesKnownStores(t *testing.T) {
+func TestMemoryIndexUnknownRepoNamesKnownStores(t *testing.T) {
 	cfg := memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	memFakeClaude(t)
@@ -885,7 +787,7 @@ func TestMemoryIndexDigestUnknownRepoNamesKnownStores(t *testing.T) {
 	}
 	t.Chdir(repo)
 	before := treeNames(t, cfg)
-	for _, sub := range []string{"index", "digest"} {
+	for _, sub := range []string{"index"} {
 		code, _, stderr := memCLI(t, sub, "--repo", "nosuch")
 		if code != 1 || !strings.Contains(stderr, `"nosuch"`) || !strings.Contains(stderr, filepath.Base(repo)) {
 			t.Errorf("memory %s --repo nosuch: code=%d stderr=%q, want exit 1 naming the known store %s", sub, code, stderr, filepath.Base(repo))
@@ -913,18 +815,18 @@ func TestMemoryReviewRepoStoreName(t *testing.T) {
 	}
 }
 
-func TestMemoryTimelineRepoStoreName(t *testing.T) {
+func TestMemoryReviewTimelineRepoStoreName(t *testing.T) {
 	cfg := memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n\n## %s session\n")
 	t.Chdir(b)
 	name := filepath.Base(memory.BankFor(a).SubDir(""))
-	code, out, stderr := memCLI(t, "timeline", "--repo", name)
+	code, out, stderr := memCLI(t, "review", "--timeline", "--repo", name)
 	want := "-- sessionHistory --\n- " + filepath.Base(a) + " session\n"
 	if code != 0 || out != want || stderr != "" {
-		t.Fatalf("memory timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
+		t.Fatalf("memory review --timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
-	checkMemoryUnknownRepo(t, cfg, []string{"timeline", "--repo", "nosuch"}, name, filepath.Base(memory.BankFor(b).SubDir("")))
+	checkMemoryUnknownRepo(t, cfg, []string{"review", "--timeline", "--repo", "nosuch"}, name, filepath.Base(memory.BankFor(b).SubDir("")))
 }
 
 func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores ...string) {
@@ -1023,9 +925,8 @@ func TestMemoryFlatKeyVerbs(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"review", "--repo", "alpha"}, {"review", "--repo", "alpha", "--notice"},
-		{"timeline", "--repo", "alpha"}, {"init", "--repo", "alpha"},
+		{"review", "--timeline", "--repo", "alpha"}, {"init", "--repo", "alpha"},
 		{"index", "--repo", "alpha"}, {"remember", "--repo", "alpha", "quasar durable fact"},
-		{"revise", "--repo", "alpha", "11111111", "--with", "22222222", "--dry-run"},
 		{"promote", "--repo", "alpha", "11111111", "--to", "home", "--dry-run"},
 		{"recall", "--repo", "alpha", "--explain", "quasar routing uses durable evidence"},
 	} {
@@ -1075,5 +976,18 @@ func TestMemoryFlatImportHost(t *testing.T) {
 	memMust(t, err)
 	if !strings.Contains(string(data), "alpha--topic.md") {
 		t.Fatal(string(data))
+	}
+}
+
+func TestMemoryUpdateCatchupDryRunWritesNothing(t *testing.T) {
+	cfg := memCfg(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Chdir(hosttest.Repo(t))
+	before := treeNames(t, cfg)
+	if code, out, stderr := memCLI(t, "update", "--catchup", "--dry-run"); code != 0 {
+		t.Fatalf("update --catchup --dry-run: code=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	if after := treeNames(t, cfg); !slices.Equal(before, after) {
+		t.Errorf("catchup dry-run wrote files: before=%v after=%v", before, after)
 	}
 }

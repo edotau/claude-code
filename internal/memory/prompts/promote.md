@@ -20,9 +20,9 @@ instead and note that the dream gate will consider it later. `promote` also neve
 
 ## `--to home`: durable + cross-project
 
-1. **Resolve the store** — `claude-code memory path` for this repo's dir; the home dir is
-   `memory/home/` (`claude-code memory path` from any non-repo cwd). Never hardcode either.
-2. **Read the local dir** — `conventions.md` and `decisionLog.md` are the two append-only files
+1. **Resolve the store** — `claude-code memory path` prints the store root; this repo's files are `<key>--<name>`
+   there and the home tier is the unprefixed files. Never hardcode either.
+2. **Read the local files** — `<key>--conventions.md` and `<key>--decisionLog.md` are the two append-only files
    that accumulate durable lessons; `activeContext.md`/`progress.md`/`sessionHistory.md` are
    session state and never promote.
 3. **Judge each candidate entry** — promote ONLY if it is:
@@ -41,7 +41,7 @@ doctrine (a provider quirk, a router behavior, a hook contract) rather than this
 ### Step 1: Find the entry
 
 ```bash
-grep -rni "<keywords>" ~/.claude/memory/*/   # one store dir per repo
+grep -ni "<keywords>" "$(claude-code memory path)"/*.md   # one flat store; <key>-- prefix = repo
 ```
 
 Show the matching topic file(s) + `MEMORY.md` index line and confirm this is the entry to
@@ -58,15 +58,15 @@ a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 | Code behavior mistake | `rules/software/<lang>/patterns.md` or `rules/standards/quality.md` | Language patterns, or general code quality |
 | Missing convention | `rules/software/<lang>/coding-style.md` or `rules/standards/quality.md` | Language-specific conventions, or general code quality |
 | Security pattern | `rules/software/<lang>/security.md` or `rules/standards/security.md` | Mandatory checks |
-| Architecture insight | `~/.claude/memory/<repo>/decisionLog.md` | Dated entry, newest first |
+| Architecture insight | `~/.claude/memory/<key>--decisionLog.md` | Dated entry, newest first |
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
 | Git/commit/worktree pattern | `rules/standards/worktree-git.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/principles.md` | Markdown/living-docs, or response style |
 | Model-selection insight | `rules/harness/providers.md` | Model selection |
-| Session-learned fact | `~/.claude/memory/<repo>/` (topic file + `MEMORY.md` TOC entry; dir from `claude-code memory path`) | Appropriate topic |
-| Project state change | `~/.claude/memory/<repo>/activeContext.md` | "Current Focus" / "Next Steps" |
-| Completed work | `~/.claude/memory/<repo>/progress.md` | "What Works" / "What's Next" |
+| Session-learned fact | `~/.claude/memory/<key>--<topic>.md` (+ `MEMORY.md` TOC entry; root from `claude-code memory path`) | Appropriate topic |
+| Project state change | `~/.claude/memory/<key>--activeContext.md` | "Current Focus" / "Next Steps" |
+| Completed work | `~/.claude/memory/<key>--progress.md` | "What Works" / "What's Next" |
 
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
@@ -104,7 +104,7 @@ Use when a learning is reusable how-to knowledge rather than a one-line rule.
 ### Step 1: Identify the pattern
 
 ```bash
-grep -rni "<keywords>" ~/.claude/memory/*/   # one store dir per repo
+grep -ni "<keywords>" "$(claude-code memory path)"/*.md   # one flat store; <key>-- prefix = repo
 ```
 
 Use the matching topic file(s) as source material if found; otherwise use the user's description

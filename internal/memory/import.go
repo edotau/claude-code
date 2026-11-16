@@ -11,9 +11,20 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
+)
+
+// appendOnly files merge by block; replaceFiles keep the target and archive the source verbatim.
+var (
+	appendOnly   = map[string]bool{"decisionLog.md": true, "conventions.md": true, "sessionHistory.md": true}
+	replaceFiles = map[string]bool{"activeContext.md": true, "progress.md": true, "projectContext.md": true}
+	headingDate  = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
 )
 
 // importMaxFile caps one imported file; importMaxTotal caps a fetched archive.
@@ -550,4 +561,107 @@ func writeTarFile(root *os.Root, name string, r io.Reader) error {
 		return errors.Join(err, f.Close())
 	}
 	return f.Close()
+}
+
+func storeRel(dir, name string) string {
+	r, _ := filepath.Rel(StoreDir(), filepath.Join(dir, name))
+	return r
+}
+
+// foldSkips reports the generated index and lock files, which do not travel.
+func foldSkips(rel string) bool {
+	return rel == catalogFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
+}
+
+// linesMissingFrom lists src's non-blank lines whose trimmed text tgt lacks, each once.
+func linesMissingFrom(tgt, src string) []string {
+	seen := map[string]bool{}
+	for l := range strings.SplitSeq(tgt, "\n") {
+		seen[strings.TrimSpace(l)] = true
+	}
+	var add []string
+	for l := range strings.SplitSeq(src, "\n") {
+		if t := strings.TrimSpace(l); t != "" && !seen[t] {
+			seen[t] = true
+			add = append(add, l)
+		}
+	}
+	return add
+}
+
+// mergeNativeIndex appends the source's pointer lines (outside the generated region) the target lacks.
+func mergeNativeIndex(tgt, src string) (string, int, error) {
+	if _, _, err := scanBankRegion(tgt); err != nil {
+		return "", 0, err
+	}
+	s, e, err := scanBankRegion(src)
+	if err != nil {
+		return "", 0, err
+	}
+	if s >= 0 {
+		src = src[:s] + src[e:]
+	}
+	add := linesMissingFrom(tgt, src)
+	if len(add) == 0 {
+		return tgt, 0, nil
+	}
+	if tgt != "" && !strings.HasSuffix(tgt, "\n") {
+		tgt += "\n"
+	}
+	return tgt + strings.Join(add, "\n") + "\n", len(add), nil
+}
+
+// mergeLog adds the source blocks missing from the target (by id, else text); dated logs stay newest-first.
+func mergeLog(name, tgt, src string) (string, int) {
+	hdr, blocks := entryBlocks(name, tgt)
+	_, sblocks := entryBlocks(name, src)
+	add := blocksMissingFrom(blocks, sblocks)
+	if len(add) == 0 {
+		return tgt, 0
+	}
+	if name == "conventions.md" {
+		return strings.TrimRight(tgt, "\n") + "\n" + strings.Join(add, "\n") + "\n", len(add)
+	}
+	return rejoin(hdr, sortNewestFirst(append(slices.Clone(blocks), add...))), len(add)
+}
+
+// blocksMissingFrom lists sblocks whose persisted id and trimmed text are both absent from blocks.
+func blocksMissingFrom(blocks, sblocks []string) []string {
+	ids, texts := map[string]bool{}, map[string]bool{}
+	for _, b := range blocks {
+		ids[blockID(textutil.FirstLine(b))] = true
+		texts[strings.TrimSpace(stripID(b))] = true
+	}
+	var add []string
+	for _, b := range sblocks {
+		id, t := blockID(textutil.FirstLine(b)), strings.TrimSpace(stripID(b))
+		if (id != "" && ids[id]) || texts[t] {
+			continue
+		}
+		ids[id], texts[t] = true, true
+		add = append(add, b)
+	}
+	return add
+}
+
+// sortNewestFirst stably orders dated blocks newest first; an undated block inherits the date above it.
+func sortNewestFirst(all []string) []string {
+	last := "9999-99-99"
+	dates := make([]string, len(all))
+	for i, b := range all {
+		if m := headingDate.FindStringSubmatch(b); m != nil {
+			last = m[1]
+		}
+		dates[i] = last
+	}
+	idx := make([]int, len(all))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return dates[idx[a]] > dates[idx[b]] })
+	sorted := make([]string, len(all))
+	for i, j := range idx {
+		sorted[i] = all[j]
+	}
+	return sorted
 }

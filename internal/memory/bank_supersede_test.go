@@ -2,15 +2,11 @@ package memory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 const reviseLog = `# Decision Log
@@ -87,52 +83,6 @@ func blockOf(t *testing.T, log, id string) string {
 	return ""
 }
 
-// TestReviseEntry: dry-run writes nothing; a real run links both entries in one commit; a repeat is a no-op.
-func TestReviseEntry(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	path := Dir(root) + "/decisionLog.md"
-	plain := strings.ReplaceAll(reviseLog, "Supersedes a0000001. ", "")
-	write(t, path, plain)
-	if _, err := ReviseEntry(root, "a0000001", "b0000002", true); err != nil || mustRead(t, path) != plain {
-		t.Fatalf("dry run wrote or failed: %v", err)
-	}
-	if _, err := ReviseEntry(root, "a0000001", "b0000002", false); err != nil {
-		t.Fatal(err)
-	}
-	got := mustRead(t, path)
-	if replacedBy(blockOf(t, got, "a0000001")) != "b0000002" || !strings.Contains(blockOf(t, got, "b0000002"), "Supersedes a0000001.") {
-		t.Fatalf("entries not linked:\n%s", got)
-	}
-	assertSubjectNames(t, "a0000001", "b0000002")
-	if out, err := ReviseEntry(root, "a0000001", "b0000002", false); err != nil || !strings.Contains(out, "nothing to do") {
-		t.Errorf("repeat = %q, %v; want nothing to do", out, err)
-	}
-}
-
-// assertSubjectNames fails unless the store's last commit subject names every id.
-func assertSubjectNames(t *testing.T, ids ...string) {
-	t.Helper()
-	subject := hosttest.In(t, StoreDir(), "log", "-1", "--format=%s")
-	for _, id := range ids {
-		if !strings.Contains(subject, id) {
-			t.Errorf("commit subject %q must name %s", subject, id)
-		}
-	}
-}
-
-// TestReviseEntryRefusesBadIds: an unknown id, the same id twice and a cycle are input errors naming the id.
-func TestReviseEntryRefusesBadIds(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	write(t, Dir(root)+"/decisionLog.md", reviseLog)
-	for _, c := range [][2]string{{"a0000001", "a0000001"}, {"ffffffff", "b0000002"}, {"d0000004", "e0000005"}} {
-		if _, err := ReviseEntry(root, c[0], c[1], false); !errors.Is(err, ErrReviseInput) {
-			t.Errorf("revise %v err = %v; want ErrReviseInput", c, err)
-		}
-	}
-}
-
 const partlyStruckLog = `# Decision Log
 
 ## 2026-11-13 — Count blocked results; ~~embeddings stay off~~ (see 5c07d1a8) <!-- id:9d40e6c1 -->
@@ -143,7 +93,7 @@ Dream stamps a retry when blocked and nothing edited.
 Supersedes 9d40e6c1. Embeddings are on.
 `
 
-// TestPartlyStruckTitleStaysLive: a partly struck title loses its pointer at settle, stays in recall, revise refuses.
+// TestPartlyStruckTitleStaysLive: a partly struck title loses its pointer at settle and stays in recall.
 func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
@@ -158,10 +108,6 @@ func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	picks, _ := recallPicks(context.Background(), root, "", "dream stamps retry blocked nothing edited", false, false)
 	if len(picks) != 1 || picks[0].Entry.ID != "9d40e6c1" {
 		t.Fatalf("recall = %+v; want the partly struck entry 9d40e6c1", picks)
-	}
-	_, err := ReviseEntry(root, "9d40e6c1", "5c07d1a8", false)
-	if !errors.Is(err, ErrReviseInput) || !strings.Contains(err.Error(), "split") {
-		t.Fatalf("revise err = %v; want an ErrReviseInput telling the user to split the entry", err)
 	}
 }
 
@@ -214,74 +160,36 @@ func TestReviseBlockPosition(t *testing.T) {
 	}
 }
 
-func TestReviseLockAndRecovery(t *testing.T) {
-	for _, mode := range []string{"store lock", "home lock", "revise recovery", "settle recovery"} {
-		t.Run(mode, func(t *testing.T) {
-			tempConfig(t)
-			root := repoRoot(t, "proj")
-			path := Dir(root) + "/decisionLog.md"
-			write(t, path, reviseLog)
-			if strings.HasSuffix(mode, "lock") {
-				assertReviseWorkerLock(t, root, mode)
-				return
-			}
-			recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
-			rel, err := filepath.Rel(StoreDir(), path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			j, err := newJournal(StoreRepo(), "pending fixture", []Change{{Rel: filepath.ToSlash(rel), Data: []byte(recovered)}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := j.save(); err != nil {
-				t.Fatal(err)
-			}
-			if mode == "revise recovery" {
-				_, err = ReviseEntry(root, "a0000001", "b0000002", false)
-			} else {
-				_, err = settleBank(root, time.Now())
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(mustRead(t, path), "Recovered journal payload.") {
-				t.Fatal("pending journal payload lost")
-			}
-		})
+func TestSettleRecoversPendingJournal(t *testing.T) {
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	path := Dir(root) + "/decisionLog.md"
+	write(t, path, reviseLog)
+	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
+	rel, err := filepath.Rel(StoreDir(), path)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func assertReviseWorkerLock(t *testing.T, root, mode string) {
-	t.Helper()
-	old := updateLockWait
-	updateLockWait = 0
-	t.Cleanup(func() { updateLockWait = old })
-	b := BankFor(root)
-	if mode == "home lock" {
-		b = HomeBank()
+	j, err := newJournal(StoreRepo(), "pending fixture", []Change{{Rel: filepath.ToSlash(rel), Data: []byte(recovered)}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	ran, err := paths.TryFileLock(lockPathOf(b)+".lock", 0, func() error {
-		_, err := ReviseEntry(root, "a0000001", "b0000002", true)
-		if err == nil || !strings.Contains(err.Error(), "busy") {
-			t.Errorf("revise under worker lock = %v; want busy", err)
-		}
-		return nil
-	})
-	if !ran || err != nil {
-		t.Fatalf("fixture lock = %v, %v", ran, err)
+	if err := j.save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = settleBank(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mustRead(t, path), "Recovered journal payload.") {
+		t.Fatal("pending journal payload lost")
 	}
 }
 
 func TestReviseRecallBoundaries(t *testing.T) {
-	for _, mode := range []string{"missing", "eight hops", "nine hops", "home to local", "routed", "all"} {
+	for _, mode := range []string{"missing", "eight hops", "nine hops", "routed", "all"} {
 		t.Run(mode, func(t *testing.T) {
 			tempConfig(t)
 			root := repoRoot(t, "proja")
-			if mode == "home to local" {
-				assertReviseHomeVisibility(t, root)
-				return
-			}
 			if mode == "routed" || mode == "all" {
 				assertReviseCorpus(t, root, mode)
 				return
@@ -302,15 +210,6 @@ func assertReviseCorpus(t *testing.T, root, mode string) {
 	}
 	if len(hits) != 1 || hits[0].ID != "bbbbbbbb" {
 		t.Fatalf("recall = %+v, want bbbbbbbb", hits)
-	}
-}
-
-func assertReviseHomeVisibility(t *testing.T, root string) {
-	t.Helper()
-	write(t, HomeBankDir()+"/decisionLog.md", "# Log\n\n## Old <!-- id:aaaaaaaa -->\nOld policy.\n")
-	write(t, Dir(root)+"/decisionLog.md", "# Log\n\n## New <!-- id:bbbbbbbb -->\nNew policy.\n")
-	if _, err := ReviseEntry(root, "aaaaaaaa", "bbbbbbbb", true); !errors.Is(err, ErrReviseInput) {
-		t.Fatalf("home to local = %v", err)
 	}
 }
 
