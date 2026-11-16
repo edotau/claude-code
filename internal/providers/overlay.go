@@ -112,6 +112,10 @@ func flattenTop(top map[string]json.RawMessage) (map[string]json.RawMessage, map
 	if err != nil {
 		return nil, nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
 	}
+	renames, err := renameOverlayRows(rows)
+	if err != nil {
+		return nil, nil, fmt.Errorf("vault overlay/providers: %w", err)
+	}
 	view := map[string]json.RawMessage{}
 	owner := map[string]string{}
 	for n, r := range rows {
@@ -123,7 +127,7 @@ func flattenTop(top map[string]json.RawMessage) (map[string]json.RawMessage, map
 		view[n] = r.raw
 	}
 	if _, ok := top["providers"]; ok || len(view) > 0 {
-		order := orderedNames(profileOrder(top["providers"]), func(n string) bool { _, ok := view[n]; return ok }, view)
+		order := orderedNames(renameAll(profileOrder(top["providers"]), renames), func(n string) bool { _, ok := view[n]; return ok }, view)
 		b, err := MarshalOrdered(order, view)
 		if err != nil {
 			return nil, nil, err
@@ -131,6 +135,27 @@ func flattenTop(top map[string]json.RawMessage) (map[string]json.RawMessage, map
 		flat["providers"] = b
 	}
 	return flat, owner, nil
+}
+
+func renameOverlayRows(rows map[string]rawRow) (map[string]string, error) {
+	logins := map[string]string{}
+	for n, r := range rows {
+		var f struct {
+			Login string `json:"login"`
+		}
+		if r.provider == "github" && r.raw != nil && json.Unmarshal(r.raw, &f) == nil && f.Login != "" {
+			logins[n] = f.Login
+		}
+	}
+	renames, err := loginRenames(logins, func(n string) bool { return rows[n].raw != nil })
+	if err != nil {
+		return nil, err
+	}
+	for old, name := range renames {
+		rows[name] = rows[old]
+		delete(rows, old)
+	}
+	return renames, nil
 }
 
 // renderNested re-nests flat's providers by provider (owner, else inferred), keeping order, then flat's own key order.
@@ -191,9 +216,9 @@ func inferProvider(name string, row json.RawMessage) string {
 	return providerLocal
 }
 
-// AddGithubAccount writes a github profile named after login: the built-in personal row with that login, minus opencodeID.
+// AddGithubAccount writes a github profile named after login: the built-in github row with that login, minus opencodeID.
 func AddGithubAccount(login string) error {
-	base, err := builtinEntry("personal")
+	base, err := builtinEntry(builtinGithubRow())
 	if err != nil {
 		return err
 	}
@@ -257,6 +282,15 @@ func SetProviderModel(name, alias, id string) error {
 		entry["models"] = raw
 		return nil
 	})
+}
+
+func builtinGithubRow() string {
+	for n, prov := range builtinProviders() {
+		if prov == "github" {
+			return n
+		}
+	}
+	return ""
 }
 
 // builtinEntry is defaults.json's raw entry for profile name (empty when there is none).

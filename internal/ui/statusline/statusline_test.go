@@ -473,7 +473,7 @@ func TestProviderLabelFamilyTable(t *testing.T) {
 		"acme":           "anthropic·acme",
 		"qa":             "databricks·qa",
 		"chatgpt":        "openai·chatgpt",
-		"personal":       "github·personal",
+		"copilot":        "github·copilot",
 		"antigravity":    "google·antigravity",
 		"openai":         "openai",
 		"corp-prod":      "corp-prod", // unknown row: unchanged

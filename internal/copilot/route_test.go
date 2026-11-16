@@ -77,7 +77,7 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 // A github-copilot pin (provider:model or --provider fallback) only warns when the live catalog is unreachable.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	hosttest.PinScratch(t)
-	for flag, pin := range map[string]string{"": "opus=personal:claude-opus-5.5", "personal": "opus=claude-opus-5.5"} {
+	for flag, pin := range map[string]string{"": "opus=copilot:claude-opus-5.5", "copilot": "opus=claude-opus-5.5"} {
 		warn, err := ValidateCopilotPins(t.Context(), flag, []string{pin})
 		if err != nil || !strings.Contains(warn, "could not verify") {
 			t.Errorf("ValidateCopilotPins(%q, %s) = %q, %v; want the unreachable-catalog warning", flag, pin, warn, err)
@@ -90,7 +90,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	hosttest.PinScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
-	warn, _ := ValidateCopilotPins(t.Context(), "", []string{"opus=personal:claude-opus-5.5"})
+	warn, _ := ValidateCopilotPins(t.Context(), "", []string{"opus=copilot:claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
 		t.Errorf("warn leaked a credential: %q", warn)
 	}
@@ -267,7 +267,7 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh := &providers.Provider{Name: "personal", Auth: providers.Auth{Login: "copilot"}}
+	gh := &providers.Provider{Name: "copilot", Auth: providers.Auth{Login: "copilot"}}
 	if got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh, Model: "databricks-kimi-k3"}, false, ""); err != nil ||
 		got.Provider == nil || got.Provider.Name != "dbx" {
 		t.Fatalf("served kimi: gate = %+v, %v; want the dbx fallback", got.Provider, err)
@@ -289,7 +289,7 @@ func TestArmCopilotGateRefusalIsError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gh := &providers.Provider{Name: "personal", Login: "free", Auth: providers.Auth{Login: "copilot"}}
+	gh := &providers.Provider{Name: "free", Login: "free", Auth: providers.Auth{Login: "copilot"}}
 	got, notice, err := copilotGate(t.Context(), reg, providers.Target{Provider: gh}, false, "")
 	if err == nil || got.Provider != nil || notice != "" || !strings.Contains(err.Error(), "inside databricks:dbx") {
 		t.Fatalf("armed gate = %+v, %q, %v; want an error naming databricks:dbx, no Databricks move",
@@ -304,9 +304,9 @@ func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
 	CopilotUsedPct = func(_ context.Context, login string) (float64, bool) { return 10, login == "biz" }
 	t.Cleanup(func() { CopilotUsedPct = orig })
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{`+
-		`"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"free","auth":{"type":"cli","login":"copilot"}},`+
-		`"business":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"biz","auth":{"type":"cli","login":"copilot"}}}}}`)
-	vaulttest.SetRecord(t, "copilot", "profile", "business")
+		`"free":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"free","auth":{"type":"cli","login":"copilot"}},`+
+		`"biz":{"protocol":"openai","base_url":"https://api.githubcopilot.com","login":"biz","auth":{"type":"cli","login":"copilot"}}}}}`)
+	vaulttest.SetRecord(t, "copilot", "profile", "biz")
 	hosts := "github.com:\n    users:\n        biz:\n            oauth_token: x\n    user: biz\n"
 	if err := os.WriteFile(filepath.Join(os.Getenv("GH_CONFIG_DIR"), "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
@@ -315,12 +315,12 @@ func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	typed := providers.Target{Provider: reg.Providers["personal"], Model: "claude-opus-5.5"}
+	typed := providers.Target{Provider: reg.Providers["free"], Model: "claude-opus-5.5"}
 	if _, _, err := copilotGate(t.Context(), reg, typed, true, "none"); err == nil || !strings.Contains(err.Error(), "named explicitly") {
 		t.Fatalf("none: err = %v, want a refusal naming the explicit account", err)
 	}
 	got, note, err := copilotGate(t.Context(), reg, typed, true, "pin")
-	if err != nil || got.Provider.Name != "business" || !strings.Contains(note, "personal") || !strings.Contains(note, "business") {
+	if err != nil || got.Provider.Name != "biz" || !strings.Contains(note, "free") || !strings.Contains(note, "biz") {
 		t.Fatalf("pin: got %+v note %q err %v, want the business pin and a note naming both", got.Provider, note, err)
 	}
 }

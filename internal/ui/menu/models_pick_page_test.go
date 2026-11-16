@@ -86,9 +86,9 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 		return []string{"claude-opus-5.5", "claude-sonnet-5"}
 	}
 
-	gp, ok := reg.Providers["personal"]
+	gp, ok := reg.Providers["copilot"]
 	if !ok {
-		t.Skip("no personal (github) profile in the registry")
+		t.Skip("no copilot (github) profile in the registry")
 	}
 	wantOpus, wantSonnet := gp.Models["opus"], gp.Models["sonnet"] // must survive untouched
 
@@ -347,8 +347,8 @@ func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 		{ID: "retired-model", Name: "Retired Model", Enabled: false},
 	}, nil)
 
-	if _, ok := reg.Providers["personal"]; !ok {
-		t.Skip("no personal (github) profile in the registry")
+	if _, ok := reg.Providers["copilot"]; !ok {
+		t.Skip("no copilot (github) profile in the registry")
 	}
 
 	in := strings.NewReader("\n") // blank = cancel; we only need the printed row list
@@ -376,9 +376,9 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	t.Cleanup(func() { modelChoices = origChoices })
 	modelChoices = func(p *providers.Provider, claude bool) []string { return []string{"claude-opus-5.5"} }
 
-	gp, ok := reg.Providers["personal"]
+	gp, ok := reg.Providers["copilot"]
 	if !ok {
-		t.Skip("no personal (github) profile in the registry")
+		t.Skip("no copilot (github) profile in the registry")
 	}
 	wantOpus := gp.Models["opus"] // must survive untouched: the pick writes only the COPILOT_MODEL pin
 

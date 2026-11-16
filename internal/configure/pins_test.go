@@ -21,11 +21,11 @@ func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := ApplyModelPins(reg, "personal", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
+	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
 		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "personal:claude-opus-5.5" {
-		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
+	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "copilot:claude-opus-5.5" {
+		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "copilot:claude-opus-5.5")
 	}
 }
 
@@ -36,8 +36,8 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vaulttest.SetRecord(t, "claude", "profile", "personal")
-	if code, handled := ApplyModelPins(reg, "personal", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
+	vaulttest.SetRecord(t, "claude", "profile", "copilot")
+	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
 		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
 	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "claude-opus-5.5" {
@@ -53,7 +53,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := providers.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
+	got := providers.QualifyPinSpec(reg, "copilot", "anthropic:claude-opus-5.5")
 	if got != "anthropic:claude-opus-5.5" {
 		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
 	}
@@ -67,11 +67,11 @@ func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := ApplyModelPins(reg, "personal", false, []string{"all=claude-opus-5.5"}, nil); handled || code != 0 {
+	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"all=claude-opus-5.5"}, nil); handled || code != 0 {
 		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Model; got != "personal:claude-opus-5.5" {
-		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "personal:claude-opus-5.5")
+	if got := providers.AgentRecord("claude").Model; got != "copilot:claude-opus-5.5" {
+		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "copilot:claude-opus-5.5")
 	}
 }
 

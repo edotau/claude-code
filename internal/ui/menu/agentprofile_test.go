@@ -178,13 +178,13 @@ func TestSeedFromSignInSetsRecord(t *testing.T) {
 
 func TestPinCopilotProfileEmptyRefusedKeepsPin(t *testing.T) {
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "copilot", "profile", "personal")
+	vaulttest.SetRecord(t, "copilot", "profile", "copilot")
 	vaulttest.SetRecord(t, "copilot", "model", "keep-model")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	if pinCopilotProfile(d, "") {
 		t.Fatalf("empty pin must be refused: %s", d.out)
 	}
-	if got := vault.GetAgentRecord("copilot"); got.Profile != "personal" || got.Model != "keep-model" {
+	if got := vault.GetAgentRecord("copilot"); got.Profile != "copilot" || got.Model != "keep-model" {
 		t.Fatalf("refused pin must keep the record: %+v", got)
 	}
 }

@@ -197,7 +197,7 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	t.Setenv("COPILOT_MODEL", "from-env")
 	vaulttest.SetRecord(t, "copilot", "model", "")
 
-	wantFallback := reg.Providers["personal"].Models[models.Opus]
+	wantFallback := reg.Providers["copilot"].Models[models.Opus]
 	if got, src := CopilotModel(reg); got != wantFallback || src != "github-copilot default" {
 		t.Errorf("CopilotModel(unset) = (%q, %q), want (%q, github-copilot default)", got, src, wantFallback)
 	}
@@ -268,7 +268,7 @@ func TestSelectDoesNotTranslateLegacyDatabricksPin(t *testing.T) {
 const ghRow = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 	`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
 
-// copilotLoginReg is a hermetic vault with github profiles personal (login=tester) and bare (no login).
+// copilotLoginReg is a hermetic vault with github profiles tester (login=tester, stored under the key personal) and bare (no login).
 func copilotLoginReg(t *testing.T, pin string) *Registry {
 	t.Helper()
 	vaulttest.Use(t)
@@ -286,7 +286,8 @@ func copilotLoginReg(t *testing.T, pin string) *Registry {
 
 func TestCopilotLogin(t *testing.T) {
 	for _, tc := range []struct{ name, pin, login, profile string }{
-		{"profile pin resolves to its login", "personal", "tester", "personal"},
+		{"profile pin resolves to its login", "tester", "tester", "tester"},
+		{"a pre-login row key in the record resolves too", "personal", "tester", "tester"},
 		{"unset pin is gh's active account", "", "", ""},
 		{"a pin naming no github profile is gh's active account", "octocat", "", ""},
 		{"profile without a login passes none", "bare", "", "bare"},
@@ -303,7 +304,7 @@ func TestCopilotLogin(t *testing.T) {
 func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 	reg := copilotLoginReg(t, "")
 	for _, tc := range []struct{ in, name string }{
-		{"tester", "personal"}, // login -> profile
+		{"tester", "tester"},   // login -> profile
 		{"octocat", "octocat"}, // unmigrated login stays raw
 		{"", ""},
 	} {
@@ -312,7 +313,7 @@ func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ in, login string }{
-		{"personal", "tester"}, {"bare", ""}, {"octocat", "octocat"},
+		{"tester", "tester"}, {"bare", ""}, {"octocat", "octocat"},
 	} {
 		if got := GithubAccountLogin(reg, tc.in); got != tc.login {
 			t.Errorf("GithubAccountLogin(%q) = %q, want %q", tc.in, got, tc.login)
@@ -563,7 +564,7 @@ func TestLoadMalformedVaultOverlay(t *testing.T) {
 
 func TestCopilotLoginIgnoresGitHubAuthPin(t *testing.T) {
 	reg := copilotLoginReg(t, "")
-	if err := vault.SetGitHubAuth("personal"); err != nil {
+	if err := vault.SetGitHubAuth("tester"); err != nil {
 		t.Fatal(err)
 	}
 	if login, profile := CopilotLogin(reg); login != "" || profile != "" {

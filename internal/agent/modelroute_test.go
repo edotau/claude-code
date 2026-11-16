@@ -38,8 +38,8 @@ func TestResolveModel(t *testing.T) {
 		{"claude", "ultra:claude-opus-5-5", "ultra", "claude-opus-5-5"},
 		{"codex", "qa:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
 		{"codex", "chatgpt:gpt-6-1-sol", "chatgpt", "gpt-6.1-sol"},
-		{"copilot", "business:claude-opus-5.5", "business", "claude-opus-5.5"},
-		{"copilot", "business:opus", "business", "gpt-6-astra"},
+		{"copilot", "aueric_boehcp:claude-opus-5.5", "aueric_boehcp", "claude-opus-5.5"},
+		{"copilot", "aueric_boehcp:opus", "aueric_boehcp", "gpt-6-astra"},
 		{"copilot", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
 		{"codex", "openai:opus", "openai", "gpt-5"},
 	}
@@ -63,8 +63,8 @@ func TestResolveModelRefuses(t *testing.T) {
 }
 
 func TestModelRouteOverlay(t *testing.T) {
-	r := ModelRoute{Provider: "github", Profile: "business", Model: "gpt-6-astra"}
-	if o := r.Overlay(); o.Account != "business" || o.Model != "gpt-6-astra" || r.Label() != "gpt-6-astra" {
+	r := ModelRoute{Provider: "github", Profile: "aueric_boehcp", Model: "gpt-6-astra"}
+	if o := r.Overlay(); o.Account != "aueric_boehcp" || o.Model != "gpt-6-astra" || r.Label() != "gpt-6-astra" {
 		t.Errorf("overlay %+v label %s", o, r.Label())
 	}
 }

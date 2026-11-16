@@ -51,7 +51,7 @@ done
 		t.Fatal("saved fallback models must reload the dialog registry")
 	}
 	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		if got := d.reg.Providers["personal"].Models[alias]; got != "catalog-model" {
+		if got := d.reg.Providers["copilot"].Models[alias]; got != "catalog-model" {
 			t.Errorf("reloaded %s = %q, want catalog-model", alias, got)
 		}
 	}

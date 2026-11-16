@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -103,8 +104,54 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 		if out == nil { // a stored JSON null decodes the map to nil; writes into it would panic
 			out = map[string]AgentRecord{}
 		}
+		t.nameGithubProfiles(out)
 	}
 	return out, nil
+}
+
+const oldBuiltinGithubRow = "personal"
+
+func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
+	renames := t.githubRowRenames()
+	spec := func(s string) string {
+		if head, rest, ok := strings.Cut(s, ":"); ok && renames[head] != "" {
+			return renames[head] + ":" + rest
+		}
+		return s
+	}
+	for n, r := range recs {
+		r.Profile, r.Fallback, r.Model = cmp.Or(renames[r.Profile], r.Profile), cmp.Or(renames[r.Fallback], r.Fallback), spec(r.Model)
+		if r.Aliases != nil {
+			r.Aliases = maps.Clone(r.Aliases)
+			for a, v := range r.Aliases {
+				r.Aliases[a] = spec(v)
+			}
+		}
+		recs[n] = r
+	}
+}
+
+func (t *Tx) githubRowRenames() map[string]string {
+	out := map[string]string{}
+	var doc struct {
+		Providers struct {
+			Github map[string]struct {
+				Login string `json:"login"`
+			} `json:"github"`
+		} `json:"providers"`
+	}
+	if raw, ok := t.Get(Overlay, "providers"); ok {
+		_ = json.Unmarshal([]byte(raw), &doc)
+	}
+	for key, row := range doc.Providers.Github {
+		if row.Login != "" && row.Login != key {
+			out[key] = row.Login
+		}
+	}
+	if _, defined := doc.Providers.Github[oldBuiltinGithubRow]; !defined {
+		out[oldBuiltinGithubRow] = "copilot"
+	}
+	return out
 }
 
 // PutAgentRecords stores recs, dropping zero records; an empty map removes the entry.
@@ -130,7 +177,7 @@ func (t *Tx) PoolOverlay() (string, bool) { return t.Get(Overlay, PoolKey) }
 
 // OwnLoginProfiles are each external agent's own-login profile; a test pins them to defaults.json and the roster.
 var OwnLoginProfiles = map[string]string{
-	agentid.Codex: "chatgpt", agentid.Copilot: "personal", agentid.Gemini: "antigravity", agentid.OpenCode: "zen-free",
+	agentid.Codex: "chatgpt", agentid.Copilot: "copilot", agentid.Gemini: "antigravity", agentid.OpenCode: "zen-free",
 }
 
 // agentRecordCache holds the decoded records while the vault file's stamp holds; a write changes the stamp.

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -237,10 +238,16 @@ func Parse(base, overlay []byte) (*Registry, error) {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
 	mergeErr := mergeOverlay(reg, overlay)
+	order := declaredOrder(reg, base, overlay)
+	if renames, err := nameGithubRows(reg); err != nil {
+		mergeErr = errors.Join(mergeErr, err)
+	} else {
+		order = renameAll(order, renames)
+	}
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
-	reg.order = declaredOrder(reg, base, overlay)
+	reg.order = order
 	// Load-only: derived preset fields are never written back to the overlay.
 	expandPresets(reg)
 	decorateModels(reg)
@@ -376,4 +383,66 @@ func ProfileNames() []string {
 		return nil
 	}
 	return reg.Names()
+}
+
+func nameGithubRows(reg *Registry) (map[string]string, error) {
+	logins := map[string]string{}
+	for n, p := range reg.Providers {
+		if p != nil && p.Provider == "github" && p.Login != "" {
+			logins[n] = p.Login
+		}
+	}
+	renames, err := loginRenames(logins, func(n string) bool { return reg.Providers[n] != nil })
+	if err != nil {
+		return nil, err
+	}
+	rows := map[string]*Provider{}
+	for old, name := range renames {
+		rows[name] = reg.Providers[old]
+		delete(reg.Providers, old)
+	}
+	maps.Copy(reg.Providers, rows)
+	yieldOpencodeID(reg)
+	return renames, nil
+}
+
+func yieldOpencodeID(reg *Registry) {
+	held := map[string]bool{}
+	for _, n := range reg.ProfilesOf("github") {
+		if p := reg.Providers[n]; p.Login != "" && p.OpencodeID != "" {
+			held[p.OpencodeID] = true
+		}
+	}
+	for _, n := range reg.ProfilesOf("github") {
+		if p := reg.Providers[n]; p.Login == "" && held[p.OpencodeID] {
+			p.OpencodeID = ""
+		}
+	}
+}
+
+func loginRenames(logins map[string]string, exists func(string) bool) (map[string]string, error) {
+	renames := map[string]string{}
+	owner := map[string]string{}
+	for _, key := range slices.Sorted(maps.Keys(logins)) {
+		login := logins[key]
+		if prev, ok := owner[login]; ok {
+			return nil, fmt.Errorf("github rows %q and %q share login %q; a login names one row", prev, key, login)
+		}
+		owner[login] = key
+		if login != key && exists(login) && logins[login] != login {
+			return nil, fmt.Errorf("github row %q has login %q, which is already the name of another row", key, login)
+		}
+		if login != key {
+			renames[key] = login
+		}
+	}
+	return renames, nil
+}
+
+func renameAll(names []string, renames map[string]string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = cmp.Or(renames[n], n)
+	}
+	return out
 }

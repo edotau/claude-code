@@ -211,7 +211,7 @@ func TestArmPickOrder(t *testing.T) {
 	if len(tier1) != 5 || tier1[0] != "codex" || !slices.Contains(tier1, "claude") {
 		t.Errorf("tier 1 = %v, want codex first then the other four agents on databricks·dev", tier1)
 	}
-	wantTier2 := []string{"copilot/github·personal", "codex/openai·chatgpt", "gemini/google·antigravity",
+	wantTier2 := []string{"copilot/github·copilot", "codex/openai·chatgpt", "gemini/google·antigravity",
 		"opencode/opencode·go", "claude/anthropic·ultra"}
 	if !slices.Equal(tier2, wantTier2) {
 		t.Errorf("tier 2 = %v, want %v", tier2, wantTier2)

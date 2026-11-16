@@ -90,7 +90,7 @@ func copilotOnlyOverlayRegistry(t *testing.T) *providers.Registry {
 	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"copilot":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},`+
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"mai-code-1.1-flash"}}}}}`)
 	if OpencodeOwnLoginPresent() || !OpencodeCopilotLoginPresent() {
@@ -351,7 +351,7 @@ func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
 	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
 		t.Setenv(k, "")
 	}
-	overlay := `{"providers":{"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
+	overlay := `{"providers":{"github":{"copilot":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
 		`"auth":{"type":"cli","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
 		`"opencode_fallback":"mai-code-1.1-flash"}}}}`
@@ -418,7 +418,7 @@ func TestOwnLoginLaunchRefusesUnservedModelFlag(t *testing.T) {
 	const model = "opencode-go/kimi-k3.1-pro"
 	cases := []struct{ name, auth, profile string }{
 		{"pre-route", `{"opencode":{"type":"api"}}`, ""},
-		{"configure", `{"github-copilot":{"type":"oauth"}}`, "personal"},
+		{"configure", `{"github-copilot":{"type":"oauth"}}`, "copilot"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

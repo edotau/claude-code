@@ -167,11 +167,11 @@ func readOverlay(t *testing.T) map[string]json.RawMessage {
 	return doc
 }
 
-// WriteGithubCopilotModels merges opus/sonnet/haiku into providers.github.personal.models in the user's
+// WriteGithubCopilotModels merges opus/sonnet/haiku into providers.github.copilot.models in the user's
 // overlay, preserving every other provider entry and root key byte-for-byte.
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	hosttest.GithubScratch(t)
-	existing := `{"default":"gw","providers":{"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}}},"github":{"personal":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}}}}}`
+	existing := `{"default":"gw","providers":{"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}}},"github":{"copilot":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", existing)
 	picks := map[string]string{models.Opus: "gpt-6.1-sol", models.Sonnet: "claude-sonnet-5.5", models.Haiku: "claude-haiku-4.5"}
 	if err := WriteGithubCopilotModels(picks, ""); err != nil {
@@ -189,11 +189,11 @@ func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 		Auth   json.RawMessage   `json:"auth"`
 		Models map[string]string `json:"models"`
 	}
-	if err := json.Unmarshal(provs["personal"], &copilotEntry); err != nil {
+	if err := json.Unmarshal(provs["copilot"], &copilotEntry); err != nil {
 		t.Fatal(err)
 	}
 	if copilotEntry.Auth == nil {
-		t.Error("personal's pre-existing auth block was dropped")
+		t.Error("copilot's pre-existing auth block was dropped")
 	}
 	if copilotEntry.Models[models.Opus] != "gpt-6.1-sol" || copilotEntry.Models[models.Sonnet] != "claude-sonnet-5.5" || copilotEntry.Models[models.Haiku] != "claude-haiku-4.5" {
 		t.Errorf("models = %+v, want the three picks written", copilotEntry.Models)

@@ -73,7 +73,7 @@
       }
     },
     "github": {
-      "personal": {
+      "copilot": {
         "protocol": "openai",
         "base_url": "https://api.githubcopilot.com",
         "auth": {

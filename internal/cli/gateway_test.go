@@ -228,7 +228,7 @@ func routeJSONFixture(t *testing.T) {
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
 		"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},"login":"work-user"}}}}`)
-	vaulttest.SetRecord(t, "copilot", "profile", "work")
+	vaulttest.SetRecord(t, "copilot", "profile", "work-user")
 	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func routeJSONFixture(t *testing.T) {
 	ask.RouteRefresh = func(context.Context, string) bool { return false }
 	ghHosts(t, "work-user")
 	t.Cleanup(func() { ask.RouteRefresh = nil })
-	if err := router.MarkExhausted("github·work", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
+	if err := router.MarkExhausted("github·work-user", time.Now().Add(240*time.Hour), time.Now(), "402"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -254,7 +254,7 @@ func assertRouteJSONSkipsAndLast(t *testing.T, res routeJSON) {
 		}
 	}
 	if skip == nil || skip.Gate != router.GateExhausted ||
-		!strings.Contains(skip.Reason, "github·work exhausted until") {
+		!strings.Contains(skip.Reason, "github·work-user exhausted until") {
 		t.Errorf("copilot skip = %+v in %+v", skip, res.Skipped)
 	}
 	if c := res.Candidates[len(res.Candidates)-1]; c.Agent != "claude" || c.Model != "claude-sonnet-5-5" ||
