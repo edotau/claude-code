@@ -382,14 +382,39 @@ func TestFirstSightingPersistsAcrossKeys(t *testing.T) {
 	}
 }
 
-// TestClaimCheckNestedStaging: git add/commit inside bash -c or a substitution still reaches the stage check.
+// TestClaimCheckNestedStaging: git add/commit the shell runs (nested, shell heredoc) asks; data heredoc text does not.
 func TestClaimCheckNestedStaging(t *testing.T) {
 	repo := claimFixture(t)
 	claimEdit(t, repo, liveOwner, "A", "a.txt")
-	for _, cmd := range []string{"bash -c 'git add -A'", "echo $(git commit -a -m x)", "timeout -s KILL 5 git add -A"} {
-		r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": cmd})
-		if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") {
-			t.Errorf("%s: %v %q; want an ask naming a.txt", cmd, r.Decision, r.Reason)
+	for _, c := range []struct {
+		cmd string
+		ask bool
+	}{
+		{"bash -c 'git add -A'", true},
+		{"echo $(git commit -a -m x)", true},
+		{"timeout -s KILL 5 git add -A", true},
+		{"python3 - <<'EOF'\nprint('git add -A')\ngit add -A\nEOF", false},
+		{"node <<'EOF'\ngit add -A\nEOF", false},
+		{"cd . && python3 - <<'EOF'\ngit add -A\nEOF\necho done", false},
+		{"cat > notes.txt <<'EOF'\ngit commit -am wip\nEOF", false},
+		{"python3 - <<'EOF' && git add -A\nprint(1)\nEOF", true},
+		{"python3 - <<EOF\nx = \"$(git add -A)\"\nEOF", true},
+		{"python3 - <<'EOF' | sh\nprint('git add -A')\nEOF", true},
+		{"cat > run.sh <<'EOF'\ngit add -A\nEOF\nbash run.sh", true},
+		{"bash <<'EOF'\ngit add -A\nEOF", true},
+		{"bash -s <<'EOF'\ngit add -A\nEOF", true},
+		{"git add -A", true},
+		{"git add a.txt", true},
+		{"git add b.txt", false},
+		{`git commit -m "mentions git add"`, false},
+		{`echo "git add ."`, false},
+		{"echo hi && git add -A", true},
+		{"true && git commit -a -m x", true},
+		{`echo "git add ." && echo ok`, false},
+	} {
+		r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": c.cmd})
+		if want := map[bool]core.Decision{true: core.Ask, false: core.Allow}[c.ask]; r.Decision != want {
+			t.Errorf("%q: %v %q; want %v", c.cmd, r.Decision, r.Reason, want)
 		}
 	}
 }

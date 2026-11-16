@@ -386,7 +386,9 @@ func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 func (v claimView) stageCheck() core.Result {
 	var res core.Result
 	var warns []string // a fail-open warning must not hide a later invocation in the chain
-	shell.EachGit(v.in.ToolCommand(), v.in.CWD, func(target, verb string, args []string) bool {
+	// A data heredoc body (file sink, script interpreter) stages nothing.
+	cmd := dropScriptHeredocs(core.DropDataHeredocs(v.in.ToolCommand()))
+	shell.EachGit(cmd, v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
 			res = v.uninspectableVerdict()
@@ -401,6 +403,42 @@ func (v claimView) stageCheck() core.Result {
 		res.Stderr = strings.TrimSpace(strings.Join(warns, "\n") + "\n" + res.Stderr)
 	}
 	return res
+}
+
+// scriptReader names a non-shell interpreter whose heredoc body is its own script, never shell commands.
+var scriptReader = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(python[0-9.]*|node|ruby|perl|php|deno|bun)$`)
+})
+
+// dropScriptHeredocs removes heredoc bodies a script interpreter reads; an unquoted body with `$` or a backtick stays.
+func dropScriptHeredocs(cmd string) string {
+	return core.DropHeredocBodies(cmd, false, func(lines []string, i int) int {
+		m := core.HeredocOp().FindAllStringSubmatch(lines[i], -1)
+		if len(m) != 1 || !scriptHeredoc(lines[i]) {
+			return -1
+		}
+		end := core.HeredocEnd(lines, i+1, m[0][2]+m[0][3]+m[0][4], m[0][1] == "-")
+		if end < 0 || m[0][4] != "" && strings.ContainsAny(strings.Join(lines[i+1:end], "\n"), "$`") {
+			return -1
+		}
+		return end
+	})
+}
+
+// scriptHeredoc reports a line whose heredoc segment runs a script interpreter and is not piped on.
+func scriptHeredoc(line string) bool {
+	if strings.Contains(line, "<<<") || strings.Contains(line, ">(") || strings.Contains(line, "<(") {
+		return false
+	}
+	segs, seps := shell.SegmentsSep(line)
+	for i, seg := range segs {
+		if !core.HeredocOp().MatchString(seg) {
+			continue
+		}
+		rest, _ := shell.Unwrap(shell.Tokens(core.HeredocOp().ReplaceAllString(seg, " ")), "")
+		return len(rest) > 0 && scriptReader().MatchString(filepath.Base(rest[0])) && !strings.HasPrefix(seps[i], "|")
+	}
+	return false
 }
 
 // uninspectableVerdict asks (a leaf: blocks) on a command nested too deep to see what it stages.
