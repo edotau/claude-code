@@ -995,3 +995,36 @@ func TestAgentsDispatchWaveCompanionsRequirePlan(t *testing.T) {
 		})
 	}
 }
+
+// A hook file naming a retired module is stale to --check and rewritten by sync, keeping foreign entries.
+func TestSyncAgentConfigsRewritesRetiredHookModule(t *testing.T) {
+	hosttest.HermeticEnv(t)
+	home := os.Getenv("HOME")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	hooksFile := filepath.Join(home, ".codex", "hooks.json")
+	stale := `{"hooks":{"PreToolUse":[` +
+		`{"hooks":[{"type":"command","command":"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/claude-code hook PreToolUse --docs-plan-gate"}]},` +
+		`{"matcher":"Bash","hooks":[{"type":"command","command":"my-own-hook"}]}]}}`
+	if err := os.MkdirAll(filepath.Dir(hooksFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksFile, []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := syncAgentConfigs("codex", "text", false, true); code != 1 {
+		t.Fatalf("--check exit = %d, want 1 (stale hook file)", code)
+	}
+	if code := syncAgentConfigs("codex", "text", false, false); code != 0 {
+		t.Fatalf("sync exit = %d, want 0", code)
+	}
+	b, err := os.ReadFile(hooksFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "docs-plan-gate") || !strings.Contains(string(b), "my-own-hook") {
+		t.Errorf("hooks.json after sync:\n%s", b)
+	}
+	if code := syncAgentConfigs("codex", "text", false, true); code != 0 {
+		t.Errorf("--check after sync exit = %d, want 0", code)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -104,7 +105,8 @@ var agentsSubPages = map[string][3]string{
 	"list": {"list [flags]", "List each agent, whether it is available and which request fields (model, profile, effort, …) it honors."},
 	"sync": {"sync [flags]", "Render agents/ into state/projections/<agent>/agents plus each agent's instruction " +
 		"file, install them into the agent homes, and link skills/ into ~/.agents/skills " +
-		"(plus gemini's and copilot's own skills dirs)."},
+		"(plus gemini's and copilot's own skills dirs). Also re-renders each agent's native hook and config files " +
+		"(codex, opencode, gemini, copilot); --check reports a stale one."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
 		"--finished adds idle and finished work in the --days window.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive\n--interval)."},
@@ -223,7 +225,45 @@ func cmdAgentsSync(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return project.Sync(project.Options{JSON: *format == "json", DryRun: *dryRun, Check: *check, Agent: *name, Out: os.Stdout})
+	code := project.Sync(project.Options{JSON: *format == "json", DryRun: *dryRun, Check: *check, Agent: *name, Out: os.Stdout})
+	if code == 2 {
+		return code
+	}
+	if cfg := syncAgentConfigs(*name, *format, *dryRun, *check); cfg != 0 {
+		return cfg
+	}
+	return code
+}
+
+// syncAgentConfigs re-renders the agents' native hook and config files, which project.Sync does not write.
+func syncAgentConfigs(name, format string, dryRun, check bool) int {
+	o := agentconfig.RenderOptions{DryRun: dryRun, Check: check}
+	if name != "" {
+		if !slices.Contains(agent.DefaultAgents, name) {
+			return 0
+		}
+		o.Agents = []string{name}
+	}
+	changed, skipped, err := agent.SyncConfigs(o)
+	if skipped {
+		return 0
+	}
+	if format != "json" && len(changed) > 0 {
+		verb := "WRITE"
+		if dryRun || check {
+			verb = "DRY"
+		}
+		fmt.Printf("\nagent configs\n  %s %s\n", verb, strings.Join(changed, " "))
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "sync: agent configs:", err)
+		return 1
+	}
+	if check && len(changed) > 0 {
+		fmt.Fprintf(os.Stderr, "stale: agent configs of %s; run `claude-code agents sync`\n", strings.Join(changed, ", "))
+		return 1
+	}
+	return 0
 }
 
 // cmdAgentsTree is `agents tree`; --watch clears and redraws every --interval until a render fails.
