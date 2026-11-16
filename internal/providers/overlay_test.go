@@ -2,6 +2,7 @@ package providers
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -187,5 +188,30 @@ func TestUnsupportedAuthTypeWriteRefused(t *testing.T) {
 	reg, err := Load()
 	if err != nil || reg.Providers["dbx-bad"] != nil {
 		t.Errorf("rejected row landed: err=%v", err)
+	}
+}
+
+// An overlay row reports the built-in keys it lacks or changed; extra keys, removals and new rows are not drift.
+func TestOverlayDrift(t *testing.T) {
+	base := `{"providers":{"anthropic":{"ultra":{"base_url":"https://a","models":{"opus":"o"}}}}}`
+	for _, tc := range []struct {
+		name, doc string
+		want      map[string][]string
+	}{
+		{"same snapshot", `{"providers":{"anthropic":{"ultra":{"models":{"opus":"o"},"base_url":"https://a"}}}}`, map[string][]string{}},
+		{"stale url", `{"providers":{"anthropic":{"ultra":{"base_url":"https://old","models":{"opus":"o"}}}}}`,
+			map[string][]string{"ultra": {"base_url"}}},
+		{"missing key", `{"providers":{"anthropic":{"ultra":{"base_url":"https://a","extra":1}}}}`,
+			map[string][]string{"ultra": {"models"}}},
+		{"removed row", `{"providers":{"anthropic":{"ultra":null}}}`, map[string][]string{}},
+		{"new row", `{"providers":{"anthropic":{"mine":{"base_url":"x"}}}}`, map[string][]string{}},
+	} {
+		got, err := overlayDrift([]byte(base), []byte(tc.doc))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
 	}
 }
