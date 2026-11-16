@@ -73,6 +73,9 @@ the agent edits by hand.
 
 Names in this table are the unprefixed (home) form; a repo's copy is `<key>--<name>` (`claude-code--decisionLog.md`).
 Handoffs and reports are `<key>--YYYY-MM-DD-<topic>.md`, knowledge `<key>--<topic>.md`; unprefixed = home.
+`memory-compact` also writes a fact-only handoff, `<key>--YYYY-MM-DD-compact-<session id[:8]>.md` (one per session
+per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first, the generated
+one second.
 Typed files carry no frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…`<!-- bank:end -->` region;
 lines outside it are Claude's own and never rewritten. Never hand-edit generated regions.
 

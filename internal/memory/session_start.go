@@ -173,7 +173,7 @@ func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
 	return r, json.Unmarshal(b, &r) == nil
 }
 
-// newestHandoff is the most recently modified handoff of b within maxAge, or "".
+// newestHandoff is b's most recently modified model-written handoff within maxAge, or "".
 func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
 	dir := b.SubDir("handoffs")
 	entries, err := os.ReadDir(dir)
@@ -187,7 +187,7 @@ func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
 		if err != nil || e.IsDir() || filepath.Ext(e.Name()) != ".md" || now.Sub(fi.ModTime()) > maxAge {
 			continue
 		}
-		if ownerKey(e.Name(), keys) != b.Key {
+		if ownerKey(e.Name(), keys) != b.Key || generatedHandoff().MatchString(e.Name()) {
 			continue
 		}
 		if fi.ModTime().After(bestMod) {
@@ -197,7 +197,7 @@ func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
 	return best
 }
 
-// ResumeNote is the compact/clear start line: the compaction record and the fresh handoff, whichever exist.
+// ResumeNote is the compact/clear start line: the compaction record, a model-written handoff, then the generated one.
 func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 	var parts []string
 	if source == "compact" {
@@ -205,8 +205,15 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 			parts = append(parts, compactedText(r))
 		}
 	}
-	if h := newestHandoff(BankFor(cwd), now, 24*time.Hour); h != "" {
-		parts = append(parts, "handoff: "+h)
+	b := BankFor(cwd)
+	model := newestHandoff(b, now, 24*time.Hour)
+	if model != "" {
+		parts = append(parts, "handoff: "+model)
+	}
+	if gen, _ := newestFile(sessionCompactHandoffs(b, sessionID), now, 24*time.Hour); gen != "" && model != "" {
+		parts = append(parts, "generated handoff: "+gen)
+	} else if gen != "" {
+		parts = append(parts, "handoff: "+gen)
 	}
 	return strings.Join(parts, "; ")
 }

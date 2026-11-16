@@ -170,18 +170,6 @@ func End(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// Compact (PreCompact) updates any work no earlier dispatch covered before the context compacts; it never blocks.
-func Compact(in *core.Input) core.Result {
-	in = AgentInput(sessionRootInput(in))
-	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
-		return core.Result{}
-	}
-	pct, _ := contextPct(in.SessionID, in.TranscriptPath)
-	memory.WriteCompactRecord(in.SessionID, in.Trigger, pct, time.Now())
-	memory.UpdateIfNew(updateRequest(in), memory.TriggerPreCompact, time.Now())
-	return core.Result{}
-}
-
 // updateRequest is in's update ask; each dispatch logs to the session's linked-worktree ledger.
 func updateRequest(in *core.Input) memory.UpdateRequest {
 	return memory.UpdateRequest{SessionID: in.SessionID, Transcript: in.TranscriptPath, CWD: in.CWD,

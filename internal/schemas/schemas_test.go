@@ -157,6 +157,7 @@ var writers = map[string]string{
 	"internal/hosttest/git.go:WriteRel":                         unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:createFlag":           unversioned("marker: context-checkpoint flag file"),
 	"internal/memory/session_start.go:WriteCompactRecord":       unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
+	"internal/memory/compact_handoff.go:WriteCompactHandoff":    unversioned("text: PreCompact's fact-only handoff markdown in memory/handoffs"),
 	"internal/hooks/codex_route.go:appendCodexRoute":            "codex-routing",
 	"internal/hooks/wthook/claims.go:appendClaims":              "claims",
 	"internal/worktree/sessions.go:Append":                      "notices",
