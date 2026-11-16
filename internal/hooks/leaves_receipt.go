@@ -157,11 +157,14 @@ func leafDispatch(lr leafRead, st string) (recs []agent.Record, how string, ok b
 	if len(lr.scan.askTimes) == 0 {
 		return nil, "", false
 	}
-	owner := inflight.SessionOwner()
-	for _, rec := range recentDispatches(50) {
-		mine := owner == 0 || rec.Owner == 0 || rec.Owner == owner
-		if mine && (rec.Agent == st || rec.Fallback == st) && launchedBy(rec.Time, lr.scan.askTimes) {
-			return []agent.Record{rec}, "launched by its ask call", true
+	owner, recs := inflight.SessionOwner(), recentDispatches(50)
+	for _, at := range slices.Backward(lr.scan.askTimes) { // latest call first; its job is the first to start after it
+		calls := []time.Time{at}
+		for _, rec := range slices.Backward(recs) { // recs are newest first: a sibling's later job must not win
+			mine := owner == 0 || rec.Owner == 0 || rec.Owner == owner
+			if mine && (rec.Agent == st || rec.Fallback == st) && launchedBy(rec.Time, calls) {
+				return []agent.Record{rec}, "launched by its ask call", true
+			}
 		}
 	}
 	return nil, "", false
