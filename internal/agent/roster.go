@@ -447,7 +447,7 @@ func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 		if ownLogin(reg, k.Name, r.Profile) {
 			spec.Profile = "" // the agent's own login profile routes as the old unset pin did
 		}
-		spec.Model = r.Model
+		spec.Model, spec.Fallback = r.Model, r.Fallback
 		if !k.External() {
 			spec.Profile = cmp.Or(providers.SessionLeadContext(ctx, nil, false), spec.Profile)
 		}

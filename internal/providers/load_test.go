@@ -354,20 +354,26 @@ func walkCloneReferences(t *testing.T, original, cloned reflect.Value, field str
 
 func TestParseNamesGithubRowsByLogin(t *testing.T) {
 	const row = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}`
-	for _, tc := range []struct{ name, rows, want string }{
-		{"keyed row takes its login", `"x":{` + row + `,"login":"octo"}`, ""},
-		{"two rows one login", `"x":{` + row + `,"login":"octo"},"y":{` + row + `,"login":"octo"}`, "share login"},
-		{"login names another row", `"x":{` + row + `,"login":"copilot"}`, "already the name"},
+	for _, tc := range []struct {
+		name, rows string
+		want, kept []string
+	}{
+		{"keyed row takes its login", `"x":{` + row + `,"login":"octo"}`, []string{"octo"}, nil},
+		{"two rows one login", `"x":{` + row + `,"login":"octo"},"y":{` + row + `,"login":"octo"}`, []string{"octo"}, []string{"y"}},
+		{"logins differ by case", `"x":{` + row + `,"login":"Octo"},"y":{` + row + `,"login":"octo"}`, []string{"Octo"}, []string{"y"}},
+		{"login names another row", `"x":{` + row + `,"login":"copilot"}`, nil, []string{"x"}},
 	} {
 		reg, err := Parse(defaultsJSON, []byte(`{"providers":{"github":{`+tc.rows+`}}}`))
-		if tc.want != "" {
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
-			}
-			continue
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
 		}
-		if err != nil || reg.Providers["octo"] == nil || reg.Providers["octo"].Name != "octo" || reg.Providers["x"] != nil {
-			t.Errorf("%s: err = %v, rows = %v, want the row named octo", tc.name, err, reg.Names())
+		for _, n := range append(tc.want, tc.kept...) {
+			if reg.Providers[n] == nil || reg.Providers[n].Name != n {
+				t.Errorf("%s: missing row %q in %v", tc.name, n, reg.Names())
+			}
+		}
+		if reg.Providers["x"] != nil && !slices.Contains(tc.kept, "x") {
+			t.Errorf("%s: row x was not renamed: %v", tc.name, reg.Names())
 		}
 	}
 }

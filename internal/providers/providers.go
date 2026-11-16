@@ -79,7 +79,7 @@ const oneMMarker = "[1m]"
 
 // UnmarshalJSON decodes a row and resolves a key row's default header from its protocol.
 func (p *Provider) UnmarshalJSON(b []byte) error {
-	type plain Provider
+	type plain Provider // no UnmarshalJSON, so the alias cannot recurse
 	if err := json.Unmarshal(b, (*plain)(p)); err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func (p *Provider) UnmarshalJSON(b []byte) error {
 
 // MarshalJSON redacts an inline Headers token and sets has_secret_headers; a raw-map writer must not use Marshal.
 func (p Provider) MarshalJSON() ([]byte, error) {
-	type plain Provider
+	type plain Provider // no MarshalJSON, so the alias cannot recurse
 	v := plain(p)
 	v.Headers = textutil.RedactSecretMap(p.Headers)
 	return json.Marshal(struct {
@@ -100,7 +100,7 @@ func (p Provider) MarshalJSON() ([]byte, error) {
 
 // Auth names where the credential comes from; the first non-empty source wins (see Credential).
 type Auth struct {
-	Type    string `json:"type,omitempty"`
+	Type    string `json:"type,omitempty"` // oauth | m2m | pat | key | cli | none
 	Header  string `json:"header,omitempty"`
 	Env     string `json:"env,omitempty"`
 	File    string `json:"file,omitempty"`

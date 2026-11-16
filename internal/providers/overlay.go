@@ -110,10 +110,7 @@ func flattenTop(top map[string]json.RawMessage) (map[string]json.RawMessage, map
 	if err != nil {
 		return nil, nil, fmt.Errorf("vault overlay/providers: providers: %w", err)
 	}
-	renames, err := renameOverlayRows(rows)
-	if err != nil {
-		return nil, nil, fmt.Errorf("vault overlay/providers: %w", err)
-	}
+	renames := renameOverlayRows(rows)
 	view := map[string]json.RawMessage{}
 	owner := map[string]string{}
 	for n, r := range rows {
@@ -135,7 +132,7 @@ func flattenTop(top map[string]json.RawMessage) (map[string]json.RawMessage, map
 	return flat, owner, nil
 }
 
-func renameOverlayRows(rows map[string]rawRow) (map[string]string, error) {
+func renameOverlayRows(rows map[string]rawRow) map[string]string {
 	logins := map[string]string{}
 	for n, r := range rows {
 		var f struct {
@@ -145,15 +142,18 @@ func renameOverlayRows(rows map[string]rawRow) (map[string]string, error) {
 			logins[n] = f.Login
 		}
 	}
-	renames, err := loginRenames(logins, func(n string) bool { return rows[n].raw != nil })
-	if err != nil {
-		return nil, err
+	var names []string
+	for n, r := range rows {
+		if r.raw != nil {
+			names = append(names, n)
+		}
 	}
+	renames := loginRenames(logins, names)
 	for old, name := range renames {
 		rows[name] = rows[old]
 		delete(rows, old)
 	}
-	return renames, nil
+	return renames
 }
 
 // renderNested re-nests flat's providers by provider (owner, else inferred), keeping order, then flat's own key order.
@@ -226,7 +226,7 @@ func AddGithubAccount(login string) error {
 	}
 	return updateProviderFields(login, func(entry map[string]json.RawMessage) error {
 		maps.Copy(entry, base)
-		delete(entry, "opencodeID")
+		delete(entry, "opencodeID") // opencode's own Copilot sign-in belongs to one profile, the built-in one
 		entry["provider"], entry["login"] = json.RawMessage(`"github"`), quoted
 		return nil
 	})

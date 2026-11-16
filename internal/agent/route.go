@@ -407,10 +407,10 @@ func accountOrSessionLead(ctx context.Context, agent string) string {
 
 func sessionLead(ctx context.Context, agent string) string {
 	reg, err := providers.Load()
-	if err != nil || agent == agentid.Gemini {
+	if err != nil {
 		return ""
 	}
-	if p := reg.Row(providers.SessionProfileContext(ctx)); p != nil {
+	if p := sessionRow(reg, ModelQuery{Agent: agent, Session: providers.SessionProfileContext(ctx)}); p != nil {
 		if ok, _ := rowServes(agent, p); ok {
 			return p.Name
 		}

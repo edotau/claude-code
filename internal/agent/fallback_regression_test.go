@@ -96,3 +96,14 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 		})
 	}
 }
+
+func TestDispatchRequestCellModelOnEveryHop(t *testing.T) {
+	for _, first := range []bool{true, false} {
+		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "gpt-6-sol"}, first); !req.CellModel {
+			t.Errorf("first=%v: a router cell model must re-resolve against its row", first)
+		}
+		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "dev:opus"}, first); req.CellModel {
+			t.Errorf("first=%v: a typed profile:model is not a cell model", first)
+		}
+	}
+}

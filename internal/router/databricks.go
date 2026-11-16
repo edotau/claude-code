@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
@@ -386,13 +385,12 @@ func (t *RouteTable) gateBase(
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
 		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
-		if fb := vault.GetAgentRecord(agent).Fallback; len(group) == 0 && fb != "" && fb != spec.Profile && o.Fallback != FallbackNone && o.Fallback != "" {
-			group = t.gatePinned(ctx, pg.reg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res)
-		}
+		group = append(group, t.gateRecordFallback(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
 		group = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
+		group = append(group, t.gateRecordFallback(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		// native agy login: the GEMINI_MODEL pin beats the table cell
 		if agent == "gemini" && spec.Model != "" {
 			for i := range group {
@@ -401,6 +399,18 @@ func (t *RouteTable) gateBase(
 		}
 	}
 	return group
+}
+
+// gateRecordFallback gates the record's fallback row when nothing else gated (D2/D3), without the pin's model.
+func (t *RouteTable) gateRecordFallback(
+	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, group []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	fb := spec.Fallback
+	if agent == "claude" || len(group) > 0 || fb == "" || fb == spec.Profile || o.Fallback == FallbackNone || o.Fallback == "" {
+		return nil
+	}
+	return t.gatePinned(ctx, pg.reg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res)
 }
 
 func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {

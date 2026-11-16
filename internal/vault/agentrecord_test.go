@@ -176,3 +176,10 @@ func TestReadAgentRecordsReturnsACopy(t *testing.T) {
 		t.Errorf("cached record after a caller's edits = %+v (%d opens), want %+v from the cache", again, *opens, want)
 	}
 }
+
+func TestLoginRenamesKeepsCollidingRows(t *testing.T) {
+	renames, warns := LoginRenames(map[string]string{"a": "Octo", "b": "octo", "c": "prod", "d": "dee"}, []string{"a", "b", "c", "d", "prod"})
+	if len(renames) != 2 || renames["a"] != "Octo" || renames["d"] != "dee" || len(warns) != 2 {
+		t.Errorf("renames = %v, warns = %v; want a and d renamed, b and c kept with a warning each", renames, warns)
+	}
+}

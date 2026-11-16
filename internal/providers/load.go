@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"os"
 	"slices"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
@@ -239,11 +241,7 @@ func Parse(base, overlay []byte) (*Registry, error) {
 	}
 	mergeErr := mergeOverlay(reg, overlay)
 	order := declaredOrder(reg, base, overlay)
-	if renames, err := nameGithubRows(reg); err != nil {
-		mergeErr = errors.Join(mergeErr, err)
-	} else {
-		order = renameAll(order, renames)
-	}
+	order = renameAll(order, nameGithubRows(reg))
 	for n, p := range reg.Providers {
 		p.Name = n
 	}
@@ -387,17 +385,18 @@ func ProfileNames() []string {
 	return reg.Names()
 }
 
-func nameGithubRows(reg *Registry) (map[string]string, error) {
-	logins := map[string]string{}
+func nameGithubRows(reg *Registry) map[string]string {
+	logins, names := map[string]string{}, []string{}
 	for n, p := range reg.Providers {
-		if p != nil && p.Provider == "github" && p.Login != "" {
+		if p == nil {
+			continue
+		}
+		names = append(names, n)
+		if p.Provider == "github" && p.Login != "" {
 			logins[n] = p.Login
 		}
 	}
-	renames, err := loginRenames(logins, func(n string) bool { return reg.Providers[n] != nil })
-	if err != nil {
-		return nil, err
-	}
+	renames := loginRenames(logins, names)
 	rows := map[string]*Provider{}
 	for old, name := range renames {
 		rows[name] = reg.Providers[old]
@@ -405,7 +404,7 @@ func nameGithubRows(reg *Registry) (map[string]string, error) {
 	}
 	maps.Copy(reg.Providers, rows)
 	yieldOpencodeID(reg)
-	return renames, nil
+	return renames
 }
 
 func yieldOpencodeID(reg *Registry) {
@@ -422,23 +421,17 @@ func yieldOpencodeID(reg *Registry) {
 	}
 }
 
-func loginRenames(logins map[string]string, exists func(string) bool) (map[string]string, error) {
-	renames := map[string]string{}
-	owner := map[string]string{}
-	for _, key := range slices.Sorted(maps.Keys(logins)) {
-		login := logins[key]
-		if prev, ok := owner[login]; ok {
-			return nil, fmt.Errorf("github rows %q and %q share login %q; a login names one row", prev, key, login)
-		}
-		owner[login] = key
-		if login != key && exists(login) && logins[login] != login {
-			return nil, fmt.Errorf("github row %q has login %q, which is already the name of another row", key, login)
-		}
-		if login != key {
-			renames[key] = login
+var warnedRenames sync.Map
+
+// loginRenames is vault.LoginRenames with each collision warning printed once per process.
+func loginRenames(logins map[string]string, names []string) map[string]string {
+	renames, warns := vault.LoginRenames(logins, names)
+	for _, w := range warns {
+		if _, dup := warnedRenames.LoadOrStore(w, true); !dup {
+			fmt.Fprintln(os.Stderr, "warning: "+w)
 		}
 	}
-	return renames, nil
+	return renames
 }
 
 func renameAll(names []string, renames map[string]string) []string {
