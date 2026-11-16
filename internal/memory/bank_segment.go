@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 type segMode uint8
@@ -77,7 +78,7 @@ func ownerKey(name string, keys []string) string {
 
 // ownedFiles lists b's *.md in sub: the names carrying b's prefix.
 func ownedFiles(b Bank, sub string) []string {
-	files := globIn(b.SubDir(sub), "*.md")
+	files := transcript.GlobIn(b.SubDir(sub), "*.md")
 	keys := BankKeys()
 	return slices.DeleteFunc(files, func(p string) bool { return ownerKey(filepath.Base(p), keys) != b.Key })
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 var (
@@ -257,7 +258,7 @@ func reviseFilesOf(banks []Bank, archives bool) []string {
 	for _, b := range banks {
 		for _, name := range reviseFiles {
 			p := b.Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
-			out = append(out, globIn(filepath.Dir(p), filepath.Base(p))...)
+			out = append(out, transcript.GlobIn(filepath.Dir(p), filepath.Base(p))...)
 		}
 	}
 	return out

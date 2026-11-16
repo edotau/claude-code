@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // dreamPreview is `memory dream --dry-run`'s deterministic report of the mechanical steps only.
@@ -141,7 +142,7 @@ type dreamOptions struct {
 // dreamChanged lists the top-level store .md files modified after since (all when zero).
 func dreamChanged(since time.Time) []string {
 	var out []string
-	for _, f := range globIn(StoreDir(), "*.md") {
+	for _, f := range transcript.GlobIn(StoreDir(), "*.md") {
 		if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
 			out = append(out, f)
 		}
