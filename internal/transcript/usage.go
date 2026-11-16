@@ -179,14 +179,28 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 	}
 }
 
-// WorkflowRunDirs lists the subagents/workflows/<runId> dirs of a session dir; the path may hold glob wildcards.
-func WorkflowRunDirs(sessionDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "workflows", "*"))
-	if err != nil {
-		return nil
+// globLiteral escapes s's glob metacharacters as one-rune classes, which filepath.Match reads literally on every OS.
+var globLiteral = strings.NewReplacer(globEscapes()...).Replace
+
+// globEscapes pairs each metacharacter with its class; `\` is an escape only where it is not the path separator.
+func globEscapes() []string {
+	pairs := []string{`*`, `[*]`, `?`, `[?]`, `[`, `[[]`}
+	if filepath.Separator != '\\' {
+		pairs = append(pairs, `\`, `[\\]`)
 	}
+	return pairs
+}
+
+// globIn is filepath.Glob(dir/pattern) with dir matched literally.
+func globIn(dir, pattern string) []string {
+	m, _ := filepath.Glob(filepath.Join(globLiteral(dir), pattern))
+	return m
+}
+
+// WorkflowRunDirs lists the subagents/workflows/<runId> dirs of a session dir.
+func WorkflowRunDirs(sessionDir string) []string {
 	var dirs []string
-	for _, m := range matches {
+	for _, m := range globIn(filepath.Join(sessionDir, "subagents", "workflows"), "*") {
 		if info, err := os.Stat(m); err == nil && info.IsDir() {
 			dirs = append(dirs, m)
 		}
@@ -195,39 +209,28 @@ func WorkflowRunDirs(sessionDir string) []string {
 	return dirs
 }
 
-// SessionAgentFiles lists a session dir's subagents/*.jsonl plus its workflow agents; the path may hold glob wildcards.
+// SessionAgentFiles lists a session dir's subagent and workflow-agent transcripts; a path not on disk is a glob.
 func SessionAgentFiles(sessionDir string) ([]string, error) {
-	files, err := filepath.Glob(filepath.Join(sessionDir, "subagents", "*.jsonl"))
-	for _, run := range WorkflowRunDirs(sessionDir) {
-		files = append(files, WorkflowAgentFiles(run)...)
+	dirs := []string{sessionDir}
+	var err error
+	if _, serr := os.Stat(sessionDir); serr != nil {
+		dirs, err = filepath.Glob(sessionDir)
+	}
+	var files []string
+	for _, dir := range dirs {
+		files = append(files, globIn(filepath.Join(dir, "subagents"), "*.jsonl")...)
+		for _, run := range WorkflowRunDirs(dir) {
+			files = append(files, WorkflowAgentFiles(run)...)
+		}
 	}
 	return files, err
 }
 
 // WorkflowAgentFiles lists one run dir's agent-*.jsonl transcripts, keeping *.meta.json sidecars out of the scan.
 func WorkflowAgentFiles(runDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(runDir, "agent-*.jsonl"))
-	if err != nil {
-		return nil
-	}
+	matches := globIn(runDir, "agent-*.jsonl")
 	slices.Sort(matches)
 	return matches
-}
-
-// WorkflowPhaseFromMeta reads the sibling meta's workflowPhase; "" is normal (many metas carry none).
-func WorkflowPhaseFromMeta(transcriptPath string, errw io.Writer) string {
-	raw, err := os.ReadFile(strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json")
-	if err != nil {
-		return ""
-	}
-	var meta struct {
-		WorkflowPhase string `json:"workflowPhase"`
-	}
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		fmt.Fprintf(errw, "usage: warning: skipping meta for %s: %v\n", transcriptPath, err)
-		return ""
-	}
-	return meta.WorkflowPhase
 }
 
 // tailBytes bounds the common-case read: the latest usage record sits near EOF of an append-only file.

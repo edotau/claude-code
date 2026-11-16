@@ -35,7 +35,7 @@ type UpdateRequest struct {
 	OnDispatch                 func(trigger string, work int, now time.Time)
 }
 
-// GateResult is the update gate's verdict: Blocked = Stop must block (Work units uncovered); FailedOpen = not saved.
+// GateResult is the gate's verdict: Blocked = Stop gets a not-saved note (work units uncovered); FailedOpen = unsaved.
 type GateResult struct {
 	Blocked    bool
 	Work       int

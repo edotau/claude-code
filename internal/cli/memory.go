@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -34,8 +35,9 @@ var memorySubs = []memorySub{
 
 var memoryPage = helptext.Page{
 	Usage: "claude-code memory <command> [flags] [args]",
-	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
-		"update writes them. Recall and save facts, then promote the ones that hold up.",
+	About: "One flat memory store (<key>--<name> per repo, unprefixed = home): session-start\n" +
+		"injects it, the Stop/SessionEnd update writes it. Recall and save facts, then\n" +
+		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, fmt, watch,\n" +
 		"          import, sandbox (off menu)\n" +
@@ -56,7 +58,7 @@ var memoryPlumbing = map[string][2]string{
 	"search":  {"<terms>", "rank blocks for terms, with scores"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"index":   {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
-	"path":    {"[SUB] [NAME]", "print a flat-store path: bank, handoffs|reports|knowledge|worktrees"},
+	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
 	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/<key>--*"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
@@ -403,7 +405,7 @@ func cmdMemoryPath(args []string) int {
 // cmdMemoryReport appends a JSON report and its decisions to the repo's bank reports/ and prints both paths.
 func cmdMemoryReport(args []string) int {
 	fs, repo := memoryRepoFlagSet("report")
-	label := fs.String("label", "", "report name: reports/<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
+	label := fs.String("label", "", "report name: reports/[<key>--]<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
 	file := fs.String("file", "", "JSON input file: {\"report\": markdown, \"decisions\": [...]}")
 	stdin := fs.Bool("stdin", false, "read the JSON input from stdin")
 	format := helptext.FormatFlag(fs)
@@ -579,6 +581,9 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 	return dir, host, err
 }
 
+// memoryFetchTimeout bounds the whole `memory import --host` transfer; a store is tens of MB, so this is generous.
+const memoryFetchTimeout = 10 * time.Minute
+
 // fetchMemoryRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
 func fetchMemoryRoot(host string) (string, error) {
 	script := `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
@@ -590,7 +595,11 @@ func fetchMemoryRoot(host string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
+	ctx, cancel := context.WithTimeout(context.Background(), memoryFetchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	proc.OwnGroup(cmd) // the deadline kills ssh's whole group, so a hung host cannot block the import
+	cmd.WaitDelay = proc.ExecWaitDelay
 	cmd.Stderr = os.Stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {

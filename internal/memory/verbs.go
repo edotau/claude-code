@@ -94,15 +94,6 @@ func ResolveBank(repo string) (string, Bank, error) {
 	return top, BankFor(top), nil
 }
 
-// ResolveRoot is ResolveBank for verbs that need a checkout: a flat bank key alone cannot name one.
-func ResolveRoot(repo string) (string, error) {
-	top, _, err := ResolveBank(repo)
-	if err == nil && top == "" {
-		err = fmt.Errorf("--repo %q is a bank key and this verb needs a checkout path", repo)
-	}
-	return top, err
-}
-
 func ensureResolvedBank(repo string) (Bank, error) {
 	root, b, err := ResolveBank(repo)
 	if err != nil {
@@ -324,10 +315,13 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	return false, nil
 }
 
-// isOwnBankFile reports whether f sits in the harness's or the home bank.
-func isOwnBankFile(f string) bool {
-	k := BankOfFile(f).Key
-	return k == "" || k == harnessStoreKey()
+// ownBankFile reports whether a file sits in the harness's or the home bank; bank keys are read once per call.
+func ownBankFile() func(f string) bool {
+	keys, own := BankKeys(), harnessStoreKey()
+	return func(f string) bool {
+		k := bankOfFile(f, keys).Key
+		return k == "" || k == own
+	}
 }
 
 // FormatOwn wraps only this repo's and the home bank, listing what it wrapped; other banks keep the check note.
@@ -336,6 +330,7 @@ func FormatOwn(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	isOwnBankFile := ownBankFile()
 	own := slices.DeleteFunc(slices.Clone(targets), func(f string) bool { return !isOwnBankFile(f) })
 	var changed []string
 	err = withFlatLock(BankLockWait, func() (ferr error) {
@@ -374,6 +369,7 @@ func FormatCheck(w io.Writer) (dirty bool, err error) {
 		return false, err
 	}
 	var inScope, other int
+	isOwnBankFile := ownBankFile()
 	for _, f := range changed {
 		if isOwnBankFile(f) {
 			inScope++

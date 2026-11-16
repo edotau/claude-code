@@ -33,7 +33,7 @@ func JobScope(kind, workdir string) Scope {
 	case JobDream:
 		// dream alone may promote a gated hard rule, which it then writes into CLAUDE.md by hand
 		s.Write = []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")}
-		s.Bash = []string{"claude-code memory review --timeline *", "claude-code memory review *", "claude-code memory index *",
+		s.Bash = []string{"claude-code memory review *", "claude-code memory index *",
 			"claude-code memory promote *"}
 	default:
 		return s

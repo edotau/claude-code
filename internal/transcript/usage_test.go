@@ -189,32 +189,6 @@ func TestWorkflowRunDirsAndAgentFiles(t *testing.T) {
 	}
 }
 
-// The sidecar's phase is read; a missing sidecar is a silent "", a malformed one "" with a warning.
-func TestWorkflowPhaseFromMeta(t *testing.T) {
-	for _, tc := range []struct {
-		name, meta, want string
-		warn             bool
-	}{
-		{"phase", `{"workflowPhase":"Detect"}`, "Detect", false},
-		{"no sidecar", "", "", false},
-		{"malformed", `{"workflowPhase":`, "", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			files := map[string]string{"agent-a.jsonl": ""}
-			if tc.meta != "" {
-				files["agent-a.meta.json"] = tc.meta
-			}
-			writeTree(t, dir, files)
-			var errw strings.Builder
-			got := WorkflowPhaseFromMeta(filepath.Join(dir, "agent-a.jsonl"), &errw)
-			if warned := strings.Contains(errw.String(), "usage: warning: skipping meta for"); got != tc.want || warned != tc.warn {
-				t.Errorf("phase = %q, warning %q; want %q, warning=%v", got, errw.String(), tc.want, tc.warn)
-			}
-		})
-	}
-}
-
 func TestWindow(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "")
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5[1m]")

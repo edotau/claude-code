@@ -137,9 +137,6 @@ func TestResolveBankKeyAndPath(t *testing.T) {
 		if err != nil || b.Key != "proj" || top != "" {
 			t.Errorf("ResolveBank(key) = %q %+v %v; a key carries no checkout", top, b, err)
 		}
-		if _, err := ResolveRoot("proj"); err == nil {
-			t.Error("ResolveRoot(key) must err: a key names no checkout")
-		}
 		if _, _, err := ResolveBank("nosuch-bank"); err == nil {
 			t.Error("an unknown key that is not a path must err")
 		}

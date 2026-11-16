@@ -144,9 +144,9 @@ func (p *importPlan) apply(opt ImportOptions) error {
 	return commitBanks("settle: import "+label, p.touched)
 }
 
-// Mixed layouts cannot share file attribution safely.
+// Mixed layouts cannot share file attribution safely; read-only, as the apply path's withFlatLock already stamped.
 func checkImportLayout(from string) error {
-	if err := requireFlat(); err != nil {
+	if err := checkFlat(); err != nil {
 		return err
 	}
 	if stamp, _ := os.ReadFile(filepath.Join(from, layoutFile)); strings.TrimSpace(string(stamp)) != layoutFlat {
@@ -419,7 +419,7 @@ func (p *importPlan) record(pr importPair, rel string, a importAction) {
 		return
 	}
 	p.changes = append(p.changes, Change{Rel: storeRel(pr.tgt, filepath.FromSlash(rel)), Data: a.data})
-	b := migrationBank(pr.key)
+	b := bankOfStateKey(pr.key)
 	if !slices.Contains(p.touched, b) {
 		p.touched = append(p.touched, b)
 	}
@@ -625,7 +625,8 @@ func sortNewestFirst(all []string) []string {
 
 var indexLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
-func migrationBank(key string) Bank {
+// bankOfStateKey inverts stateKey: "home" is the home bank.
+func bankOfStateKey(key string) Bank {
 	if key == homeDir {
 		return HomeBank()
 	}
