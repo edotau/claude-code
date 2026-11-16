@@ -975,3 +975,62 @@ func TestLeafGateKeepsBothNotes(t *testing.T) {
 		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
 	}
 }
+
+// bgNotice is the notice Claude Code gives an ask auto-moved to the background by an arriving message.
+func bgNotice(out string) string {
+	return "Command was moved to the background (ID: bX1) so that a message that arrived while it was running can reach you; " +
+		"it was not interrupted. Output is being written to: " + out + ". You will be notified when it completes."
+}
+
+// bgOutputFile writes a task output file and returns its path.
+func bgOutputFile(t *testing.T, body string) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "tasks", "bX1.output")
+	if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// Both background notices name the task output file the reaper collects.
+func TestAppendOutputFilesMovedToBackground(t *testing.T) {
+	out := "/tmp/c/tasks/bX1.output"
+	for _, text := range []string{bgNotice(out), "Command running in background with ID: bX1. Output is being written to: " + out + ". You"} {
+		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_result", "tool_use_id": "t", "content": text}}}})
+		if got := appendOutputFiles(nil, map[string]bool{}, line); len(got) != 1 || got[0] != out {
+			t.Errorf("%.40s...: got %v, want [%s]", text, got, out)
+		}
+	}
+}
+
+// Regression (2026-11-16): a backgrounded ask's receipt lives in its output file, so the gate must read it.
+func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
+	brief := "Objective: x\nAgent: codex\n"
+	ran := bgOutputFile(t, "ask: ran on codex · gpt-5\nresult\n")
+	if r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(ran)), "a1"); blocked || r.SystemMessage != "" {
+		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
+	}
+	empty := bgOutputFile(t, "working\n")
+	if _, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !blocked {
+		t.Fatal("an output with no receipt must still block")
+	}
+	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
+	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
+	if blocked || !strings.Contains(r.SystemMessage, "did not run an agent") {
+		t.Fatalf("did-not-run output: got %+v blocked=%v, want the did-not-run note", r, blocked)
+	}
+}
+
+// A leaf resumed by a plain user turn after its hand-back gets the resumed wording, not the never-called one.
+func TestRanOnResumedLeafWording(t *testing.T) {
+	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls", handedBackMark)
+	appendLines(t, in.AgentTranscriptPath, `{"type":"user","message":{"content":"one more thing"}}`)
+	r, blocked := leafStopBlock(in, "a1")
+	if blocked || !strings.Contains(r.SystemMessage, "resumed after its hand-back; no new `ask: ran on` receipt this round") {
+		t.Fatalf("got %+v blocked=%v, want the resumed wording", r, blocked)
+	}
+}
