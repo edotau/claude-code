@@ -169,6 +169,7 @@ func leafWants(in *core.Input) leafWant {
 // leafRead is one pass over a leaf transcript: its dispatch ids, brief scan and background output files.
 type leafRead struct {
 	ids, files []string
+	recs       []agent.Record // ids' readable records, loaded once by leafGate and shared by its gates
 	scan       leafScan
 	openErr    error     // the transcript could not be opened
 	scanErr    error     // reading stopped early: scan is partial and files are dropped
@@ -215,7 +216,8 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" || lr.openErr != nil {
 		return core.Result{}, false
 	}
-	expired, block := liveDispatchVerdict(in, lr, agentID)
+	lr.recs = loadRecords(lr.ids)
+	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
 		return preserveReport(in, agentID, lr, expired), true
 	}
@@ -240,26 +242,44 @@ func mergeGate(expired, res core.Result) core.Result {
 	return expired
 }
 
-// liveDispatchVerdict blocks on the first live dispatch within its wait limit, else carries the first note.
-func liveDispatchVerdict(in *core.Input, lr leafRead, agentID string) (expired core.Result, block bool) {
-	for _, id := range lr.ids {
-		rec, err := loadDispatch(id)
-		if err != nil || !jobRunning(rec) {
+// loadRecords is the readable dispatch records of ids, in dispatch order: the one selection both gates share.
+func loadRecords(ids []string) []agent.Record {
+	var recs []agent.Record
+	for _, id := range ids {
+		if rec, err := loadDispatch(id); err == nil {
+			recs = append(recs, rec)
+		}
+	}
+	return recs
+}
+
+// liveDispatchVerdict waits on each live dispatch, updating lr.recs; it blocks on one still running, else notes.
+func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired core.Result, block bool) {
+	recs, ended := slices.Clone(lr.recs), []receipt(nil)
+	for i, rec := range recs {
+		if !jobRunning(rec) {
 			continue
 		}
-		if rec, err = awaitDispatch(rec, lr.until); err != nil {
+		rec, err := awaitDispatch(rec, lr.until)
+		if err != nil {
 			continue
 		}
-		res, block := endedReceipt(in, rec, "ended while the hand-back waited", ""), false
-		if jobRunning(rec) {
-			res, block = leafStopVerdict(agentID, rec)
+		recs[i] = rec
+		if !jobRunning(rec) {
+			ended = append(ended, endedNote(rec, "ended while the hand-back waited", ""))
+			continue
 		}
+		res, block := leafStopVerdict(agentID, rec)
 		if block {
 			return res, true
 		}
 		if expired.SystemMessage == "" {
 			expired = res
 		}
+	}
+	lr.recs = recs
+	if len(ended) > 0 { // a finished job's answer outranks a limit note
+		expired = attachAll(in, ended)
 	}
 	return expired, false
 }

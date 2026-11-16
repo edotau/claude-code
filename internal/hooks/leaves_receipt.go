@@ -120,16 +120,22 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 	if hookRan {
 		lr.scan.askTimes = append(lr.scan.askTimes, m.Started)
 	}
-	if rec, how, ok := leafDispatch(lr, st); ok {
-		if hookRan && launchedBy(rec.Time, []time.Time{m.Started}) {
-			how = "the hook ran the brief's `Run:` line itself"
+	if recs, how, ok := leafDispatch(lr, st); ok {
+		var got []receipt
+		for _, rec := range recs {
+			how, output := how, m.Output
+			if hookRan && launchedBy(rec.Time, []time.Time{m.Started}) {
+				how = "the hook ran the brief's `Run:` line itself"
+			} else if len(recs) > 1 {
+				output = "" // the hook's output belongs to its own launch only
+			}
+			r, hold, held := dispatchReceipt(rec, how, output, lr.until)
+			if held {
+				return hold, true
+			}
+			got = append(got, r)
 		}
-		rec, err := awaitDispatch(rec, lr.until)
-		if err != nil {
-			return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
-				"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID), jobOut{}), false
-		}
-		return recordReceipt(in, rec, how, m.Output)
+		return attachAll(in, got), false
 	}
 	if hookRan {
 		return relayRunPending(in, m)
@@ -143,24 +149,22 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 	return runBriefLine(in, agentID, words, lr.scan.runLine)
 }
 
-// leafDispatch is the job this leaf started: an id its tool results printed, else a record launched by its ask call.
-func leafDispatch(lr leafRead, st string) (rec agent.Record, how string, ok bool) {
-	for _, id := range lr.ids {
-		if rec, err := loadDispatch(id); err == nil {
-			return rec, "printed in its tool results", true
-		}
+// leafDispatch is the jobs this leaf started: its printed ids' records, else the one its ask call launched.
+func leafDispatch(lr leafRead, st string) (recs []agent.Record, how string, ok bool) {
+	if len(lr.recs) > 0 {
+		return lr.recs, "printed in its tool results", true
 	}
 	if len(lr.scan.askTimes) == 0 {
-		return agent.Record{}, "", false
+		return nil, "", false
 	}
 	owner := inflight.SessionOwner()
 	for _, rec := range recentDispatches(50) {
 		mine := owner == 0 || rec.Owner == 0 || rec.Owner == owner
 		if mine && (rec.Agent == st || rec.Fallback == st) && launchedBy(rec.Time, lr.scan.askTimes) {
-			return rec, "launched by its ask call", true
+			return []agent.Record{rec}, "launched by its ask call", true
 		}
 	}
-	return agent.Record{}, "", false
+	return nil, "", false
 }
 
 // launchedBy is a record start within askLaunchWindow after one of the ask calls (2 s early for clock rounding).
@@ -170,27 +174,49 @@ func launchedBy(start time.Time, calls []time.Time) bool {
 	})
 }
 
-// recordReceipt holds while the job runs (up to the cap), then passes with its ran-on line and result attached.
-func recordReceipt(in *core.Input, rec agent.Record, how, output string) (core.Result, bool) {
-	if jobRunning(rec) {
-		if time.Since(rec.Time) >= leafStopMaxWait {
-			return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
-				"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID), jobOut{}), false
-		}
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
-			"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
-			"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}, true
-	}
-	return endedReceipt(in, rec, how, output), false
+// receipt is one dispatch's note line and the result attached under it.
+type receipt struct {
+	note string
+	body jobOut
 }
 
-// endedReceipt passes a finished job's hand-back with its ran-on line and result attached.
-func endedReceipt(in *core.Input, rec agent.Record, how, output string) core.Result {
+// dispatchReceipt waits for rec; a job still running holds (up to the cap), a finished one gives its receipt.
+func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (receipt, core.Result, bool) {
+	rec, err := awaitDispatch(rec, until)
+	switch {
+	case err != nil:
+		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
+			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}, core.Result{}, false
+	case !jobRunning(rec):
+		return endedNote(rec, how, output), core.Result{}, false
+	case time.Since(rec.Time) >= leafStopMaxWait:
+		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
+			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, core.Result{}, false
+	}
+	return receipt{}, core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
+		"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
+		"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}, true
+}
+
+// endedNote is a finished job's ran-on line and result.
+func endedNote(rec agent.Record, how, output string) receipt {
 	body := jobResult(&rec, output)
 	if line := rec.ResultEnvelope(io.Discard).RanOn; line != "" {
-		return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body)
+		return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body}
 	}
-	return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body)
+	return receipt{fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body}
+}
+
+// attachAll attaches one receipt as is; several go in dispatch order, each under its note, the latest on top.
+func attachAll(in *core.Input, rs []receipt) core.Result {
+	if len(rs) == 1 {
+		return attach(in, rs[0].note, rs[0].body)
+	}
+	bodies := make([]jobOut, len(rs))
+	for i, r := range rs {
+		bodies[i] = jobOut{summary: strings.TrimSpace(r.note + "\n" + r.body.summary), answer: r.body.answer}
+	}
+	return attach(in, rs[len(rs)-1].note, bodies...)
 }
 
 // relayRunPending is the hook's launch with no dispatch record yet: its output decides, else hold while it starts.
@@ -357,15 +383,20 @@ func (j jobOut) render(report string) string {
 	return "\n\n--- job result ---\n" + text
 }
 
-// attach puts a one-line note on top of the hand-back and the result below it; a stop gets the note only.
-func attach(in *core.Input, note string, body jobOut) core.Result {
+// attach puts a one-line note on top of the hand-back and the results below it; a stop gets the note only.
+func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 	res := core.Result{SystemMessage: note}
 	if in.ToolName != "SubagentHandback" {
 		return res
 	}
 	if updated := in.CloneToolInput(); updated != nil {
 		msg, _ := updated["message"].(string)
-		updated["message"] = note + "\n\n" + msg + body.render(msg)
+		var text strings.Builder
+		text.WriteString(note + "\n\n" + msg)
+		for _, b := range bodies {
+			text.WriteString(b.render(msg))
+		}
+		updated["message"] = text.String()
 		res.UpdatedInput = updated
 	}
 	return res

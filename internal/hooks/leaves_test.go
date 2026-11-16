@@ -1315,3 +1315,32 @@ func TestHandbackWaitBudget(t *testing.T) {
 		t.Fatalf("handbackWait = %s with budget %s, want 10s..budget-%s", handbackWait, spec.Budget, core.HookMargin)
 	}
 }
+
+// Two jobs, the second ending while the hand-back waits: both answers ride along in order, the waited one named on top.
+func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
+	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
+	orig := loadDispatch
+	t.Cleanup(func() { loadDispatch = orig })
+	reads := 0
+	loadDispatch = func(id string) (agent.Record, error) {
+		status := "ok"
+		if id == "second" {
+			if reads++; reads == 1 {
+				status = "running"
+			}
+		}
+		log := filepath.Join(filepath.Dir(in.AgentTranscriptPath), id+".log")
+		if err := os.WriteFile(log, []byte("FINAL ANSWER "+id), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return agent.Record{Log: log, ID: id, Agent: "codex", Status: status, PID: os.Getpid(), Time: time.Now().Add(-time.Minute)}, nil
+	}
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+	lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Second)
+	r, blocked := leafGate(in, "a1", lr)
+	msg, _ := r.UpdatedInput["message"].(string)
+	first, second := strings.Index(msg, "FINAL ANSWER first"), strings.Index(msg, "FINAL ANSWER second")
+	if blocked || reads < 2 || first < 0 || second < first || !strings.HasPrefix(msg, "NOTE: dispatch second ") {
+		t.Fatalf("got %+v (reads=%d), want both answers in dispatch order under the second job's receipt", r, reads)
+	}
+}
