@@ -71,7 +71,7 @@ func decodeCtrl(b byte) Key {
 func decodeRune(buf []byte) (Key, int) {
 	r, n := utf8.DecodeRune(buf)
 	if r == utf8.RuneError && n == 1 && !utf8.FullRune(buf) {
-		return Key{}, 0 // incomplete rune at the buffer's end — wait for the rest
+		return Key{}, 0
 	}
 	return Key{Kind: KeyRune, Rune: r}, n
 }
@@ -85,7 +85,7 @@ func decodeEscape(buf []byte) (Key, int) {
 		return dropped, 1
 	}
 	if len(buf) < 3 {
-		return Key{}, 0 // "ESC [" or "ESC O" with no final byte yet
+		return Key{}, 0
 	}
 	if buf[1] == 'O' { // SS3 arrows (application cursor mode); other SS3 keys drop through their final byte
 		if kind, ok := csiArrows[buf[2]]; ok {
@@ -152,11 +152,11 @@ func drain(pending []byte) ([]Key, []byte) {
 		}
 		key, consumed := decode(pending)
 		if consumed == 0 {
-			break // incomplete tail — wait for the next read
+			break
 		}
 		pending = pending[consumed:]
 		if key.Kind == KeyRune && key.Rune == 0 {
-			continue // dropped control byte / unknown sequence
+			continue
 		}
 		keys = append(keys, key)
 	}
@@ -190,7 +190,7 @@ func openTerminal() (*terminal, error) {
 	}
 	t := &terminal{fd: fd, prev: prev, out: os.Stdout, in: os.Stdin, keys: make(chan Key, 8),
 		stop: make(chan struct{}), done: make(chan struct{})}
-	fmt.Fprint(t.out, "\x1b[?25l") // hide cursor
+	fmt.Fprint(t.out, "\x1b[?25l")
 	t.unguard = restoreOnSignal(func() { fmt.Fprint(t.out, "\x1b[?25h"); _ = restore(fd, prev) })
 	go t.readKeys()
 	return t, nil

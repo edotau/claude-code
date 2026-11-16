@@ -265,7 +265,7 @@ func sectionBreak(color, hasSec bool, prev, next string) []line {
 	}
 	if hasSec && next != "" {
 		t := "== " + next + " =="
-		out = append(out, line{}, line{t, Accent(color, t)}) // a blank line sets each section apart
+		out = append(out, line{}, line{t, Accent(color, t)})
 	}
 	return out
 }
@@ -306,7 +306,7 @@ func listRow(s listState, r ListRow, i, p int, color bool, cols, lw, dw int) (ce
 		status = strings.TrimSpace("✓ " + status)
 	}
 	full := strings.TrimRight(pad(r.Label, lw)+"  "+pad(r.Detail, dw)+"  "+status, " ")
-	cells = table.Truncate(full, cols-2) // width <= 0 is unbounded
+	cells = table.Truncate(full, cols-2)
 	switch {
 	case i == s.pendRow:
 		styled = ansi.Style(color, ansi.Red, "▸") + " " + ansi.Style(color, ansi.Red+"\x1b[7m", cells)

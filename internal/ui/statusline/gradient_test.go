@@ -100,7 +100,7 @@ func TestRawModelIDServedSpelling(t *testing.T) {
 	}
 }
 
-// The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped, a routed label kept.
+// The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped.
 func TestRawModelID(t *testing.T) {
 	for id, want := range map[string]string{
 		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-opus-5-5",

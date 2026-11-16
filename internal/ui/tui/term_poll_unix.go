@@ -28,7 +28,7 @@ func waitReadable(fd int, d time.Duration) bool {
 	for {
 		readable, err := pollOnce(fd, max(time.Until(deadline), 0)) // EINTR retries wait only the remainder
 		if err == syscall.EINTR {
-			continue // a signal interrupted the wait, not the timeout: select again with a fresh set
+			continue
 		}
 		if err != nil {
 			return true

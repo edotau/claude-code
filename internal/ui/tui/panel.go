@@ -100,17 +100,17 @@ func panelLines(title string, s pickState, cols int) int {
 	for i, row := range s.rows {
 		n := len([]rune(row))
 		if !s.heads[i] {
-			n += 2 // the marker/space prefix; section titles are drawn bare
+			n += 2
 		}
 		lines += wrappedLines(n, cols)
 		if s.heads[i] && (i > 0 || title == "") {
-			lines++ // the blank line above a section title (the page title's own blank covers the first)
+			lines++
 		}
 	}
 	if len(s.rows) > 1 {
-		lines++ // blank line separating the trailing Submit/Back row from the rest
+		lines++
 	}
-	lines++ // blank line before the hint
+	lines++
 	lines += wrappedLines(len([]rune(hintText)), cols)
 	return lines
 }
@@ -124,10 +124,10 @@ func render(title string, s pickState, color bool) string {
 	}
 	for i, row := range s.rows {
 		if i == len(s.rows)-1 && len(s.rows) > 1 {
-			b.WriteString("\x1b[K\r\n") // every menu's trailing Submit/Back row sits one blank line below the rest
+			b.WriteString("\x1b[K\r\n")
 		}
 		if s.heads[i] {
-			if i > 0 || title == "" { // the page title already ends in a blank line
+			if i > 0 || title == "" {
 				b.WriteString("\x1b[K\r\n")
 			}
 			b.WriteString(Accent(color, row))
@@ -163,7 +163,7 @@ func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, st
 	defer func() { err = errors.Join(err, t.Close()) }()
 	s := pickState{rows: lay(0), heads: heads}
 	if n := len(s.rows); n > 0 {
-		s.sel = min(max(start, 0), n-1) // a start outside the rows clamps to the nearest row
+		s.sel = min(max(start, 0), n-1)
 	}
 	if s.heads[s.sel] {
 		s = s.step(1)
@@ -171,8 +171,8 @@ func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, st
 	color := ansi.Enabled(os.Stdout)
 	prev := 0 // lines the last frame drew: the next redraw rewinds exactly that many
 	draw := func() {
-		cols, h := t.Size()          // per frame: a resize keeps the window and the rewind honest
-		s.rows = lay(max(cols-2, 0)) // 2 = the marker prefix
+		cols, h := t.Size() // per frame: a resize keeps the window and the rewind honest
+		s.rows = lay(max(cols-2, 0))
 		f := fit(title, s, cols, h)
 		if prev > 0 {
 			fmt.Fprintf(os.Stdout, "\r\x1b[%dA\x1b[J", prev-1)
@@ -238,7 +238,7 @@ func sectionLines(sections []Section) (map[int]bool, []int) {
 	var pos []int
 	line := 0
 	for _, sec := range sections {
-		heads[line] = true // every section, the first included: a blank line, then its title
+		heads[line] = true
 		line++
 		for range sec.Rows {
 			pos = append(pos, line)

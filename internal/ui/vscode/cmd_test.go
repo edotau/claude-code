@@ -67,7 +67,7 @@ func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 }
 
 func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
 		return vscodeSync(isolated(t, tmpl, dest), false, false)
@@ -85,7 +85,7 @@ func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
 }
 
 func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
@@ -107,7 +107,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := hosttest.CaptureOutput(t, func() int {
 		return vscodeSync(isolated(t, tmpl, dest), true, false)
@@ -124,7 +124,7 @@ func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tmpl, dest := writeVSCodeFixture(t)
 	o := isolated(t, tmpl, dest)
 	if code, _, _ := hosttest.CaptureOutput(t, func() int {
@@ -144,7 +144,7 @@ func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 }
 
 func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := hosttest.CaptureOutput(t, func() int {
 		return vscodeSync(isolated(t, tmpl, dest), true, true)
@@ -158,7 +158,7 @@ func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 }
 
 func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	for _, flagArg := range []string{"-h", "--help"} {

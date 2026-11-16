@@ -26,12 +26,12 @@ func twolineRender(t *testing.T, session, extra string) []string {
 		&providers.Provider{Name: "dbx-u2m", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}},
 		&providers.Provider{Name: "dbx-key", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}})
 	writeTokenExpiry(t, "dbx-u2m", time.Now().Add(42*time.Minute+30*time.Second))
-	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute)) // a subscription session never shows it
+	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute))
 	payload := fmt.Sprintf(`{"workspace":{"current_dir":%q},%s%s}`, filepath.Join(t.TempDir(), "proj"), twolineBody, extra)
 	return strings.Split(plain(renderStatusline([]byte(payload), "twoline")), "\n")
 }
 
-// Both rows of the OAuth session: row 1 has the dir basename, provider, auth countdown and effort; row 2 context bar, tokens, 7d.
+// Row 1 has the dir basename, provider, auth countdown and effort; row 2 the context bar, tokens and 7d.
 func TestTwolineRendersBothRows(t *testing.T) {
 	future := time.Now().Add(time.Hour).Unix()
 	rows := twolineRender(t, "dbx-u2m", fmt.Sprintf(`,"effort":{"level":"high"},`+
@@ -48,7 +48,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	}
 }
 
-// No effort drops ":effort", no seven_day drops the 7d cell, and a subscription session (expiry recorded) has no auth cell or leading separator.
+// No effort drops ":effort", no seven_day drops the 7d cell, a subscription session has no auth cell or separator.
 func TestTwolineCornerCases(t *testing.T) {
 	rows := twolineRender(t, "ultra", "")
 	if strings.HasSuffix(rows[0], ":") {

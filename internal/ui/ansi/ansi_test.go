@@ -16,9 +16,9 @@ func TestHex(t *testing.T) {
 		want RGB
 	}{
 		{"#FF6B9D", RGB{255, 107, 157}},
-		{"4796E4", RGB{71, 150, 228}}, // the leading # is optional
-		{"#abc", RGB{170, 187, 204}},  // 3-digit shorthand doubles each nibble
-		{"garbage", RGB{0, 0, 0}},     // wrong length → black, never a panic
+		{"4796E4", RGB{71, 150, 228}},
+		{"#abc", RGB{170, 187, 204}},
+		{"garbage", RGB{0, 0, 0}}, // wrong length → black, never a panic
 		{"", RGB{0, 0, 0}},
 	}
 	for _, c := range cases {
@@ -37,7 +37,7 @@ func TestParseHex(t *testing.T) {
 	}{
 		{"#300a24", RGB{0x30, 0x0a, 0x24}, 255, true},
 		{"abc", RGB{170, 187, 204}, 255, true},
-		{"#abcd", RGB{170, 187, 204}, 221, true}, // 4-digit shorthand doubles the alpha nibble too
+		{"#abcd", RGB{170, 187, 204}, 221, true},
 		{"#ffffff80", RGB{255, 255, 255}, 128, true},
 		{"#zzzzzz", RGB{}, 0, false}, // a non-hex digit rejects the whole value, never a partial parse
 		{"#12345", RGB{}, 0, false},
@@ -65,9 +65,9 @@ func TestToANSI256(t *testing.T) {
 		in   RGB
 		want int
 	}{
-		{RGB{0, 0, 0}, 16},        // black → cube origin
-		{RGB{255, 255, 255}, 231}, // white → cube max
-		{RGB{128, 128, 128}, 244}, // mid gray → grayscale ramp
+		{RGB{0, 0, 0}, 16},
+		{RGB{255, 255, 255}, 231},
+		{RGB{128, 128, 128}, 244},
 		{RGB{238, 238, 238}, 255}, // exact light gray → grayscale index, not the cube
 	}
 	for _, c := range cases {
@@ -108,7 +108,7 @@ func TestFgSeqPerMode(t *testing.T) {
 		// Indices >= 8 go through the bright prefix that bold already supplies, so both escapes are the same bytes.
 		{"ansi16", RGB{255, 255, 255}, false, "\x1b[1;37m"},
 		{"ansi16", RGB{255, 255, 255}, true, "\x1b[1;37m"},
-		{"nonsense", RGB{255, 0, 0}, false, "\x1b[31m"}, // unknown mode falls back to 16 colors
+		{"nonsense", RGB{255, 0, 0}, false, "\x1b[31m"},
 	}
 	for _, c := range cases {
 		if got := FgSeq(c.mode, c.rgb, c.bold); got != c.want {
@@ -126,7 +126,7 @@ func TestBgSeqPerMode(t *testing.T) {
 		{TrueColor, RGB{1, 2, 3}, "\x1b[48;2;1;2;3m"},
 		{ANSI256, RGB{128, 128, 128}, "\x1b[48;5;244m"},
 		{"ansi16", RGB{255, 0, 0}, "\x1b[41m"},
-		{"ansi16", RGB{255, 255, 255}, "\x1b[47m"}, // bright index folds onto its dim base
+		{"ansi16", RGB{255, 255, 255}, "\x1b[47m"},
 	}
 	for _, c := range cases {
 		if got := BgSeq(c.mode, c.rgb); got != c.want {

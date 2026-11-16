@@ -32,7 +32,7 @@ type mergeResult struct {
 
 // syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded and merges it into dest.
 func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mergeResult, error) {
-	rawTemplate := defaultTemplate // the embedded template ships with the binary
+	rawTemplate := defaultTemplate
 	if template != "" {
 		b, err := os.ReadFile(template)
 		if err != nil {
@@ -103,7 +103,7 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 
 // jsonEscape returns s escaped for use inside a JSON string literal (a path may hold quotes or backslashes).
 func jsonEscape(s string) string {
-	b, _ := json.Marshal(s) // marshaling a string cannot fail
+	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
 }
 

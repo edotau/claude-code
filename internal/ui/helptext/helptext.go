@@ -218,7 +218,7 @@ func flagRows(fs *flag.FlagSet) [][2]string {
 	if fs == nil {
 		return nil
 	}
-	short := map[string]string{} // long name -> its one-letter alias
+	short := map[string]string{}
 	fs.VisitAll(func(f *flag.Flag) {
 		if long, ok := strings.CutPrefix(f.Usage, shorthandPrefix); ok && len(f.Name) == 1 && fs.Lookup(long) != nil {
 			short[long] = f.Name

@@ -23,7 +23,7 @@ func Confirm(question string, def bool) bool {
 	fmt.Fprintf(os.Stdout, "%s %s ", question, yesNoHint(def))
 	line, err := stdinReader.ReadString('\n')
 	if err != nil && strings.TrimSpace(line) == "" {
-		return false // EOF or a dead stdin is a decline
+		return false
 	}
 	return ParseYesNo(line, def)
 }
@@ -200,7 +200,7 @@ func (s *escState) skip(c byte) bool {
 			*s = escSS3
 			return true
 		}
-	case escSS3: // ESC O x: application-mode arrow or function key, one final byte
+	case escSS3:
 		*s = escNone
 		return true
 	case escCSI:
