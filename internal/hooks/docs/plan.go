@@ -218,7 +218,7 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 
 // planRepoRoot is cwd's git root; anything under the config dir (the memory store is its own git repo) is the harness.
 func planRepoRoot(cwd string) string {
-	if cfg := paths.ConfigDir(); paths.Within(paths.CanonDeep(cwd), paths.Canon(cfg)) {
+	if cfg := paths.ConfigDir(); paths.Within(paths.CanonDeep(cwd), paths.CanonDeep(cfg)) {
 		return cfg
 	}
 	return cmp.Or(memory.GitToplevel(cwd), cwd)
@@ -401,7 +401,8 @@ func planDest(in *core.Input) (string, error) {
 	}
 	dir := filepath.Dir(abs)
 	root := planRepoRoot(in.CWD)
-	if canon := core.CanonPath(dir); canon != core.CanonPath(root) && canon != core.CanonPath(filepath.Join(root, "docs")) {
+	canon := foldCase(core.CanonPath(dir))
+	if canon != foldCase(core.CanonPath(root)) && canon != foldCase(core.CanonPath(filepath.Join(root, "docs"))) {
 		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")

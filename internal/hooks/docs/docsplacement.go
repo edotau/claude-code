@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -120,7 +121,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	if atRoot && rootAnchors[strings.ToLower(base)] { // anchors are exempt only at the repo root
 		return core.ExitProceed
 	}
-	inDocs := strings.HasPrefix(rel, "docs/")
+	inDocs := strings.HasPrefix(foldCase(rel), "docs/")
 	if !atRoot && !inDocs {
 		return core.ExitProceed
 	}
@@ -178,6 +179,14 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"-> rules/harness/docs-placement.md\n",
 		base, where, plansHome, reports, handoffs)
 	return core.ExitBlock
+}
+
+// foldCase lowercases p where the default filesystem is case-insensitive (macOS, Windows); Linux stays byte-exact.
+func foldCase(p string) string {
+	if runtime.GOOS == "linux" {
+		return p
+	}
+	return strings.ToLower(p)
 }
 
 func isMarkdownPath(path string) bool {

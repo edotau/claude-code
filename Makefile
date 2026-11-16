@@ -20,7 +20,7 @@ C_NOTE := \033[33mnote:\033[0m$(C_SP)
 endif
 
 # Go toolchain: a `go` on PATH wins; otherwise the user-local install at ~/.local/go (no sudo).
-# GO_VERSION follows go.mod's `go` line so bootstrap and CI (setup-go go-version-file) agree.
+# GO_VERSION follows go.mod's `go` line, so a bootstrap install matches the module's toolchain.
 GO_LOCAL_ROOT   ?= $(HOME)/.local/go
 GO              ?= $(shell command -v go 2>/dev/null || echo $(GO_LOCAL_ROOT)/bin/go)
 GO_VERSION      := $(shell awk '/^go /{print $$2; exit}' go.mod)
@@ -29,7 +29,7 @@ export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
 PKGS            := ./...
-# Mirrors .github/workflows/ci.yml's `gofmt -l cmd internal` exactly — audit must stay a superset.
+# Dirs that `make fmt` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
 # Repo-owned shell scripts (skill scripts included); lint-shell no-ops when the wildcard is empty.
@@ -168,7 +168,7 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 # Umbrella gate: lint, doctor --git over unpushed commits, one go test run, no-keyring tests, go build, govulncheck
 # (skipped offline), doctor --prompts, agents sync --dry-run, cli-menu.svg freshness.
 .PHONY: audit
-audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
+audit: compile  ## Local gate: lint, git secrets, test, build, vuln, docs
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory audit-git
 	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
@@ -204,7 +204,7 @@ audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commi
 		$(BIN) doctor --git --range '@{u}..HEAD'
 
 .PHONY: audit-nokeyring
-audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyring, as CI runs them
+audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyring, as a headless host runs them
 	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
 		| awk '/internal\/vault( |$$)/ {print $$1}'); \
 		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
