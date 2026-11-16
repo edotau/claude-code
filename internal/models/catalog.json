@@ -47,6 +47,7 @@
     {"id": "gpt-oss-120b", "name": "GPT OSS 120B", "chat_only": true, "limits": {"output": 25000}},
     {"id": "gpt-oss-20b", "name": "GPT OSS 20B", "chat_only": true, "limits": {"output": 25000}},
     {"id": "gemini-4-argon", "name": "Gemini 4 Argon", "thinking": true, "limits": {"context": 1048576}},
+    {"id": "gemini-4-hydrogen", "name": "Gemini 4 Hydrogen", "thinking": true, "limits": {"context": 1048576}},
     {"id": "gemini-3-8-flash", "name": "Gemini 3.8 Flash", "version": "3-8", "thinking": true, "limits": {"context": 1048576}},
     {"id": "gemini-3-7-flash", "name": "Gemini 3.7 Flash", "version": "3-7", "thinking": true, "limits": {"context": 1048576}},
     {"id": "gemini-3-6-flash", "name": "Gemini 3.6 Flash", "version": "3-6"},

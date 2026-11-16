@@ -95,8 +95,8 @@ func fprintResumeHint(w io.Writer, name, sessionID string) {
 	}
 }
 
-// Catalog is bare `<agent> catalog` off Databricks: the agent's own catalog via models or ModelsArgv, else a note.
-func Catalog(name, format string, models func(args []string) int) int {
+// Catalog is bare `<agent> catalog` off Databricks: the agent's own list, behind profile when given, else a note.
+func Catalog(name, format, profile string, models func(args []string) int) int {
 	s, ok := agent.LookupSchema(name)
 	if !ok || !s.External() {
 		return helptext.Fail("unknown agent %q", name)
@@ -116,10 +116,18 @@ func Catalog(name, format string, models func(args []string) int) int {
 		}
 		return models([]string{"--live", "--profile", n, "--format", format})
 	case len(s.CLI.ModelsArgv) > 0:
-		return Launch(name, s.CLI.ModelsArgv)
+		return Launch(name, modelsLaunchArgs(s.CLI.ModelsArgv, profile))
 	}
 	fmt.Printf("%s: no model catalog\n", name)
 	return 0
+}
+
+// modelsLaunchArgs is the launch argv of a models listing: argv, behind --profile when one was asked for.
+func modelsLaunchArgs(argv []string, profile string) []string {
+	if profile == "" {
+		return argv
+	}
+	return append([]string{"--profile", profile}, argv...)
 }
 
 // Setup is `<agent> setup`: check name's binary, login, route and projection; exit 1 when one fails.

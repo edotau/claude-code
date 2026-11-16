@@ -46,6 +46,15 @@ func TestRankOfLiteBeforeFlash(t *testing.T) {
 	}
 }
 
+// Hydrogen's agy ids carry an effort suffix; every one ranks as the family, between lite and Argon.
+func TestRankOfHydrogenEffortIDs(t *testing.T) {
+	for _, id := range []string{"gemini-4-hydrogen", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-xhigh"} {
+		if r := RankOf(id); !r.Known || r.Capability != 3 || r.Match != "gemini-4-hydrogen*" {
+			t.Errorf("RankOf(%s) = %+v, want the gemini-4-hydrogen* row at capability 3", id, r)
+		}
+	}
+}
+
 // A dated or prefixed id inherits its family's rank; an id no family matches is unknown.
 func TestRankOfFamily(t *testing.T) {
 	base := RankOf("claude-opus-5-5")

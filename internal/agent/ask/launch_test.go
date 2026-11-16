@@ -2,6 +2,7 @@ package ask
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,5 +47,20 @@ func TestWarnVersion(t *testing.T) {
 				t.Errorf("warned %q, want silence", buf.String())
 			}
 		})
+	}
+}
+
+// A models listing asked for under --profile launches behind that profile, so the agent's pin does not pick the route.
+func TestModelsLaunchArgsCarryProfile(t *testing.T) {
+	got := modelsLaunchArgs([]string{"models"}, "antigravity")
+	if want := []string{"--profile", "antigravity", "models"}; !slices.Equal(got, want) {
+		t.Fatalf("argv = %q, want %q", got, want)
+	}
+	opts, rest, err := agent.ParseLaunchArgs(got, false)
+	if err != nil || opts.Provider != "antigravity" || !slices.Equal(rest, []string{"models"}) {
+		t.Errorf("parsed profile=%q rest=%q err=%v", opts.Provider, rest, err)
+	}
+	if got := modelsLaunchArgs([]string{"models"}, ""); !slices.Equal(got, []string{"models"}) {
+		t.Errorf("no profile: argv = %q, want the listing alone", got)
 	}
 }

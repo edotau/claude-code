@@ -134,7 +134,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
-		Recheck: func() *retry.Error { return accountRefused(disp) }}
+		Recheck: func() *retry.Error { return accountRefused(disp, lreq.Model) }}
 	defer func() {
 		if r := recover(); r != nil {
 			if !retry.InBatch(ctx) {
@@ -154,7 +154,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		held.Release()
 	}()
 	// another task may have marked this account dead while this dispatch waited for its permit
-	if skip := accountRefused(disp); skip != nil {
+	if skip := accountRefused(disp, lreq.Model); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: lreq.Model, NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
@@ -164,21 +164,21 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	res.Invoked = lreq.Model
 	if next := retryModel(disp, lreq, err); next != "" { // once: the same agent on the next pool model
 		hops = append(hops, hopOf(disp, lreq, res, err))
-		first := err
+		first, firstModel := err, lreq.Model
 		lreq.Model = next
 		res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 		res.Invoked = lreq.Model
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
-			noteFailure(disp, first)
+			noteFailure(disp, firstModel, first)
 		}
 	}
 	hops = append(hops, hopOf(disp, lreq, res, err))
-	noteFailure(disp, err)
+	noteFailure(disp, lreq.Model, err)
 	return res, hops, false, err
 }
 
-func noteFailure(disp Dispatch, err error) {
-	noteQuota(disp, err)
+func noteFailure(disp Dispatch, model string, err error) {
+	noteQuota(disp, model, err)
 	noteAuth(disp, err)
 	noteStall(disp, err)
 }
@@ -516,8 +516,8 @@ func WithBatchRun(ctx context.Context, l *retry.Limiter) context.Context {
 	return retry.WithLimiter(withIsolation(ctx), l)
 }
 
-// accountRefused is KindQuota when disp's account is exhausted now, else KindAuth when marked auth-dead, else nil.
-func accountRefused(disp Dispatch) *retry.Error {
+// accountRefused is KindQuota when disp's account (or per-model: its model) is exhausted, else KindAuth, else nil.
+func accountRefused(disp Dispatch, model string) *retry.Error {
 	if disp.Account == "" {
 		return nil
 	}
@@ -525,6 +525,10 @@ func accountRefused(disp Dispatch) *retry.Error {
 	// copilot's own gate falls back to Databricks instead
 	if e := st[disp.Account]; disp.Account != copilotLoginAccount() && e.Status(now) == router.StateExhausted {
 		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: errors.New(router.ExhaustedReason(disp.Account, e, now))}
+	}
+	if until := st[disp.Account].ModelDead[router.ModelKey(model)]; router.PerModelQuota(disp.Account) && until.After(now) {
+		err := fmt.Errorf("%s: %s quota-denied until %s", disp.Account, model, until.Local().Format("2006-01-02 15:04"))
+		return &retry.Error{Kind: retry.KindQuota, Agent: disp.Agent.Name(), Err: err}
 	}
 	if reason, marked := st.AuthMarked(disp.Account, now); marked {
 		return &retry.Error{Kind: retry.KindAuth, Agent: disp.Agent.Name(), AuthReason: reason, Err: errors.New(disp.Account + ": " + reason)}
@@ -535,8 +539,8 @@ func accountRefused(disp Dispatch) *retry.Error {
 // rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
 const rateLimitHold = 10 * time.Minute
 
-// noteQuota remembers a KindQuota failure until its reset; a subscription KindRateLimit one for 10m.
-func noteQuota(disp Dispatch, err error) {
+// noteQuota holds a KindQuota failure until its reset (a subscription KindRateLimit: 10m); per-model: that model only.
+func noteQuota(disp Dispatch, model string, err error) {
 	e, ok := holdable(disp, err)
 	if !ok {
 		return
@@ -548,7 +552,20 @@ func noteQuota(disp Dispatch, err error) {
 	} else if t, ok := router.ParseReset(err.Error(), now); ok {
 		until = t
 	}
+	if router.PerModelQuota(disp.Account) && model != "" {
+		warnHold(disp.Account, markModelDead(disp.Account, model, until, now))
+		return
+	}
 	warnHold(disp.Account, markExhausted(disp.Account, until, now, FallbackReason(err)))
+}
+
+// markModelDead holds model on account until until; a busy state lock is an error, not a silent skip.
+func markModelDead(account, model string, until, now time.Time) error {
+	ran, err := router.MarkModelDead(account, model, until, now)
+	if err == nil && !ran {
+		err = errors.New("route state lock busy")
+	}
+	return err
 }
 
 // warnHold reports a failed route-state write; the run's own error still reports the failure, so it never aborts.
@@ -576,7 +593,7 @@ func holdable(disp Dispatch, err error) (*retry.Error, bool) {
 // NoteCopilotQuota marks the pinned copilot account exhausted by cause and returns that account's route-state key.
 func NoteCopilotQuota(cause error) string {
 	acct := copilotLoginAccount()
-	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, retry.Classify("copilot", cause, false))
+	noteQuota(Dispatch{Account: acct, Billing: router.BillSubscription}, "", retry.Classify("copilot", cause, false))
 	return acct
 }
 
