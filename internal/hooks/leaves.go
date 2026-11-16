@@ -343,8 +343,14 @@ func leafStopVerdict(agentID string, rec agent.Record) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. Run `claude-code agents result -f %s` "+
-		"with a 600000ms Bash timeout, repeating until it finishes, then report its result; do not stop before it reaches a terminal status.", rec.ID, rec.ID)}, true
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. %s", rec.ID, pollOnce(rec.ID))}, true
+}
+
+// pollOnce is the relay contract's wait rule, quoted in every hold on a running job.
+func pollOnce(id string) string {
+	return fmt.Sprintf("Run `claude-code agents result -f %s` once, in the foreground (600000ms Bash timeout); rerun it only "+
+		"if it times out with the job still running, at most 12 times. The moment it returns with the job ended, hand back "+
+		"its result.", id)
 }
 
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
@@ -447,6 +453,8 @@ type leafScan struct {
 	edited            bool   // the leaf edited files (an edit tool or a file-changing Bash call): it did the work itself
 	lastText          string // the leaf's last assistant text, its report at a stop
 	bgAsks            []string
+	polls             map[string]pollCall // tool_use id → each `agents result <id>` call
+	reported          []string            // ids already known at the last delivered hand-back
 }
 
 // leafToolResult is one tool_result item of a user message.
@@ -553,6 +561,12 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 			s.askCalls = map[string]bool{}
 		}
 		s.askCalls[it.ID] = true
+		if job, follow, ok := pollJob(it.Input.Command); ok {
+			if s.polls == nil {
+				s.polls = map[string]pollCall{}
+			}
+			s.polls[it.ID] = pollCall{job: job, follow: follow}
+		}
 		if !at.IsZero() && slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
 			s.askTimes = append(s.askTimes, at)
 		}
@@ -586,10 +600,18 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
 	}
-	if it.IsError {
+	if p, ok := s.polls[it.ToolUseID]; ok {
+		if m := bgOutputPattern().FindStringSubmatch(text); m != nil {
+			p.bgFile = m[1]
+		} else {
+			p.done = true
+		}
+		s.polls[it.ToolUseID] = p
+	}
+	if it.IsError || !strings.Contains(text, handedBackMark) {
 		return
 	}
-	s.handedBack = s.handedBack || strings.Contains(text, handedBackMark)
+	s.handedBack, s.reported = true, slices.Clone(s.ids)
 }
 
 // savedResultRe matches a persisted tool result's "Full output saved to:" path; only a tool-results file is read.
@@ -685,16 +707,17 @@ func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bo
 	return receiptFix(in, agentID, lr)
 }
 
-// Handback runs the stop gates on SubagentHandback, which ends a background leaf before SubagentStop can block it.
+// Handback runs the stop gates on SubagentHandback (it ends a background leaf before SubagentStop), pollGate on Bash.
 func Handback(in *core.Input) core.Result {
+	if in.ToolName == "Bash" {
+		return pollGate(in)
+	}
 	id := in.SubagentID()
 	if id == "" || in.ToolName != "SubagentHandback" {
 		return core.Result{}
 	}
 	leaf := *in
-	if leaf.AgentTranscriptPath == "" {
-		leaf.AgentTranscriptPath = filepath.Join(inflight.SubagentDir(in.TranscriptPath), "agent-"+id+".jsonl")
-	}
+	leaf.AgentTranscriptPath = leafTranscript(in, id)
 	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf))
 	lr.until = time.Now().Add(handbackWait)
 	res, _ := leafGate(&leaf, id, lr)

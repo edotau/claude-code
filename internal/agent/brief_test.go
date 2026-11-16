@@ -78,7 +78,8 @@ func assertBriefReportPath(t *testing.T, brief, config string) {
 func assertBriefContract(t *testing.T, first string, input BriefInput) {
 	t.Helper()
 	for _, want := range []string{"## Leaf rules", "Never revert a change you did not make", input.Task, input.Report, input.Verify,
-		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: at most 8 lines"} {
+		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: at most 8 lines",
+		"returns with the job ended, hand back\n  the job's result as your next action; do nothing in between"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
 		}

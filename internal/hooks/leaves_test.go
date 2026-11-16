@@ -1453,8 +1453,10 @@ func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
 	spawned := stubSpawn(t)
 	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
 	words := []string{"claude-code", "agents", "ask", "--agent", "codex", "x"}
-	_, firstHeld := runBriefLine(in, "a1", words, "x")
-	second, held := runBriefLine(in, "a1", words, "x")
+	var lr leafRead
+	lr.scan.runLine = "x"
+	_, firstHeld := runBriefLine(in, lr, "a1", words)
+	second, held := runBriefLine(in, lr, "a1", words)
 	if !firstHeld || !held || len(*spawned) != 1 || !strings.Contains(second.Reason, "The hook is running your brief's `Run:` line") {
 		t.Fatalf("spawns %v, second = %+v: want one launch and the later claimant held on it", *spawned, second)
 	}

@@ -76,3 +76,21 @@ func TestHeldMarkerStaleIgnored(t *testing.T) {
 		t.Fatalf("stale marker kept: %v", err)
 	}
 }
+
+// The hook's own Run: launch holds naming its job's `agents result -f <id>` once the record appears, never a sleep.
+func TestRunBriefLineHoldNamesJob(t *testing.T) {
+	stubSpawn(t)
+	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
+	const id = "20261116T130000.000-codex"
+	orig := recentDispatches
+	t.Cleanup(func() { recentDispatches = orig })
+	recentDispatches = func(int) []agent.Record {
+		return []agent.Record{{ID: id, Agent: "codex", Status: "running", PID: os.Getpid(), Time: time.Now()}}
+	}
+	var lr leafRead
+	lr.scan.runLine = "claude-code agents ask --agent codex 'x'"
+	r, held := runBriefLine(in, lr, "a1", []string{"claude-code", "agents", "ask", "--agent", "codex", "x"})
+	if !held || !strings.Contains(r.Reason, "`claude-code agents result -f "+id+"` once") || strings.Contains(r.Reason, "sleep") {
+		t.Fatalf("hold = %+v held=%v, want one naming `agents result -f %s` once and no sleep", r, held, id)
+	}
+}
