@@ -839,7 +839,7 @@ func dispatchLabelsLine(in *core.Input) string {
 	return "Dispatch labels (description prefix): " + strings.Join(parts, " · ")
 }
 
-// dispatchLabelEntry is one type's entry: its fixed label, or one label per tier when the hook pins the model by task class.
+// dispatchLabelEntry lists one label per tier when the hook pins the model by task class.
 func dispatchLabelEntry(run *dispatchRun, t, model string) string {
 	if agentPinsModel(run, t) {
 		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, SessionModel: model})
@@ -858,7 +858,7 @@ func dispatchLabelEntry(run *dispatchRun, t, model string) string {
 			labels = append(labels, label+":")
 		}
 	}
-	return t + "=" + strings.Join(labels, "|") // the hook picks one by the brief's tier
+	return t + "=" + strings.Join(labels, "|")
 }
 
 // sessionModel is the last turn's model, else the SessionStart payload's own (the transcript is empty then).

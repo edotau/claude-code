@@ -84,7 +84,7 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	}
 	typed := req.Model
 	if req.CellModel {
-		typed = "" // a router cell's model is not the caller's: the resolver picks on the row (D3)
+		typed = ""
 	}
 	r, err := ResolveModel(reg, QueryFor(ctx, ModelQuery{Agent: s.Name, Model: typed, Profile: t.Provider.Name}), time.Now())
 	switch {

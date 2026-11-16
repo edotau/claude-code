@@ -550,8 +550,6 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	return fs.ErrPermission
 }
 
-// TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing: an over-width file in another repo's bank is a note, the
-// home bank's is a failure, and neither file's bytes change.
 func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
 	home, other := bankFmtRepoStore(t)
 	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"

@@ -905,7 +905,6 @@ func TestDispatchLabelsLineRefreshesOnModelChange(t *testing.T) {
 	}
 }
 
-// A type the hook pins by task class lists every tier's label, so the one the hook demands is always advertised.
 func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 	useAgentsDir(t, "Explore")
 	stubResolve(t, func(q agentpkg.ModelQuery) string { return "wire-" + q.Model })
