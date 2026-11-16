@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 type runFixture struct {
@@ -269,5 +271,26 @@ func TestRunLeafThatWroteAlonePathsOfAnotherPackageFailsTheWave(t *testing.T) {
 	f.foreign = map[string][]CheckViolation{"1.1": {{Package: "1.1", File: "b.txt", Owners: []string{"1.2"}}}}
 	if code := runWith(t.Context(), f.o, f.h); code != 3 || !strings.Contains(f.out.String(), "1.1 wrote b.txt (owner 1.2)") {
 		t.Fatalf("exit %d, want 3 naming 1.1, b.txt and owner 1.2\n%s", code, &f.out)
+	}
+}
+
+func TestRunFlatBankPrefixesReports(t *testing.T) {
+	f := newRunFixture(t)
+	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory.StoreDir(), ".layout"), []byte("flat 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got LaunchOptions
+	f.h.launch = func(ctx context.Context, exe string, specs []Spec, o LaunchOptions) ([]Envelope, error) {
+		got = o
+		return f.launch(ctx, exe, specs, o)
+	}
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatalf("exit %d: %s", code, &f.out)
+	}
+	if want := memory.BankFor(f.o.Dir).Prefix(); want == "" || got.ReportPrefix != want {
+		t.Errorf("ReportPrefix = %q, want %q", got.ReportPrefix, want)
 	}
 }

@@ -61,7 +61,7 @@ func updateWriteScope(workdir string) []string {
 	for _, name := range bankFiles {
 		w = append(w, HomeBank().Path(name))
 	}
-	if !b.Home() { // the prefix glob covers b's typed files too; "--" in a key can still match a longer-keyed bank
+	if !b.Home() { // the prefix glob covers b's typed files too; keys never hold "--", so it cannot reach another bank
 		w = append(w, filepath.Join(StoreDir(), b.Prefix()+"*.md"), filepath.Join(StoreDir(), "archive", b.Prefix()+"*"))
 	}
 	return w

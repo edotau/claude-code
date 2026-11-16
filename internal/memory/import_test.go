@@ -277,3 +277,17 @@ func aliasRead(t *testing.T, p string) string {
 }
 
 func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
+
+func TestFlatSourceStoresCutsKeyAtFirstDoubleDash(t *testing.T) {
+	from := t.TempDir()
+	for _, n := range []string{"my-repo--progress.md", "my--repo--progress.md", "progress.md"} {
+		write(t, filepath.Join(from, n), "x\n")
+	}
+	stores, _, err := flatSourceStores(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stores["my-repo"]; !ok || len(stores) != 2 {
+		t.Errorf("stores = %v, want only home and my-repo (a first-cut key \"my\" has no typed file)", stores)
+	}
+}

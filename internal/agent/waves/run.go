@@ -37,10 +37,10 @@ type runHooks struct {
 }
 
 type runner struct {
-	o                        Options
-	h                        runHooks
-	state                    State
-	path, dir, slug, reports string
+	o                                Options
+	h                                runHooks
+	state                            State
+	path, dir, slug, reports, prefix string
 }
 
 // Run prints the wave report and returns the dispatch exit code.
@@ -133,7 +133,7 @@ func (r *runner) prepare() error {
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
 	b := memory.BankFor(r.o.Dir)
 	r.dir = b.Sub("waves", r.slug)
-	r.path, r.reports = filepath.Join(r.dir, "state.json"), b.SubDir("reports")
+	r.path, r.reports, r.prefix = filepath.Join(r.dir, "state.json"), b.SubDir("reports"), b.Prefix()
 	r.state.Plan = r.o.Plan
 	return nil
 }
@@ -260,7 +260,7 @@ func (r *runner) launch(ctx context.Context, specs, wave []Spec) ([]Envelope, er
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports,
+	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports, ReportPrefix: r.prefix,
 		Provider: r.o.Provider, Profiles: r.o.Profiles, Route: r.o.Route, Timeout: r.o.Timeout, Wave: wave,
 		Fingerprint: r.fingerprint})
 }

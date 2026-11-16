@@ -308,5 +308,12 @@ func TestKnowledgeNotesAndCatalogByLayout(t *testing.T) {
 		if storeFlat() && !strings.Contains(cat, "proj--projectContext.md") {
 			t.Errorf("flat catalog must point at <key>--projectContext.md:\n%s", cat)
 		}
+		row := b.Key + "/knowledge/mine.md"
+		if storeFlat() {
+			row = "knowledge/" + b.Prefix() + "mine.md"
+		}
+		if !strings.Contains(cat, "- "+row+" — ") {
+			t.Errorf("catalog lacks knowledge row %q:\n%s", row, cat)
+		}
 	})
 }
