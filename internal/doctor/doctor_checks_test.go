@@ -17,6 +17,7 @@ import (
 func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	hosttest.SymlinkLoop(t, filepath.Join(home, ".claude"))
 	stub := filepath.Join(home, ".claude", ".claude.json")
 	ok, detail := strayClaudeJSON()
@@ -42,6 +43,7 @@ func TestFormatsCheckFailsOnUnreadableStore(t *testing.T) {
 func TestStrayClaudeJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	if ok, _ := strayClaudeJSON(); !ok {
 		t.Fatal("no stub must pass")
 	}
@@ -54,6 +56,10 @@ func TestStrayClaudeJSON(t *testing.T) {
 	}
 	if ok, detail := strayClaudeJSON(); ok || !strings.Contains(detail, stub) {
 		t.Errorf("stub present: ok=%v detail=%q", ok, detail)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if ok, detail := strayClaudeJSON(); !ok {
+		t.Errorf("custom config dir flagged ~/.claude/.claude.json: %q", detail)
 	}
 }
 
