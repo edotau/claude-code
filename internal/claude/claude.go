@@ -255,7 +255,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseUngatedBypass(ctx, args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
-	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.Model, KeepEnv: req.KeepEnv}
+	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.Model, KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err
@@ -643,7 +643,7 @@ var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 type claudeLauncher struct{}
 
 func (claudeLauncher) Claude(ctx context.Context, o agent.ClaudeOptions, args []string) (agent.ClaudeLaunch, error) {
-	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv}, args)
+	plan, err := claudePlan(ctx, agent.LaunchOptions{Provider: o.Provider, Model: o.Model, KeepEnv: o.KeepEnv, Dispatch: o.Dispatch}, args)
 	if err != nil {
 		return agent.ClaudeLaunch{}, err
 	}

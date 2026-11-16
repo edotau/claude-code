@@ -169,7 +169,7 @@ func implicitRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, st
 	cands := []*struct {
 		p   *providers.Provider
 		src string
-	}{{reg.Row(q.Session), "session"}, {reg.Row(q.PinProfile), "pin"}, {accountRow(reg, q.PinAccount), "pin"},
+	}{{sessionRow(reg, q), "session"}, {reg.Row(q.PinProfile), "pin"}, {accountRow(reg, q.PinAccount), "pin"},
 		{reg.Row(reg.Default), "default"}}
 	for _, c := range cands {
 		if c.p == nil {
@@ -185,6 +185,14 @@ func implicitRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, st
 		}
 	}
 	return nil, "", fmt.Errorf("%w: no profile serves %s", ErrModelRoute, q.Agent)
+}
+
+// sessionRow is the session profile's row; gemini has no session lead, its pin decides.
+func sessionRow(reg *providers.Registry, q ModelQuery) *providers.Provider {
+	if q.Agent == agentid.Gemini {
+		return nil
+	}
+	return reg.Row(q.Session)
 }
 
 // rowServes is Serves without a model, plus agy's gateway rows for gemini and claude's own anthropic sign-in.
