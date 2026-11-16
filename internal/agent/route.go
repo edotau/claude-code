@@ -381,7 +381,10 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 		return q.Lead, false, nil
 	}
 	if q.Profile == "" && q.Provider == "" {
-		return "", explicitBackend(RunOptions{Model: q.Model}), nil
+		if explicitBackend(RunOptions{Model: q.Model}) {
+			return "", true, nil
+		}
+		return sessionLead(ctx, q.Agent), false, nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -393,6 +396,20 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 	}
 	cfg, err := agentconfig.ForContext(ctx, q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
 	return cfg.Profile, false, err
+}
+
+// sessionLead is the session profile when it serves agent (D3: it leads before the pin); "" lets the pin lead.
+func sessionLead(ctx context.Context, agent string) string {
+	reg, err := providers.Load()
+	if err != nil || agent == agentid.Gemini {
+		return ""
+	}
+	if p := reg.Row(providers.SessionProfileContext(ctx)); p != nil {
+		if ok, _ := rowServes(agent, p); ok {
+			return p.Name
+		}
+	}
+	return ""
 }
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.

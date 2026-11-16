@@ -352,7 +352,7 @@ func TestLeadFor(t *testing.T) {
 		explicit bool
 		err      string
 	}{
-		{RouteReq{Agent: "codex", Fallback: all}, "", false, ""},
+		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, ""}, // D3: the session leads an untyped ask
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, ""},
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: none}, "", true, ""},
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
