@@ -158,7 +158,10 @@ func autofixPins(src, model string) (out string, ambiguous, notes []string) {
 	if len(folds) > 0 {
 		notes = append(notes, "dispatch-effort: lowercased "+strings.Join(folds, ", "))
 	}
-	if filled := filledModelLines(folded, ambiguous); out != folded && len(filled) > 0 {
+	if out == folded {
+		return out, ambiguous, notes
+	}
+	if filled := filledModelLines(folded, ambiguous); len(filled) > 0 {
 		notes = append(notes, fmt.Sprintf("dispatch-effort: filled model:'%s' on %d unpinned agent() call(s) at"+
 			" line(s) %s; pin model explicitly to override", model, len(filled), strings.Join(filled, ", ")))
 	}

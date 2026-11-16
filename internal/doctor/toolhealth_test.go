@@ -8,19 +8,29 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tools"
 )
 
-// Given a present and a missing host tool, When doctor renders them, Then it shows path+version or the install command.
+// Given host tools present or missing, When doctor renders them, Then a missing optional one is ⚠ and a required one ✗.
 func TestDepDoctorDetail(t *testing.T) {
 	for _, tc := range []struct {
-		s    tools.DepStatus
-		want string
+		s        tools.DepStatus
+		wantPass bool
+		want     string
+		mark     string
 	}{
-		{tools.DepStatus{Name: "shfmt", Path: "/b/shfmt", Version: "v3.14.1"}, "/b/shfmt v3.14.1"},
-		{tools.DepStatus{Name: "tmux", Path: "/b/tmux"}, "/b/tmux"},
+		{tools.DepStatus{Name: "shfmt", Path: "/b/shfmt", Version: "v3.14.1"}, true, "/b/shfmt v3.14.1", "✓"},
+		{tools.DepStatus{Name: "tmux", Path: "/b/tmux"}, true, "/b/tmux", "✓"},
 		{tools.DepStatus{Name: "ruff", Class: "feature", Use: "format-stop on .py files", Fix: "brew install ruff"},
-			"missing (feature: format-stop on .py files); install: brew install ruff"},
+			false, "warn missing (feature: format-stop on .py files); install: brew install ruff", "⚠"},
+		{tools.DepStatus{Name: "git", Class: "required", Use: "worktrees", Fix: "xcode-select --install", Required: true},
+			false, "missing (required: worktrees); install: xcode-select --install", "✗"},
 	} {
-		if got := depDoctorDetail(tc.s); got != tc.want {
-			t.Errorf("depDoctorDetail(%s) = %q, want %q", tc.s.Name, got, tc.want)
+		pass, got := depDoctorDetail(tc.s)
+		if pass != tc.wantPass || got != tc.want {
+			t.Errorf("depDoctorDetail(%s) = %v %q, want %v %q", tc.s.Name, pass, got, tc.wantPass, tc.want)
+		}
+		var b strings.Builder
+		printCheckLines(&b, []check{{Name: "dep " + tc.s.Name, OK: pass, Detail: got}})
+		if !strings.HasPrefix(b.String(), tc.mark) {
+			t.Errorf("row for %s = %q, want mark %s", tc.s.Name, b.String(), tc.mark)
 		}
 	}
 }
