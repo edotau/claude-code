@@ -111,7 +111,7 @@ func harnessStoreKey() string {
 // remoteCache memoizes originRemoteURL per checkout, misses included; a remote change mid-process is not seen.
 var remoteCache sync.Map
 
-// remoteStamp fingerprints the config files that decide `origin` (not /etc or includes); "" when not cacheable.
+// remoteStamp fingerprints the config files that decide `origin`; "" when not cacheable (env overrides or any include).
 func remoteStamp(checkout string) string {
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GIT_CONFIG") || strings.HasPrefix(e, "GIT_DIR") {
@@ -122,6 +122,7 @@ func remoteStamp(checkout string) string {
 	xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
 	cfgs := []string{
 		filepath.Join(checkout, ".git", "config"), filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config"),
+		"/etc/gitconfig",
 	}
 	var b strings.Builder
 	for i, p := range cfgs {
@@ -129,11 +130,25 @@ func remoteStamp(checkout string) string {
 		if i == 0 && (err != nil || !fi.Mode().IsRegular()) {
 			return ""
 		}
-		if err == nil {
-			fmt.Fprintf(&b, "%d,%d;", fi.ModTime().UnixNano(), fi.Size())
+		if err != nil {
+			continue
 		}
+		if data, err := os.ReadFile(p); err != nil || hasInclude(data) {
+			return "" // an included file is outside the stamp, so git must answer
+		}
+		fmt.Fprintf(&b, "%d,%d;", fi.ModTime().UnixNano(), fi.Size())
 	}
 	return b.String()
+}
+
+// hasInclude reports whether a git config has an [include] or [includeIf] section header.
+func hasInclude(cfg []byte) bool {
+	for _, line := range strings.Split(string(cfg), "\n") {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "[include") {
+			return true
+		}
+	}
+	return false
 }
 
 // originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).

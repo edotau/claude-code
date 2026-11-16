@@ -329,3 +329,35 @@ func TestBankKeyFromOriginRemoteOrDir(t *testing.T) {
 		})
 	}
 }
+
+// A config that [include]s another file is never cached on disk: the included file is not in the stamp.
+func TestOriginRemoteURLSeesIncludedConfigChange(t *testing.T) {
+	tempConfig(t)
+	for _, e := range os.Environ() { // the test host's GIT_CONFIG_* env would disable the disk cache under test
+		if k, _, _ := strings.Cut(e, "="); strings.HasPrefix(k, "GIT_CONFIG") {
+			t.Setenv(k, "")
+			idFatal(t, os.Unsetenv(k))
+		}
+	}
+	repo := gitRepo(t, t.TempDir(), "inc")
+	included := filepath.Join(repo, "origin.conf")
+	write := func(name string) {
+		idFatal(t, os.WriteFile(included, []byte("[remote \"origin\"]\n url = https://example.invalid/"+name+".git\n"), 0o600))
+	}
+	cfg, err := os.OpenFile(filepath.Join(repo, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0o600)
+	idFatal(t, err)
+	_, err = cfg.WriteString("\n[include]\n\tpath = " + included + "\n")
+	idFatal(t, err)
+	idFatal(t, cfg.Close())
+	resetRemoteCache()
+	t.Cleanup(resetRemoteCache)
+	write("one")
+	if got := originRemoteURL(repo); got != "https://example.invalid/one.git" {
+		t.Fatalf("first originRemoteURL = %q, want one", got)
+	}
+	write("two")
+	resetRemoteCache() // a fresh hook process: only the on-disk cache survives
+	if got := originRemoteURL(repo); got != "https://example.invalid/two.git" {
+		t.Fatalf("after the included file changed, originRemoteURL = %q, want two", got)
+	}
+}
