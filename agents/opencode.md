@@ -56,8 +56,8 @@ Model menu: `opencode catalog list`, `catalog add|remove|import|reset|check`, `c
 
 Use the root machine's current pin unless the task requests a model or route: read the menu with
 `claude-code opencode catalog list`, pass a requested id as `--model <id>`, change no persistent pins. Preview a
-route with `claude-code gateway --agent opencode`; shell-only comparisons and discovery:
-`skills/subagent-workflows/references/cost-routing.md`.
+route with `claude-code gateway --agent opencode`; refresh the menu with
+`claude-code opencode catalog sync --profile <p>` or `/discover-models`.
 
 ## Verbs
 

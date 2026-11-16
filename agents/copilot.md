@@ -33,8 +33,7 @@ commands.
 - Merge + conventional commit after gates are green (LAST-MILE); a file another live leaf has claimed needs that
   leaf's hand-back first.
 - Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot ask --session <id>`).
-- Any delegated mechanical task (`copilot ask --tools [--background]`) — the `mechanical` task class in
-  `skills/subagent-workflows/references/cost-routing.md`.
+- Any delegated mechanical task (`copilot ask --tools [--background]`); tier rule: `internal/router/tier.go`.
 - `ask --read-only` approves file reads, URL fetches and the vetted read-only shell list
   (`skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools); any other shell command is
   rejected, so use its native read and search tools there.
@@ -59,8 +58,8 @@ Shared flags (interactive launch and the headless `ask` table): `skills/subagent
 Copilot deltas:
 
 - `copilot --docs` prints copilot's own help; `copilot -- <native args>` forces passthrough.
-- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`. File writes match
-  `Edit(...)` rules, so a `Write(...)` allow needs the `Edit(...)` spelling too.
+- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`. A write is judged as both
+  `Write(...)` and `Edit(...)`; a deny on either wins, an allow on either grants.
 - `--fleet` (parallel subagents; verify with the diff stat) · `--enable-memory` (session memory) ·
   `--fallback all|agents|none` · `--format json` envelope adds `ran_on` · `--profile <p>` leads on that profile;
   `--fallback none` pins that dispatch; `--provider <x>` leads.
