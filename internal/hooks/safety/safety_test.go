@@ -125,11 +125,7 @@ func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {
 
 func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cases := []struct {
-		name string
-		cmd  string
-		want core.Decision
-	}{
+	cases := []pyCase{
 		{"import then exec", "python3 <<'PY'\nimport base64\nexec(base64.b64decode('cGFzcw=='))\nPY", core.Block},
 		{"exec then import", "python <<'PY'\nexec(__import__('base64').b64decode('cGFzcw=='))\nPY", core.Block},
 		{"decode then exec later", "python3 - <<'PY'\nimport base64\ncode = base64.b64decode('cGFzcw==')\nexec(code)\nPY", core.Block},
@@ -158,13 +154,51 @@ func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 			"open('n.md', 'w').write(t)\nPY", core.Ask},
 		{"prose cut down to a path", "python3 - <<'PY'\np = 'see state/vault.db'.split()[1]\nopen(p, 'w').write('x')\nPY", core.Ask},
 	}
-	for _, c := range cases {
+	for _, c := range append(cases, pyLaunchCases...) {
 		t.Run(c.name, func(t *testing.T) {
 			if got, msg := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 				t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, msg)
 			}
 		})
 	}
+}
+
+type pyCase struct {
+	name string
+	cmd  string
+	want core.Decision
+}
+
+// pyLaunchCases launch a guarded command from Python: literal ones get the shell verdict, run-time built ones pass.
+var pyLaunchCases = []pyCase{
+	{"force-push via os.system", pyStdin("import os\nos.system(\"git push --force origin main\")"), core.Block},
+	{"force-push via os.popen", pyStdin("import os\nos.popen('git push -f origin master')"), core.Block},
+	{"force-push via shell=True", pyStdin("import subprocess\nsubprocess.run('git push -f origin main', shell=True)"), core.Block},
+	{"force-push via getoutput", pyStdin("import subprocess\nsubprocess.getoutput('git push -f origin main')"), core.Block},
+	{"force-push via python -c", `python3 -c "import os; os.system('git push --force origin main')"`, core.Block},
+	{"force-push via argv list", pyStdin("import subprocess\nsubprocess.run(['git', 'push', '-f', 'origin', 'main'])"), core.Block},
+	{"sudo via argv list", pyStdin("import subprocess\nsubprocess.check_call(['sudo', 'true'])"), core.Block},
+	{"sudo via multi-line Popen", pyStdin("import subprocess\nsubprocess.Popen(\n    ['sudo',  # root\n     'true'],\n)"), core.Block},
+	{"sudo via create_subprocess_exec", pyStdin("import asyncio\nasyncio.create_subprocess_exec('sudo', 'true')"), core.Block},
+	{"sudo via os.spawnlp", pyStdin("import os\nos.spawnlp(os.P_WAIT, 'sudo', 'sudo', 'true')"), core.Block},
+	{"sudo via os.spawnvp", pyStdin("import os\nos.spawnvp(os.P_WAIT, 'sudo', ['sudo', 'true'])"), core.Block},
+	{"sudo via os.execvp", pyStdin("import os\nos.execvp('sudo', ['sudo', 'true'])"), core.Block},
+	{"sudo via os.execle", pyStdin("import os\nos.execle('/usr/bin/sudo', 'x', 'true', os.environ)"), core.Block},
+	{"sudo via os.posix_spawnp", pyStdin("import os\nos.posix_spawnp('sudo', ['sudo', 'true'], os.environ)"), core.Block},
+	{"footer via argv list", pyStdin("import subprocess\nsubprocess.run(['git', 'commit', '-m', 'x', '-m', " +
+		"'Co-Authored-By: Claude <noreply@anthropic.com>'])"), core.Block},
+	{"uv run python writes the vault", "uv run python - <<'PY'\nopen('state/vault.db', 'w').write('x')\nPY", core.Ask},
+	{"uv run --with python -c writes the vault", `uv run --with x python3 -c "open('state/vault.db', 'w').write('x')"`, core.Ask},
+	{"poetry run python writes the vault", `poetry run python -c "open('state/vault.db', 'w').write('x')"`, core.Ask},
+	{"conda run python writes the vault", "conda run -n base python - <<'PY'\nopen('state/vault.db', 'w').write('x')\nPY", core.Ask},
+	{"pipx run python writes the vault", `pipx run python -c "open('state/vault.db', 'w').write('x')"`, core.Ask},
+	{"python -m uv run launches sudo", "python3 -m uv run python - <<'PY'\nimport os\nos.execvp('sudo', ['sudo', 'true'])\nPY", core.Block},
+	{"uv run python launches sudo", "uv run python - <<'PY'\nimport os\nos.execvp('sudo', ['sudo', 'true'])\nPY", core.Block},
+	{"push built at run time", pyStdin("import os\nb = 'main'\nos.system(f'git push -f origin {b}')"), core.Allow},
+	{"argv built at run time", pyStdin("import os\nos.system(' '.join(['sudo', 'true']))"), core.Allow},
+	{"launched printf of a push is data", pyStdin("import subprocess\nsubprocess.run(['printf', 'git push -f origin main'])"), core.Allow},
+	{"call named in a string", pyStdin("import subprocess\nprint(\"os.execvp('sudo', ['sudo'])\")"), core.Allow},
+	{"push to a feature branch", pyStdin("import subprocess\nsubprocess.run(['git', 'push', '-f', 'origin', 'feat'])"), core.Allow},
 }
 
 // Same bodies through the Copilot payload shape (toolArgs, no hook_event_name).
@@ -185,12 +219,35 @@ func TestSafetyScanChecksHeredocGitInHarness(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
-	cmd := "bash <<EOF\ngit reset --hard\nEOF"
-	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": home, "tool_input": map[string]string{"command": cmd}})
-	if got, stderr := safetyScanDecision(t, bytes.NewReader(payload)); got != core.Block {
-		t.Errorf("got %d want Block (%s)", got, stderr)
+	cases := []struct {
+		cmd  string
+		want core.Decision
+	}{
+		{"bash <<EOF\ngit reset --hard\nEOF", core.Block},
+		{pyStdin("import subprocess\nsubprocess.run(['git', 'checkout', 'main'])"), core.Block},
+		{pyStdin("from subprocess import call\ncall(('git', 'stash'))"), core.Block},
+		{pyStdin("import subprocess\nsubprocess.check_output(['git', 'restore', 'x.txt'])"), core.Block},
+		{pyStdin("import subprocess\nsubprocess.run('git clean -fd', shell=True)"), core.Block},
+		{pyStdin("import os\nos.execvp('git', ['git', 'reset', '--hard'])"), core.Block},
+		{`python3 -c "import subprocess; subprocess.run(['git', 'stash'])"; cd /tmp`, core.Block},
+		{"poetry run python - <<'PY'\nimport subprocess\nsubprocess.call(['git', 'stash'])\nPY", core.Block},
+		{pyStdin("import subprocess\nsubprocess.run(['git', 'checkout', '-b', 'new'])"), core.Allow},
+		{pyStdin("import subprocess\nverb = 'stash'\nsubprocess.run(['git', verb])"), core.Allow},
+		{"cd /tmp && " + pyStdin("import subprocess\nsubprocess.run(['git', 'stash'])"), core.Allow},
+		{`cd "$(mktemp -d)" && python3 -c "import subprocess; subprocess.run(['git', 'stash'])"`, core.Allow},
+		{pyStdin("import subprocess\nsubprocess.run(['git stash'], shell=True)"), core.Block},
+		{`cd "$(mktemp -d)" && python3 -c "import os; os.system('git status')" && git stash`, core.Allow},
+	}
+	for _, c := range cases {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": home, "tool_input": map[string]string{"command": c.cmd}})
+		if got, stderr := safetyScanDecision(t, bytes.NewReader(payload)); got != c.want {
+			t.Errorf("%q: got %d want %d (%s)", c.cmd, got, c.want, stderr)
+		}
 	}
 }
+
+// pyStdin is body run as a Python stdin heredoc.
+func pyStdin(body string) string { return "python3 - <<'PY'\n" + body + "\nPY" }
 
 // Data-sink heredoc bodies keep the hard-block checks; for the intent rules they are data.
 var heredocDataSinkMentions = []struct {
