@@ -49,7 +49,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		wg.Go(func() {
 			lctx, cancel := context.WithTimeout(ctx, profileTimeout)
 			defer cancel()
-			if err := fetch(lctx, prov, now); err != nil {
+			if err := fetch(lctx, prov); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", prov.Name, err))
 				mu.Unlock()
@@ -353,6 +353,6 @@ func DiscoverAfterAuth(reg *providers.Registry) {
 var refresh = catalog.Refresh
 
 // fetch lists p's endpoints live and caches them: serving rows in the vault snapshot and the router's copy.
-func fetch(ctx context.Context, p *providers.Provider, now time.Time) error {
+func fetch(ctx context.Context, p *providers.Provider) error {
 	return refresh(ctx, p)
 }
