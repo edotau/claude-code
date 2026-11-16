@@ -65,7 +65,7 @@ Rows marked ¶ have full behavior text in `skills/subagent-workflows/references/
 | `review-simplicity` | PostToolUse (Write\|Edit) | Advisory: feeds back ≤8 comment, complexity and smell findings the edit introduced |
 | `memory-start` | SessionStart | Injects a pointer to `memory/index.md` and this repo's focus; repairs `projects/<slug>/memory` (links to the store root); on `compact`/`clear` reports the compaction record and the newest handoff under 24 h (`memory-bank.md` → Who writes what) |
 | `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
-| `memory-recall` | UserPromptSubmit | Injects up to 2 bank bodies plus 3 pointers within 1,500 chars, matching ≥2 prompt terms; logs hits to `access.log` |
+| `memory-recall` | UserPromptSubmit | Injects up to 2 bank bodies plus 3 pointers within 900 chars; skipped under 4 prompt terms; a hit must match 2-3 of them; logs hits to `access.log` |
 | `codex-agent-route` · `codex-routing-result` · `codex-routing-start` · `codex-subagent-start` | codex agent events | Codex-only routing hooks; never in Claude settings |
 | `memory-compact` | PreCompact | Dispatches a background update for uncovered edits and leaves a per-session record under `state/harness/compact/`; never blocks |
 | `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the detached `memory watch` (`memory-bank.md`) |

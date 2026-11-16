@@ -45,7 +45,7 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
   the report; procedure lives in the agent or skill. Skill shell logic lives in `skills/<name>/scripts/`, anything
   else in a Go verb or Makefile target.
 - Agents hold no memory scope: they propose memory in their report and the main session writes it; the dispatch hook
-  appends recall pointers to every brief.
+  appends recall pointers to every brief (a brief opening `Run: claude-code agents ask` gets a context note instead).
 
 ## Authoring: file, skill or brief
 
