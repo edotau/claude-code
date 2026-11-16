@@ -56,6 +56,7 @@ func TestWrittenPathsPrecise(t *testing.T) {
 		{"real redirect beside a quoted >", `grep '>' a > R.md # c`, []string{"/w/a", "/w/R.md"}},
 		{"shell-fed heredoc body", "bash <<'EOF'\necho x > B.md\nEOF", []string{"/w/B.md"}},
 		{"absolute target after a dynamic cd", `cd "$X" && echo x > /r/A.md`, []string{"/r/A.md"}},
+		{"# after an escaped space is no comment", `echo a\ #b; echo x > E.md`, []string{"/w/E.md"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := WrittenPathsPrecise(c.cmd, "/w"); !slices.Equal(got, c.want) {
