@@ -504,7 +504,9 @@ func changedPageKeys(d *dialog, before map[string]stagedKey) []string {
 func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 	if prev, ok := before[name]; ok {
 		d.pending[name] = prev
-		_ = proc.Setenv(name, prev.val)
+		if err := proc.Setenv(name, prev.val); err != nil {
+			d.printf("%s: env not restored: %v\n", name, err)
+		}
 		return
 	}
 	d.pending[name].restore(d, name)

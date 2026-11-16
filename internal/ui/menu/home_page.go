@@ -149,8 +149,8 @@ func runWebSearch(d *dialog) {
 			continue
 		}
 		d.printf("web search: %s now runs %s network websearch\n", c.name, bin)
+		d.changed = true
 	}
-	d.changed = true
 }
 
 // envEdit stages a vault env change.
@@ -279,7 +279,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 			return "", envEdit{}, false
 		}
 	}
-	wasSecret := !isNew && providers.CustomEnv()[name] == providers.SecretRef
+	wasSecret := providers.CustomEnv()[name] == providers.SecretRef
 	val, err := secretLine(d, "Value for "+name+" (input hidden; empty deletes it): ")
 	if err != nil {
 		return "", envEdit{}, false

@@ -618,8 +618,8 @@ func TestSyncEscapesTemplatePaths(t *testing.T) {
 	hermeticVSCode(t)
 	dir := t.TempDir()
 	tmpl, dest := filepath.Join(dir, "template.json"), filepath.Join(dir, "settings.json")
-	writeFile(t, tmpl, `{"home":"__CLAUDE_HOME__", "bin":"__CLAUDE_BIN__/codex"}`)
-	home, bin := `/tmp/home"with\slash`, `/tmp/a"b/bin`
+	writeFile(t, tmpl, `{"home":"__CLAUDE_HOME__", "bin":"__CLAUDE_BIN__/codex", "sh":"exec __CLAUDE_BIN__/claude-code claude"}`)
+	home, bin := `/tmp/home"with\slash`, `/tmp/a"b c/bin`
 	if _, err := syncSettings(tmpl, dest, home, bin, false); err != nil {
 		t.Fatalf("sync with quoted paths: %v", err)
 	}
@@ -633,6 +633,9 @@ func TestSyncEscapesTemplatePaths(t *testing.T) {
 	}
 	if got["home"] != home || got["bin"] != bin+"/codex" {
 		t.Fatalf("rendered paths = %v, want home %q and bin %q", got, home, bin+"/codex")
+	}
+	if want := `exec '` + bin + `'/claude-code claude`; got["sh"] != want {
+		t.Fatalf("shell profile = %q, want %q", got["sh"], want)
 	}
 }
 
