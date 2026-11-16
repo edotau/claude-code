@@ -149,39 +149,41 @@ func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, 
 		return promoteDryRun(b, id)
 	}
 	var file string
-	moveErr := withFlatLock(BankLockWait, func() error {
-		var block, src string
-		var err error
-		if file, block, src, err = findBlock(b, id); err != nil {
-			return err
-		}
-		_, _, homeErr := extractBlock(home, id)
-		if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
-			return homeErr // an unreadable home file is not "absent": appending could duplicate the block
-		}
-		inHome := homeErr == nil // an existing home copy is kept, never appended twice
-		snap, err := snapshotPaths(src, home.Path(file))
-		if err != nil {
-			return err
-		}
-		// Any failure restores both files, so the block stays in exactly one bank (the local one).
-		return restoreOnError(func() error {
-			if !inHome {
-				if err := appendBlocks(home.Path(file), []string{block}); err != nil {
-					return err
-				}
-			}
-			if err := removeBlock(src, file, id); err != nil {
-				return err
-			}
-			afterPromoteMove()
-			return settleLockedBank(b, now)
-		}(), snap)
-	})
+	moveErr := withFlatLock(BankLockWait, func() (err error) { file, err = promoteLocked(b, home, id, now); return err })
 	if moveErr != nil {
 		return "", moveErr
 	}
 	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, home.Path(file)), nil
+}
+
+// promoteLocked does the move under the bank lock and returns the block's file name.
+func promoteLocked(b, home Bank, id string, now time.Time) (file string, err error) {
+	var block, src string
+	if file, block, src, err = findBlock(b, id); err != nil {
+		return file, err
+	}
+	_, _, homeErr := extractBlock(home, id)
+	if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
+		return file, homeErr // an unreadable home file is not "absent": appending could duplicate the block
+	}
+	inHome := homeErr == nil // an existing home copy is kept, never appended twice
+	snap, err := snapshotPaths(src, home.Path(file))
+	if err != nil {
+		return file, err
+	}
+	// Any failure restores both files, so the block stays in exactly one bank (the local one).
+	return file, restoreOnError(func() error {
+		if !inHome {
+			if err := appendBlocks(home.Path(file), []string{block}); err != nil {
+				return err
+			}
+		}
+		if err := removeBlock(src, file, id); err != nil {
+			return err
+		}
+		afterPromoteMove()
+		return settleLockedBank(b, now)
+	}(), snap)
 }
 
 // promoteDryRun previews the move read-only: no bank lock, no layout stamp.
