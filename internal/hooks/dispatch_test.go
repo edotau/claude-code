@@ -357,7 +357,6 @@ func flagHarness(t *testing.T) string {
 	harness := hosttest.TierHarness(t)
 	t.Setenv("HARNESS_VAULT_KEY", "0123456789abcdef0123456789abcdef")
 	t.Setenv("HARNESS_RTK_BIN", "claude-test-no-such-rtk-binary")
-	t.Setenv("HARNESS_DOCS_PLACEMENT", "1")
 	return harness
 }
 
@@ -737,5 +736,41 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	}
 	if spawns.Dream.Load() != 1 || spawns.Catchup.Load() != 1 {
 		t.Errorf("dream=%d catchup=%d spawn-stub hits, want 1 each", spawns.Dream.Load(), spawns.Catchup.Load())
+	}
+}
+
+func TestDispatchHookSkip(t *testing.T) {
+	ran := map[string]bool{}
+	mk := func(n string) Bound {
+		return bound(n, "Bash", time.Second, func(*core.Input) core.Result { ran[n] = true; return core.Result{} })
+	}
+	for _, c := range []struct {
+		name, env string
+		ran       []string
+		notes     []string
+	}{
+		{"unset", "", []string{"docs-placement", "safety-scan"}, nil},
+		{"listed", "docs-placement", []string{"safety-scan"}, []string{"hook docs-placement skipped (HARNESS_HOOK_SKIP)"}},
+		{"all spares guards", "all", []string{"safety-scan"}, []string{"hook docs-placement skipped (HARNESS_HOOK_SKIP)"}},
+		{"explicit guard", "safety-scan", []string{"docs-placement"}, []string{"hook safety-scan skipped (HARNESS_HOOK_SKIP) — guards off"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			clear(ran)
+			t.Setenv("HARNESS_HOOK_SKIP", c.env)
+			res, _ := Dispatch([]Bound{mk("docs-placement"), mk("safety-scan")}, "PreToolUse", bashInput(), io.Discard)
+			for _, n := range []string{"docs-placement", "safety-scan"} {
+				if want := slices.Contains(c.ran, n) || c.env == ""; ran[n] != want {
+					t.Errorf("%s ran = %v, want %v", n, ran[n], want)
+				}
+			}
+			for _, n := range c.notes {
+				if !strings.Contains(res.SystemMessage, n) {
+					t.Errorf("systemMessage %q lacks %q", res.SystemMessage, n)
+				}
+			}
+			if c.notes == nil && res.SystemMessage != "" {
+				t.Errorf("unexpected note %q", res.SystemMessage)
+			}
+		})
 	}
 }

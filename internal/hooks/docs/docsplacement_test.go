@@ -50,16 +50,15 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 		t.Fatalf("git init: %v (%s)", err, out)
 	}
 	for _, c := range []struct {
-		knob string
+		name string
 		hook func(*core.Input, io.Writer) int
 		want string
 		not  string
 	}{
-		{"1", Placement, "docs-placement: BLOCKED", "plan-template: BLOCKED"},
-		{"0", Gate, "plan-template: BLOCKED", "docs-placement: BLOCKED"},
+		{"placement", Placement, "docs-placement: BLOCKED", "plan-template: BLOCKED"},
+		{"gate", Gate, "plan-template: BLOCKED", "docs-placement: BLOCKED"},
 	} {
-		t.Run("docs="+c.knob, func(t *testing.T) {
-			t.Setenv(docsPlacementDisableEnv, c.knob)
+		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
 			payload := writePayload(t, "Write", cfg, filepath.Join(plans, "draft.md"), "freeform")
 			if code := c.hook(core.ParseInput(strings.NewReader(payload)), &stderr); code != core.ExitBlock {
@@ -74,7 +73,6 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 
 func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(docsPlacementDisableEnv, "1")
 	repo := t.TempDir()
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v (%s)", err, out)
@@ -163,24 +161,12 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 		filepath.Join(global, "plans"),
 		"handoffs in ",
 		"reports in ",
-		"HARNESS_DOCS_PLACEMENT=0",
+		"HARNESS_HOOK_SKIP=docs-placement",
 		"rules/harness/docs-placement.md",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("block message missing %q:\n%s", want, stderr.String())
 		}
-	}
-}
-
-// TestDocsPlacementKnobOff: the gate is tunable off via HARNESS_DOCS_PLACEMENT=0.
-func TestDocsPlacementKnobOff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(docsPlacementDisableEnv, "0")
-	repo := placementRepo(t)
-
-	var stderr bytes.Buffer
-	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md")))), &stderr); code != core.ExitProceed {
-		t.Fatalf("code = %d, want proceed when the knob is 0 (stderr: %s)", code, stderr.String())
 	}
 }
 

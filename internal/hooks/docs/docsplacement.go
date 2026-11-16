@@ -19,9 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// docsPlacementDisableEnv disables placement checks.
-const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
-
 // rootAnchors are the root-level markdown files that tooling requires at the repo root.
 var rootAnchors = map[string]bool{
 	"readme.md": true, "claude.md": true, "agents.md": true, "gemini.md": true,
@@ -33,9 +30,6 @@ var rootAnchors = map[string]bool{
 func Placement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool != "" && tool != "write" && tool != "edit" && tool != "multiedit" && tool != "create" && tool != "apply_patch" && tool != "bash" {
-		return core.ExitProceed
-	}
-	if os.Getenv(docsPlacementDisableEnv) == "0" {
 		return core.ExitProceed
 	}
 	if strandedPlanDest(in) != "" { // docs-plan-gate rewrites (or blocks) this write; a parallel deny would mask it
@@ -179,9 +173,9 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user asked\n"+
-		"for: `git add -N <file>` first (tracked files pass). Or disable the gate by setting %s=0.\n"+
+		"for: `git add -N <file>` first (tracked files pass). Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
 		"-> rules/harness/docs-placement.md\n",
-		base, where, plansHome, memory.ReportsDir(store), memory.HandoffsDir(store), docsPlacementDisableEnv)
+		base, where, plansHome, memory.ReportsDir(store), memory.HandoffsDir(store))
 	return core.ExitBlock
 }
 
