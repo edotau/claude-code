@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -82,14 +83,16 @@ const AllFlag = "--all"
 const AsyncFlag = "--async"
 
 // Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
-var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(hookBin) + ` `)
+var harnessCommand = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(hookBin) + ` `)
+})
 
 // foreignRTKHook is the bare `rtk hook claude` entry `rtk init -g` writes; the harness rtk-rewrite replaces it.
-var foreignRTKHook = regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`)
+var foreignRTKHook = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:\S*/)?rtk hook claude\b`) })
 
 // IsHarness reports whether a hook command is this harness's: plain, agent-marked, or the stale foreign rtk hook.
 func IsHarness(command string) bool {
-	return harnessCommand.MatchString(strings.TrimSpace(command)) || foreignRTKHook.MatchString(strings.TrimSpace(command))
+	return harnessCommand().MatchString(strings.TrimSpace(command)) || foreignRTKHook().MatchString(strings.TrimSpace(command))
 }
 
 const sec = time.Second

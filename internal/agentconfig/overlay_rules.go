@@ -45,7 +45,7 @@ func runRules(rules []rule, c *ruleCtx) error {
 
 // nameRules are the checks keep and unset names share: a malformed, route-redirecting or config-relocating name.
 var nameRules = []rule{
-	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errEnvName)},
+	{func(c *ruleCtx) bool { return !vault.EnvName().MatchString(c.name) }, refuse(errEnvName)},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
 	{func(c *ruleCtx) bool { return configLocationName(c.up) }, refuse(errConfigLocation)},
 }
@@ -116,7 +116,7 @@ var redirectSuffixes = []string{"_BASE_URL", "_API_BASE", "_ENDPOINT", "_GATEWAY
 func envReserved(name, up string) bool { return proc.EnvBlocked(name) || proc.EnvBlocked(up) }
 
 var setRules = []rule{
-	{func(c *ruleCtx) bool { return !vault.EnvName.MatchString(c.name) }, refuse(errEnvName)},
+	{func(c *ruleCtx) bool { return !vault.EnvName().MatchString(c.name) }, refuse(errEnvName)},
 	{func(c *ruleCtx) bool {
 		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, OverlayVar)
 	},
@@ -149,7 +149,7 @@ func setRule(rules []rule, name, val string, keep map[string]bool, route func(st
 // refRule refuses a vault name an overlay may not pass on: harness-internal secrets and any profile's route credential.
 func refRule(ref string, route func(string) bool) error {
 	switch {
-	case !vault.EnvName.MatchString(ref):
+	case !vault.EnvName().MatchString(ref):
 		return errors.New("want @secret:<NAME> with an env-style NAME")
 	case providers.InternalSecretName(ref):
 		return fmt.Errorf("@secret:%s is harness-internal", ref)

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -201,7 +202,7 @@ func isHeredocEnd(line, word string, stripTabs bool) bool {
 	return line == word
 }
 
-var bareHeredocWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+var bareHeredocWord = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`) })
 
 // heredoc is one `<<[-]WORD` redirect: its terminator word and whether it is `<<-` (leading tabs stripped).
 type heredoc struct {
@@ -252,7 +253,7 @@ func parseHeredoc(rest string) (h heredoc, n int, ok bool) {
 		end = len(trimmed)
 	}
 	h.word = trimmed[:end]
-	return h, len(rest) - len(trimmed) + end, bareHeredocWord.MatchString(h.word) // rejects `$((1<<4))` and `"a <<b"`
+	return h, len(rest) - len(trimmed) + end, bareHeredocWord().MatchString(h.word) // rejects `$((1<<4))` and `"a <<b"`
 }
 
 // unquotedHeredocOp returns the index of the first `<<` on line outside quotes, backslash escapes and comments, or -1.

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -432,7 +433,7 @@ func hasRuffTable(toml string) bool {
 }
 
 // makeCheckRef matches a reference to the CHECK variable itself: $(CHECK), ${CHECK}, $CHECK or $$CHECK.
-var makeCheckRef = regexp.MustCompile(`\$(\(CHECK\)|\{CHECK\}|CHECK\b)`)
+var makeCheckRef = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\$(\(CHECK\)|\{CHECK\}|CHECK\b)`) })
 
 // hasMakeLintCheck reports whether the lint target's recipe reads CHECK (report-only mode); comments are ignored.
 func hasMakeLintCheck(makefile string) bool {
@@ -447,7 +448,7 @@ func hasMakeLintCheck(makefile string) bool {
 			inRecipe = true
 		case strings.TrimSpace(line) == "":
 		case strings.HasPrefix(line, "\t") && inRecipe:
-			if code, _, _ := strings.Cut(line, "#"); makeCheckRef.MatchString(code) {
+			if code, _, _ := strings.Cut(line, "#"); makeCheckRef().MatchString(code) {
 				return true
 			}
 		default:

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -45,7 +46,9 @@ func ClaudeJSONWired(path string) bool {
 }
 
 // codexMCPHeader recognizes the web_search table, including quoted keys and trailing comments.
-var codexMCPHeader = regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
+var codexMCPHeader = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
+})
 
 // codexMCPRange locates the real table, ignoring multiline strings and arrays and comments above the next header.
 func codexMCPRange(raw []byte) (start, end int) {
@@ -58,7 +61,7 @@ func codexMCPRange(raw []byte) (start, end int) {
 			if start >= 0 {
 				return start, cut
 			}
-			if codexMCPHeader.MatchString(trimmed) {
+			if codexMCPHeader().MatchString(trimmed) {
 				start = offset
 			}
 		}

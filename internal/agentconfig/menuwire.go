@@ -6,17 +6,18 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-var idRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var idRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$`) })
 
 // OwnedID namespaces the provider entry so it never overwrites a user's own block of the same name.
 func OwnedID(p *providers.Provider) (string, error) {
-	if !idRE.MatchString(p.Name) {
-		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE)
+	if !idRE().MatchString(p.Name) {
+		return "", fmt.Errorf("provider name %q must match %s to be passed to an agent config", p.Name, idRE())
 	}
 	return "harness-" + p.Name, nil
 }
