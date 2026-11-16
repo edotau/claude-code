@@ -135,7 +135,10 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	if err := os.WriteFile(keys, []byte("K=ghp"+"_abcdefghij0123456789\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", "x_test.go", "testdata/keys.env")
+	if err := os.WriteFile(filepath.Join(dir, "é.go"), []byte(fixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "x_test.go", "testdata/keys.env", "é.go")
 	run("commit", "-q", "-m", "add fixtures")
 
 	var buf bytes.Buffer
@@ -149,8 +152,11 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	if strings.Contains(out, "x_test.go") || strings.Contains(out, "testdata/") {
 		t.Errorf("output flags a test fixture:\n%s", out)
 	}
-	if !strings.Contains(out, "1 finding(s)") {
-		t.Errorf("want exactly 1 finding:\n%s", out)
+	if !strings.Contains(out, "é.go") {
+		t.Errorf("output does not name the non-ASCII file:\n%s", out)
+	}
+	if !strings.Contains(out, "2 finding(s)") {
+		t.Errorf("want exactly 2 findings:\n%s", out)
 	}
 }
 
