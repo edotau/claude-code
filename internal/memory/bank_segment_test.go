@@ -15,14 +15,14 @@ import (
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
-	if _, err := EnsureBank(root, ""); err != nil {
+	if _, err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	topic := filepath.Join(StoreDir(), "global-topic.md")
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
-	for _, f := range corpusFiles(root) {
+	for _, f := range corpusFiles() {
 		found = found || f.Path == topic && f.Bank == "native"
 	}
 	if !found {
@@ -122,15 +122,15 @@ func pathsOf(files []corpusFile, label string) []string {
 
 func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
+		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		b := BankFor(root)
+		b := HomeBank()
 		topic, arc := b.Path("topic.md"), b.Sub("archive", "old.md")
 		for _, p := range []string{topic, arc} {
 			write(t, p, "---\nname: x\n---\nzebra\n")
 		}
-		files := corpusFiles(root)
+		files := corpusFiles()
 		native, archive := pathsOf(files, "native"), pathsOf(files, "archive")
 		if !slices.Contains(native, topic) {
 			t.Errorf("native corpus lacks %s: %v", topic, native)

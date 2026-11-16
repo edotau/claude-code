@@ -30,7 +30,7 @@ type Spec struct {
 // LaunchOptions supplies wave-wide routing and the memory reports directory.
 type LaunchOptions struct {
 	Slug, Provider, ReportsDir string
-	ReportPrefix               string // the flat bank's "<key>--" on every report and result file name
+	Day                        time.Time // the run's day for report names; zero means now
 	Profiles                   []string
 	Route                      []string // ask.RouteFlags.Args(): overlay, fallback, mode, allow, ask, deny
 	Tools                      *bool
@@ -189,7 +189,7 @@ func launchLines(specs []Spec, options LaunchOptions) ([]byte, error) {
 }
 
 func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLine, error) {
-	report := filepath.Join(options.ReportsDir, options.ReportPrefix+id+".md")
+	report := filepath.Join(options.ReportsDir, dateFirst(id, options.Day)+".md")
 	verify := spec.Verify
 	if verify == "" {
 		verify = defaultVerify(spec.Owns)
@@ -254,8 +254,8 @@ func launchEnvelopes(data []byte, specs []Spec, options LaunchOptions) ([]Envelo
 		if err := launchCheckEnvelope(envelope); err != nil {
 			return nil, err
 		}
-		envelope.Report = filepath.Join(options.ReportsDir, options.ReportPrefix+envelope.TaskID+".md")
-		envelope.Result = filepath.Join(options.ReportsDir, options.ReportPrefix+envelope.TaskID+".result.txt")
+		envelope.Report = filepath.Join(options.ReportsDir, dateFirst(envelope.TaskID, options.Day)+".md")
+		envelope.Result = filepath.Join(options.ReportsDir, dateFirst(envelope.TaskID, options.Day)+".result.txt")
 		out[i] = envelope
 	}
 	for _, envelope := range out {
@@ -283,4 +283,17 @@ func defaultVerify(owns []string) string {
 		cmd.WriteString(" --path '" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'")
 	}
 	return cmd.String()
+}
+
+var leadingDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
+
+// dateFirst prefixes the run's day (default now) to a name unless it already starts with a date.
+func dateFirst(name string, day time.Time) string {
+	if leadingDate.MatchString(name) {
+		return name
+	}
+	if day.IsZero() {
+		day = time.Now()
+	}
+	return day.Format("2006-01-02") + "-" + name
 }

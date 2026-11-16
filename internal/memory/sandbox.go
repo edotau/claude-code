@@ -81,8 +81,7 @@ func recordSandbox(dir string) error {
 
 // SandboxOptions selects the stores and whether their contents are copied.
 type SandboxOptions struct {
-	Repo       string
-	All, Empty bool
+	Empty bool
 }
 
 // SandboxStore reports the number of bank files placed in one store.
@@ -125,9 +124,6 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 
 // sandboxFlat copies the one bank's files into config's flat store, stamped.
 func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
-	if _, _, err := ResolveBank(opt.Repo); err != nil {
-		return nil, importInput("%v", err)
-	}
 	dst := filepath.Join(config, "memory")
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return nil, err
@@ -137,7 +133,11 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dst, layoutFile), []byte(layoutFlat+"\n"), 0o600); err != nil {
+	stamp, err := os.ReadFile(filepath.Join(StoreDir(), layoutFile))
+	if err != nil {
+		stamp = []byte(layoutFlat + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dst, layoutFile), stamp, 0o600); err != nil {
 		return nil, err
 	}
 	return []SandboxStore{{stateKey(b), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
@@ -153,16 +153,16 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 	} else {
 		rels = ownedStoreRels()
 	}
-	return placeStoreRels(dst, b, rels, empty)
+	return placeStoreRels(dst, rels, empty)
 }
 
 // placeStoreRels writes each rel under dst: b's template when empty, else the store's copy.
-func placeStoreRels(dst string, b Bank, rels []string, empty bool) ([]string, error) {
+func placeStoreRels(dst string, rels []string, empty bool) ([]string, error) {
 	placed := make([]string, 0, len(rels))
 	for _, rel := range rels {
 		var data []byte
 		if empty {
-			data = []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
+			data = []byte(templates()[rel])
 		} else {
 			var err error
 			data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel)))

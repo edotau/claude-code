@@ -30,10 +30,9 @@ Shard layout audit tests run concurrently.
 // TestSettleStrikesSupersededAndRecallFollows: settle strikes what a newer entry supersedes; recall serves the newer.
 func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	path := BankFor(root).Path("decisionLog.md")
+	path := HomeBank().Path("decisionLog.md")
 	write(t, path, reviseLog)
-	if _, err := settleBank(root, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	got := mustRead(t, path)
@@ -42,20 +41,20 @@ func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 		t.Fatalf("old entry not struck with its pointer and id kept; want %q in:\n%s", want, got)
 	}
 	assertUnmarked(t, got, "c0000003", "d0000004", "e0000005") // a dangling reference and a cycle
-	if _, err := settleBank(root, time.Now()); err != nil || mustRead(t, path) != got {
+	if _, err := settleBank(time.Now()); err != nil || mustRead(t, path) != got {
 		t.Fatalf("second settle changed the file (err %v)", err)
 	}
-	assertRecallFollows(t, root)
+	assertRecallFollows(t)
 }
 
 // assertRecallFollows: recall serves the new entry for the old one's terms; review reports the two bad refs.
-func assertRecallFollows(t *testing.T, root string) {
+func assertRecallFollows(t *testing.T) {
 	t.Helper()
-	picks, _ := recallPicks(context.Background(), root, "", "shard layout audit run concurrently", false, false)
+	picks, _ := recallPicks(context.Background(), "", "shard layout audit run concurrently", false, false)
 	if len(picks) != 1 || picks[0].Entry.ID != "b0000002" {
 		t.Fatalf("recall = %+v; want only the replacing entry b0000002", picks)
 	}
-	if p := reviseBankProblems(BankFor(root)); len(p) != 2 || !strings.Contains(strings.Join(p, "\n"), "deadbeef") {
+	if p := reviseBankProblems(); len(p) != 2 || !strings.Contains(strings.Join(p, "\n"), "deadbeef") {
 		t.Fatalf("review problems = %q; want the dangling id and the cycle", p)
 	}
 }
@@ -96,16 +95,15 @@ Supersedes 9d40e6c1. Embeddings are on.
 // TestPartlyStruckTitleStaysLive: a partly struck title loses its pointer at settle and stays in recall.
 func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	path := BankFor(root).Path("decisionLog.md")
+	path := HomeBank().Path("decisionLog.md")
 	write(t, path, partlyStruckLog)
-	if _, err := settleBank(root, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if b := blockOf(t, mustRead(t, path), "9d40e6c1"); strings.Contains(b, "Replaced by") || isSupersededBlock(b) {
 		t.Fatalf("partly struck entry kept a pointer or reads as replaced:\n%s", b)
 	}
-	picks, _ := recallPicks(context.Background(), root, "", "dream stamps retry blocked nothing edited", false, false)
+	picks, _ := recallPicks(context.Background(), "", "dream stamps retry blocked nothing edited", false, false)
 	if len(picks) != 1 || picks[0].Entry.ID != "9d40e6c1" {
 		t.Fatalf("recall = %+v; want the partly struck entry 9d40e6c1", picks)
 	}
@@ -162,8 +160,7 @@ func TestReviseBlockPosition(t *testing.T) {
 
 func TestSettleRecoversPendingJournal(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	path := BankFor(root).Path("decisionLog.md")
+	path := HomeBank().Path("decisionLog.md")
 	write(t, path, reviseLog)
 	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
 	rel, err := filepath.Rel(StoreDir(), path)
@@ -177,7 +174,7 @@ func TestSettleRecoversPendingJournal(t *testing.T) {
 	if err := j.save(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = settleBank(root, time.Now()); err != nil {
+	if _, err = settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(mustRead(t, path), "Recovered journal payload.") {
@@ -189,25 +186,20 @@ func TestReviseRecallBoundaries(t *testing.T) {
 	for _, mode := range []string{"missing", "eight hops", "nine hops", "routed", "all"} {
 		t.Run(mode, func(t *testing.T) {
 			tempConfig(t)
-			root := repoRoot(t, "proja")
 			if mode == "routed" || mode == "all" {
-				assertReviseCorpus(t, root, mode)
+				assertReviseCorpus(t)
 				return
 			}
-			assertReviseChain(t, root, mode)
+			assertReviseChain(t, mode)
 		})
 	}
 }
 
-func assertReviseCorpus(t *testing.T, root, mode string) {
+func assertReviseCorpus(t *testing.T) {
 	t.Helper()
-	other := repoRoot(t, "projb")
 	old := markReplaced("## Old <!-- id:aaaaaaaa -->\nunique quasar shard layout audit.", "bbbbbbbb", "")
-	write(t, BankFor(other).Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
-	hits, _, err := RecallRepo(root, mode == "all", "projb unique quasar shard layout audit", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	write(t, HomeBank().Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
+	hits := RecallBank("projb unique quasar shard layout audit", 1)
 	if len(hits) != 1 || hits[0].ID != "bbbbbbbb" {
 		t.Fatalf("recall = %+v, want bbbbbbbb", hits)
 	}
@@ -226,7 +218,7 @@ func assertReviseFallback(t *testing.T, mode string, hits []SearchHit) {
 	}
 }
 
-func assertReviseChain(t *testing.T, root, mode string) {
+func assertReviseChain(t *testing.T, mode string) {
 	t.Helper()
 	hops := reviseHopCap
 	if mode == "nine hops" {
@@ -240,7 +232,7 @@ func assertReviseChain(t *testing.T, root, mode string) {
 		}
 		blocks = append(blocks, b)
 	}
-	path := BankFor(root).Path("decisionLog.md")
+	path := HomeBank().Path("decisionLog.md")
 	write(t, path, rejoin("# Log", blocks))
 	files := []corpusFile{{Bank: "local", Path: path, Mode: segEntries}}
 	if mode == "missing" {
@@ -260,12 +252,11 @@ func assertReviseChain(t *testing.T, root, mode string) {
 // TestReviseResolvesRefsOfLoadedArchives: a reference carried by an archive loaded for another is resolved too.
 func TestReviseResolvesRefsOfLoadedArchives(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	b := BankFor(root)
+	b := HomeBank()
 	write(t, b.Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Live <!-- id:a1000001 -->\nSupersedes b2000002. Live.\n")
 	write(t, b.Sub("archive", "decisionLog-2026-11.md"), "## 2026-11-10 — Mid <!-- id:b2000002 -->\nSupersedes c3000003. Mid.\n")
 	write(t, HomeBank().Sub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
-	if p := reviseBankProblems(b); strings.Contains(strings.Join(p, "\n"), "unknown id") {
+	if p := reviseBankProblems(); strings.Contains(strings.Join(p, "\n"), "unknown id") {
 		t.Fatalf("review problems = %q; want no unknown id", p)
 	}
 }

@@ -49,8 +49,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 // Nominations glob every repo's state log, prefixed with the repo's store key — not only home's.
 func assertHotNomination(t *testing.T, now time.Time) {
 	t.Helper()
-	root := repoRoot(t, "proj")
-	dir := accessDir(BankFor(root))
+	dir := accessDir(HomeBank())
 	for d := range hotMinDays {
 		logAccess(dir, now.AddDate(0, 0, -d), "dd000004", accessRecall)
 	}
@@ -187,19 +186,5 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	if !strings.Contains(string(data), "aa000001") || !strings.Contains(string(data), "bb000002") {
 		t.Errorf("fallback must append to the existing log, got %q", data)
-	}
-}
-
-// Regression: a repo keyed "home" gets its own access log, so its returns never count as the home store's.
-func TestAccessLogRepoKeyedHomeDoesNotShareHomeLog(t *testing.T) {
-	tempConfig(t)
-	now := time.Now()
-	repo, home := accessDir(Bank{Key: homeDir}), accessDir(HomeBank())
-	logAccess(repo, now, "aa11bb22", AccessSearch)
-	if AccessLogPath(repo) == AccessLogPath(home) {
-		t.Fatalf("repo \"home\" and the home store share %s", AccessLogPath(home))
-	}
-	if returnCounts([]string{home}, now)["aa11bb22"] != 0 {
-		t.Error("a repo-\"home\" return was credited to the home store")
 	}
 }

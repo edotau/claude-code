@@ -20,12 +20,7 @@ import (
 )
 
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
-func recallPicks(ctx context.Context, root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
-	return recallBankPicks(ctx, func() Bank { return BankFor(recallRoot(root)) }, session, query, semantic, explain)
-}
-
-// recallBankPicks takes the bank lazily so a query that skips never resolves it.
-func recallBankPicks(ctx context.Context, bank func() Bank, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+func recallPicks(ctx context.Context, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
@@ -40,10 +35,10 @@ func recallBankPicks(ctx context.Context, bank func() Bank, session, query strin
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
-	b := bank()
+	b := HomeBank()
 	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
-	ranked, files, segs := searchBankTerms(b, q, terms, 0)
+	ranked, files, segs := searchBankTerms(b, terms, 0)
 	ranked = followReplaced(ranked, files, segs)
 	var sem *Semantic
 	semSeen := false
@@ -55,7 +50,7 @@ func recallBankPicks(ctx context.Context, bank func() Bank, session, query strin
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts([]string{accessDir(b), accessDir(HomeBank())}, time.Now())
+	counts := returnCounts([]string{accessDir(b)}, time.Now())
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
@@ -63,16 +58,6 @@ func recallBankPicks(ctx context.Context, bank func() Bank, session, query strin
 
 func skipRecallQuery(query string, tokens []string, semantic bool) bool {
 	return query == "" || (semantic && (strings.HasPrefix(query, "/") || IsUpdateChild())) || distinctCount(tokens, 3) < recallMinTerms
-}
-
-func recallRoot(root string) string {
-	if root != "" {
-		return root
-	}
-	if wd, err := os.Getwd(); err == nil {
-		return wd
-	}
-	return paths.ConfigDir()
 }
 
 type semanticReady struct {
@@ -145,9 +130,8 @@ func recallContext(picks []recallPick) (string, []SearchHit) {
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
-func PromptRecall(ctx context.Context, sessionID, cwd, prompt string, warn io.Writer) string {
-	root := SessionRoot(sessionID, cwd)
-	picks, trace := recallPicks(ctx, root, sessionID, prompt, true, false)
+func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer) string {
+	picks, trace := recallPicks(ctx, sessionID, prompt, true, false)
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
@@ -160,7 +144,7 @@ func PromptRecall(ctx context.Context, sessionID, cwd, prompt string, warn io.Wr
 	return context
 }
 
-func searchBankTerms(b Bank, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
+func searchBankTerms(b Bank, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
 	files := corpusOf(b)
 	segs := loadSegments(files, true)
 	return rankFiles(terms, k, files, segs), files, segs
@@ -172,12 +156,10 @@ func searchAll(query string, k int) []SearchHit {
 	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
 }
 
-func allCorpusFiles() []corpusFile { return corpusFiles(paths.ConfigDir()) }
+func allCorpusFiles() []corpusFile { return corpusFiles() }
 
-// SearchRepo ranks blocks for q across the one store; repo and all no longer narrow it.
-func SearchRepo(repo string, _ bool, q string, k int) ([]SearchHit, string, error) {
-	return searchAll(q, k), root(repo), nil
-}
+// SearchBank ranks blocks for q across the store, k best.
+func SearchBank(q string, k int) []SearchHit { return searchAll(q, k) }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.
 const (
@@ -189,13 +171,12 @@ const (
 const agentRecallMarker = "<memory-recall>"
 
 // AgentRecall is a subagent spawn's <memory-recall> block plus its up to 3 cited ids; ("", nil) on no match.
-func AgentRecall(ctx context.Context, sessionID, cwd, task string) (block string, ids []string) {
-	cwd = SessionRoot(sessionID, cwd)
+func AgentRecall(ctx context.Context, sessionID, task string) (block string, ids []string) {
 	q := strings.TrimSpace(task)
 	if q == "" || strings.Contains(q, agentRecallMarker) {
 		return "", nil
 	}
-	picks, _ := recallPicks(ctx, cwd, "", q, false, false) // no seen set: the subagent has not seen what its parent did
+	picks, _ := recallPicks(ctx, "", q, false, false) // no seen set: the subagent has not seen what its parent did
 
 	var lines []string
 	for _, p := range picks[:min(recallK, len(picks))] {
@@ -458,7 +439,7 @@ func seenPath(sessionID string) string {
 }
 
 // resetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
-func resetSeen(sessionID, root, surface string) {
+func resetSeen(sessionID, surface string) {
 	if !looksLikeSessionID(sessionID) {
 		return
 	}
@@ -470,7 +451,7 @@ func resetSeen(sessionID, root, surface string) {
 	flat := appendFields(nil, surface)
 	var norm []byte
 	var b strings.Builder
-	for _, seg := range loadSegments(corpusFiles(root), true) {
+	for _, seg := range loadSegments(corpusFiles(), true) {
 		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
 			continue
 		}
@@ -537,15 +518,15 @@ func pruneSeen(dir string) {
 	}
 }
 
-// RecallRepo is SearchRepo as recall serves it: replaced entries give way to their live replacement, top k kept.
-func RecallRepo(repo string, _ bool, q string, k int) ([]SearchHit, string, error) {
+// RecallBank is SearchBank as recall serves it: replaced entries give way to their live replacement, top k kept.
+func RecallBank(q string, k int) []SearchHit {
 	files := allCorpusFiles()
 	segs := loadSegments(files, false)
 	hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
 	if k > 0 && len(hits) > k {
 		hits = hits[:k]
 	}
-	return hits, root(repo), nil
+	return hits
 }
 
 // recallCandidate records each selection gate without changing the selection.
@@ -729,12 +710,8 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 }
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
-func RecallExplain(w io.Writer, repo, query string) error {
-	_, b, err := ResolveBank(repo)
-	if err != nil {
-		return err
-	}
-	_, trace := recallBankPicks(context.Background(), func() Bank { return b }, os.Getenv(SessionIDEnv), query, true, true)
+func RecallExplain(w io.Writer, query string) {
+	_, trace := recallPicks(context.Background(), os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)
@@ -746,7 +723,6 @@ func RecallExplain(w io.Writer, repo, query string) error {
 		}
 		explainRow(w, row, files[row.File])
 	}
-	return nil
 }
 
 func explainFiles(w io.Writer, rows []recallCandidate) map[string]int {

@@ -46,7 +46,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		s1 = "11111111-1111-4111-8111-111111111111"
 		s2 = "22222222-2222-4222-8222-222222222222"
 	)
-	if got := sessionStartContext(t, s0, sub); got != "" || bankExists(sub) {
+	if got := sessionStartContext(t, s0, sub); got != "" || bankExists() {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
@@ -118,7 +118,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pre-scaffold the store (steady state: a .origin exists) so this test isolates the link-repair contract.
-	if _, err := EnsureBank(repo, ""); err != nil {
+	if _, err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,10 +157,6 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 
 	StartSession("first", repo, time.Now())
 
-	key := BankFor(repo).Key
-	if strings.Contains(key, "--") {
-		t.Errorf("bank key got a collision suffix on a fresh repo: %s", key)
-	}
 	res, ok := linkNativeFor(repo)
 	if !ok || res.Action != "ok" || res.Target != StoreDir() {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, StoreDir())
@@ -187,7 +183,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Init(repo); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
@@ -214,12 +210,12 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 func TestStartSessionProbesBankOnce(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "banked")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	probes := 0
 	orig := hasBank
-	hasBank = func(r string) bool { probes++; return orig(r) }
+	hasBank = func() bool { probes++; return orig() }
 	t.Cleanup(func() { hasBank = orig })
 	StartSession("00000000-0000-4000-8000-0000000000a0", root, time.Now())
 	if probes != 1 {
@@ -351,7 +347,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureBank(repo, "")
+	dir, err := EnsureBank("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +442,7 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	initStore(t)
 	write(t, HomeBank().Sub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
 	write(t, HomeBank().Sub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
-	hits := searchBanks(t.TempDir(), "zebracorn invariant probes", 5)
+	hits := searchBanks("zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
 	}
@@ -466,7 +462,7 @@ func TestLegacyDocsKnowledgeIgnored(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	initStore(t)
 	write(t, filepath.Join(cfg, "docs", "knowledge", "yak.md"), "# Yak\nYakcorn invariant: wool never ships.\n")
-	if hits := searchBanks(t.TempDir(), "yakcorn invariant wool", 5); len(hits) != 0 {
+	if hits := searchBanks("yakcorn invariant wool", 5); len(hits) != 0 {
 		t.Errorf("legacy docs/knowledge note was searched: %+v", hits)
 	}
 	c, err := BuildCatalog(time.Now())
@@ -486,7 +482,7 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Skip("git unavailable")
 	}
-	if _, err := EnsureBank(repo, ""); err != nil {
+	if _, err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(StoreDir(), nativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
@@ -511,7 +507,7 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
-	if _, err := EnsureBank(root, ""); err != nil {
+	if _, err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(StoreDir(), nativeIndexFile), "unique native-only index marker\n")
@@ -542,9 +538,6 @@ func TestRepoFocusReadsTheBanksTypedFiles(t *testing.T) {
 		got := strings.Join(repoFocus(b), "\n")
 		if !strings.Contains(got, "ship it") || !strings.Contains(got, "the thing") {
 			t.Errorf("repoFocus = %q", got)
-		}
-		if len(repoFocus(HomeBank())) != 0 {
-			t.Error("home focus picked up the repo's files")
 		}
 	})
 }

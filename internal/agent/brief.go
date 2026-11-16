@@ -25,13 +25,9 @@ type BriefInput struct {
 //go:embed brief.tmpl
 var briefTemplate string
 
-// RenderBrief resolves report paths against the current working directory's bank.
+// RenderBrief resolves report paths against the memory bank.
 func RenderBrief(input BriefInput) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolve brief working directory: %w", err)
-	}
-	b := memory.BankFor(cwd)
+	b := memory.HomeBank()
 	if input.Owned == nil {
 		input.Owned = []string{}
 	}
@@ -46,8 +42,8 @@ func RenderBrief(input BriefInput) (string, error) {
 	var out bytes.Buffer
 	data := struct {
 		BriefInput
-		OwnedLine, ReportsDir, Prefix string
-	}{input, string(owned), b.SubDir("reports"), b.Prefix()}
+		OwnedLine, ReportsDir string
+	}{input, string(owned), b.SubDir("reports")}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}

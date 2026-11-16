@@ -13,8 +13,7 @@ import (
 // TestRememberUnknownTypeErrors: an unmapped --type is refused, naming the valid set.
 func TestRememberUnknownTypeErrors(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Remember(root, "bogus", "a fact", time.Now()); err == nil || !strings.Contains(err.Error(), "want") {
+	if _, err := Remember("bogus", "a fact", time.Now()); err == nil || !strings.Contains(err.Error(), "want") {
 		t.Fatalf("Remember with an unknown type = %v, want an error naming the valid types", err)
 	}
 }
@@ -22,26 +21,24 @@ func TestRememberUnknownTypeErrors(t *testing.T) {
 // TestRememberEmptyFactErrors: whitespace-only input is refused before any write.
 func TestRememberEmptyFactErrors(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Remember(root, "feedback", "   ", time.Now()); err == nil {
+	if _, err := Remember("feedback", "   ", time.Now()); err == nil {
 		t.Fatal("Remember with an empty fact = nil error, want one")
 	}
 }
 
 func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 	reads := countBankReads(t)
 
-	id, err := Remember(root, "project", "adopt bbolt for the memory store", now)
+	id, err := Remember("project", "adopt bbolt for the memory store", now)
 	if err != nil {
 		t.Fatalf("Remember: %v", err)
 	}
 	if id == "" {
 		t.Fatal("Remember returned an empty id")
 	}
-	path := BankFor(root).Path("decisionLog.md")
+	path := HomeBank().Path("decisionLog.md")
 	if n := reads[path]; n != 2 {
 		t.Errorf("Remember read decisionLog.md %d times, want 2 (its write, then settle)", n)
 	}
@@ -49,17 +46,17 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if !strings.Contains(body, "## 2026-10-23 — adopt bbolt for the memory store <!-- id:"+id+" -->") {
 		t.Errorf("decisionLog.md lacks the dated heading stamped with returned id %q: %q", id, body)
 	}
-	assertLaterProjectEntryFirst(t, root, id, now)
+	assertLaterProjectEntryFirst(t, id, now)
 }
 
-func assertLaterProjectEntryFirst(t *testing.T, root, id string, now time.Time) {
+func assertLaterProjectEntryFirst(t *testing.T, id string, now time.Time) {
 	t.Helper()
 	// Round-trip: a second, later entry must still land ABOVE the first (newest-first).
-	id2, err := Remember(root, "project", "a second, later decision", now.Add(time.Hour))
+	id2, err := Remember("project", "a second, later decision", now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(BankFor(root).Path("decisionLog.md"))
+	data, _ := os.ReadFile(HomeBank().Path("decisionLog.md"))
 	first := strings.Index(string(data), id2)
 	second := strings.Index(string(data), id)
 	if first == -1 || second == -1 || first > second {
@@ -69,15 +66,14 @@ func assertLaterProjectEntryFirst(t *testing.T, root, id string, now time.Time) 
 
 func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	for _, kind := range []string{"user", "feedback", "reference"} {
 		t.Run(kind, func(t *testing.T) {
-			id, err := Remember(root, kind, "prefer early returns over deep nesting", time.Now())
+			id, err := Remember(kind, "prefer early returns over deep nesting", time.Now())
 			if err != nil {
 				t.Fatalf("Remember(%s): %v", kind, err)
 			}
 			label := strings.ToUpper(kind[:1]) + kind[1:]
-			body := mustRead(t, BankFor(root).Path("conventions.md"))
+			body := mustRead(t, HomeBank().Path("conventions.md"))
 			if !strings.Contains(body, "- "+label+": prefer early returns over deep nesting") {
 				t.Errorf("conventions.md missing the labeled bullet: %q", body)
 			}
@@ -121,11 +117,10 @@ func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 // A fact into an absent conventions.md lands under the scaffold header, not appendBlocks' "(archived)" one.
 func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Remember(root, "user", "likes tea", time.Now()); err != nil {
+	if _, err := Remember("user", "likes tea", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	body := mustRead(t, BankFor(root).Path("conventions.md"))
+	body := mustRead(t, HomeBank().Path("conventions.md"))
 	scaffold := strings.TrimRight(templates()["conventions.md"], "\n")
 	if strings.Contains(body, "(archived)") || !strings.HasPrefix(body, scaffold) {
 		t.Errorf("conventions.md = %q, want it to start with the scaffold %q", body, scaffold)
@@ -135,14 +130,13 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 // TestRememberRefusesFactItCannotStamp: a fact that would get no id of its own errors and leaves the file untouched.
 func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	path := BankFor(root).Path("conventions.md")
+	path := HomeBank().Path("conventions.md")
 	for _, c := range []struct{ name, body, fact string }{
 		{"unclosed fence above", "# Conventions\n\n- a rule\n\n```go\nx := 1\n", "fact after the fence"},
 		{"id marker in the fact", "# Conventions\n\n- a rule\n", "quote <!-- id:deadbeef --> here"},
 	} {
 		write(t, path, c.body)
-		if _, err := Remember(root, "feedback", c.fact, time.Now()); err == nil {
+		if _, err := Remember("feedback", c.fact, time.Now()); err == nil {
 			t.Errorf("%s: Remember = nil error, want a refusal", c.name)
 		}
 		if got := mustRead(t, path); got != c.body {
@@ -154,7 +148,6 @@ func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 // TestRememberSettlesInsideItsWriteLock: no second writer can take the bank lock between the fact write and the settle.
 func TestRememberSettlesInsideItsWriteLock(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	origWait, origHook := BankLockWait, afterRememberWrite
 	t.Cleanup(func() { BankLockWait, afterRememberWrite = origWait, origHook })
 	BankLockWait = 200 * time.Millisecond
@@ -174,7 +167,7 @@ func TestRememberSettlesInsideItsWriteLock(t *testing.T) {
 		case <-refused:
 		}
 	}
-	_, err := Remember(root, "feedback", "settle in the same critical section", time.Now())
+	_, err := Remember("feedback", "settle in the same critical section", time.Now())
 	close(release)
 	if intruded || err != nil {
 		t.Fatalf("Remember released the bank lock before settling: rival took it = %v, Remember err = %v", intruded, err)
@@ -199,9 +192,9 @@ func lockStoreIndex(t *testing.T) func() {
 // TestRememberSettleFailureRollsBackTheWrite: a failed settle leaves the bank file as it was; a retry is no duplicate.
 func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	seedConventionBlock(t, root)
-	path := BankFor(root).Path("conventions.md")
+	repoRoot(t, "proj")
+	seedConventionBlock(t)
+	path := HomeBank().Path("conventions.md")
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +203,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	t.Cleanup(func() { afterRememberWrite = orig })
 	afterRememberWrite = lockStoreIndex(t)
 	const fact = "retry after a failed settle"
-	if _, err := Remember(root, "feedback", fact, time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
+	if _, err := Remember("feedback", fact, time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
 		t.Fatalf("Remember with a failing settle = %v, want an error naming the settle", err)
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
@@ -218,7 +211,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	}
 	afterRememberWrite = orig
 	_ = os.Remove(filepath.Join(StoreDir(), ".git", "index.lock"))
-	if _, err := Remember(root, "feedback", fact, time.Now()); err != nil {
+	if _, err := Remember("feedback", fact, time.Now()); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 	if after, _ := os.ReadFile(path); strings.Count(string(after), fact) != 1 {
@@ -317,7 +310,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 	tempConfig(t)
 	for _, label := range []string{"decisions", "DECISIONS", "Decisions"} {
 		t.Run(label, func(t *testing.T) {
-			paths, err := appendReport(Bank{Key: "repo"}, label, ReportInput{
+			paths, err := appendReport(HomeBank(), label, ReportInput{
 				Report:    "# Review\n\nReport body.\n",
 				Decisions: []string{"Keep reports separate from decisions."},
 			})
@@ -327,7 +320,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 			if len(paths) != 0 {
 				t.Fatalf("rejected report returned paths: %v", paths)
 			}
-			if _, err := os.Stat(Bank{Key: "repo"}.SubDir("reports")); !os.IsNotExist(err) {
+			if _, err := os.Stat(HomeBank().SubDir("reports")); !os.IsNotExist(err) {
 				t.Fatalf("rejected label created reports directory: %v", err)
 			}
 		})
@@ -340,14 +333,14 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 
 func TestRememberWritesTheBanksFileInEachLayout(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
+		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		id, err := Remember(root, "user", "prefer small diffs", time.Now())
+		id, err := Remember("user", "prefer small diffs", time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
-		body := mustRead(t, BankFor(root).Path("conventions.md"))
+		body := mustRead(t, HomeBank().Path("conventions.md"))
 		if !strings.Contains(body, "prefer small diffs") || !strings.Contains(body, "id:"+id) {
 			t.Errorf("conventions.md missing the fact or its id %s: %q", id, body)
 		}

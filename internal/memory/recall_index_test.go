@@ -30,19 +30,19 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	}
 	f := recallIndexFixture{
 		root:    root,
-		source:  BankFor(root).Path("decisionLog.md"),
-		archive: BankFor(root).Sub("archive", "sessionHistory-old.md"),
+		source:  HomeBank().Path("decisionLog.md"),
+		archive: HomeBank().Sub("archive", "sessionHistory-old.md"),
 		stamp:   stamp,
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		BankFor(root).Path("conventions.md"):        "# Conventions\n\n- commit small\nreview focused changes\n",
+		HomeBank().Path("conventions.md"):           "# Conventions\n\n- commit small\nreview focused changes\n",
 		filepath.Join(StoreDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
-		BankFor(root).Path("recall.md"): "---\nname: native recall\n" +
+		HomeBank().Path("recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",
-		BankFor(root).Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
+		HomeBank().Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
 		filepath.Join(HomeBank().SubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
@@ -63,7 +63,7 @@ func recallIndexWrite(t testing.TB, path, body string, mtime time.Time) {
 
 func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 	t.Helper()
-	return searchBanks(f.root, query, 0)
+	return searchBanks(query, 0)
 }
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
@@ -78,7 +78,7 @@ func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 	t.Helper()
 	index := f.index(t)
-	for _, file := range corpusFiles(f.root) {
+	for _, file := range corpusFiles() {
 		assertPersistedRecallFile(t, file, index)
 	}
 	return index
@@ -280,6 +280,6 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		searchBankTerms(BankFor(f.root), query, terms, 0)
+		searchBankTerms(HomeBank(), terms, 0)
 	}
 }

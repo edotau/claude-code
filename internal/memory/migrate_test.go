@@ -87,7 +87,7 @@ func TestMigrateMergesIntoOneBank(t *testing.T) {
 	if read("projectContext.md") != "" {
 		t.Error("template projectContext not dropped")
 	}
-	if read("notes/topic.md") != "topic\n" || read("topic.md") != "" || read(".layout") != "flat 2\n" {
+	if read("notes/topic.md") != "topic\n" || read("topic.md") != "" || read(".layout") != layoutFlat+"\n" {
 		t.Error("topic or layout")
 	}
 	idx := read("MEMORY.md")

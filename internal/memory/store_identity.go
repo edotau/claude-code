@@ -1,9 +1,7 @@
 package memory
 
 import (
-	"cmp"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,15 +11,11 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Identity is a cwd resolved to the canonical repository it belongs to; worktrees and subdirs share one.
 type Identity struct {
-	Origin   string // canonical main checkout ("" when HomeBank)
-	Base     string // filepath.Base(Origin)
-	HomeBank bool   // non-repo cwd → unprefixed files in the store (home tier)
-	Harness  bool   // the config checkout itself → Key harnessStoreKey()
+	Origin string // canonical main checkout; "" for a non-repo cwd
 }
 
 // identities memoizes the git fork per cleaned root: a flip mid-process would split a store.
@@ -62,7 +56,7 @@ func resolveWith(root string, main func(string) (string, bool)) Identity {
 		}
 		o, memoize := resolveOrigin(root, main)
 		if !memoize {
-			return Identity{HomeBank: true}
+			return Identity{}
 		}
 		origin = o
 		identities.Store(root, origin)
@@ -70,11 +64,11 @@ func resolveWith(root string, main func(string) (string, bool)) Identity {
 	o := origin.(string)
 	switch {
 	case o == "":
-		return Identity{HomeBank: true}
+		return Identity{}
 	case paths.SamePath(o, paths.ConfigDir()):
 		return harnessIdentity()
 	}
-	return Identity{Origin: o, Base: filepath.Base(o)}
+	return Identity{Origin: o}
 }
 
 // resolveOrigin finds root's origin; memoize is false when git failed to run, so a later call re-asks.
@@ -91,108 +85,12 @@ func storeIdentity(root string) (Identity, bool) {
 	if !paths.Within(paths.CanonDeep(root), paths.CanonDeep(StoreDir())) {
 		return Identity{}, false
 	}
-	return Identity{HomeBank: true}, true
+	return Identity{}, true
 }
 
 func harnessIdentity() Identity {
 	o := paths.CanonDeep(paths.ConfigDir())
-	return Identity{Origin: o, Base: filepath.Base(o), Harness: true}
-}
-
-// harnessStoreKey is paths.ConfigDir()'s store key: the origin-remote rule of any repo, else its basename.
-func harnessStoreKey() string {
-	cfg := paths.ConfigDir()
-	if rb := repoKeyFromRemote(originRemoteURL(cfg)); rb != "" {
-		return rb
-	}
-	return filepath.Base(cfg)
-}
-
-// remoteCache memoizes originRemoteURL per checkout, misses included; a remote change mid-process is not seen.
-var remoteCache sync.Map
-
-// remoteStamp fingerprints the config files that decide `origin`; "" when not cacheable (env overrides or any include).
-func remoteStamp(checkout string) string {
-	if gitEnvSet() {
-		return ""
-	}
-	home, _ := os.UserHomeDir()
-	xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
-	cfgs := []string{
-		filepath.Join(checkout, ".git", "config"), filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config"),
-		"/etc/gitconfig",
-	}
-	var b strings.Builder
-	for i, p := range cfgs {
-		fi, err := os.Stat(p)
-		if i == 0 && (err != nil || !fi.Mode().IsRegular()) {
-			return ""
-		}
-		if err != nil {
-			continue
-		}
-		if data, err := os.ReadFile(p); err != nil || hasInclude(data) {
-			return "" // an included file is outside the stamp, so git must answer
-		}
-		fmt.Fprintf(&b, "%d,%d;", fi.ModTime().UnixNano(), fi.Size())
-	}
-	return b.String()
-}
-
-func gitEnvSet() bool {
-	return slices.ContainsFunc(os.Environ(), func(e string) bool {
-		return strings.HasPrefix(e, "GIT_CONFIG") || strings.HasPrefix(e, "GIT_DIR")
-	})
-}
-
-// hasInclude reports whether a git config has an [include] or [includeIf] section header.
-func hasInclude(cfg []byte) bool {
-	for line := range strings.SplitSeq(string(cfg), "\n") {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "[include") {
-			return true
-		}
-	}
-	return false
-}
-
-// originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).
-func originRemoteURL(checkout string) string {
-	if v, ok := remoteCache.Load(checkout); ok {
-		return v.(string)
-	}
-	stamp := remoteStamp(checkout)
-	file := filepath.Join(StateDir(), "remote", textutil.SHA256Hex([]byte(checkout))[:16])
-	if data, err := os.ReadFile(file); err == nil && stamp != "" {
-		if s, url, ok := strings.Cut(string(data), "\n"); ok && s == stamp {
-			remoteCache.Store(checkout, url)
-			return url
-		}
-	}
-	out, err := gitOut(checkout, "remote", "get-url", "origin")
-	if err != nil {
-		if !gitRefused(err) {
-			return "" // git failed to run: do not memoize it as "no remote"
-		}
-		out = ""
-	}
-	remoteCache.Store(checkout, out)
-	if stamp != "" {
-		_ = paths.AtomicWrite(file, []byte(stamp+"\n"+out), 0o600) // a cache: a failed write only costs the next fork
-	}
-	return out
-}
-
-// repoKeyFromRemote is a git remote URL's basename without ".git" (ssh, scp-style, https); "" if unparseable.
-func repoKeyFromRemote(url string) string {
-	url = strings.TrimSuffix(strings.TrimSpace(url), "/")
-	url = strings.TrimSuffix(url, ".git")
-	if url == "" {
-		return ""
-	}
-	if i := strings.LastIndexAny(url, "/:"); i >= 0 {
-		return url[i+1:]
-	}
-	return url
+	return Identity{Origin: o}
 }
 
 // OriginEnv carries the launching workspace's store origin to child sessions (set by agent.EnvSpec.Environ).
@@ -241,13 +139,13 @@ func fixedIdentity(root string) (Identity, bool) {
 func throwawayIdentity() Identity {
 	o := os.Getenv(OriginEnv)
 	if o == "" || !filepath.IsAbs(o) {
-		return Identity{HomeBank: true}
+		return Identity{}
 	}
 	if paths.SamePath(o, paths.ConfigDir()) {
 		return harnessIdentity()
 	}
 	o = paths.CanonDeep(o)
-	return Identity{Origin: o, Base: filepath.Base(o)}
+	return Identity{Origin: o}
 }
 
 // LaunchOrigin is the origin a child launched from cwd inherits: OriginEnv wins; the home tier passes nothing.
@@ -255,10 +153,7 @@ func LaunchOrigin(cwd string) string {
 	if o := os.Getenv(OriginEnv); o != "" {
 		return o
 	}
-	if id := Resolve(cwd); !id.HomeBank {
-		return id.Origin
-	}
-	return ""
+	return Resolve(cwd).Origin
 }
 
 // routeMatch reports whether query names raw as a whole word, with or without its leading dot.

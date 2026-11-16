@@ -13,21 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// The harness store is keyed by the config checkout's origin repo name, else by the config dir's basename.
-func TestStorePaths(t *testing.T) {
-	bare := gitRepo(t, canonTemp(t, t.TempDir()), "cfg-checkout")
-	t.Setenv("CLAUDE_CONFIG_DIR", bare)
-	if got, want := harnessStoreKey(), "cfg-checkout"; got != want {
-		t.Errorf("no origin: harnessStoreKey = %q, want %q", got, want)
-	}
-	cloned := gitRepo(t, canonTemp(t, t.TempDir()), "cfg-clone")
-	hosttest.In(t, cloned, "remote", "add", "origin", "git@github.com:someone/claude-code.git")
-	t.Setenv("CLAUDE_CONFIG_DIR", cloned)
-	if got, want := harnessStoreKey(), "claude-code"; got != want {
-		t.Errorf("with origin: harnessStoreKey = %q, want %q (keyed by the remote, not the dir)", got, want)
-	}
-}
-
 func TestInsideStore(t *testing.T) {
 	cfg := tempConfig(t)
 	cases := map[string]struct {
@@ -229,7 +214,7 @@ func write(t testing.TB, path, body string) {
 func repoRoot(t *testing.T, name string) string {
 	t.Helper()
 	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
-	if _, err := EnsureBank(root, ""); err != nil {
+	if _, err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -412,11 +397,11 @@ func runRoot(t *testing.T, fn func(t *testing.T, root string)) {
 
 func TestInitSeedsTheBank(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
-		dir, err := Init(root)
+		dir, err := Init()
 		if err != nil {
 			t.Fatal(err)
 		}
-		b := BankFor(root)
+		b := HomeBank()
 		if b != HomeBank() || dir != b.SubDir("") {
 			t.Fatalf("Init = %s for bank %+v, want its SubDir", dir, b)
 		}
@@ -433,11 +418,11 @@ func TestInitSeedsTheBank(t *testing.T) {
 
 func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
+		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
 		res, ok := linkNativeFor(root)
-		wantTarget := BankFor(root).SubDir("")
+		wantTarget := HomeBank().SubDir("")
 		if !ok || res.Target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
 		}

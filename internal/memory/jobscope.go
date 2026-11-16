@@ -51,13 +51,13 @@ func JobScope(kind, workdir string) Scope {
 	return s
 }
 
-// updateWriteScope is where an update may write: the bank's typed files and its archive-- files.
+// updateWriteScope is where an update may write: the bank's typed files and its archive/ files.
 func updateWriteScope(string) []string {
 	var w []string
 	for _, name := range bankFiles {
 		w = append(w, HomeBank().Path(name))
 	}
-	return append(w, filepath.Join(StoreDir(), "archive--*"))
+	return append(w, filepath.Join(StoreDir(), "archive", "*"))
 }
 
 // JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.

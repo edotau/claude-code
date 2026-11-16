@@ -99,7 +99,7 @@ func TestH6AgentNameStemDescriptionModel(t *testing.T) {
 }
 
 // stubSessionSeams swaps the H7 hooks and render for fixtures and restores them after the test.
-func stubSessionSeams(t *testing.T, start func(*core.Input) core.Result, recall func(root, prompt string) (string, error)) {
+func stubSessionSeams(t *testing.T, start func(*core.Input) core.Result, recall func(prompt string) (string, error)) {
 	t.Helper()
 	oStart, oRecall, oRender := memoryStart, memoryRecall, agentsRender
 	t.Cleanup(func() { memoryStart, memoryRecall, agentsRender = oStart, oRecall, oRender })
@@ -111,13 +111,13 @@ func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	real := filepath.Join(root, "memory.md")
 	hosttest.WriteRel(t, root, "memory.md", "bank\n")
 	ok := func(in *core.Input) core.Result { return core.Result{Context: "see " + real} }
-	stubSessionSeams(t, ok, func(string, string) (string, error) { return "", nil })
+	stubSessionSeams(t, ok, func(string) (string, error) { return "", nil })
 	if got := sessionPrompts(root); len(got) != 0 {
 		t.Fatalf("pass fixture findings = %q", got)
 	}
 	gone := filepath.Join(root, "gone.md")
 	// A URL route (no such top-level dir) is not a path; a dead file under a real dir is.
-	stale := func(string, string) (string, error) {
+	stale := func(string) (string, error) {
 		return "claude `/anthropic` via /serving-endpoints/anthropic; pointer " + gone, nil
 	}
 	stubSessionSeams(t, ok, stale)
@@ -156,7 +156,7 @@ func TestH7ProjectionRendersFromSourceNotLiveHomes(t *testing.T) {
 	empty := func(*core.Input) core.Result { return core.Result{} }
 	oStart, oRecall := memoryStart, memoryRecall
 	t.Cleanup(func() { memoryStart, memoryRecall = oStart, oRecall })
-	memoryStart, memoryRecall = empty, func(string, string) (string, error) { return "", nil }
+	memoryStart, memoryRecall = empty, func(string) (string, error) { return "", nil }
 
 	if got := sessionPrompts(root); len(got) != 0 {
 		t.Fatalf("clean source with an empty live home: findings = %q", got)
