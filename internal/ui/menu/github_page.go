@@ -149,11 +149,6 @@ func githubProfile(reg *providers.Registry, login string) (string, error) {
 				return n, nil
 			}
 		}
-		for _, n := range reg.ProfilesOf("github") {
-			if reg.Providers[n].Login == "" {
-				return login, providers.SetProviderFields(n, map[string]any{"login": login})
-			}
-		}
 	}
 	return login, providers.AddGithubAccount(login)
 }
