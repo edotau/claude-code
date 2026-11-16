@@ -20,10 +20,11 @@ import (
 
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
 func recallPicks(ctx context.Context, root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
-	return recallBankPicks(ctx, BankFor(recallRoot(root)), session, query, semantic, explain)
+	return recallBankPicks(ctx, func() Bank { return BankFor(recallRoot(root)) }, session, query, semantic, explain)
 }
 
-func recallBankPicks(ctx context.Context, b Bank, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+// recallBankPicks takes the bank lazily so a query that skips never resolves it.
+func recallBankPicks(ctx context.Context, bank func() Bank, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
@@ -38,6 +39,7 @@ func recallBankPicks(ctx context.Context, b Bank, session, query string, semanti
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
+	b := bank()
 	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
 	ranked, files, segs := searchBankTerms(b, q, terms, 0)
@@ -759,7 +761,7 @@ func RecallExplain(w io.Writer, repo, query string) error {
 	if err != nil {
 		return err
 	}
-	_, trace := recallBankPicks(context.Background(), b, os.Getenv(SessionIDEnv), query, true, true)
+	_, trace := recallBankPicks(context.Background(), func() Bank { return b }, os.Getenv(SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)

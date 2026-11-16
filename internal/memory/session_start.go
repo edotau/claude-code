@@ -375,7 +375,7 @@ func LiveTranscript(cwd, sessionID string) string {
 	if p := filepath.Join(projects, paths.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
-	if m := globIn(projects, "*/"+globLiteral(id)); len(m) > 0 {
+	if m := transcript.GlobIn(projects, "*/"+transcript.GlobLiteral(id)); len(m) > 0 {
 		return m[0]
 	}
 	return ""

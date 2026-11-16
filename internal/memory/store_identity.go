@@ -1,7 +1,10 @@
 package memory
 
 import (
+	"cmp"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,10 +111,43 @@ func harnessStoreKey() string {
 // remoteCache memoizes originRemoteURL per checkout, misses included; a remote change mid-process is not seen.
 var remoteCache sync.Map
 
+// remoteStamp fingerprints the config files that decide `origin` (not /etc or includes); "" when not cacheable.
+func remoteStamp(checkout string) string {
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "GIT_CONFIG") || strings.HasPrefix(e, "GIT_DIR") {
+			return ""
+		}
+	}
+	home, _ := os.UserHomeDir()
+	xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
+	cfgs := []string{
+		filepath.Join(checkout, ".git", "config"), filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config"),
+	}
+	var b strings.Builder
+	for i, p := range cfgs {
+		fi, err := os.Stat(p)
+		if i == 0 && (err != nil || !fi.Mode().IsRegular()) {
+			return ""
+		}
+		if err == nil {
+			fmt.Fprintf(&b, "%d,%d;", fi.ModTime().UnixNano(), fi.Size())
+		}
+	}
+	return b.String()
+}
+
 // originRemoteURL is checkout's configured `origin` remote, "" when there is none (or checkout is not a repo).
 func originRemoteURL(checkout string) string {
 	if v, ok := remoteCache.Load(checkout); ok {
 		return v.(string)
+	}
+	stamp := remoteStamp(checkout)
+	file := filepath.Join(StateDir(), "remote", fmt.Sprintf("%x", sha256.Sum256([]byte(checkout)))[:16])
+	if data, err := os.ReadFile(file); err == nil && stamp != "" {
+		if s, url, ok := strings.Cut(string(data), "\n"); ok && s == stamp {
+			remoteCache.Store(checkout, url)
+			return url
+		}
 	}
 	out, err := gitOut(checkout, "remote", "get-url", "origin")
 	if err != nil {
@@ -121,6 +157,9 @@ func originRemoteURL(checkout string) string {
 		out = ""
 	}
 	remoteCache.Store(checkout, out)
+	if stamp != "" {
+		_ = paths.AtomicWrite(file, []byte(stamp+"\n"+out), 0o600) // a cache: a failed write only costs the next fork
+	}
 	return out
 }
 

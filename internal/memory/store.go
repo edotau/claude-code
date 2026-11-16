@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 //go:embed templates/*.md
@@ -381,7 +382,7 @@ func nativeLinkTargets(root string) map[string]string {
 func brokenNativeLinks(root string) []linkResult {
 	var targets map[string]string // built on the first broken link: it forks git and reads the catalog
 	var out []linkResult
-	for _, link := range globIn(filepath.Join(paths.ConfigDir(), "projects"), "*/memory") {
+	for _, link := range transcript.GlobIn(filepath.Join(paths.ConfigDir(), "projects"), "*/memory") {
 		target := nativeLinkTarget(link)
 		if target == "" {
 			continue
