@@ -255,17 +255,17 @@ func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
-// TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput: auto mode sends recall via additionalContext only.
-func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
+// TestAgentEffortAutoModeRecallAppendsToPrompt: auto mode rewrites like any other mode, recall lands in the prompt.
+func TestAgentEffortAutoModeRecallAppendsToPrompt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 2)
 	in := fmt.Sprintf(`{"tool_name":"Agent","permission_mode":"auto","tool_input":{"prompt":%q,"model":"opus"}}`, recallPrompt)
 	res := effortResult(in)
-	if res.UpdatedInput != nil {
-		t.Errorf("updatedInput = %v, want none in auto mode", res.UpdatedInput)
+	if p, _ := res.UpdatedInput["prompt"].(string); !strings.Contains(p, "memory-recall") {
+		t.Errorf("updatedInput prompt = %q, want the recall block appended", p)
 	}
-	if !strings.Contains(res.Context, "memory-recall for this dispatch") {
-		t.Errorf("context = %q, want the recall block", res.Context)
+	if strings.Contains(res.Context, "memory-recall for this dispatch") {
+		t.Errorf("context = %q, want no recall note outside a direct ask run", res.Context)
 	}
 }
 
@@ -386,22 +386,17 @@ func autoDispatch(st, desc string) string {
 		`"prompt":"do it","description":%q}}`, st, desc)
 }
 
-// In auto mode a missing model prefix is denied once with the description to resend; elsewhere the hook rewrites.
-func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
+// Auto mode rewrites a missing model prefix like every other mode: no deny, the prefixed description in updatedInput.
+func TestDispatchLabelAutoModeRewrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "")
 	r := effortResult(autoDispatch("claude", "fix bug"))
-	if r.Decision != core.Block || r.UpdatedInput != nil || !strings.Contains(r.Reason, `"sonnet: fix bug"`) {
-		t.Fatalf("unprefixed auto dispatch = %+v, want a Block naming \"sonnet: fix bug\" and no rewrite", r)
+	if d, _ := r.UpdatedInput["description"].(string); r.Decision == core.Block || d != "sonnet: fix bug" {
+		t.Fatalf("unprefixed auto dispatch = %+v, want the rewrite to \"sonnet: fix bug\"", r)
 	}
 	r = effortResult(autoDispatch("claude", "sonnet: fix bug"))
-	if r.Decision == core.Block {
-		t.Fatalf("resend with the right prefix was blocked: %+v", r)
-	}
-	manual := strings.Replace(autoDispatch("claude", "fix bug"), `"permission_mode":"auto",`, "", 1)
-	r = effortResult(manual)
-	if d, _ := r.UpdatedInput["description"].(string); r.Decision == core.Block || d != "sonnet: fix bug" {
-		t.Fatalf("outside auto mode = %+v, want the rewrite", r)
+	if r.Decision == core.Block || r.UpdatedInput != nil {
+		t.Fatalf("right prefix = %+v, want it untouched", r)
 	}
 }
 
@@ -580,7 +575,7 @@ func TestDispatchLabelInventory(t *testing.T) {
 	}
 }
 
-// assertInventoryRow runs one dispatch outside and inside auto mode and checks the description and the block.
+// assertInventoryRow runs one dispatch outside and inside auto mode and checks the description is the same rewrite.
 func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 	t.Helper()
 	in := map[string]any{"subagent_type": st, "prompt": "review the diff", "description": desc}
@@ -598,14 +593,8 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 		if got == "" {
 			got = desc
 		}
-		blocked := r.Decision == core.Block
-		switch {
-		case auto && blocked != (kind != "correct"):
-			t.Errorf("%s/%s/%s auto: blocked = %v (%s)", st, src, kind, blocked, r.Reason)
-		case auto && blocked && !strings.Contains(r.Reason, fmt.Sprintf("%q", want)):
-			t.Errorf("%s/%s/%s auto: reason %q, want it to name %q", st, src, kind, r.Reason, want)
-		case !auto && (blocked || got != want):
-			t.Errorf("%s/%s/%s: description %q (blocked %v), want %q", st, src, kind, got, blocked, want)
+		if r.Decision == core.Block || got != want {
+			t.Errorf("%s/%s/%s auto=%v: description %q (blocked %v: %s), want %q", st, src, kind, auto, got, r.Decision == core.Block, r.Reason, want)
 		}
 	}
 }
@@ -692,20 +681,19 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 }
 
-// A second auto-mode dispatch in one session must not repeat pointers the first recall note already gave.
+// A second note-mode recall in one session must not repeat pointers the first recall note already gave.
 func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 	effortHome(t)
 	seedHomeRecallBlock(t, 1)
-	payload := `{"session_id":"11111111-2222-3333-4444-555555555555","permission_mode":"auto","tool_name":"Agent",` +
-		`"tool_input":{"prompt":"` + recallPrompt + `","model":"opus","description":"opus: deploy"}}`
-	first := runAgentEffortFull(t, payload).HSO.AdditionalContext
-	if !strings.Contains(first, "memory-recall for this dispatch") {
+	in := core.ParseInput(strings.NewReader(`{"session_id":"11111111-2222-3333-4444-555555555555","tool_name":"Agent"}`))
+	recall := func() string {
+		return (&effortPlan{updated: map[string]any{}}).recall(context.Background(), in, "prompt", recallPrompt, true)
+	}
+	if first := recall(); !strings.Contains(first, "memory-recall for this dispatch") {
 		t.Fatalf("first dispatch lacks the recall note: %q", first)
 	}
-	var out bytes.Buffer
-	runEffortHook(strings.NewReader(payload), &out)
-	if strings.Contains(out.String(), "memory-recall for this dispatch") {
-		t.Errorf("second dispatch repeated the pointers: %q", out.String())
+	if second := recall(); strings.Contains(second, "memory-recall for this dispatch") {
+		t.Errorf("second dispatch repeated the pointers: %q", second)
 	}
 }
 
@@ -913,7 +901,7 @@ func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 	}
 }
 
-// A coworker type naming exactly one roster agent is rewritten; an ambiguous one and auto mode stay denied.
+// A coworker type naming exactly one roster agent is rewritten; an ambiguous one stays denied.
 func TestDispatchCoworkerTypeRewrite(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "copilot")
@@ -927,7 +915,32 @@ func TestDispatchCoworkerTypeRewrite(t *testing.T) {
 	if r := payload("default", "coworker"); r.Decision != core.Block {
 		t.Errorf("ambiguous coworker = %+v, want a block", r)
 	}
-	if r := payload("auto", "coworker:copilot"); r.Decision != core.Block || !strings.Contains(r.Reason, `subagent_type "copilot"`) {
-		t.Errorf("auto coworker:copilot = %+v, want a deny holding the corrected type", r)
+	if r := payload("auto", "coworker:copilot"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "copilot" {
+		t.Errorf("auto coworker:copilot = %+v, want the same rewrite as default mode", r)
+	}
+}
+
+// A coworker type rewritten to its roster agent pins model and effort exactly as a direct dispatch of that agent.
+func TestDispatchCoworkerRetypeMatchesDirect(t *testing.T) {
+	dispatchEnv(t)
+	cfg := os.Getenv("CLAUDE_CONFIG_DIR")
+	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: copilot\nmodel: sonnet\neffort: medium\n---\n"
+	if err := os.WriteFile(filepath.Join(cfg, "agents", "copilot.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(st string) core.Result {
+		return pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"fix a typo","description":"fix a typo"}}`, st))
+	}
+	direct, retyped := run("copilot"), run("coworker:copilot")
+	for _, k := range []string{"model", "effort"} {
+		if direct.UpdatedInput[k] != retyped.UpdatedInput[k] {
+			t.Errorf("%s: retyped %v, direct %v, want equal (the agent file pins both)", k, retyped.UpdatedInput[k], direct.UpdatedInput[k])
+		}
+	}
+	if retyped.UpdatedInput["model"] != nil || retyped.UpdatedInput["effort"] != nil {
+		t.Errorf("retyped = %v, want no model or effort pin over the agent file", retyped.UpdatedInput)
 	}
 }

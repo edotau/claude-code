@@ -1,4 +1,4 @@
-// `dispatch-effort` on Workflow: pins unpinned inline leaves to the medium tier, blocks ambiguous ones, lints by-name scripts.
+// `dispatch-effort` on Workflow: pins unpinned leaves, blocks ambiguous ones, lints saved scripts.
 package quality
 
 import (
@@ -69,10 +69,6 @@ func workflowInline(in *core.Input, script string) core.Result {
 		return core.Result{}
 	}
 	filled := filledModelLines(script, amb)
-	if in.Nested("permission_mode") == "auto" {
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: auto mode can't review a rewritten call; "+
-			"resend the Workflow with model:'%s' pinned on the agent() call(s) at line(s) %s, script:\n%s", model, strings.Join(filled, ", "), out)}
-	}
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}
@@ -110,10 +106,6 @@ func workflowByName(in *core.Input, name string) core.Result {
 	}
 	if b := blockSteps(path, checkWorkflowSteps(data, filepath.Dir(path), in.ToolInput()["args"])); b != nil {
 		return *b
-	}
-	if _, underCWD := core.RelWithin(in.CWD, path); underCWD && in.Nested("permission_mode") == "auto" {
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: auto mode can't review a rewritten call; "+
-			"re-issue as Workflow({scriptPath: %q, args: <same args>})", path)}
 	}
 	updated := in.CloneToolInput()
 	if updated == nil {
