@@ -9,9 +9,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-// Rewrite tests exercise the code the production kill switch holds off.
-func init() { gitFixDisabled = false }
-
 // gitPolicyCases pin worktree-git.md rules 1, 3 and 5: commit message shape, named-file staging, `&&` after a gate.
 func gitPolicyCases(dir string) []safetyTierCase {
 	const body = "feat(x): add y\n\nbody line\nBREAKING CHANGE: z"
