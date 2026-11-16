@@ -30,7 +30,7 @@ Run `claude-code memory review --timeline` for the recent update/dream trail:
 
 ## Phase 4: Consolidate native project memory
 
-For the shared `~/.claude/memory/MEMORY.md` (index) and each bank's topic files (`<key>--<topic>.md`; unprefixed = home):
+For the shared `~/.claude/memory/MEMORY.md` (index) and the topic files beside it (`<topic>.md`, in their folders):
 
 1. **Remove duplicates**: Entries/topic files that say the same thing in different words
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
