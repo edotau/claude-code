@@ -141,8 +141,9 @@ func commitBanks(subject string, banks []Bank) error {
 	if err != nil {
 		return err
 	}
+	keys := BankKeys()
 	for _, e := range dirty {
-		owner := BankOfFile(e.Path)
+		owner := bankOfFile(e.Path, keys)
 		if owner.Home() && strings.Contains(e.Path, "--") {
 			continue
 		}
