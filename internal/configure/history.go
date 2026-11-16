@@ -124,7 +124,7 @@ func (s *HistoryStore) stageFile(f HistoryFile, res *SnapshotResult) error {
 		return stageUnreadable(f, dest, err, res)
 	}
 	// Hold the whole file back, never redact: a silent redaction teaches nobody to fix the leak.
-	if loc := textutil.CredentialRE.FindIndex(data); loc != nil {
+	if loc := textutil.CredentialRE().FindIndex(data); loc != nil {
 		res.Skipped = append(res.Skipped, HistorySkip{f.Label,
 			fmt.Sprintf("holds a credential-shaped value at byte %d — not committed", loc[0])})
 		return dropStale(f, dest, res)

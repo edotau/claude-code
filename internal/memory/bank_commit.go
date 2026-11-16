@@ -609,7 +609,7 @@ func checkStageContent(abs, rel string) error {
 	if err != nil {
 		return err
 	}
-	if textutil.CredentialRE.Match(data) {
+	if textutil.CredentialRE().Match(data) {
 		return fmt.Errorf("credential-shaped content: %s", rel)
 	}
 	return nil
@@ -620,7 +620,7 @@ func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []
 	var clean []string
 	for _, rel := range rels {
 		if keep == nil || !keep(rel) {
-			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE.Match(data) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE().Match(data) {
 				fmt.Fprintf(os.Stderr, "memory: skipping credential-shaped file %s (scrub it; it is not committed)\n", rel)
 				continue
 			}
@@ -634,7 +634,7 @@ func (r Repo) dropCredentialShaped(rels []string, keep func(rel string) bool) []
 func (r Repo) refuseCredentialShaped(rels []string, keep func(rel string) bool) error {
 	for _, rel := range rels {
 		if keep(rel) {
-			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE.Match(data) {
+			if data, err := os.ReadFile(filepath.Join(r.Dir, rel)); err == nil && textutil.CredentialRE().Match(data) {
 				return fmt.Errorf("credential-shaped content: %s", rel)
 			}
 		}

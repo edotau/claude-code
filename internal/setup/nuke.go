@@ -324,7 +324,7 @@ func credentialShaped(path string) bool {
 		return true
 	}
 	data, err := os.ReadFile(path)
-	return err == nil && textutil.CredentialRE.Match(data)
+	return err == nil && textutil.CredentialRE().Match(data)
 }
 
 // untrackedUnder lists the untracked files under repo/sub.

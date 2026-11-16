@@ -167,7 +167,7 @@ func TestCredentialRE(t *testing.T) {
 		{"kebab task id", "task-12345678901234567890", false},
 	}
 	for _, c := range cases {
-		if got := CredentialRE.MatchString("note: " + c.in + " here"); got != c.want {
+		if got := CredentialRE().MatchString("note: " + c.in + " here"); got != c.want {
 			t.Errorf("%s: flagged = %v, want %v", c.label, got, c.want)
 		}
 	}

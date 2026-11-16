@@ -84,7 +84,7 @@ func applyAnthropicAuthArg(o *anthropicOptions, name, val string, hasVal bool) e
 
 // checkKeyName accepts only an env-var-shaped vault key name; a credential-shaped value is refused unechoed.
 func checkKeyName(flag, v string) error {
-	if textutil.LooksSecret(v) || !providers.EnvNameRE.MatchString(v) {
+	if textutil.LooksSecret(v) || !providers.EnvNameRE().MatchString(v) {
 		return fmt.Errorf("%s=NAME takes a vault key name ([A-Z_][A-Z0-9_]*); store secrets with claude-code vault set", flag)
 	}
 	return nil
