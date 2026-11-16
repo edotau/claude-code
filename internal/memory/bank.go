@@ -41,9 +41,6 @@ func (b Bank) Sub(sub, name string) string {
 	return filepath.Join(StoreDir(), sub, filepath.FromSlash(name))
 }
 
-// SubGlob matches every file of b in sub.
-func (b Bank) SubGlob(sub string) string { return b.Sub(sub, "*") }
-
 // NativeIndex is the one shared MEMORY.md.
 func (b Bank) NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
 
@@ -67,21 +64,6 @@ func BankKeys() []string { return nil }
 func BankOfFile(string) Bank { return HomeBank() }
 
 func bankOfFile(string, []string) Bank { return HomeBank() }
-
-// originsFile is the retired per-repo claim file; only import.go still reads it.
-const originsFile = ".origins"
-
-func stripFlatSub(name string) string {
-	for _, sub := range flatSubs {
-		if rest, ok := strings.CutPrefix(name, sub+"--"); ok {
-			return rest
-		}
-	}
-	return name
-}
-
-// isFlatSubFile reports a store filename that belongs to a flattened sub, not a top-level bank file.
-func isFlatSubFile(name string) bool { return stripFlatSub(name) != name }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
 var layoutCache sync.Map
@@ -107,8 +89,8 @@ func forgetLayout() { layoutCache.Delete(StoreDir()) }
 
 const homeDir = "home"
 
-// flatSubs are the shared store subdirs whose first path element carries the bank prefix when flat.
-var flatSubs = []string{"archive", "handoffs", "reports", "knowledge", "worktrees", "waves"}
+// flatSubs are the store folders; derived from folderRoles so sandbox and import never miss one.
+var flatSubs = storeFolderNames()
 
 // errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.
 var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout; run `claude-code memory migrate`")

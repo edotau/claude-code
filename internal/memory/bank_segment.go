@@ -79,7 +79,7 @@ func searchTopicFiles(dir string) []string {
 		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		if reservedNames[name] || isFlatSubFile(name) {
+		if reservedNames[name] {
 			continue
 		}
 		files = append(files, filepath.Join(dir, name))
