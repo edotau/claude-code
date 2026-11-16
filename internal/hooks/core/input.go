@@ -176,6 +176,12 @@ func unparsed(raw []byte, agent string, err error) *Input {
 
 // normalizeAgy reads agy's {toolCall:{name,args}, workspacePaths} payload as tool_name/tool_input/cwd.
 func (in *Input) normalizeAgy() string {
+	if paths, _ := in.doc["workspacePaths"].([]any); len(paths) > 0 && in.CWD == "" {
+		in.CWD, _ = paths[0].(string)
+	}
+	if _, ok := in.doc["toolCall"]; !ok { // the Claude shape: tool_name/tool_input are already read
+		return shapeError(in.doc, "tool_input")
+	}
 	if bad := shapeError(in.doc, "toolCall"); bad != "" {
 		return bad
 	}
@@ -196,9 +202,6 @@ func (in *Input) normalizeAgy() string {
 	}
 	in.ToolName, _ = call["name"].(string)
 	in.doc["tool_input"] = input
-	if paths, _ := in.doc["workspacePaths"].([]any); len(paths) > 0 && in.CWD == "" {
-		in.CWD, _ = paths[0].(string)
-	}
 	return ""
 }
 

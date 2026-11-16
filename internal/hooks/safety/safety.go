@@ -104,7 +104,7 @@ var softWarn = core.LazyCompile(
 func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
-	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
+	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
 		cmd := dropPatchBodies(in.ToolCommand())
 		for _, re := range softWarn() {
 			if re.MatchString(cmd) {
@@ -130,7 +130,7 @@ func Verdict(in *core.Input) core.Decision { d, _, _ := safetyVerdict(in); retur
 
 // safetyVerdict checks all block patterns before considering any ask pattern.
 func safetyVerdict(in *core.Input) (core.Decision, string, string) {
-	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
+	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") {
 		return core.Allow, "", ""
 	}
 	cmd := dropPatchBodies(in.ToolCommand())
