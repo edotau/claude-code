@@ -207,8 +207,8 @@ func readMarker(dir, name string) (account, transcript string, mod time.Time, ok
 	if ierr != nil || rerr != nil {
 		return "", "", time.Time{}, false
 	}
-	account, transcript, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
-	return account, transcript, fi.ModTime(), true
+	account, transcript, _ = strings.Cut(string(b), "\n") // cut before trimming: the account line may be empty
+	return strings.TrimSpace(account), strings.TrimSpace(transcript), fi.ModTime(), true
 }
 
 func scan(dir string, now time.Time, prune bool) Snapshot {
