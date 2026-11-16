@@ -344,3 +344,70 @@ func TestClaudeTierPinnedAuto(t *testing.T) {
 		t.Errorf("pinned-auto claude = model %q effort %q, want haiku at low", got.Model, got.Effort)
 	}
 }
+
+// The label is the model that runs: a typed or pinned auto ranks over a concrete ladder cell, on the cell's row.
+func TestAutoLabelIsRunModel(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	ctx := context.Background()
+	cell := "databricks-claude-opus-5-5"
+	for _, agentName := range []string{"opencode", "codex"} {
+		vaulttest.SetRecord(t, agentName, "profile", "dev")
+		for _, tc := range []struct {
+			name, pin, cell string
+			typed           bool
+		}{
+			{"pinned auto x concrete cell", "auto", "dev:" + cell, false},
+			{"typed auto x concrete cell", "", "dev:" + cell, true},
+			{"pinned auto x alias cell", "auto", "opus", false},
+		} {
+			vaulttest.SetRecord(t, agentName, "model", tc.pin)
+			d := Dispatch{Agent: labelEngine{stubEngine{name: agentName}}, Model: tc.cell, Account: "databricks·dev"}
+			q := ModelQuery{Agent: agentName, Task: standardBrief}
+			if tc.typed {
+				q.Model = AutoModel
+			}
+			hop, _, err := labelHop(reg, q, agentModelPinContext(ctx, agentName), d)
+			label, lerr := ResolveRun(reg, QueryFor(ctx, hop), time.Now())
+			lreq := dispatchRequest(RunOptions{Agent: agentName, Prompt: standardBrief, AutoModel: tc.typed}, d, true)
+			run, _, _, rerr := SchemaFor(agentName).targetNote(lreq)
+			if err = cmp.Or(err, lerr, rerr); err != nil {
+				t.Fatalf("%s %s: %v", agentName, tc.name, err)
+			}
+			if label.Model != run.Model || run.Model == cell {
+				t.Errorf("%s %s: label %s, run %s; want the same ranked model, not the cell's", agentName, tc.name, label.Model, run.Model)
+			}
+		}
+	}
+}
+
+// Auto never refuses: with nothing ranked on a fresh listing it runs the agent's untyped default, even under none.
+func TestAutoNoCandidateRunsDefault(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"}) // Responses-only: neither gemini nor claude ranks it
+	for _, agentName := range []string{"gemini", "claude"} {
+		for _, fb := range []string{"", router.FallbackNone} {
+			q := ModelQuery{Agent: agentName, Model: "dev:auto", Task: fastBrief, Fallback: fb}
+			r, err := ResolveRun(reg, q, time.Now())
+			if err != nil || r.Model != "databricks-claude-opus-5-5" || !strings.Contains(r.Note, agentName+"'s default model on dev") {
+				t.Errorf("%s auto, fallback %q: %s %q %v; want the default model with a note, never a refusal", agentName, fb, r.Model, r.Note, err)
+			}
+		}
+	}
+	q := ModelQuery{Agent: "claude", Model: "dev:claude-opus-5-5", Fallback: router.FallbackNone}
+	if _, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
+		t.Errorf("a typed concrete unserved model under fallback none ran (%v); want it refused", err)
+	}
+}
+
+// An untyped run with no fresh listing takes the row's tier model and says so; a fresh listing ranks quietly.
+func TestImplicitAutoStaleListingNote(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: "prod", Task: standardBrief}, time.Now())
+	if err != nil || !strings.Contains(r.Note, "no fresh model listing on prod, ran the row's sonnet model") {
+		t.Errorf("stale untyped run = %s %q %v; want the tier model with a note", r.Model, r.Note, err)
+	}
+	r, err = ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: "dev", Task: standardBrief}, time.Now())
+	if want := oracle(devListing, "standard", false, nil); err != nil || r.Model != want || r.Note != "" {
+		t.Errorf("fresh untyped run = %s %q %v; want %s with no note", r.Model, r.Note, err, want)
+	}
+}

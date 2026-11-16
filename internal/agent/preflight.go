@@ -224,21 +224,30 @@ const maxAlternatives = 5
 
 // servedAlternatives is up to maxAlternatives READY ids of model's family in p's fresh listing; nil without one.
 func servedAlternatives(p *providers.Provider, model string, now time.Time) []string {
-	fam := models.FamilyKind(model)
 	s, ok := router.FreshServed(p.Name, now)
-	if !ok || fam != models.FamilyClaude && fam != models.FamilyGPT && fam != models.FamilyGemini {
+	if !ok {
 		return nil
 	}
+	fam := familyKey(model)
 	var out []string
 	for _, m := range s.Models {
 		if len(out) == maxAlternatives {
 			break
 		}
-		if m.IsReady() && models.FamilyKind(m.ID) == fam && m.ID != model {
+		if m.IsReady() && familyKey(m.ID) == fam && m.ID != model {
 			out = append(out, m.ID)
 		}
 	}
 	return out
+}
+
+// familyKey is id's model family: Claude, GPT or Gemini, else its vendor word (kimi-k3-1-pro -> kimi).
+func familyKey(id string) string {
+	if fam := models.FamilyKind(id); fam == models.FamilyClaude || fam == models.FamilyGPT || fam == models.FamilyGemini {
+		return string(fam)
+	}
+	vendor, _, _ := strings.Cut(catalog.ID(id), "-")
+	return "other:" + vendor
 }
 
 // checkRouteServed marks r Served on a Databricks row; none turns an unlisted or not-READY model into ErrModelRoute.

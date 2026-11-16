@@ -186,9 +186,7 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 			}
 		} else if r.Served == agent.ServedNo {
 			row.Pass, row.Reason = false, r.Model+" is not listed"
-		} else if r.Served == agent.ServedUnverified {
-			row.Reason = "served: unverified"
-		}
+		} // an unverified route says so on its own line: routeLine prints served: unverified
 		rows = append(rows, row)
 	}
 	return rows

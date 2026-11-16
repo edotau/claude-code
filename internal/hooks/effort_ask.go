@@ -78,9 +78,10 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	}
 	agent := strings.TrimPrefix(words[verb], "agents")
 	words = words[verb+2:]
-	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model"),
+	agent = cmp.Or(flagValue(words, "agent"), agent)
+	l := askLine{agent: agent, model: flagValue(words, "model"),
 		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute),
-		tools: hasFlag(words, []string{"tools", "read-only"})}
+		tools: hasFlag(words, []string{"tools", "read-only"}) || packsToFile(agent, words)}
 	if n := len(words); n > 0 && !isFlag(words[n-1]) {
 		l.prompt = words[n-1]
 	}
@@ -92,6 +93,11 @@ func parseAskLine(ctx context.Context, task string) askLine {
 		l.cfg = cfg
 	}
 	return l
+}
+
+// packsToFile is a --dirs/--files/--diff pack the agent reads from a staged file, which turns tools on (packPrompt).
+func packsToFile(agent string, words []string) bool {
+	return hasFlag(words, []string{"dirs", "files", "diff"}) && agentpkg.SchemaFor(agent).CLI.PackVia == agentpkg.PackFile
 }
 
 // preflightBlock denies a Run: line `agents ask` refuses on local cached state alone; every doubt lets it through.
