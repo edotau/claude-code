@@ -534,7 +534,7 @@ func formatDuration(ms int64) string {
 	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
-// totalSegment is "<n>": this session's payload tokens plus its finished dispatches', "+" while a dispatch runs.
+// totalSegment is "<n>": context-window tokens plus this session's finished dispatches', "+" while a dispatch runs.
 func totalSegment(in input) string {
 	n := 0
 	if cw := in.ContextWindow; cw != nil {
