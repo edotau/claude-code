@@ -482,12 +482,6 @@ func NoteGateBlocks(ctx context.Context, n int) {
 	}
 }
 
-// BankScope is what the job's agent may write (path globs) and run (Bash patterns); dream also edits every repo store.
-func BankScope(ctx context.Context, workdir string) (write, bash []string) {
-	s := JobScope(jobKind(ChildEnv(ctx)), workdir)
-	return s.Write, s.Bash
-}
-
 // UpdateChildEnv marks a spawned update worker so its own session hooks never schedule another.
 const UpdateChildEnv = "CLAUDE_SESSION_UPDATE_CHILD"
 

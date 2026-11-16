@@ -75,7 +75,7 @@ func TestDottedOneM(t *testing.T) {
 func TestAliasAndLookup(t *testing.T) {
 	for _, a := range AliasNames {
 		id, ok := Alias(a)
-		found := inCatalog(id)
+		_, found := load().byID[id]
 		if !ok || !found || AliasOf(id) != a || FamilyOf(id) != a {
 			t.Errorf("alias %s -> %q ok=%v found=%v", a, id, ok, found)
 		}

@@ -1,8 +1,4 @@
-// Package usage is `claude-code usage`: token totals from subagent transcripts, including Workflow-tool agents
-// (<session>/subagents/workflows/<runId>/agent-*.jsonl)
-// with a per-model (MODEL column) split. Live provider plan quotas and the
-// local per-token ledger (API-key providers) follow the table (provider_quotas.go); --show picks
-// left/used/total for the quota column.
+// Package usage is `claude-code usage`: token totals from subagent transcripts, per model.
 package usage
 
 import (

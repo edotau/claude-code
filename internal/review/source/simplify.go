@@ -3,6 +3,7 @@ package source
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -72,6 +73,18 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 	if _, ok := complexityThresholds[*threshold]; !ok {
 		fmt.Fprintf(stderr, "review simplify: argument --threshold: invalid choice: %q\n", *threshold)
 		return simplifyArgs{}, 2, true
+	}
+	if *fail && *jsonOut {
+		fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --json")
+		return simplifyArgs{}, 2, true
+	}
+	if *fail {
+		set := false
+		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "threshold" })
+		if set {
+			fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --threshold")
+			return simplifyArgs{}, 2, true
+		}
 	}
 	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail}, 0, false
 }
@@ -261,8 +274,9 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "review simplify: %v\n", err)
 		return 2
 	}
+	base := simplifyBase(parsed.base)
 	if len(paths) == 0 {
-		changed, err := changedSimplifyFiles(simplifyBase(parsed.base))
+		changed, err := changedSimplifyFiles(base)
 		if err != nil {
 			fmt.Fprintf(stderr, "review simplify: %s\n", err)
 			return 1
@@ -271,7 +285,7 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	}
 	files, unreadable := simplifyTargets(paths, stderr)
 	if parsed.fail {
-		return failOnNewViolations(files, simplifyBase(parsed.base), stdout, stderr)
+		return failOnNewViolations(files, base, stdout, stderr)
 	}
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)

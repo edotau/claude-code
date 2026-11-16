@@ -47,12 +47,26 @@ func parseHunkSpans(diff string) lineSpans {
 	return spans
 }
 
-// changedSpans is the added or changed lines of path against base; an untracked file is changed throughout.
-func changedSpans(path, base string) (lineSpans, error) {
+// renamedFrom is the path a file had at base when git pairs it as a rename ("" otherwise).
+func renamedFrom(path, base string) string {
+	out, err := GitInherit(".", "diff", "-M", "--name-status", base)
+	if err != nil {
+		return ""
+	}
+	for l := range strings.SplitSeq(out, "\n") {
+		if f := strings.Split(l, "\t"); len(f) == 3 && f[0][0] == 'R' && f[2] == path {
+			return f[1]
+		}
+	}
+	return ""
+}
+
+// changedSpans is the added or changed lines of path against base (old: its path there); untracked is all changed.
+func changedSpans(path, old, base string) (lineSpans, error) {
 	if l, err := gitLines(".", "ls-files", "--others", "--exclude-standard", "--", path); err == nil && len(l) > 0 {
 		return lineSpans{{1, 1 << 30}}, nil
 	}
-	diff, err := GitInherit(".", "diff", "-U0", base, "--", path)
+	diff, err := GitInherit(".", "diff", "-M", "-U0", base, "--", path, old)
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", path, err)
 	}
@@ -75,14 +89,31 @@ func goFuncEnds(path, text string) (map[int]int, error) {
 	return ends, nil
 }
 
-// commentViolations are the stacked-block and over-long comment smells on changed lines.
-func commentViolations(text string, spans lineSpans) []string {
+// wasStacked reports whether base has a block with b's first or last prose line and at least as many prose lines.
+func wasStacked(b commentBlock, base []commentBlock) bool {
+	prose := proseLines(b, "go")
+	for _, o := range base {
+		op := proseLines(o, "go")
+		if len(op) >= len(prose) && len(prose) > 0 && (op[0] == prose[0] || op[len(op)-1] == prose[len(prose)-1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// commentViolations are the stacked-block (made or grown by the change) and over-long comment smells on changed lines.
+func commentViolations(text, base string, spans lineSpans) []string {
 	var out []string
+	baseBlocks := scanCommentBlocks(base, "go")
 	for _, b := range scanCommentBlocks(text, "go") {
 		if !spans.touches(b.start, b.start+len(b.lines)-1) {
 			continue
 		}
+		stacked := wasStacked(b, baseBlocks)
 		for _, s := range blockSmells(b, "go") {
+			if s.Type == "long_comment" && stacked {
+				continue
+			}
 			line := b.start
 			if s.Type == "long_comment_line" {
 				line, _ = strconv.Atoi(strings.TrimPrefix(s.Location, "line "))
@@ -133,17 +164,21 @@ func newGoViolations(path, base string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	spans, err := changedSpans(path, base)
+	old := renamedFrom(path, base)
+	if old == "" {
+		old = path
+	}
+	spans, err := changedSpans(path, old, base)
 	if err != nil {
 		return nil, err
 	}
-	baseText, _ := GitInherit(".", "show", base+":./"+path)
+	baseText, _ := GitInherit(".", "show", base+":./"+old)
 	text := string(data)
 	out, err := sizeViolations(path, text, baseText, spans)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, commentViolations(text, spans)...)
+	out = append(out, commentViolations(text, baseText, spans)...)
 	sort.Strings(out)
 	for i, v := range out {
 		out[i] = path + ":" + v

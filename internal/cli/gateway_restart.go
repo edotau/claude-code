@@ -17,7 +17,7 @@ func proxyRestartReport(o *proxyOpts, format string) int {
 	defer cancel()
 	row := gateway.RestartReport(ctx, o.dry, o.force, o.ifChanged)
 	rows := []gateway.RestartRow{row}
-	if kept := row.Status == "unchanged" || row.Status == "skipped" && row.OldPID != 0; !kept {
+	if row.Status == "restarted" || row.Status == "would restart" || row.Status == "failed" {
 		rows = append(rows, stopTunnels(o.dry)...)
 	}
 	if format == helptext.JSON {

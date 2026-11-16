@@ -309,8 +309,6 @@ func containsAny(s string, subs ...string) bool {
 	return false
 }
 
-func inCatalog(canonical string) bool { _, ok := load().byID[canonical]; return ok }
-
 // Effort tiers; router.EffortTierSignal returns them.
 const (
 	EffortLow    = "low"
