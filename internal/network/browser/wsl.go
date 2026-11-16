@@ -175,10 +175,13 @@ func startCDPAction(env Env, b browser) action {
 	}
 	exe := winExePath(env, b.Name)
 	drive := paths.NewResolver([]paths.Mount{{Point: env.WinRoot, Kind: paths.KindDrvFS, Drive: "C"}})
-	winExe, _ := drive.WindowsPath(exe)
+	winPath, ok := drive.WindowsPath(exe)
+	if !ok {
+		return action{Kind: "start-cdp", Error: fmt.Sprintf("%s is not under the %s mount", exe, env.WinRoot)}
+	}
 	ps := fmt.Sprintf(`Start-Process -FilePath '%s' -ArgumentList '--remote-debugging-port=%d',`+
 		`"--user-data-dir=$env:LOCALAPPDATA\claude-code\%s-cdp",'--no-first-run','--no-default-browser-check'`,
-		winExe, cdpPort, b.Name)
+		winPath, cdpPort, b.Name)
 	a := action{Kind: "start-cdp", Command: []string{"powershell.exe", "-NoProfile", "-Command", ps},
 		Description: fmt.Sprintf("Starting %s with --remote-debugging-port=%d on a dedicated profile.",
 			b.DisplayName, cdpPort)}
