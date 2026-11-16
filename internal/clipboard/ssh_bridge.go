@@ -36,7 +36,6 @@ var errNoBridge = errors.New("no clipboard bridge from the SSH client")
 // errNoSSHImage: the bridge answered with zero bytes, the protocol's "no image".
 var errNoSSHImage = errors.New("no image in the SSH client's clipboard — copy one there first (or its bridge is down)")
 
-// inSSH reports whether this process runs inside an SSH login, where the clipboard is the client's.
 func inSSH() bool { return os.Getenv("SSH_CONNECTION") != "" }
 
 // sshSocket is where the client's `RemoteForward /tmp/claude-clip-%r.sock` lands.
@@ -175,7 +174,6 @@ func (cw connWriter) Write(p []byte) (int, error) {
 	return cw.c.Write(p)
 }
 
-// replyErr writes the one-line failure header.
 func replyErr(w io.Writer, msg string) error {
 	b, _ := json.Marshal(map[string]any{"ok": false, "err": msg})
 	_, err := w.Write(append(b, '\n'))
@@ -236,7 +234,6 @@ func allowedServePath(home, path string) (real string, size int64, err error) {
 	return real, fi.Size(), nil
 }
 
-// underAnyRoot reports whether real is one of roots or inside one.
 func underAnyRoot(real string, roots []string) bool {
 	for _, r := range roots {
 		if paths.Within(real, r) {
@@ -346,7 +343,6 @@ func FetchClient(path string) (local string, err error) {
 	return fetchFrom(sshSocket(), path, "/tmp/claude-drop")
 }
 
-// fetchFrom is FetchClient with the socket and drop directory injected.
 func fetchFrom(sock, path, dropDir string) (string, error) {
 	data, err := requestFile(sock, path)
 	if err != nil {
@@ -440,7 +436,6 @@ func readFileHeader(br *bufio.Reader, path string) (int64, error) {
 	return hdr.Size, nil
 }
 
-// claimDropPath reserves dropDir/name, or name-N.ext when taken, so an earlier fetch is never overwritten.
 func claimDropPath(dropDir, name string) (string, error) {
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
@@ -461,7 +456,6 @@ func claimDropPath(dropDir, name string) (string, error) {
 	return "", fmt.Errorf("no free name for %q in %s", name, dropDir)
 }
 
-// servePNG is ServePNG without the darwin gate, for tests with a faked osascript.
 func servePNG(w io.Writer) error {
 	path, _, err := grabMac()
 	if errors.Is(err, errNoMacImage) {
@@ -480,7 +474,6 @@ func servePNG(w io.Writer) error {
 	return err
 }
 
-// launchLabel names the macOS launchd agent that serves the clipboard bridge on demand.
 const launchLabel = "com.edotau.claude-code.clip"
 
 // launchctlTimeout bounds each launchctl call so a wedged launchd cannot hang install.
@@ -528,12 +521,10 @@ func xmlText(s string) (string, error) {
 // launchSocket is the Unix socket launchd listens on, the target of the client's RemoteForward.
 func launchSocket(home string) string { return filepath.Join(home, ".claude", "run", "clip.sock") }
 
-// launchPlistPath is the per-user LaunchAgents file for the bridge.
 func launchPlistPath(home string) string {
 	return filepath.Join(home, "Library", "LaunchAgents", launchLabel+".plist")
 }
 
-// renderPlist returns the launchd agent definition with absolute paths.
 func renderPlist(bin, home string) ([]byte, error) {
 	var buf bytes.Buffer
 	err := plistTmpl.Execute(&buf, struct{ Bin, Sock string }{bin, launchSocket(home)})
@@ -614,7 +605,6 @@ func bootstrapAgent(w io.Writer, home, domain, plist string, dryRun bool) error 
 	return nil
 }
 
-// launchctl runs launchctl with args, folding its output into the error.
 func launchctl(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), launchctlTimeout)
 	defer cancel()

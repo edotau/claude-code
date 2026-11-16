@@ -129,8 +129,6 @@ func TestCountEditsFromIncremental(t *testing.T) {
 	}
 }
 
-// TestCountWorkFromUserTurns: only typed user prompts count as turns — tool results, isMeta lines,
-// slash-command echoes and assistant lines do not — and an offset resume never double-counts.
 func TestCountWorkFromUserTurns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "turns.jsonl")
 	records := []struct {
@@ -250,8 +248,7 @@ func bashLine(cmd string) string {
 	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":%q}}]}}`, cmd)
 }
 
-// quoteArg wraps s in double quotes, escaping backslashes and quotes so it survives one more
-// pass of commitShellTokens as a literal -c argument (mirrors real shell double-quote escaping).
+// quoteArg double-quotes s with shell escaping so it survives commitShellTokens as a literal -c argument.
 func quoteArg(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
@@ -298,9 +295,7 @@ func runCommitCases(t *testing.T, cases []commitCase) {
 	}
 }
 
-// TestCountEditsGitCommit*: a segment counts only when git is actually RUN with the verb
-// `commit` (including -C/-c flags and a leading env-var assignment before `git`), never on quoted/echoed
-// text that merely mentions "git commit", and never twice when an Edit's own content mentions it.
+// A segment counts only when git actually runs `commit`, never on quoted or echoed text that mentions it.
 func TestCountEditsGitCommitBasics(t *testing.T) {
 	runCommitCases(t, []commitCase{
 		{"plain git commit", bashLine("git commit -m x"), true},
@@ -380,20 +375,17 @@ func TestCountEditsGitCommitWrappers(t *testing.T) {
 
 func TestCountEditsGitCommitEscapes(t *testing.T) {
 	runCommitCases(t, []commitCase{
-		// Backslash escapes and line continuations (R2): an escaped quote never closes early, and
-		// `\`+newline joins the next line into the same segment.
+		// Backslash escapes and line continuations (R2).
 		{"backslash-escaped quote keeps the segment open", bashLine(`echo "a \"; git commit"`), false},
 		{"backslash-newline continuation", bashLine("git \\\ncommit -m x"), true},
-		// Double-quote escape rule: a backslash before a non-escapable char stays literal, so the
-		// quoted token keeps its backslash and never equals "commit".
+		// A backslash before a non-escapable char stays literal, so the token never equals "commit".
 		{"backslash before non-escapable char in dquotes stays literal", bashLine(`git "comm\it"`), false},
 	})
 }
 
 func TestCountEditsGitCommitShellC(t *testing.T) {
 	runCommitCases(t, []commitCase{
-		// `bash`/`sh`/`zsh -c "<script>"` (R2): the quoted script runs as a fresh shell command line,
-		// bounded by maxShellRecursionDepth so nesting it past the cap never counts and never hangs.
+		// `sh -c "<script>"` (R2): nesting past maxShellRecursionDepth never counts and never hangs.
 		{"bash -c wraps a commit", bashLine(`bash -c "git commit -m x"`), true},
 		{"sh -c wraps a commit", bashLine(`sh -c "git commit -m x"`), true},
 		{"zsh -c wraps a commit", bashLine(`zsh -c "git commit -m x"`), true},
@@ -414,8 +406,7 @@ func TestCountEditsGitCommitShellC(t *testing.T) {
 
 func TestCountEditsGitCommitAliases(t *testing.T) {
 	runCommitCases(t, []commitCase{
-		// `git -c alias.<name>=commit <name>` (R2): the alias must resolve to exactly `commit`, and the
-		// invoked verb must match the alias name, not just any alias being present.
+		// `git -c alias.<name>=commit <name>` (R2): the invoked verb must match the alias name.
 		{"alias.ci=commit, invoked as ci", bashLine("git -c alias.ci=commit ci -m x"), true},
 		{"alias.ci=status, invoked as ci", bashLine("git -c alias.ci=status ci -m x"), false},
 		{"alias.ci=commit, invoked as status", bashLine("git -c alias.ci=commit status -m x"), false},
@@ -430,9 +421,6 @@ func TestCountEditsGitCommitAliases(t *testing.T) {
 	})
 }
 
-// TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce: a single assistant record whose content
-// array holds both an Edit tool_use and a Bash `git commit` tool_use must count each exactly once —
-// countLineEdits decodes the line once and walks every content item, so neither is missed or doubled.
 func TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[` +
 		`{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}},` +
@@ -448,11 +436,7 @@ func TestCountLineEditsOneContentArrayBothEditAndCommitCountOnce(t *testing.T) {
 	}
 }
 
-// TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit: a Bash tool_use with a dangling `$(`
-// never actually panics (shell.ExtractSubstitutions returns what it found so far; see
-// TestExtractSubstitutionsDanglingOpen), so a sibling Edit tool_use in the same content array must still
-// count and the malformed command itself must not count as a commit. countLineEdits's whole-line recover
-// is therefore never exercised by this input — this test pins that no-panic path, not the recover itself.
+// A dangling `$(` never panics, so this pins the no-panic path, not countLineEdits's recover.
 func TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[` +
 		`{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}},` +
@@ -467,9 +451,7 @@ func TestCountLineEditsMalformedSubstitutionWithEditStillCountsEdit(t *testing.T
 	}
 }
 
-// TestCountEditsFromSequentialCallsIndependentWithPool: the pooled bufio.Reader must not leak state
-// (a stale long-line buffer, a wrong read position) across independent CountEditsFrom calls on different
-// files, even when run back-to-back so the pool is likely to hand back the same *bufio.Reader.
+// The pooled bufio.Reader must not leak state across back-to-back calls on different files.
 func TestCountEditsFromSequentialCallsIndependentWithPool(t *testing.T) {
 	dir := t.TempDir()
 	editLn := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
@@ -509,8 +491,6 @@ func TestExtractSubstitutionsDanglingOpen(t *testing.T) {
 	}
 }
 
-// TestCountEditsFromMalformedCommandNoPanic: a Bash command with a dangling `$(` must not panic
-// CountEditsFrom and must not count as a commit — the recover in countLineEdits is the safety net.
 func TestCountEditsFromMalformedCommandNoPanic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "commit.jsonl")
 	line := bashLine("echo commit # $(")

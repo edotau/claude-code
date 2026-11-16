@@ -119,9 +119,7 @@ func TestCommitChangesLockedDeleteRules(t *testing.T) {
 	}
 }
 
-// Regression: validateRel rejects an escaping rel, and a symlinked ANCESTOR directory, not just a symlinked
-// leaf file — both must be refused before a journal is ever written (a symlink two levels up could otherwise
-// carry the write anywhere on disk).
+// Regression: validateRel refuses an escaping rel and a symlinked ancestor directory, not just a symlinked leaf.
 func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *testing.T) {
 	store, _ := storeFixture(t)
 	if _, err := commitLocked(t, "x", []Change{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
@@ -250,8 +248,7 @@ func assertRecovered(t *testing.T, rec Receipt) {
 	}
 }
 
-// Regression: apply re-reads the live bytes right before mutating, so a native edit landing between plan
-// (or capture) and the write is reported divergent, never overwritten; a late preimage match was never captured.
+// Regression: apply re-reads live bytes before mutating, so an edit landing after plan is reported divergent.
 func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
 	store, _ := storeFixture(t)
 	if err := WithBankLock(BankLockWait, func() error {
@@ -440,8 +437,7 @@ func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
 	}
 }
 
-// TestCommitChangesLockedSkipsAnotherReposCredentialFile: Given a credential-shaped file outside the batch's dirs,
-// When the batch commits, Then it succeeds, names the path once on stderr and never sweeps the file; inside, it refuses.
+// A credential-shaped file outside the batch's dirs is named once on stderr and never swept; inside, it refuses.
 func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	storeFixture(t)
 	write(t, filepath.Join(StoreDir(), "other", "note.md"), "key: "+fakeCredential()+"\n")
@@ -468,8 +464,7 @@ func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	}
 }
 
-// storeFixture isolates the config dir and git's global config, and sets a HOSTILE inherited git env pointing at a
-// decoy repo with staged work; every test asserts the decoy is untouched.
+// storeFixture isolates config and sets a hostile inherited git env at a decoy repo; tests assert it stays untouched.
 func storeFixture(t *testing.T) (store string, decoy Repo) {
 	t.Helper()
 	cfg := t.TempDir()
@@ -685,9 +680,7 @@ func TestCommitRejectsSecretsByNameOnly(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
-// Regression: checkRoot's commondir guard — a .git directory (not a pointer file, so Ensure's own
-// foreign-worktree check never fires) whose "commondir" file redirects refs/objects to another repo
-// must still be rejected before the store receives a byte.
+// Regression: checkRoot rejects a .git directory whose "commondir" redirects objects to another repo.
 func TestCheckRootRejectsSharedCommondir(t *testing.T) {
 	t.Parallel()
 	store := filepath.Join(t.TempDir(), "memory")

@@ -94,7 +94,6 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	return plan, nil
 }
 
-// newMergePlan resolves the worktree and fills the plan's paths and git dirs.
 func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktree bool) (*MergePlan, error) {
 	worktreePath, err := resolveWorktree(ctx, repo, name)
 	if err != nil {
@@ -139,7 +138,6 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 	return false, nil
 }
 
-// screenStates records an issue for a dirty or mid-operation target and worktree checkout.
 func screenStates(ctx context.Context, repo *Repo, plan *MergePlan, trackedOnlyWorktree bool) error {
 	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+"..."+plan.SourceOID); err != nil {
 		return err
@@ -311,7 +309,6 @@ func withHolders(top string, rels []string) string {
 	return strings.Join(out, ", ")
 }
 
-// targetDirtyPaths reads NUL-delimited status, including both names of a rename or copy.
 func targetDirtyPaths(ctx context.Context, path string) (map[string]bool, error) {
 	out, err := runGit(ctx, path, nil, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
@@ -327,7 +324,6 @@ func targetDirtyPaths(ctx context.Context, path string) (map[string]bool, error)
 	return dirty, nil
 }
 
-// targetTouchedPaths disables rename folding so both the deleted and added paths participate.
 func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string, error) {
 	out, err := runGit(ctx, path, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", commitRange, "--")
 	if err != nil {
@@ -366,7 +362,6 @@ func checkCheckoutState(ctx context.Context, path, gitDir string, dirtyProbe fun
 	return inProgressIssue(ctx, path, gitDir)
 }
 
-// trackedDirty reports tracked changes only, ignoring untracked residue.
 func trackedDirty(ctx context.Context, path string) (bool, error) {
 	tracked, err := changedPaths(ctx, path)
 	return len(tracked) > 0, err
@@ -461,12 +456,10 @@ func unrelatedHistories(ctx context.Context, repoPath, sourceOID, targetOID stri
 	return !related && err == nil, err
 }
 
-// isAncestor reports whether ancestor is reachable from descendant.
 func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
 	return gitYesNo(ctx, repoPath, "merge-base", "--is-ancestor", ancestor, descendant)
 }
 
-// gitDirsOf is path's git dir and common dir from one rev-parse.
 func gitDirsOf(ctx context.Context, path string) (gitDir, commonDir string, err error) {
 	out, err := runGit(ctx, path, nil, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
 	if err != nil {

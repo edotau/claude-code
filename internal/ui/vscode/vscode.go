@@ -21,8 +21,7 @@ import (
 // lockWait bounds the wait for a sibling invocation; past the budget the merge errors rather than hang.
 const lockWait = 5 * time.Second
 
-// beforeWrite is a test seam: it runs inside the lock, immediately before the staleness re-check, so
-// a foreign save landing in that window can be observed deterministically.
+// beforeWrite is a test seam that runs inside the lock just before the staleness re-check.
 var beforeWrite func(dest string)
 
 // mergeResult is what one merge attempt produced.
@@ -31,9 +30,7 @@ type mergeResult struct {
 	Backup  string
 }
 
-// syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded, then merges it into dest.
-// check=true never writes — --check (drift probe) and --dry-run (preview) both pass it; the caller
-// tells them apart by message and exit code.
+// syncSettings renders template with __CLAUDE_HOME__/__CLAUDE_BIN__ expanded and merges it into dest.
 func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mergeResult, error) {
 	rawTemplate := defaultTemplate // the embedded template ships with the binary; --template overrides it
 	if template != "" {
@@ -54,8 +51,7 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 		// Read-only: --check/--dry-run must not drop a lock file beside the user's settings.
 		return merge(dest, overlay, claudeBin+"/claude", true)
 	}
-	// Read -> backup -> write is ONE critical section, serialized against a sibling invocation. The lock
-	// lives in harness state, never beside VS Code's own file.
+	// Read, backup and write are one critical section; the lock lives in harness state, not beside VS Code's file.
 	var result mergeResult
 	err := withLock("vscode.lock", dest, func() (mergeErr error) {
 		result, mergeErr = merge(dest, overlay, claudeBin+"/claude", false)
@@ -214,8 +210,7 @@ func syncAll(o syncOptions) (outcome, error) {
 	return out, err
 }
 
-// resolveKeybindingsDest: explicit kbDest wins outright; an explicit dest with no kbDest uses the same
-// directory as the settings file, never the platform's vscode-server Machine guess for an unrelated dest.
+// resolveKeybindingsDest: explicit kbDest wins; an explicit dest alone uses the settings file's directory.
 func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bool, note string, err error) {
 	switch {
 	case kbDest != "":

@@ -14,8 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
-// Each render is a fresh process, so memos live in stamp files under the state dir ("f1|f2|…"); any
-// failure falls open to a live recompute, never to a wrong bar.
+// Each render is a fresh process, so memos live in stamp files; any failure falls open to a live recompute.
 
 func stampFile(kind, key string) string {
 	h := fnv.New64a()

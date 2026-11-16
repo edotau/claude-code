@@ -19,8 +19,7 @@ var toolUseKey = []byte(`"tool_use"`)
 var commitKey = []byte("commit") // cheap prefilter; the real check is gitCommitCommand (segment/token aware)
 var bashNameKey = []byte(`"name":"Bash"`)
 
-// editNameKeys are the literal `"name":"<Tool>"` byte patterns for editTools — cheap enough to rule a
-// line out before paying for json.Unmarshal, since every other tool_use (Read/Grep/Bash…) fails all four.
+// editNameKeys are `"name":"<Tool>"` byte patterns that rule a line out cheaply before json.Unmarshal.
 var editNameKeys = [][]byte{
 	[]byte(`"name":"Edit"`), []byte(`"name":"Write"`), []byte(`"name":"MultiEdit"`), []byte(`"name":"NotebookEdit"`),
 }
@@ -29,8 +28,7 @@ func hasEditToolName(line []byte) bool {
 	return slices.ContainsFunc(editNameKeys, func(k []byte) bool { return bytes.Contains(line, k) })
 }
 
-// CommitEditWeight is how many edits a Bash `git commit` call counts for: one commit alone is
-// substantive work; memory.updateMinEdits is defined from this so the two stay in lockstep.
+// CommitEditWeight is how many edits a Bash `git commit` counts for; memory.updateMinEdits derives from it.
 const CommitEditWeight = 3
 
 // EditedFiles returns the unique paths the transcript's Edit/Write tool calls touched, sorted.

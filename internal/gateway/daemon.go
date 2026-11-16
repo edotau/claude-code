@@ -60,7 +60,6 @@ func secretLockFile() string { return filepath.Join(paths.StateDir(), "proxy.sec
 // logFile receives a spawned daemon's stdio.
 func logFile() string { return filepath.Join(paths.StateDir(), "proxy.log") }
 
-// Base is the proxy URL for port.
 func Base(port int) string { return fmt.Sprintf("http://127.0.0.1:%d", port) }
 
 // SessionBase is the ANTHROPIC_BASE_URL for a session whose default provider is provider.
@@ -80,7 +79,6 @@ func ViaBaseContext(ctx context.Context, base string) string {
 // ClientHeader carries the proxy secret when Authorization holds the client's own login (subscription OAuth).
 const ClientHeader = "X-Claude-Code-Proxy"
 
-// ReadState reads proxy.json.
 func ReadState() (State, error) {
 	var st State
 	b, err := os.ReadFile(stateFile())
@@ -123,7 +121,6 @@ func healthGet(ctx context.Context, port int) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
-// Health GETs /healthz on port.
 func Health(ctx context.Context, port int) error {
 	resp, err := probeHealth(ctx, port)
 	if err != nil {
@@ -195,7 +192,6 @@ func ensure(ctx context.Context, port int) (string, error) {
 // ErrTestBinary: under `go test`, os.Executable is the test binary, which would re-run its own tests as a "router".
 var ErrTestBinary = errors.New("proxy: refusing to spawn the daemon from a test binary (stub the router seam)")
 
-// daemonCommand builds the detached daemon's command line.
 func daemonCommand(exe string, port int) *exec.Cmd {
 	cmd := exec.Command(exe, "gateway", "proxy", "--serve") //nolint:noctx // the daemon outlives its caller
 	if port != 0 {
@@ -318,7 +314,6 @@ const (
 	HeaderDispatchTag = "X-Claude-Code-Proxy-Dispatch-Tag" // "1" when the daemon strips a /d/<id> prefix
 )
 
-// ConfigID names this process's config dir without exposing the path.
 func ConfigID() string {
 	return textutil.SHA256Hex([]byte(paths.ConfigDir()))[:16]
 }
@@ -367,7 +362,6 @@ func Reclaim(ctx context.Context, port int, force bool) error {
 	return awaitHolderExit(pid, port)
 }
 
-// recordedPID reports whether the state file names pid as the proxy.
 func recordedPID(pid int) bool {
 	cur, err := ReadState()
 	return err == nil && cur.PID == pid
@@ -409,7 +403,6 @@ func checkHolderPid(router bool, pid, port int) error {
 	return nil
 }
 
-// awaitHolderExit waits for pid to exit after it was told to stop.
 func awaitHolderExit(pid, port int) error {
 	if awaitExit(pid) {
 		fmt.Fprintf(os.Stderr, "proxy: replaced older proxy pid %d on :%d\n", pid, port)

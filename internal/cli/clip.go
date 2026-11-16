@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cmdClip saves the clipboard image (macOS, WSL) as a PNG and prints its path, for @-reference when
-// WSL2 Ctrl+V image paste fails on the bridged BMP.
+// cmdClip saves the clipboard image as a PNG and prints its path, for when WSL2 Ctrl+V image paste fails.
 func cmdClip(args []string) int {
 	fs := helptext.NewFlagSet("clip", helptext.Page{
 		Usage: "claude-code clip [--serve]",
@@ -44,8 +43,7 @@ func cmdWLPaste(args []string) int {
 	return clipboard.RunProxy(args, os.Stdout, os.Stderr)
 }
 
-// cmdClipClear sleeps --after, then clears the clipboard if it still holds the value whose sha256
-// digest arrives on stdin; clipboard.ScheduleClear spawns it detached.
+// cmdClipClear sleeps --after, then clears the clipboard if it still matches the sha256 digest read from stdin.
 func cmdClipClear(args []string) int {
 	fs := helptext.NewFlagSet("clip-clear", helptext.Page{
 		Usage: "claude-code clip-clear [--after 30s] < digest",

@@ -11,8 +11,7 @@ import (
 // limitsCacheMaxAge bounds how stale internal/usage's oauth-usage cache may be before it is ignored.
 const limitsCacheMaxAge = 15 * time.Minute
 
-// limitsSegment is "7d:N%" on the first-party subscription session only: the payload's rate_limits, else
-// internal/usage's cache file; no fresh data or a passed reset omits it. The caller checks onSubscription.
+// limitsSegment is "7d:N%" on the first-party subscription session only; no fresh data or a passed reset omits it.
 func limitsSegment(in input) string {
 	week := limitsFromPayload(in)
 	if week < 0 {
@@ -24,8 +23,7 @@ func limitsSegment(in input) string {
 	return fmt.Sprintf("7d:%d%%", week)
 }
 
-// authSegment is the session credential's countdown ("m2m:42m") from its expiry record, or "login:<p>" while the
-// profile's user login is dead; "" when neither is recorded.
+// authSegment is the credential countdown ("m2m:42m"), or "login:<p>" while the user login is dead; "" when neither.
 func authSegment(session string) string {
 	if loginDead(session) {
 		return "login:" + session

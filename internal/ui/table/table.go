@@ -55,8 +55,7 @@ func sumInts(xs []int) int {
 	return t
 }
 
-// Justify lays rows out as plain column-aligned lines (no indent) no wider than width (<= 0 = unknown, no cap).
-// A short row's last cell spans the remaining columns and does not size its column; clip shortens a cell (nil = Truncate).
+// Justify lays rows out as plain column-aligned lines within width (<= 0 = uncapped); a short last cell spans the rest.
 func Justify(rows [][]string, width int, clip func(string, int) string) []string {
 	if clip == nil {
 		clip = Truncate
@@ -125,8 +124,7 @@ func justifyRow(r []string, n int, ws []int, gap, width int, clip func(string, i
 	return Truncate(strings.TrimRight(b.String(), " "), width)
 }
 
-// Render lays out a header plus rows as two-space-indented, column-aligned lines, no cell wider than its column.
-// colMax caps each column's cells (0 or a missing entry = no cap).
+// Render lays out a header plus rows as two-space-indented aligned lines; colMax caps each column (0 = none).
 func Render(head []string, colMax []int, rows [][]string, width int) string {
 	all := make([][]string, 0, len(rows)+1)
 	for _, r := range append([][]string{head}, rows...) {

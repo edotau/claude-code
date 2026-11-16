@@ -58,8 +58,6 @@ func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
 	t.Fatalf("remembered id %s is absent from the repository corpus", id)
 }
 
-// TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop: a "project" fact lands as a dated, newest-first heading
-// in decisionLog.md, read once before settle, and the returned id round-trips through recall.
 func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
@@ -99,8 +97,6 @@ func assertLaterProjectEntryFirst(t *testing.T, root, id string, now time.Time) 
 	}
 }
 
-// TestRememberNonProjectTypesWriteConventionsBullet: user/feedback/reference all land as a labeled
-// bullet in conventions.md, each carrying a persisted id.
 func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
@@ -138,8 +134,6 @@ func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
 	}
 }
 
-// TestLastStampedIDExactMatchAndDirection: a longer older bullet sharing the prefix is skipped, a multi-line
-// fact matches on its first line, and an appended file resolves to the last match.
 func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 	t.Parallel()
 	p := "# c\n\n- User: foo bar <!-- id:aaaa1111 -->\n- User: foo <!-- id:bbbb2222 -->\n- User: foo <!-- id:cccc3333 -->\n"
@@ -154,8 +148,7 @@ func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 	}
 }
 
-// TestRememberSeedsMissingFileFromScaffold: a fact into an absent conventions.md lands under the scaffold header,
-// not appendBlocks' "(archived)" one.
+// A fact into an absent conventions.md lands under the scaffold header, not appendBlocks' "(archived)" one.
 func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

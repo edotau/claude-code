@@ -163,8 +163,7 @@ type plainValue string
 func (p *plainValue) String() string     { return string(*p) }
 func (p *plainValue) Set(s string) error { *p = plainValue(s); return nil }
 
-// A custom Value implementing Placeholder renders that placeholder in FLAGS; one without it falls back
-// to flag.UnquoteUsage's generic "value" (no type name, no backtick in the usage string).
+// A custom Value implementing Placeholder renders it in FLAGS; otherwise flag.UnquoteUsage's generic "value".
 func TestFlagRowsPlaceholderHook(t *testing.T) {
 	var withHook placeholderValue
 	var without plainValue

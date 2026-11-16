@@ -191,8 +191,7 @@ func TestSavePlanFilesTaggedOnceAndVersionsEdits(t *testing.T) {
 	}
 }
 
-// TestWithTasks: headings naming a phase/step become items, the closeout tail follows, and a plan that already
-// carries a checklist is left exactly as approved.
+// TestWithTasks: phase/step headings become items plus the closeout tail; an existing checklist is left as approved.
 func TestWithTasks(t *testing.T) {
 	got := string(withTasks([]byte("# Plan: X\n\n### Phase 1 — parse\n\n## Step 2: render\n\n## Context\n")))
 	for _, want := range []string{"- [ ] Phase 1 — parse\n", "- [ ] Step 2: render\n", "- [ ] Full suite once\n",
@@ -210,8 +209,7 @@ func TestWithTasks(t *testing.T) {
 	}
 }
 
-// TestPlanTitlePrefersSlugLine: the template's "Suggested slug:" line names the file; the long H1 is only the
-// fallback (a 70-char title-derived name was the complaint).
+// TestPlanTitlePrefersSlugLine: the template's "Suggested slug:" line names the file; the long H1 is the fallback.
 func TestPlanTitlePrefersSlugLine(t *testing.T) {
 	plan := "# Plan: refine fable-method against upstream v1.4.0 and push its proven artifacts\n\n" +
 		"Suggested slug: `fable-method-upstream-refine`\n\n## Context\n"
@@ -252,8 +250,7 @@ func TestWithTasksMixedHeadingLevels(t *testing.T) {
 	}
 }
 
-// TestWithTasksCRLF characterizes CURRENT behavior on CRLF input: the task-heading regex already strips the
-// trailing \r from each extracted item, but the plan/checklist join point keeps a stray \r before the \n\n.
+// TestWithTasksCRLF characterizes CURRENT behavior: a stray \r stays before the \n\n at the plan/checklist join.
 func TestWithTasksCRLF(t *testing.T) {
 	plan := "# Plan: X\r\n\r\n### Phase 1 \xe2\x80\x94 parse\r\n\r\n## Step 2: render\r\n"
 	got := string(withTasks([]byte(plan)))
@@ -420,8 +417,7 @@ func wantMirrorFile(t *testing.T, path, want, what string) {
 	}
 }
 
-// approvalPayload is an ExitPlanMode PostToolUse whose tool_response carries planTemplate + the draft's filePath.
-// A nil toolInput omits the tool_input key entirely.
+// approvalPayload is an ExitPlanMode PostToolUse with planTemplate and the draft's filePath; nil toolInput omits it.
 func approvalPayload(t *testing.T, cwd, draft string, toolInput map[string]any) []byte {
 	t.Helper()
 	m := map[string]any{
@@ -487,8 +483,7 @@ func countPlanFiles(t *testing.T, dir string) int {
 	return count
 }
 
-// TestPlanMirrorEditReusesDestAndSurvivesH1Change: an Edit updates the same dated file, and renaming the
-// H1 afterward still lands in that same file rather than forking a second one.
+// TestPlanMirrorEditReusesDestAndSurvivesH1Change: an Edit and a later H1 rename still land in the same dated file.
 func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -511,8 +506,7 @@ func TestPlanMirrorEditReusesDestAndSurvivesH1Change(t *testing.T) {
 	}
 }
 
-// TestPlanMirrorNeverClobbersAnUnrelatedDatedFile: a dated file that already exists under the computed name
-// (and isn't the one this mirror created) is left untouched; the mirror versions around it instead.
+// TestPlanMirrorNeverClobbersAnUnrelatedDatedFile: a dated file the mirror did not create is versioned around.
 func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -525,9 +519,7 @@ func TestPlanMirrorNeverClobbersAnUnrelatedDatedFile(t *testing.T) {
 	wantMirrorFile(t, filepath.Join(plansDir, dateStamp()+"-widget-refactor-2.md"), planTemplate, "mirror should have versioned to")
 }
 
-// TestSavePlanReusesMirroredDestAndCleansUpDraft: approval with EMPTY tool_input and tool_response{plan,
-// filePath} reuses the dest plan-mirror already recorded, verifies the dated file, then removes the draft
-// and its .dest record.
+// TestSavePlanReusesMirroredDestAndCleansUpDraft: approval reuses the mirror's dest, then removes the draft and .dest.
 func TestSavePlanReusesMirroredDestAndCleansUpDraft(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -561,8 +553,7 @@ func writePayload(t *testing.T, tool, cwd, path, content string) string {
 	return string(b)
 }
 
-// TestPlanTemplateTeeth proves the gate actually fires: today (no gate consulted) a free-form first write to
-// an undated draft passes; with PlanTemplate wired in, the same write is denied, and the message names plan.md.
+// TestPlanTemplateTeeth: a free-form first write passes with no gate, and is denied naming plan.md once wired.
 func TestPlanTemplateTeeth(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

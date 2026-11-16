@@ -36,8 +36,7 @@ var protectedGlobs = sync.OnceValue(func() []string {
 	return globs
 })
 
-// protectedWrite is the first path a Bash command writes or removes that Edit's deny rules protect ("" when none);
-// a removal confined to temp folders is allowed (tempremoval.go), a write never is.
+// protectedWrite is the first path a Bash command writes or removes that Edit's deny rules protect; temp removals pass.
 func protectedWrite(cmd, cwd string) string {
 	for _, p := range core.WrittenPaths(cmd, cwd) {
 		if protectedPath(p) {

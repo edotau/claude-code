@@ -18,9 +18,7 @@ import (
 // keybindingsGOOS picks defaultKeybindingsDest's platform branch; tests swap it to run every branch on any host.
 var keybindingsGOOS = runtime.GOOS
 
-// defaultKeybindingsDest returns the local client's User keybindings.json. Keybindings are UI-side —
-// unlike settings there is no Machine scope — so a headless box with only vscode-server has nowhere
-// to put them; skip is true and note explains why.
+// defaultKeybindingsDest returns the local User keybindings.json; skip is true on a headless vscode-server box.
 func defaultKeybindingsDest() (dest string, skip bool, note string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -88,8 +86,7 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (mergeR
 	return writeGuarded(dest, "keybindings", rawBase, body)
 }
 
-// mergeKeybindingEntries replaces a matching template entry in place (by command + profile) and
-// appends the rest, so user entries are never reordered or touched.
+// mergeKeybindingEntries replaces matching template entries in place and appends the rest, leaving user entries alone.
 func mergeKeybindingEntries(base, overlay []map[string]any) []map[string]any {
 	merged := make([]map[string]any, len(base))
 	copy(merged, base)
@@ -103,8 +100,7 @@ func mergeKeybindingEntries(base, overlay []map[string]any) []map[string]any {
 	return merged
 }
 
-// keybindingMatch identifies a template entry by command + the profile it opens, falling back to a
-// deep comparison of args when there is no profileName to key on.
+// keybindingMatch keys on command + profileName, falling back to a deep args comparison.
 func keybindingMatch(a, b map[string]any) bool {
 	if a["command"] != b["command"] {
 		return false
@@ -119,8 +115,7 @@ func keybindingMatch(a, b map[string]any) bool {
 	return reflect.DeepEqual(a["args"], b["args"])
 }
 
-// leadingComment captures a header comment (VS Code's "Place your key bindings…") preceding the
-// array's opening bracket, so a merge does not drop it.
+// leadingComment captures the header comment before the array's opening bracket so a merge keeps it.
 func leadingComment(raw []byte) string {
 	rest := bytes.TrimLeft(raw, " \t\r\n")
 	end := 0

@@ -71,8 +71,7 @@ func hasMarker(t *testing.T, id string) bool {
 	return false
 }
 
-// Leak 1 (2026-09-15): the claim of a background Agent is retired only by the SubagentStop resolved through the
-// agent_transcript_path dir's meta.json (its PostToolUse reaches no dispatch runner: hooks wiring test).
+// Leak 1 (2026-09-15): a background Agent's claim is retired only by SubagentStop resolved via meta.json.
 func TestDispatchBackgroundSpawnRetiredByStop(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
@@ -87,8 +86,7 @@ func TestDispatchBackgroundSpawnRetiredByStop(t *testing.T) {
 	}
 }
 
-// Leak 2 (2026-10-18): SubagentHandback ends with only ONE stop; the first retires the slot, a repeat retires
-// nothing else, so a sibling's marker survives.
+// Leak 2 (2026-10-18): SubagentHandback ends with ONE stop; a repeat retires nothing, so a sibling's marker survives.
 func TestDispatchRepeatStopRetiresNothingElse(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
@@ -139,8 +137,7 @@ func workflowPayload(id string) string {
 	return `{"tool_name":"Workflow","tool_use_id":"` + id + `","tool_input":{"script":` + fmt.Sprintf("%q", threeLeaves) + `}}`
 }
 
-// A Workflow claims <id>.1..<id>.3 in one pass; with only two slots free it blocks and claims nothing; the
-// PostToolUse release frees all leaves.
+// A Workflow claims <id>.1..<id>.3 in one pass; with two slots free it blocks and claims nothing.
 func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 	capN := dispatchEnv(t)
 	if capN < 3 {
@@ -224,8 +221,7 @@ func dispatchEnv(t *testing.T) int {
 
 func pre(payload string) core.Result { return Effort(core.ParseInput(strings.NewReader(payload))) }
 
-// Cap → claim → release spans the group: spawns fill the cap, the next blocks without a marker and names the
-// numbers, a failed spawn's release frees exactly one slot, and a SubagentStop resolved through meta.json frees another.
+// Cap → claim → release: spawns fill the cap, the next blocks naming the numbers, each release frees one slot.
 func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
 	capN := dispatchEnv(t)
 	for i := range capN {
@@ -753,8 +749,7 @@ func runLeafEvent(t *testing.T, event, payload string) string {
 	return out.String()
 }
 
-// Regression (2026-11-13): a long ask result is persisted and the transcript keeps a 2 KB preview, so a ran-on line past it
-// read as missing and the gate blocked a leaf that did run its agent; the saved output is what the gate must read.
+// Regression (2026-11-13): a long ask result is persisted with a 2 KB preview, so the gate must read the saved output.
 func TestRanOnReadsPersistedToolResult(t *testing.T) {
 	saved := filepath.Join(t.TempDir(), "tool-results", "b1.txt")
 	if err := os.MkdirAll(filepath.Dir(saved), 0o700); err != nil {
@@ -846,8 +841,7 @@ func TestSubagentStopBlockedReapsNothing(t *testing.T) {
 	}
 }
 
-// reapGroups never targets our own group, the parent session's, init's (<=1), our own pid's or a failed probe's,
-// and lists each remaining group once.
+// reapGroups never targets our own, the parent's, init's, our pid's or a failed probe's group, and lists each once.
 func TestReapGroupsSkipsProtectedAndDuplicates(t *testing.T) {
 	origOwn, origOf := reapOwnGroup, reapGroupOf
 	t.Cleanup(func() { reapOwnGroup, reapGroupOf = origOwn, origOf })
@@ -937,8 +931,7 @@ func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated; mentions of the
-// ran-on line or the gate text in a successful tool result are not evidence.
+// Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated.
 func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
 	src := "const ranOnGateMark = \"" + ranOnGateMark + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"

@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// TestCorpusFilesIncludesGlobalNativeTopic: post-cutover, a native topic file living in HomeBankDir() is
-// part of a repo's native corpus (bank "native"), not silently dropped by scanning the wrong dir.
+// A native topic file in HomeBankDir() belongs to a repo's native corpus.
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
@@ -74,8 +73,7 @@ func TestParseBlocksIndexesCRLFNotes(t *testing.T) {
 	}
 }
 
-// TestFrontmatterValueTolerantFencesAndRawValues: frontmatterValue's manual scan is whitespace-tolerant
-// on the fence line and never coerces a scalar to another YAML type (the two regressions this reverts).
+// frontmatterValue tolerates whitespace on the fence line and never coerces a scalar's YAML type.
 func TestFrontmatterValueTolerantFencesAndRawValues(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -97,11 +95,7 @@ func TestFrontmatterValueTolerantFencesAndRawValues(t *testing.T) {
 	}
 }
 
-// TestTopicFrontmatterFencesAndRawValues: topicFrontmatter's closing fence must start its own line
-// exactly ("\n---\n", per markdown.StripFrontMatter's own contract) — a trailing-space fence, an
-// indented fence, or a missing final newline is therefore unclosed frontmatter (ok=false, body text).
-// A well-formed fence never coerces a scalar to another YAML type (the type-coercion regression this
-// reverts): `yes`, `[draft]` and `007` all come back as the literal raw text.
+// Only an exact "\n---\n" fence closes front matter; scalars stay raw text.
 func TestTopicFrontmatterFencesAndRawValues(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

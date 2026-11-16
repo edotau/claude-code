@@ -44,7 +44,6 @@ var clipOKRE = regexp.MustCompile(`^OK (.+?) (\d+x\d+)$`)
 // powershellTimeout bounds the Windows round trip so hung interop fails instead of stalling the verb.
 const powershellTimeout = 30 * time.Second
 
-// runPowerShell executes a PowerShell script on the Windows side and returns its stdout.
 func runPowerShell(script string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), powershellTimeout)
 	defer cancel()
@@ -87,7 +86,6 @@ func wlPaste(args ...string) ([]byte, error) {
 	return captureWlPaste("wl-paste", env, args)
 }
 
-// captureWlPaste runs the wl-paste binary bin with env under a 10s timeout and returns its stdout.
 func captureWlPaste(bin string, env, args []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -115,7 +113,6 @@ func grabWSLg() (path, dim string, err error) {
 	return savePNG(buf.Bytes())
 }
 
-// savePNG writes PNG bytes to a temp file and returns its path plus "WxH".
 func savePNG(b []byte) (path, dim string, err error) {
 	dim, err = pngDim(b)
 	if err != nil {
@@ -137,7 +134,6 @@ func savePNG(b []byte) (path, dim string, err error) {
 	return f.Name(), dim, nil
 }
 
-// pngDim returns the "WxH" of PNG bytes.
 func pngDim(b []byte) (string, error) {
 	cfg, err := png.DecodeConfig(bytes.NewReader(b))
 	if err != nil {
@@ -146,7 +142,6 @@ func pngDim(b []byte) (string, error) {
 	return fmt.Sprintf("%dx%d", cfg.Width, cfg.Height), nil
 }
 
-// errNoMacImage: osascript found no PNG on the macOS clipboard.
 var errNoMacImage = errors.New("no image in the clipboard — copy or screenshot one first (Cmd+Ctrl+Shift+4)")
 
 // macClipScript writes the clipboard's PNG to argv 1; "NOIMAGE" when the clipboard holds none.
@@ -163,7 +158,6 @@ const macClipScript = `on run argv
 	return "OK"
 end run`
 
-// grabMac saves the macOS clipboard image as a PNG through osascript and returns its path plus "WxH".
 func grabMac() (path, dim string, err error) {
 	f, err := os.CreateTemp("", "claude-clip-*.png")
 	if err != nil {
@@ -195,13 +189,11 @@ func grabMac() (path, dim string, err error) {
 	return path, dim, nil
 }
 
-// translateWin maps a Windows path to its WSL view, "" when no mount covers it.
 func translateWin(win string) string {
 	p, _ := paths.Resolve(win)
 	return p
 }
 
-// grab is Grab with WSL detection, PowerShell and path translation injected for tests off Windows.
 func grab(onWSL func() bool, run func(string) (string, error), translate func(string) string) (path, dim string, err error) {
 	if !onWSL() {
 		return "", "", errors.New("clipboard image grab needs WSL — the Windows clipboard is only reachable through powershell.exe")
@@ -266,8 +258,7 @@ func transcode(r io.Reader, w io.Writer) error {
 	return writeBMP24(w, img.width, img.height, img.stride, img.rows, img.topDown)
 }
 
-// transcodePNG reads a BMP from r and writes a PNG to w, so the CLI's `wl-paste --type image/png`
-// leg can be answered on a WSLg clipboard that only ever offers BMP.
+// transcodePNG writes a PNG from a BMP so the `wl-paste --type image/png` leg works on a BMP-only WSLg clipboard.
 func transcodePNG(r io.Reader, w io.Writer) error {
 	img, err := decodeRaster(r)
 	if err != nil {
@@ -426,7 +417,6 @@ func convertRaster(img raster, bitCount uint16, rMask, gMask, bMask uint32) rast
 	return img
 }
 
-// rowStride returns the 4-byte-padded row length for width pixels at bitCount depth.
 func rowStride(width, bitCount int) int {
 	return ((width*bitCount + 31) / 32) * 4
 }

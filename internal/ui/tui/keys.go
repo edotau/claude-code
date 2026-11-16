@@ -1,5 +1,4 @@
-// Package tui is the minimal raw-terminal surface configure's interactive pickers need: raw mode,
-// arrow-key decoding, and a redraw-in-place panel. Key decoding is pure, so it tests without a TTY.
+// Package tui is the raw-terminal surface for configure's pickers: raw mode, key decoding, a redraw-in-place panel.
 package tui
 
 import (
@@ -39,8 +38,7 @@ type Key struct {
 // dropped is the zero Key an unbound control byte or unknown escape sequence decodes to.
 var dropped = Key{Kind: KeyRune, Rune: 0}
 
-// decode parses ONE key from buf, returning it and the bytes consumed (0 means "need more input": an
-// incomplete escape sequence or a split UTF-8 rune at the buffer's end).
+// decode parses ONE key from buf and returns the bytes consumed; 0 means an incomplete sequence needs more input.
 func decode(buf []byte) (Key, int) {
 	if len(buf) == 0 {
 		return Key{}, 0
@@ -165,8 +163,7 @@ func drain(pending []byte) ([]Key, []byte) {
 	return keys, pending
 }
 
-// terminal is the raw-mode session: cursor hidden, keys decoded onto a channel. Close restores
-// everything; callers defer it so a panic can't strand the shell in raw mode.
+// terminal is the raw-mode session; Close restores everything, so callers defer it to survive a panic.
 type terminal struct {
 	fd      int
 	prev    *termState
@@ -181,8 +178,7 @@ type terminal struct {
 	readErr error
 }
 
-// openTerminal puts stdin into raw mode and hides the cursor. Fails cleanly when stdin is not a TTY, so
-// callers fall back to a line-mode prompt instead of crashing.
+// openTerminal puts stdin into raw mode and hides the cursor; it fails cleanly off a TTY so callers can prompt.
 func openTerminal() (*terminal, error) {
 	fd := int(os.Stdin.Fd())
 	if !proc.IsTerminalFD(fd) {
@@ -226,8 +222,7 @@ func (t *terminal) Close() error {
 	return restore(t.fd, t.prev)
 }
 
-// stopReader ends the key pump and waits for it: an orphaned read(2) on stdin would otherwise win the
-// next line the user types after Close returns. Unpollable stdin keeps the old parked-forever reader.
+// stopReader ends the key pump and waits, else an orphaned read(2) on stdin would steal the next typed line.
 func (t *terminal) stopReader() {
 	if t.stop == nil {
 		return
@@ -253,8 +248,7 @@ func (t *terminal) Size() (w, h int) {
 	return w, h
 }
 
-// readKeys pumps stdin through drain. An incomplete sequence carries into the next read; a lone Esc is
-// held for one pollTick of silence before it counts as the Esc key. Exits when stopReader signals.
+// readKeys pumps stdin through drain; a lone Esc is held one pollTick before it counts as the Esc key.
 func (t *terminal) readKeys() {
 	defer close(t.done)
 	var pending []byte

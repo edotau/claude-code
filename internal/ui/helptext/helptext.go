@@ -1,5 +1,4 @@
-// Package helptext prints a verb's usage text in the `claude-code -h` palette: UPPERCASE heads dim and bold,
-// the command/flag column bold along the status line's gradient, everything else untouched.
+// Package helptext prints a verb's usage text in the `claude-code -h` palette.
 package helptext
 
 import (
@@ -161,9 +160,7 @@ func clipLines(text string, term int) string {
 	return strings.Join(lines, "\n")
 }
 
-// Placeholder is an optional flag.Value hook: a custom Value implementing it names its own FLAGS
-// placeholder (e.g. "KEY") instead of the generic "value" flag.UnquoteUsage falls back to. Backticks
-// are banned in usage strings, so this is the only way to override the placeholder.
+// Placeholder lets a flag.Value name its FLAGS placeholder; backticks are banned in usage strings, so this is the way.
 type Placeholder interface {
 	Placeholder() string
 }
@@ -306,8 +303,7 @@ func isHead(l string) bool {
 	return t != "" && l[0] != ' ' && allCaps(t)
 }
 
-// wrapRow lays out `label` padded to labelWidth plus desc, wrapping desc at word boundaries within width columns;
-// continuation lines are indented to the description column. A word longer than the space overflows its line.
+// wrapRow pads label to labelWidth and wraps desc at word boundaries; a word longer than the space overflows its line.
 func wrapRow(label, desc string, labelWidth, width int) []string {
 	pad := max(labelWidth-utf8.RuneCountInString(label), 0)
 	first := label + strings.Repeat(" ", pad)
@@ -332,8 +328,7 @@ func wrapRow(label, desc string, labelWidth, width int) []string {
 // DocsFlag is the flag every wrapped-CLI verb takes to print the wrapped binary's own help.
 const DocsFlag = "--docs"
 
-// WrappedDocs runs `bin --help` with the terminal attached, so a wrapped CLI's own documentation is one flag away;
-// the exit code is the binary's.
+// WrappedDocs runs `bin --help` attached to the terminal; the exit code is the binary's.
 func WrappedDocs(bin string) int {
 	path, err := exec.LookPath(bin)
 	if err != nil {

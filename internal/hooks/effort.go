@@ -59,7 +59,6 @@ func newDispatchRun(session func() string) *dispatchRun {
 	return &dispatchRun{session: session, roster: map[string]string{}, efforts: map[string]string{}, registry: sync.OnceValues(loadRegistry)}
 }
 
-// rosterModel is the named agent's frontmatter model, read once per run.
 func (r *dispatchRun) rosterModel(name string) string {
 	m, ok := r.roster[name]
 	if !ok {
@@ -69,7 +68,6 @@ func (r *dispatchRun) rosterModel(name string) string {
 	return m
 }
 
-// rosterEffort is the named agent's frontmatter effort, from the same cached read as rosterModel.
 func (r *dispatchRun) rosterEffort(name string) string {
 	r.rosterModel(name)
 	return r.efforts[name]
@@ -154,7 +152,6 @@ type askLine struct {
 // offRoute are ask flags taking the run to another host, lead, record or batch: the hook predicts no preflight.
 var offRoute = []string{"agents", "native", "provider", "host", "retry", "resume", "live", "job", "jobs", "batch"}
 
-// opening is task's opening ask command, parsed once per run; zero for a brief that does not open with one.
 func (r *dispatchRun) opening(ctx context.Context, task string) askLine {
 	if r.line == nil || r.lineTask != task {
 		l := parseAskLine(ctx, task)
@@ -293,7 +290,6 @@ func flagValue(words []string, name string) string {
 	return v
 }
 
-// hasFlag reports any of names set before the first positional word or "--", as flagValue walks them.
 func hasFlag(words, names []string) bool {
 	for i := 0; i < len(words) && isFlag(words[i]); i++ {
 		n, _, hasVal := strings.Cut(strings.TrimPrefix(words[i][1:], "-"), "=")
@@ -307,7 +303,6 @@ func hasFlag(words, names []string) bool {
 	return false
 }
 
-// isFlag is a word Go's flag package reads as a flag: "-x" or "--x", never "--" or a positional word.
 func isFlag(w string) bool { return w != "--" && len(w) >= 2 && w[0] == '-' }
 
 // takesValue is words[i] being the previous flag's value: a word or "-" (stdin); a flag means that one was boolean.
@@ -333,7 +328,6 @@ func shellFields(line string) []string {
 	return words
 }
 
-// unquotePiece is the text of one escaped (\x), single-quoted or double-quoted piece of a shell word.
 func unquotePiece(p string) string {
 	switch p[0] {
 	case '\\':
@@ -396,7 +390,6 @@ func typeSuggestion(st, task string) string {
 	return fmt.Sprintf("use %q", agent)
 }
 
-// spawnTask is the spawn's prompt, or its description when the prompt is empty, with the field it came from.
 func spawnTask(in *core.Input) (field, task string) {
 	if task = in.Nested("tool_input", "prompt"); task != "" {
 		return "prompt", task
@@ -404,7 +397,6 @@ func spawnTask(in *core.Input) (field, task string) {
 	return "description", in.Nested("tool_input", "description")
 }
 
-// effortPlan accumulates agentEffortResult's rewrite of one spawn: the new tool_input and the notes to surface.
 type effortPlan struct {
 	run           *dispatchRun
 	updated       map[string]any
@@ -458,7 +450,6 @@ func freshPointers(session, block string) string {
 	return strings.Join(out, "\n")
 }
 
-// appendSeen adds one id per line to the session's dispatch-recall seen file.
 func appendSeen(path string, ids []string) error {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -529,7 +520,6 @@ func stripLabels(desc, st, label string) string {
 // modelIDRe matches a model id: no spaces, a letter, a digit and a `-` or `/` ("gpt-6.1-sol", "opencode-go/kimi-k3").
 var modelIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][\w.]*[-/][\w./-]*$`) })
 
-// labelShaped is true for a description head that is a dispatch label rather than task text.
 func labelShaped(head, label string) bool {
 	switch {
 	case head == label || slices.Contains(models.AliasNames, head) || agentid.Known(head):

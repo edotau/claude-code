@@ -770,17 +770,13 @@ func TestVaultLockedSkipsRetryFor30s(t *testing.T) {
 	}
 }
 
-// resetVaultRetry clears the process-wide vault-read backoff (origin.go's vaultRetryAt) so a test
-// that deliberately forces a vault-lock timeout cannot poison every test that runs after it in the
-// same binary; call it both before (clean start) and after (cleanup) any such test.
+// resetVaultRetry clears the process-wide vaultRetryAt backoff; call it before and after a vault-lock-timeout test.
 func resetVaultRetry(t *testing.T) {
 	t.Helper()
 	vaultRetryAt.Store(0)
 	t.Cleanup(func() { vaultRetryAt.Store(0) })
 }
 
-// TestOriginRoundTripsThroughVault: WriteOrigin lands a row in the vault, never a legacy file on
-// disk, and readOrigin returns it byte-for-byte (aliases included).
 func TestOriginRoundTripsThroughVault(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
@@ -804,8 +800,7 @@ func TestOriginRoundTripsThroughVault(t *testing.T) {
 	}
 }
 
-// TestReadOriginWorksWithoutMasterKey: memory_origins is plaintext — no vault master key (keyring,
-// HARNESS_VAULT_KEY or key_command) is needed to write or read a row.
+// memory_origins is plaintext, so no vault master key is needed to write or read a row.
 func TestReadOriginWorksWithoutMasterKey(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)
@@ -824,9 +819,7 @@ func TestReadOriginWorksWithoutMasterKey(t *testing.T) {
 	}
 }
 
-// TestRepoDirsReadsOriginsWithSealedSecretsButNoMasterKey: a vault that also holds sealed secrets
-// (needing a master key to decrypt) must still serve memory_origins — a plaintext bucket — to a
-// caller with no master key at all.
+// A vault that also holds sealed secrets must still serve the plaintext memory_origins without a master key.
 func TestRepoDirsReadsOriginsWithSealedSecretsButNoMasterKey(t *testing.T) {
 	resetVaultRetry(t)
 	cfg := tempConfig(t)

@@ -1,5 +1,4 @@
-// Package statusline renders Claude Code's status line from its statusline JSON in one of six styles
-// (gradient, powerline, capsule, minimal, dashboard, twoline). It never errors: a blank payload still renders.
+// Package statusline renders Claude Code's status line from its statusline JSON; a blank payload still renders.
 package statusline
 
 import (

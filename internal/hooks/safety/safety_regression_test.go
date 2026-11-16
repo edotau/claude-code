@@ -244,8 +244,7 @@ func treeGitSubshellCases(d treeGitDirs) []treeGitCase {
 func treeGitSubstitutionCases(d treeGitDirs) []treeGitCase {
 	harness, elsewhere := d.harness, d.elsewhere
 	return []treeGitCase{
-		// Command substitutions: `$(...)` and backtick spans are pulled out and checked as their own nested
-		// command with independent cd tracking, masked from the outer segment so neighboring tokens don't glue.
+		// Command substitutions are checked as their own nested command with separate cd tracking, masked from the outer segment.
 		{"`cd ~/.claude && git stash`", harness, core.Ask, ""},
 		{"`cd /tmp && git stash`", harness, core.Allow, ""},
 		{"$(cd /tmp && git stash)", harness, core.Allow, ""},

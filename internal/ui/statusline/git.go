@@ -60,8 +60,7 @@ func gitBranchFast(cwd string) (string, bool) {
 	}
 }
 
-// checkoutOf finds cwd's checkout: root is the main checkout (a subdir or linked worktree maps to the repo it
-// belongs to; no repo → cwd) and worktree is the linked worktree's top dir, "" in the main checkout.
+// checkoutOf finds cwd's checkout: root is the main checkout (no repo: cwd), worktree the linked top dir or "".
 func checkoutOf(cwd string) (root, worktree string) {
 	top, main := paths.CheckoutOf(cwd)
 	switch {

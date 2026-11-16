@@ -13,8 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// hermeticVSCode isolates CLAUDE_CONFIG_DIR so Sync/syncKeybindings backups never touch the real
-// ~/.claude/state/harness.
+// hermeticVSCode isolates CLAUDE_CONFIG_DIR so backups never touch the real state dir.
 func hermeticVSCode(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -114,8 +113,7 @@ func vscodeRaceFixture(t *testing.T, live string) (tmpl, dest string) {
 	return tmpl, dest
 }
 
-// Guards the read-modify-write window: VS Code does not honour our lock, so a save landing between
-// our read and our write must abort the merge — never be overwritten, never be absent from the backup.
+// Guards the read-modify-write window: a foreign save between our read and write must abort the merge.
 func TestSyncRefusesAStaleMerge(t *testing.T) {
 	const original = `{"local.only": true}`
 	const concurrent = `{"local.only": true, "saved.by.vscode": 42}`
@@ -301,8 +299,7 @@ func TestSyncKeybindingsCheckReportsDriftWithoutWriting(t *testing.T) {
 	}
 }
 
-// Guards drift between the two embedded templates: every keybinding's profileName must exist as a
-// terminal.integrated.profiles.linux key in the settings template, or the terminal command 404s.
+// Guards drift: every keybinding profileName must exist in the settings template's terminal profiles.
 func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	var entries []map[string]any
 	if err := json.Unmarshal(textutil.StripJSONC(defaultKeybindingsTemplate), &entries); err != nil {
@@ -333,8 +330,7 @@ func TestKeybindingsTemplateProfilesExistInSettingsTemplate(t *testing.T) {
 	}
 }
 
-// defaultKeybindingsDest per platform: darwin and windows use the client's User dir; linux skips a headless box
-// with only ~/.vscode-server (no Machine scope for keybindings) and otherwise uses ~/.config/Code/User.
+// defaultKeybindingsDest per platform: darwin/windows use the User dir; linux skips a headless vscode-server box.
 func TestDefaultKeybindingsDestPerOS(t *testing.T) {
 	cases := []struct {
 		goos, name string

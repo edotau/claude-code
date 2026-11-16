@@ -36,8 +36,7 @@ type extensionResult struct {
 	Target  string
 }
 
-// defaultExtensionsDir returns ~/.vscode-server/extensions when a vscode-server install exists
-// (the common case on a Remote-SSH Linux box), else the desktop client's ~/.vscode/extensions.
+// defaultExtensionsDir prefers ~/.vscode-server/extensions when present, else ~/.vscode/extensions.
 func defaultExtensionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -49,10 +48,7 @@ func defaultExtensionsDir() (string, error) {
 	return filepath.Join(home, ".vscode", "extensions"), nil
 }
 
-// linkExtension symlinks <extensionsDir>/<publisher>.<name>-<version> to the tracked extension
-// source under claudeHome, so a no-build-step edit to the source takes effect immediately. Idempotent:
-// a target already linked to the right source is left untouched. check=true (used by both --check
-// and --dry-run) reports what would change without touching the filesystem.
+// linkExtension symlinks the tracked extension into extensionsDir; idempotent, and check=true reports without touching.
 func linkExtension(claudeHome, extensionsDir string, check bool) (extensionResult, error) {
 	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")
 
@@ -121,8 +117,7 @@ func symlinkOrSame(src, dst string) error {
 // chtimes is os.Chtimes; tests swap it to inject a filesystem failure.
 var chtimes = os.Chtimes
 
-// bumpManifestScan touches the extension dir: VS Code caches scanned manifests by the directory's mtime, which an
-// in-place package.json edit through the symlink never changes, so titles and commands would stay stale.
+// bumpManifestScan touches the extension dir: VS Code caches manifests by dir mtime, which symlink edits never change.
 func bumpManifestScan(dir string) error {
 	now := time.Now()
 	return chtimes(dir, now, now)

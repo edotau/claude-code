@@ -78,8 +78,7 @@ func TestSafetyBlockIsAuditedWithoutCommand(t *testing.T) {
 	}
 }
 
-// heredocMustBlock are shell/interpreter/client heredocs whose body is EXECUTED; the body must still
-// be checked for a destructive pattern even though it arrives inside a heredoc.
+// heredocMustBlock are heredocs whose body is EXECUTED; the body must still be checked for a destructive pattern.
 var heredocMustBlock = []string{
 	"bash <<'EOF'\nsudo rm -rf /\nEOF",
 	"sh <<EOF\nrm -rf ~\nEOF",
@@ -185,8 +184,7 @@ func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 	}
 }
 
-// Arithmetic `<<` (e.g. $((1<<y))) is plain text now that the revert parses no heredoc operator at
-// all; it must not block and must not be misread as a heredoc start.
+// Arithmetic `<<` (e.g. $((1<<y))) is plain text: it must not block nor be misread as a heredoc start.
 func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
@@ -577,9 +575,7 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 	}
 }
 
-// TestHarnessGitBlocked pins harnessGitVerb's current behavior directly (gocognit refactor-risk,
-// internal/hooks/safety/safety.go): banned verbs inside the config tree, the worktree exception, -C/
-// --work-tree/--git-dir target resolution, cd tracking, substitutions and nested shells.
+// TestHarnessGitBlocked pins harnessGitVerb: config-tree verbs, worktree exception, target resolution, nested shells.
 func TestHarnessGitBlocked(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

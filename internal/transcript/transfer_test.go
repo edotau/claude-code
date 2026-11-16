@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// projectSessionsDir isolates CLAUDE_CONFIG_DIR and returns the <ConfigDir>/projects/<slug>/ dir
-// defaultSource now reads directly (paths.ProjectSlug only).
+// projectSessionsDir isolates CLAUDE_CONFIG_DIR and returns the projects/<slug> dir defaultSource reads.
 func projectSessionsDir(t *testing.T, cwd string) string {
 	t.Helper()
 	cfg := t.TempDir()
@@ -119,8 +118,7 @@ func TestValidateSource(t *testing.T) {
 	}
 }
 
-// userLine/assistantLine build one JSONL transcript line with either a bare string or a text-part
-// array for message.content, matching Claude Code's own transcript schema.
+// userLine/assistantLine build one transcript line with message.content as a string or a text-part array.
 func userLine(text string) string {
 	return `{"type":"user","message":{"content":` + strconv.Quote(text) + `}}`
 }
@@ -137,8 +135,6 @@ func toolUseLine() string {
 	return `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{}}]}}`
 }
 
-// TestHandoffGolden covers: a bare-string line, a text-part array, a skipped tool_use-only line, and
-// the final framing (cwd + note), on a small fixture well under the turn/size caps.
 func TestHandoffGolden(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "session.jsonl")
@@ -201,8 +197,7 @@ func TestHandoffTrimsOver40Turns(t *testing.T) {
 	}
 }
 
-// A transcript whose last 40 turns alone exceed handoffCap (64 KiB) is trimmed further, oldest-first,
-// until the framed prompt fits.
+// Last 40 turns alone over handoffCap (64 KiB) are trimmed oldest-first until the framed prompt fits.
 func TestHandoffTrimsToSizeCap(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "session.jsonl")
@@ -263,8 +258,7 @@ func TestTransferArgs(t *testing.T) {
 }
 
 func TestProjectSessionsDirUsesPaths(t *testing.T) {
-	// sanity: projectSessionsDir's dir must actually be a subpath of paths.ConfigDir() when
-	// CLAUDE_CONFIG_DIR is set, proving the isolation env vars are the ones defaultSource reads.
+	// The isolated dir must sit under paths.ConfigDir(), proving defaultSource reads the same env.
 	cwd := filepath.Join(t.TempDir(), "proj")
 	dir := projectSessionsDir(t, cwd)
 	if !strings.HasPrefix(dir, paths.ConfigDir()) {

@@ -24,8 +24,6 @@ func assertPointers(t *testing.T, region string, present, absent []string) {
 	}
 }
 
-// TestBuildBankRegionCapsAndPresentPointersOnly: the region never exceeds its line/byte reserve, points
-// only at typed files that actually exist, and overflow entries get a "… N more" marker.
 func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -59,8 +57,6 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	}
 }
 
-// TestWriteBankRegionInsertsReplacesAndRefuses: absent -> inserted at top; present -> replaced in place
-// with bytes outside the region untouched; a malformed region (two begin markers) refuses the write.
 func TestWriteBankRegionInsertsReplacesAndRefuses(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -109,8 +105,7 @@ func assertDoubledMarkerRefused(t *testing.T, dir, base string, now time.Time) {
 	}
 }
 
-// stripFrontmatter only treats a line-start "---" as the closing fence, so an indented "---" line inside
-// a YAML block scalar (e.g. a literal "|" value) is left alone and the real closing fence still wins.
+// Only a line-start "---" closes front matter, so an indented one inside a block scalar is left alone.
 func TestStripFrontmatterBlockScalarDashes(t *testing.T) {
 	t.Parallel()
 	in := "---\ntitle: x\nbody: |\n  line1\n  ---\n  line3\n---\nrest\n"
@@ -139,8 +134,6 @@ func countPrefixed(s, prefix string) int {
 	return n
 }
 
-// TestBuildCatalogListsRepoRowsAndCapsGlobal: every repo store gets a row, and the global entry
-// section caps at catalogHomeMax with an overflow marker.
 func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	isolatedConfig1(t)
 	a := gitRepo(t, t.TempDir(), "alpha")
@@ -230,8 +223,7 @@ func TestBankRegionBoundsTwoBegins(t *testing.T) {
 	}
 }
 
-// TestScanBankRegionDistinguishesAbsentFromMalformed: readers collapse a malformed region to absent, but the
-// scanner every rewrite gates on must tell the two apart.
+// Readers collapse a malformed region to absent; the scanner every rewrite gates on must tell them apart.
 func TestScanBankRegionDistinguishesAbsentFromMalformed(t *testing.T) {
 	t.Parallel()
 	if _, _, err := scanBankRegion("plain\n"); err != nil {

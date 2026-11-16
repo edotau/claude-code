@@ -53,9 +53,7 @@ func TestScanWinPaths(t *testing.T) {
 	}
 }
 
-// The user gets NO terminal feedback that a dropped path was recognized — the additive context is
-// model-visible only. A resolved path must also come back as a systemMessage, and an image must be
-// described (type, dimensions, size) since a terminal cannot preview it.
+// A resolved path must come back as a systemMessage and an image be described: additive context is model-only.
 func TestPathResolverEmitsUserVisibleFeedback(t *testing.T) {
 	dir := t.TempDir()
 	img := filepath.Join(dir, "shot.png")

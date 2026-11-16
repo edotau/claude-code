@@ -12,18 +12,13 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// stdinReader is the one bufio.Reader over os.Stdin for every line-based read in this package, matching
-// configure's shared-reader pattern: a fresh bufio.Reader per call buffers ahead of the line it returns,
-// then discards that look-ahead on the next call, losing bytes the user already typed.
+// stdinReader is the one shared bufio.Reader over os.Stdin; a fresh reader per call would lose buffered input.
 var stdinReader = bufio.NewReader(os.Stdin)
 
 // Stdin is that shared reader, for line reads outside tui (menu's prompts) that must not drop its look-ahead.
 func Stdin() *bufio.Reader { return stdinReader }
 
-// Confirm prints "question [Y/n] " (or "[y/N]" when def is false) and reads one line from stdin;
-// blank keeps def, a leading y/Y is true, a leading n/N is false, anything else keeps def. Reads
-// directly from the controlling terminal — call only once the caller has confirmed stdin is a real
-// TTY (configure's Options.Interactive is already that gate); never against a substituted reader.
+// Confirm prints "question [Y/n] " and reads a line: blank keeps def, y/Y is true, n/N false; call only on a real TTY.
 func Confirm(question string, def bool) bool {
 	fmt.Fprintf(os.Stdout, "%s %s ", question, yesNoHint(def))
 	line, err := stdinReader.ReadString('\n')
@@ -49,9 +44,7 @@ func yesNoHint(def bool) string {
 	return "[y/N]"
 }
 
-// Secret prints prompt and reads one line with local echo off, so a pasted key never lands in the scrollback or
-// shell history. A non-nil preview redraws a masked line under the prompt as input arrives, so a paste shows on paste.
-// Falls back to a plain read when stdin is not a terminal.
+// Secret reads one line with echo off; a non-nil preview redraws a masked line; plain read when stdin is no terminal.
 func Secret(prompt string, preview func(string) string) (string, error) {
 	return SecretHint("", prompt, preview)
 }
@@ -127,8 +120,7 @@ func confirmKey(k Key, def bool) (answer, done bool) {
 	return false, false
 }
 
-// ConfirmKey asks a [y/N]-style question answered by a single keypress (Esc cancels at once); it falls back to the
-// line-based Confirm when stdin is not a terminal.
+// ConfirmKey asks a [y/N] question answered by one keypress (Esc cancels); it falls back to Confirm off a terminal.
 func ConfirmKey(question string, def bool) bool {
 	t, err := openTerminal()
 	if err != nil {
@@ -185,8 +177,7 @@ func dropLastRune(line []byte) []byte {
 	return line[:len(line)-size]
 }
 
-// escState tracks an ANSI escape sequence across reads so a bracketed-paste marker (ESC[200~, ESC[201~) or an
-// arrow key is dropped instead of leaking "[200~" into the secret.
+// escState tracks an ANSI escape sequence across reads so paste markers and arrow keys never leak into the secret.
 type escState int
 
 const (

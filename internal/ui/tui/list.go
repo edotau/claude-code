@@ -225,8 +225,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 	return append(append(head, body...), tail...)
 }
 
-// listColumns sizes the label and detail columns over every row, so filtering never shifts them,
-// and reports whether any row carries a section.
+// listColumns sizes label and detail columns over every row so filtering never shifts them.
 func listColumns(rows []ListRow) (lw, dw int, hasSec bool) {
 	for _, r := range rows {
 		lw, dw = max(lw, textutil.RuneLen(oneLine(r.Label))), max(dw, textutil.RuneLen(oneLine(r.Detail)))
@@ -383,8 +382,7 @@ func renderList(ls []line) string {
 	return strings.Join(styled, "\r\n")
 }
 
-// List runs a grouped, optionally searchable single-choice dialog opening on row start. A non-nil error means stdin
-// is not a terminal (Index -1), the same contract as Pick.
+// List runs a grouped, optionally searchable single-choice dialog; a non-nil error means stdin is not a terminal.
 func List(spec ListSpec, start int) (res ListResult, err error) {
 	t, err := openTerminal()
 	if err != nil {

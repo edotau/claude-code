@@ -181,8 +181,7 @@ var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
 
 var nonWordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^\p{L}\p{N}.]+`) })
 
-// ClaimPlanTask claims the active plan's task a spawn names (a `Task:` brief line, else a unique checklist title
-// the description matches); no confident match or no plan claims nothing, a failed claim returns the error.
+// ClaimPlanTask claims the active plan's task a spawn names (`Task:` line or unique title match), else nothing.
 func ClaimPlanTask(in *core.Input, id string) error {
 	if !core.SpawnTools[in.ToolName] || id == "" {
 		return nil

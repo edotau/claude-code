@@ -203,8 +203,7 @@ func dashboardValueCells(col string, v values, cfg config) (string, []cell) {
 	return "", nil
 }
 
-// layoutDashboard aligns header + value rows: left columns padded to max(header,value) and joined by the
-// gutter, then the context column right-aligned to W.
+// layoutDashboard aligns header and value rows to max(header,value) widths, with the context column right-aligned to W.
 func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 	var left []builtCol
 	var ctxCol *builtCol
@@ -308,8 +307,7 @@ func paintDashboardHeaders(hdr []cell, indentW int, pal theme.Palettes, mode str
 	return hb.String()
 }
 
-// renderDashboard renders the two-line column dashboard; the head opens the value row and a same-width
-// indent keeps the header row aligned over it.
+// renderDashboard renders the two-line dashboard; the head opens the value row and the header row is indented to match.
 func renderDashboard(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dash := cfg.Dashboard
 	gutter := dash.Gutter
@@ -341,8 +339,7 @@ func promptUser() string {
 	return "user"
 }
 
-// promptHead is the segmented styles' "user:path" head: literal PS1 bold-green/bold-blue under
-// userColor "ansi", else the palette user tone and the ramp's opening stop. Gradient draws its own.
+// promptHead is the segmented "user:path" head: PS1 bold green/blue under userColor "ansi", else palette tones.
 func promptHead(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
 	if !cfg.seg("path") {
 		return ""

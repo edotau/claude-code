@@ -142,8 +142,7 @@ func TestThemeUnknownNameExitsTwoAndListsValid(t *testing.T) {
 	}
 }
 
-// TestThemeHelpExitsZeroWithoutRunning guards the flag.ErrHelp class of bug: discarding fs.Parse's
-// error with `_ =` let `-h` print help AND then execute.
+// Guards the flag.ErrHelp bug: discarding fs.Parse's error let `-h` print help and then execute.
 func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {
 	dir := hermeticTheme(t)
 	for _, flagArg := range []string{"-h", "--help"} {
