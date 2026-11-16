@@ -3,7 +3,9 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -148,5 +150,40 @@ func assertSciencePreviousAppPreserved(t *testing.T, base string, installErr err
 	}
 	if !strings.Contains(installErr.Error(), old) {
 		t.Fatalf("rollback error does not identify displaced app %q: %v", old, installErr)
+	}
+}
+
+// Given the Linux binary, Then it installs only when its sha256 matches manifest.json's entry for the asset.
+func TestInstallClaudeScienceLinuxVerifiesManifestDigest(t *testing.T) {
+	bin := []byte("#!/bin/sh\necho claude-science 9.9\n")
+	good := fmt.Sprintf("%x", sha256.Sum256(bin))
+	for _, tc := range []struct{ name, manifest, wantErr string }{
+		{"match", `{"sha256":{"linux-x64":"` + good + `"}}`, ""},
+		{"mismatch", `{"sha256":{"linux-x64":"` + strings.Repeat("0", 64) + `"}}`, "does not match"},
+		{"no entry", `{"sha256":{"darwin-arm64":"` + good + `"}}`, "no sha256 for linux-x64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setupToolsTestEnv(t)
+			oldGOOS, oldGOARCH, oldURL := goosOverride, goarchOverride, claudeScienceBaseURL
+			t.Cleanup(func() { goosOverride, goarchOverride, claudeScienceBaseURL = oldGOOS, oldGOARCH, oldURL })
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/manifest.json") {
+					_, _ = w.Write([]byte(tc.manifest))
+					return
+				}
+				_, _ = w.Write(bin)
+			}))
+			t.Cleanup(srv.Close)
+			goosOverride, goarchOverride, claudeScienceBaseURL = "linux", "amd64", srv.URL
+			dir := t.TempDir()
+			err := installClaudeScience(context.Background(), &bytes.Buffer{}, dir, false)
+			_, statErr := os.Stat(filepath.Join(dir, "claude-science"))
+			if tc.wantErr == "" && (err != nil || statErr != nil) {
+				t.Fatalf("install = %v, stat = %v; want installed", err, statErr)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr) || statErr == nil) {
+				t.Fatalf("install = %v, stat = %v; want %q and nothing written", err, statErr, tc.wantErr)
+			}
+		})
 	}
 }
