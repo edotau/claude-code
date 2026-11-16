@@ -4,23 +4,23 @@ package proc
 
 import (
 	"context"
+	"encoding/binary"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
-// Parent returns pid's parent pid via ps (0 when unreadable): darwin has no /proc to read.
+// Parent returns pid's parent pid from the kernel process table (0 when unreadable): darwin has no /proc.
 func Parent(pid int) int {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
 		return 0
 	}
-	ppid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	return ppid
+	return int(kp.Eproc.Ppid)
 }
 
 // Descendants returns pid's children, grandchildren, ... via ps -A -o pid=,ppid=.
@@ -37,8 +37,27 @@ func Descendants(pid int) []int {
 	return walkChildren(parseChildren(string(out)), pid)
 }
 
-// Comm returns pid's executable name via ps ("" when unreadable); ps prints a path, so base it.
+// Comm returns pid's executable name ("" when unreadable): argv[0]'s base as ps prints it, else asked of ps.
 func Comm(pid int) string {
+	if name := argv0(pid); name != "" {
+		return filepath.Base(name)
+	}
+	return psComm(pid)
+}
+
+// argv0 is pid's first argument from procargs2 (argc, exec path, NUL padding, argv); "" when unreadable or empty.
+func argv0(pid int) string {
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(raw) <= 4 || binary.NativeEndian.Uint32(raw) == 0 {
+		return ""
+	}
+	_, rest, _ := strings.Cut(string(raw[4:]), "\x00")
+	first, _, _ := strings.Cut(strings.TrimLeft(rest, "\x00"), "\x00")
+	return strings.TrimSpace(first)
+}
+
+// psComm is ps's name for pid; it covers processes procargs2 refuses (other users', the kernel's).
+func psComm(pid int) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()

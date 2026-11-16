@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,9 +40,10 @@ func bashInput() *core.Input {
 }
 
 func TestDispatchMergeAndIsolation(t *testing.T) {
+	var mu sync.Mutex
 	var order []string
 	rec := func(n string, r core.Result) core.Runner {
-		return func(*core.Input) core.Result { order = append(order, n); return r }
+		return func(*core.Input) core.Result { mu.Lock(); order = append(order, n); mu.Unlock(); return r }
 	}
 	bs := []Bound{
 		bound("a", "Bash", time.Second, rec("a", core.Result{Decision: core.Ask, Reason: "why", Context: "ctxA", SystemMessage: "sa"})),
@@ -58,6 +60,7 @@ func TestDispatchMergeAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	slices.Sort(order)
 	if strings.Join(order, ",") != "a,c" {
 		t.Errorf("order or matcher filtering: %v", order)
 	}
@@ -744,9 +747,15 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 }
 
 func TestDispatchHookSkip(t *testing.T) {
+	var mu sync.Mutex
 	ran := map[string]bool{}
 	mk := func(n string) Bound {
-		return bound(n, "Bash", time.Second, func(*core.Input) core.Result { ran[n] = true; return core.Result{} })
+		return bound(n, "Bash", time.Second, func(*core.Input) core.Result {
+			mu.Lock()
+			ran[n] = true
+			mu.Unlock()
+			return core.Result{}
+		})
 	}
 	for _, c := range []struct {
 		name, env string
