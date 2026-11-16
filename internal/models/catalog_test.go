@@ -18,6 +18,7 @@ var spellings = []struct {
 		"databricks-serving": "databricks-gpt-6-1-sol", "dotted": "gpt-6.1-sol"}},
 	{"gemini-3-8-flash", map[string]string{
 		"databricks-serving": "databricks-gemini-3-8-flash", "dotted": "gemini-3.8-flash"}},
+	{"claude-haiku-4-5-20251001", map[string]string{"anthropic": "claude-haiku-4-5-20251001"}},
 	{"kimi-k3-1-pro", map[string]string{"dotted": "kimi-k3.1-pro"}},
 	{"glm-5-3", map[string]string{"anthropic": "glm-5-3", "dotted": "glm-5.3"}},
 	{"qwen35-122b-a10b", map[string]string{"dotted": "qwen35-122b-a10b"}},
@@ -85,6 +86,9 @@ func TestAliasAndLookup(t *testing.T) {
 	}
 	if got := Wire("no-such-rule", "gpt-6-1-sol"); got != "gpt-6-1-sol" {
 		t.Errorf("unknown rule = %q", got)
+	}
+	if got := Wire("databricks-serving", "claude-haiku-4-5-20251001"); got != "databricks-claude-haiku-4-5" {
+		t.Errorf("dated id on the serving rule = %q", got)
 	}
 }
 

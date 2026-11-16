@@ -406,7 +406,7 @@ func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers
 	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
 	route, ok := providers.AnthropicRoute(t.Provider, t.Model)
 	if ok && (!count || t.Provider.Preset != providers.PresetDatabricks) {
-		return r.tryAnthropic(w, in, body, t, route, count, last)
+		return r.tryAnthropic(w, in, body, t, route, clientModel, count, last)
 	}
 	if count {
 		out, err := translate.CountTokens(body)
@@ -428,8 +428,8 @@ func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers
 	return r.tryOpenAI(w, in, body, t, clientModel, last)
 }
 
-func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, route string,
-	count, last bool) (bool, error) {
+func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, route,
+	clientModel string, count, last bool) (bool, error) {
 	p := t.Provider
 	url := route + "/v1/messages"
 	if count {
@@ -453,6 +453,11 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	}
 	if moveOn, hard := r.failover(resp, t, last); moveOn {
 		return false, &fallbackError{error: errors.New(resp.Status), status: resp.StatusCode, hard: hard}
+	}
+	if unserved(resp, p) {
+		writeError(w, resp.StatusCode, unservedMessage(p, clientModel, t.Model, r.now()))
+		drain(resp)
+		return true, nil
 	}
 	if !count && metered(p) {
 		var capture headTailBuffer

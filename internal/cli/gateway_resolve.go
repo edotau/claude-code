@@ -135,6 +135,8 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 			if why := liveCheck(ctx, p, r); why != "" {
 				row.Pass, row.Reason = false, why
 			}
+		} else if p.Preset == providers.PresetDatabricks {
+			row.Pass, row.Reason = servedVerdict(p, r.Model)
 		}
 		rows = append(rows, row)
 	}
@@ -187,6 +189,17 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 		return r.Model + " endpoint is not READY"
 	}
 	return ""
+}
+
+// servedVerdict is the cached-listing verdict for a Databricks row: a listed model passes, an absent one fails.
+func servedVerdict(p *providers.Provider, model string) (pass bool, reason string) {
+	switch listed, _, fresh := router.ServedListed(p, model, time.Now()); {
+	case !fresh:
+		return true, "served: unknown"
+	case !listed:
+		return false, model + " is not listed"
+	}
+	return true, ""
 }
 
 func firstLine(s string) string { return strings.SplitN(s, "\n", 2)[0] }

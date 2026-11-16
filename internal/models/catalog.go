@@ -78,10 +78,23 @@ func (c *catalog) wire(rule, id string) string {
 	if w, ok := c.byID[id].WireOverride[rule]; ok {
 		return w
 	}
+	if rule == "databricks-serving" {
+		id = c.undated(id) // serving endpoints carry no date stamp
+	}
 	if sp.Dotted {
 		id = dotVersion(id, c.byID[id].Version)
 	}
 	return sp.Prefix + id
+}
+
+// undated drops a trailing -YYYYMMDD from id when the undated id is in the catalog.
+func (c *catalog) undated(id string) string {
+	if i := len(id) - 9; i > 0 && id[i] == '-' && strings.Trim(id[i+1:], "0123456789") == "" {
+		if _, ok := c.byID[id[:i]]; ok {
+			return id[:i]
+		}
+	}
+	return id
 }
 
 // dotVersion turns the dashed version inside id into dots; ids with no declared or parseable version are untouched.
