@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // WaveTask is a package or manual verifier read from a plan or manifest.
@@ -49,22 +50,26 @@ func (e *WaveError) Error() string { return e.ID + ": " + e.Reason }
 
 const maxWavePackages = 10000
 
-var waveID = regexp.MustCompile(`(?i)^(?:Phase\s+)?(\d+)\.(\d+|V)\b`)
-var waveAttr = regexp.MustCompile(`(?i)\b(leaf|agent|profile|verify|findings|owns):\s*`)
-var packageRange = regexp.MustCompile(`(\d+)\.(\d+|V)(?:\s*[-–]\s*(\d+)\.(\d+|V))?`)
+var waveID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^(?:Phase\s+)?(\d+)\.(\d+|V)\b`) })
+var waveAttr = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(leaf|agent|profile|verify|findings|owns):\s*`)
+})
+var packageRange = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\d+)\.(\d+|V)(?:\s*[-–]\s*(\d+)\.(\d+|V))?`) })
 
 // gitWord is one shell word piece: a bare character or a quoted run.
 const gitWord = `(?:[^\s;&|"']|"[^"]*"|'[^']*')`
 
 // gitWrite matches a git write verb after any global flags (-C x, -c k=v, --git-dir=x, --no-pager).
-var gitWrite = regexp.MustCompile(`(?i)\bgit(?:\s+-` + gitWord + `+(?:\s+(?:[^-\s;&|"']|"[^"]*"|'[^']*')` +
-	gitWord + `*)?)*\s+` +
-	`(?:(?:add|commit|stash|reset|checkout|switch|restore|clean|push|rebase|merge|rm|mv|cherry-pick|am|tag|pull|revert|` +
-	`update-ref)(?:[\s;&|)]|$)|apply\b[^;&|]*\s--(?:index|cached)\b)`)
+var gitWrite = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\bgit(?:\s+-` + gitWord + `+(?:\s+(?:[^-\s;&|"']|"[^"]*"|'[^']*')` +
+		gitWord + `*)?)*\s+` +
+		`(?:(?:add|commit|stash|reset|checkout|switch|restore|clean|push|rebase|merge|rm|mv|cherry-pick|am|tag|pull|revert|` +
+		`update-ref)(?:[\s;&|)]|$)|apply\b[^;&|]*\s--(?:index|cached)\b)`)
+})
 
 // GateRefused is the one git-write refusal: wave gates, task verify lines and the gate runner all call it.
 func GateRefused(cmd string) error {
-	if m := gitWrite.FindString(cmd); m != "" {
+	if m := gitWrite().FindString(cmd); m != "" {
 		return &WaveError{ID: "gate", Reason: fmt.Sprintf("git write command refused: %q", strings.TrimSpace(m))}
 	}
 	return nil
@@ -84,7 +89,7 @@ func ParseWaves(file string) (WavePlan, error) {
 	lines := strings.Split(string(raw), "\n")
 	gate, bodies := phaseDetails(lines)
 	for _, task := range base.Tasks {
-		m := waveID.FindStringSubmatch(task.Title)
+		m := waveID().FindStringSubmatch(task.Title)
 		if m == nil {
 			continue
 		}
@@ -115,7 +120,7 @@ func ParseWaves(file string) (WavePlan, error) {
 
 func waveAttributes(title string) map[string]string {
 	out := map[string]string{}
-	matches := waveAttr.FindAllStringSubmatchIndex(title, -1)
+	matches := waveAttr().FindAllStringSubmatchIndex(title, -1)
 	for i, m := range matches {
 		end := len(title)
 		if i+1 < len(matches) {
@@ -173,7 +178,7 @@ func (s *phaseScan) text(line string) {
 	}
 	if strings.HasPrefix(line, "- **") {
 		s.current = ""
-		if m := waveID.FindStringSubmatch(strings.TrimPrefix(line, "- **")); m != nil {
+		if m := waveID().FindStringSubmatch(strings.TrimPrefix(line, "- **")); m != nil {
 			s.current = m[1] + "." + strings.ToUpper(m[2])
 		}
 	}
@@ -373,7 +378,7 @@ func (p *WavePlan) checkWaveRow(rows map[int]bool, c []string, n, packages, veri
 
 func tablePackages(packages string) (map[string]bool, error) {
 	expected := map[string]bool{}
-	for _, m := range packageRange.FindAllStringSubmatch(packages, -1) {
+	for _, m := range packageRange().FindAllStringSubmatch(packages, -1) {
 		first, e := strconv.Atoi(m[2])
 		if e != nil {
 			return nil, &WaveError{m[0], "invalid package range"}
@@ -479,7 +484,7 @@ func (p *WavePlan) manifestRow(line []byte, gates map[int]string) error {
 }
 
 func manifestTask(t WaveTask) (WaveTask, error) {
-	m := waveID.FindStringSubmatch(t.ID)
+	m := waveID().FindStringSubmatch(t.ID)
 	if m == nil || m[0] != t.ID {
 		return t, &WaveError{t.ID, "invalid task id"}
 	}

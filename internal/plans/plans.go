@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -45,21 +46,21 @@ type Summary struct {
 }
 
 var (
-	checkLine  = regexp.MustCompile(`^(\s*)[-*] \[([ xX])\] (.*)$`)
-	listLine   = regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])\s+`)
-	commentRe  = regexp.MustCompile(`(?s)<!--(.*?)-->`)
-	shaParen   = regexp.MustCompile(`(?i)\s*\(([0-9a-f]{7,40})\)\s*$`)
-	shaDash    = regexp.MustCompile(`(?i)\s+(?:—|--|-)\s+([0-9a-f]{7,40})\s*$`)
-	idPhase    = regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.\d+)*[a-z]?\b`)
-	idLane     = regexp.MustCompile(`^\d+(?:\.\d+)*[a-z]?\b`)
-	datedName  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`)
-	claimRe    = regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`)
-	partialRe  = regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`)
-	claimWord  = regexp.MustCompile(`(?i)^(?:working|finished):`)
-	partialKey = regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`)
-	ownsKey    = regexp.MustCompile(`(?i)owns:`)
-	ownNote    = regexp.MustCompile(`\s*\([^)]*\)\s*$`) // "cli.go (verb row only)" owns cli.go
-	ownParen   = regexp.MustCompile(`\([^)]*\)`)
+	checkLine  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\s*)[-*] \[([ xX])\] (.*)$`) })
+	listLine   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])\s+`) })
+	commentRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<!--(.*?)-->`) })
+	shaParen   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s*\(([0-9a-f]{7,40})\)\s*$`) })
+	shaDash    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s+(?:—|--|-)\s+([0-9a-f]{7,40})\s*$`) })
+	idPhase    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.\d+)*[a-z]?\b`) })
+	idLane     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d+(?:\.\d+)*[a-z]?\b`) })
+	datedName  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`) })
+	claimRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`) })
+	partialRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*partly landed:\s*(.*?)\s*-->`) })
+	claimWord  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^(?:working|finished):`) })
+	partialKey = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^partly landed:\s*(.*)$`) })
+	ownsKey    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)owns:`) })
+	ownNote    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s*\([^)]*\)\s*$`) }) // "cli.go (verb row only)" owns cli.go
+	ownParen   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\([^)]*\)`) })
 )
 
 // Parse reads and parses path's checklist.
@@ -76,12 +77,13 @@ func parseBytes(path string, b []byte) Plan {
 	lines := strings.Split(string(b), "\n")
 	p := Plan{Path: path}
 	var open fenceOpen // the fence now open, zero when none
+	check := checkLine()
 	for i := 0; i < len(lines); i++ {
 		if ch, n, rest := fenceMarker(lines[i]); n > 0 {
 			open = open.next(ch, n, rest)
 			continue
 		}
-		m := checkLine.FindStringSubmatch(lines[i])
+		m := check.FindStringSubmatch(lines[i])
 		if open.n > 0 || m == nil {
 			continue
 		}
@@ -99,9 +101,10 @@ func parseBytes(path string, b []byte) Plan {
 func continuation(lines []string, i, indent int) (string, int) {
 	end := i
 	var cont strings.Builder
+	list := listLine()
 	for j := i + 1; j < len(lines); j++ {
 		line := lines[j]
-		if strings.TrimSpace(line) == "" || listLine.MatchString(line) || isFence(line) {
+		if strings.TrimSpace(line) == "" || list.MatchString(line) || isFence(line) {
 			break
 		}
 		if len(line)-len(strings.TrimLeft(line, " \t")) <= indent {
@@ -154,31 +157,31 @@ func isFence(line string) bool {
 
 // parseTaskText splits a joined item into id, title and the owns/sha/claim/partial metadata.
 func parseTaskText(text string) (id, title string, owns []string, sha, claim string, partial []string) {
-	for _, m := range commentRe.FindAllStringSubmatch(text, -1) {
+	for _, m := range commentRe().FindAllStringSubmatch(text, -1) {
 		inner := strings.TrimSpace(m[1])
 		switch {
-		case claimWord.MatchString(inner):
+		case claimWord().MatchString(inner):
 			claim = inner
-		case partialKey.MatchString(inner):
-			partial = append(partial, textutil.SplitCSV(partialKey.FindStringSubmatch(inner)[1])...)
+		case partialKey().MatchString(inner):
+			partial = append(partial, textutil.SplitCSV(partialKey().FindStringSubmatch(inner)[1])...)
 		}
 	}
-	cleaned := strings.Join(strings.Fields(commentRe.ReplaceAllString(text, " ")), " ")
-	if m := shaParen.FindStringSubmatch(cleaned); m != nil {
+	cleaned := strings.Join(strings.Fields(commentRe().ReplaceAllString(text, " ")), " ")
+	if m := shaParen().FindStringSubmatch(cleaned); m != nil {
 		sha = m[1]
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
-	} else if m := shaDash.FindStringSubmatch(cleaned); m != nil {
+	} else if m := shaDash().FindStringSubmatch(cleaned); m != nil {
 		sha = m[1]
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
 	}
 	title = cleaned
-	if idPhase.MatchString(cleaned) {
-		id = idPhase.FindString(cleaned)
-	} else if idLane.MatchString(cleaned) {
-		id = idLane.FindString(cleaned)
+	if idPhase().MatchString(cleaned) {
+		id = idPhase().FindString(cleaned)
+	} else if idLane().MatchString(cleaned) {
+		id = idLane().FindString(cleaned)
 	}
-	if locs := ownsKey.FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
-		masked := ownParen.ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
+	if locs := ownsKey().FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
+		masked := ownParen().ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
 		for _, o := range textutil.SplitCSV(masked) { // a comma inside a "(note, more)" does not split
 			owns = append(owns, strings.ReplaceAll(o, "\x00", ","))
 		}
@@ -329,7 +332,7 @@ func ownEntries(owns, files []string) []string {
 	out := make([]string, len(owns))
 	prev := ""
 	for i, own := range owns {
-		prev = spliceOwn(prev, filepath.ToSlash(strings.TrimSpace(ownNote.ReplaceAllString(own, ""))), files)
+		prev = spliceOwn(prev, filepath.ToSlash(strings.TrimSpace(ownNote().ReplaceAllString(own, ""))), files)
 		out[i] = prev
 	}
 	return out
@@ -438,7 +441,7 @@ type datedPlan struct {
 func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []datedPlan, newestOpen string) {
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
-		if !e.Type().IsRegular() || !datedName.MatchString(e.Name()) || slices.Contains(skip, p) {
+		if !e.Type().IsRegular() || !datedName().MatchString(e.Name()) || slices.Contains(skip, p) {
 			continue
 		}
 		parsed, err := Parse(p)
