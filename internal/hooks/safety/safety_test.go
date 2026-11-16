@@ -327,7 +327,6 @@ func safetyAskCases(harness string) []safetyTierCase {
 		{"rm -r -f ./.git", "", core.Ask},
 		{"git stash", harness, core.Ask}, // cwd inside the shared config tree
 		{"psql -c 'DROP TABLE t'", "", core.Ask},
-		{`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`, "", core.Ask},
 	}
 }
 
@@ -379,6 +378,7 @@ func safetyBlockCases() []safetyTierCase {
 // safetyAllowCases are near-miss shapes that must keep proceeding.
 func safetyAllowCases() []safetyTierCase {
 	return []safetyTierCase{
+		{`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`, "", core.Allow},
 		{"git push --force-with-lease origin my-branch", "", core.Allow},
 		{"git push origin main", "", core.Allow},
 		{"git push my-f main", "", core.Allow},
@@ -663,28 +663,28 @@ type attributionScanCase struct {
 	want core.Decision
 }
 
-// attributionScanCases lists footer commits (Ask) and look-alikes (Allow); otherRepo is not the harness tree.
+// attributionScanCases lists footer commits (rewritten) and look-alikes (untouched); otherRepo is not the harness tree.
 func attributionScanCases(otherRepo string) []attributionScanCase {
 	return []attributionScanCase{
 		{
 			"inline -m footer",
 			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
-			core.Ask,
+			core.Allow, // rewritten without the footer
 		},
 		{
 			"heredoc -m footer",
 			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
-			core.Ask,
+			core.Allow, // rewritten without the footer
 		},
 		{
 			"-C other repo, -F heredoc, generated-with footer",
 			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
-			core.Ask,
+			core.Allow, // rewritten without the footer
 		},
 		{
 			"cd into other repo first",
 			"cd " + otherRepo + " && git commit -m \"feat: x\" -m \"Co-Authored-By: Claude\"",
-			core.Ask,
+			core.Allow, // rewritten without the footer
 		},
 		{
 			"plain commit proceeds",
@@ -718,9 +718,6 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 			res := scanPayload(hosttest.BashPayload(c.cmd))
 			if res.Decision != c.want {
 				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
-			}
-			if c.want == core.Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
-				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
 			}
 		})
 	}

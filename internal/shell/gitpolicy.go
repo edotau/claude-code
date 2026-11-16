@@ -171,7 +171,7 @@ func messageProblem(msg string) string {
 		return ""
 	}
 	if !conventionalSubject().MatchString(lines[0]) {
-		return "commit subject must be type(scope): description"
+		return "bad commit subject"
 	}
 	plain := 0
 	for _, l := range lines[1:] {
@@ -180,7 +180,7 @@ func messageProblem(msg string) string {
 		}
 	}
 	if plain > 1 {
-		return "commit message is 2 lines max (plus BREAKING CHANGE:)"
+		return "commit body over 2 lines"
 	}
 	return ""
 }
@@ -272,4 +272,71 @@ func gateCommand(toks []string) bool {
 		return true
 	}
 	return false
+}
+
+// ChainPushAfterGate turns `;`/newline between a gate and `git push` into `&&`; ok is false near heredocs or grouping.
+func ChainPushAfterGate(cmd string) (fixed, gate string, ok bool) {
+	if strings.Contains(cmd, "<<") {
+		return "", "", false
+	}
+	segs, seps := SegmentsSep(cmd)
+	var b strings.Builder
+	b.WriteString(segs[0])
+	for i := 0; i+1 < len(segs); i++ {
+		if (seps[i] == ";" || seps[i] == "\n") && gateCommand(commandWords(segs[i])) && gitPush(commandWords(segs[i+1])) {
+			if strings.ContainsAny(segs[i]+segs[i+1], "(){}`\n") {
+				return "", "", false
+			}
+			if gate == "" {
+				gate = strings.TrimSpace(segs[i])
+			}
+			chained := strings.TrimRight(b.String(), " \t") + " && " + strings.TrimLeft(segs[i+1], " \t")
+			b.Reset()
+			b.WriteString(chained)
+			continue
+		}
+		b.WriteString(seps[i] + segs[i+1])
+	}
+	return b.String(), gate, gate != ""
+}
+
+var footerLine = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^\W*(co-authored-by:|generated (with|by))`)
+})
+
+var footerArg = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\s+(?:-m|--message)\s+("[^"]*"|'[^']*')`)
+})
+
+// StripFooters drops footer-only lines and lone -m "<footer>" args; ok is false if text is mixed or quotes unbalance.
+func StripFooters(cmd string) (string, bool) {
+	fixed := footerArg().ReplaceAllStringFunc(cmd, func(arg string) string {
+		for l := range strings.SplitSeq(footerArg().FindStringSubmatch(arg)[1], "\n") {
+			if l = strings.Trim(strings.TrimSpace(l), `"'`); l != "" && !footerLine().MatchString(l) {
+				return arg
+			}
+		}
+		if hasFooter(arg) {
+			return ""
+		}
+		return arg
+	})
+	lines := strings.Split(fixed, "\n")
+	kept := lines[:0]
+	for _, l := range lines {
+		if !hasFooter(l) {
+			kept = append(kept, l)
+			continue
+		}
+		t := strings.TrimSpace(l)
+		if !footerLine().MatchString(t) {
+			return cmd, false // the footer shares its line with other command text
+		}
+		if q := t[len(t)-1]; (q == '"' || q == '\'') && strings.Count(t, string(q)) == 1 {
+			kept = append(kept, string(q)) // the footer ended the message: keep its closing quote
+		}
+	}
+	fixed = strings.Join(kept, "\n")
+	balanced := strings.Count(fixed, `"`)%2 == strings.Count(cmd, `"`)%2 && strings.Count(fixed, "'")%2 == strings.Count(cmd, "'")%2
+	return fixed, fixed != cmd && balanced && !hasFooter(fixed)
 }
