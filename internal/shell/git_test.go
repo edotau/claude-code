@@ -36,6 +36,18 @@ func TestAttributionFooterCommit(t *testing.T) {
 		{"footer names a human, not claude", `git commit -m "Co-Authored-By: Ada <a@x>"`, false},
 		{"co-authored-by with no claude mention", `git commit -m "Co-Authored-By: Someone Else"`, false},
 		{"claude mentioned but not as a footer", `git commit -m "ask claude about this"`, false},
+		{"footer phrase mid-subject", `git commit -m "docs: forbid Co-Authored-By: Claude footers"`, false},
+		{"generated-with phrase mid-subject", `git commit -m "fix: hint for Generated with Claude Code lines"`, false},
+		{"--trailer value", `git commit -m "fix: x" --trailer "Co-authored-by: Codex <c@x>"`, true},
+		{"--trailer= value", `git commit --trailer=Co-authored-by:Claude -m x`, true},
+		{"attached -m", `git commit -am"Generated with Claude Code"`, true},
+		{"emoji before the footer", `git commit -m "fix: x" -m "🤖 Generated with [Claude Code](https://claude.com/claude-code)"`, true},
+		{"footer after a literal \\n escape", `git commit -m "fix: x\n\nCo-Authored-By: Claude"`, true},
+		{"footer after a real newline", "git commit -m \"fix: x\n\nCo-Authored-By: Claude\"", true},
+		{"footer in an ANSI-C string", `git commit -m $'fix: x\n\nCo-Authored-By: Claude'`, true},
+		{"footer in a variable", `T="Co-Authored-By: Claude"; git commit -m x -m "$T"`, true},
+		{"footer written to a -F file", `echo "Co-Authored-By: Claude" >> m.txt; git commit -F m.txt`, true},
+		{"subject names it, a body line carries it", "git commit -m \"docs: forbid Co-Authored-By: Claude\" -m \"Co-Authored-By: Claude\"", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -48,7 +60,8 @@ func TestAttributionFooterCommit(t *testing.T) {
 
 func TestAttributionFooterHidden(t *testing.T) {
 	for cmd, want := range map[string]bool{
-		`git commit -m "x Co-Authored-By: Cl""aude"`:                        true,
+		`git commit -m x -m "Co-Authored-By: Cl""aude"`:                     true,
+		`git commit -m "x Co-Authored-By: Cl""aude"`:                        false,
 		`git commit -m $'Co-Authored-By:\x20Claude'`:                        true,
 		`git commit -m "Generated with [Claude](https://c.ai)"`:             true,
 		`git commit -m "Co-Authored-By: Anthropic <a@b>"`:                   true,

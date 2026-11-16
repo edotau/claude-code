@@ -111,6 +111,19 @@ func TestEachGitCwdScoping(t *testing.T) {
 		{"pushd then popd", "pushd /a; popd; git x", "/w"},
 		{"pushd stays until popd", "pushd /a; git x", "/a"},
 		{"popd with an empty stack", "popd; git x", "/w"},
+		{"dynamic cd target is unknown in its && chain", `cd "$R" && git x`, unknownDir},
+		{"substituted cd target is unknown", "cd $(mktemp -d) && git x", unknownDir},
+		{"pipe in the && chain after a dynamic cd", `cd "$R" && ls | git x`, unknownDir},
+		{"relative -C cannot climb out of an unknown dir", `cd "$R" && git -C ../../w x`, unknownDir},
+		{"missing target is where the && chain runs", "cd /missing && git x", "/missing"},
+		{"dynamic cd then ; keeps the old dir", `cd "$R"; git x`, "/w"},
+		{"dynamic cd then || keeps the old dir", `cd "$R" || git x`, "/w"},
+		{"dynamic cd, later || keeps the old dir", `cd "$R" && true || git x`, "/w"},
+		{"dynamic cd, newline keeps the old dir", "cd \"$R\"\ngit x", "/w"},
+		{"missing cd then a later ; keeps the old dir", "cd /missing && true; git x", "/w"},
+		{"dynamic cd, subshell, then ;", `cd "$R" && (true); git x`, "/w"},
+		{"literal cd after a dynamic one", `cd "$R" && cd /a && git x`, "/a"},
+		{"explicit -C after a dynamic cd", `cd "$R" && git -C /a x`, "/a"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -140,7 +153,16 @@ func TestEachGitStringArgs(t *testing.T) {
 			t.Errorf("EachGit(%q) = %v, want one x call", cmd, got)
 		}
 	}
-	for _, cmd := range []string{"echo 'git x'", "git commit -m 'git y fix'", "xargs echo", "echo hi | bash -c 'cat'", "echo hi | bash"} {
+	for _, cmd := range []string{"claude-code doctor git x", "claude-code --host h git x", "claude-code memory update git x",
+		"claude-code memory recall y && git x", "echo git x | sh", "claude-code memory recall $(git x)"} {
+		if got := collectGit(cmd, "/w"); len(got) != 1 || got[0] != (gitCall{"/w", "x"}) {
+			t.Errorf("EachGit(%q) = %v, want one x call", cmd, got)
+		}
+	}
+	for _, cmd := range []string{"echo 'git x'", "git commit -m 'git y fix'", "xargs echo", "echo hi | bash -c 'cat'", "echo hi | bash",
+		"echo run git x later", "grep -rn git x internal", "claude-code memory recall git x", "claude-code memory recall 'git x'",
+		"claude-code network websearch --query 'git x vs git y'", "claude-code scm pr create --title 'git x guard'",
+		"claude-code memory remember 'never git x'", "claude-code scm comment 1 git x"} {
 		if got := collectGit(cmd, "/w"); len(got) > 1 || len(got) == 1 && got[0].verb != "commit" {
 			t.Errorf("EachGit(%q) = %v, want no inspected git text", cmd, got)
 		}
