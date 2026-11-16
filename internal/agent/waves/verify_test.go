@@ -302,8 +302,7 @@ func verifyWrote(rep agent.DiffReport, files ...string) agent.DiffReport {
 	return rep
 }
 
-// verifyWant is what a CheckUnion run must report: its exit, the one violating package ("" none), the files nobody
-// can be named for and the unrecorded packages.
+// verifyWant is what a CheckUnion run must report: its exit, violating package, unnamed files, unrecorded packages.
 type verifyWant struct {
 	exit     int
 	violator string

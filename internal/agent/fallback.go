@@ -99,7 +99,6 @@ func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reas
 	return res, err
 }
 
-// markFallback names on res what c asked for and why the chain moved past it.
 func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
 	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
 	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
@@ -175,7 +174,6 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	return res, hops, false, err
 }
 
-// noteFailure benches or marks disp's account for a quota, condemned auth or stall error.
 func noteFailure(disp Dispatch, err error) {
 	noteQuota(disp, err)
 	noteAuth(disp, err)
@@ -222,7 +220,6 @@ func ranAccount(account, ran string) string {
 	return account
 }
 
-// envelopeErrors is the redacted envelope entry for each attempt, in order.
 func envelopeErrors(attempts ...*retry.Error) []wire.EnvelopeError {
 	var out []wire.EnvelopeError
 	for _, a := range attempts {
@@ -347,7 +344,6 @@ var gitHead = func(ctx context.Context, dir string) string {
 	return head
 }
 
-// editing is true when the run may change the workspace (tools on, not read-only).
 func editing(req RunOptions) bool { return req.Tools && !req.ReadOnly }
 
 // midRunPrompt hands the next hop the task, the cut-off hop's partial answer as data, and a reconcile-first note.
@@ -464,7 +460,6 @@ func (s *fallbackState) handOff(i int, disp Dispatch, midRun bool, sink wire.Sin
 	return nil
 }
 
-// cancelled records a context cancel; only a first-hop cancel is returned as the error.
 func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
 	ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: cerr}
 	if i == 0 {
@@ -606,7 +601,6 @@ func condemnAuth(e *retry.Error, recoverErr error) {
 	}
 }
 
-// noteAuth marks the dispatch's account auth-dead for a condemned KindAuth, so Pick skips it until a login clears it.
 func noteAuth(disp Dispatch, err error) {
 	var e *retry.Error
 	if disp.Account == "" || !errors.As(err, &e) || e.AuthReason == "" {

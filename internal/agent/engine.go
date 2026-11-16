@@ -23,11 +23,9 @@ import (
 
 // Driver is the per-CLI behaviour behind cliEngine and configure; a vendor registers one with Register.
 type Driver interface {
-	// Name is the roster agent the engine drives.
 	Name() string
 	// Caps is the roster row's verified flags; with Name and Available it is every Engine's shared base.
 	Caps() Caps
-	// Available reports whether the CLI's binary is installed.
 	Available() error
 	// Attach folds --attach into the prompt for a CLI with no file-list argv.
 	Attach(prompt string, paths []string, tools bool) (string, error)
@@ -65,7 +63,6 @@ type Driver interface {
 	Presence(ctx context.Context, c router.Cell) error
 	// OwnLogin is the headless form of the CLI running on its own stored login.
 	OwnLogin(ctx context.Context, h Headless) (env, argv []string, err error)
-	// Render writes the CLI's config files and reports drift.
 	Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error)
 	// ConfigPaths lists the files render writes, for revert.
 	ConfigPaths(home string) ([]agentconfig.LabelPath, error)
@@ -207,7 +204,6 @@ func (b BaseEngine) OwnLogin(_ context.Context, h Headless) ([]string, []string,
 	return nil, nil, fmt.Errorf("%s: no headless form on its own login; pass --provider", b.name)
 }
 
-// CheckPrompt rejects a headless run with no prompt.
 func CheckPrompt(h Headless) error {
 	if strings.TrimSpace(h.Prompt) == "" {
 		return errors.New("agents: empty prompt")
@@ -294,7 +290,6 @@ func (s Schema) HasLive() bool {
 	return ok
 }
 
-// WriteJSONLine writes v as one NDJSON line.
 func WriteJSONLine(w io.Writer, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -391,7 +386,6 @@ func (s Schema) ResolveTarget(ctx context.Context, req RunOptions, reg *provider
 	return t, "", nil
 }
 
-// fallbackTarget is ResolveTarget on ft, the fallback for a session target t that cannot serve the agent.
 func (s Schema) fallbackTarget(t, ft providers.Target, fallbackNote string) (providers.Target, string, error) {
 	note := fmt.Sprintf("%s: session provider %s cannot serve %s; using %s", s.Name, t.Provider.Name, s.Name, fallbackNote)
 	if own, ok := s.Eng().FallbackNote(ft, fallbackNote); ok {
@@ -414,7 +408,6 @@ type HubEngine interface {
 	WithFirstOutput(d time.Duration) Engine
 }
 
-// errNoHub is returned when a hub route is asked for but no linked vendor registered the opencode Hub.
 var errNoHub = errors.New("no opencode hub registered: the opencode agent is not linked into this binary")
 
 // Hub is the opencode-routed dispatch ladder, registered by internal/opencode.
@@ -435,10 +428,8 @@ func isHubAgent(name string) bool {
 	return ok && s.CLI.Hub
 }
 
-// hubLinked reports whether a linked vendor registered the opencode Hub.
 func hubLinked() bool { return hub != nil }
 
-// hubStart resolves the provider a hub agent's first dispatch targets.
 func hubStart(reg *providers.Registry, agentName, explicitProvider string) (*providers.Provider, error) {
 	if hub == nil {
 		return nil, errNoHub
@@ -446,7 +437,6 @@ func hubStart(reg *providers.Registry, agentName, explicitProvider string) (*pro
 	return hub.Start(reg, agentName, explicitProvider)
 }
 
-// newHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
 func newHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) Engine {
 	return hub.Dispatch(agentName, provider, reg)
 }
@@ -542,7 +532,6 @@ func Engines() []Engine {
 	return out
 }
 
-// engineFor is the registered roster agent name as an Engine: its own, else a CLI engine over its headless driver.
 func engineFor(name string) Engine {
 	if e, ok := mustDriver(name).(Engine); ok {
 		return e
@@ -550,7 +539,6 @@ func engineFor(name string) Engine {
 	return newCLIEngine(name)
 }
 
-// Lookup finds an agent by name.
 func Lookup(name string) (Engine, error) {
 	if _, ok := lookupRow(name); ok {
 		return engineFor(name), nil

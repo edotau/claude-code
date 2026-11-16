@@ -30,8 +30,7 @@ func RepoRoot(ctx context.Context, cwd string) string {
 // executable is swapped by tests.
 var executable = os.Executable
 
-// SpawnContext re-execs claude-code detached on rec with the caller's run values; it never saves, as a post-Start
-// save could clobber a fast child's status.
+// SpawnContext re-execs claude-code detached on rec; it never saves, as a post-Start save could clobber a fast child.
 func SpawnContext(ctx context.Context, rec *Record, extra []string) error {
 	return SpawnArgvContext(ctx, rec, append([]string{"agents", "ask", "--job", rec.ID}, extra...), nil)
 }

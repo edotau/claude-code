@@ -47,8 +47,7 @@ type ResultOptions struct {
 	Follow, Events             bool
 }
 
-// Result prints a job's log, ask line and resume command (json: its envelope), streaming it while Follow or Events;
-// exit 1 for an errored job or a followed job that was lost.
+// Result prints a job's log, ask line and resume command (json: its envelope); exit 1 for an errored or lost job.
 func Result(o ResultOptions) int {
 	prefix := cmp.Or(o.Prefix, "agents result")
 	if o.Agent == "" && o.Ref == "" {

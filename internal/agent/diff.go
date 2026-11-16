@@ -38,7 +38,6 @@ const (
 	DiffExitOutside = 3
 )
 
-// DiffOptions configures Diff; Dir is any directory inside the repo.
 type DiffOptions struct {
 	Dir, Base string
 	Paths     []string
@@ -59,7 +58,6 @@ type DiffFile struct {
 	Test    bool   `json:"test"`
 }
 
-// DiffLines is an added/deleted pair.
 type DiffLines struct {
 	Added   int `json:"added"`
 	Deleted int `json:"deleted"`
@@ -485,7 +483,6 @@ func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResul
 	return append(res, runGate(ctx, gateDef{name: "docs", fn: docsGate}, in))
 }
 
-// Indexes into gateDefs.
 const (
 	buildIdx      = 1
 	complexityIdx = 4
@@ -520,7 +517,6 @@ func runGate(ctx context.Context, d gateDef, in gateInput) GateResult {
 	return r
 }
 
-// errText names the failure when the tool printed nothing (a missing binary, a timeout).
 func errText(out string, err error) string {
 	if strings.TrimSpace(out) != "" {
 		return ""
@@ -605,7 +601,6 @@ func docsGate(ctx context.Context, in gateInput) (string, string, error) {
 	return out + memOut, skip, errors.Join(err, memErr)
 }
 
-// mdsmithGate runs the repo's mdsmith on the changed Markdown only.
 func mdsmithGate(ctx context.Context, in gateInput) (string, string, error) {
 	bin := filepath.Join(in.root, "bin", "mdsmith")
 	if _, err := gateLookPath(bin); err != nil {
@@ -684,7 +679,6 @@ func complexityGate(ctx context.Context, in gateInput) (string, string, error) {
 	return strings.Join(lines, "\n"), "", errors.New("findings")
 }
 
-// runSimplify runs the detector on rels under dir at the medium threshold.
 func runSimplify(dir string, rels []string) (rep simplifyReport, stderr string, err error) {
 	args := []string{"--json", "--threshold", "medium"}
 	for _, s := range rels {
@@ -733,10 +727,8 @@ const (
 // verifyScanCap bounds how many bytes of the proxy log a verify reads from its end; a var so a test can shrink it.
 var verifyScanCap int64 = 16 << 20
 
-// proxyLogPath is the loopback proxy's one-line-per-request log.
 func proxyLogPath() string { return filepath.Join(paths.StateDir(), "proxy.log") }
 
-// VerifyTokens is a dispatch's token usage as its job log reports it.
 type VerifyTokens struct {
 	In  int64 `json:"in"`
 	Out int64 `json:"out"`

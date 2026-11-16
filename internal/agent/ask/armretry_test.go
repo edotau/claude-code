@@ -25,8 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// armRateFixture is armChildEnvFixture with a codex fake that answers 429 for each workspace in limited, 402 for
-// each in broke, and "hello" elsewhere; it returns the dump dir of the launches (one file per launch).
+// armRateFixture is armChildEnvFixture with a codex fake answering 429 (limited) or 402 (broke); returns the dump dir.
 func armRateFixture(t *testing.T, limited, broke []string) string {
 	t.Helper()
 	dump := armChildEnvFixture(t)

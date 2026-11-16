@@ -76,8 +76,7 @@ type CheckUnionResult struct {
 // checkSlack covers the sub-second part `agents diff --verify` drops from a dispatch's end time.
 const checkSlack = time.Second
 
-// CheckUnion runs `agents diff --check` over the union of the packages and then attributes each changed file
-// to the package that wrote it; a file with no attributable writer is reported, never passed.
+// CheckUnion runs `agents diff --check` over the union of the packages and attributes each changed file to its writer.
 func CheckUnion(env CheckEnv, in CheckUnionInput) (CheckUnionResult, error) {
 	owned, err := checkOwned(in.Packages)
 	if err != nil {
@@ -204,8 +203,7 @@ func checkPackages(env CheckEnv, in CheckUnionInput) ([]checkPkg, error) {
 	return out, nil
 }
 
-// checkWrote is the recorded writes as paths relative to dir, as `agents diff` names files; nil when none recorded
-// or the list was cut at its cap (a cut list cannot rule a file out).
+// checkWrote is the recorded writes relative to dir; nil when none recorded or the list was cut at its cap.
 func checkWrote(dir string, files *[]string) map[string]bool {
 	if files == nil || slices.Contains(*files, agent.WroteTruncated) {
 		return nil

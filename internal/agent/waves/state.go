@@ -74,8 +74,7 @@ type LeafState struct {
 	ElapsedMs    int64             `json:"elapsed_ms,omitempty"` // the dispatch's run time, from its routing proof
 }
 
-// FingerprintGit returns a FingerprintFunc hashing files with `git hash-object`; relative paths resolve under dir,
-// and any path outside dir and the harness state dir is refused.
+// FingerprintGit returns a FingerprintFunc hashing files with `git hash-object`; paths outside dir are refused.
 func FingerprintGit(dir string) FingerprintFunc {
 	return func(path string) (string, error) {
 		if !filepath.IsAbs(path) {

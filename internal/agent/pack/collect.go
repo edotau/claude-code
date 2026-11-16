@@ -114,8 +114,7 @@ func isSymlink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
-// Collect inlines up to maxFiles files (0 none, <0 default) of dirs and patterns, each cut at maxFileBytes, in budget;
-// withTests=false skips test files found by walking dirs (files matched by patterns are kept).
+// Collect inlines up to maxFiles files (0 none, <0 default) of dirs and patterns, each cut at maxFileBytes, in budget.
 func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes, budget int, withTests bool) (Context, error) {
 	if err := ctx.Err(); err != nil {
 		return Context{}, err

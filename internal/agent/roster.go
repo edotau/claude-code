@@ -431,8 +431,7 @@ func AgentActive(agent string) bool {
 	return vault.GetAgentRecord(agent).Profile != ""
 }
 
-// AgentPinsContext reads the records once and returns every agent's spec against the run snapshot; claude's profile
-// is the session's, else the record's.
+// AgentPinsContext reads the records once and returns every agent's spec; claude's profile is the session's.
 func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	recs, err := vault.ReadAgentRecords(RosterNames())
 	if err != nil {
