@@ -995,3 +995,36 @@ func TestClaudeTierOnUntypedDispatch(t *testing.T) {
 		t.Errorf("pinned claude model = %q, want the pin left to the launch", got)
 	}
 }
+
+// agy's Google quota is per model: a 429 holds that model for its own reset, and the account's other models still run.
+func TestPerModelQuotaHoldsOnlyTheModel(t *testing.T) {
+	setConfigDir(t)
+	fastDefaultBackoff(t)
+	const account = "google·antigravity"
+	chain := func(r Engine) Chain {
+		c := Single(r)
+		c.Dispatches[0].Account, c.Dispatches[0].Billing = account, router.BillSubscription
+		return c
+	}
+	e429 := errors.New("rate limited: gemini: 429 RESOURCE_EXHAUSTED: Individual quota reached. Resets in 151h33m38s.")
+	argon := &fakeRunner{errs: []error{e429, e429, e429}, emptyAnswer: true}
+	req := RunOptions{Prompt: "p", Model: "gemini-4-argon-high"}
+	if _, err := runWithFallback(context.Background(), chain(argon), req, wire.Discard, nil); err == nil {
+		t.Fatal("the 429 must surface")
+	}
+	e := loadState()[account]
+	if !e.ExhaustedUntil.IsZero() || e.Status(time.Now()) == router.StateExhausted {
+		t.Fatalf("%s = %+v, want no account-wide mark on one model's 429", account, e)
+	}
+	if until := e.ModelDead[router.ModelKey(req.Model)]; time.Until(until) < 150*time.Hour {
+		t.Fatalf("%s model hold = %v, want about the 151h reset", req.Model, until)
+	}
+	hydrogen := &fakeRunner{errs: []error{nil}}
+	if _, err := runWithFallback(context.Background(), chain(hydrogen), RunOptions{Prompt: "p", Model: "gemini-4-hydrogen-medium"}, wire.Discard, nil); err != nil || len(hydrogen.seen) != 1 {
+		t.Fatalf("another model on the account: err=%v attempts=%d, want it sent once", err, len(hydrogen.seen))
+	}
+	again := &fakeRunner{errs: []error{nil}}
+	if _, err := runWithFallback(context.Background(), chain(again), req, wire.Discard, nil); err == nil || len(again.seen) != 0 {
+		t.Fatalf("the held model: err=%v attempts=%d, want it refused without a request", err, len(again.seen))
+	}
+}

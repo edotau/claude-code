@@ -384,6 +384,9 @@ var (
 	inRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
 	})
+	durRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`resets in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)(?:\W|$)`)
+	})
 	dateRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
 	})
@@ -392,7 +395,7 @@ var (
 // ParseReset reads when an exhausted account frees up from the failure text; ok is false when the text names none.
 func ParseReset(text string, now time.Time) (time.Time, bool) {
 	low := strings.ToLower(text)
-	for _, parse := range []func(string, time.Time) (time.Time, bool){parseClockReset, parseInReset, parseDateReset} {
+	for _, parse := range []func(string, time.Time) (time.Time, bool){parseClockReset, parseInReset, parseDurationReset, parseDateReset} {
 		if t, ok := parse(low, now); ok {
 			return t, true
 		}
@@ -445,6 +448,19 @@ func parseInReset(low string, now time.Time) (time.Time, bool) {
 		return now.Add(maxIn), true
 	}
 	return now.Add(time.Duration(n) * unit), true
+}
+
+// parseDurationReset reads "resets in 151h45m36s" (a Go duration, as agy's 429 words it) as now plus that duration.
+func parseDurationReset(low string, now time.Time) (time.Time, bool) {
+	m := durRE().FindStringSubmatch(low)
+	if m == nil || m[1] == "" {
+		return time.Time{}, false
+	}
+	d, err := time.ParseDuration(m[1])
+	if err != nil || d <= 0 {
+		return time.Time{}, false
+	}
+	return now.Add(min(d, 365*24*time.Hour)), true
 }
 
 // parseDateReset reads an ISO date, with optional time and zone, that lies in the future.

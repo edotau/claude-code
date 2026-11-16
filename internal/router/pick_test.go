@@ -88,6 +88,7 @@ func TestParseReset(t *testing.T) {
 		{"usage limit, try again at 1:00 am", time.Date(2026, 10, 26, 1, 0, 0, 0, time.Local)},
 		{"rate limited: try again in 37 minutes", now0.Add(37 * time.Minute)},
 		{"402 Payment Required: you have exceeded your monthly quota", time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)},
+		{"Individual quota reached. Resets in 151h45m36s.", now0.Add(151*time.Hour + 45*time.Minute + 36*time.Second)},
 		{"quota exhausted until 2026-11-01", time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local)},
 	}
 	for _, c := range cases {

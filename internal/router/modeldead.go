@@ -20,6 +20,9 @@ func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
 	})
 }
 
+// PerModelQuota reports an account whose 429s are per model (agy's Google route), so one holds only that model.
+func PerModelQuota(account string) bool { return account == "google·antigravity" }
+
 // ModelDead reports a live quota-dead mark on account's model.
 func (s State) ModelDead(account, model string, now time.Time) bool {
 	return s[account].ModelDead[ModelKey(model)].After(now)

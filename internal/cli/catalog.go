@@ -155,7 +155,7 @@ func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 	dbx := p != nil && p.Preset == providers.PresetDatabricks
 	switch {
 	case !dbx && o.verb == "":
-		return ask.Catalog(o.name, o.format, cmdModels)
+		return ask.Catalog(o.name, o.format, o.profile, cmdModels)
 	case !dbx:
 		return helptext.Fail("%s catalog %s: needs a Databricks profile; pass --profile", o.name, o.verb)
 	case o.verb == "check":
@@ -171,7 +171,7 @@ func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 // runOwnLogin is the catalog of an agent with no Databricks route: its own listing, or a no-op verb.
 func (o *catalogOpts) runOwnLogin() int {
 	if o.verb == "" {
-		return ask.Catalog(o.name, o.format, cmdModels)
+		return ask.Catalog(o.name, o.format, o.profile, cmdModels)
 	}
 	fmt.Printf("%s catalog %s: %s has no Databricks route (it runs on its own login); nothing to %s\n",
 		o.name, o.verb, o.name, o.verb)

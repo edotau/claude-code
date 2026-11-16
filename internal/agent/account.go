@@ -125,7 +125,7 @@ func explicitChain(r Engine, req RunOptions) Chain {
 		reg := loadRegistryWarn()
 		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false)
 	}
-	if e := accountRefused(c.Dispatches[0]); e != nil && e.Kind == retry.KindQuota {
+	if e := accountRefused(c.Dispatches[0], req.Model); e != nil && e.Kind == retry.KindQuota {
 		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + e.Err.Error()}}
 	}
 	return c
