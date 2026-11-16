@@ -96,9 +96,9 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 
 	promptField, task := spawnTask(in)
 
-	// auto mode's classifier returns no verdict on a rewritten call, so non-functional edits ride additionalContext
+	// a direct ask run is not rewritten: its non-functional edits ride additionalContext
 	direct := opensWithAsk(task)
-	auto := in.Nested("permission_mode") == "auto" || direct
+	auto := direct
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
 	if deny := preflightBlock(ctx, e.run, task); deny != nil {
@@ -381,7 +381,7 @@ func typeBlock(st, task string) *core.Result {
 		st, strings.Join(allowed, ", "), typeSuggestion(st, task))}
 }
 
-// retype swaps a coworker subagent_type for the roster agent it wraps; auto mode (rewrites rejected) denies instead.
+// retype swaps a coworker subagent_type for the roster agent it wraps; a direct ask run denies instead.
 func (e *effortPlan) retype(in *core.Input, to string, auto bool) *core.Result {
 	if to == "" {
 		return nil
@@ -399,33 +399,36 @@ func (e *effortPlan) retype(in *core.Input, to string, auto bool) *core.Result {
 
 // coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.
 func coworkerTarget(st, task string) string {
+	if agent := coworkerAgent(st, task); slices.Contains(dispatchTypes(), agent) {
+		return agent
+	}
+	return ""
+}
+
+// coworkerAgent is the agent a coworker type names (or its brief's Agent: line), "" for any other type.
+func coworkerAgent(st, task string) string {
 	agent, isCoworker := strings.CutPrefix(st, "coworker:")
 	if st == "coworker" || isCoworker && agent == "databricks" {
-		agent = briefExternal(task)
-	} else if !isCoworker {
-		return ""
+		return briefExternal(task)
 	}
-	if !slices.Contains(dispatchTypes(), agent) {
-		return ""
+	if isCoworker {
+		return agent
 	}
-	return agent
+	return ""
 }
 
 // typeSuggestion is the redirect: a coworker type to the roster agent it wraps, anything else to general-purpose.
 func typeSuggestion(st, task string) string {
-	agent, isCoworker := strings.CutPrefix(st, "coworker:")
 	switch {
 	case st == "Plan":
 		return `use "claude" and state read-only in the brief`
-	case st == "coworker" || isCoworker && agent == "databricks":
-		agent = briefExternal(task)
-	case !isCoworker:
+	case st != "coworker" && !strings.HasPrefix(st, "coworker:"):
 		return `use "general-purpose"` // every tool, WebFetch included: covers web-fetch, claude-code-guide, plugin agents
 	}
-	if agent == "" {
-		return "name one roster agent"
+	if agent := coworkerAgent(st, task); agent != "" {
+		return fmt.Sprintf("use %q", agent)
 	}
-	return fmt.Sprintf("use %q", agent)
+	return "name one roster agent"
 }
 
 func spawnTask(in *core.Input) (field, task string) {
@@ -443,7 +446,7 @@ type effortPlan struct {
 	changed       bool
 }
 
-// recall appends the memory-recall block to the prompt, or returns it as a note in auto mode.
+// recall appends the memory-recall block to the prompt, or returns it as a note on a direct ask run.
 func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, auto bool) string {
 	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, in.CWD, task)
 	if recallBlock == "" {
@@ -498,7 +501,7 @@ func appendSeen(path string, ids []string) error {
 	return err
 }
 
-// label prefixes the description with the run's model: a rewrite, or in auto mode (rewrites rejected) a one-time deny.
+// label prefixes the description with the run's model: a rewrite, or on a direct ask run a one-time deny.
 func (e *effortPlan) label(ctx context.Context, task string, auto bool) *core.Result {
 	if !auto {
 		changed, _ := applyLabel(ctx, e.run, e.updated, task)
@@ -613,7 +616,7 @@ func briefExternal(task string) string {
 // pinModel fills an unset updated["model"] from the classifier; returns the note and visible reason ("" = no pin).
 func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
 	// never override an explicit model or a roster pin; `inherit` means unset (honoring it ran on the parent's model)
-	if explicitModel(in) || task == "" || agentPinsModel(run, in.Nested("tool_input", "subagent_type")) {
+	if explicitModel(in) || task == "" || agentPinsModel(run, effectiveType(updated)) {
 		return "", ""
 	}
 	tier, signal := router.EffortTierSignal(task)
@@ -630,11 +633,17 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 
 // pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns what it set, else "".
 func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) string {
-	if strings.TrimSpace(in.Nested("tool_input", "effort")) != "" || run.rosterEffort(in.Nested("tool_input", "subagent_type")) != "" {
+	if strings.TrimSpace(in.Nested("tool_input", "effort")) != "" || run.rosterEffort(effectiveType(updated)) != "" {
 		return ""
 	}
 	updated["effort"] = tier
 	return tier
+}
+
+// effectiveType is the subagent_type the dispatch will run as, after any coworker retype.
+func effectiveType(updated map[string]any) string {
+	st, _ := updated["subagent_type"].(string)
+	return st
 }
 
 // explicitModel is a dispatch-set model other than `inherit` (the default spelling for unset).
@@ -841,7 +850,7 @@ func WithDispatchLabels(next core.Runner) core.Runner {
 	}
 }
 
-// dispatchLabelsLine is the label table for the session's current model, "" when already shown for that model or the model is unknown.
+// dispatchLabelsLine reports labels once per known session model, "" otherwise.
 func dispatchLabelsLine(in *core.Input) string {
 	model := sessionModel(in)
 	if model == "" {

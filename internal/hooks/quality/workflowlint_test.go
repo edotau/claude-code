@@ -237,14 +237,14 @@ func TestWorkflowLintByNameInlinesScript(t *testing.T) {
 	}
 }
 
-// Auto mode can't review a rewritten call: a by-name call under the cwd blocks with the scriptPath re-issue.
-func TestWorkflowLintAutoModeByNameUnderCwdBlocksWithScriptPath(t *testing.T) {
+// Auto mode inlines a by-name call under the cwd like any other mode: no block, the script in updatedInput.
+func TestWorkflowLintAutoModeByNameUnderCwdInlines(t *testing.T) {
 	body := "agent('x', { model: 'sonnet' });\n"
-	dir, path := wfLintConfig(t, &body)
+	dir, _ := wfLintConfig(t, &body)
 	in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":"auto","cwd":%q,"tool_input":{"name":"gate-loop"}}`, dir)
 	res := WorkflowResult(core.ParseInput(strings.NewReader(in)))
-	if res.Decision != core.Block || !strings.Contains(res.Reason, "scriptPath: "+fmt.Sprintf("%q", path)) {
-		t.Errorf("result = %+v, want a Block naming scriptPath %s", res, path)
+	if got, _ := res.UpdatedInput["script"].(string); res.Decision == core.Block || got != body {
+		t.Errorf("result = %+v, want the script inlined", res)
 	}
 }
 
@@ -786,8 +786,8 @@ catch { refused = true }
 assert(refused, 'unwired route allowed')
 `
 
-// An unpinned literal-options agent() call is filled by rewrite; in auto mode it is denied with the corrected script.
-func TestWorkflowInlineFillRewriteAndAutoDeny(t *testing.T) {
+// An unpinned literal-options agent() call is filled by rewrite; auto mode rewrites it the same way.
+func TestWorkflowInlineFillRewrite(t *testing.T) {
 	script := "agent('x', { label: 'a' });\n"
 	run := func(mode string) core.Result {
 		in := fmt.Sprintf(`{"tool_name":"Workflow","permission_mode":%q,"tool_input":{"script":%q}}`, mode, script)
@@ -796,8 +796,8 @@ func TestWorkflowInlineFillRewriteAndAutoDeny(t *testing.T) {
 	if res := run("default"); res.Decision == core.Block || !strings.Contains(fmt.Sprint(res.UpdatedInput["script"]), "model: 'sonnet'") {
 		t.Errorf("default = %+v, want model: 'sonnet' injected", res)
 	}
-	if res := run("auto"); res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "model: 'sonnet'") {
-		t.Errorf("auto = %+v, want a deny holding the corrected script", res)
+	if res := run("auto"); res.Decision == core.Block || !strings.Contains(fmt.Sprint(res.UpdatedInput["script"]), "model: 'sonnet'") {
+		t.Errorf("auto = %+v, want the same rewrite", res)
 	}
 	script = "agent('x', opts);\n"
 	if res := run("default"); res.Decision != core.Block {

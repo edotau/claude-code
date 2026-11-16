@@ -709,12 +709,39 @@ func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 	if res.Decision == core.Block || got != want {
 		t.Errorf("rewrite = %+v, want file_path %s", res, want)
 	}
-	if r := run("auto", filepath.Join(repo, "my-plan.md")); r.Decision != core.Block || !strings.Contains(r.Reason, want) {
-		t.Errorf("auto = %+v, want a deny holding %s", r, want)
+	if r := run("auto", filepath.Join(repo, "my-plan.md")); r.Decision == core.Block || r.UpdatedInput["file_path"] != want {
+		t.Errorf("auto = %+v, want the same rewrite to %s", r, want)
 	}
 	for _, p := range []string{filepath.Join(repo, "notes.md"), filepath.Join(repo, "src", "plan.md"), filepath.Join(cfg, "plans", "2026-01-01-x.md")} {
 		if r := run("default", p); r.UpdatedInput != nil || r.Decision == core.Block {
 			t.Errorf("%s = %+v, want untouched", p, r)
 		}
+	}
+}
+
+// A blocked plans home denies at once naming the path; a name merely containing "plan" is not a plan.
+func TestPlanGateFailsFastAndIgnoresPlanSubstrings(t *testing.T) {
+	cfg, _ := planGroupEnv(t, true)
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	run := func(name string) core.Result {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
+			"tool_input": map[string]string{"file_path": filepath.Join(repo, name), "content": "x"}})
+		return PlanGate(core.ParseInput(bytes.NewReader(b)))
+	}
+	for _, name := range []string{"explanation.md", "planet.md"} {
+		if r := run(name); r.UpdatedInput != nil || r.Decision == core.Block {
+			t.Errorf("%s = %+v, want untouched", name, r)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "plans"), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	r := run("my-plan.md")
+	if r.Decision != core.Block || !strings.Contains(r.Reason, filepath.Join(cfg, "plans")) || time.Since(start) > time.Second {
+		t.Errorf("blocked plans home = %+v after %v, want an immediate deny naming %s", r, time.Since(start), filepath.Join(cfg, "plans"))
 	}
 }

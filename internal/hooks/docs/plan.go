@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/memory"
 
@@ -353,7 +354,11 @@ func Gate(in *core.Input, stderr io.Writer) int {
 
 // PlanGate rewrites a new plan-named markdown at a repo root or docs/ to the dated plans home, else runs Gate.
 func PlanGate(in *core.Input) core.Result {
-	if dest := strandedPlanDest(in); dest != "" {
+	dest, err := planDest(in)
+	if err != nil {
+		return core.Result{Decision: core.Block, Reason: "plan-path: cannot choose a dated plans path: " + err.Error()}
+	}
+	if dest != "" {
 		return rewritePlanPath(in, dest)
 	}
 	var b bytes.Buffer
@@ -363,7 +368,7 @@ func PlanGate(in *core.Input) core.Result {
 
 func rewritePlanPath(in *core.Input, dest string) core.Result {
 	from := in.Nested("tool_input", "file_path")
-	if in.Agent() != core.AgentClaude || in.Nested("permission_mode") == "auto" {
+	if in.Agent() != core.AgentClaude {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("plan-path: %s is not the plans home; "+
 			"resend this write with file_path %q.", from, dest)}
 	}
@@ -377,33 +382,55 @@ func rewritePlanPath(in *core.Input, dest string) core.Result {
 
 // strandedPlanDest is the dated plans-home path for a first Write of a plan-named markdown at a repo root or docs/.
 func strandedPlanDest(in *core.Input) string {
+	dest, _ := planDest(in)
+	return dest
+}
+
+// planDest is strandedPlanDest with the first stat failure other than "does not exist" returned, naming its path.
+func planDest(in *core.Input) (string, error) {
 	if tool := strings.ToLower(in.ToolName); tool != "write" && tool != "create" {
-		return ""
+		return "", nil
 	}
 	abs := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	base := filepath.Base(abs)
-	if !isMarkdownPath(abs) || !strings.Contains(strings.ToLower(base), "plan") {
-		return ""
+	if !isMarkdownPath(abs) || !hasPlanToken(base) {
+		return "", nil
 	}
 	if _, err := os.Stat(abs); err == nil {
-		return ""
+		return "", nil
 	}
 	dir := filepath.Dir(abs)
 	root := planRepoRoot(in.CWD)
 	if dir != root && dir != filepath.Join(root, "docs") {
-		return ""
+		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")
 	prefix := filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug)
-	for n := 1; ; n++ {
+	for n := 1; n <= 99; n++ {
 		cand := prefix + ".md"
 		if n > 1 {
 			cand = fmt.Sprintf("%s-%d.md", prefix, n)
 		}
-		if _, err := os.Stat(cand); os.IsNotExist(err) {
-			return cand
+		_, err := os.Stat(cand)
+		if os.IsNotExist(err) {
+			return cand, nil
+		}
+		if err != nil {
+			return "", err
 		}
 	}
+	return "", fmt.Errorf("no free name under %s", plans.Home(root))
+}
+
+// hasPlanToken is true when a file name has "plan" or "plans" as a whole word ("my-plan.md", not "explanation.md").
+func hasPlanToken(base string) bool {
+	name := strings.TrimSuffix(strings.ToLower(base), filepath.Ext(base))
+	for _, w := range strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if w == "plan" || w == "plans" {
+			return true
+		}
+	}
+	return false
 }
 
 // patchAdds yields each file an apply_patch body adds, with its content (the hunk's "+" lines).
