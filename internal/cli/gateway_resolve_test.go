@@ -163,3 +163,20 @@ func TestGatewayResolveUnservedModel(t *testing.T) {
 		}
 	}
 }
+
+// An unverified --all-profiles row prints served: unverified once, on its route line.
+func TestResolveAllUnverifiedOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"auth":{"type":"oauth"},
+		"host":"https://dev.cloud.databricks.com","preset":"databricks"}}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := resolveAll(context.Background(), reg, agent.ModelQuery{Agent: "opencode", Model: "opus"}, false)
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return printRows(rows, "text") })
+	if n := strings.Count(out, "unverified"); !strings.Contains(out, "dev") || n != 1 {
+		t.Errorf("printRows = %q; want the dev row with served: unverified once (got %d)", out, n)
+	}
+}

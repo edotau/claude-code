@@ -162,3 +162,19 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 		t.Errorf("auto-mode dispatch = %+v (%s), want a concrete model label and the prompt byte-identical", r.UpdatedInput, r.Reason)
 	}
 }
+
+// A pack the agent reads from a file runs with tools on (packPrompt), so the label ranks for tools too.
+func TestAskLinePackFileTools(t *testing.T) {
+	if _, ok := agentpkg.LookupSchema("gemini"); !ok {
+		agentpkg.RegisterRowForTest(agentpkg.Schema{Name: "gemini", CLI: agentpkg.CLI{PackVia: agentpkg.PackFile}})
+	}
+	for brief, want := range map[string]bool{
+		"Run: claude-code agents ask --agent gemini --dirs internal 'audit x'\n\nAudit.":   true,
+		"Run: claude-code agents ask --agent opencode --dirs internal 'audit x'\n\nAudit.": false,
+		"Run: claude-code agents ask --agent gemini 'audit x'\n\nAudit.":                   false,
+	} {
+		if got := parseAskLine(context.Background(), brief).tools; got != want {
+			t.Errorf("tools(%q) = %v, want %v", brief, got, want)
+		}
+	}
+}

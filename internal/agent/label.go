@@ -39,9 +39,15 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 	if len(chain.Dispatches) == 0 {
 		return q, "", fmt.Errorf("no route runs %s (%s)", q.Agent, strings.Join(chain.Skipped, "; "))
 	}
-	hop, note, err := ladderHop(reg, q, chain.Dispatches[0])
+	return labelHop(reg, q, pin, chain.Dispatches[0])
+}
+
+// labelHop is ladderHop under auto: a typed or pinned auto beats the hop's cell model, as dispatchRequest runs it.
+func labelHop(reg *providers.Registry, q ModelQuery, pin string, d Dispatch) (ModelQuery, string, error) {
+	_, auto := SplitAuto(q.Model)
+	hop, note, err := ladderHop(reg, q, d)
 	if _, pinAuto := SplitAuto(pin); auto || pinAuto {
-		hop.Model = AutoCell(hop.Model) // auto beats the hop's cell model, as dispatchRequest runs it
+		hop.Model = AutoCell(hop.Model)
 	}
 	return hop, note, err
 }
@@ -81,10 +87,14 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	return r, err
 }
 
-// ExplainRun is ResolveRun plus the auto choice behind its pick; an unlisted Databricks pick is marked or refused.
+// ExplainRun is ResolveRun plus its auto choice; an unlisted Databricks model is marked; none refuses it unless auto.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
 	q, need := autoQuery(q)
 	r, err := autoBase(reg, q, need, now)
+	if err != nil && need.mode != autoOff && errors.Is(err, ErrModelRoute) {
+		need.noTier = true // no tier model runs here, so the agent's default stands in
+		r, err = rowDefault(reg, q, need, cmp.Or(need.prefix, q.Profile), now)
+	}
 	if err != nil {
 		return r, nil, err
 	}
@@ -92,8 +102,24 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	if need.mode != autoOff {
 		r, choice = autoPick(reg, q, r, need, now)
 	}
-	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone, now)
+	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone && need.mode == autoOff, now)
 	return r, choice, err
+}
+
+// rowDefault is an untyped run's model on profile: the concrete pin, else the row's opus, by id if refused as an alias.
+func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile string, now time.Time) (ModelRoute, error) {
+	q.Model, q.Profile, q.Default, q.PinModel = "", profile, "", need.pin
+	r, err := ResolveModel(reg, q, now)
+	p := reg.Row(profile)
+	if err == nil || p == nil || !errors.Is(err, ErrModelRoute) {
+		return r, err
+	}
+	wire, serr := spellModel(&ModelRoute{}, p, q.Agent, models.Opus, now)
+	if serr != nil {
+		return r, err
+	}
+	q.Model, q.Profile, q.PinModel = profile+":"+wire, "", ""
+	return ResolveModel(reg, q, now)
 }
 
 // resolveTier is ResolveModel with q.Default as the task tier; a tier the row cannot serve keeps the untiered pick.
@@ -244,7 +270,10 @@ const (
 // autoNeed is what the brief asks of the model: its tier, the signal that sized it, and how auto was reached.
 type autoNeed struct {
 	tier, signal, prefix string // prefix: the <row> of a typed <row>:auto
+	pin                  string // the record's concrete pin, which a run with no --model takes
 	mode                 autoMode
+	noTier               bool // no tier alias's model runs on the row: the base is rowDefault
+	unlisted             bool // the row has no fresh listing to rank
 }
 
 // autoQuery sizes q's tier and folds auto out of it: the auto word becomes the tier alias on its row, the pin drops.
@@ -258,6 +287,9 @@ func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
 	prefix, typed := SplitAuto(q.Model)
 	_, pinned := SplitAuto(q.PinModel)
 	need.prefix = prefix
+	if !pinned {
+		need.pin = q.PinModel
+	}
 	switch {
 	case typed || q.Model == "" && pinned:
 		need.mode = autoAsked
@@ -340,6 +372,12 @@ func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoN
 	ch := catalog.Choose(cands, need.tier, q.Tools)
 	c.Ranked, c.Stepped = ch.Ranked, ch.Stepped
 	if len(c.Ranked) == 0 {
+		if why == "" && need.mode == autoAsked && !need.noTier { // a fresh listing, nothing to rank: run the untyped pick
+			if d, err := rowDefault(reg, q, need, base.Profile, now); err == nil {
+				base, need.noTier = d, true
+			}
+		}
+		need.unlisted = why != ""
 		return autoFallback(reg, q, base, need, c, cmp.Or(why, "no served model fits"), now), c
 	}
 	pq := q
@@ -368,17 +406,20 @@ func routeNote(note string) string {
 	return joinNotes(parts...)
 }
 
-// autoFallback keeps base, the tier alias's model, when nothing ranked; a registry model named auto is never the pick.
+// autoFallback keeps base, the tier alias's model or rowDefault, when nothing ranked; a model named auto never runs.
 func autoFallback(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, c *AutoChoice, why string,
 	now time.Time) ModelRoute {
 	alias := cmp.Or(base.Alias, tierAliases[need.tier])
 	c.Fallback = fmt.Sprintf("%s, ran the row's %s model", why, alias)
+	if need.noTier {
+		c.Fallback = fmt.Sprintf("%s, ran %s's default model on %s", why, q.Agent, base.Profile)
+	}
 	if base.Model == AutoModel {
 		base, c.Fallback = registryAuto(reg, q, base, alias, c.Fallback, now)
 	}
 	c.Model = base.Model
-	if need.mode == autoAsked {
-		base.Note = joinNotes(base.Note, c.Reason())
+	if p := reg.Row(base.Profile); need.mode == autoAsked || need.unlisted && p != nil && p.Preset == providers.PresetDatabricks {
+		base.Note = joinNotes(base.Note, c.Reason()) // without a listing an implicit run takes the tier model: say so
 	}
 	base.Effort = autoEffort(base.Effort, q.Agent, need)
 	return base

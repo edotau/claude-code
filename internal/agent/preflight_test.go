@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +128,15 @@ func TestCheckWorkspaceFailsADeadLoginOnlyWithoutAServicePrincipal(t *testing.T)
 	}
 	if fs := CheckWorkspace(live, router.State{}, now); len(fs) != 0 {
 		t.Errorf("healthy login: findings %+v, want none", fs)
+	}
+}
+
+// A refusal names served models of the same vendor beyond Claude, GPT and Gemini (kimi-k3-1-pro -> kimi-k3).
+func TestServedAlternativesOtherVendor(t *testing.T) {
+	setConfigDir(t)
+	saveListing(t, "dev", []string{"databricks-kimi-k3", "databricks-glm-5-3", "databricks-claude-opus-5-5"})
+	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
+	if got := servedAlternatives(p, "databricks-kimi-k3-1-pro", time.Now()); !slices.Equal(got, []string{"databricks-kimi-k3"}) {
+		t.Errorf("servedAlternatives = %v; want [databricks-kimi-k3]", got)
 	}
 }

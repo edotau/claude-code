@@ -651,8 +651,8 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	}
 	if !disp.keepCaller {
 		out.Model, out.CellModel = disp.Model, !strings.Contains(disp.Model, ":")
-		if out.AutoModel && !out.CellModel {
-			out.Model = AutoCell(disp.Model) // typed auto beats the cell's model, on the cell's row
+		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
+			out.Model = AutoCell(disp.Model) // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
 		}
 	}
 	if disp.Agent != nil {
@@ -670,7 +670,7 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 		return out
 	}
 	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude)
-	_, pinAuto := SplitAuto(pin)
+	pinAuto := pinsAuto(out.Values, agentid.Claude)
 	alias := ""
 	if auto := out.AutoModel || pinAuto; auto || pin == "" {
 		alias, _ = TaskTier(out.Prompt)
@@ -682,13 +682,26 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 	return autoRunEffort(out, agentid.Claude, alias)
 }
 
+// pinsAuto reports whether agentName's model pin, under values' env, is auto.
+func pinsAuto(values proc.Values, agentName string) bool {
+	_, ok := SplitAuto(agentModelPinContext(valuesContext(context.Background(), values), agentName))
+	return ok
+}
+
+// engineName is d's agent name; "" for none.
+func engineName(d Dispatch) string {
+	if d.Agent == nil {
+		return ""
+	}
+	return d.Agent.Name()
+}
+
 // autoRunEffort gives an auto run its tier's effort unless --effort or the record names one; alias "" computes it.
 func autoRunEffort(out RunOptions, agentName, alias string) RunOptions {
 	if out.Effort != "" {
 		return out
 	}
-	_, pinAuto := SplitAuto(agentModelPinContext(valuesContext(context.Background(), out.Values), agentName))
-	if !out.AutoModel && !pinAuto || vault.GetAgentRecord(agentName).Effort != "" {
+	if !out.AutoModel && !pinsAuto(out.Values, agentName) || vault.GetAgentRecord(agentName).Effort != "" {
 		return out
 	}
 	if alias == "" {
