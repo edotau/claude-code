@@ -444,10 +444,10 @@ tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
 go test ./internal/<pkg>   # while developing — only what you touched
 make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
 make lint                  # check only: gofmt, vet, golangci, shell, yaml, make help rows, markdown, workflows
-make test                  # full gate, once before pushing (= make audit)
+make audit                 # full gate, once before pushing
 ```
 
-- `git push` runs no gate (`.githooks/pre-push` is disabled) and CI is manual-only: run `make test` locally before
+- `git push` runs no gate (`.githooks/pre-push` is disabled) and CI is manual-only: run `make audit` locally before
   pushing.
 - `settings.json` is yours (hand-edited, untracked); install never writes an existing one:
   `rules/harness/settings-management.md`.

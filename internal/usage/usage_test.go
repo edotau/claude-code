@@ -52,16 +52,6 @@ func usageRecordLine(model string, input, output int, ts string) string {
 		`","usage":{"input_tokens":` + strconv.Itoa(input) + `,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":` + strconv.Itoa(output) + `}}}`
 }
 
-// readTestdata returns the real-byte fixture content at internal/usage/testdata/<name>.
-func readTestdata(t *testing.T, name string) string {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", name))
-	if err != nil {
-		t.Fatalf("read testdata %s: %v", name, err)
-	}
-	return string(raw)
-}
-
 func TestUsageCmdDaysScope(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "session-recent", time.Hour,
@@ -111,43 +101,6 @@ func TestUsageCmdNoMatches(t *testing.T) {
 	var out, errw bytes.Buffer
 	if code := Run([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
 		t.Fatalf("Run on empty dir = %d, want 0", code)
-	}
-}
-
-func findLineContaining(s, substr string) string {
-	for line := range strings.SplitSeq(s, "\n") {
-		if strings.Contains(line, substr) {
-			return line
-		}
-	}
-	return ""
-}
-
-// indexOfFields finds header in got allowing any whitespace between fields; -1 when absent.
-func indexOfFields(got, header string) int {
-	fields := strings.Fields(header)
-	searchFrom := 0
-	for {
-		idx := strings.Index(got[searchFrom:], fields[0])
-		if idx < 0 {
-			return -1
-		}
-		start := searchFrom + idx
-		pos := start
-		ok := true
-		for _, f := range fields {
-			rest := got[pos:]
-			fi := strings.Index(rest, f)
-			if fi < 0 || fi > 40 { // field must appear soon after the previous one, same line/row
-				ok = false
-				break
-			}
-			pos += fi + len(f)
-		}
-		if ok {
-			return start
-		}
-		searchFrom = start + 1
 	}
 }
 
@@ -610,7 +563,7 @@ func TestPrintQuotaWarnings(t *testing.T) {
 	}
 }
 
-// --context prints the per-source table in text and JSON, and refuses --workflows beside it.
+// --context prints the per-source table in text and JSON.
 func TestUsageContextFlag(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -632,8 +585,5 @@ func TestUsageContextFlag(t *testing.T) {
 	out.Reset()
 	if code := Run([]string{"--context", "--session", "sess1", "--format", "json"}, dir, &out, &errw); code != 0 || !strings.Contains(out.String(), `"total_bytes": 16`) {
 		t.Errorf("json: exit %d, out %s", code, out.String())
-	}
-	if code := Run([]string{"--context", "--workflows"}, dir, &out, &errw); code != 2 {
-		t.Errorf("--context --workflows exit = %d, want 2", code)
 	}
 }

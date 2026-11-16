@@ -72,7 +72,7 @@ install: compile mdsmith rtk  ## Build, install, add missing CLIs (TOOLS=1 updat
 		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
 		$(MAKE) --no-print-directory tools-sync; fi
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
-	@$(BIN) network restart --if-changed || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
+	@$(BIN) gateway proxy --restart --if-changed || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
 
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
@@ -94,9 +94,6 @@ clean:  ## Remove bin/claude-code
 	@rm -f $(BIN)
 	@echo -e "$(C_OK)cleaned: $(BIN)"
 
-.PHONY: test
-test: audit  ## Full gate (= audit)
-
 .PHONY: cover
 cover:  ## Per-package test coverage (opt-in; cached when unchanged)
 	@$(GO) test -cover $(PKGS) | awk '/coverage:/ {print $$2, $$(NF-2)}' | sort -t' ' -k2 -n
@@ -109,9 +106,6 @@ vet:  # (dev recipe, hidden from help) go vet
 .PHONY: help-svg
 help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
-
-.PHONY: examples
-examples: help-svg  ## help-svg, then a reminder to review git diff docs/
 	@echo -e "$(C_OK)menu image regenerated; review git diff docs/"
 
 .PHONY: bootstrap
@@ -187,7 +181,8 @@ audit: compile  ## CI gate: lint, git secrets, test, build, vuln, docs
 			echo -e "$(C_NOTE)govulncheck skipped (vuln.go.dev unreachable)"; \
 		else govulncheck $(PKGS); fi
 	@$(BIN) doctor --prompts
-	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; exit 1; }
+	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; echo -e "$(C_NOTE)sync drift: running agents sync"; \
+		CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync || exit 1; }
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
@@ -233,7 +228,7 @@ fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 	@echo -e "$(C_OK)fmt applied"
 
 .PHONY: lint
-lint:  ## Check go, shell, yaml, help, md, js; reports, never edits (fix: make fmt)
+lint:  ## Check go, shell, yaml, md, js; auto-wraps own memory banks
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
 	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
@@ -260,7 +255,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 	docs) rc=0; $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix) || rc=1; \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check) || rc=1; \
+			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--own) || rc=1; \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc ;; \
 	js) $(BIN) workflow lint ;; \
@@ -347,15 +342,6 @@ image-shell:  ## Open a shell in the built image (no rebuild)
 	TARGET=$(TARGET) IMAGE=$(IMAGE) container/image.sh run bash
 
 ##@ Diagnostics
-.PHONY: doctor
-doctor: compile  ## Harness health checks
-	$(BIN) doctor
-
-.PHONY: proxy
-proxy: compile  ## Proxy daemon status (UP=1 starts it)
-	@if [ -n "$(UP)" ]; then $(BIN) gateway proxy --start; fi
-	$(BIN) gateway proxy --status
-
 .PHONY: statusline
 statusline: compile  ## Render a sample statusline (COLS=…)
 	@echo '{"model":{"id":"claude-sonnet-5","display_name":"Sonnet 5"},"workspace":{"current_dir":"'$(CURDIR)'"},"transcript_path":"/tmp/x","context_window":{"context_window_size":1000000,"used_percentage":42}}' \

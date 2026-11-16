@@ -26,7 +26,7 @@ Gate 5: SIMPLIFY      — Skill(simplify) over the diff; re-run Gate 2 if it cha
 Gate 6: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
 ```
 
-This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `make test` only in Gate 3.
+This harness: `make lint` → scoped `go test ./internal/<pkg>` per iteration; `make audit` only in Gate 3.
 
 ## Gate Loop (max 5 iterations per change set)
 

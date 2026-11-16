@@ -64,6 +64,7 @@ func printProxyState(ps gateway.Status) error {
 // proxyOpts are `gateway proxy`'s flag values.
 type proxyOpts struct {
 	start, stop, restart, status, serve bool
+	ifChanged, force, dry               bool
 	port                                int
 	format                              *string
 	clientToken, revokeClientToken      string
@@ -73,12 +74,16 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 	fs := helptext.NewFlagSet("gateway proxy", helptext.Page{
 		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve]", // FLAGS lists the rest
 		About: "The loopback proxy that translates Anthropic requests for OpenAI-style\n" +
-			"providers and falls back across the registry's fallback chain. No flag = --status.",
+			"providers and falls back across the registry's fallback chain. No flag = --status.\n" +
+			"--restart with --if-changed, --force or --dry-run only reports/restarts a running proxy and its tunnels.",
 	})
 	o := &proxyOpts{}
 	fs.BoolVar(&o.start, "start", false, "start the background proxy if needed; print its base URL")
 	fs.BoolVar(&o.stop, "stop", false, "stop the background proxy; stays down until the next start")
 	fs.BoolVar(&o.restart, "restart", false, "stop the proxy if running, then start it; print its base URL")
+	fs.BoolVar(&o.ifChanged, "if-changed", false, "with --restart: only if the proxy is not on the installed binary")
+	fs.BoolVar(&o.force, "force", false, "with --restart: restart despite requests in flight")
+	fs.BoolVar(&o.dry, "dry-run", false, "with --restart: report what would restart; change nothing")
 	fs.BoolVar(&o.status, "status", false, "proxy pid, URL and the profile fallback chain; exit 1 when not running")
 	fs.BoolVar(&o.serve, "serve", false, "run the proxy in the foreground until interrupted")
 	fs.IntVar(
@@ -105,6 +110,9 @@ func (o *proxyOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	return o.checkCombos(fs)
 }
 
+// report reports a --restart that carries --if-changed, --force or --dry-run: it never starts a stopped proxy.
+func (o *proxyOpts) report() bool { return o.restart && (o.ifChanged || o.force || o.dry) }
+
 func (o *proxyOpts) modeCount() int {
 	n := 0
 	for _, b := range []bool{o.start, o.stop, o.restart, o.status, o.serve, o.clientToken != "", o.revokeClientToken != ""} {
@@ -125,8 +133,11 @@ func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
 	if portSet && !o.serve {
 		return helptext.Fail("gateway proxy: --port needs --serve"), false
 	}
-	if *o.format == helptext.JSON && o.modeCount() > 0 && !o.status {
-		return helptext.Fail("gateway proxy: --format json applies to --status only"), false
+	if (o.ifChanged || o.force || o.dry) && !o.restart {
+		return helptext.Fail("gateway proxy: --if-changed, --force and --dry-run need --restart"), false
+	}
+	if *o.format == helptext.JSON && o.modeCount() > 0 && !o.status && !o.report() {
+		return helptext.Fail("gateway proxy: --format json applies to --status only (or a --restart report)"), false
 	}
 	return 0, true
 }
@@ -146,6 +157,8 @@ func cmdGatewayProxy(args []string) int {
 		return proxyServe(ctx, o.port)
 	case o.start:
 		return proxyStart(ctx)
+	case o.report():
+		return proxyRestartReport(o, *o.format)
 	case o.restart:
 		return proxyRestart(ctx)
 	case o.stop:

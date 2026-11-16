@@ -65,11 +65,11 @@ var configurePage = helptext.Page{
 
 // configureOpts are cmdConfigure's flag values.
 type configureOpts struct {
-	provider, agent, out, auth                       string
-	authSet                                          bool
-	dryRun, check, restore, revert, agents, noAgents bool
-	list, all                                        bool
-	format                                           *string
+	provider, agent, out, auth             string
+	authSet                                bool
+	dryRun, check, restore, revert, agents bool
+	list, all                              bool
+	format                                 *string
 }
 
 func configureFlags() (*flag.FlagSet, *configureOpts) {
@@ -84,7 +84,6 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
 	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json")
 	fs.BoolVar(&o.agents, "agents", false, "with --restore: agent configs only, even off ~/.claude")
-	fs.BoolVar(&o.noAgents, "no-agents", false, "with --restore: settings.json only, skip the agent configs")
 	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
 	o.format = helptext.FormatFlag(fs)
@@ -171,10 +170,10 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 		return configureList(section, pos, *o.format)
 	}
 	if o.restore || o.revert {
-		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents, o.noAgents)
+		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents)
 	}
-	if o.out != "" || o.agents || o.noAgents {
-		return helptext.Fail("configure: --out, --agents and --no-agents need --restore")
+	if o.out != "" || o.agents {
+		return helptext.Fail("configure: --out and --agents need --restore")
 	}
 	return configureMenu(o, section, profile)
 }
@@ -205,38 +204,36 @@ func init() {
 }
 
 // configureRender runs --restore / --revert; the agent flag is a comma list there.
-func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents, noAgents bool) int {
+func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents bool) int {
 	if err := renderModeConflict(restore, revert, section); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if revert {
-		return configureRevert(agents, dryRun, check || out != "" || renderAgents || noAgents)
+		return configureRevert(agents, dryRun, check || out != "" || renderAgents)
 	}
 	if check || dryRun {
 		return helptext.Fail("configure: --restore takes no --check or --dry-run")
 	}
-	return configureRestore(agents, out, renderAgents, noAgents)
+	return configureRestore(agents, out, renderAgents)
 }
 
-func configureRestore(agents, out string, renderAgents, noAgents bool) int {
+func configureRestore(agents, out string, renderAgents bool) int {
 	if err := unknownAgent(agents); err != nil {
 		return helptext.Fail("%v", err)
 	}
-	if msg := restoreConflict(agents, out, renderAgents, noAgents); msg != "" {
+	if msg := restoreConflict(agents, out, renderAgents); msg != "" {
 		return helptext.Fail("%s", msg)
 	}
-	if err := configure.Restore(os.Stdout, agents, out, renderAgents, noAgents); err != nil {
+	if err := configure.Restore(os.Stdout, agents, out, renderAgents); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	return 0
 }
 
 // restoreConflict names the --restore flag combination that cannot run, or "".
-func restoreConflict(agents, out string, renderAgents, noAgents bool) string {
+func restoreConflict(agents, out string, renderAgents bool) string {
 	agentsGiven := renderAgents || agents != ""
 	switch {
-	case noAgents && agentsGiven:
-		return "configure: --no-agents excludes --agents and --agent"
 	case out != "" && agentsGiven:
 		return "configure: --out resets a settings file; --agents and --agent never write one"
 	}

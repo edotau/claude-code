@@ -13,8 +13,8 @@ import (
 
 // Restore is `configure --restore`. With agents named or forceHomes (--agent/--agents) it renders only the agent
 // configs and never touches settings.json; otherwise it resets settings.json (backup first), then renders the agent
-// configs unless noAgents. out replaces the settings.json path.
-func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
+// configs. out replaces the settings.json path.
+func Restore(w io.Writer, agents, out string, forceHomes bool) error {
 	if agents != "" || forceHomes {
 		return confirmAndRender(w, agents, forceHomes)
 	}
@@ -30,9 +30,6 @@ func Restore(w io.Writer, agents, out string, forceHomes, noAgents bool) error {
 		fmt.Fprintf(w, " (backup %s)", backup)
 	}
 	fmt.Fprintln(w)
-	if noAgents {
-		return nil
-	}
 	return confirmAndRender(w, "", false)
 }
 

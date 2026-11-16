@@ -28,13 +28,6 @@ func Run(args []string) int {
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
 			"Link the Claude Code Agents extension into the detected extensions directory.\n" +
 			"Write one chatLanguageModels.json group per signed-in Databricks profile."})
-	var o syncOptions
-	fs.StringVar(&o.Template, "template", "", "settings template to merge (default: the one embedded in the binary)")
-	fs.StringVar(&o.Dest, "dest", "", "VS Code settings.json (default: platform-detected)")
-	fs.StringVar(&o.ExtensionsDir, "extensions-dir", "", "link the Agents extension here (default: platform-detected)")
-	fs.StringVar(&o.KeybindingsTemplate, "keybindings-template", "", "keybindings template to merge (default: the one embedded in the binary)")
-	fs.StringVar(&o.KeybindingsDest, "keybindings-dest", "", "VS Code User keybindings.json (default: platform-detected)")
-	fs.StringVar(&o.ModelsDest, "models-dest", "", "chatLanguageModels.json (default: beside --dest)")
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
 	if code, done := helptext.Parse(fs, args); done {
@@ -43,7 +36,7 @@ func Run(args []string) int {
 	if fs.NArg() > 0 { // a stray argument must not fall through to a merge
 		return helptext.Fail("theme vscode: unexpected argument %q", fs.Arg(0))
 	}
-	return vscodeSync(o, *check, *dryRun)
+	return vscodeSync(syncOptions{}, *check, *dryRun)
 }
 
 // vscodeSync runs the merge and reports it: drift check (exit 1 on drift), dry-run preview, or apply.
@@ -149,6 +142,5 @@ func reportDryRun(label, dest string, changed bool) {
 
 // Spec is the completion node for `theme vscode`.
 func Spec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{helptext.Plain("template"), helptext.Plain("dest"), helptext.Plain("extensions-dir"),
-		helptext.Plain("keybindings-template"), helptext.Plain("keybindings-dest"), helptext.Plain("models-dest"), helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
+	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
 }

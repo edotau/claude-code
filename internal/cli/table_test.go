@@ -123,11 +123,11 @@ func TestCompletionContains(t *testing.T) {
 		{"completion --install", []string{"completion", "--"}, []string{"--install"}},
 		{"usage --show", []string{"usage", "--"}, []string{"--show"}},
 		{"models preflight --live", []string{"models", "preflight", "--"}, []string{"--live"}},
-		{"configure --no-agents", []string{"configure", "--"}, []string{"--no-agents"}},
+		{"configure --restore", []string{"configure", "--"}, []string{"--restore"}},
 		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
 		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},
 		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
-		{"network subverbs", []string{"network", ""}, []string{"tailscale", "browser", "websearch", "restart", "remote"}},
+		{"network subverbs", []string{"network", ""}, []string{"tailscale", "browser", "websearch", "remote"}},
 		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
 		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
 		{"agents cancel flags", []string{"agents", "cancel", "--"}, []string{"--dry-run", "--lost"}},
@@ -151,7 +151,7 @@ func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 		typed string
 	}{
 		{[]string{"clean", "--dry-run", ""}, "--dry-run"},
-		{[]string{"usage", "--workflows", ""}, "--workflows"},
+		{[]string{"usage", "--context", ""}, "--context"},
 		{[]string{"network", "remote", "--status", ""}, "--status"},
 	} {
 		got := candidates(tc.words...)
@@ -170,13 +170,13 @@ func TestCompletionAfterBoolFlagOffersNextFlag(t *testing.T) {
 }
 
 func TestCompletionSkipsTypedFlags(t *testing.T) {
-	got := candidates("usage", "--workflows", "--")
-	if slices.Contains(got, "--workflows") {
-		t.Errorf("typed --workflows must drop out: %v", got)
+	got := candidates("usage", "--context", "--")
+	if slices.Contains(got, "--context") {
+		t.Errorf("typed --context must drop out: %v", got)
 	}
 	for _, want := range []string{"--days", "--session", "--format"} {
 		if !slices.Contains(got, want) {
-			t.Errorf("usage --workflows -- candidates %v missing %q", got, want)
+			t.Errorf("usage --context -- candidates %v missing %q", got, want)
 		}
 	}
 }
@@ -476,7 +476,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	for verb, want := range map[string][]string{
 		"history": {"snapshot", "log", "diff"},
 		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
-		"network": {"tailscale", "browser", "websearch", "restart", "remote"},
+		"network": {"tailscale", "browser", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"digest", "index", "path", "catchup", "watch", "timeline", "alias", "import", "fmt", "report", "revise", "sandbox"},
 		"gateway":  {"proxy"},

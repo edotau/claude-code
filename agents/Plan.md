@@ -50,7 +50,7 @@ All dispatched by the manager, never by Plan itself:
 
 Bash is read-only by rule alone (no frontmatter field for it): only `rg`, `git log/show/diff`, `ls`, `go list`,
 `--help` and `--dry-run` commands, plus `claude-code memory search`, `claude-code network websearch`,
-`claude-code review assumptions` and `claude-code review goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
+`claude-code plan assumptions` and `claude-code plan goals`. Follow `~/.claude/skills/problem-solving/SKILL.md`
 Steps 0–3 with these planning mechanics:
 
 1. **Step 0 — Classify.** Restate the goal in one line. A request spanning independent subsystems becomes one plan
@@ -71,8 +71,8 @@ revised mid-execution records what changed and why, re-checks dependencies and p
 out scope growth.
 
 Before returning, run the self-review checklist (`## Report contract`) and optionally the detector pass on the
-draft (stdin; CLI: `~/.claude/skills/evaluate-code/references/detectors.md`): `claude-code review assumptions -
---json` (hidden assumptions), `claude-code review goals - --json` (verification quality). `CLARIFY` or `MISSING`
+draft (stdin; CLI: `~/.claude/skills/evaluate-code/references/detectors.md`): `claude-code plan assumptions -
+--json` (hidden assumptions), `claude-code plan goals - --json` (verification quality). `CLARIFY` or `MISSING`
 means strengthen the plan first.
 
 ## Report contract

@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// RestartRow is one daemon's outcome in `network restart`.
+// RestartRow is one daemon's outcome in `gateway proxy --restart`.
 type RestartRow struct {
 	Daemon string `json:"daemon"`
 	Status string `json:"status"` // restarted | unchanged | would restart | stopped | would stop | skipped | failed

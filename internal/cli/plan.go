@@ -8,16 +8,19 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/review/planlint"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 var planPage = helptext.Page{
 	Usage: "claude-code plan <command> [flags]",
-	About: "Plan checklists: ticked/total per plan and live task claims.",
+	About: "Plan checklists (ticked/total, live claims) and plan detectors for vague steps and goals.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
 		{"tick", "tick tasks covered by each commit in --range <a>..<b> (--dry-run)"},
+		{"assumptions", "vague or hopeful steps in a plan"},
+		{"goals", "plan steps with no verifiable goal"},
 	},
 	Hint: "claude-code plan <command> -h lists that command's flags.",
 }
@@ -32,6 +35,10 @@ func cmdPlan(args []string) int {
 		return cmdPlanStatus(args[1:])
 	case "tick":
 		return cmdPlanTick(args[1:])
+	case "assumptions":
+		return planlint.RunAssumptions(args[1:], os.Stdin, os.Stdout, os.Stderr)
+	case "goals":
+		return planlint.RunGoals(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	default:
 		return unknownSub("plan", args[0], planPage)
 	}
@@ -115,6 +122,7 @@ func planSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
 			helptext.CompletionFormatFlag()}},
+		"assumptions": {Flags: []helptext.Flag{helptext.BoolFlag("json")}}, "goals": {Flags: []helptext.Flag{helptext.BoolFlag("json")}},
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}}},
 	}}
 }

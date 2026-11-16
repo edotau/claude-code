@@ -19,22 +19,11 @@ func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
 	}
 }
 
-// kbDestFlag keeps Run calls off the real machine's keybindings.json, which the platform default would write.
-func kbDestFlag(t *testing.T) []string {
+// isolated keeps sync calls off the real machine's keybindings.json and extensions dir.
+func isolated(t *testing.T, tmpl, dest string) syncOptions {
 	t.Helper()
-	return []string{"--keybindings-dest", filepath.Join(t.TempDir(), "keybindings.json")}
-}
-
-// extDirFlag keeps Run calls off the real VS Code extensions dir, which the platform default would symlink into.
-func extDirFlag(t *testing.T) []string {
-	t.Helper()
-	return []string{"--extensions-dir", filepath.Join(t.TempDir(), "extensions")}
-}
-
-// isolationFlags combines kbDestFlag and extDirFlag, the pair every merge-path test below needs.
-func isolationFlags(t *testing.T) []string {
-	t.Helper()
-	return append(kbDestFlag(t), extDirFlag(t)...)
+	return syncOptions{Template: tmpl, Dest: dest, KeybindingsDest: filepath.Join(t.TempDir(), "keybindings.json"),
+		ExtensionsDir: filepath.Join(t.TempDir(), "extensions")}
 }
 
 func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
@@ -58,12 +47,12 @@ func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	return tmpl, dest
 }
 
-// An explicit --dest with no --keybindings-dest defaults next to it, never to the real keybindings.json (shipped bug).
+// An explicit Dest with no KeybindingsDest defaults next to it, never to the real keybindings.json (shipped bug).
 func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest}, extDirFlag(t)...))
+		return vscodeSync(syncOptions{Template: tmpl, Dest: dest, ExtensionsDir: filepath.Join(t.TempDir(), "extensions")}, false, false)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -73,7 +62,7 @@ func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 		t.Errorf("keybindings dest not defaulted beside %s:\n%s", dest, out)
 	}
 	if _, err := os.Stat(wantKbDest); err != nil {
-		t.Errorf("keybindings.json not written beside the explicit --dest: %v", err)
+		t.Errorf("keybindings.json not written beside the explicit Dest: %v", err)
 	}
 }
 
@@ -81,7 +70,7 @@ func TestCmdVSCodeMergesAndReportsBackup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest}, isolationFlags(t)...))
+		return vscodeSync(isolated(t, tmpl, dest), false, false)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -100,7 +89,7 @@ func TestCmdVSCodeDryRunWritesNothing(t *testing.T) {
 	tmpl, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest, "--dry-run"}, isolationFlags(t)...))
+		return vscodeSync(isolated(t, tmpl, dest), false, true)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -121,7 +110,7 @@ func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, isolationFlags(t)...))
+		return vscodeSync(isolated(t, tmpl, dest), true, false)
 	})
 	if code != 1 {
 		t.Fatalf("exit %d, want 1", code)
@@ -137,14 +126,14 @@ func TestCmdVSCodeCheckExitsOneOnDrift(t *testing.T) {
 func TestCmdVSCodeCheckExitsZeroWhenInSync(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
-	kbFlag := isolationFlags(t)
+	o := isolated(t, tmpl, dest)
 	if code, _, _ := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest}, kbFlag...))
+		return vscodeSync(o, false, false)
 	}); code != 0 {
 		t.Fatal("initial merge failed")
 	}
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check"}, kbFlag...))
+		return vscodeSync(o, true, false)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0 once merged", code)
@@ -158,7 +147,7 @@ func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)
 	code, _, errOut := hosttest.CaptureOutput(t, func() int {
-		return Run(append([]string{"--template", tmpl, "--dest", dest, "--check", "--dry-run"}, isolationFlags(t)...))
+		return vscodeSync(isolated(t, tmpl, dest), true, true)
 	})
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
@@ -170,11 +159,11 @@ func TestCmdVSCodeCheckAndDryRunAreMutuallyExclusive(t *testing.T) {
 
 func TestCmdVSCodeHelpExitsZeroWithoutRunning(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
-	tmpl, dest := writeVSCodeFixture(t)
+	_, dest := writeVSCodeFixture(t)
 	original, _ := os.ReadFile(dest)
 	for _, flagArg := range []string{"-h", "--help"} {
 		code, _, errOut := hosttest.CaptureOutput(t, func() int {
-			return Run(append([]string{flagArg, "--template", tmpl, "--dest", dest}, isolationFlags(t)...))
+			return Run([]string{flagArg})
 		})
 		if code != 0 {
 			t.Errorf("vscode %s exit %d, want 0", flagArg, code)
