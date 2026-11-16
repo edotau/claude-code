@@ -113,9 +113,7 @@ func TestResolveHarness(t *testing.T) {
 		if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
 			t.Errorf("Resolve(%s) = %+v", root, id)
 		}
-		if b := BankFor(root); b.Key != harnessStoreKey() {
-			t.Errorf("BankFor(%s) = %+v, want the harness bank", root, b)
-		}
+
 	}
 }
 
@@ -126,9 +124,6 @@ func TestResolveHarnessWorktreePointer(t *testing.T) {
 	want := Resolve(cfg)
 	if got := Resolve(worktree); got != want {
 		t.Errorf("Resolve(worktree) = %+v, want main checkout identity %+v", got, want)
-	}
-	if b := BankFor(worktree); b.Key != harnessStoreKey() {
-		t.Errorf("BankFor(worktree) = %+v, want the harness bank", b)
 	}
 }
 
@@ -314,22 +309,6 @@ func TestRouteMatchWholeWordAndShortKeysIgnored(t *testing.T) {
 }
 
 // The bank key comes from the origin remote's basename, not the dir name; a remote naming no repo uses the dir.
-func TestBankKeyFromOriginRemoteOrDir(t *testing.T) {
-	for _, c := range []struct{ name, dirName, remote, key string }{
-		{"remote beats dir name", "mismatched-dirname", "https://github.com/tester/claude-dbx.git", "claude-dbx"},
-		{"bare slash remote", "no-remote-repo", "/", "no-remote-repo"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			isolatedConfig(t)
-			repo := gitRepo(t, t.TempDir(), c.dirName)
-			hosttest.In(t, repo, "remote", "add", "origin", c.remote)
-			if got := BankFor(repo).Key; got != c.key {
-				t.Fatalf("BankFor key = %q, want %q", got, c.key)
-			}
-		})
-	}
-}
-
 // A config that [include]s another file is never cached on disk: the included file is not in the stamp.
 func TestOriginRemoteURLSeesIncludedConfigChange(t *testing.T) {
 	tempConfig(t)

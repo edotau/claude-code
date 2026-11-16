@@ -27,21 +27,23 @@ type memorySub struct{ name, args, about string }
 var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
-	{"init", "", "create the repo's bank"},
+	{"init", "", "create the bank"},
 	{"review", "", "doctor + bank stats; --timeline lists recent entries"},
-	{"promote", "<id> --to <target>", "move one block to home, or print it for rules|skill"},
+	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
 	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
+	{"index", "", "settle the bank, rewrite MEMORY.md and index.md, file loose notes"},
+	{"migrate", "[--dry-run]", "merge old per-repo bank files into the one bank (--dry-run previews)"},
 }
 
 var memoryPage = helptext.Page{
 	Usage: "claude-code memory <command> [flags] [args]",
-	About: "One flat memory store (<key>--<name> per repo, unprefixed = home): session-start\n" +
+	About: "One memory bank for every workspace, organised in folders: session-start\n" +
 		"injects it, the Stop/SessionEnd update writes it. Recall and save facts, then\n" +
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, index, path, report, fmt, watch,\n" +
-		"          import, sandbox, migrate (off menu)\n" +
+	Hint: "plumbing: search, show, path, report, fmt, watch,\n" +
+		"          import, sandbox (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -58,12 +60,10 @@ func memoryCommandRows() [][2]string {
 var memoryPlumbing = map[string][2]string{
 	"search":  {"<terms>", "rank blocks for terms, with scores"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
-	"index":   {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
 	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
-	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/<key>--*"},
+	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to reports/"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
-	"migrate": {"", "flatten the store into one directory (--dry-run previews, --revert undoes)"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -223,7 +223,7 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
+		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
@@ -409,7 +409,7 @@ func cmdMemoryPath(args []string) int {
 // cmdMemoryReport appends a JSON report and its decisions to the repo's bank reports/ and prints both paths.
 func cmdMemoryReport(args []string) int {
 	fs, repo := memoryRepoFlagSet("report")
-	label := fs.String("label", "", "report name: reports/[<key>--]<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
+	label := fs.String("label", "", "report name: reports/<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
 	file := fs.String("file", "", "JSON input file: {\"report\": markdown, \"decisions\": [...]}")
 	stdin := fs.Bool("stdin", false, "read the JSON input from stdin")
 	format := helptext.FormatFlag(fs)
@@ -507,27 +507,6 @@ func cmdMemoryReview(args []string) int {
 	return 0
 }
 
-func cmdMemoryMigrate(args []string) int {
-	fs := memoryFlagSet("migrate")
-	dryRun := fs.Bool("dry-run", false, "preview moves, rewrites and blockers; write nothing")
-	revert := fs.Bool("revert", false, "restore the per-repo layout from the newest migration record")
-	format := helptext.FormatFlag(fs)
-	if code, done := memoryParseNoArgs(fs, "migrate", args); done {
-		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("memory migrate", err)
-	}
-	err := memory.Migrate(memory.MigrateOptions{DryRun: *dryRun, Revert: *revert, Format: *format, Out: os.Stdout})
-	switch {
-	case err == nil:
-		return 0
-	case errors.Is(err, memory.ErrMigrateRefused):
-		return helptext.FailUsage("memory migrate: %v", err)
-	}
-	return helptext.Fail("memory migrate: %v", err)
-}
-
 // cmdMemoryPromote moves a block to home, or prints a block and target for a human to apply (never writes them).
 func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
@@ -557,6 +536,25 @@ var memoryImportPage = helptext.Page{
 	About: "Merge another bank's logs (a memory root or one store) into this one; nothing\n" +
 		"local is overwritten, the source is never changed. --topics adds the other files.\n" +
 		"git -C <memory> log is the undo.",
+}
+
+// cmdMemoryMigrate is `memory migrate`: --dry-run lists the plan and blockers and writes nothing.
+func cmdMemoryMigrate(args []string) int {
+	fs := memoryFlagSet("migrate")
+	dryRun := fs.Bool("dry-run", false, "print the plan and blockers; write nothing")
+	if code, done := memoryParseNoArgs(fs, "migrate", args); done {
+		return code
+	}
+	if err := memory.Migrate(memory.MigrateOptions{DryRun: *dryRun, Out: os.Stdout}); err != nil {
+		return helptext.Fail("memory migrate: %v", err)
+	}
+	if *dryRun {
+		return 0
+	}
+	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{}); err != nil { // writes the layout into index.md
+		return helptext.Fail("memory migrate: index: %v", err)
+	}
+	return 0
 }
 
 // cmdMemoryImport is `memory import`: --dry-run prints the plan and writes nothing.

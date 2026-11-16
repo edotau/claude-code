@@ -9,8 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Rotation preserves history; returns exclude old reads and injections; nominations include other repos.
@@ -83,36 +81,19 @@ func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	}
 }
 
-// Every hit is credited to the bank dir that owns it: repo native/archive, and --all's local corpus.
-func TestLogHitsCreditsOwningStore(t *testing.T) {
+// Every hit, wherever its file sits, is credited to the one bank's access log.
+func TestLogHitsCreditsTheOneBank(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
-	a := gitRepo(t, t.TempDir(), "proja")
-	if _, err := Init(a); err != nil {
-		t.Fatal(err)
-	}
-	ba := BankFor(a)
-	da := accessDir(ba)
-	write(t, ba.Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
-	write(t, ba.Path("notes.md"), "---\nname: n\n---\nzebra native quota <!-- id:bbbb0002 -->\n")
-	write(t, BankFor(paths.ConfigDir()).Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
-
+	write(t, HomeBank().Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
+	write(t, HomeBank().Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 	now := time.Now()
-	logHits(a, searchBanks(a, "zebra quota", 0), AccessSearch, now)
-	got := returnCounts([]string{da}, now)
-	home := returnCounts([]string{StoreDir()}, now)
-	for _, id := range []string{"bbbb0001", "bbbb0002"} {
-		if got[id] == 0 || home[id] != 0 {
-			t.Errorf("%s must be credited to the repo store, not home: repo=%d home=%d", id, got[id], home[id])
+	logHits(searchAll("zebra quota", 0), AccessSearch, now)
+	got := returnCounts([]string{accessDir(HomeBank())}, now)
+	for _, id := range []string{"bbbb0001", "bbbb0003"} {
+		if got[id] == 0 {
+			t.Errorf("%s not credited to the one bank: %v", id, got)
 		}
-	}
-
-	logHits(a, searchAll("zebra quota", 0), AccessSearch, now)
-	if c := returnCounts([]string{accessDir(BankFor(paths.ConfigDir()))}, now); c["bbbb0003"] == 0 {
-		t.Errorf("--all's local hit must credit the harness store: %v", c)
-	}
-	if c := returnCounts([]string{da}, now); c["bbbb0003"] != 0 {
-		t.Errorf("--all's local hit was credited to the caller's repo: %v", c)
 	}
 }
 
@@ -207,25 +188,6 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	if !strings.Contains(string(data), "aa000001") || !strings.Contains(string(data), "bb000002") {
 		t.Errorf("fallback must append to the existing log, got %q", data)
 	}
-}
-
-func TestAccessLogsKeepTheirNamesInEachLayout(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		for key, want := range map[string]string{"repo": "repo.log", "": "home.log"} {
-			if got := AccessLogPath(accessDir(Bank{Key: key})); got != filepath.Join(AccessStateDir(), want) {
-				t.Errorf("access log of %q = %s, want %s", key, got, want)
-			}
-		}
-		now := time.Now()
-		write(t, b.Path("projectContext.md"), "# x\n")
-		logShown(b.Path("topic.md"), "aa11bb22", AccessShow, now)
-		if returnCounts([]string{accessDir(b)}, now)["aa11bb22"] != 1 {
-			t.Error("a shown block was not credited to its own bank")
-		}
-		if returnCounts([]string{accessDir(HomeBank())}, now)["aa11bb22"] != 0 {
-			t.Error("a shown block was credited to home")
-		}
-	})
 }
 
 // Regression: a repo keyed "home" gets its own access log, so its returns never count as the home store's.

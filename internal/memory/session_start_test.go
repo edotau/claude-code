@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -369,7 +368,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 		"## What's Next\n\n- should not appear\n")
 
 	s := sessionSurface(repo)
-	for _, want := range []string{"other repos:", "## Current Focus", "shipping the router",
+	for _, want := range []string{"## Current Focus", "shipping the router",
 		"## Blockers", "## Next Steps", "ship it", "## In Progress", "the router"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("surface missing %q:\n%s", want, s)
@@ -382,38 +381,6 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	}
 	if n := len([]rune(s)); n > totalCapChars {
 		t.Errorf("unified surface %d chars > cap %d", n, totalCapChars)
-	}
-}
-
-// A 200-repo catalog adds one pointer line and no rows.
-func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
-	isolatedConfig1(t)
-	initStore(t)
-	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureBank(repo, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cat strings.Builder
-	cat.WriteString("# Memory catalog\n\n")
-	for i := range 200 {
-		fmt.Fprintf(&cat, "- repo-%03d — hook · last never -> repo-%03d/MEMORY.md\n", i, i)
-	}
-	write(t, filepath.Join(StoreDir(), catalogFile), cat.String())
-	write(t, dir.Path("activeContext.md"), "# Active Context\n\n## Current Focus\n\n- local focus\n")
-	write(t, filepath.Join(StoreDir(), "activeContext.md"), "# Active Context\n\n## Current Focus\n\n- home essential\n")
-
-	s := sessionSurface(repo)
-	if strings.Contains(s, "repo-000") || strings.Contains(s, "repo-199") || strings.Contains(s, "MEMORY CATALOG") {
-		t.Errorf("catalog rows leaked into the surface:\n%s", s)
-	}
-	for _, want := range []string{"other repos:", "local focus", "home essential"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("surface missing %q:\n%s", want, s)
-		}
-	}
-	if len(s) > 1200 {
-		t.Errorf("slim surface is %d bytes, want well under the old 8.5 KB cap", len(s))
 	}
 }
 
@@ -477,8 +444,8 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, filepath.Join(HomeBank().SubDir("knowledge"), "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, filepath.Join(HomeBank().SubDir("knowledge"), "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	write(t, HomeBank().Sub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, HomeBank().Sub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
 	hits := searchBanks(t.TempDir(), "zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
@@ -489,28 +456,8 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 		}
 	}
 	c, err := BuildCatalog(time.Now())
-	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "knowledge/zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
+	if err != nil || !strings.Contains(c, "## Knowledge") || !strings.Contains(c, "zebra.md — Zebracorn invariant") || strings.Contains(c, "README.md —") {
 		t.Errorf("catalog knowledge section wrong (err=%v):\n%s", err, c)
-	}
-}
-
-func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
-	isolatedConfig(t)
-	initStore(t)
-	root := gitRepo(t, t.TempDir(), "narwhal")
-	if _, err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-	dir := BankFor(root)
-	write(t, dir.Sub("knowledge", "README.md"), "# Knowledge\nnarwhal readme\n")
-	write(t, dir.Sub("knowledge", "narwhal.md"), "# Narwhal\nNarwhalcorn invariant: tusks never ship.\n")
-	hits := searchBanks(root, "narwhalcorn invariant tusks", 5)
-	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != dir.Prefix()+"narwhal.md" {
-		t.Fatalf("repo bank knowledge not ranked first: %+v", hits)
-	}
-	c, err := BuildCatalog(time.Now())
-	if err != nil || !strings.Contains(c, "knowledge/"+dir.Prefix()+"narwhal.md — Narwhalcorn invariant") || strings.Contains(c, "README.md —") {
-		t.Errorf("catalog missing repo bank knowledge row (err=%v):\n%s", err, c)
 	}
 }
 
@@ -586,28 +533,6 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	if strings.Contains(got, "unique native-only index marker") || strings.Contains(got, "native link missing or blocked") {
 		t.Fatalf("surface duplicated the index despite a valid relative native link: %q", got)
 	}
-}
-
-func TestNewestHandoffKeepsOnlyTheBanksOwn(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		other := Bank{Key: "other"}
-		write(t, b.Path("projectContext.md"), "# x\n")
-		write(t, other.Path("projectContext.md"), "# x\n")
-		now := time.Now()
-		mine, theirs, home := b.Sub("handoffs", "mine.md"), other.Sub("handoffs", "theirs.md"), HomeBank().Sub("handoffs", "home.md")
-		for p, age := range map[string]time.Duration{mine: 3 * time.Hour, theirs: time.Hour, home: 2 * time.Hour} {
-			write(t, p, "x")
-			if err := os.Chtimes(p, now.Add(-age), now.Add(-age)); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if got := newestHandoff(b, now, 24*time.Hour); got != mine {
-			t.Errorf("newestHandoff(%s) = %s, want %s", b.Key, got, mine)
-		}
-		if got := newestHandoff(HomeBank(), now, 24*time.Hour); got != home {
-			t.Errorf("home newestHandoff = %s, want %s", got, home)
-		}
-	})
 }
 
 func TestRepoFocusReadsTheBanksTypedFiles(t *testing.T) {

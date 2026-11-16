@@ -78,20 +78,6 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	}
 }
 
-func TestDirSlug(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "My Repo.v2")
-	if got := BankFor(root).Key; got != "my-repo.v2" {
-		t.Errorf("BankFor key = %q want my-repo.v2", got)
-	}
-	if isHomeBank(root) {
-		t.Error("a repo's bank must not be the home bank")
-	}
-	if plain := t.TempDir(); !isHomeBank(plain) {
-		t.Errorf("a non-repo root must collapse to the global bank, got %q", BankFor(plain).Key)
-	}
-}
-
 func TestInitNoOverwrite(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
@@ -141,7 +127,7 @@ func TestSearchBanksRanking(t *testing.T) {
 	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, dir.Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := searchBanks(root, "the router 429", 0)
-	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
+	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "home" {
 		t.Fatalf("hits %+v", hits)
 	}
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
@@ -799,24 +785,6 @@ func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 					t.Errorf("prompt lacks %s", b.Path(name))
 				}
 			}
-		}
-	})
-}
-
-func TestUpdateJobScopeIsThePrefixedFiles(t *testing.T) {
-	runRoot(t, func(t *testing.T, root string) {
-		s := JobScope(JobUpdate, root)
-		store := StoreDir()
-		want := []string{store + "/proj--*.md", store + "/archive/proj--*"}
-		for _, name := range bankFiles {
-			want = append(want, filepath.Join(store, name))
-		}
-		if !slices.Contains(s.CdDirs, store) {
-			t.Errorf("CdDirs = %v, want the store root", s.CdDirs)
-		}
-		slices.Sort(want)
-		if got := slices.Sorted(slices.Values(s.Write)); !slices.Equal(got, want) {
-			t.Errorf("Write = %v, want %v", got, want)
 		}
 	})
 }

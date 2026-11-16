@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -37,23 +36,13 @@ var (
 	})
 )
 
-// bankFmtTargetDirs are the bank subdirs whose *.md files get formatted; top-level files come from bankFiles.
+// bankFmtTargetDirs are the flat subs whose *.md files get formatted; top-level files come from bankFiles.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// bankFmtTargets lists every markdown file formatBank formats, across every bank.
-func bankFmtTargets() ([]string, error) {
-	var files []string
-	for _, b := range Banks() {
-		own, err := dirFmtTargets(b)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, own...)
-	}
-	return files, nil
-}
+// bankFmtTargets lists every markdown file formatBank formats.
+func bankFmtTargets() ([]string, error) { return dirFmtTargets(HomeBank()) }
 
-// dirFmtTargets lists b's typed files plus its archive/, handoffs/ and reports/ markdown (flat: only b's own).
+// dirFmtTargets lists the typed files plus the archive--, handoffs-- and reports-- markdown.
 func dirFmtTargets(b Bank) ([]string, error) {
 	var files []string
 	for _, name := range bankFiles {
@@ -67,34 +56,10 @@ func dirFmtTargets(b Bank) ([]string, error) {
 		}
 		files = append(files, p)
 	}
-	keys := BankKeys()
 	for _, sub := range bankFmtTargetDirs {
-		matches, err := mdFilesIn(b.SubDir(sub))
-		if err != nil {
-			return nil, err
-		}
-		matches = slices.DeleteFunc(matches, func(p string) bool { return bankOfFile(p, keys).Key != b.Key })
-		files = append(files, matches...)
+		files = append(files, ownedFiles(b, sub)...)
 	}
 	return files, nil
-}
-
-// mdFilesIn lists dir's regular *.md files; a missing dir is empty, any other read error is returned.
-func mdFilesIn(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".md") && e.Type().IsRegular() {
-			out = append(out, filepath.Join(dir, e.Name()))
-		}
-	}
-	return out, nil
 }
 
 // formatBank wraps every target file; check=true writes nothing and only reports what would change.
@@ -117,7 +82,7 @@ func formatBankLocked(check bool) (changed []string, err error) {
 	}
 	changed, err = formatFiles(files, check)
 	if !check && len(changed) > 0 { // commit what was written even when a later file failed, so a retry is not blind to it
-		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil) // fmt spans every repo's bank: skip, never wedge
+		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil) // a credential-shaped file is skipped, never wedges the commit
 		if cerr := commitStore("fmt: wrap bank lines", scope...); cerr != nil {
 			return changed, errors.Join(err, cerr)
 		}

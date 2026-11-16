@@ -96,35 +96,17 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 // fakeCredential builds a credential-shaped string at runtime; it is not a real secret.
 func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y_", 6) }
 
-// TestSettleBankIgnoresAnotherReposCredentialFile: a credential-shaped file in another repo's dir is left alone.
-func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
+// TestSettleBankRefusesCredentialFile: a credential-shaped file in the store is refused without leaking it.
+func TestSettleBankRefusesCredentialFile(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	write(t, Bank{Key: "otherrepo"}.Path("progress.md"), "# P\n")
-	other := Bank{Key: "otherrepo"}.Path("note.md")
-	write(t, other, "key: "+fakeCredential()+"\n")
-
-	if _, err := settleBank(root, time.Now()); err != nil {
-		t.Fatalf("an unrelated repo's credential-shaped file failed this repo's settle: %v", err)
-	}
-	st, err := StoreRepo().Status("otherrepo--note.md")
-	if err != nil || len(st) != 1 || st[0].Path != "otherrepo--note.md" {
-		t.Fatalf("other repo's file must stay uncommitted: %+v, %v", st, err)
-	}
-	if st, _ := StoreRepo().Status(BankFor(root).Prefix() + "*"); len(st) != 0 {
-		t.Fatalf("this repo's settle left its own dir dirty: %+v", st)
-	}
-
 	write(t, BankFor(root).Path("leak.md"), "key: "+fakeCredential()+"\n")
-	_, err = settleBank(root, time.Now())
+	_, err := settleBank(root, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
-		t.Fatalf("a credential-shaped file in the settled dir must be refused, got %v", err)
+		t.Fatalf("a credential-shaped file in the store must be refused, got %v", err)
 	}
 	if strings.Contains(err.Error(), fakeCredential()) {
 		t.Fatal("the refusal leaked the credential")
@@ -174,7 +156,7 @@ func TestLockPathsKeyOnTheBank(t *testing.T) {
 	}
 }
 
-func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
+func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
@@ -182,7 +164,8 @@ func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := BankFor(root)
-	write(t, filepath.Join(StoreDir(), "orphan--topic.md"), "unrelated topic\n")
+	write(t, filepath.Join(StoreDir(), "topic.md"), "a topic\n")
+	write(t, b.Sub("reports", "r.md"), "a report\n")
 	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
 	if _, err := settleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
@@ -190,33 +173,9 @@ func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "<!-- id:") {
 		t.Fatal("entry not indexed")
 	}
-	dirty, err := StoreRepo().Status(b.Prefix() + "decisionLog.md")
-	if err != nil || len(dirty) != 0 {
-		t.Fatalf("settled bank remains dirty: %v, %v", dirty, err)
-	}
-	dirty, err = StoreRepo().Status("orphan--topic.md")
-	if err != nil || len(dirty) != 1 {
-		t.Fatalf("settle captured unrelated file: %v, %v", dirty, err)
-	}
-}
-
-// Unprefixed files in shared subdirs belong to home and ride along with every settle; prefixed strangers do not.
-func TestCommitBanksFlatCountsUnprefixedSharedFilesAsHome(t *testing.T) {
-	isolatedConfig(t)
-	initStore(t)
-	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
-	if _, err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(StoreDir(), "reports", "plain.md"), "home report\n")
-	write(t, filepath.Join(StoreDir(), "reports", "ghost--r.md"), "stranger\n")
-	if err := commitBanks("test", bankSet(BankFor(root))); err != nil {
-		t.Fatal(err)
-	}
-	for rel, wantDirty := range map[string]bool{"reports/plain.md": false, "reports/ghost--r.md": true} {
-		dirty, err := StoreRepo().Status(rel)
-		if err != nil || (len(dirty) != 0) != wantDirty {
-			t.Errorf("%s dirty = %v (err %v), want %v", rel, dirty, err, wantDirty)
+	for _, name := range []string{"decisionLog.md", "topic.md", "reports--r.md", layoutFile} {
+		if dirty, err := StoreRepo().Status(name); err != nil || len(dirty) != 0 {
+			t.Errorf("%s remains dirty after settle: %v, %v", name, dirty, err)
 		}
 	}
 }

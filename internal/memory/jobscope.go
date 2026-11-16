@@ -46,22 +46,18 @@ func JobScope(kind, workdir string) Scope {
 		}
 	}
 	if kind == JobUpdate {
-		s.CdDirs = append(s.CdDirs, StoreDir(), filepath.Join(StoreDir(), "archive"))
+		s.CdDirs = append(s.CdDirs, StoreDir())
 	}
 	return s
 }
 
-// updateWriteScope is where an update may write: both banks' files, never another repo's.
-func updateWriteScope(workdir string) []string {
-	b := BankFor(workdir)
+// updateWriteScope is where an update may write: the bank's typed files and its archive-- files.
+func updateWriteScope(string) []string {
 	var w []string
 	for _, name := range bankFiles {
 		w = append(w, HomeBank().Path(name))
 	}
-	if !b.Home() { // the prefix glob covers b's typed files too; keys never hold "--", so it cannot reach another bank
-		w = append(w, filepath.Join(StoreDir(), b.Prefix()+"*.md"), filepath.Join(StoreDir(), "archive", b.Prefix()+"*"))
-	}
-	return w
+	return append(w, filepath.Join(StoreDir(), "archive--*"))
 }
 
 // JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.

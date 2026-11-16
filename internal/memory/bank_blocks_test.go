@@ -362,7 +362,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 // Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
 func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
-	note := filepath.Join(StoreDir(), "knowledge", "wires.md")
+	note := Bank{}.Sub("knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
 	hits, err := corpusBlocks(t.TempDir())
 	if err != nil {

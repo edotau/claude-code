@@ -122,6 +122,9 @@ func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
 			return rotated, err
 		}
 	}
+	if err := sweepNotes(); err != nil {
+		return rotated, err
+	}
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
@@ -129,7 +132,7 @@ func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
 }
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
-func commitBanks(subject string, banks []Bank) error {
+func commitBanks(subject string, _ []Bank) error {
 	var scope []string
 	if !StoreRepo().Exists() {
 		if err := StoreRepo().Ensure(); err != nil {
@@ -141,15 +144,8 @@ func commitBanks(subject string, banks []Bank) error {
 	if err != nil {
 		return err
 	}
-	keys := BankKeys()
 	for _, e := range dirty {
-		owner := bankOfFile(e.Path, keys)
-		if owner.Home() && strings.Contains(e.Path, "--") {
-			continue
-		}
-		if e.Path == nativeIndexFile || slices.Contains(banks, owner) && !strings.HasPrefix(e.Path, ".") {
-			scope = append(scope, e.Path)
-		}
+		scope = append(scope, e.Path)
 	}
 	return commitStore(subject, append(scope, catalogFile)...)
 }
@@ -157,9 +153,6 @@ func commitBanks(subject string, banks []Bank) error {
 // bankSet is the banks a settle covers: root's own when scaffolded, then the home bank.
 func bankSet(own Bank) []Bank {
 	var out []Bank
-	if !own.Home() && scaffolded(own) {
-		out = append(out, own)
-	}
 	return append(out, HomeBank())
 }
 
@@ -323,4 +316,67 @@ func commitStore(subject string, scope ...string) error {
 	}
 	_, _, err = repo.Commit(rels, subject, "")
 	return err
+}
+
+// NoteFolder is the store folder a top-level native note belongs in ("" keeps it at the top: typed or reserved).
+func NoteFolder(name string) string {
+	switch {
+	case filepath.Ext(name) != ".md" || reservedNames[name]:
+		return ""
+	case strings.HasPrefix(strings.ToLower(name), "feedback"):
+		return "feedback"
+	}
+	return "notes"
+}
+
+// noteDirs are the folders Claude Code's native notes are sorted into.
+var noteDirs = []string{"feedback", "notes"}
+
+// sweepNotes moves top-level native notes into feedback/ or notes/ and repoints MEMORY.md links to them.
+func sweepNotes() error {
+	dir := StoreDir()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	moved := map[string]string{}
+	for _, e := range ents {
+		folder := NoteFolder(e.Name())
+		if e.IsDir() || folder == "" {
+			continue
+		}
+		to := filepath.Join(dir, folder, e.Name())
+		if _, err := os.Stat(to); err == nil {
+			continue // a same-named note already lives in the folder: leave the stray for a person to merge
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(filepath.Join(dir, e.Name()), to); err != nil {
+			return err
+		}
+		moved[e.Name()] = folder
+	}
+	return relinkNotes(filepath.Join(dir, nativeIndexFile), moved)
+}
+
+// relinkNotes rewrites `](name)` pointers in the native index to `](folder/name)`.
+func relinkNotes(index string, moved map[string]string) error {
+	if len(moved) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(index)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	text := string(data)
+	for name, folder := range moved {
+		text = strings.ReplaceAll(text, "]("+name+")", "]("+folder+"/"+name+")")
+	}
+	if text == string(data) {
+		return nil
+	}
+	return paths.AtomicWrite(index, []byte(text), 0o644)
 }

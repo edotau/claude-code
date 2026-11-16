@@ -135,7 +135,7 @@ func recallContext(picks []recallPick) (string, []SearchHit) {
 	var hits []SearchHit
 	for i, p := range picks {
 		if i < recallBodies {
-			fmt.Fprintf(&b, "\n- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
+			fmt.Fprintf(&b, "\n- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 		} else {
 			fmt.Fprintf(&b, "\n- %s", p.Entry.pointer())
 		}
@@ -155,46 +155,28 @@ func PromptRecall(ctx context.Context, sessionID, cwd, prompt string, warn io.Wr
 	if context == "" {
 		return ""
 	}
-	logHits(recallRoot(root), hits, accessRecall, time.Now())
+	logHits(hits, accessRecall, time.Now())
 	markSeen(sessionID, hits) // bodies mark the key, pointers "p:"+key
 	return context
 }
 
 func searchBankTerms(b Bank, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
-	corpus := corpusOf(b)
-	files := append(corpus, routedFilesOf(b, query)...)
+	files := corpusOf(b)
 	segs := loadSegments(files, true)
 	return rankFiles(terms, k, files, segs), files, segs
 }
 
-// searchAll ranks the home tier plus every repo store as one corpus (`memory search --all`).
+// searchAll ranks the one store as one corpus.
 func searchAll(query string, k int) []SearchHit {
 	files := allCorpusFiles()
 	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
 }
 
-func allCorpusFiles() []corpusFile {
-	files := corpusFiles(paths.ConfigDir())
-	for _, k := range BankKeys() {
-		if k != harnessStoreKey() {
-			files = append(files, storeFiles(Bank{Key: k})...)
-		}
-	}
-	return files
-}
+func allCorpusFiles() []corpusFile { return corpusFiles(paths.ConfigDir()) }
 
-// SearchRepo ranks blocks for q: every store with all, else the named store or checkout (default: cwd's).
-func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
-	if all {
-		root := root(repo)
-		return searchAll(q, k), root, nil
-	}
-	top, b, err := ResolveBank(repo)
-	if err != nil {
-		return nil, "", err
-	}
-	hits, _, _ := searchBankTerms(b, q, contentTerms(q), k)
-	return hits, top, nil
+// SearchRepo ranks blocks for q across the one store; repo and all no longer narrow it.
+func SearchRepo(repo string, _ bool, q string, k int) ([]SearchHit, string, error) {
+	return searchAll(q, k), root(repo), nil
 }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.
@@ -556,26 +538,14 @@ func pruneSeen(dir string) {
 }
 
 // RecallRepo is SearchRepo as recall serves it: replaced entries give way to their live replacement, top k kept.
-func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
-	if all {
-		files := allCorpusFiles()
-		segs := loadSegments(files, false)
-		hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
-		if k > 0 && len(hits) > k {
-			hits = hits[:k]
-		}
-		return hits, root(repo), nil
-	}
-	top, b, err := ResolveBank(repo)
-	if err != nil {
-		return nil, "", err
-	}
-	ranked, files, segs := searchBankTerms(b, q, contentTerms(q), 0)
-	hits := followReplaced(ranked, files, segs)
+func RecallRepo(repo string, _ bool, q string, k int) ([]SearchHit, string, error) {
+	files := allCorpusFiles()
+	segs := loadSegments(files, false)
+	hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
 	if k > 0 && len(hits) > k {
 		hits = hits[:k]
 	}
-	return hits, top, nil
+	return hits, root(repo), nil
 }
 
 // recallCandidate records each selection gate without changing the selection.
@@ -624,7 +594,7 @@ func (t *recallTrace) candidate(c recallPick, need int, sem *Semantic) {
 	if c.Entry.Archived {
 		tier = "archive"
 	}
-	r := recallCandidate{ID: c.Entry.ID, File: c.Entry.Bank + "/" + c.Entry.File, Tier: tier,
+	r := recallCandidate{ID: c.Entry.ID, File: c.Entry.File, Tier: tier,
 		BM25: c.Hit.Score, Matched: c.Hit.Matched, Needed: need, Blended: c.Score,
 		Final: c.Score, Outcome: "over cap", key: key}
 	if c.Entry.Superseded {
@@ -680,7 +650,7 @@ func (t *recallTrace) selected(picks []recallPick) {
 		outcome := "over cap"
 		line := "- " + p.Entry.pointer()
 		if i < recallBodies {
-			line = fmt.Sprintf("- [%s/%s] %s", p.Entry.Bank, p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
+			line = fmt.Sprintf("- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 		}
 		if strings.Contains(context, "\n"+line) {
 			outcome = "pointer"

@@ -4,20 +4,18 @@ paths:
 ---
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/`)
 
-`~/.claude/memory/` is one flat, local-only git repo (never pushed); `claude-code memory path` prints it. A repo's
-files are `<key>--<name>` (key = its git remote basename slug; harness `claude-code`); an unprefixed file is the home
-(cross-repo) tier. The shared subdirs `archive/ handoffs/ reports/ knowledge/ worktrees/ waves/` hold `<key>--<name>`
-entries the same way. `index.md` is the generated catalog; `.layout` (`flat 1`) stamps the layout. Each repo has Claude
-Code's native auto-memory topics plus six typed bank files; one shared `MEMORY.md` indexes them all, and every
-`~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at SessionStart. The bank holds session
-STATE; durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
+`~/.claude/memory/` is one local-only git repo (never pushed); `claude-code memory path` prints it. There is ONE bank
+for every workspace (any repo, scratch dir, provider or profile): six typed files at the top plus Claude Code's native
+topic files, one flat `MEMORY.md` pointer list and the generated `index.md`. Folders: `archive/`, `handoffs/`,
+`reports/`, `knowledge/`, `worktrees/`, `waves/` (files need no `<key>--`; older files keep their names). `.layout`
+(`flat 2`) stamps the layout, and every `~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at
+SessionStart. The bank holds session STATE; durable facts belong in `rules/` or `CLAUDE.md` —
+point at them, never copy.
 
-`claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the exact path (bare = store root);
-`--repo` takes a bank key or a checkout path (`update` and `dream --cwd` need a path). The per-repo layout is retired;
-the binary writes only the flat store.
-
-Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) get no bank: they use
-the launching workspace's (`HARNESS_MEMORY_ORIGIN`, else the home tier; `throwawayRoots` in `internal/memory`).
+`claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the path (no NAME = store root).
+`claude-code memory migrate [--dry-run]` merges any per-repo `<key>--<typed>.md` files into the one bank (no repo tags,
+ids kept, a block whose id exists is skipped); it refuses before any write on a dirty store, credential-shaped text or
+an unresolved collision, makes one store commit, and says "already migrated" on `flat 2`.
 
 ## Precedence
 
@@ -30,7 +28,7 @@ the launching workspace's (`HARNESS_MEMORY_ORIGIN`, else the home tier; `throwaw
 lists flags. A verb needing judgment prints its embedded procedure for the live session or the headless `memory
 update`; the rest print none.
 
-- Read: `recall <terms>` (`--load` appends top bodies), `search [--repo R | --all] <terms>`, `show <id>`, `path`,
+- Read: `recall <terms>` (`--load` appends top bodies), `search <terms>`, `show <id>`, `path`,
   `review` (caps, staleness; `--candidates` prints the promotion-ranking procedure; `--timeline [--n N]` lists recent
   sessions).
 - Write: `remember <fact> [--type]`, `init` (prints a procedure while `projectContext.md` is the template), `update`
@@ -38,9 +36,9 @@ update`; the rest print none.
   sessions), `report`, `fmt [--check|--own]`.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
   (consolidation; `--dry-run` is a deterministic audit, no model).
-- Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source whose layout
-  differs from the local one), `sandbox [--repo R] [--all]
-  [--empty]` (disposable config with copied banks, origin-only vault).
+- Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source not yet
+  migrated: run `claude-code memory migrate` on it), `migrate`, `sandbox [--empty]` (disposable config with a copied
+  bank, origin-only vault).
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
   (missing blocks only); `--topics` also merges `MEMORY.md` pointers, copies files only the source has, and keeps
@@ -49,15 +47,12 @@ update`; the rest print none.
 
 ## Promotion ladder
 
-The one copy; each step costs more context. Only `home` writes; the others print the block, target and procedure and
-the agent edits by hand.
+The one copy; each step costs more context. Each step prints the block, target and procedure and the agent edits by
+hand.
 
-1. `promote --to home` — moves the block (no link back) from `<key>--decisionLog.md`, `<key>--sessionHistory.md` or
-   `<key>--conventions.md` (or their archives) to the unprefixed file of the same name (cross-project). It is the only
-   route to home: `dream` and `import` never move entries there.
-2. `promote --to rules` — for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md` (enforced), never
+1. `promote --to rules` — for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md` (enforced), never
    `rules/workflows/` or `CLAUDE.md`; `--to skill` — for `skills/<name>/SKILL.md` or `references/` (how-to).
-3. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on). Gated: 3+ bank entries and a hard prohibition;
+2. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on). Gated: 3+ bank entries and a hard prohibition;
    refused outside `memory dream`'s own run (`promoteJudgment`).
 
 ## Files + mutation contracts
@@ -69,13 +64,13 @@ the agent edits by hand.
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
 | `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |
 | `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
-| `sessionHistory.md` | Newest-first summaries | Append at top; past the cap rotates to `archive/<key>--sessionHistory-<yyyy-mm>.md` |
+| `sessionHistory.md` | Newest-first summaries | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
-Names in this table are the unprefixed (home) form; a repo's copy is `<key>--<name>` (`claude-code--decisionLog.md`).
-Handoffs and reports are `<key>--YYYY-MM-DD-<topic>.md`, knowledge `<key>--<topic>.md`; unprefixed = home.
-`memory-compact` also writes a fact-only handoff, `<key>--YYYY-MM-DD-compact-<session id[:8]>.md` (one per session
-per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first, the generated
-one second.
+Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name>.md`, knowledge
+`knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
+per session per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first,
+the generated one second. `memory migrate` and `memory index` file loose top-level notes: `feedback*.md` into
+`feedback/`, any other non-core `.md` into `notes/`, with `MEMORY.md` links repointed.
 Typed files carry no frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…`<!-- bank:end -->` region;
 lines outside it are Claude's own and never rewritten. Never hand-edit generated regions.
 
@@ -86,7 +81,7 @@ a body line or sentence, case-insensitive, id optionally in backticks; fenced co
 Every settle (`update`, `dream`, `index`, `import`) then strikes the old title and adds `Replaced by <new id>
 (<date>).` under it, in `decisionLog.md`, `conventions.md` and their `archive/` files, idempotently and without moving
 a block; an unknown id or two-entry cycle is left unmarked (`memory review` reports both). A partly struck title
-(`A; ~~B~~`) stays live. A home entry may be replaced only by a home entry.
+(`A; ~~B~~`) stays live.
 
 Recall serves the replacing entry instead (up to 8 hops, before limiting results); an unresolved target or longer
 chain returns the original flagged unavailable. `memory search` still lists it and `memory show` prints the pointer.
@@ -108,13 +103,12 @@ dream` archives the overflow.
 ## Who writes what
 
 - `memory-start` (SessionStart) — injects the catalog pointer plus Current Focus/Blockers/Next Steps and In Progress
-  from this repo's `<key>--activeContext.md` / `<key>--progress.md` (home cwds: the unprefixed files) and the home
-  bank's focus, plus this repo's `MEMORY.md` when the native link is missing; scaffolds a missing bank at a safe root
-  (the config dir, a dir with `.claude/`, or a git toplevel); spawns the daily `memory dream` when due and one
+  from `activeContext.md` / `progress.md`, the same from any cwd, plus `MEMORY.md` when the native link is missing;
+  scaffolds a missing bank; spawns the daily `memory dream` when due and one
   detached `memory update --catchup` that saves up to 3 (`catchupMax`) missed interactive sessions from the last 14
   days (`catchupWindow`), skipping live ones, with one quiet line next start. Replays run `memory update --historical`
   (history and decisions only).
-- `memory-recall` (UserPromptSubmit) — injects a few matching blocks; another store only if the prompt names it.
+- `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no

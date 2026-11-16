@@ -417,7 +417,7 @@ func TestInitSeedsTheBank(t *testing.T) {
 			t.Fatal(err)
 		}
 		b := BankFor(root)
-		if b.Key != "proj" || dir != b.SubDir("") {
+		if b != HomeBank() || dir != b.SubDir("") {
 			t.Fatalf("Init = %s for bank %+v, want its SubDir", dir, b)
 		}
 		for _, name := range bankFiles {
@@ -425,7 +425,7 @@ func TestInitSeedsTheBank(t *testing.T) {
 				t.Errorf("Init left %s missing", b.Path(name))
 			}
 		}
-		if dir != StoreDir() || !strings.HasPrefix(filepath.Base(b.Path("progress.md")), "proj--") {
+		if dir != StoreDir() || filepath.Base(b.Path("progress.md")) != "progress.md" {
 			t.Errorf("dir %s and file %s disagree with the flat layout", dir, b.Path("progress.md"))
 		}
 	})

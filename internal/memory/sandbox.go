@@ -123,31 +123,24 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 	return res, err
 }
 
-// sandboxFlat copies the selected banks' files (by prefix) into config's flat store, stamped, .
+// sandboxFlat copies the one bank's files into config's flat store, stamped.
 func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
-	_, sel, err := ResolveBank(opt.Repo)
-	if err != nil {
+	if _, _, err := ResolveBank(opt.Repo); err != nil {
 		return nil, importInput("%v", err)
 	}
-	banks := []Bank{HomeBank(), sel}
-	if opt.All {
-		banks = Banks()
-	}
 	dst := filepath.Join(config, "memory")
-	var files []string
-	var out []SandboxStore
-	for _, b := range slices.CompactFunc(banks, func(x, y Bank) bool { return x.Key == y.Key }) {
-		names, err := sandboxFlatBank(dst, b, opt.Empty)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, names...)
-		out = append(out, SandboxStore{stateKey(b), len(names)})
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return nil, err
+	}
+	b := HomeBank()
+	names, err := sandboxFlatBank(dst, b, opt.Empty)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(dst, layoutFile), []byte(layoutFlat+"\n"), 0o600); err != nil {
 		return nil, err
 	}
-	return out, sandboxSnapshot(dst, append(files, layoutFile))
+	return []SandboxStore{{stateKey(b), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
 }
 
 // sandboxFlatBank places b's files in the flat store at dst: its templates when empty, else every file it owns.
@@ -158,7 +151,7 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 			rels = append(rels, filepath.Base(b.Path(name)))
 		}
 	} else {
-		rels = ownedStoreRels(b)
+		rels = ownedStoreRels()
 	}
 	return placeStoreRels(dst, b, rels, empty)
 }
@@ -191,15 +184,14 @@ func placeStoreRels(dst string, b Bank, rels []string, empty bool) ([]string, er
 	return placed, nil
 }
 
-// ownedStoreRels lists the files a flat bank owns: top-level, in the shared subdirs, and under its bundle dirs.
-func ownedStoreRels(b Bank) []string {
-	keys := BankKeys()
+// ownedStoreRels lists the files the bank owns: top-level, in the shared subdirs, and under its bundle dirs.
+func ownedStoreRels() []string {
 	var rels []string
 	for _, dir := range append([]string{""}, flatSubs...) {
 		ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
 		for _, e := range ents {
 			rel := path.Join(dir, e.Name())
-			if strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel) || bankOfFile(rel, keys).Key != b.Key {
+			if strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel) {
 				continue
 			}
 			switch {
