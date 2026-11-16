@@ -71,12 +71,29 @@ func outputCopilot(event string, r Result) string {
 	return marshalDoc(doc)
 }
 
-// outputGemini is agy's PreToolUse document: a block or ask denies with the reason; else silent, so agy's gate decides.
+// outputGemini is agy's document per event: PreToolUse deny (ask too), PostToolUse {}, start steps, Stop continue.
 func outputGemini(event string, r Result) string {
-	if event != "PreToolUse" || decisionName(r.Decision, true) == "" {
-		return ""
+	switch event {
+	case "PreToolUse":
+		if decisionName(r.Decision, true) == "" {
+			return "" // silent, so agy's own gate decides
+		}
+		return marshalDoc(map[string]any{"decision": "deny", "reason": r.Reason})
+	case "PostToolUse":
+		return "{}"
+	case "SessionStart":
+		if r.Context == "" {
+			return ""
+		}
+		step := map[string]any{"systemMessage": map[string]any{"systemMessage": r.Context}}
+		return marshalDoc(map[string]any{"injectSteps": []any{step}})
+	case "Stop":
+		if r.Decision != Block {
+			return ""
+		}
+		return marshalDoc(map[string]any{"decision": "continue", "reason": r.Reason})
 	}
-	return marshalDoc(map[string]any{"decision": "deny", "reason": r.Reason})
+	return ""
 }
 
 func marshalDoc(doc map[string]any) string {
@@ -115,7 +132,7 @@ func Emit(name, event string, r Result, stdout, stderr io.Writer) int {
 	if r.ExitCode != 0 {
 		return r.ExitCode
 	}
-	if r.Decision == Block && event != "PreToolUse" {
+	if r.Decision == Block && event != "PreToolUse" && !DialectOf(name).JSONDeny {
 		fmt.Fprintln(stderr, strings.TrimSpace(r.Reason))
 		return ExitBlock
 	}

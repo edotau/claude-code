@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -511,7 +512,7 @@ var realTools = map[string][]string{
 	core.AgentClaude:   {"Bash", "Write"},
 	core.AgentCodex:    {"Bash", "apply_patch"},       // codex/permissions.go matchesBash; apply_patch is its file write
 	core.AgentCopilot:  {"bash", "create"},            // copilot/home.go CopilotJSON: Write|create, lowercased names
-	core.AgentGemini:   {"run_command", "write_file"}, // gemini/hooks.go agyGateMatcher
+	core.AgentGemini:   {"run_command", "write_file"}, // gemini/settings.go AgyMatcher
 	core.AgentOpencode: {"Bash", "Write"},             // opencode/hooks.go claudeTool and plugin.go TOOLS rename to Claude's
 }
 
@@ -531,9 +532,9 @@ func renderedMatch(t *testing.T, agent string, s settings.EventSpec, tool string
 	m := s.Matcher
 	switch agent {
 	case core.AgentGemini:
-		m = "run_command|read_file|write_file|edit_file" // gemini/settings.go agyGateMatcher (unexported)
-		if s.Matcher == "Bash" {
-			m = "run_command" // agyShellMatcher
+		var ok bool
+		if m, ok = gemini.AgyMatcher(s.Matcher); !ok {
+			return false
 		}
 	case core.AgentCopilot:
 		m = renderedMatcher(t, copilot.CopilotJSON, s.Name)

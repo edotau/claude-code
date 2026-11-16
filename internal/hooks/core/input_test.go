@@ -115,3 +115,15 @@ func TestParseInputRecognisesOpencode(t *testing.T) {
 		})
 	}
 }
+
+// agy's own fields fill the session, event and loop-guard fields, and a tool call carries Claude's tool name.
+func TestParseInputGeminiNativeFields(t *testing.T) {
+	stop := ParseInputFor(strings.NewReader(`{"conversationId":"c1","hookEventName":"Stop","cwd":"/w","continuationActive":true}`), AgentGemini)
+	if stop.SessionID != "c1" || stop.HookEventName != "Stop" || stop.CWD != "/w" || !stop.StopHookActive {
+		t.Errorf("stop payload: %+v", stop)
+	}
+	call := ParseInputFor(strings.NewReader(`{"toolCall":{"name":"write_file","args":{"Path":"/w/N.md","Content":"x"}},"workspacePaths":["/w"]}`), AgentGemini)
+	if call.ToolName != "Write" || call.Nested("tool_input", "file_path") != "/w/N.md" || call.CWD != "/w" {
+		t.Errorf("write_file: tool %q input %v cwd %q", call.ToolName, call.ToolInput(), call.CWD)
+	}
+}

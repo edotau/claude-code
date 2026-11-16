@@ -655,6 +655,56 @@ func TestRenderGeminiHooks(t *testing.T) {
 	}
 }
 
+// agyHookEntry is a group (Matcher, Hooks) or a flat handler (Command, Timeout) in agy's hooks.json.
+type agyHookEntry struct {
+	Matcher string
+	Hooks   []struct{ Command string }
+	Command string
+	Timeout int
+}
+
+// agy loads SessionStart and Stop as flat handler lists and tool events as matcher groups, in agy's tool names.
+func TestRenderGeminiHooksShapePerEvent(t *testing.T) {
+	home := t.TempDir()
+	if _, err := stagedHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".gemini", "config", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]map[string][]agyHookEntry
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	h := doc["claude-code"]
+	for _, e := range h["SessionStart"] {
+		if e.Command == "" || e.Matcher != "" || e.Hooks != nil || e.Timeout == 0 {
+			t.Errorf("SessionStart entry must be a flat handler: %+v", e)
+		}
+	}
+	for _, e := range h["Stop"] {
+		if e.Command == "" || e.Hooks != nil {
+			t.Errorf("Stop entry must be a flat handler: %+v", e)
+		}
+	}
+	if len(h["SessionStart"]) != 1 || len(h["Stop"]) != 3 {
+		t.Errorf("SessionStart/Stop handlers = %d/%d, want 1/3", len(h["SessionStart"]), len(h["Stop"]))
+	}
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		for _, g := range h[event] {
+			if g.Command != "" || len(g.Hooks) != 1 || strings.ContainsAny(g.Matcher, "BWE") {
+				t.Errorf("%s entry must be a group on agy tool names: %+v", event, g)
+			}
+		}
+	}
+	for _, want := range []string{"run_command", "write_file|edit_file"} {
+		if !slices.ContainsFunc(h["PostToolUse"], func(g agyHookEntry) bool { return g.Matcher == want }) {
+			t.Errorf("PostToolUse lacks a group on %q", want)
+		}
+	}
+}
+
 // A hooks.json that does not parse is an error naming the file, never a silent skip, and stays as it was.
 func TestRenderGeminiHooksMalformedIsAnError(t *testing.T) {
 	for _, bad := range []string{"{broken", "[1]", "null", `{"a":1} x`, `{"a":1}}`} {

@@ -113,15 +113,15 @@ var Registry = []Group{
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Root or ignored docs/ markdown is blocked, a new plan-named one goes to the plans home, a draft needs the template.
-		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
+		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
-		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Hosted: []string{"opencode"}},
+		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
 		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
-		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Async: "Bash", Budget: 10 * sec, Hosted: []string{"opencode"}},
+		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Async: "Bash", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 		// Commits that only partly landed a task are reported once at Stop (advisory).
-		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Hosted: []string{"opencode"}},
+		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "dispatch", Events: []EventSpec{
 		// One PreToolUse runner: cap, then model pin (Workflow leaves too), then the claim.
@@ -140,8 +140,8 @@ var Registry = []Group{
 	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; neither blocks.
-		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
-		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
+		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}},
+		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, Agents: []string{"gemini"}, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
@@ -150,11 +150,11 @@ var Registry = []Group{
 	}},
 	{Name: "format", Events: []EventSpec{
 		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.
-		{Name: "format-stop", Event: EventStop, Budget: 30 * sec, Agents: []string{"copilot"}, Hosted: []string{"opencode"}},
+		{Name: "format-stop", Event: EventStop, Budget: 30 * sec, Agents: []string{"copilot", "gemini"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "review", Events: []EventSpec{
 		// Advisory comment, complexity and smell findings an edit just introduced, fed back to the model.
-		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Hosted: []string{"opencode"}},
+		{Name: "review-simplicity", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "worktree", Events: []EventSpec{
 		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
@@ -163,9 +163,9 @@ var Registry = []Group{
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec},
+		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"gemini"}},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},

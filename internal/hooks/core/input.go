@@ -3,6 +3,7 @@ package core
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -178,6 +179,11 @@ func (in *Input) normalizeAgy() string {
 	if paths, _ := in.doc["workspacePaths"].([]any); len(paths) > 0 && in.CWD == "" {
 		in.CWD, _ = paths[0].(string)
 	}
+	in.SessionID = cmp.Or(in.SessionID, in.Nested("conversationId"))
+	in.HookEventName = cmp.Or(in.HookEventName, in.Nested("hookEventName"))
+	if active, _ := in.doc["continuationActive"].(bool); active {
+		in.StopHookActive = true // a Stop hook already kept this turn going: it must not ask again
+	}
 	if _, ok := in.doc["toolCall"]; !ok { // the Claude shape: tool_name/tool_input are already read
 		return shapeError(in.doc, "tool_input")
 	}
@@ -200,6 +206,9 @@ func (in *Input) normalizeAgy() string {
 		input["file_path"] = path
 	}
 	in.ToolName, _ = call["name"].(string)
+	if name, ok := toolAliases[AgentGemini][in.ToolName]; ok { // handlers compare Claude's tool names
+		in.ToolName = name
+	}
 	in.doc["tool_input"] = input
 	return ""
 }
