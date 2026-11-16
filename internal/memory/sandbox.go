@@ -181,12 +181,13 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 
 // ownedStoreRels lists the files a flat bank owns: top-level, in the shared subdirs, and under its bundle dirs.
 func ownedStoreRels(b Bank) []string {
+	keys := BankKeys()
 	var rels []string
 	for _, dir := range append([]string{""}, flatSubs...) {
 		ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
 		for _, e := range ents {
 			rel := path.Join(dir, e.Name())
-			if strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel) || BankOfFile(rel).Key != b.Key {
+			if strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel) || bankOfFile(rel, keys).Key != b.Key {
 				continue
 			}
 			switch {
