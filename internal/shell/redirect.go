@@ -11,6 +11,9 @@ var fdDup = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^>
 
 // FileRedirect reports an unquoted output redirection that may write a file; `2>&1`, `>&2`, `2>&-` are not one.
 func FileRedirect(seg string) bool {
+	if !strings.Contains(seg, ">") { // only a `>` byte can return true below
+		return false
+	}
 	at := redirectQuotes(seg)
 	for i := 0; i < len(seg); i++ {
 		if at[i] != 0 || seg[i] != '>' {

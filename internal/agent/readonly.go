@@ -359,7 +359,7 @@ func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 	}
 	deny := Permissions{Deny: reads}
 	return slices.ContainsFunc(ops, func(o string) bool {
-		// after a cd to an unknown dir a climbing operand cannot be placed; a cd to a denied path's parent is refused
+		// after a cd to an unknown dir a climbing operand cannot be placed
 		return at.lost && climbs(o) && !path.IsAbs(filepath.ToSlash(o)) ||
 			slices.ContainsFunc(operandForms(o, at.dir), func(f string) bool { return deny.Decide("Read", f) == Deny })
 	})

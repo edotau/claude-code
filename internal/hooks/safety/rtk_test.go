@@ -497,6 +497,14 @@ func TestRTKShadowNoticeOncePerSession(t *testing.T) {
 	if got := run("s2"); !strings.Contains(got, "rtk on PATH is "+shadow) {
 		t.Errorf("a new session got no notice: %q", got)
 	}
+	for i := range 2 { // no session id: nothing to dedupe against, so every call shows the notice and records nothing
+		if got := run(""); !strings.Contains(got, "rtk on PATH is "+shadow) {
+			t.Errorf("no-session call %d got no notice: %q", i, got)
+		}
+	}
+	if _, err := os.Stat(core.SeenFile("hooks/rtk-shadow", "")); err == nil {
+		t.Errorf("a no-session call recorded a seen marker")
+	}
 	t.Setenv("PATH", t.TempDir())
 	if got := run("s3"); !strings.Contains(got, "no rtk on PATH, so the pinned "+bin+" runs by path — run make install") {
 		t.Errorf("no-rtk note %q lacks the missing notice", got)

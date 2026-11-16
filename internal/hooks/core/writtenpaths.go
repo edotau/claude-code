@@ -26,16 +26,23 @@ func WrittenPaths(cmd, cwd string) []string {
 	if !MayWrite(cmd) {
 		return nil
 	}
-	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, writeTargets)
+	return writtenFrom(DropDataHeredocs(cmd), cwd)
 }
+
+// writtenFrom is WrittenPaths of a command whose data heredoc bodies are already dropped.
+func writtenFrom(data, cwd string) []string { return appendTargets(nil, data, cwd, 0, writeTargets) }
 
 // WrittenPathsPrecise is WrittenPaths minus quoted/commented `>`, stdin heredocs and relative paths after a dynamic cd.
 func WrittenPathsPrecise(cmd, cwd string) []string {
-	all := WrittenPaths(cmd, cwd)
+	if !MayWrite(cmd) {
+		return nil
+	}
+	data := DropDataHeredocs(cmd)
+	all := writtenFrom(data, cwd)
 	if len(all) == 0 {
 		return nil
 	}
-	precise := appendPrecise(nil, dropComments(DropStdinHeredocs(DropDataHeredocs(cmd))), cwd, 0)
+	precise := appendPrecise(nil, dropComments(DropStdinHeredocs(data)), cwd, 0)
 	// Intersect: never more than WrittenPaths, so a gate moving here can only allow more.
 	return slices.DeleteFunc(all, func(p string) bool { return !slices.Contains(precise, p) })
 }
@@ -311,6 +318,9 @@ func intoDir(dst string, srcs []string) []string {
 
 // DropHeredocBodies drops each body whose closing line bodyEnd returns (-1 keeps it); guarded keeps all if a file runs.
 func DropHeredocBodies(cmd string, guarded bool, bodyEnd func(lines []string, i int) int) string {
+	if !strings.Contains(cmd, "<<") { // no heredoc: every bodyEnd keeps the line
+		return cmd
+	}
 	lines := strings.Split(cmd, "\n")
 	if guarded && (RunsWrittenFile().MatchString(lines[0]) || heredocTail(lines)) {
 		return cmd

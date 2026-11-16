@@ -46,7 +46,7 @@ func SegmentsSep(cmd string) (out, seps []string) {
 	return append(out, b.String()), append(seps, "")
 }
 
-// QuoteAt is each byte's quote: 0 outside, '\” in '…', $'…' or a backslash escape, '"' in "…".
+// QuoteAt marks each byte: 0 outside quotes, ' inside '…', $'…' or after a backslash, " inside "…".
 func QuoteAt(cmd string) []byte {
 	at := make([]byte, len(cmd))
 	var quote byte

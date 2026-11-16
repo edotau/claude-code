@@ -260,7 +260,7 @@ func shellCode(cmd string) string {
 
 type span struct{ from, to int }
 
-// heredoc is one `<<DELIM` operator; span is its body plus closing line, data that a non-shell consumer reads it.
+// heredoc is a `<<DELIM` operator: span is its body plus closing line; data means a non-shell consumer reads it.
 type heredoc struct {
 	span
 	delim              string
@@ -425,7 +425,10 @@ func (s *codeScan) lineEnd(i int) (int, bool) {
 			if pos > len(s.cmd) {
 				return i, false
 			}
-			end := pos + strings.IndexByte(s.cmd[pos:]+"\n", '\n')
+			end := len(s.cmd)
+			if k := strings.IndexByte(s.cmd[pos:], '\n'); k >= 0 {
+				end = pos + k
+			}
 			line := s.cmd[pos:end]
 			pos = end + 1
 			if line == h.delim || h.dash && strings.TrimLeft(line, "\t") == h.delim {
