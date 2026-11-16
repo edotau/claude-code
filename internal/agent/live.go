@@ -413,17 +413,28 @@ func listenLive(id string) (net.Listener, error) {
 		return nil, err
 	}
 	sock := LiveSocket(id)
-	if len(sock) > maxSockPath {
-		return nil, fmt.Errorf("live socket path is %d bytes, over the %d-byte unix limit: use a shorter CLAUDE_CONFIG_DIR (%s)", len(sock), maxSockPath, sock)
+	tmp := sock + ".t"
+	if len(tmp) > maxSockPath {
+		return nil, fmt.Errorf("live socket path is %d bytes, over the %d-byte unix limit: use a shorter CLAUDE_CONFIG_DIR (%s)", len(tmp), maxSockPath, sock)
 	}
-	_ = os.Remove(sock)
+	_ = os.Remove(tmp)
 	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "unix", sock)
+	ln, err := lc.Listen(context.Background(), "unix", tmp)
 	if err != nil {
 		return nil, fmt.Errorf("live socket %s: %w", sock, err)
 	}
-	if err := os.Chmod(sock, 0o600); err != nil {
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false) // the session removes the published path itself
+	}
+	// Publish only after chmod: WaitLiveReady treats the path's existence as ready.
+	if err := os.Chmod(tmp, 0o600); err != nil {
 		_ = ln.Close()
+		_ = os.Remove(tmp)
+		return nil, err
+	}
+	if err := os.Rename(tmp, sock); err != nil {
+		_ = ln.Close()
+		_ = os.Remove(tmp)
 		return nil, err
 	}
 	return ln, nil
