@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
@@ -262,10 +261,10 @@ func contextBindingProbes() map[string]bindingProbe {
 
 // pointerBound are the hooks with no cheap hermetic probe, checked by runner identity instead.
 var pointerBound = map[string]core.Runner{
-	"format-stop": quality.StopFormat, "codex-agent-route": agents.CodexAgentRoute, "codex-routing-start": agents.CodexRoutingStart,
-	"codex-routing-result": agents.CodexRoutingResult, "codex-subagent-start": agents.CodexSubagentStart,
-	"dispatch-failure": agents.Release, "dispatch-workflow": agents.Release, "dispatch-stop": agents.Stop,
-	"dispatch-handback": agents.Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": docs.Reminder,
+	"format-stop": quality.StopFormat, "codex-agent-route": CodexAgentRoute, "codex-routing-start": CodexRoutingStart,
+	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
+	"dispatch-failure": Release, "dispatch-workflow": Release, "dispatch-stop": Stop,
+	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": docs.Reminder,
 	"worktree-busy": wthook.Busy, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 }
 
@@ -705,7 +704,7 @@ func TestMain(m *testing.M) {
 
 // memoryRunners are the memory-area native entries and the memhook runner each must be.
 var memoryRunners = map[string]core.Runner{
-	"memory-start": agents.WithDispatchLabels(memhook.Start), "memory-recall": agents.WithDispatchLabels(memhook.Recall), "memory-update": memhook.Stop,
+	"memory-start": WithDispatchLabels(memhook.Start), "memory-recall": WithDispatchLabels(memhook.Recall), "memory-update": memhook.Stop,
 	"memory-end": memhook.End, "memory-compact": memhook.Compact,
 }
 

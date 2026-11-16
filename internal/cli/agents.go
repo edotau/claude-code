@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
-	hookagents "github.com/edotau/claude-code/internal/hooks/agents"
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
@@ -293,7 +293,7 @@ func cmdAgentsLabel(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	task, err := hookagents.ReadBrief(*taskFile)
+	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
@@ -301,7 +301,7 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	row := hookagents.Label(hookagents.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: *sessionModel},
+	row := hooks.Label(hooks.LabelInput{Type: pos[0], Model: *model, Brief: task, SessionModel: *sessionModel},
 		cwd, os.Getenv(memory.SessionIDEnv))
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
@@ -454,7 +454,7 @@ func cmdAgentsBrief(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	task, err := hookagents.ReadBrief(*taskFile)
+	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
 	}

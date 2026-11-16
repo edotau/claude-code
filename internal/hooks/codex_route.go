@@ -1,4 +1,4 @@
-package agents
+package hooks
 
 import (
 	"bytes"
@@ -262,7 +262,7 @@ func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
 const codexRouteSchema = 1
 
 var codexRouteFormat = schemas.Register(schemas.Format{
-	Name: "codex-routing", Owner: "internal/hooks/agents", Kind: schemas.Log,
+	Name: "codex-routing", Owner: "internal/hooks", Kind: schemas.Log,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "codex", "routing-*.jsonl") },
 	New:     func() any { return &codexRouteRecord{} },
 	Version: codexRouteSchema, Clean: "codex-audit", Migrate: schemas.SameShape,

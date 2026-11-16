@@ -1,6 +1,6 @@
 //go:build !unix
 
-package agents
+package hooks
 
 import (
 	"errors"
