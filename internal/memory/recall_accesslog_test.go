@@ -171,27 +171,6 @@ func TestLogAccessRecallInjectOncePerEntryPerDay(t *testing.T) {
 	}
 }
 
-// The size-cap trim drops lines past the retention window and keeps everything inside it, however many.
-func TestMaybeTrimAccessLogDropsByAge(t *testing.T) {
-	path := filepath.Join(t.TempDir(), accessLogFile)
-	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	var b strings.Builder
-	b.WriteString(accessLines(now.AddDate(0, 0, -(accessRetainDays+1)), []string{"old00001"}, AccessSearch))
-	b.WriteString(accessLines(now.AddDate(0, 0, -(accessRetainDays-1)), []string{"kept0001"}, AccessSearch))
-	for range accessLogMaxByte / 40 { // a busy log of in-window lines, far past the old 2000-line cap
-		b.WriteString(accessLines(now, []string{"busy0001"}, accessRecall))
-	}
-	write(t, path, b.String())
-	maybeTrimAccessLog(path, now)
-	data, _ := os.ReadFile(path)
-	if strings.Contains(string(data), "old00001") || !strings.Contains(string(data), "kept0001") {
-		t.Error("trim must drop only lines older than the retention window")
-	}
-	if got, want := strings.Count(string(data), "busy0001"), accessLogMaxByte/40; got != want {
-		t.Errorf("in-window lines kept = %d, want %d", got, want)
-	}
-}
-
 // A busy day of repeat injects no longer evicts history: hot fires after 3 days, cold after a 90d-old log.
 func TestAccessNominationsSurviveBusyDays(t *testing.T) {
 	tempConfig(t)
@@ -209,7 +188,7 @@ func TestAccessNominationsSurviveBusyDays(t *testing.T) {
 	}
 }
 
-// An unopenable lock file degrades to a plain append: no rotate or trim runs unlocked.
+// An unopenable lock file degrades to a plain append: no rotate runs unlocked.
 func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	tempConfig(t)
 	dir := t.TempDir()
@@ -247,4 +226,18 @@ func TestAccessLogsKeepTheirNamesInEachLayout(t *testing.T) {
 			t.Error("a shown block was credited to home")
 		}
 	})
+}
+
+// Regression: a repo keyed "home" gets its own access log, so its returns never count as the home store's.
+func TestAccessLogRepoKeyedHomeDoesNotShareHomeLog(t *testing.T) {
+	tempConfig(t)
+	now := time.Now()
+	repo, home := accessDir(Bank{Key: homeDir}), accessDir(HomeBank())
+	logAccess(repo, now, "aa11bb22", AccessSearch)
+	if AccessLogPath(repo) == AccessLogPath(home) {
+		t.Fatalf("repo \"home\" and the home store share %s", AccessLogPath(home))
+	}
+	if returnCounts([]string{home}, now)["aa11bb22"] != 0 {
+		t.Error("a repo-\"home\" return was credited to the home store")
+	}
 }

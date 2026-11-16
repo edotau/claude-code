@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bufio"
-	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // accessLogFile is the append-only access trace; it never enters the injected bank.
@@ -27,8 +27,6 @@ const (
 const (
 	accessEntryMax    = 120
 	accessReasonMax   = 60
-	accessLogMaxByte  = 256 << 10
-	accessRetainDays  = 120 // lines older than this are dropped when the size cap trims
 	accessRotateDays  = 30
 	accessGenerations = 3
 	accessLockWait    = 500 * time.Millisecond
@@ -76,14 +74,13 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	lines := accessLines(now, entries, reason)
 	write := func() error { return rotateAndAppend(path, now, entries, reason, lines) }
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
-		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate or trim unlocked; a timeout drops it
+		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate unlocked; a timeout drops it
 	}
 }
 
-// rotateAndAppend rotates, trims and appends under one lock so concurrent hooks and verbs never interleave renames.
+// rotateAndAppend rotates and appends under one lock so concurrent hooks and verbs never interleave renames.
 func rotateAndAppend(path string, now time.Time, entries []string, reason, lines string) error {
 	maybeRotateAccessLog(path, now)
-	maybeTrimAccessLog(path, now)
 	if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
 		lines = accessLines(now, newToday(path, now, entries), reason)
 	}
@@ -157,33 +154,6 @@ func sanitizeField(s string, max int) string {
 		s = strings.ToValidUTF8(s[:max], "") + "…"
 	}
 	return s
-}
-
-// maybeTrimAccessLog drops lines older than accessRetainDays once the byte cap is exceeded.
-func maybeTrimAccessLog(path string, now time.Time) {
-	fi, err := os.Stat(path)
-	if err != nil || fi.Size() <= accessLogMaxByte || now.IsZero() {
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	cutoff := now.AddDate(0, 0, -accessRetainDays)
-	var kept strings.Builder
-	dropped := false
-	for line := range strings.SplitSeq(strings.TrimRight(string(data), "\n"), "\n") {
-		ts, err := time.Parse(time.RFC3339, strings.SplitN(line, " -- ", 2)[0])
-		if err != nil || ts.Before(cutoff) {
-			dropped = true
-			continue
-		}
-		kept.WriteString(line)
-		kept.WriteString("\n")
-	}
-	if dropped {
-		_ = paths.AtomicWrite(path, []byte(kept.String()), 0o600)
-	}
 }
 
 // accessStat holds an entry's distinct in-window UTC days and newest access.
@@ -319,9 +289,9 @@ func logShown(path, id, reason string, now time.Time) {
 	logAccess(dir, now, id, reason)
 }
 
-// accessDir is b's access-log key dir: a store-key stand-in (the log lives in state).
+// accessDir is b's access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.
 func accessDir(b Bank) string {
-	return filepath.Join(StoreDir(), cmp.Or(b.Key, "home"))
+	return filepath.Join(StoreDir(), stateKey(b))
 }
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.
@@ -345,7 +315,7 @@ const (
 
 // accessNominations suggests pointers for hot entries and archives for cold entries with enough log history.
 func accessNominations(now time.Time) []string {
-	files := globIn(AccessStateDir(), "*.log")
+	files := transcript.GlobIn(AccessStateDir(), "*.log")
 	if len(files) == 0 {
 		return nil
 	}
