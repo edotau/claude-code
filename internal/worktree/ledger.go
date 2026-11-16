@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -25,18 +26,78 @@ type LedgerClose struct {
 	Now                 time.Time
 }
 
-// ledgerPath is worktree name's ledger file under the repo's memory dir.
-func ledgerPath(main, name string) string { return memory.BankFor(main).Sub("worktrees", name+".md") }
+// ledgerCandidate is a worktrees/ file that may be name's ledger, with its recorded repo.
+type ledgerCandidate struct{ file, date, repo string }
+
+// ledgerPath is name's ledger for the repo at main (newest match), or a new one dated now.
+func ledgerPath(main, name string, now time.Time) string {
+	bank := memory.HomeBank()
+	cands := ledgerCandidates(bank.SubDir("worktrees"), name)
+	var own, unowned *ledgerCandidate
+	for i, c := range cands {
+		switch {
+		case c.repo != "" && paths.SamePath(c.repo, main):
+			own = newerLedger(own, &cands[i])
+		case c.repo == "":
+			unowned = newerLedger(unowned, &cands[i])
+		}
+	}
+	if own == nil {
+		own = unowned
+	}
+	if own != nil {
+		return bank.Sub("worktrees", own.file)
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	file := now.Format("2006-01-02") + "-" + name + ".md"
+	if _, err := os.Stat(bank.Sub("worktrees", file)); err == nil {
+		file = now.Format("2006-01-02") + "-" + name + "-" + filepath.Base(main) + ".md"
+	}
+	return bank.Sub("worktrees", file)
+}
+
+// newerLedger is the later-dated of a and b (a nil loses; the later file name wins a tie).
+func newerLedger(a, b *ledgerCandidate) *ledgerCandidate {
+	if a == nil || b.date > a.date || b.date == a.date && b.file > a.file {
+		return b
+	}
+	return a
+}
+
+// ledgerCandidates lists dir's ledgers named name: dated, dated with a -<key> suffix, undated or <key>-- prefixed.
+func ledgerCandidates(dir, name string) []ledgerCandidate {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	re := regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}-)?(?:[^/]+--)?` + regexp.QuoteMeta(name) + `(?:-[^/]+)?\.md$`)
+	var out []ledgerCandidate
+	for _, e := range entries {
+		m := re.FindStringSubmatch(e.Name())
+		if m == nil {
+			continue
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+		text := string(data)
+		if title, ok := strings.CutPrefix(text, "# Worktree "); ok && strings.TrimSpace(strings.SplitN(title, "\n", 2)[0]) != name {
+			continue
+		}
+		out = append(out, ledgerCandidate{file: e.Name(), date: m[1], repo: ledgerField(text, "Repo")})
+	}
+	return out
+}
 
 // openLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
 func openLedger(main, name string, info ledgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	if _, err := memory.EnsureBank(main, "worktrees"); err != nil {
+	if _, err := memory.EnsureBank("worktrees"); err != nil {
 		return err
 	}
-	path := ledgerPath(main, name)
+	path := ledgerPath(main, name, info.Now)
 	return withLedgerLock(path, func() error {
 		data, err := os.ReadFile(path)
 		if err == nil {
@@ -132,7 +193,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 		return nil, "", "", false, nil
 	}
 	name := filepath.Base(top)
-	path = ledgerPath(repo.Main, name)
+	path = ledgerPath(repo.Main, name, time.Time{})
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, "", "", false, nil
 	} else if err != nil {
@@ -172,7 +233,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	path := ledgerPath(main, name)
+	path := ledgerPath(main, name, time.Time{})
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {

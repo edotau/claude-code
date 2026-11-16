@@ -11,11 +11,11 @@ import (
 	"time"
 )
 
-// runBank runs fn on a fresh "repo" bank in an isolated flat config.
+// runBank runs fn on a fresh bank in an isolated flat config.
 func runBank(t *testing.T, fn func(t *testing.T, b Bank)) {
 	t.Helper()
 	isolatedConfig(t)
-	b := Bank{Key: "repo"}
+	b := HomeBank()
 	if err := b.Ensure(""); err != nil {
 		t.Fatal(err)
 	}
@@ -73,9 +73,8 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 // TestSettleBankLockLivesUnderStateNotStore: settleBank locks BankLockPath() under state, not a dotfile in the store.
 func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
-	root := repoRoot(t, "proj")
 	dir := StoreDir()
-	if _, err := settleBank(root, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	want := BankLockPath()
@@ -99,12 +98,11 @@ func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y
 // TestSettleBankRefusesCredentialFile: a credential-shaped file in the store is refused without leaking it.
 func TestSettleBankRefusesCredentialFile(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, BankFor(root).Path("leak.md"), "key: "+fakeCredential()+"\n")
-	_, err := settleBank(root, time.Now())
+	write(t, HomeBank().Path("leak.md"), "key: "+fakeCredential()+"\n")
+	_, err := settleBank(time.Now())
 	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the store must be refused, got %v", err)
 	}
@@ -139,35 +137,17 @@ func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
 	})
 }
 
-func TestLockPathsKeyOnTheBank(t *testing.T) {
-	isolatedConfig(t)
-	locks := filepath.Join(StateDir(), "locks")
-	if got, want := lockPathOf(HomeBank()), filepath.Join(locks, "home", ".postupdate"); got != want {
-		t.Errorf("home lock = %s, want %s", got, want)
-	}
-	if got, want := lockPathOf(Bank{Key: "repo"}), filepath.Join(locks, "repo", ".postupdate"); got != want {
-		t.Errorf("repo lock = %s, want %s", got, want)
-	}
-	if got, want := lockPathOf(Bank{Key: "home"}), filepath.Join(locks, "repo--home", ".postupdate"); got != want {
-		t.Errorf("repo bank keyed home: lock = %s, want %s (never the home bank's)", got, want)
-	}
-	if got := bankOfStateKey(stateKey(Bank{Key: "home"})); got.Key != "home" {
-		t.Errorf("bankOfStateKey(stateKey(repo home)) = %+v, want the repo bank", got)
-	}
-}
-
 func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	b := BankFor(root)
+	b := HomeBank()
 	write(t, filepath.Join(StoreDir(), "topic.md"), "a topic\n")
 	write(t, b.Sub("reports", "r.md"), "a report\n")
 	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
-	if _, err := settleBank(root, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "<!-- id:") {

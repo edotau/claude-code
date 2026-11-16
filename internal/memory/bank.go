@@ -13,25 +13,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// layoutFile stamps the store root; layoutFlat is the one-bank layout, layoutPerKey the retired per-repo one.
-const layoutFile, layoutFlat, layoutPerKey = ".layout", "flat 2", "flat 1"
+// layoutFile stamps the store root: layoutFlat is the one-bank layout; layoutFlat2 is older, layoutPerKey retired.
+const layoutFile, layoutFlat, layoutFlat2, layoutPerKey = ".layout", "flat 3", "flat 2", "flat 1"
 
-// Bank is the store's one bank; Key is always "" and survives only for callers not yet migrated off it.
-type Bank struct{ Key string }
+// Bank is the store's one bank; a handle for the store root.
+type Bank struct{}
 
-func HomeBank() Bank      { return Bank{} }
-func (b Bank) Home() bool { return b.Key == "" }
-
-// Prefix is the file prefix; always "" in the one-bank layout.
-func (b Bank) Prefix() string {
-	if b.Key == "" {
-		return ""
-	}
-	return b.Key + "--"
-}
+func HomeBank() Bank { return Bank{} }
 
 // Path is one of the bank's top-level files.
-func (b Bank) Path(name string) string { return filepath.Join(StoreDir(), b.Prefix()+name) }
+func (b Bank) Path(name string) string { return filepath.Join(StoreDir(), name) }
 
 // SubDir is the store root: a named sub is a filename prefix, not a directory.
 func (b Bank) SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
@@ -51,20 +42,6 @@ func (b Bank) Ensure(sub string) error {
 	return os.MkdirAll(b.SubDir(sub), 0o755)
 }
 
-// BankFor is the one bank, whatever root is.
-func BankFor(string) Bank { return HomeBank() }
-
-// Banks is the one bank.
-func Banks() []Bank { return []Bank{HomeBank()} }
-
-// BankKeys is empty: there are no per-repo banks.
-func BankKeys() []string { return nil }
-
-// BankOfFile is the one bank.
-func BankOfFile(string) Bank { return HomeBank() }
-
-func bankOfFile(string, []string) Bank { return HomeBank() }
-
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
 var layoutCache sync.Map
 
@@ -74,7 +51,8 @@ func storeFlat() bool {
 		return v.(bool)
 	}
 	b, _ := os.ReadFile(filepath.Join(d, layoutFile))
-	flat := strings.TrimSpace(string(b)) == layoutFlat
+	stamp := strings.TrimSpace(string(b))
+	flat := stamp == layoutFlat || stamp == layoutFlat2
 	layoutCache.Store(d, flat)
 	return flat
 }
@@ -140,9 +118,9 @@ func withFlatLock(wait time.Duration, fn func() error) error {
 }
 
 // EnsureBank is the one bank with the store root created.
-func EnsureBank(root, sub string) (b Bank, err error) {
+func EnsureBank(sub string) (b Bank, err error) {
 	err = WithBankLock(BankLockWait, func() error {
-		b = BankFor(root)
+		b = HomeBank()
 		return b.Ensure(sub)
 	})
 	return b, err

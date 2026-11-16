@@ -37,11 +37,12 @@ type runHooks struct {
 }
 
 type runner struct {
-	o                           Options
-	h                           runHooks
-	state                       State
-	path, slug, reports, prefix string
-	bank                        memory.Bank
+	o                   Options
+	h                   runHooks
+	state               State
+	path, slug, reports string
+	bank                memory.Bank
+	day                 time.Time // fixed at start so report names agree across midnight
 }
 
 // Run prints the wave report and returns the dispatch exit code.
@@ -132,9 +133,10 @@ func (r *runner) prepare() error {
 		return err
 	}
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
-	b := memory.BankFor(r.o.Dir)
+	r.day = time.Now()
+	b := memory.HomeBank()
 	r.bank = b
-	r.path, r.reports, r.prefix = b.Sub("waves", r.slug+"/state.json"), b.SubDir("reports"), b.Prefix()
+	r.path, r.reports = b.Sub("waves", r.slug+"/state.json"), b.SubDir("reports")
 	r.state.Plan = r.o.Plan
 	return nil
 }
@@ -170,7 +172,7 @@ func (r *runner) gate(w plans.Wave) string {
 }
 
 func (r *runner) load() error {
-	if _, err := memory.EnsureBank(r.o.Dir, "waves"); err != nil {
+	if _, err := memory.EnsureBank("waves"); err != nil {
 		return err
 	}
 	if !r.o.Fresh {
@@ -261,7 +263,7 @@ func (r *runner) launch(ctx context.Context, specs, wave []Spec) ([]Envelope, er
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports, ReportPrefix: r.prefix,
+	return r.h.launch(ctx, r.o.Executable, specs, LaunchOptions{Slug: r.slug, ReportsDir: r.reports, Day: r.day,
 		Provider: r.o.Provider, Profiles: r.o.Profiles, Route: r.o.Route, Timeout: r.o.Timeout, Wave: wave,
 		Fingerprint: r.fingerprint})
 }

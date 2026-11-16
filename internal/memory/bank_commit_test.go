@@ -879,7 +879,7 @@ func TestDoctorAndCommitGateAgree(t *testing.T) {
 		cases[v] = false
 	}
 	isolatedConfig(t)
-	b := Bank{Key: "repo"}
+	b := HomeBank()
 	for v, want := range cases {
 		path := b.Path("progress.md")
 		write(t, path, "- note "+v+"\n")

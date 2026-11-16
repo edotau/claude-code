@@ -317,11 +317,10 @@ func bankFmtRepoStore(t *testing.T) (globalDir string, repo Bank) {
 	t.Helper()
 	isolatedConfig1(t)
 	initStore(t)
-	proot := gitRepo(t, t.TempDir(), "proj")
-	if _, err := Init(proot); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	return StoreDir(), BankFor(proot)
+	return StoreDir(), HomeBank()
 }
 
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {

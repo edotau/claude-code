@@ -57,13 +57,13 @@ func statBank(b Bank) bankStat {
 const DefaultStaleDays = 90
 
 // doctorNoticePath is the per-store cached doctor summary read at SessionStart.
-func doctorNoticePath(root string) string {
-	return filepath.Join(StateDir(), "doctor-notice-"+stateKey(BankFor(root)))
+func doctorNoticePath() string {
+	return filepath.Join(StateDir(), "doctor-notice-"+stateKey(HomeBank()))
 }
 
 // doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
-func doctorNotice(root string) string {
-	data, err := os.ReadFile(doctorNoticePath(root))
+func doctorNotice() string {
+	data, err := os.ReadFile(doctorNoticePath())
 	if err != nil {
 		return ""
 	}
@@ -76,7 +76,7 @@ func doctorNotice(root string) string {
 
 // writeDoctorNotice runs the doctor and caches its notice for root.
 func writeDoctorNotice(root string, staleDays int, now time.Time) error {
-	return cacheDoctorNotice(BankFor(root), doctor(root, staleDays, now))
+	return cacheDoctorNotice(HomeBank(), doctor(root, staleDays, now))
 }
 
 // cacheDoctorNotice caches problems' first line and a count (hot hints excluded); empty means checked and healthy.
@@ -109,7 +109,7 @@ func refreshBankNotice(w io.Writer, verb, root string, b Bank) {
 
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
-	return doctorBank(root, BankFor(root), staleDays, now)
+	return doctorBank(root, HomeBank(), staleDays, now)
 }
 
 func doctorBank(root string, b Bank, staleDays int, now time.Time) []string {

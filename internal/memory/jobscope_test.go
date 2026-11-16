@@ -48,7 +48,7 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
-	bank := memory.BankFor(work)
+	bank := memory.HomeBank()
 	home := memory.StoreDir()
 	claudeMD := filepath.Join(paths.ConfigDir(), "CLAUDE.md")
 	other := filepath.Join(store, "other-repo", "progress.md")

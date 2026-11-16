@@ -50,9 +50,9 @@ func (p dreamPreview) Report() string {
 	return b.String()
 }
 
-// previewDream computes dreamPreview for root without writing anything.
-func previewDream(root string) dreamPreview {
-	own := BankFor(root)
+// previewDream computes dreamPreview without writing anything.
+func previewDream() dreamPreview {
+	own := HomeBank()
 	local := statBank(own) // one read per typed file feeds the cap, archive and rotation checks below
 	p := dreamPreview{Dir: own.SubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
 	for name, capLines := range archiveCaps {
@@ -79,13 +79,13 @@ func isDreamChild() bool {
 }
 
 // dreamStampPath records the last consolidation time.
-func dreamStampPath(root string) string {
-	return filepath.Join(StateDir(), "last-dream-"+stateKey(BankFor(root)))
+func dreamStampPath() string {
+	return filepath.Join(StateDir(), "last-dream-"+stateKey(HomeBank()))
 }
 
 // dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
-func dreamStamp(root string) (t time.Time, failed, ok bool) {
-	data, err := os.ReadFile(dreamStampPath(root))
+func dreamStamp() (t time.Time, failed, ok bool) {
+	data, err := os.ReadFile(dreamStampPath())
 	if err != nil {
 		return time.Time{}, false, false
 	}
@@ -95,23 +95,23 @@ func dreamStamp(root string) (t time.Time, failed, ok bool) {
 }
 
 // effectiveStamp is dreamStamp, but a future stamp (clock moved back) reads as none: it would hide every changed file.
-func effectiveStamp(root string, now time.Time) (t time.Time, failed, ok bool) {
-	if t, failed, ok = dreamStamp(root); ok && t.After(now) {
+func effectiveStamp(now time.Time) (t time.Time, failed, ok bool) {
+	if t, failed, ok = dreamStamp(); ok && t.After(now) {
 		return time.Time{}, false, false
 	}
 	return t, failed, ok
 }
 
 // dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its stamp.
-func dreamDue(cwd string, now time.Time) bool {
-	stamp, failed, ok := effectiveStamp(cwd, now)
+func dreamDue(now time.Time) bool {
+	stamp, failed, ok := effectiveStamp(now)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
 	if ok && failed {
 		return true
 	}
-	return newestMtime(BankFor(cwd)).After(stamp) || newestMtime(HomeBank()).After(stamp)
+	return newestMtime(HomeBank()).After(stamp)
 }
 
 // dreamOptions drive one consolidation.
@@ -134,7 +134,7 @@ func dreamChanged(since time.Time) []string {
 }
 
 // agentDreamPrompt frames the consolidation pass; the procedure is one copy, embedded at prompts/dream.md.
-func agentDreamPrompt(cwd string, changed []string) (string, error) {
+func agentDreamPrompt(changed []string) (string, error) {
 	ref, err := Reference("dream")
 	if err != nil {
 		return "", err
@@ -143,44 +143,38 @@ func agentDreamPrompt(cwd string, changed []string) (string, error) {
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return fmt.Sprintf(dreamPromptFormat, BankFor(cwd).SubDir(""), StoreDir()) +
+	return fmt.Sprintf(dreamPromptFormat, StoreDir()) +
 		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 
-// dream archives durable-file overflow, consolidates both banks on the agent, settles, and stamps.
+// dream archives durable-file overflow, consolidates the bank on the agent, settles, and stamps.
 func dream(o dreamOptions) error {
 	if o.Out == nil {
 		o.Out = io.Discard
 	}
 	var runErr, archiveErr error
 	notDue := false
-	lockErr := paths.WithFileLock(lockPathOf(BankFor(o.CWD)), func() error {
-		ran, err := withHomeLock(BankFor(o.CWD), func() error { // the agent edits both banks, so hold both locks
-			if notDue = o.IfDue && !dreamDue(o.CWD, time.Now()); notDue {
-				fmt.Fprintln(o.Out, "memory dream: not due")
-				return nil
-			}
-			runErr, archiveErr = dreamLocked(o)
+	lockErr := paths.WithFileLock(lockPathOf(HomeBank()), func() error {
+		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
+			fmt.Fprintln(o.Out, "memory dream: not due")
 			return nil
-		})
-		if err == nil && !ran {
-			err = errors.New("another update or dream holds the home bank lock")
 		}
-		return err
+		runErr, archiveErr = dreamLocked(o)
+		return nil
 	})
 	if notDue && lockErr == nil {
 		return nil
 	}
 	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o)); err != nil { // settle after the lock is released
 		// backdated, so dreamDue retries in dreamRetry
-		return errors.Join(err, stampDream(o.CWD, time.Now().Add(dreamRetry-dreamInterval), true))
+		return errors.Join(err, stampDream(time.Now().Add(dreamRetry-dreamInterval), true))
 	}
-	return stampDream(o.CWD, time.Now(), false)
+	return stampDream(time.Now(), false)
 }
 
 // dreamSettle settles the bank and reports a failure on o.Out as well as returning it.
 func dreamSettle(o dreamOptions) error {
-	if _, err := settleBank(o.CWD, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		settleErr := fmt.Errorf("settle: %w", err)
 		fmt.Fprintln(o.Out, "memory dream:", settleErr)
 		return settleErr
@@ -189,9 +183,9 @@ func dreamSettle(o dreamOptions) error {
 	return nil
 }
 
-// dreamLocked archives overflow and runs the agent, both banks' locks held; it returns the agent and archive errors.
+// dreamLocked archives overflow and runs the agent, the bank lock held; it returns the agent and archive errors.
 func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
-	n, err := archiveOverflow(o.CWD, time.Now())
+	n, err := archiveOverflow(time.Now())
 	if err != nil {
 		archiveErr = fmt.Errorf("archive: %w", err)
 		fmt.Fprintln(o.Out, "memory dream:", archiveErr)
@@ -200,9 +194,9 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	if o.Run == nil {
 		return nil, archiveErr
 	}
-	since, _, _ := effectiveStamp(o.CWD, time.Now()) // no stamp: the zero time lists every file
+	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
-	prompt, err := agentDreamPrompt(o.CWD, changed)
+	prompt, err := agentDreamPrompt(changed)
 	if err != nil {
 		return err, archiveErr
 	}
@@ -225,10 +219,10 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	return err, archiveErr
 }
 
-func stampDream(root string, at time.Time, failed bool) error {
+func stampDream(at time.Time, failed bool) error {
 	body := at.Format(time.RFC3339) + "\n"
 	if failed {
 		body += "failed\n"
 	}
-	return paths.AtomicWrite(dreamStampPath(root), []byte(body), 0o600)
+	return paths.AtomicWrite(dreamStampPath(), []byte(body), 0o600)
 }

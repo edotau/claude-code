@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	migLayoutOld   = "flat 1"
-	migLayoutNew   = "flat 2"
 	migSubject     = "memory: migrate to one bank"
 	migBankBegin   = "<!-- bank:begin"
 	migBankEnd     = "<!-- bank:end -->"
@@ -62,21 +60,31 @@ type migPlan struct {
 	kept     []string
 	blockers []string
 	topics   int
+	rows     []string          // folder-pass rows: rename/merge/drop
+	refs     map[string]string // folder-pass old rel -> new rel, for reference rewriting
+	gone     map[string]bool   // legacy rels removed by a merge or drop
+	counts   [3]int            // renames, merges, drops
+	perKey   bool              // the store is flat 1: the per-key merge runs too
 }
 
-// Migrate turns a `flat 1` store into `flat 2`: one folder, no per-repo banks, one store commit.
+// Migrate stamps `flat 3`: a flat 1 store is merged into one bank, then folder entries lose their repo prefix.
 func Migrate(o MigrateOptions) error {
+	return WithBankLock(0, func() error { return migrate(o) })
+}
+
+func migrate(o MigrateOptions) error {
 	out := o.Out
 	if out == nil {
 		out = io.Discard
 	}
 	dir := StoreDir()
-	stamp, _ := os.ReadFile(filepath.Join(dir, migLayoutName))
-	if strings.TrimSpace(string(stamp)) == migLayoutNew {
+	stampRaw, _ := os.ReadFile(filepath.Join(dir, migLayoutName))
+	stamp := strings.TrimSpace(string(stampRaw))
+	if stamp == layoutFlat && !migHasPrefixed(dir) {
 		_, _ = fmt.Fprintln(out, "already migrated")
 		return nil
 	}
-	p, err := planMigration(dir, strings.TrimSpace(string(stamp)))
+	p, err := planMigration(dir, stamp)
 	if err != nil {
 		return err
 	}
@@ -97,22 +105,26 @@ func (p *migPlan) print(out io.Writer) {
 	for _, k := range p.kept {
 		_, _ = fmt.Fprintln(out, "collision kept:", k)
 	}
-	var line strings.Builder
-	fmt.Fprintf(&line, "topics renamed %d, collisions kept %d", p.topics, len(p.kept))
-	for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
-		fmt.Fprintf(&line, ", %s +%d", t, p.merged[t])
+	if p.perKey {
+		var line strings.Builder
+		fmt.Fprintf(&line, "topics renamed %d, collisions kept %d", p.topics, len(p.kept))
+		for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
+			fmt.Fprintf(&line, ", %s +%d", t, p.merged[t])
+		}
+		_, _ = fmt.Fprintln(out, line.String())
 	}
-	_, _ = fmt.Fprintln(out, line.String())
+	p.printFolders(out)
 }
 
 func planMigration(dir, stamp string) (*migPlan, error) {
-	p := &migPlan{writes: map[string]string{}, links: map[string]string{}, merged: map[string]int{}}
+	p := &migPlan{writes: map[string]string{}, links: map[string]string{}, merged: map[string]int{},
+		refs: map[string]string{}, gone: map[string]bool{}, perKey: stamp == layoutPerKey}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("memory migrate: %w", err)
 	}
-	if stamp != migLayoutOld {
-		p.blockers = append(p.blockers, fmt.Sprintf("layout is %q, want %q", stamp, migLayoutOld))
+	if !slices.Contains([]string{layoutPerKey, layoutFlat2, layoutFlat}, stamp) {
+		p.blockers = append(p.blockers, fmt.Sprintf("layout is %q, want %q, %q or %q", stamp, layoutPerKey, layoutFlat2, layoutFlat))
 	}
 	p.gitBlockers(dir)
 	have := map[string]bool{}
@@ -124,9 +136,14 @@ func planMigration(dir, stamp string) (*migPlan, error) {
 			orig = append(orig, e.Name())
 		}
 	}
-	keys := p.planMerges(dir, orig, have)
-	p.planTopics(dir, keys, orig, have)
-	p.planIndex(dir, keys)
+	var keys []string
+	if p.perKey {
+		keys = p.planMerges(dir, orig, have)
+		p.planTopics(dir, keys, orig, have)
+		p.planIndex(dir, keys)
+	}
+	p.planFolders(dir)
+	p.planRefs(dir)
 	return p, nil
 }
 
@@ -157,8 +174,12 @@ func migKeyOf(name string) (key, typed string, ok bool) {
 	return "", "", false
 }
 
-func migRead(path string) string {
-	b, _ := os.ReadFile(path)
+// read returns the file's text; a missing file is "", any other error is a blocker so no unread content is lost.
+func (p *migPlan) read(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		p.blockers = append(p.blockers, "unreadable: "+path+": "+err.Error())
+	}
 	return string(b)
 }
 
@@ -173,14 +194,14 @@ func (p *migPlan) planMerges(dir string, orig []string, have map[string]bool) []
 		if !slices.Contains(keys, key) {
 			keys = append(keys, key)
 		}
-		src := migRead(filepath.Join(dir, n))
+		src := p.read(filepath.Join(dir, n))
 		if textutil.CredentialRE().MatchString(src) {
 			p.blockers = append(p.blockers, "credential-shaped content: "+n)
 			continue
 		}
 		target, ok := p.writes[typed+".md"]
 		if !ok {
-			target = migRead(filepath.Join(dir, typed+".md"))
+			target = p.read(filepath.Join(dir, typed+".md"))
 		}
 		var added int
 		if slices.Contains(migLogTyped, typed) {
@@ -223,7 +244,7 @@ func (p *migPlan) renameTopic(dir, from, to string, have map[string]bool) {
 		p.renames = append(p.renames, [2]string{from, to})
 		p.links[from] = to
 		p.topics++
-	case migRead(filepath.Join(dir, from)) == migRead(filepath.Join(dir, to)) && !slices.Contains(p.removes, to):
+	case p.read(filepath.Join(dir, from)) == p.read(filepath.Join(dir, to)) && !slices.Contains(p.removes, to):
 		p.removes = append(p.removes, from)
 		p.links[from] = to
 		p.topics++
@@ -234,7 +255,7 @@ func (p *migPlan) renameTopic(dir, from, to string, have map[string]bool) {
 
 // planIndex rewrites MEMORY.md outside its generated bank region.
 func (p *migPlan) planIndex(dir string, keys []string) {
-	text := migRead(filepath.Join(dir, migIndexFile))
+	text := p.read(filepath.Join(dir, migIndexFile))
 	if text == "" {
 		return
 	}
@@ -285,42 +306,52 @@ func migRewriteIndex(text string, links map[string]string) string {
 func (p *migPlan) apply(dir string) error {
 	at := func(rel string) string { return filepath.Join(dir, rel) }
 	var err error
-	step := func(f func() error) {
+	step := func(rel string, f func() error) {
 		if err == nil {
-			err = f()
+			if err = f(); err != nil {
+				err = fmt.Errorf("%s: %w; store %s is uncommitted, `git -C %s status` shows the partial move "+
+					"(recover with `git -C %s checkout -- . && git -C %s clean -fd`)", rel, err, dir, dir, dir, dir)
+			}
 		}
 	}
+	// Renames first (writes target post-rename paths), then writes, then removes: a source goes only after all succeeded.
 	for _, r := range p.renames {
-		step(func() error { return os.Rename(at(r[0]), at(r[1])) })
+		step(r[0], func() error { return os.Rename(at(r[0]), at(r[1])) })
 	}
 	for name, body := range p.writes {
-		step(func() error { return paths.AtomicWrite(at(name), []byte(body), 0o644) })
+		step(name, func() error { return paths.AtomicWrite(at(name), []byte(body), 0o644) })
 	}
 	for _, rel := range append(p.removes, migOriginsFile) {
-		step(func() error {
+		step(rel, func() error {
 			if e := os.Remove(at(rel)); !errors.Is(e, fs.ErrNotExist) {
 				return e
 			}
 			return nil
 		})
 	}
-	step(func() error { return paths.AtomicWrite(at(migLayoutName), []byte(migLayoutNew+"\n"), 0o644) })
-	step(sweepNotes) // last move: loose notes into feedback/ and notes/, MEMORY.md repointed
-	step(func() error { return migCommit(dir) })
+	step(migLayoutName, func() error { return paths.AtomicWrite(at(migLayoutName), []byte(layoutFlat+"\n"), 0o644) })
+	if p.perKey {
+		step("sweep notes", sweepNotes) // last move: loose notes into feedback/ and notes/, MEMORY.md repointed
+	}
+	step("commit", func() error { return migCommit(dir, p.perKey) }) // only after every move succeeded
 	if err != nil {
 		return fmt.Errorf("memory migrate: %w", err)
 	}
 	return nil
 }
 
-func migCommit(dir string) error {
+func migCommit(dir string, perKey bool) error {
+	subject := migRenameSubject
+	if perKey {
+		subject = migSubject
+	}
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return nil
 	}
 	if out, err := migGit(dir, "add", "-A"); err != nil {
 		return fmt.Errorf("git add: %s", strings.TrimSpace(out))
 	}
-	if out, err := migGit(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", migSubject); err != nil {
+	if out, err := migGit(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", subject); err != nil {
 		return fmt.Errorf("git commit: %s", strings.TrimSpace(out))
 	}
 	return nil

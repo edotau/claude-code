@@ -117,7 +117,7 @@ type effortPlan struct {
 
 // recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
 func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
-	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, in.CWD, task)
+	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, task)
 	if recallBlock == "" {
 		return ""
 	}

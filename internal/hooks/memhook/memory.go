@@ -115,7 +115,7 @@ func Recall(in *core.Input) core.Result {
 	}
 	ctx, cancel := core.HookContext("memory-recall")
 	defer cancel()
-	return core.Result{Context: memory.PromptRecall(ctx, in.SessionID, in.CWD, in.Prompt, os.Stderr)}
+	return core.Result{Context: memory.PromptRecall(ctx, in.SessionID, in.Prompt, os.Stderr)}
 }
 
 // AgentInput returns in with TranscriptPath set to a synthesized Claude-shaped transcript; others pass unchanged.

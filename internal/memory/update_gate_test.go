@@ -170,7 +170,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	_ = os.Remove(stampPath("s1"))
 	runGate("s1", tr, cwd, TriggerStop)
 	writeStamp(stampPath("s1"), time.Now().Add(-time.Minute), "1", 5)
-	if _, err := Init(cwd); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	if g := runGate("s1", tr, cwd, TriggerStop); g.Blocked {

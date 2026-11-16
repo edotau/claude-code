@@ -166,7 +166,7 @@ type e2eRun struct {
 }
 
 // file is the repo bank's top-level file name in the flat store.
-func (x *e2eRun) file(name string) string { return BankFor(x.repo).Path(name) }
+func (x *e2eRun) file(name string) string { return HomeBank().Path(name) }
 
 const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
 
@@ -188,8 +188,8 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	repo := gitRepo(t, canonTemp(t, t.TempDir()), "proj")
 	r := &e2eRun{e: e2eEnv{bin: bin, cfg: cfg, home: home, repo: repo, pathDir: pathDir}, cfg: cfg, repo: repo}
 
-	initStore(t)                                                          // completed journal + store git repo, written under cfg by the same helper the unit tests use
-	write(t, dreamStampPath(repo), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
+	initStore(t)                                                      // completed journal + store git repo, written under cfg by the same helper the unit tests use
+	write(t, dreamStampPath(), time.Now().UTC().Format(time.RFC3339)) // dream not due: session-start spawns nothing
 
 	for _, step := range []struct {
 		name string
@@ -420,11 +420,10 @@ func decisionLogOver(t *testing.T, path string, n int) {
 
 func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	local := BankFor(root)
+	local := HomeBank()
 	decisionLogOver(t, local.Path("decisionLog.md"), 80)
 
-	n, err := archiveOverflow(root, time.Now())
+	n, err := archiveOverflow(time.Now())
 	if err != nil || n == 0 {
 		t.Fatalf("archived %d err %v", n, err)
 	}
@@ -432,11 +431,11 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	if n := strings.Count(string(kept), "\n"); n > fileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", n)
 	}
-	arch, err := os.ReadFile(archivePath(BankFor(root), "decisionLog.md", time.Now()))
+	arch, err := os.ReadFile(archivePath(HomeBank(), "decisionLog.md", time.Now()))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
 		t.Errorf("oldest entry did not land in the archive: %v %q", err, arch)
 	}
-	if n2, err := archiveOverflow(root, time.Now()); err != nil || n2 != 0 {
+	if n2, err := archiveOverflow(time.Now()); err != nil || n2 != 0 {
 		t.Errorf("second archive: n=%d err=%v, want a no-op", n2, err)
 	}
 }
@@ -473,7 +472,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, doctorNoticePath(StoreDir()))
+	notice := mustRead(t, doctorNoticePath())
 	if !strings.Contains(notice, "decisionLog.md: over") {
 		t.Errorf("notice %q", notice)
 	}
@@ -482,7 +481,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, doctorNoticePath(StoreDir())); notice != "" {
+	if notice := mustRead(t, doctorNoticePath()); notice != "" {
 		t.Errorf("want an empty cached notice, got %q", notice)
 	}
 }
@@ -501,10 +500,9 @@ func TestLogAccessRedactsCredentialShapedReason(t *testing.T) {
 
 func TestCollectBankStatsAndTimeline(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	_ = writeUpdateResult("s1", UpdateResult{Status: updateOK, Time: time.Now(), BankUpdated: true})
 	_ = writeUpdateResult("s2", UpdateResult{Status: updateFailed, Time: time.Now()})
-	write(t, BankFor(root).Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
+	write(t, HomeBank().Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := collectBankStats()
 	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
@@ -515,7 +513,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 		t.Errorf("report %q", report)
 	}
 
-	entries, sessions, err := timelineBank(BankFor(root), 10)
+	entries, sessions, err := timelineBank(HomeBank(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +563,7 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	if err := writeDoctorNotice(root, DefaultStaleDays, now); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, doctorNoticePath(root))
+	notice := mustRead(t, doctorNoticePath())
 	if !strings.Contains(notice, "conventions.md:") || !strings.Contains(notice, "unreadable") {
 		t.Fatalf("cached healthy notice for an unreadable bank: %q", notice)
 	}
@@ -575,10 +573,10 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 	isolatedConfig(t)
 	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, BankFor(root).Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
+	write(t, HomeBank().Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
 	reads := countBankReads(t)
 	got := doctor(root, DefaultStaleDays, time.Now())
 	want := "home progress.md: possible credential-shaped value — scrub before promoting"
@@ -602,8 +600,8 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
-	write(t, doctorNoticePath(""), notice)
-	got := doctorNotice("")
+	write(t, doctorNoticePath(), notice)
+	got := doctorNotice()
 	if !strings.HasPrefix(got, " memory review: ") {
 		t.Fatalf("doctorNotice prefix not found: %q", got)
 	}

@@ -183,7 +183,7 @@ func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, b
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
-	path := ledgerPath(repo.Main, name)
+	path := ledgerPath(repo.Main, name, time.Time{})
 	if data, err := os.ReadFile(path); err == nil {
 		if ledgerField(string(data), "Status") != "closed" {
 			return nil

@@ -20,7 +20,7 @@ func compactRepo(t *testing.T) (root string, b Bank) {
 	t.Helper()
 	isolatedConfig(t)
 	root = repoRoot(t, "proj")
-	b = BankFor(root)
+	b = HomeBank()
 	write(t, b.Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Ship the handoff <!-- id:9c2d7e41 -->\n\nbody\n\n"+
 		"## 2026-11-15 — Older ruling <!-- id:e19b50c3 -->\n\nbody\n")
 	write(t, filepath.Join(paths.ConfigDir(), "plans", "2026-11-16-plan.md"), "# plan\n")

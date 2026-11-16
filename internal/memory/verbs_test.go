@@ -87,7 +87,7 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{Repo: StoreDir()}); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, doctorNoticePath(StoreDir())); notice != "" {
+	if notice := mustRead(t, doctorNoticePath()); notice != "" {
 		t.Errorf("cached notice after the fix and an index = %q, want it cleared", notice)
 	}
 }
