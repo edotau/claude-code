@@ -17,6 +17,8 @@ import (
 
 type qualityArgs struct {
 	path     string
+	paths    []string
+	comments bool
 	language string
 	jsonOut  bool
 	output   string
@@ -32,6 +34,8 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 	language := fs.String("language", "", "only this language; a single file must match it (-l)")
 	fs.StringVar(language, "l", "", "shorthand for --language")
 	output := fs.String("output", "", "with --json: write the report to this file (-o)")
+	comments := fs.Bool("comments", false, "list Go comment cleanup candidates over files or trees (needs --format tsv)")
+	format := fs.String("format", "", "with --comments: tsv, one file:line<TAB>kind<TAB>symbol<TAB>text per candidate")
 	fs.StringVar(output, "o", "", "shorthand for --output")
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
@@ -42,6 +46,13 @@ func parseQualityArgs(args []string, stdout, stderr io.Writer) (qualityArgs, int
 	positional, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return qualityArgs{}, helptext.ExitCode(err), true
+	}
+	if *comments {
+		if *format != "tsv" || len(positional) == 0 {
+			fmt.Fprintln(stderr, "review quality: --comments needs --format tsv and at least one path")
+			return qualityArgs{}, 2, true
+		}
+		return qualityArgs{comments: true, paths: positional}, 0, false
 	}
 	if len(positional) != 1 {
 		fmt.Fprintf(stderr, "review quality: expected exactly one path argument, got %d\n", len(positional))
@@ -73,6 +84,9 @@ func RunQuality(args []string, stdout, stderr io.Writer) int {
 	parsed, code, done := parseQualityArgs(args, stdout, stderr)
 	if done {
 		return code
+	}
+	if parsed.comments {
+		return RunCommentCandidates(parsed.paths, stdout, stderr)
 	}
 	target := resolvePath(parsed.path)
 	info, statErr := os.Stat(target)

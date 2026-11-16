@@ -204,3 +204,50 @@ func TestChangedNamesRejectsOptionBase(t *testing.T) {
 		t.Fatalf("names = %v, want none for an option-like base", names)
 	}
 }
+
+func runSimplifyFail(t *testing.T) (int, string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	code := RunSimplify([]string{"--fail", "--base", "HEAD"}, &out, &errb)
+	return code, out.String() + errb.String()
+}
+
+func TestRunSimplifyFailNewViolations(t *testing.T) {
+	longLine := "// " + strings.Repeat("x", 130)
+	cases := []struct {
+		name, add, want string
+		fail            bool
+	}{
+		{"stacked block", "\n// one\n// two\nfunc A() {}\n", "Comment block has 2 lines", true},
+		{"long comment", "\n" + longLine + "\nfunc A() {}\n", "Comment line is", true},
+		{"long function", longGo()[len(cleanGo):], "is 6", true},
+		{"go directive", "\n//go:noinline\n//nolint:all\nfunc A() {}\n", "", false},
+		{"gotcha block", "\n// Gotcha: one\n// two\nfunc A() {}\n", "", false},
+		{"deprecated block", "\n// Deprecated: one\n// two\nfunc A() {}\n", "", false},
+		{"single comment", "\n// one line\nfunc A() {}\n", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := gitFixture(t)
+			hosttest.WriteRel(t, dir, "fx.go", cleanGo+c.add)
+			code, out := runSimplifyFail(t)
+			if (code == 1) != c.fail || !strings.Contains(out, c.want) {
+				t.Fatalf("code=%d want fail=%v containing %q:\n%s", code, c.fail, c.want, out)
+			}
+		})
+	}
+}
+
+func TestRunSimplifyFailIgnoresUntouchedDebt(t *testing.T) {
+	dir := gitFixture(t)
+	hosttest.WriteRel(t, dir, "fx.go", longGo())
+	hosttest.In(t, dir, "commit", "-qam", "debt")
+	hosttest.WriteRel(t, dir, "fx.go", strings.Replace(longGo(), "a + b", "b + a", 1))
+	if code, out := runSimplifyFail(t); code != 0 {
+		t.Fatalf("existing debt failed the run (code %d):\n%s", code, out)
+	}
+	hosttest.WriteRel(t, dir, "fx.go", strings.Replace(longGo(), "x += 3\n", "x += 4\n", 1))
+	if code, out := runSimplifyFail(t); code != 1 || !strings.Contains(out, "'Long' is") {
+		t.Fatalf("edit inside the long function must fail (code %d):\n%s", code, out)
+	}
+}
