@@ -41,19 +41,19 @@ var depInstallers = map[string]map[string]string{
 	"windows": {},
 }
 
-// depWant is each row's dry-run line per platform; {local} is ~/.local/bin, {prefix} ~/.local.
+// depWant is each row's dry-run line per platform (darwin: go beats brew); {local} is ~/.local/bin, {prefix} ~/.local.
 var depWant = map[string][3]string{ // darwin, linux, windows
 	"git":  {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y git", ""},
 	"go":   {"ok /usr/local/go/bin/go", "ok /usr/bin/go", ""},
 	"make": {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y make", ""},
 	"curl": {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y curl", ""},
-	"shfmt": {"would install: brew install shfmt",
+	"shfmt": {"would install: GOBIN={local} go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1",
 		"would install: GOBIN={local} go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1", ""},
 	"ruff": {"would install: brew install ruff", "would install: pipx install ruff==0.17.5", ""},
 	"node": {"would install: brew install node", "skipped: none of brew on PATH; run: sudo apt-get install -y nodejs", ""},
 	"prettier": {"would install: brew install prettier",
 		"would install: npm install --global --prefix {prefix} --no-fund --no-audit prettier@3.10.1", ""},
-	"gh": {"would install: brew install gh",
+	"gh": {"would install: GOBIN={local} go install github.com/cli/cli/v2/cmd/gh@v2.104.0",
 		"would install: GOBIN={local} go install github.com/cli/cli/v2/cmd/gh@v2.104.0", ""},
 	"tmux":          {"would install: brew install tmux", "skipped: none of brew on PATH; run: sudo apt-get install -y tmux", ""},
 	"shellcheck":    {"would install: brew install shellcheck", "skipped: none of brew on PATH; run: sudo apt-get install -y shellcheck", ""},
