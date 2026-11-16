@@ -102,8 +102,10 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 
 func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error {
 	keys := make([]fileKey, 0, len(m))
-	for key := range m {
+	size := len(recallIndexMagic) + 24
+	for key, entry := range m {
 		keys = append(keys, key)
+		size += 25 + len(key.path) + len(entry.seg)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].path != keys[j].path {
@@ -111,7 +113,7 @@ func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error 
 		}
 		return keys[i].mode < keys[j].mode
 	})
-	data := append([]byte{}, recallIndexMagic...)
+	data := append(make([]byte, 0, size), recallIndexMagic...)
 	data = binary.LittleEndian.AppendUint32(data, recallIndexVersion)
 	data = binary.LittleEndian.AppendUint64(data, uint64(stamp.size))
 	data = binary.LittleEndian.AppendUint64(data, uint64(stamp.mtimeNs))
