@@ -169,7 +169,7 @@ func dbxCLIServer(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	var got []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") { // the identity check, not a listing request
+		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") {
 			_, _ = w.Write([]byte(`{"id":"u1","active":true}`))
 			return
 		}
@@ -422,7 +422,7 @@ func TestPrintRecordDiffRejectsUnreadableRecords(t *testing.T) {
 	}
 }
 
-// providerListCmdJSON runs `configure providers list <name> --format json`, requires exit 0, and returns stdout and stderr.
+// providerListCmdJSON runs `configure providers list <name> --format json`, requires exit 0, returns stdout and stderr.
 func providerListCmdJSON(t *testing.T, name string) (stdout, stderr string) {
 	t.Helper()
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return providerList(name, "json") })
@@ -682,7 +682,7 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 }
 
-// resolve --proxy prints an armed launch's token, else a scoped one minted for the parent pid; it never prints the secret.
+// resolve --proxy prints an armed launch's token, else one scoped to the parent pid; it never prints the secret.
 func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	cliScratch(t)
 	secret, err := gateway.ClientSecret()

@@ -762,8 +762,7 @@ func TestMintProxyTokenRejectsInvalidConfigDir(t *testing.T) {
 	}
 }
 
-// TestGatewayRouteRefusesModelNoEndpointServes: an explicit model no endpoint serves exits non-zero naming it; a
-// served bare name passes that refusal (a later gate may still find no candidate to run it).
+// TestGatewayRouteRefusesModelNoEndpointServes: a model no endpoint serves exits non-zero naming it.
 func TestGatewayRouteRefusesModelNoEndpointServes(t *testing.T) {
 	for _, c := range []struct {
 		model   string

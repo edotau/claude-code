@@ -319,7 +319,7 @@ func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentc
 	return cfg, err
 }
 
-// checkCoworkerFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit (preflight: 1).
+// checkCoworkerFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.
 func checkCoworkerFlags(ctx context.Context, name, confinement, profile, format, fallback, want, model string) (context.Context, int) {
 	ctx, err := ask.ApplyCoworker(ctx, confinement, profile, want, model, fallback)
 	if err != nil {

@@ -218,7 +218,7 @@ var resolvePage = helptext.Page{
 		"the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
 }
 
-// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else a scoped token minted for the parent process.
+// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else a token scoped to the parent process.
 func cmdResolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
@@ -473,7 +473,7 @@ func providerListJSON(reg *providers.Registry, name string) int {
 	for _, n := range names {
 		list = append(list, newProviderEntry(reg.Providers[n]))
 	}
-	var session string // the profile a launch resolves to today
+	var session string
 	if sel, err := providers.Select(reg, ""); err == nil && sel.Provider != nil {
 		session = sel.Provider.Name
 	}

@@ -66,7 +66,7 @@ var vaultVerbs = map[string]func(args []string) int{
 // cmdVault dispatches the vault subcommands; bare `vault` lists.
 func cmdVault(args []string) int {
 	if len(args) == 0 || (strings.HasPrefix(args[0], "-") && !helptext.WantsHelp(args[:1])) {
-		return vaultList(args) // bare `vault` (or a leading flag) is `vault ls`
+		return vaultList(args)
 	}
 	sub, args := args[0], args[1:]
 	if isHelpVerb(sub) {

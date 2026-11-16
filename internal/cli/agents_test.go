@@ -924,7 +924,7 @@ func TestAgentsJSONCapabilitySchema(t *testing.T) {
 	}
 }
 
-// `agents brief` prints the Owned line the diff verifier reads back; an implementation brief without --own is a usage error.
+// `agents brief` prints the Owned line the diff verifier reads back; an implementation brief needs --own.
 func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 	task := filepath.Join(t.TempDir(), "task.md")
 	if err := os.WriteFile(task, []byte("Do the thing.\n"), 0o644); err != nil {

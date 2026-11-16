@@ -81,7 +81,7 @@ func memorySubPage(sub string) helptext.Page {
 
 // memorySynopsis is `claude-code memory <sub> [flags] <args>`, the usage line of sub's page and its errors.
 func memorySynopsis(sub, args string) string {
-	if strings.HasPrefix(args, "<id> --to") || strings.HasPrefix(args, "<old-id> --with") { // the ids lead
+	if strings.HasPrefix(args, "<id> --to") || strings.HasPrefix(args, "<old-id> --with") {
 		return "claude-code memory " + sub + " " + args + " [flags]"
 	}
 	return strings.TrimSpace("claude-code memory " + sub + " [flags] " + args)
@@ -639,7 +639,7 @@ func cmdMemoryImport(args []string) int {
 		return helptext.Fail("memory import: %v", err)
 	}
 	if *host != "" {
-		defer func() { _ = os.RemoveAll(dir) }() // the fetched copy
+		defer func() { _ = os.RemoveAll(dir) }()
 	}
 	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Repo: *repo, Label: label, All: *all, DryRun: *dryRun, Topics: *topics})
 	if err != nil {
@@ -663,7 +663,7 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 		return from, from, nil
 	}
 	if dir, err = fetchMemoryRoot(host); err != nil {
-		_ = os.RemoveAll(dir) // a failed fetch leaves no copy behind
+		_ = os.RemoveAll(dir)
 		err = fmt.Errorf("fetch from %s: %w", host, err)
 	}
 	return dir, host, err

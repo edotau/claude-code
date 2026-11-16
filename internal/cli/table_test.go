@@ -1026,7 +1026,7 @@ func TestRemoteLoginRefusesHostAndHostBrowser(t *testing.T) {
 	}
 }
 
-// --remote <h> pins the login host for `databricks login` (and for no other verb); the refused --host pair pins nothing.
+// --remote <h> pins the login host for `databricks login` only; the refused --host pair pins nothing.
 func TestRemoteLoginPinsHostRefusedPairPinsNothing(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("HARNESS_LOGIN_REMOTE", "")
