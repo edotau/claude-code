@@ -41,26 +41,16 @@ func corpusOf(own Bank) []corpusFile {
 			out = append(out, corpusFile{label, b.Path(name), segEntries})
 		}
 	}
-	home := HomeBank()
-	if !own.Home() {
-		banks("local", own)
-	}
-	banks("home", home)
-	archiveOwners := []Bank{own}
-	if !own.Home() {
-		archiveOwners = append(archiveOwners, home)
-	}
-	for _, owner := range archiveOwners {
-		for _, path := range ownedFiles(owner, "archive") {
-			out = append(out, corpusFile{"archive", path, segEntries})
-		}
+	banks("home", HomeBank())
+	for _, path := range ownedFiles(own, "archive") {
+		out = append(out, corpusFile{"archive", path, segEntries})
 	}
 	for _, b := range nativeBanks(own) {
 		for _, path := range topicFiles(b) {
 			out = append(out, corpusFile{"native", path, segNative})
 		}
 	}
-	for _, path := range knowledgeOf(own) {
+	for _, path := range knowledgeNotes() {
 		out = append(out, corpusFile{"knowledge", path, segKnowledge})
 	}
 	return out
@@ -69,34 +59,16 @@ func corpusOf(own Bank) []corpusFile {
 // ownerDir maps a corpus file to the dir whose access log it feeds (a store-key stand-in).
 func ownerDir(path string) string { return accessDir(BankOfFile(path)) }
 
-// ownerKey is name's "<key>--" prefix when key is a known bank, else "" (the home tier); keys never hold "--".
-func ownerKey(name string, keys []string) string {
-	if k, _, ok := strings.Cut(name, "--"); ok && slices.Contains(keys, k) {
-		return k
-	}
-	return ""
-}
+// ownedFiles lists the *.md in the store folder sub; sub "" is the top-level files.
+func ownedFiles(b Bank, sub string) []string { return transcript.GlobIn(b.SubDir(sub), "*.md") }
 
-// ownedFiles lists b's *.md in sub: the names carrying b's prefix.
-func ownedFiles(b Bank, sub string) []string {
-	files := transcript.GlobIn(b.SubDir(sub), "*.md")
-	keys := BankKeys()
-	return slices.DeleteFunc(files, func(p string) bool { return ownerKey(filepath.Base(p), keys) != b.Key })
-}
-
-// topicFiles are b's native topics: its prefixed top-level non-typed files.
+// topicFiles are the native topics: top-level non-typed notes plus the feedback/ and notes/ folders.
 func topicFiles(b Bank) []string {
-	keys := BankKeys()
-	var out []string
-	for _, p := range searchTopicFiles(StoreDir()) {
-		name := filepath.Base(p)
-		local := strings.TrimPrefix(name, b.Prefix())
-		if ownerKey(name, keys) != b.Key || reservedNames[local] {
-			continue
-		}
-		out = append(out, p)
+	files := searchTopicFiles(StoreDir())
+	for _, d := range noteDirs {
+		files = append(files, searchTopicFiles(b.SubDir(d))...)
 	}
-	return out
+	return files
 }
 
 func searchTopicFiles(dir string) []string {
@@ -107,7 +79,7 @@ func searchTopicFiles(dir string) []string {
 		if !e.Type().IsRegular() || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		if reservedNames[name] {
+		if reservedNames[name] || isFlatSubFile(name) {
 			continue
 		}
 		files = append(files, filepath.Join(dir, name))
@@ -480,9 +452,8 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	}
 	n := float64(ndocs)
 	var hits []SearchHit
-	keys := BankKeys()
 	for _, i := range usable {
-		dir := accessDir(bankOfFile(files[i].Path, keys))
+		dir := accessDir(HomeBank())
 		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
@@ -490,41 +461,6 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 		hits = hits[:k]
 	}
 	return hits
-}
-
-// routedFilesOf is the bank and topic files of every repo query names, other than own's store.
-func routedFilesOf(own Bank, query string) []corpusFile {
-	var out []corpusFile
-	for _, b := range routedBanks(query) {
-		if b != own {
-			out = append(out, storeFiles(b)...)
-		}
-	}
-	return out
-}
-
-// routedBanks are the repo banks query names as a whole word.
-func routedBanks(query string) []Bank {
-	var out []Bank
-	q := strings.ToLower(query)
-	for _, k := range BankKeys() {
-		if routeMatch(q, k) {
-			out = append(out, Bank{Key: k})
-		}
-	}
-	return out
-}
-
-// storeFiles labels a repo's typed bank files and native topics with its store key.
-func storeFiles(b Bank) []corpusFile {
-	var out []corpusFile
-	for _, name := range BankFiles() {
-		out = append(out, corpusFile{Bank: b.Key, Path: b.Path(name), Mode: segEntries})
-	}
-	for _, path := range topicFiles(b) {
-		out = append(out, corpusFile{Bank: b.Key, Path: path, Mode: segNative})
-	}
-	return out
 }
 
 // reservedNames is every filename a memory dir reserves; the six typed bank files are reserved by name too.
@@ -666,7 +602,6 @@ func corpusBlocks(root string) ([]SearchHit, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := BankKeys()
 	var out []SearchHit
 	for _, f := range corpusOf(b) {
 		data, err := os.ReadFile(f.Path)
@@ -677,7 +612,7 @@ func corpusBlocks(root string) ([]SearchHit, error) {
 			return nil, err
 		}
 		base := filepath.Base(f.Path)
-		dir := accessDir(bankOfFile(f.Path, keys))
+		dir := accessDir(HomeBank())
 		for _, block := range parseBlocks(f.Mode, base, data) {
 			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: dir})
 		}

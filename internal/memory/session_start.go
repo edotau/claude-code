@@ -173,21 +173,20 @@ func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
 	return r, json.Unmarshal(b, &r) == nil
 }
 
-// newestHandoff is b's most recently modified model-written handoff within maxAge, or "".
+// newestHandoff is the store's most recently modified model-written handoff within maxAge, or "".
 func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
 	dir := b.SubDir("handoffs")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
 	}
-	keys := BankKeys()
 	best, bestMod := "", time.Time{}
 	for _, e := range entries {
 		fi, err := e.Info()
 		if err != nil || e.IsDir() || filepath.Ext(e.Name()) != ".md" || now.Sub(fi.ModTime()) > maxAge {
 			continue
 		}
-		if ownerKey(e.Name(), keys) != b.Key || generatedHandoff().MatchString(e.Name()) {
+		if generatedHandoff().MatchString(e.Name()) {
 			continue
 		}
 		if fi.ModTime().After(bestMod) {
@@ -393,34 +392,26 @@ const (
 	indexCapChars = 2500
 )
 
-// Session-surface budgets: this repo's focus and the home bank's essentials, reserved so neither starves the other.
-const (
-	focusCapChars     = 1200
-	homeFocusCapChars = 500
-)
+// focusCapChars caps the injected focus section so the index and catalog pointer keep their room.
+const focusCapChars = 1200
 
-// sessionSurface is the capped session preload: root's and home's focus sections plus a pointer to other repos.
+// sessionSurface is the capped session preload: the one bank's focus plus a pointer to the catalog, whatever root is.
 func sessionSurface(root string) string {
 	b := BankFor(root)
 	var parts []string
 	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
-		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>` -->")
+		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), catalogFile)+"; search: `claude-code memory search <terms>` -->")
 	}
 	if bankExists(root) { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- THIS REPO (" + b.SubDir("") + ") -->"
+		head := "<!-- MEMORY (" + b.SubDir("") + ") -->"
 		if focus := repoFocus(b); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
 		parts = append(parts, capChars(head, focusCapChars))
 	}
-	if home := HomeBank(); !b.Home() {
-		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, capChars("<!-- HOME BANK ("+home.SubDir("")+") -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
-		}
-	}
 	if !nativeLinked(root, b.SubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
 		if data, err := os.ReadFile(b.NativeIndex()); err == nil && len(data) > 0 {
-			parts = append(parts, capChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
+			parts = append(parts, capChars("<!-- MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
 	return capChars(strings.Join(parts, "\n\n"), totalCapChars)

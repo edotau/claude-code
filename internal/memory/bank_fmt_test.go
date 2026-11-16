@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -502,7 +501,7 @@ func wordsSubsequence(want, got []string) bool {
 }
 
 func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
-	for _, sub := range []string{"stat", "", "archive"} {
+	for _, sub := range []string{"stat", ""} {
 		t.Run(sub, func(t *testing.T) {
 			isolatedConfig1(t)
 			want := fmtDiscoveryFailure(t, sub)
@@ -530,48 +529,4 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden\nbody\n")
 	denyBankAccess(t, dir)
 	return fs.ErrPermission
-}
-
-func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
-	home, other := bankFmtRepoStore(t)
-	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
-	otherFile := other.Sub("reports", "r.md")
-	homeFile := filepath.Join(home, "decisionLog.md")
-	write(t, otherFile, body)
-	var out strings.Builder
-	if dirty, err := FormatCheck(&out); err != nil || dirty || !strings.Contains(out.String(), "note: 1 file(s)") {
-		t.Fatalf("other bank only: dirty=%v err=%v out=%q, want clean with a note", dirty, err, out.String())
-	}
-	write(t, homeFile, body)
-	out.Reset()
-	if dirty, err := FormatCheck(&out); err != nil || !dirty || !strings.Contains(out.String(), homeFile) {
-		t.Fatalf("home bank dirty: dirty=%v err=%v out=%q, want failure naming %s", dirty, err, out.String(), homeFile)
-	}
-	for _, f := range []string{otherFile, homeFile} {
-		if got, _ := os.ReadFile(f); string(got) != body {
-			t.Errorf("FormatCheck rewrote %s", f)
-		}
-	}
-}
-
-func TestFormatOwnWrapsOnlyOwnBanks(t *testing.T) {
-	home, other := bankFmtRepoStore(t)
-	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
-	otherFile := other.Sub("reports", "r.md")
-	homeFile := filepath.Join(home, "decisionLog.md")
-	write(t, otherFile, body)
-	write(t, homeFile, body)
-	var out strings.Builder
-	if err := FormatOwn(&out); err != nil || !strings.Contains(out.String(), homeFile) || !strings.Contains(out.String(), "note: 1 file(s)") {
-		t.Fatalf("FormatOwn err=%v out=%q, want the home file wrapped and a note for the other bank", err, out.String())
-	}
-	if got, _ := os.ReadFile(homeFile); string(got) == body {
-		t.Error("home bank file was not wrapped")
-	}
-	if got, _ := os.ReadFile(otherFile); string(got) != body {
-		t.Error("another repo's bank was rewritten")
-	}
-	if dirty, err := FormatCheck(io.Discard); err != nil || dirty {
-		t.Fatalf("after FormatOwn: dirty=%v err=%v, want clean", dirty, err)
-	}
 }

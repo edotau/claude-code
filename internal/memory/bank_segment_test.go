@@ -23,37 +23,10 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 
 	var found bool
 	for _, f := range corpusFiles(root) {
-		if f.Path == topic {
-			found = true
-			if f.Bank != "native" {
-				t.Errorf("global topic bank = %q, want native", f.Bank)
-			}
-		}
+		found = found || f.Path == topic && f.Bank == "native"
 	}
 	if !found {
 		t.Errorf("corpusFiles(%s) missing global topic %s", root, topic)
-	}
-}
-
-// routedFilesOf lists only the named stores other than root's own: never root's, never an unnamed one.
-func TestRoutedFilesExcludesOwnStore(t *testing.T) {
-	isolatedConfig1(t)
-	initStore(t)
-	roots := map[string]string{}
-	for _, name := range []string{"proja", "projb", "projc"} {
-		roots[name] = gitRepo(t, t.TempDir(), name)
-		if _, err := Init(roots[name]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	files := routedFilesOf(BankFor(roots["proja"]), "proja projb")
-	if len(files) == 0 {
-		t.Fatal("routedFilesOf listed nothing for the named projb")
-	}
-	for _, f := range files {
-		if f.Bank != "projb" || BankOfFile(f.Path).Key != "projb" {
-			t.Errorf("routedFilesOf listed %+v, want only projb's files", f)
-		}
 	}
 }
 
@@ -137,16 +110,6 @@ func TestReadIfExists(t *testing.T) {
 	}
 }
 
-// otherBank scaffolds a second repo's bank so the flat store has a foreign key to attribute files to.
-func otherBank(t *testing.T) (root string, b Bank) {
-	t.Helper()
-	root = gitRepo(t, canonTemp(t, t.TempDir()), "other")
-	if _, err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-	return root, BankFor(root)
-}
-
 func pathsOf(files []corpusFile, label string) []string {
 	var out []string
 	for _, f := range files {
@@ -162,55 +125,26 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
-		_, other := otherBank(t)
 		b := BankFor(root)
-		own, foreign, homeTopic := b.Path("own-topic.md"), other.Path("foreign-topic.md"), HomeBank().Path("home-topic.md")
-		ownArc, foreignArc := b.Sub("archive", "old.md"), other.Sub("archive", "old.md")
-		for _, p := range []string{own, foreign, homeTopic, ownArc, foreignArc} {
+		topic, arc := b.Path("topic.md"), b.Sub("archive", "old.md")
+		for _, p := range []string{topic, arc} {
 			write(t, p, "---\nname: x\n---\nzebra\n")
 		}
 		files := corpusFiles(root)
 		native, archive := pathsOf(files, "native"), pathsOf(files, "archive")
-		for _, want := range []string{own, homeTopic} {
-			if !slices.Contains(native, want) {
-				t.Errorf("native corpus lacks %s: %v", want, native)
-			}
+		if !slices.Contains(native, topic) {
+			t.Errorf("native corpus lacks %s: %v", topic, native)
 		}
 		for _, p := range native {
-			if p == foreign || slices.Contains(bankFiles, strings.TrimPrefix(filepath.Base(p), b.Prefix())) {
-				t.Errorf("native corpus holds %s: a foreign or typed file", p)
+			if slices.Contains(bankFiles, filepath.Base(p)) {
+				t.Errorf("native corpus holds %s: a typed file", p)
 			}
 		}
-		if !slices.Contains(archive, ownArc) || slices.Contains(archive, foreignArc) {
-			t.Errorf("archive corpus = %v, want %s and not %s", archive, ownArc, foreignArc)
+		if !slices.Contains(archive, arc) {
+			t.Errorf("archive corpus = %v, want %s", archive, arc)
 		}
-		if got := pathsOf(files, "local"); len(got) != len(bankFiles) || got[0] != b.Path(bankFiles[0]) {
-			t.Errorf("local typed files = %v", got)
-		}
-	})
-}
-
-func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
-	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
-			t.Fatal(err)
-		}
-		_, other := otherBank(t)
-		write(t, other.Path("foreign-topic.md"), "---\nname: x\n---\nzebra\n")
-		files := routedFilesOf(BankFor(root), "about other things")
-		if len(files) == 0 {
-			t.Fatal("routedFilesOf listed nothing for the named bank")
-		}
-		for _, f := range files {
-			if f.Bank != "other" || ownerKey(filepath.Base(f.Path), BankKeys()) != "other" {
-				t.Errorf("routed %+v, want only other's files", f)
-			}
-			if strings.HasPrefix(filepath.Base(f.Path), "other--projectContext") && f.Mode != segEntries {
-				t.Errorf("typed file %s routed as native", f.Path)
-			}
-		}
-		if len(routedFilesOf(BankFor(root), "proj other")) != len(files) {
-			t.Error("routedFilesOf listed root's own bank")
+		if got := pathsOf(files, "home"); len(got) != len(bankFiles) || got[0] != b.Path(bankFiles[0]) {
+			t.Errorf("typed files = %v", got)
 		}
 	})
 }

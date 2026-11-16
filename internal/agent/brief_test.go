@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -68,8 +66,7 @@ func TestBriefReadOnlyOwnsNothing(t *testing.T) {
 
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
-	key := filepath.Base(config)
-	want := filepath.Join(config, "memory", "reports", key+"--YYYY-MM-DD-<name>.md")
+	want := filepath.Join(config, "memory", "reports", "YYYY-MM-DD-<name>.md")
 	if got := strings.Count(brief, want); got != 2 {
 		t.Errorf("brief has %d report paths matching %q; want 2", got, want)
 	}
@@ -83,25 +80,5 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
 		}
-	}
-}
-
-func TestBriefReportPathCarriesTheBankPrefix(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := filepath.Join(t.TempDir(), "alpha")
-	if err := os.Mkdir(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	t.Chdir(repo)
-	in := BriefInput{Task: "x", ReadOnly: true, Verify: "true"}
-	flat, err := RenderBrief(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(flat, "/alpha--YYYY-MM-DD-<name>.md") {
-		t.Errorf("flat brief lacks the key prefix:\n%s", flat)
 	}
 }

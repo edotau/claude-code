@@ -197,7 +197,7 @@ func TestE2EMemoryLifecycle(t *testing.T) {
 	}{
 		{"init", r.init}, {"session-start", r.sessionStart}, {"remember", r.remember},
 		{"recall-and-search", r.recallAndSearch}, {"recall-hook", r.recallHook},
-		{"review-candidates", r.reviewCandidates}, {"promote", r.promote},
+		{"review-candidates", r.reviewCandidates},
 		{"update-procedure", r.updateProcedure}, {"update-transcript", r.updateTranscript},
 		{"index-and-fmt", r.indexAndFmt}, {"layout", r.layout},
 	} {
@@ -282,27 +282,6 @@ func (x *e2eRun) recallHook(t *testing.T) {
 
 func (x *e2eRun) reviewCandidates(t *testing.T) {
 	x.e.mustRun(t, "", "memory", "review", "--candidates")
-}
-
-func (x *e2eRun) promote(t *testing.T) {
-	homeBank := StoreDir()
-	beforeLocal, beforeHome := dirHashes(t, x.bankDir), dirHashes(t, homeBank)
-	x.e.mustRun(t, "", "memory", "promote", x.factID, "--to", "home", "--dry-run")
-	if got := dirHashes(t, x.bankDir); !equalSnap(got, beforeLocal) {
-		t.Error("--dry-run changed the local bank")
-	}
-	if got := dirHashes(t, homeBank); !equalSnap(got, beforeHome) {
-		t.Error("--dry-run changed the home bank")
-	}
-	x.e.mustRun(t, "", "memory", "promote", x.factID, "--to", "home")
-	homeConv, err := os.ReadFile(filepath.Join(homeBank, "conventions.md"))
-	if err != nil || !strings.Contains(string(homeConv), "zebrafish kestrel") {
-		t.Errorf("promoted fact missing from home conventions.md (err %v)", err)
-	}
-	local, _ := os.ReadFile(x.file("conventions.md"))
-	if strings.Contains(string(local), "zebrafish kestrel") {
-		t.Error("promoted fact still in the local conventions.md")
-	}
 }
 
 func (x *e2eRun) updateProcedure(t *testing.T) {
@@ -444,8 +423,6 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	root := repoRoot(t, "proj")
 	local := BankFor(root)
 	decisionLogOver(t, local.Path("decisionLog.md"), 80)
-	homePath := filepath.Join(StoreDir(), "decisionLog.md")
-	homeBefore, _ := os.ReadFile(homePath)
 
 	n, err := archiveOverflow(root, time.Now())
 	if err != nil || n == 0 {
@@ -458,9 +435,6 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	arch, err := os.ReadFile(archivePath(BankFor(root), "decisionLog.md", time.Now()))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
 		t.Errorf("oldest entry did not land in the archive: %v %q", err, arch)
-	}
-	if homeAfter, _ := os.ReadFile(homePath); string(homeAfter) != string(homeBefore) {
-		t.Error("archiving must not touch the home bank")
 	}
 	if n2, err := archiveOverflow(root, time.Now()); err != nil || n2 != 0 {
 		t.Errorf("second archive: n=%d err=%v, want a no-op", n2, err)
@@ -553,20 +527,6 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	}
 }
 
-// The doctor covers the LOCAL bank of the root it is asked about, not only the global one.
-func TestDoctorFlagsLocalBankOverCap(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
-		t.Fatal(err)
-	}
-	decisionLogOver(t, BankFor(root).Path("decisionLog.md"), 80)
-	joined := strings.Join(doctor(root, DefaultStaleDays, time.Now()), "\n")
-	if !strings.Contains(joined, "local decisionLog.md: over") {
-		t.Errorf("want a local over-cap finding, got %q", joined)
-	}
-}
-
 // A journal past the grace window is named with its age; a fresh one (in-flight commit) and a missing dir stay quiet.
 func TestJournalProblemsNamesStaleJournal(t *testing.T) {
 	isolatedConfig(t)
@@ -621,12 +581,12 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 	write(t, BankFor(root).Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
 	reads := countBankReads(t)
 	got := doctor(root, DefaultStaleDays, time.Now())
-	want := "local progress.md: possible credential-shaped value — scrub before promoting"
+	want := "home progress.md: possible credential-shaped value — scrub before promoting"
 	if !slices.Contains(got, want) {
 		t.Errorf("doctor = %q, want it to hold %q", got, want)
 	}
-	if len(reads) < 2*len(bankFiles) {
-		t.Fatalf("doctor read %d typed files, want both banks' %d each: %v", len(reads), len(bankFiles), reads)
+	if len(reads) < len(bankFiles) {
+		t.Fatalf("doctor read %d typed files, want %d: %v", len(reads), len(bankFiles), reads)
 	}
 	for p, n := range reads {
 		if n != 1 {

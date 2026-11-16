@@ -51,9 +51,9 @@ func wantFile(t *testing.T, path, want string) {
 func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	tempConfig(t)
 	from := t.TempDir()
-	_, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true})
+	_, err := ImportBank(ImportOptions{From: from, DryRun: true})
 	var in *ImportInputError
-	if !errors.As(err, &in) || !strings.Contains(err.Error(), "retired per-repo layout") {
+	if !errors.As(err, &in) || !strings.Contains(err.Error(), "older store layout") {
 		t.Errorf("import of a per-repo source into a flat store err = %v, want the migrate hint", err)
 	}
 	if _, err := os.Stat(filepath.Join(StoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
@@ -61,7 +61,7 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	}
 	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
 	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
-	if _, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true}); !errors.Is(err, errStoreNotFlat) {
+	if _, err := ImportBank(ImportOptions{From: from, DryRun: true}); !errors.Is(err, errStoreNotFlat) {
 		t.Errorf("import into a per-repo store err = %v, want errStoreNotFlat", err)
 	}
 }
@@ -70,24 +70,23 @@ func flatImportFixture(t *testing.T) (string, Bank) {
 	t.Helper()
 	isolatedConfig(t)
 	initStore(t)
-	b := Bank{Key: "alpha"}
+	b := HomeBank()
 	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
-	write(t, b.NativeIndex(), "- [Local](alpha--local.md)\n")
+	write(t, b.NativeIndex(), "- [Local](local.md)\n")
 	write(t, b.Path("topic.md"), "keep local\n")
 	src := t.TempDir()
 	files := map[string]string{
-		layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "# Log\n\n## 2026-11-02 — remote <!-- id:22222222 -->\nRemote body.\n",
-		"alpha--topic.md": "remote conflict\n", "alpha--new.md": "new topic\n", "MEMORY.md": "- [Remote](alpha--new.md)\n- [Orphan](orphan--new.md)\n",
-		"orphan--decisionLog.md": "## 2026-11-02 — orphan <!-- id:33333333 -->\n", "orphan--new.md": "orphan topic\n",
-		catalogFile: "foreign catalog\n", "alpha--writer.lock": "lock\n", ".git/config": "foreign git\n",
-		"archive/alpha--decisionLog-2026-10.md": "## 2026-10-01 — archived <!-- id:44444444 -->\n",
-		"native-only.md":                        "shared topic\n", "reports/alpha--bundle/report.md": "nested report\n", "locks/alpha--writer.md": "lock metadata\n",
+		layoutFile: layoutFlat + "\n", "decisionLog.md": "# Log\n\n## 2026-11-02 — remote <!-- id:22222222 -->\nRemote body.\n",
+		"topic.md": "remote conflict\n", "new.md": "new topic\n", "MEMORY.md": "## Old header\n- [Remote](new.md)\n",
+		catalogFile: "foreign catalog\n", "writer.lock": "lock\n", ".git/config": "foreign git\n",
+		"archive/decisionLog-2026-10.md": "## 2026-10-01 — archived <!-- id:44444444 -->\n",
+		"native-only.md":                 "shared topic\n", "reports/bundle/report.md": "nested report\n", "locks/writer.md": "lock metadata\n",
 	}
 	for rel, body := range files {
 		write(t, filepath.Join(src, rel), body)
 	}
-	write(t, filepath.Join(src, "alpha--huge.md"), strings.Repeat("x", importMaxFile+1))
-	if err := os.Symlink("alpha--new.md", filepath.Join(src, "alpha--link.md")); err != nil {
+	write(t, filepath.Join(src, "huge.md"), strings.Repeat("x", importMaxFile+1))
+	if err := os.Symlink("new.md", filepath.Join(src, "link.md")); err != nil {
 		t.Fatal(err)
 	}
 	return src, b
@@ -95,12 +94,12 @@ func flatImportFixture(t *testing.T) (string, Bank) {
 
 func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 	src, b := flatImportFixture(t)
-	o := ImportOptions{From: src, All: true, Topics: true}
+	o := ImportOptions{From: src, Topics: true}
 	res, err := ImportBank(o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.Summary, "1 conflict(s)") || !strings.Contains(strings.Join(res.Lines, "\n"), "skipped orphan: no local store") {
+	if !strings.Contains(res.Summary, "1 conflict(s)") {
 		t.Fatalf("%+v", res)
 	}
 	log := aliasRead(t, b.Path("decisionLog.md"))
@@ -111,13 +110,10 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 	wantFile(t, b.Path("new.md"), "new topic\n")
 	wantFile(t, filepath.Join(StoreDir(), "native-only.md"), "shared topic\n")
 	wantFile(t, b.Sub("reports", "bundle/report.md"), "nested report\n")
-	if strings.Contains(aliasRead(t, b.NativeIndex()), "orphan--new.md") {
-		t.Fatal("imported pointer for absent bank")
+	if idx := aliasRead(t, b.NativeIndex()); !strings.Contains(idx, "(new.md)") || strings.Contains(idx, "## ") {
+		t.Fatalf("MEMORY.md = %q, want the remote pointer and no header", idx)
 	}
-	if !strings.Contains(aliasRead(t, b.NativeIndex()), "alpha--new.md") {
-		t.Fatal("missing shared pointer")
-	}
-	for _, rel := range []string{"orphan--decisionLog.md", "orphan--new.md", "alpha--writer.lock", "alpha--huge.md", "alpha--link.md", "locks/alpha--writer.md"} {
+	for _, rel := range []string{"writer.lock", "huge.md", "link.md", "locks/writer.md"} {
 		if pathExists(filepath.Join(StoreDir(), rel)) {
 			t.Errorf("imported excluded file %s", rel)
 		}
@@ -133,7 +129,7 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 
 func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	src, b := flatImportFixture(t)
-	o := ImportOptions{From: src, Repo: b.Key, DryRun: true}
+	o := ImportOptions{From: src, DryRun: true}
 	res, err := ImportBank(o)
 	if err != nil || !strings.Contains(res.Summary, "would import") {
 		t.Fatalf("%+v %v", res, err)
@@ -148,7 +144,7 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "22222222") {
 		t.Fatal("missing remote log")
 	}
-	if pathExists(b.Path("new.md")) || strings.Contains(aliasRead(t, b.NativeIndex()), "alpha--new.md") {
+	if pathExists(b.Path("new.md")) || strings.Contains(aliasRead(t, b.NativeIndex()), "(new.md)") {
 		t.Fatal("topics imported without flag")
 	}
 }
@@ -156,22 +152,22 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
 	key := "sk-" + strings.Repeat("a", 40) // built at runtime so no literal key sits in the source
 	for _, tc := range []struct{ name, rel, body string }{
-		{"copy", "reports/alpha--leak.md", "k=" + key + "\n"},
-		{"merge", "alpha--decisionLog.md", "## 2026-11-03 — leak <!-- id:55555555 -->\nuses " + key + "\n"},
+		{"copy", "reports/leak.md", "k=" + key + "\n"},
+		{"merge", "decisionLog.md", "## 2026-11-03 — leak <!-- id:55555555 -->\nuses " + key + "\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			src, _ := flatImportFixture(t)
 			write(t, filepath.Join(src, tc.rel), tc.body)
-			write(t, filepath.Join(src, "alpha--topic.md"), key+"\n") // a kept-local conflict is not a blocker
+			write(t, filepath.Join(src, "topic.md"), key+"\n") // a kept-local conflict is not a blocker
 			// Stamp first: a live store already carries .layout, which the first lock would otherwise write.
 			if err := requireFlat(); err != nil {
 				t.Fatal(err)
 			}
 			before := dirHashes(t, StoreDir())
 			for _, dry := range []bool{true, false} {
-				_, err := ImportBank(ImportOptions{From: src, All: true, Topics: true, DryRun: dry})
+				_, err := ImportBank(ImportOptions{From: src, Topics: true, DryRun: dry})
 				if err == nil || !strings.Contains(err.Error(), "credential-shaped content: "+tc.rel) ||
-					!strings.Contains(err.Error(), "nothing was imported") || strings.Contains(err.Error(), "alpha--topic.md") {
+					!strings.Contains(err.Error(), "nothing was imported") || strings.Contains(err.Error(), "topic.md") {
 					t.Fatalf("dry=%v: err = %v, want a refusal naming only %s", dry, err, tc.rel)
 				}
 				if !equalSnap(before, dirHashes(t, StoreDir())) {
@@ -211,16 +207,44 @@ func aliasRead(t *testing.T, p string) string {
 
 func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
-func TestSourceStoresCutsKeyAtFirstDoubleDash(t *testing.T) {
-	from := t.TempDir()
-	for _, n := range []string{"my-repo--progress.md", "my--repo--progress.md", "progress.md"} {
-		write(t, filepath.Join(from, n), "x\n")
+func TestMergeNativeIndexDedupesByTargetAndKeepsHeadersOut(t *testing.T) {
+	tgt := "- [Old title](a.md) — old hook\n\n## Notes\n- [N](n.md)\n"
+	src := "## Remote header\n- [New title](a.md) — new hook\n- [B](b.md)\n"
+	got, n, err := mergeNativeIndex(tgt, src)
+	want := "- [Old title](a.md) — old hook\n- [B](b.md)\n\n## Notes\n- [N](n.md)\n"
+	if err != nil || n != 1 || got != want {
+		t.Errorf("got %q n=%d err=%v, want %q n=1", got, n, err, want)
 	}
-	stores, err := sourceStores(from)
-	if err != nil {
-		t.Fatal(err)
+	if got, _, _ := mergeNativeIndex("\n## H\n", "- [B](b.md)\n"); got != "\n- [B](b.md)\n## H\n" {
+		t.Errorf("leading blank + header: got %q", got)
 	}
-	if _, ok := stores["my-repo"]; !ok || len(stores) != 2 {
-		t.Errorf("stores = %v, want only home and my-repo (a first-cut key \"my\" has no typed file)", stores)
+}
+
+func TestBlocksMissingFromUsesFullIdentity(t *testing.T) {
+	tgt := []string{"## 2026-11-01 — same <!-- id:11111111 -->\nbody\n"}
+	for name, c := range map[string]struct {
+		src  string
+		want int
+	}{
+		"other id, same text":   {"## 2026-11-01 — same <!-- id:22222222 -->\nbody\n", 1},
+		"same id, edited text":  {"## 2026-11-01 — same <!-- id:11111111 -->\nedited\n", 0},
+		"no id, same text":      {"## 2026-11-01 — same\nbody\n", 0},
+		"no id, different text": {"## 2026-11-01 — same\nother\n", 1},
+	} {
+		if got := blocksMissingFrom(tgt, []string{c.src}); len(got) != c.want {
+			t.Errorf("%s: added %d, want %d", name, len(got), c.want)
+		}
+	}
+}
+
+func TestFlatArchiveNames(t *testing.T) {
+	if !monthlyArchive("archive/decisionLog-2026-10.md") || monthlyArchive("decisionLog-2026-10.md") {
+		t.Error("monthlyArchive must match the archive-- prefix only")
+	}
+	tgt := t.TempDir()
+	write(t, filepath.Join(tgt, "archive/decisionLog-2026-10.md"), "## 2026-10-01 — old <!-- id:44444444 -->\n")
+	src := []byte("## 2026-10-01 — old <!-- id:44444444 -->\n\n## 2026-11-01 — new <!-- id:55555555 -->\n")
+	if got := string(unarchived(tgt, "decisionLog.md", src)); strings.Contains(got, "44444444") || !strings.Contains(got, "55555555") {
+		t.Errorf("unarchived = %q", got)
 	}
 }

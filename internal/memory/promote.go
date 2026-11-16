@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -113,7 +112,7 @@ func archiveFile(b Bank, name string, capLines int, now time.Time) (moved int, e
 }
 
 // PromoteTargets are the `memory promote --to` destinations.
-var PromoteTargets = []string{"home", "rules", "skill", "claude-md"}
+var PromoteTargets = []string{"rules", "skill", "claude-md"}
 
 // promoteJudgmentTarget names where a judgment promotion lands, for the operator to act on by hand.
 var promoteJudgmentTarget = map[string]string{
@@ -131,72 +130,7 @@ func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
 	if target, ok := promoteJudgmentTarget[to]; ok {
 		return promoteJudgment(b, id, to, target)
 	}
-	if to != "home" {
-		return "", fmt.Errorf("--to %q: want %s", to, strings.Join(PromoteTargets, ", "))
-	}
-	return promoteBlockToHome(b, id, dryRun, now)
-}
-
-// afterPromoteMove runs between promote's move and its settle; tests race a rival bank-lock taker there.
-var afterPromoteMove = func() {}
-
-// promoteBlockToHome moves one id-marked block from root's local bank to the home file, keeping its id.
-func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, error) {
-	home := HomeBank()
-	if b.Home() {
-		return "", errors.New("root's bank IS the home bank — nothing to promote")
-	}
-	if dryRun {
-		return promoteDryRun(b, id)
-	}
-	var file string
-	moveErr := withFlatLock(BankLockWait, func() (err error) { file, err = promoteLocked(b, home, id, now); return err })
-	if moveErr != nil {
-		return "", moveErr
-	}
-	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, home.Path(file)), nil
-}
-
-// promoteLocked does the move under the bank lock and returns the block's file name.
-func promoteLocked(b, home Bank, id string, now time.Time) (file string, err error) {
-	var block, src string
-	if file, block, src, err = findBlock(b, id); err != nil {
-		return file, err
-	}
-	_, _, homeErr := extractBlock(home, id)
-	if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
-		return file, homeErr // an unreadable home file is not "absent": appending could duplicate the block
-	}
-	inHome := homeErr == nil // an existing home copy is kept, never appended twice
-	snap, err := snapshotPaths(src, home.Path(file))
-	if err != nil {
-		return file, err
-	}
-	// Any failure restores both files, so the block stays in exactly one bank (the local one).
-	return file, restoreOnError(func() error {
-		if !inHome {
-			if err := appendBlocks(home.Path(file), []string{block}); err != nil {
-				return err
-			}
-		}
-		if err := removeBlock(src, file, id); err != nil {
-			return err
-		}
-		afterPromoteMove()
-		return settleLockedBank(b, now)
-	}(), snap)
-}
-
-// promoteDryRun previews the move read-only: no bank lock, no layout stamp.
-func promoteDryRun(b Bank, id string) (string, error) {
-	if err := checkFlat(); err != nil {
-		return "", err
-	}
-	file, block, src, err := findBlock(b, id)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, HomeBank().Path(file), block), nil
+	return "", fmt.Errorf("--to %q: want %s", to, strings.Join(PromoteTargets, ", "))
 }
 
 // promoteJudgment prints id with its target and procedure; `claude-md` only prints inside a dream run (isDreamChild).
@@ -207,9 +141,6 @@ func promoteJudgment(own Bank, id, to, target string) (string, error) {
 			"`memory promote %s --to rules`", id, id)
 	}
 	_, block, _, err := findBlock(own, id)
-	if errors.Is(err, errNoBlock) && !own.Home() { // a real read error is not "absent"
-		_, block, _, err = findBlock(HomeBank(), id)
-	}
 	if err != nil {
 		return "", err
 	}
@@ -274,23 +205,6 @@ func findBlock(b Bank, id string) (file, block, src string, err error) {
 	return "", "", "", errNoBlock
 }
 
-// removeBlock drops the id-marked block from path (parsed under typed file name's grammar), rewriting it without it.
-func removeBlock(path, name, id string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	header, blocks := entryBlocks(name, string(data))
-	var kept []string
-	for _, b := range blocks {
-		if ownerID(b) != id {
-			kept = append(kept, b)
-		}
-	}
-	return paths.AtomicWrite(path, []byte(rejoin(header, kept)), 0o600)
-}
-
-// budgetSplit keeps newest-first blocks while header+kept fits capLines; the rest overflow.
 func budgetSplit(header string, blocks []string, capLines int) (keep, overflow []string) {
 	used := logicalLineCount(header)
 	full := false

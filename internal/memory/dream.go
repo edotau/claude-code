@@ -17,16 +17,15 @@ import (
 // dreamPreview is `memory dream --dry-run`'s deterministic report of the mechanical steps only.
 type dreamPreview struct {
 	Dir           string
-	Oversized     []string // local bank files over cap
-	HomeOversized []string // home bank files over cap (only when local isn't already the home bank)
+	Oversized     []string // bank files over cap
 	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
 	SessionRotate int      // sessionHistory entries that would rotate to archive/
-	Unreadable    []string // "local|home name: error" for each bank file that could not be read, so was not checked
+	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
 }
 
 // Any reports whether the preview found anything a real dream run would change mechanically.
 func (p dreamPreview) Any() bool {
-	return len(p.Oversized) > 0 || len(p.HomeOversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0
+	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0
 }
 
 // Report renders the preview as `memory dream --dry-run`'s stdout.
@@ -34,10 +33,7 @@ func (p dreamPreview) Report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "bank: %s\n", p.Dir)
 	if len(p.Oversized) > 0 {
-		fmt.Fprintf(&b, "over cap (local): %s\n", strings.Join(p.Oversized, ", "))
-	}
-	if len(p.HomeOversized) > 0 {
-		fmt.Fprintf(&b, "over cap (home): %s\n", strings.Join(p.HomeOversized, ", "))
+		fmt.Fprintf(&b, "over cap: %s\n", strings.Join(p.Oversized, ", "))
 	}
 	if p.Archivable > 0 {
 		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
@@ -46,7 +42,7 @@ func (p dreamPreview) Report() string {
 		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
 	}
 	for _, u := range p.Unreadable {
-		fmt.Fprintf(&b, "%s — unreadable, so not checked\n", u)
+		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
 	}
 	if !p.Any() && len(p.Unreadable) == 0 {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
@@ -58,11 +54,7 @@ func (p dreamPreview) Report() string {
 func previewDream(root string) dreamPreview {
 	own := BankFor(root)
 	local := statBank(own) // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: own.SubDir(""), Oversized: local.Oversized, Unreadable: tiered("local", local.Unreadable)}
-	if !isHomeBank(root) {
-		home := statBank(HomeBank())
-		p.HomeOversized, p.Unreadable = home.Oversized, append(p.Unreadable, tiered("home", home.Unreadable)...)
-	}
+	p := dreamPreview{Dir: own.SubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
 	for name, capLines := range archiveCaps {
 		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
 		p.Archivable += len(overflow)
@@ -70,15 +62,6 @@ func previewDream(root string) dreamPreview {
 	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
 	p.SessionRotate = len(rotate)
 	return p
-}
-
-// tiered prefixes each of statBank's unreadable entries with its bank tier, the doctor's wording.
-func tiered(tier string, unreadable []string) []string {
-	out := make([]string, 0, len(unreadable))
-	for _, u := range unreadable {
-		out = append(out, tier+" "+u)
-	}
-	return out
 }
 
 const dreamInterval = 24 * time.Hour
