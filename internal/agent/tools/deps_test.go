@@ -247,3 +247,17 @@ func TestDepRoutesNeverSudo(t *testing.T) {
 		}
 	}
 }
+
+// Given real --version output whose first line is no version, When picked, Then the tool's own version shows.
+func TestDepPickUsesTheToolsOwnVersion(t *testing.T) {
+	for _, tc := range []struct{ name, out, want string }{
+		{"shellcheck", "ShellCheck - shell script analysis tool\nversion: 0.11.0\nlicense: GNU General Public License, version 3\nwebsite: https://www.shellcheck.net", "0.11.0"},
+		{"govulncheck", "Go: go1.27.4\nScanner: govulncheck@v1.8.0\nDB: https://vuln.go.dev\nDB updated: 2026-11-11 02:51:11 +0000 UTC", "1.8.0"},
+		{"go", "go version go1.27.4 darwin/arm64", "1.27.4"},
+		{"tmux", "tmux 3.5a", "tmux 3.5a"},
+	} {
+		if got := depPick(depNamed(t, tc.name), tc.out); got != tc.want {
+			t.Errorf("depPick(%s) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

@@ -375,18 +375,13 @@ func pathToken(s string) string {
 	return s
 }
 
+var placeholderRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[*?]|<[^>]*>|\{[^}]*\}`) })
+
+var datePartRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[^A-Za-z0-9])(?:YYYY|MM|DD)(?:[^A-Za-z0-9]|$)`)
+})
+
 // isPlaceholder: <...>, {...}, a * or ? glob, or a YYYY/MM/DD segment of the file name.
 func isPlaceholder(tok string) bool {
-	if strings.ContainsAny(tok, "*?") || pairedIn(tok, "<", ">") || pairedIn(tok, "{", "}") {
-		return true
-	}
-	seg := strings.FieldsFunc(filepath.Base(tok), func(r rune) bool {
-		return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	})
-	return slices.ContainsFunc(seg, func(s string) bool { return s == "YYYY" || s == "MM" || s == "DD" })
-}
-
-func pairedIn(s, open, closer string) bool {
-	i := strings.Index(s, open)
-	return i >= 0 && strings.Contains(s[i+1:], closer)
+	return placeholderRE().MatchString(tok) || datePartRE().MatchString(filepath.Base(tok))
 }

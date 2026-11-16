@@ -25,11 +25,12 @@ const versionProbeTimeout = 5 * time.Second
 
 // FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
 func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
-	return firstOutputLine(ctx, path, timeout, "--version")
+	line, _, _ := strings.Cut(versionOutput(ctx, path, timeout, "--version"), "\n")
+	return strings.TrimSpace(line)
 }
 
-// firstOutputLine is FirstVersionLine for a tool whose version flag is not --version (go version, tmux -V).
-func firstOutputLine(ctx context.Context, path string, timeout time.Duration, arg string) string {
+// versionOutput is the trimmed output of `path arg` (go version, tmux -V); any error is "".
+func versionOutput(ctx context.Context, path string, timeout time.Duration, arg string) string {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, arg)
@@ -40,8 +41,7 @@ func firstOutputLine(ctx context.Context, path string, timeout time.Duration, ar
 	if err != nil {
 		return ""
 	}
-	line, _, _ := strings.Cut(string(out), "\n")
-	return strings.TrimSpace(line)
+	return strings.TrimSpace(string(out))
 }
 
 // Named failures of Version; callers match with errors.Is.
@@ -146,9 +146,17 @@ func versionLine(path string) string {
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
 func ProbedVersionLine(path string, probe func(string) string) string {
+	return probedLine(path, "", probe)
+}
+
+// probedLine is ProbedVersionLine with a salt that keys a probe whose line is not the first --version line.
+func probedLine(path, salt string, probe func(string) string) string {
 	key, ok := paths.BinKey(path)
 	if !ok {
 		return probe(path)
+	}
+	if salt != "" {
+		key += "|" + salt
 	}
 	versionMu.Lock()
 	line, hit := versionMemo[key]

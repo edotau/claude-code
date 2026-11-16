@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -27,6 +28,7 @@ type dep struct {
 	Class   depClass
 	Use     string // what needs it, shown when it is missing
 	Version string // version flag when not --version
+	Pick    string // regexp whose group 1 is the version in the whole output, when the first line is not it
 	Brew    string // Homebrew formula, macOS or Linux
 	Go      string // module@version, go install into ~/.local/bin
 	Npm     string // package@version, npm install --prefix ~/.local
@@ -39,7 +41,8 @@ type dep struct {
 // deps is the host-tool table install --tools and doctor share; node precedes prettier so its npm route can follow.
 var deps = []dep{
 	{Name: "git", Class: depRequired, Use: "worktrees, memory, review, gates", Mac: "xcode-select --install", Apt: "git"},
-	{Name: "go", Class: depRequired, Use: "make install builds the binary", Version: "version", Manual: "make toolchain"},
+	{Name: "go", Class: depRequired, Use: "make install builds the binary", Version: "version", Pick: `\bgo(\d+(?:\.\d+)+)`,
+		Manual: "make toolchain"},
 	{Name: "make", Class: depRequired, Use: "make install, lint, audit", Mac: "xcode-select --install", Apt: "make"},
 	{Name: "curl", Class: depRequired, Use: "make rtk downloads the pinned rtk", Mac: "xcode-select --install", Apt: "curl"},
 	{Name: "shfmt", Class: depFeature, Use: "format-stop on .sh files", Brew: "shfmt",
@@ -51,9 +54,11 @@ var deps = []dep{
 	{Name: "gh", Class: depFeature, Use: "usage quotas, copilot auth switch", Brew: "gh",
 		Go: "github.com/cli/cli/v2/cmd/gh@v2.104.0", Apt: "gh"},
 	{Name: "tmux", Class: depFeature, Use: "network remote sessions", Version: "-V", Brew: "tmux", Apt: "tmux"},
-	{Name: "shellcheck", Class: depGate, Use: "make lint (shell)", Brew: "shellcheck", Apt: "shellcheck"},
+	{Name: "shellcheck", Class: depGate, Use: "make lint (shell)", Pick: `(?m)^version: (\S+)`,
+		Brew: "shellcheck", Apt: "shellcheck"},
 	{Name: "golangci-lint", Class: depGate, Use: "make lint (Go)", Manual: "make install DEV_TOOLS=1"},
-	{Name: "govulncheck", Class: depGate, Use: "make audit", Manual: "make install DEV_TOOLS=1"},
+	{Name: "govulncheck", Class: depGate, Use: "make audit", Pick: `(?m)^Scanner: govulncheck@v?(\S+)`,
+		Manual: "make install DEV_TOOLS=1"},
 	{Name: "yamlfmt", Class: depGate, Use: "make lint (YAML)", Manual: "make install DEV_TOOLS=1"},
 }
 
@@ -230,14 +235,21 @@ func DepStatusAll() []DepStatus {
 
 // depVersion is the version in d's probe output at path (else its first line), cached like agent versions.
 func depVersion(d dep, path string) string {
-	arg := d.Version
-	if arg == "" {
-		arg = "--version"
-	}
-	line := ProbedVersionLine(path, func(p string) string {
-		return firstOutputLine(context.Background(), p, versionProbeTimeout, arg)
+	line := probedLine(path, d.Pick, func(p string) string {
+		return depPick(d, versionOutput(context.Background(), p, versionProbeTimeout, cmp.Or(d.Version, "--version")))
 	})
 	return cmp.Or(parseVersion(line), line)
+}
+
+// depPick is d's Pick group 1 in out, else out's first line.
+func depPick(d dep, out string) string {
+	if d.Pick != "" {
+		if m := regexp.MustCompile(d.Pick).FindStringSubmatch(out); m != nil {
+			return m[1]
+		}
+	}
+	line, _, _ := strings.Cut(out, "\n")
+	return strings.TrimSpace(line)
 }
 
 // depHeader prints the host-tools section header once; printed reports whether it already was.

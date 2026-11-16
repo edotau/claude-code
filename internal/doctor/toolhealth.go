@@ -153,10 +153,14 @@ func toolPATHVersion(ctx context.Context, path string) string {
 	})
 }
 
-// depDoctorDetail renders one host tool: `<path> <version>`, or missing with its class, use and install command.
-func depDoctorDetail(s tools.DepStatus) string {
+// depDoctorDetail renders a host tool as `<path> <version>`, or missing; optional ones lead "warn" (⚠), required fail.
+func depDoctorDetail(s tools.DepStatus) (pass bool, detail string) {
 	if s.Path != "" {
-		return strings.TrimSpace(s.Path + " " + s.Version)
+		return true, strings.TrimSpace(s.Path + " " + s.Version)
 	}
-	return "missing (" + s.Class + ": " + s.Use + "); install: " + s.Fix
+	detail = "missing (" + s.Class + ": " + s.Use + "); install: " + s.Fix
+	if !s.Required {
+		detail = "warn " + detail
+	}
+	return false, detail
 }

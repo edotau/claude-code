@@ -82,10 +82,10 @@ export const ClaudeCodeHarness = async ({ directory }) => ({
     const wd = tool === "Bash" && typeof output.args?.workdir === "string" && output.args.workdir
     const doc = { hook_event_name: "PreToolUse", tool_name: tool,
       tool_input: claudeInput(output.args), cwd: wd ? resolve(directory, wd) : directory, session_id: input.sessionID }
-    const payloads = [JSON.stringify(doc), JSON.stringify({ ...doc, harness_agent: "opencode" })]
+    const plain = JSON.stringify(doc), tagged = JSON.stringify({ ...doc, harness_agent: "opencode" })
     for (const m of MODULES) {
       if (!new RegExp("^(?:" + m.matcher + ")$", "i").test(tool)) continue
-      const reason = verdict(m, payloads[+m.asOpencode])
+      const reason = verdict(m, m.asOpencode ? tagged : plain)
       if (reason) throw new Error(reason)
     }
   },
@@ -124,7 +124,7 @@ func withHostedMarker(env []string, h *hookHost) []string {
 // pluginFailClosed are the plugin modules whose timeout or crash blocks the call; the rest fail open with a note.
 var pluginFailClosed = []string{"permission-gate", "safety-scan"}
 
-// pluginAsClaude run untagged: tagged, docs-placement denies the plan-path rewrite the plugin drops (owner decision).
+// pluginAsClaude names the modules sent an untagged payload: tagged, docs-placement would deny the plan-path rewrite.
 var pluginAsClaude = []string{"docs-placement"}
 
 // pluginModule is one hook the plugin runs before an opencode tool call, as the JS reads it.
