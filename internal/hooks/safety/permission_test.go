@@ -33,6 +33,12 @@ func TestPermissionGate(t *testing.T) {
 			`{"tool_name":"Bash","tool_input":{"command":"cd /tmp && git status"}}`, true, "denied segment: cd /tmp\n"},
 		{"a relative plan allow meets the absolute path", `{"mode":"plan","allow":[{"Tool":"Edit","Arg":"sub/**"},{"Tool":"Write","Arg":"sub/**"}]}`,
 			`{"tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"sub/a.txt"}}`, false, ""},
+		{"a relative cd is judged from the hook cwd", `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"cd:/repo"}]}`,
+			`{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"cd sub && cd deeper"}}`, false, ""},
+		{"a relative cd out of the allowed dir", `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"cd:/repo"}]}`,
+			`{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"cd .."}}`, true, "Bash(cd ..) is not on it: the nearest"},
+		{"a relative cd into a denied dir", `{"allow":[{"Tool":"Bash","Arg":"cd *"}],"deny":[{"Tool":"Bash","Arg":"cd:/repo/secret"}]}`,
+			`{"tool_name":"Bash","cwd":"/repo","tool_input":{"command":"cd sub/../secret"}}`, true, "deny Bash(cd sub/../secret)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -59,7 +59,7 @@ func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result
 		if tool == "Edit" && hasAbs && !filepath.IsAbs(arg) { // the cwd-relative spelling: Deny rules only, its absolute forms meet the allow list
 			j = agent.Permissions{Deny: p.Deny}
 		}
-		if decideCall(j, tool, arg) == agent.Deny {
+		if decideCall(j, cwd, tool, arg) == agent.Deny {
 			return denyResult(p, agent.Rule{Tool: tool, Arg: arg})
 		}
 	}
@@ -86,9 +86,9 @@ func anchorAllow(p agent.Permissions, cwd string) agent.Permissions {
 	return p
 }
 
-// decideCall judges arg as tool plus the rule tool that also covers it: Edit is Write too, Grep and Glob are Read too.
-func decideCall(judge agent.Permissions, tool, arg string) agent.Decision {
-	d := judge.Decide(tool, arg)
+// decideCall judges arg as tool run in cwd, plus the tool that also covers it: Edit is Write, Grep and Glob are Read.
+func decideCall(judge agent.Permissions, cwd, tool, arg string) agent.Decision {
+	d := judge.DecideAt(cwd, tool, arg)
 	switch tool {
 	case "Edit":
 		d = min(d, judge.Decide("Write", arg)) // opencode's edit permission covers both, so either rule refuses
@@ -168,7 +168,7 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 		next = "\nFile redirects (`>`, `>>`, `&>`) are refused; `2>&1` is allowed: run the same command again without them."
 	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
 		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
-		next = "\nOnly the allow list runs here: continue with an allowed call; do not retry this one another way."
+		next = "\nOnly the allow list runs here: " + planMissHint(p, call)
 		if d.Replay != "" {
 			next += "\nOnly the dispatcher can permit it: re-dispatch with " + d.Remedy + "."
 		} else if d.Source != "permissions.deny" {
@@ -186,6 +186,48 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +
 		call.String() + rules + modeNote(p) + next}
+}
+
+// planMissHint names what missed the allow list and the closest allowed form of the same command or path, if any.
+func planMissHint(p agent.Permissions, call agent.Rule) string {
+	seg := cmp.Or(deniedSegment(p, call), strings.TrimSpace(call.Arg))
+	hint := call.Tool + "(" + seg + ") is not on it: "
+	if near, ok := nearestAllow(p.Allow, call.Tool, seg); ok {
+		hint += "the nearest allowed form is " + near.String() + "; rewrite the call to fit it or "
+	}
+	return hint + "continue with another allowed call."
+}
+
+// nearestAllow is the rule for tool sharing the longest prefix with arg, past its first word or path element.
+func nearestAllow(rules []agent.Rule, tool, arg string) (agent.Rule, bool) {
+	var best agent.Rule
+	bestLen := 0
+	for _, r := range rules {
+		if r.Arg == "" || r.Tool != tool && (tool != "Edit" || r.Tool != "Write") {
+			continue
+		}
+		form := strings.Replace(r.Arg, "cd:", "cd ", 1)
+		if n := commonPrefix(form, arg); n > bestLen && n > firstWordEnd(arg) {
+			best, bestLen = r, n
+		}
+	}
+	return best, bestLen > 0
+}
+
+// firstWordEnd is the length of arg's first word, or of its first element for an absolute path.
+func firstWordEnd(arg string) int {
+	if i := strings.IndexAny(strings.TrimPrefix(arg, "/"), " /"); i >= 0 {
+		return i + len(arg) - len(strings.TrimPrefix(arg, "/"))
+	}
+	return len(arg) - 1 // a one-word call needs the whole word in common
+}
+
+func commonPrefix(a, b string) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
 }
 
 // deniedSegment is the first segment of a compound Bash call that p denies on its own; "" otherwise.
