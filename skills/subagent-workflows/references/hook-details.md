@@ -59,8 +59,9 @@ refused. Its job is an id its results printed, else a record of that agent start
 calls (or after the hook's own launch). (1) Job running: the hand-back or stop is held, not counted, naming `claude-code
 agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); once ended it passes with a
 top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's result appended to
-`message`. (2) No job, the brief opens with a `Run:` ask line and the leaf made no Edit/Write/MultiEdit/NotebookEdit
-call: the hook starts that line detached with its flags unchanged (marker and output under
+`message`: one summary line and its last message in full, skipped when the report already quotes it. (2) No job, the
+brief opens with a `Run:` ask line and the leaf made no Edit/Write/MultiEdit/NotebookEdit call and no file-changing
+Bash call (redirect, `sed -i`, `tee`, `cp`, `mv`, `rm`, `git apply`, a formatter; temp-dir scratch excluded): the hook starts that line detached with its flags unchanged (marker and output under
 `state/harness/dispatch-relay/`), holds the leaf (`sleep 60`, then hand back again) and attaches the output and receipt
 with a note saying the hook ran it. (3) The leaf edited files, or the brief has no `Run:` line: it passes with a
 top-line note that the work was done on the relay model, not on the agent; the line is not run. (4) Every hold saves the

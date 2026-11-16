@@ -14,16 +14,66 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // editTools are the tool calls that change files: a leaf that made one did the work itself.
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
+
+// bashWrites reports a Bash command that changes a file outside the temp dirs: a write, removal, patch or formatter.
+func bashWrites(cmd string) bool {
+	targets := append(core.WrittenPathsPrecise(cmd, "/"), core.RemovedPaths(cmd, "/")...)
+	if slices.ContainsFunc(targets, func(p string) bool { return !scratchPath(p) }) {
+		return true
+	}
+	gitWrites := shell.EachGit(cmd, "/", func(_, verb string, args []string) bool {
+		return verb == "rm" || verb == "mv" || verb == "am" ||
+			verb == "apply" && !slices.ContainsFunc(args, func(a string) bool { return a == "--check" || a == "--stat" || a == "--numstat" })
+	})
+	return gitWrites || slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
+		rest, _ := shell.Unwrap(shell.Tokens(seg), "/")
+		return patchOrFormat(rest)
+	})
+}
+
+// patchOrFormat is a command word that rewrites files in place: a patch tool, or a formatter told to write.
+func patchOrFormat(toks []string) bool {
+	if len(toks) == 0 {
+		return false
+	}
+	args := toks[1:]
+	switch filepath.Base(toks[0]) {
+	case "apply_patch", "patch":
+		return true
+	case "gofmt", "goimports", "shfmt":
+		return slices.Contains(args, "-w")
+	case "go":
+		return len(args) > 0 && args[0] == "fmt"
+	case "prettier":
+		return slices.Contains(args, "--write") || slices.Contains(args, "-w")
+	case "ruff":
+		fix := len(args) > 0 && args[0] == "format" && !slices.Contains(args, "--check")
+		return fix || slices.Contains(args, "--fix")
+	case "black", "isort", "rustfmt":
+		return !slices.Contains(args, "--check") && !slices.Contains(args, "--diff")
+	}
+	return false
+}
+
+// scratchPath is a path under /tmp or the OS temp dir: a relay's scratch output, not the work.
+func scratchPath(p string) bool {
+	return slices.ContainsFunc([]string{"/tmp", "/private/tmp", os.TempDir()}, func(dir string) bool {
+		return dir != "" && strings.HasPrefix(p, strings.TrimSuffix(dir, "/")+"/")
+	})
+}
 
 // Seams for tests: the dispatch-record list and the detached launch of a brief's Run: line.
 var (
@@ -83,7 +133,7 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 	if lr.scan.edited || len(words) == 0 {
 		model, _ := transcript.LastUsage(in.AgentTranscriptPath)
 		return attach(in, fmt.Sprintf("NOTE: the work was done on the relay model (%s), not on %s; re-run the brief's `Run:` "+
-			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), ""), false
+			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
 	}
 	return runBriefLine(in, agentID, words, lr.scan.runLine)
 }
@@ -120,13 +170,13 @@ func recordReceipt(in *core.Input, rec agent.Record, how, output string) (core.R
 	if rec.Alive() && !pidReused(rec) {
 		if time.Since(rec.Time) >= leafStopMaxWait {
 			return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
-				"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID), ""), false
+				"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID), jobOut{}), false
 		}
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
 			"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
 			"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}, true
 	}
-	body := jobResult(rec.LogPath(), output, rec.ID)
+	body := jobResult(&rec, output)
 	if line := rec.ResultEnvelope(io.Discard).RanOn; line != "" {
 		return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body), false
 	}
@@ -136,7 +186,7 @@ func recordReceipt(in *core.Input, rec agent.Record, how, output string) (core.R
 // relayRunPending is the hook's launch with no dispatch record yet: its output decides, else hold while it starts.
 func relayRunPending(in *core.Input, m relayRun) (core.Result, bool) {
 	out := readEnds(m.Output, resultCap)
-	body := jobResult("", m.Output, "")
+	body := jobResult(nil, m.Output)
 	switch {
 	case ranOnPattern().MatchString(out):
 		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself: "+strings.TrimSpace(ranOnLine(out)), body), false
@@ -165,7 +215,7 @@ func ranOnLine(out string) string {
 func runBriefLine(in *core.Input, agentID string, words []string, line string) (core.Result, bool) {
 	fail := func(err error) (core.Result, bool) {
 		return attach(in, fmt.Sprintf("NOTE: the brief's `Run:` line was never run and the hook could not start it (%v); "+
-			"this report was made on the relay model.", err), ""), false
+			"this report was made on the relay model.", err), jobOut{}), false
 	}
 	m := relayRun{Started: time.Now(), Line: line, Output: strings.TrimSuffix(relayRunPath(agentID), ".json") + ".output"}
 	if err := os.MkdirAll(filepath.Dir(m.Output), 0o700); err != nil {
@@ -189,33 +239,123 @@ func runBriefLine(in *core.Input, agentID string, words []string, line string) (
 		"attaches its result and `ask: ran on` line.", line, m.Output)}, true
 }
 
-// jobResult is the job's result text for a hand-back: the hook's output file, else the record's log.
-func jobResult(logPath, output, id string) string {
+// jobOut is the job result a hand-back carries: one summary line and the job's final answer.
+type jobOut struct{ summary, answer string }
+
+// tailLines is how many non-noise log lines stand in for a job that left no final answer.
+const tailLines = 20
+
+// jobResult is rec's (nil: none) final answer and summary: its last message, else the answer in output or the log.
+func jobResult(rec *agent.Record, output string) jobOut {
 	text := ""
 	if output != "" {
 		text = readEnds(output, resultCap)
 	}
-	if strings.TrimSpace(text) == "" && logPath != "" {
-		text = readEnds(logPath, resultCap)
-	}
-	if strings.TrimSpace(text) == "" {
-		if id == "" {
-			return ""
+	var env wire.Envelope
+	if rec != nil {
+		if strings.TrimSpace(text) == "" {
+			text = readEnds(rec.LogPath(), resultCap)
 		}
-		text = "(no log; `claude-code agents result " + id + "`)"
+		env, _ = rec.SavedEnvelope()
 	}
-	return "\n\n--- job result ---\n" + strings.TrimSpace(text)
+	lines := slices.DeleteFunc(strings.Split(text, "\n"), func(l string) bool { return strings.TrimSpace(l) == "" })
+	j := jobOut{summary: jobSummary(rec, env, lines)}
+	if rec != nil {
+		j.answer = lastMessage(rec.EventsPath())
+	}
+	j.answer = cmp.Or(j.answer, strings.TrimSpace(env.Answer), plainAnswer(lines), noiseFreeTail(lines))
+	if j.answer == "" && rec != nil {
+		j.answer = "(no log; `claude-code agents result " + rec.ID + "`)"
+	}
+	return j
+}
+
+// jobSummary is `<agent> <status> · N steps · <duration> · tokens in=.. out=..`, each part only when known.
+func jobSummary(rec *agent.Record, env wire.Envelope, lines []string) string {
+	var parts []string
+	if rec != nil {
+		parts = append(parts, strings.TrimSpace(rec.Agent+" "+rec.Status))
+	}
+	if n := len(slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return !strings.HasPrefix(l, stepLine) })); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d steps", n))
+	}
+	if rec != nil && rec.Elapsed() != "" {
+		parts = append(parts, rec.Elapsed())
+	}
+	if u := env.Usage; u != nil {
+		parts = append(parts, fmt.Sprintf("tokens in=%d out=%d", u.InputTokens+u.CacheCreationTokens+u.CacheReadTokens, u.OutputTokens))
+	}
+	return strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), " · ")
+}
+
+// stepLine starts a job log's per-step line; heartbeatLine its still-running line.
+const (
+	stepLine      = "▸ result: step finished"
+	heartbeatLine = "▸ heartbeat: "
+)
+
+// lastMessage is the text of the last turn in an events file (from its last `sep` text event); "" when none.
+func lastMessage(eventsPath string) string {
+	f, err := os.Open(eventsPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	var msg strings.Builder
+	_ = textutil.EachLineErr(f, func(b []byte) {
+		var ev wire.Event
+		if json.Unmarshal(b, &ev) != nil || ev.Type != wire.EventText {
+			return
+		}
+		if ev.Sep {
+			msg.Reset()
+		}
+		msg.WriteString(ev.Text)
+	})
+	return strings.TrimSpace(msg.String())
+}
+
+// plainAnswer is the log's plain (non-`▸`) lines without the trailing ask/session/resume footers.
+func plainAnswer(lines []string) string {
+	plain := slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return strings.HasPrefix(l, "▸ ") })
+	for len(plain) > 0 && slices.ContainsFunc([]string{"ask: ", "session: ", "resume: "}, func(p string) bool {
+		return strings.HasPrefix(plain[len(plain)-1], p)
+	}) {
+		plain = plain[:len(plain)-1]
+	}
+	return strings.TrimSpace(strings.Join(plain, "\n"))
+}
+
+// noiseFreeTail is the last tailLines lines that are neither heartbeat nor per-step lines.
+func noiseFreeTail(lines []string) string {
+	kept := slices.DeleteFunc(slices.Clone(lines), func(l string) bool {
+		return strings.HasPrefix(l, heartbeatLine) || strings.HasPrefix(l, stepLine)
+	})
+	return strings.Join(kept[max(0, len(kept)-tailLines):], "\n")
+}
+
+// render is the attached section; an answer the report already quotes verbatim is named, not repeated.
+func (j jobOut) render(report string) string {
+	answer := j.answer
+	if answer != "" && strings.Contains(strings.Join(strings.Fields(report), " "), strings.Join(strings.Fields(answer), " ")) {
+		answer = "(final answer already in the report above)"
+	}
+	text := strings.TrimSpace(j.summary + "\n\n" + answer)
+	if text == "" {
+		return ""
+	}
+	return "\n\n--- job result ---\n" + text
 }
 
 // attach puts a one-line note on top of the hand-back and the result below it; a stop gets the note only.
-func attach(in *core.Input, note, body string) core.Result {
+func attach(in *core.Input, note string, body jobOut) core.Result {
 	res := core.Result{SystemMessage: note}
 	if in.ToolName != "SubagentHandback" {
 		return res
 	}
 	if updated := in.CloneToolInput(); updated != nil {
 		msg, _ := updated["message"].(string)
-		updated["message"] = note + "\n\n" + msg + body
+		updated["message"] = note + "\n\n" + msg + body.render(msg)
 		res.UpdatedInput = updated
 	}
 	return res

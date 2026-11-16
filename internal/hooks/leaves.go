@@ -298,7 +298,7 @@ type leafScan struct {
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	resumed           bool
-	edited            bool   // the leaf called a file-editing tool: it did the work itself
+	edited            bool   // the leaf edited files (an edit tool or a file-changing Bash call): it did the work itself
 	lastText          string // the leaf's last assistant text, its report at a stop
 	bgAsks            []string
 }
@@ -377,7 +377,9 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 	}
 	for _, it := range items {
 		s.edited = s.edited || it.Type == "tool_use" && editTools[it.Name]
-		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCmdRe().MatchString(it.Input.Command) {
+		askCall := askCmdRe().MatchString(it.Input.Command)
+		s.edited = s.edited || it.Type == "tool_use" && it.Name == "Bash" && !askCall && bashWrites(it.Input.Command)
+		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCall {
 			if s.askCalls == nil {
 				s.askCalls = map[string]bool{}
 			}
