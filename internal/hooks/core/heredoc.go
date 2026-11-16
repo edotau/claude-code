@@ -1,6 +1,7 @@
 package core
 
 import (
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -97,6 +98,53 @@ func DropDataHeredocs(cmd string) string {
 	})
 }
 
+// shellReader names a command whose stdin heredoc body runs as shell commands.
+var shellReader = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^((ba|z|da|k|mk)?sh|fish|source|\.|eval|exec|xargs)$`)
+})
+
+// DropStdinHeredocs drops bodies no shell reads; a shell or `>(` on the line, or `$(` in a bare body, keeps it.
+func DropStdinHeredocs(cmd string) string {
+	return DropHeredocBodies(cmd, false, func(lines []string, i int) int {
+		line := lines[i]
+		m := HeredocOp().FindAllStringSubmatch(line, -1)
+		if len(m) != 1 || strings.Contains(line, "<<<") || strings.Contains(line, ">(") ||
+			strings.Contains(line, "<(") || feedsShell(line) {
+			return -1
+		}
+		end := HeredocEnd(lines, i+1, m[0][2]+m[0][3]+m[0][4], m[0][1] == "-")
+		if end < 0 || m[0][4] != "" && strings.ContainsAny(strings.Join(lines[i+1:end], "\n"), "$`") {
+			return -1
+		}
+		return end
+	})
+}
+
+// feedsShell reports a line where any segment's command, or a file it writes then runs, is a shell.
+func feedsShell(line string) bool {
+	if writesFileHeredoc(line) {
+		return true // cat > f / tee f bodies are DropDataHeredocs's to judge, with its run-the-file guard
+	}
+	for _, seg := range shell.Segments(HeredocOp().ReplaceAllString(line, " ")) {
+		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(rest) > 0 && shellReader().MatchString(filepath.Base(rest[0])) {
+			return true
+		}
+	}
+	return false
+}
+
+// writesFileHeredoc reports a heredoc segment whose command is a cat/tee that writes a file.
+func writesFileHeredoc(line string) bool {
+	for _, seg := range shell.Segments(line) {
+		if HeredocOp().MatchString(seg) {
+			toks := shell.Tokens(HeredocOp().ReplaceAllString(seg, " "))
+			return len(toks) > 0 && writesFile(toks)
+		}
+	}
+	return false
+}
+
 // heredocTail reports any line after a heredoc's close (or any non-start line outside one) that runs a file.
 func heredocTail(lines []string) bool {
 	for i := 0; i < len(lines); i++ {
@@ -128,12 +176,5 @@ func dataHeredocStart(line string) (string, bool) {
 		strings.Contains(line, ">(") || strings.Contains(line, "<(") {
 		return "", false
 	}
-	for _, seg := range shell.Segments(line) {
-		if !HeredocOp().MatchString(seg) {
-			continue
-		}
-		toks := shell.Tokens(HeredocOp().ReplaceAllString(seg, " "))
-		return ms[0][2] + ms[0][3], len(toks) > 0 && writesFile(toks)
-	}
-	return "", false
+	return ms[0][2] + ms[0][3], writesFileHeredoc(line)
 }
