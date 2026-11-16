@@ -258,7 +258,7 @@ func loadRecords(ids []string) []agent.Record {
 
 // liveDispatchVerdict waits on each live dispatch, updating lr.recs; it blocks on one still running, else notes.
 func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired core.Result, block bool) {
-	recs, ended := slices.Clone(lr.recs), []receipt(nil)
+	recs, waited := slices.Clone(lr.recs), map[int]bool{}
 	for i, rec := range recs {
 		if !jobRunning(rec) {
 			continue
@@ -269,7 +269,7 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 		}
 		recs[i] = rec
 		if !jobRunning(rec) {
-			ended = append(ended, endedNote(rec, "ended while the hand-back waited", ""))
+			waited[i] = true
 			continue
 		}
 		res, block := leafStopVerdict(agentID, rec)
@@ -281,10 +281,25 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 		}
 	}
 	lr.recs = recs
-	if len(ended) > 0 { // a finished job's answer outranks a limit note
-		expired = attachAll(in, ended)
+	if len(waited) > 0 { // a finished job's answer outranks a limit note
+		expired = attachAll(in, endedReceipts(recs, waited))
 	}
 	return expired, false
+}
+
+// endedReceipts is every finished record's receipt in dispatch order, so an earlier finished job is not dropped.
+func endedReceipts(recs []agent.Record, waited map[int]bool) []receipt {
+	var ended []receipt
+	for i, rec := range recs {
+		switch {
+		case jobRunning(rec):
+		case waited[i]:
+			ended = append(ended, endedNote(rec, "ended while the hand-back waited", ""))
+		default:
+			ended = append(ended, endedNote(rec, "finished before the hand-back", ""))
+		}
+	}
+	return ended
 }
 
 // jobRunning is a live dispatch whose pid still belongs to it.

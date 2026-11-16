@@ -1356,6 +1356,35 @@ func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
 	}
 }
 
+// Regression (2026-11-16): a leaf's report already showing a ran-on line still gets an earlier finished job's answer.
+func TestHandbackKeepsFinishedAnswerWithRanOn(t *testing.T) {
+	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
+	orig := loadDispatch
+	t.Cleanup(func() { loadDispatch = orig })
+	reads := 0
+	loadDispatch = func(id string) (agent.Record, error) {
+		status := "ok"
+		if id == "second" {
+			if reads++; reads == 1 {
+				status = "running"
+			}
+		}
+		log := filepath.Join(filepath.Dir(in.AgentTranscriptPath), id+".log")
+		if err := os.WriteFile(log, []byte("FINAL ANSWER "+id), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return agent.Record{Log: log, ID: id, Agent: "codex", Status: status, PID: os.Getpid(), Time: time.Now().Add(-time.Minute)}, nil
+	}
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+	lr.scan.ranOn = true
+	lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Second)
+	r, blocked := leafGate(in, "a1", lr)
+	msg, _ := r.UpdatedInput["message"].(string)
+	if blocked || !strings.Contains(msg, "FINAL ANSWER first") || !strings.Contains(msg, "FINAL ANSWER second") {
+		t.Fatalf("got %+v, want both finished answers attached despite the ran-on line", r)
+	}
+}
+
 // Regression (2026-11-16): ids in a listing the leaf ran, or a sibling's job started near its ask, are never its own.
 func TestHandbackIgnoresForeignDispatches(t *testing.T) {
 	const own, b, c = "20261116T180732.880-opencode", "20261116T180927.796-opencode", "20261116T180930.100-opencode"
