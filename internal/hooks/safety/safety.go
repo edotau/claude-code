@@ -102,6 +102,9 @@ var softWarn = core.LazyCompile(
 
 // Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
+	if fix, ok := gitFix(in); ok {
+		return fix
+	}
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
@@ -168,16 +171,16 @@ func gitPolicyVerdict(in *core.Input, cmd string) (core.Decision, string, string
 	cmd = core.DropDataHeredocs(cmd)
 	var reason string
 	if p := shell.CommitMessageProblem(cmd, in.CWD); p != "" {
-		reason = p
+		reason = "safety: " + p + "; " + commitUse
 	} else if shell.BroadStage(cmd, in.CWD) != "" {
-		reason = "stage named files only"
+		reason = "safety: stage named files only; use: git add <file> <file>"
 	} else if shell.PushAfterGate(cmd) {
-		reason = "chain git push after a gate with &&, not ;"
+		reason = "safety: chain git push after a gate; use: <gate> && git push"
 	}
 	if reason == "" {
 		return core.Allow, "", ""
 	}
-	return core.Block, "safety: BLOCKED — " + reason, reason
+	return core.Block, reason, reason
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
