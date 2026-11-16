@@ -164,6 +164,10 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		if b.Spec.Event != event {
 			continue
 		}
+		if note := skipNote(b.Spec.Name); note != "" && match.matches(b.Spec.Matcher, in.CanonicalTool()) {
+			m.sys = append(m.sys, note)
+			continue
+		}
 		if problem := payloadProblem(in); problem != "" && b.Spec.Blocks { // tool unknown: every gate fails closed
 			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, problem)
 			continue
@@ -193,6 +197,29 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
 	return m.merged, m.firstErr
+}
+
+// hookSkipEnv lists hook modules to skip (or "all"), read only from the hook process's own environment.
+const hookSkipEnv = "HARNESS_HOOK_SKIP"
+
+// alwaysOn modules are skipped only when HARNESS_HOOK_SKIP names them explicitly, never by "all".
+var alwaysOn = map[string]bool{"safety-scan": true, "permission-gate": true}
+
+// skipNote is the note for a module HARNESS_HOOK_SKIP skips, or "" when it runs.
+func skipNote(name string) string {
+	var all bool
+	for f := range strings.SplitSeq(os.Getenv(hookSkipEnv), ",") {
+		switch f = strings.TrimSpace(f); {
+		case f == name && alwaysOn[name]:
+			return "hook " + name + " skipped (" + hookSkipEnv + ") — guards off"
+		case f == name, f == "all" && !alwaysOn[name]:
+			all = true
+		}
+	}
+	if all {
+		return "hook " + name + " skipped (" + hookSkipEnv + ")"
+	}
+	return ""
 }
 
 // unreadable is a gate's fail-closed reason when its hook payload could not be read or parsed.
@@ -277,6 +304,9 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
 	if !ok {
 		return core.ExitProceed
+	}
+	if note := skipNote(name); note != "" {
+		return core.Emit(os.Getenv(settings.AgentEnv), eventOf(name), core.Result{SystemMessage: note}, stdout, stderr)
 	}
 	spec := specOf(name)
 	if !spec.Blocks {

@@ -32,4 +32,4 @@ a local-only git repo outside every project, so handoffs and reports never ride 
 ## When the gate blocks
 
 It names the canonical home; re-issue the write there. For a genuine repo doc the user asked for: `git add -N <file>`
-first (tracked beats ignored), or `HARNESS_DOCS_PLACEMENT=0` for the launch.
+first (tracked beats ignored), or `HARNESS_HOOK_SKIP=docs-placement` for the launch.

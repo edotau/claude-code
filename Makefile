@@ -217,7 +217,9 @@ WHAT    ?= all
 AGENT   ?= $(or $(HARNESS_LINT_AGENT),on)
 MAX     ?= 3
 LINT_AGENT := $(patsubst on,copilot,$(filter-out off,$(AGENT)))
-LINT_KINDS := $(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT))
+SKIP    ?=
+C_COMMA := ,
+LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT)))
 .PHONY: fmt
 fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
@@ -230,6 +232,7 @@ fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 .PHONY: lint
 lint:  ## Check go, shell, yaml, md, js; auto-wraps own memory banks
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
+	@$(if $(SKIP),echo -e "$(C_NOTE)lint skipping: $(SKIP)")
 	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
 

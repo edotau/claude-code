@@ -628,27 +628,24 @@ func requirePlanGateDenied(t *testing.T, cfg, rel string, stderr *bytes.Buffer) 
 }
 
 func TestPlanGateTemplate(t *testing.T) {
-	for _, knob := range []string{"1", "0"} {
-		for _, c := range planGateCases() {
-			t.Run("docs="+knob+"/"+c.name, func(t *testing.T) {
-				cfg := t.TempDir()
-				t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-				t.Setenv(docsPlacementDisableEnv, knob)
-				if c.existing {
-					seedPlanGateDraft(t, cfg, c.path)
-				}
-				var stderr bytes.Buffer
-				code := Gate(core.ParseInput(strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content))), &stderr)
-				if code != c.want {
-					t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
-				}
-				if c.want == core.ExitBlock {
-					requirePlanGateDenied(t, cfg, c.path, &stderr)
-				} else if stderr.Len() != 0 {
-					t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
-				}
-			})
-		}
+	for _, c := range planGateCases() {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+			if c.existing {
+				seedPlanGateDraft(t, cfg, c.path)
+			}
+			var stderr bytes.Buffer
+			code := Gate(core.ParseInput(strings.NewReader(writePayload(t, c.tool, cfg, c.path, c.content))), &stderr)
+			if code != c.want {
+				t.Fatalf("code = %d, want %d; stderr=%s", code, c.want, &stderr)
+			}
+			if c.want == core.ExitBlock {
+				requirePlanGateDenied(t, cfg, c.path, &stderr)
+			} else if stderr.Len() != 0 {
+				t.Errorf("allowed write emitted a diagnostic: %s", &stderr)
+			}
+		})
 	}
 }
 
