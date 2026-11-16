@@ -51,6 +51,7 @@ type askLine struct {
 	agent, model, prompt string
 	profile, fallback    string // --profile and --fallback as typed
 	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
+	tools                bool   // --tools, or --read-only, which ask folds into tools
 	cfg                  agentconfig.Overlay
 }
 
@@ -78,7 +79,8 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	agent := strings.TrimPrefix(words[verb], "agents")
 	words = words[verb+2:]
 	l := askLine{agent: cmp.Or(flagValue(words, "agent"), agent), model: flagValue(words, "model"),
-		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute)}
+		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute),
+		tools: hasFlag(words, []string{"tools", "read-only"})}
 	if n := len(words); n > 0 && !isFlag(words[n-1]) {
 		l.prompt = words[n-1]
 	}

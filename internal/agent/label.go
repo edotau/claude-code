@@ -13,9 +13,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -26,7 +28,7 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 	if q.Agent == agentid.Claude || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
 		return q, "", nil
 	}
-	pin := QueryFor(ctx, q).PinModel
+	pin := agentModelPinContext(ctx, q.Agent)
 	if pin == router.DiscoveryModel { // the ladder would advance the rotation; a label must not
 		return q, "a discovery pin picks its model at run time", nil
 	}
@@ -81,22 +83,17 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 
 // ExplainRun is ResolveRun plus the auto choice behind its pick; an unlisted Databricks pick is marked or refused.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
-	r, choice, err := explainRun(reg, q, now)
+	q, need := autoQuery(q)
+	r, err := autoBase(reg, q, need, now)
 	if err != nil {
-		return r, choice, err
+		return r, nil, err
+	}
+	var choice *AutoChoice
+	if need.mode != autoOff {
+		r, choice = autoPick(reg, q, r, need, now)
 	}
 	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone, now)
 	return r, choice, err
-}
-
-func explainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
-	q, need := autoQuery(q)
-	base, err := autoBase(reg, q, need, now)
-	if err != nil || need.mode == autoOff {
-		return base, nil, err
-	}
-	r, choice := autoPick(reg, q, base, need, now)
-	return r, choice, nil
 }
 
 // resolveTier is ResolveModel with q.Default as the task tier; a tier the row cannot serve keeps the untiered pick.
@@ -144,8 +141,7 @@ func tierServed(reg *providers.Registry, r ModelRoute, now time.Time) bool {
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return true
 	}
-	_, ready, fresh := router.ServedListed(p, r.Model, now)
-	return !fresh || ready
+	return !router.ListedNotReady(p, r.Model, now)
 }
 
 // tierAliases maps a brief's `Tier:` word to the alias each row spells as its model of that tier.
@@ -153,7 +149,7 @@ var tierAliases = map[string]string{"fast": models.Haiku, "standard": models.Son
 
 var (
 	tierLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?mi)^[ \t]*Tier:[ \t]*(fast|standard|deep)\b`) })
-	// deepTaskRe: audits, design, security, safety or permission rules, auth, parsers, migrations go to the top tier.
+	// deepTaskRe: costly-mistake or large-judgment work (audit, security, auth, parsers, design, migrations, secrets).
 	deepTaskRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?i)\b(audit\w*|security|safety|threat\w*|parser\w*|parsing|grammar|judg(?:e)?ment|` +
 			`planning|design|redesign|architect\w*|permissions?|auth[nz]?|authenticat\w*|authoriz\w*|migrat\w*|` +
@@ -181,11 +177,11 @@ func TaskTier(brief string) (alias, signal string) {
 	}
 	text, _, _ := strings.Cut(brief, "\n## Leaf rules") // agents brief's footer is the same on every leaf
 	text = strings.TrimSpace(boilerRe().ReplaceAllString(text, ""))
-	switch {
-	case text == "":
+	if text == "" {
 		return "", ""
-	case deepTaskRe().MatchString(text):
-		return models.Opus, "deep:" + deepSignal(deepTaskRe().FindAllString(text, -1))
+	}
+	if words := deepTaskRe().FindAllString(text, -1); len(words) > 0 {
+		return models.Opus, "deep:" + deepSignal(words)
 	}
 	if rule := fastTask(text); rule != "" {
 		return models.Haiku, rule
@@ -211,11 +207,14 @@ func fastTask(text string) string {
 	case tier == models.EffortHigh && rule != "paths>=2": // high-effort work stays off fast; the file cap is below
 		return ""
 	}
+	if len(text) >= 1000 || !fastTaskRe().MatchString(text) || scopeTaskRe().MatchString(text) {
+		return ""
+	}
 	files := map[string]bool{}
 	for _, f := range fileTaskRe().FindAllString(text, -1) {
 		files[f] = true
 	}
-	if len(text) < 1000 && len(files) <= 2 && fastTaskRe().MatchString(text) && !scopeTaskRe().MatchString(text) {
+	if len(files) <= 2 {
 		return "mechanical"
 	}
 	return ""
@@ -288,9 +287,9 @@ func tierOf(alias string) string {
 }
 
 // TierEffort is the reasoning effort a task-tier alias runs at; "" for no tier.
-func TierEffort(alias string) string {
-	return map[string]string{models.Haiku: models.EffortLow, models.Sonnet: models.EffortMedium, models.Opus: models.EffortHigh}[alias]
-}
+func TierEffort(alias string) string { return tierEfforts[alias] }
+
+var tierEfforts = map[string]string{models.Haiku: models.EffortLow, models.Sonnet: models.EffortMedium, models.Opus: models.EffortHigh}
 
 // AutoChoice is why auto ran its model: the tier, the deciding criterion and signal, and the ranked candidates.
 type AutoChoice struct {
@@ -313,7 +312,7 @@ func (c AutoChoice) Reason() string {
 	case c.Stepped:
 		return fmt.Sprintf("%s; none of %d at or above %s, stepped down to the strongest served", head, c.Candidates, c.Tier)
 	}
-	return fmt.Sprintf("%s; %d %s at or above", head, len(c.Ranked), map[bool]string{true: "candidate", false: "candidates"}[len(c.Ranked) == 1])
+	return fmt.Sprintf("%s; %d %s at or above", head, len(c.Ranked), textutil.PluralWord(len(c.Ranked), "candidate", "candidates"))
 }
 
 // complexityRe: deep signals that are about the size of the judgment, not the cost of a mistake.
@@ -321,10 +320,12 @@ var complexityRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^(audit\w*|planning|design|redesign|architect\w*|judg(?:e)?ment)$`)
 })
 
+var tierCriteria = map[string]string{"fast": "speed", "standard": "value", "deep": "accuracy"}
+
 // newAutoChoice names the criterion that decides need: speed for fast, value for standard, accuracy or complexity.
 func newAutoChoice(need autoNeed) *AutoChoice {
 	signal, deep := strings.CutPrefix(need.signal, "deep:")
-	crit := map[string]string{"fast": "speed", "standard": "value", "deep": "accuracy"}[need.tier]
+	crit := tierCriteria[need.tier]
 	if deep && complexityRe().MatchString(signal) {
 		crit = "complexity"
 	}
@@ -334,7 +335,7 @@ func newAutoChoice(need autoNeed) *AutoChoice {
 // autoPick ranks the served models of base's row for need and resolves the winner; no ranking keeps base.
 func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, now time.Time) (ModelRoute, *AutoChoice) {
 	c := newAutoChoice(need)
-	cands, why := autoCandidates(reg, q.Agent, reg.Row(base.Profile), now)
+	cands, why := autoCandidates(reg, q.Agent, reg.Row(base.Profile), q.Tools, now)
 	c.Candidates = len(cands)
 	ch := catalog.Choose(cands, need.tier, q.Tools)
 	c.Ranked, c.Stepped = ch.Ranked, ch.Stepped
@@ -421,15 +422,18 @@ func autoEffort(cur, agentName string, need autoNeed) string {
 }
 
 // autoCandidates is every READY chat model on p's fresh listing the agent can run there, with its tool probe.
-func autoCandidates(reg *providers.Registry, agentName string, p *providers.Provider, now time.Time) ([]catalog.Candidate, string) {
+func autoCandidates(reg *providers.Registry, agentName string, p *providers.Provider, tools bool, now time.Time) ([]catalog.Candidate, string) {
 	if p == nil {
 		return nil, "no row"
 	}
-	s, ok := router.LoadServed(p.Name)
-	if p.Preset != providers.PresetDatabricks || !ok || !s.Fresh(now) || len(s.Models) == 0 {
+	s, ok := router.FreshServed(p.Name, now)
+	if p.Preset != providers.PresetDatabricks || !ok {
 		return nil, "no fresh model listing on " + p.Name
 	}
-	probes, _ := catalog.LoadCheckCache(p.Name)
+	var probes map[string]serving.CheckResult // only a tools run reads Tools
+	if tools {
+		probes, _ = catalog.LoadCheckCache(p.Name)
+	}
 	var out []catalog.Candidate
 	seen := map[string]bool{}
 	for _, m := range s.Models {
@@ -444,7 +448,7 @@ func autoCandidates(reg *providers.Registry, agentName string, p *providers.Prov
 
 // servedCandidate is m's wire id when m is a READY chat endpoint the agent runs on p, by the launch's own checks.
 func servedCandidate(reg *providers.Registry, agentName string, p *providers.Provider, m router.ServedModel, now time.Time) (string, bool) {
-	if m.Task != chatTask || m.Ready != "" && m.Ready != "READY" || catalog.ID(m.ID) == AutoModel {
+	if m.Task != chatTask || !m.IsReady() || catalog.ID(m.ID) == AutoModel {
 		return "", false
 	}
 	r, err := ResolveModel(reg, ModelQuery{Agent: agentName, Model: p.Name + ":" + m.ID}, now)

@@ -208,10 +208,10 @@ func agyLoginMarkers(home string) []string {
 // agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const agyDefaultModel = "gemini-3.8-flash-high"
 
-// agyGatewayArg is model's Databricks name and gateway --model; another non-Gemini id falls back to pin or default.
+// agyGatewayArg is model's Databricks name and --model; a non-Gemini id lacking databricks- runs the pin or default.
 func agyGatewayArg(model string) (base, arg string, err error) {
-	if id, ok := agyForeign(model); ok {
-		return id, id, nil
+	if agyForeign(model) {
+		return model, model, nil
 	}
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
@@ -236,8 +236,8 @@ func agyGatewayArg(model string) (base, arg string, err error) {
 }
 
 // agyForeign reports a non-Gemini Databricks endpoint id, which agy runs over the openai chat/completions wire.
-func agyForeign(id string) (string, bool) {
-	return id, strings.HasPrefix(id, models.DatabricksPrefix) && !geminiNamed(id)
+func agyForeign(id string) bool {
+	return strings.HasPrefix(id, models.DatabricksPrefix) && !geminiNamed(id)
 }
 
 // geminiNamed reports an id that claims to be a Gemini model (a Databricks Claude slot never does).
@@ -272,7 +272,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
 	route, wireProto, list, lite := providers.ProtocolOpenAI, "openai", base, base // Gemini ids stay off the openai wire
-	if _, foreign := agyForeign(base); !foreign {
+	if !agyForeign(base) {
 		route, wireProto = providers.ProtocolGemini, "genai"
 		list, lite = agyGatewayModels(p, base, time.Now())
 	}
@@ -299,14 +299,14 @@ const agyFlashLite = "databricks-gemini-3-1-flash-lite"
 
 // agyServedGemini lists the READY Gemini endpoint names in p's fresh cached listing; nil when cold. A var for tests.
 var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
-	s, ok := router.LoadServed(p.Name)
-	if !ok || !s.Fresh(now) {
+	s, ok := router.FreshServed(p.Name, now)
+	if !ok {
 		return nil
 	}
 	var out []string
 	for _, m := range s.Models {
 		base, _, ok := agyGatewayBase(m.ID)
-		if ok && (m.Ready == "" || m.Ready == "READY") && !slices.Contains(out, base) {
+		if ok && m.IsReady() && !slices.Contains(out, base) {
 			out = append(out, base)
 		}
 	}
@@ -639,7 +639,7 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	if req.Model == "" {
 		gt = agent.PinnedTarget(ctx, "gemini", t)
 	}
-	if _, foreign := agyForeign(gt.Model); foreign && req.CellModel {
+	if agyForeign(gt.Model) && req.CellModel {
 		gt.Model = "" // a ladder cell's row slot (a Claude id) is not agy's pick: the pin or default runs
 	}
 	if !agent.GeminiGatewayRow(t.Provider) {

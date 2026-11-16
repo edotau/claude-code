@@ -89,7 +89,7 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 		return ModelRoute{}, err
 	}
 	r, err := resolveOn(p, source, q, spec, now)
-	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
+	r.Note = joinNotes(note, r.Note)
 	return r, err
 }
 
@@ -326,7 +326,7 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 
 // routeServes checks the agent speaks the wire p uses for r.Model.
 func routeServes(r *ModelRoute, p *providers.Provider) error {
-	if r.Model == "auto" {
+	if r.Model == AutoModel {
 		r.Dialect = p.Protocol
 		return nil
 	}
@@ -348,20 +348,25 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 	}
 	r.Dialect = wire
 	if r.Agent == agentid.Gemini && GeminiGatewayRow(p) {
-		if wire == providers.ProtocolResponses { // chat/completions refuses these models function tools
-			return fmt.Errorf("%w: %s is Responses-only and agy speaks chat/completions; run it with codex, copilot or opencode",
-				ErrModelRoute, r.Model)
-		}
-		if models.FamilyKind(r.Model) != models.FamilyGemini {
-			r.Dialect = providers.ProtocolOpenAI // agy's openai wire: every family rides chat/completions
-		}
-		return agentFamily(r, p)
+		return geminiGatewayServes(r, p, wire)
 	}
 	if r.Agent == agentid.Claude {
 		return agentFamily(r, p)
 	}
 	if ok, why := Serves(r.Agent, p, r.Model); !ok {
 		return fmt.Errorf("%w: %s", ErrModelRoute, why)
+	}
+	return agentFamily(r, p)
+}
+
+// geminiGatewayServes is routeServes for agy on a Databricks gateway row, where wire is the model's own wire.
+func geminiGatewayServes(r *ModelRoute, p *providers.Provider, wire string) error {
+	if wire == providers.ProtocolResponses { // chat/completions refuses these models function tools
+		return fmt.Errorf("%w: %s is Responses-only and agy speaks chat/completions; run it with codex, copilot or opencode",
+			ErrModelRoute, r.Model)
+	}
+	if models.FamilyKind(r.Model) != models.FamilyGemini {
+		r.Dialect = providers.ProtocolOpenAI // agy's openai wire: every family rides chat/completions
 	}
 	return agentFamily(r, p)
 }
@@ -429,7 +434,7 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 
 // poolListed refuses a model p's fresh listing shows unlisted or not READY.
 func poolListed(p *providers.Provider, wire string, now time.Time) error {
-	if _, ready, fresh := router.ServedListed(p, wire, now); fresh && !ready {
+	if router.ListedNotReady(p, wire, now) {
 		return fmt.Errorf("%w: %s is not READY on %s", ErrModelRoute, wire, p.Name)
 	}
 	return nil

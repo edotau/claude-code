@@ -213,24 +213,11 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if q.Model == "" && agent == "" && q.Profile == "" && q.Provider == "" {
 		return q, false // an in-context leaf: its own model
 	}
-	q.Task, q.Tools = cmp.Or(line.prompt, task), lineTools(task) // auto and the task tier size the ask's prompt
+	q.Task, q.Tools = cmp.Or(line.prompt, task), line.tools // auto and the task tier size the ask's prompt
 	if q.Model == "" {
 		q.Default, _ = agentpkg.TaskTier(q.Task) // the ask runs its pin, else the task tier
 	}
 	return q, true
-}
-
-// lineTools reports the opening ask runs tools: --tools, or --read-only, which ask folds into tools.
-func lineTools(task string) bool {
-	words := openingAskWords(task)
-	if len(words) == 0 {
-		return false
-	}
-	verb := 1
-	if words[1] == "--remote" {
-		verb = 3
-	}
-	return hasFlag(words[verb+2:], []string{"tools", "read-only"})
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.

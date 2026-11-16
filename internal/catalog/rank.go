@@ -58,7 +58,6 @@ type Candidate struct {
 	Tools string
 }
 
-// Ranked is a candidate with its rank.
 type Ranked struct {
 	Model string `json:"model"`
 	Rank

@@ -55,10 +55,7 @@ func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note s
 	if err != nil {
 		return t, own, note, err
 	}
-	if modelNote != "" {
-		note = strings.Join(slices.DeleteFunc([]string{note, modelNote}, func(n string) bool { return n == "" }), "; ")
-	}
-	return t, own, note, nil
+	return t, own, joinNotes(note, modelNote), nil
 }
 
 // overlayAccount is the overlay's account key, read once at the ask entry; "" when none or unreadable.
@@ -72,24 +69,15 @@ func overlayAccount(ctx context.Context) string {
 
 // routedModel is t with the model ResolveRun spells for t's row: a typed model, else auto over the pin, else the pin.
 func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Target, applied bool) (providers.Target, string, error) {
-	_, auto := SplitAuto(req.Model)
-	if t.Provider == nil || applied && req.Model != "" && !req.CellModel && !auto {
-		if t.Provider == nil && req.Model != "" && !auto && !slices.Contains(models.AliasNames, req.Model) {
-			t.Model = req.Model
-		}
+	t, done := typedModelTarget(req, t, applied)
+	if done {
 		return t, "", nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return t, "", err
 	}
-	q := ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name, Task: req.Prompt, Tools: req.Tools}
-	if req.CellModel {
-		q.Model = "" // a bare ladder cell is the classifier's alias, not a typed model
-	}
-	if req.AutoModel && q.Model == "" {
-		q.Model = AutoModel
-	}
+	q := s.routedQuery(req, t)
 	r, err := ResolveRun(reg, QueryFor(ctx, q), time.Now())
 	switch {
 	case errors.Is(err, ErrModelRoute) && q.Model == "":
@@ -101,6 +89,30 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	}
 	t.Model, t.OneM = r.Model, r.OneM
 	return t, r.Note, nil
+}
+
+// typedModelTarget is t carrying a typed model as is; done is true when nothing is left to resolve.
+func typedModelTarget(req RunOptions, t providers.Target, applied bool) (_ providers.Target, done bool) {
+	_, auto := SplitAuto(req.Model)
+	if t.Provider != nil && (!applied || req.Model == "" || req.CellModel || auto) {
+		return t, false
+	}
+	if t.Provider == nil && req.Model != "" && !auto && !slices.Contains(models.AliasNames, req.Model) {
+		t.Model = req.Model
+	}
+	return t, true
+}
+
+// routedQuery is req's model query on t's row.
+func (s Schema) routedQuery(req RunOptions, t providers.Target) ModelQuery {
+	q := ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name, Task: req.Prompt, Tools: req.Tools}
+	if req.CellModel {
+		q.Model = "" // a bare ladder cell is the classifier's alias, not a typed model
+	}
+	if req.AutoModel && q.Model == "" {
+		q.Model = AutoModel
+	}
+	return q
 }
 
 // leadProfile is an untyped request's lead: the overlay account's row, else the pin when no session row serves (D3).
