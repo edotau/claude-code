@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
@@ -288,7 +289,9 @@ func routingDoc(old string, fn func(*Routing) error) ([]byte, error) {
 	}
 	var r Routing
 	if b, ok := doc["routing"]; ok {
-		if err := json.Unmarshal(b, &r); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&r); err != nil {
 			return nil, fmt.Errorf("vault overlay/providers: routing: %w", err)
 		}
 	}
