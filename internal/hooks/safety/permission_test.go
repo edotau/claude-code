@@ -29,6 +29,10 @@ func TestPermissionGate(t *testing.T) {
 		{"an allowed first segment never admits a denied second", `{"allow":[{"Tool":"Bash","Arg":"git log:*"}],"deny":[{"Tool":"Bash","Arg":"rm:*"}]}`,
 			`{"tool_name":"Bash","tool_input":{"command":"git log && rm -rf x"}}`, true, "deny Bash(git log && rm -rf x)"},
 		{"malformed env blocks", `{deny`, `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, true, "is unreadable"},
+		{"a read-only miss names the segment and the rewrite", `{"deny":[{"Tool":"Bash","Arg":"not a read-only shell command"}]}`,
+			`{"tool_name":"Bash","tool_input":{"command":"cd /tmp && git status"}}`, true, "denied segment: cd /tmp\n"},
+		{"a relative plan allow meets the absolute path", `{"mode":"plan","allow":[{"Tool":"Edit","Arg":"sub/**"},{"Tool":"Write","Arg":"sub/**"}]}`,
+			`{"tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"sub/a.txt"}}`, false, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

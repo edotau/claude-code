@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -152,13 +153,14 @@ func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 	}
 }
 
-// rtk reports a failed go vet as "No issues found"; vet, alone or chained, is never wrapped, while go test still is.
+// rtk hides go vet failures and go test -v/-list output; those stay raw, while a plain go test is still wrapped.
 func TestRTKNeverWrapsGoVet(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	for _, cmd := range []string{"go vet ./a/...", "gofmt -l . && go vet ./...", "GOOS=linux go vet ./x",
-		"env GOOS=linux go vet ./x", "ls && CGO_ENABLED=0 env -u X go vet ./x"} {
+		"env GOOS=linux go vet ./x", "ls && CGO_ENABLED=0 env -u X go vet ./x",
+		"go test -list . ./x", "go test -run TestPass -v ./..."} {
 		if got, ok := rtkOut(t, hosttest.RTKBashIn(cmd)); ok {
-			t.Errorf("%q was wrapped to %q — rtk hides go vet failures", cmd, got)
+			t.Errorf("%q was wrapped to %q — rtk hides that output", cmd, got)
 		}
 	}
 	if got, ok := rtkOut(t, hosttest.RTKBashIn("go test ./a/...")); !ok || got != bin+" go test ./a/..." {
@@ -217,6 +219,11 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	if got, ok := rtkOut(t, hosttest.RTKBashIn("ls")); !ok || !strings.HasSuffix(got, " ls") {
 		t.Errorf("exit 3 = %q (emitted=%v), want a rewrite", got, ok)
 	}
+	hold := filepath.Join(t.TempDir(), "rtk") // a grandchild holding stdout must not stall the hook
+	hosttest.WriteExec(t, hold, "#!/bin/sh\nprintf 'rtk ls'; sleep 3 & exit 3\n")
+	if start := time.Now(); rtkRewritten(hold, "ls") != "rtk ls" || time.Since(start) > time.Second {
+		t.Errorf("held stdout: rewrite took %v, want the output within 1s", time.Since(start))
+	}
 	bad := filepath.Join(t.TempDir(), "rtk") // present but not executable: a failure, not a rewrite
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -231,10 +238,14 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 func TestRTKAbsoluteAtEveryCommandPosition(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	t.Setenv("FAKE_RTK_OUT", "rtk git log && rtk ls | rtk wc ; rtk a || rtk b\nrtk c; echo rtk status")
-	got, ok := rtkOut(t, hosttest.RTKBashIn("git log && ls | wc ; a || b\nc; echo x"))
+	got, ok := rtkOut(t, hosttest.RTKBashIn("git log && ls | wc ; a || b\nc; echo rtk status"))
 	want := bin + " git log && " + bin + " ls | " + bin + " wc ; " + bin + " a || " + bin + " b\n" + bin + " c; echo rtk status"
 	if !ok || got != want {
 		t.Errorf("got %q (emitted=%v)\nwant %q", got, ok, want)
+	}
+	t.Setenv("FAKE_RTK_OUT", "CGO_ENABLED=0 rtk go test ./x") // a bare rtk the pin cannot reach would exit 127
+	if got, ok := rtkOut(t, hosttest.RTKBashIn("CGO_ENABLED=0 go test ./x")); ok {
+		t.Errorf("env-prefixed rewrite = %q, want none", got)
 	}
 }
 
