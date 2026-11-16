@@ -3,8 +3,8 @@ export const meta = {
   description: 'LoopAgent: run a gate command, fix what fails inside a scope, re-run — until green or maxIterations; default 3 iterations per call (verify.md\'s 5 is the whole-task cap)',
   whenToUse: 'USE: make a scoped gate pass with bounded parallel fixes. CALL: Workflow code-looper with scope or files. RETURNS: exit, gateRuns, residual and iterationsUsed.',
   phases: [
-    { title: 'Detect', detail: 'haiku leaf picks the gate from Makefile/go.mod/pyproject/package.json/Cargo.toml when args.gate is absent' },
-    { title: 'Gate', detail: 'a read-only check first; then one fixer per iteration: run the gate, fix root causes within scope, re-run; a fixer green is re-checked' },
+    { title: 'Gate', detail: 'one read-only leaf detects the gate with claude-code worktree gate when args.gate is absent, runs it once and reports exit, changed files and failures' },
+    { title: 'Fix', detail: 'up to fixesPerIteration owned groups per iteration, then a re-check' },
   ],
 }
 

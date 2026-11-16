@@ -56,6 +56,9 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 - A thin pipe: run the brief's leading `Run:` line exactly as written, once, task appended unchanged; never add, drop
   or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
   verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
+  Write the brief to a file named after its task id with the Write tool and pass it on stdin
+  (`claude-code agents ask ... - < file`) so the launch command starts with `claude-code` and matches the allow rule;
+  never share one brief file name between leaves.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`): follow with foreground
   `claude-code agents result -f <id>` (600000 ms, repeated until it ends). No duplicate ask,
   readiness smoke or repeat discovery.
@@ -99,7 +102,8 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   it consistent with the type (no hidden relay).
 - `Run:` optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook: put `--model`
   on the command. `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
-  identifies a plan task for the hook's slot claim.
+  identifies a plan task for the hook's slot claim. `Tier: fast|standard|deep` (own line) sets the task tier that
+  picks an unpinned run's model (`agent.TaskTier`); without it the wording decides.
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
   `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner requested it.
@@ -109,13 +113,13 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
   rules and the reporting contract from `internal/agent/brief.tmpl`; never restate that footer. Pipe it to
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
-The hook reads `Agent:` only before the first blank line. A leading `Run: claude-code agents ask …` (optionally with
-global `--remote <h>`) is left unrewritten; `--profile` leads then falls back unless `--fallback none` pins it. Overlay
-keys: `rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`; `--remote` vs
-`--host`: `rules/harness/network.md`.
+The hook reads `Agent:` only before the first blank line. A leading `Run: claude-code agents ask …` or
+`claude-code <agent> ask …` (optionally with global `--remote <h>`) is left unrewritten; `--profile` leads then
+falls back unless `--fallback none` pins it. Overlay keys: `rules/harness/agent.md` → Dispatch behavior; auto-mode
+rewrites: `rules/harness/hooks.md`; `--remote` vs `--host`: `rules/harness/network.md`.
 
-**Report (out)** — the final answer is a verdict of at most 8 lines (about 2,500 characters): a review's verdict
-word, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) · `NEEDS_CONTEXT`
+**Report (out)** — the final answer is a verdict of at most 8 lines: a review's verdict word,
+else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) · `NEEDS_CONTEXT`
 ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged); then `Ran on:` (the
 `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an `Agent: in-context` brief), outcome per item,
 test or gate results, what needs a decision, and the report path. The full report (root cause, before/after output,
@@ -140,8 +144,8 @@ fleet scans.
 A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
 implementer (refactors get none). The main thread owns the live check; the test agent repairs broken tests at once, ends
 its turn after the baseline, and resumes on the manager's "landed" `SendMessage`, testing the seam as each piece lands.
-One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf at its cap (3 cycles per test,
-5 per task) reports and stops.
+One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times
+reports and stops (`rules/standards/testing-guidelines.md` → When a test fails).
 
 | Situation | Shape |
 | --- | --- |
@@ -172,7 +176,8 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 #### Return to owner
 
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or
-`sleep`: a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, repeated;
+`sleep` yourself (the one exception is the hook's own `sleep 60` instruction while it runs a never-run `Run:` line for
+a hand-back): a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, repeated;
 [agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to
 `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`.
@@ -187,9 +192,11 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
 - **Visible dispatch (owner preference from 2026-11-12, until lifted):** every dispatch goes through the Agent tool
   with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the main session does not run
   `claude-code agents ask --background` from Bash. Routing rides the brief's leading `Run:` line. A job that can
-  outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends,
-  whereas a shell-backgrounded ask dies when the leaf stops. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the
-  rest.
+  outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends
+  (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count), whereas a shell-backgrounded
+  ask dies when the leaf stops. A hand-back waits up to 13 s for a running job, then is held; a hold keeps every
+  finished job's answer and the later pass attaches them in dispatch order. A never-run `Run:` line is run by the hook,
+  which tells the leaf to wait. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
 - Preserve explicit agent/model choices unless the owner authorizes a change; models go on `ask --model`.

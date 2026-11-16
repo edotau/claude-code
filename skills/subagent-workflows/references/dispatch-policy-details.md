@@ -12,7 +12,8 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
   openai, copilot github, gemini google, opencode databricks only, every agent databricks; `databricks` confines only
   the Databricks hop, so unless `fallback` is `none` the dispatch may still fall back to the agent's own login, then
   `claude`), `profile` (one under it; databricks: or `auto`), `account`, `identity`, `model`, `effort`, `fallback`,
-  `host`, `remote` (like global `--remote`, `auto` allowed; refused with a host) and the env layer `set`/`unset`/`keep`.
+  `host`, `remote` (like global `--remote`, `auto` allowed; refused with a host other than this machine) and the env
+  layer `set`/`unset`/`keep`.
   Value: a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-` (stdin; the task is
   then an argument); an unknown key or bad value exits 2. Typed flags win, except a typed
   `--profile`/`--provider`/`--model <p>:<alias>` outside the overlay's provider/profile is refused (exit 2). Precedence:
@@ -48,7 +49,7 @@ behavior stay in the rule):
   approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
   returns feedback and the run continues) and the native hooks. claude `--tools` off
   Anthropic is an allow list (go/git/read commands, `sed -n <range>p FILE`, `cd` into `--workdir` or below, env-prefixed
-  and `time` forms of listed commands, the `rtk` spellings the rewrite hook emits, the read-only
+  and `time` forms of listed commands, the `rtk` spellings the rewrite hook emits, the
   `claude-code agents find|diff|result|dispatch|wait|status|tree`, `memory recall|search|show|report`,
   `review simplify|scope` and `network websearch` verbs, Edit/Write under `--workdir`; `--allow` adds,
   `--deny`/`--ask` refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the

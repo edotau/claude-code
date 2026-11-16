@@ -11,23 +11,34 @@ redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the temp
 through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`,
 `deno`, `bun` — naming one beside a write call **asks**; reads pass), and a `commit --amend`/`rebase`/`reset <commit>`
 in a shared checkout (`~/.claude`, a tree a peer session works in, a main tree where this session has live leaves or the
-caller is a leaf; own linked worktree exempt; an infra error allows with a warning); **ask** on Claude (block on
-codex/copilot) for `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees
-exempt), an AI-attribution footer (any footer asks; safety-scan never rewrites or strips a command), and on
-intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a force-push of main/master: spelled out, after git global
-flags, or with no refspec while main/master is checked out) naming the safer alternative; **warn** only prints. Every
-shape ignores inert text (commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc
-bodies for the pipe, exfil and SQL shapes) unless it is piped on or holds a `$(…)`; a hard-block shape found only in
-such text asks instead of blocking, but any `<<` in the command scans the heredoc bodies too and blocks. An
-`apply_patch` call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of
-the command is. Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to
+caller is a leaf; own linked worktree exempt; an infra error allows with a warning); **block** on every agent, naming
+the allowed route and that the owner can run it with `!`: `sudo`/`doas` in command position (also inside `bash -c`,
+`eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an interpreter
+runs), `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt;
+passing: `checkout -b`/`switch -c` with no force, `restore --staged`, a `git reset` of HEAD or paths only, `stash
+list|show`, `clean -n`), an AI-attribution footer (safety-scan never rewrites or strips a command), `rm -rf .git` and a
+force-push of main/master (spelled out, after git global flags, or with no refspec while main/master is checked out);
+**ask** on Claude (block on codex/copilot/agy) only for `DROP TABLE`-style SQL and the interpreter write; **warn** only
+prints. Those intent rules fire only on a real invocation: words in data never do (a `claude-code
+agents|memory|scm|plan` brief, an agent CLI prompt, a heredoc fed to `cat > f`/`tee f`/a data command when no file runs
+in the same line, a plain Python stdin script, `grep`/`rg`/`sed` patterns without `e`, `echo`/`printf` text not fed to a
+runner, `which`/`man`, a commit message for every rule but the footer one). The hard-block shapes ignore inert text
+(commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc bodies for the pipe,
+exfil and SQL shapes) unless it is piped on or holds a `$(…)`, and a hard-block shape only in the words of `claude-code
+agents`, `git commit|log`, `grep`/`rg`/`ag`, `jq`, `test`/`[` or an `echo`/`printf` not piped into a runner passes; any
+`<<` in the command scans the heredoc bodies too and blocks, and interpreter code (`python -c`, `node -e`) stays
+scanned. A Go or other compiled program's own `exec.Command("sudo", …)` is out of the hook's reach. An `apply_patch`
+call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of the command is.
+Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to
 `head`/`tail`/`wc`/`cut`/`tr`/`grep`/`rg`/`jq`. A `printf`/`echo` piped into a shell is judged on its decoded text, so a
 hard-block shape built that way blocks. Passing: a fixture vault or credentials write and a `.git` removal under a temp
-folder (no `cd`, link or `truncate` beside it), `git clean -n`, `go env > /tmp/…`, a credential file only printed, and
-a leaf amending in its own temp-folder repo; warnings skip message text. git after a dynamic `cd` is judged in the
-starting directory unless every dynamic cd target is a fresh `$(mktemp …)` dir; `cd ~user`, `~+` and `~-` count as
-dynamic. `echo`/`printf` text whose output runs (`$(echo git stash)`, `eval "$(…)"`, `bash <(…)`, piped to `xargs`
-or a shell's `-c`, written to a file a later segment runs) is a command, not inert text. A `#` after a `\`-newline
+folder (no `cd`, link or `truncate` beside it), `git clean -n`, `go env > /tmp/…`, a credential file only printed, and a
+leaf amending in its own temp-folder repo; warnings skip message text. git after a dynamic `cd` is judged in the
+starting directory unless every dynamic cd target is a fresh `$(mktemp …)` dir under a system temp root (no `-p .` or
+relative template); a variable a statement in the same line sets to a literal absolute path or such a mktemp dir is read
+as that path (`T=/tmp/x; git -C "$T" …`, `rm -rf $T/.git`); `cd ~user`, `~+` and `~-` count as dynamic. `echo`/`printf`
+text whose output runs (`$(echo git stash)`, `eval "$(…)"`, `bash <(…)`, piped to `xargs` or a shell's `-c`, written to
+a file a later segment runs) is a command, not inert text. A `#` after a `\`-newline
 continuation is mid-word (bash joins the lines) unless a blank precedes the `\`.
 A `#` inside `${…}` or `$((…))` is word text (`${l%% #*}`), and one right after a subshell's `)` starts a comment.
 A `>` or `<` inside `${…}` or `$((…))` is no redirect (`$((3>2))`).
@@ -36,7 +47,7 @@ A file the same command line writes from `echo`/`printf` (a redirect or `tee`) a
 write targets as if run directly.
 `cd -` returns to the previous directory, or to the starting directory when that one is unknown. A
 `"$(cat <<'EOF' …)"` commit message
-asks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
+blocks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
 docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
 `mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a read-only command's relative operand
 (`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
@@ -44,7 +55,7 @@ Blocks log to `claude-code doctor --audit` by reason and pattern, never the comm
 
 A plain Python script fed on stdin (`python3 [-I…] - <<'EOF'`, `uv run python -`; quoted delimiter or a body with no
 `$(…)`, not piped on, outside any other heredoc or quote, no later shell or interpreter run, and no `exec`/`eval`,
-`os.system`/`popen`/`exec*`/`spawn*`, reflection or import outside a fixed stdlib list) skips the ask-level shell
+`os.system`/`popen`/`exec*`/`spawn*`, reflection or import outside a fixed stdlib list) skips the intent-rule shell
 words (`sudo`, `DROP TABLE`, git verbs, force-push) in its body; the block shapes still scan it, and every other
 script, interpreter or shell keeps today's scan. In such a script a protected path named only in a `#` comment or
 inside a multi-word string no longer triggers the interpreter-write ask, unless the script splits, strips or slices
@@ -55,7 +66,8 @@ strings; a one-word or f-string literal still does.
 Rewrites a command via `rtk rewrite` (chains included; exit 0/3 with changed output; never sets a permission decision)
 and runs the pinned `bin/rtk` (else PATH); Claude sessions only. Vetoes: already wrapped, any `git` in a linked
 worktree, any `git commit`, machine-readable flags (`--porcelain`, `--json`), value subcommands (`rev-parse`), `go
-vet` (rtk 1.1.0 reports its failures as "No issues found"). Exact bytes: `rtk bypass <cmd>` (or the pinned path when
+vet` and `go test` with `-v`/`-list` (rtk 1.1.0 reports a failed vet as "No issues found" and drops `-v`/`-list` test
+output). Exact bytes: `rtk bypass <cmd>` (or the pinned path when
 PATH resolves another rtk); `HARNESS_RTK_BIN` overrides. A bare `rtk hook claude` entry in settings is stale and
 removed by hand or explicit `configure --restore`. Auto permission mode skips the rewrite: its classifier gives no
 verdict on a hook-changed input, so the call would bounce for a verbatim resend
@@ -63,41 +75,48 @@ verdict on a hook-changed input, so the call would bounce for a verbatim resend
 ## dispatch-effort
 
 Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
-line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
-(effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief; claims
-slots, recalls context and labels the row. Recall is a context note in auto mode for every brief, otherwise only on a
-`Run:` brief; any other brief gets it appended. A `Run:` line naming a missing Databricks workspace, or (with
-`--fallback none`) a model that workspace's fresh cached listing does not serve, is denied with `agents ask`'s own
-preflight text plus the fix (code cannot pick the workspace or model); a stale or missing listing passes. The label is
-the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
-pin, else the model of the brief's task tier, opus when the brief has no text; claude runs the brief's alias), an
-untyped external dispatch takes the route ladder's first hop; a route that does not resolve offline leaves the
-description unlabelled with a note. Every fix (type, label, pin) rides one
-`updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
-Implementation: `internal/hooks/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In auto mode a
-rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a hook-modified input
-once)
+line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's
+tier (effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief;
+claims slots, recalls context and labels the row. Recall is a context note in auto mode for every brief, otherwise
+only on a `Run:` brief; any other brief gets it appended. A `Run:` line `agents ask` would refuse on cached state
+alone is denied with its own preflight text plus the fix (code cannot pick the workspace or model): an overlay
+`databricks:<p>` whose row is missing or does not serve; with `--fallback none` (or the env default none), a
+`--profile`/`<row>:<model>` row the registry lacks or a model that row's fresh cached listing does not serve; or a
+model route that does not resolve. With any other fallback a missing row routes on, and a stale or missing listing
+passes. The label is the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no
+`--model` runs its pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the
+brief has no text; `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch
+takes the route ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a
+note. Every fix (type, label, pin) rides one `updatedInput`, one note line each. Brief routing:
+`skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
+validation: `internal/workflows/workflowlint.go`. In auto mode a rewritten call costs one mechanical resend of the
+exact corrected input (the classifier refuses a hook-modified input once)
 
-## dispatch-failure · dispatch-workflow · dispatch-stop
+## dispatch-failure · dispatch-workflow · dispatch-stop · dispatch-handback
+
+`dispatch-handback` (PreToolUse on `SubagentHandback`, 15 s budget) runs the same two gates on a background leaf's
+hand-back, which ends it before SubagentStop; the verbs below say hand-back or stop for that reason.
 
 Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 hours from the dispatch's start, then a
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
 result -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf whose tool results carry
 no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves are exempt; the type is the request) is never
-refused. Its job is an id its results printed, else a record of that agent started within 2 minutes after one of its
-ask calls (or after the hook's own launch). (1) Job running: the hand-back or stop is held, not counted, naming
-`claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); once ended it
-passes with a top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's
-result appended to `message`: one summary line and its last message in full, skipped when the report already quotes
-it. (2) No job, the brief opens with a `Run:` ask line and the leaf made no Edit/Write/MultiEdit/NotebookEdit call and
-no file-changing Bash call (redirect, `sed -i`, `tee`, `cp`, `mv`, `rm`, `git apply`, a formatter; temp-dir scratch
-excluded): the hook starts that line detached with its flags unchanged (marker and output under
-`state/harness/dispatch-relay/`), holds the leaf (`sleep 60`, then hand back again) and attaches the output and
-receipt with a note saying the hook ran it. (3) The leaf edited files, or the brief has no `Run:` line: it passes with
-a top-line note that the work was done on the relay model, not on the agent; the line is not run. (4) Every hold saves
-the report it carried (`message`, else the last assistant text) to the reports home and names the path. A stop has no
-input to rewrite, so it gets the note as a system message only. Unreadable transcripts fail open. A stop it isn't
-blocking kills the leaf's leftover background shells (its own task ids only)
+refused. Its job is an id its own `agents ask|dispatch|result` call printed, else a record of that agent started
+within 2 minutes after one of its ask calls (or after the hook's own launch). (1) Job running: a hand-back polls it
+every 250 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
+counted, naming `claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); a
+hold keeps every finished job's answer and the later pass attaches them in dispatch order; once ended it passes with a
+top-line note quoting the record's `ran on` line (fallback included) and, on a hand-back, the job's result appended to
+`message`: one summary line and its last message in full; an answer the report already quotes is replaced by `(final
+answer already in the report above)`. (2) No job, the brief opens with a `Run:` ask line and the leaf made no
+Edit/Write/MultiEdit/NotebookEdit call and no file-changing Bash call (redirect, `sed -i`, `tee`, `cp`, `mv`, `rm`,
+`git apply`, a formatter; temp-dir scratch excluded): the hook starts that line detached with its flags unchanged
+(marker and output under `state/harness/dispatch-relay/`), holds the leaf (`sleep 60`, then hand back again) and
+attaches the output and receipt with a note saying the hook ran it. (3) The leaf edited files, or the brief has no
+`Run:` line: it passes with a top-line note that the work was done on the relay model, not on the agent; the line is
+not run. (4) Every hold saves the report it carried (`message`, else the last assistant text) to the reports home and
+names the path. A stop has no input to rewrite, so it gets the note as a system message only. Unreadable transcripts
+fail open. A stop it isn't blocking kills the leaf's leftover background shells (its own task ids only)
 
 ## worktree-claim-check
 
