@@ -4,7 +4,6 @@ package safety
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,11 +76,11 @@ func RTKRewrite(in *core.Input) core.Result {
 // rtkNotes is the once-per-session context: the bypass hint, plus the shadow notice when PATH lacks the pinned rtk.
 func rtkNotes(sessionID, word, found, bin string, onPath bool) string {
 	var notes []string
-	if first, err := rtkFirstInSession("rtk-note", sessionID); sessionID == "" || err != nil || first {
+	if first, err := core.SeenAdd("hooks/rtk-note", sessionID, "note"); sessionID == "" || err != nil || first {
 		notes = append(notes, fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word))
 	}
 	if !onPath {
-		if first, err := rtkFirstInSession("rtk-shadow", sessionID); err == nil && first {
+		if first, err := core.SeenAdd("hooks/rtk-shadow", sessionID, "shadow"); err == nil && first {
 			notes = append(notes, rtkShadowNotice(found, bin))
 		}
 	}
@@ -94,22 +93,6 @@ func rtkShadowNotice(found, bin string) string {
 		return fmt.Sprintf("rtk: no rtk on PATH, so the pinned %s runs by path — run make install", bin)
 	}
 	return fmt.Sprintf("rtk: rtk on PATH is %s, not the pinned binary — run make install", found)
-}
-
-// rtkFirstInSession claims the session's one note of a kind: true only for the first caller (an O_EXCL marker).
-func rtkFirstInSession(kind, session string) (bool, error) {
-	dir := filepath.Join(paths.StateDir(), "hooks", kind)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return false, err
-	}
-	f, err := os.OpenFile(filepath.Join(dir, paths.Slug(session, "", 80, "session")), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, f.Close()
 }
 
 // rtkRewritten is `rtk rewrite`'s replacement for cmd (exit 0 or 3, changed stdout); anything else is "" (unchanged).
@@ -335,12 +318,6 @@ func rtkAbsDir(d, cwd string) (string, bool) {
 	return filepath.Join(cwd, d), true
 }
 
-// gitRTKGlobalValueFlags are git options that CONSUME the next argument: `git -C /repo rev-parse` is not "/repo".
-var gitRTKGlobalValueFlags = map[string]bool{
-	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true,
-	"--exec-path": true, "--super-prefix": true, "--config-env": true,
-}
-
 // gitRTKSubcommand is the subcommand in git's argv tail; "" when none or on an UNRECOGNIZED option (fail closed).
 func gitRTKSubcommand(args []string) string {
 	for i := 0; i < len(args); i++ {
@@ -349,12 +326,12 @@ func gitRTKSubcommand(args []string) string {
 			return a // first non-option word is the subcommand
 		}
 		if name, _, hasEq := strings.Cut(a, "="); hasEq {
-			if !gitRTKGlobalValueFlags[name] {
+			if !shell.GitValueOpt(name) {
 				return "" // unknown --opt=value: do not guess what follows
 			}
 			continue // value rode along on the same token
 		}
-		if gitRTKGlobalValueFlags[a] {
+		if shell.GitValueOpt(a) {
 			i++ // consume its value
 			continue
 		}
@@ -365,7 +342,7 @@ func gitRTKSubcommand(args []string) string {
 	return ""
 }
 
-// gitRTKGlobalBoolFlags are git's valueless global options; anything outside both maps is unknown.
+// gitRTKGlobalBoolFlags are git's valueless global options; anything outside it and shell.GitValueOpt is unknown.
 var gitRTKGlobalBoolFlags = map[string]bool{
 	"--no-pager": true, "--paginate": true, "-p": true, "--bare": true, "--literal-pathspecs": true,
 	"--no-replace-objects": true, "--glob-pathspecs": true, "--noglob-pathspecs": true,

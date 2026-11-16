@@ -190,7 +190,7 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 
 // notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.
 func notePeers(session, ids string) (bool, error) {
-	first, err := seenAdd(session, "peers\t"+ids)
+	first, err := core.SeenAdd(seenKind, session, "peers\t"+ids)
 	if err == nil && !first {
 		now := time.Now()
 		err = os.Chtimes(seenFile(session), now, now)
@@ -333,7 +333,7 @@ func divergedCheckDue(session string) bool {
 	}
 	if os.MkdirAll(filepath.Dir(stamp), 0o700) == nil {
 		if err != nil {
-			pruneSeen(filepath.Dir(stamp))
+			core.PruneSeen(filepath.Dir(stamp))
 		}
 		_ = os.WriteFile(stamp, nil, 0o600)
 	}

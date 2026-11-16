@@ -1,14 +1,17 @@
 package quality
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,11 +71,33 @@ func StopFormat(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
-	maps.Copy(carry, formatAll(eligible))
+	stamps, missing := formatAll(eligible)
+	maps.Copy(carry, stamps)
 	if data, err := json.Marshal(stampFile{Schema: stopFormatSchema, Stamps: carry}); err == nil {
 		_ = paths.AtomicWrite(stampPath, data, 0o600)
 	}
-	return core.Result{}
+	return core.Result{SystemMessage: missingNotes(in.SessionID, missing)}
+}
+
+// skipKey is one absent formatter and the extension of a file it left unformatted.
+type skipKey struct{ tool, ext string }
+
+// missingNotes is one note per formatter not installed, naming each extension it skipped, once per session.
+func missingNotes(session string, missing map[skipKey]int) string {
+	byTool := map[string][]string{}
+	for _, k := range slices.SortedFunc(maps.Keys(missing), func(a, b skipKey) int {
+		return cmp.Or(strings.Compare(a.tool, b.tool), strings.Compare(a.ext, b.ext))
+	}) {
+		byTool[k.tool] = append(byTool[k.tool], fmt.Sprintf("%d %s file(s)", missing[k], k.ext))
+	}
+	var notes []string
+	for _, tool := range slices.Sorted(maps.Keys(byTool)) {
+		if first, err := core.SeenAdd("hooks/format-stop", session, tool); session == "" || err != nil || first {
+			notes = append(notes, fmt.Sprintf("format-stop: %s not found; %s left unformatted", tool,
+				strings.Join(byTool[tool], ", ")))
+		}
+	}
+	return strings.Join(notes, "\n")
 }
 
 // selectForFormat returns dirty session-written files whose stamp changed, plus stamps to carry forward.
@@ -101,12 +126,12 @@ func selectForFormat(cwd string, changed []string, prev map[string]string, allow
 	return eligible, carry
 }
 
-// formatAll formats files concurrently; files still running at the deadline stay unstamped, queued ones skip.
-func formatAll(files []string) map[string]string {
+// formatAll formats files concurrently (deadline: running stay unstamped, queued skip); missing counts per absent tool.
+func formatAll(files []string) (stamps map[string]string, missing map[skipKey]int) {
 	ctx, cancel := context.WithTimeout(context.Background(), stopFormatBudget)
 	defer cancel()
 	var mu sync.Mutex
-	out := map[string]string{}
+	out, skipped := map[string]string{}, map[skipKey]int{}
 	sem := make(chan struct{}, stopFormatWorkers)
 	done := make(chan struct{})
 	var wg sync.WaitGroup
@@ -118,13 +143,17 @@ func formatAll(files []string) map[string]string {
 			case <-ctx.Done():
 				return
 			}
-			if ctx.Err() != nil || !formatFile(f) { // a slot freed at the deadline must not start a new formatter
+			if ctx.Err() != nil { // a slot freed at the deadline must not start a new formatter
 				return
 			}
-			if fi, err := os.Stat(f); err == nil {
-				mu.Lock()
+			ok, tool := formatFile(f)
+			fi, err := os.Stat(f)
+			mu.Lock()
+			defer mu.Unlock()
+			if tool != "" {
+				skipped[skipKey{tool, strings.ToLower(filepath.Ext(f))}]++
+			} else if ok && err == nil {
 				out[f] = stampKey(fi)
-				mu.Unlock()
 			}
 		})
 	}
@@ -135,7 +164,7 @@ func formatAll(files []string) map[string]string {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	return maps.Clone(out)
+	return maps.Clone(out), maps.Clone(skipped)
 }
 
 // stampKey is mtime+size: cheaper than a hash and enough to skip a no-op re-format.

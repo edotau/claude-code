@@ -75,7 +75,7 @@ func formatted(t *testing.T, path string) bool {
 // A per-file format target is the project's own formatter: it runs on the one file and nothing else.
 func TestMakeFormatUsesRepoTarget(t *testing.T) {
 	_, mine, other := makeRepo(t, ".PHONY: format\nformat:\n\tgofmt -w $(FILE)\n")
-	if !formatFile(mine) {
+	if !formatOK(mine) {
 		t.Fatal("formatFile must report the make target ran")
 	}
 	if !formatted(t, mine) || formatted(t, other) {
@@ -92,14 +92,14 @@ func TestMakeFormatSkipsWholeTreeTarget(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "ran-make")); err == nil {
 		t.Error("the whole-tree target ran")
 	}
-	if !formatFile(mine) || !formatted(t, mine) || formatted(t, other) {
+	if !formatOK(mine) || !formatted(t, mine) || formatted(t, other) {
 		t.Error("the extension chain must still format the one file")
 	}
 }
 
 func TestMakeFormatRejectsMixedWholeTreeRecipe(t *testing.T) {
 	_, mine, other := makeRepo(t, "format:\n\techo $(FILE)\n\tgofmt -w .\n")
-	if !formatFile(mine) {
+	if !formatOK(mine) {
 		t.Fatal("the per-file fallback must succeed")
 	}
 	if !formatted(t, mine) {
@@ -162,7 +162,7 @@ func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
 	if err := os.WriteFile(black, []byte(script+"exit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stamps := formatAll([]string{py})
+	stamps, _ := formatAll([]string{py})
 	if len(stamps) != 0 {
 		t.Fatal("isort success followed by black failure must not stamp the file")
 	}
@@ -177,7 +177,7 @@ func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	eligible, _ := selectForFormat(root, []string{filepath.Join("pkg", "m.py")}, stamps, map[string]bool{core.CanonPath(py): true})
-	if retried := formatAll(eligible); len(retried) != 1 {
+	if retried, _ := formatAll(eligible); len(retried) != 1 {
 		t.Fatal("the unchanged file must be retried and stamped once black succeeds")
 	}
 }
@@ -189,7 +189,7 @@ func TestFormatPythonDeclaredChain(t *testing.T) {
 	}
 	root, py, trace := formatPythonFixture(t)
 
-	if !formatPython(py) {
+	if !pythonOK(py) {
 		t.Fatal("the declared chain must report it ran")
 	}
 	got, _ := os.ReadFile(trace)
@@ -202,7 +202,7 @@ func TestFormatPythonDeclaredChain(t *testing.T) {
 	// No classic tool declared → the ruff chain, from the project dir.
 	_ = os.Remove(trace)
 	_ = os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[project]\nname = \"x\"\n"), 0o644)
-	if !formatPython(py) {
+	if !pythonOK(py) {
 		t.Fatal("the ruff chain must report it ran")
 	}
 	got, _ = os.ReadFile(trace)
@@ -219,7 +219,43 @@ func TestMakeFormatRejectsFileAndWholeTreeArguments(t *testing.T) {
 	if formatted(t, mine) || formatted(t, other) {
 		t.Fatal("rejecting the whole-tree command must leave both files untouched")
 	}
-	if !formatFile(mine) || !formatted(t, mine) || formatted(t, other) {
+	if !formatOK(mine) || !formatted(t, mine) || formatted(t, other) {
 		t.Fatal("the fallback must format only the target file")
+	}
+}
+
+func formatOK(path string) bool { ok, _ := formatFile(path); return ok }
+
+func pythonOK(path string) bool { ok, _ := formatPython(path); return ok }
+
+// A formatter missing from PATH is counted per tool, and noted once per session.
+func TestMissingFormatterNotedOncePerSession(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	var files []string
+	for _, name := range []string{"a.sh", "b.sh", "c.bash", "d.txt"} {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte("echo  hi\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
+	stamps, missing := formatAll(files)
+	if len(stamps) != 0 || len(missing) != 2 || missing[skipKey{"shfmt", ".sh"}] != 2 {
+		t.Fatalf("formatAll = %v, missing %v; want shfmt counted per extension, .txt not at all", stamps, missing)
+	}
+	want := "format-stop: shfmt not found; 1 .bash file(s), 2 .sh file(s) left unformatted"
+	if got := missingNotes("s1", missing); got != want {
+		t.Fatalf("first note = %q, want %q", got, want)
+	}
+	if got := missingNotes("s1", missing); got != "" {
+		t.Errorf("second note in one session = %q, want none", got)
+	}
+	if got := missingNotes("s2", missing); got != want {
+		t.Errorf("a new session must be told again, got %q", got)
+	}
+	if got := missingNotes("s3", nil); got != "" {
+		t.Errorf("nothing skipped must print no note, got %q", got)
 	}
 }
