@@ -824,10 +824,10 @@ func dispatchLabelsLine(in *core.Input) string {
 		return ""
 	}
 	var parts []string
+	run := newDispatchRun(func() string { return model })
 	for _, t := range dispatchTypes() {
-		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, SessionModel: model})
-		if blocked == "" && label != "" {
-			parts = append(parts, t+"="+label+":")
+		if part := dispatchLabelEntry(run, t, model); part != "" {
+			parts = append(parts, part)
 		}
 	}
 	if len(parts) == 0 {
@@ -837,6 +837,28 @@ func dispatchLabelsLine(in *core.Input) string {
 		_ = os.WriteFile(file, []byte(model), 0o644) // best effort: a failed write only re-shows the line next prompt
 	}
 	return "Dispatch labels (description prefix): " + strings.Join(parts, " · ")
+}
+
+// dispatchLabelEntry is one type's entry: its fixed label, or one label per tier when the hook pins the model by task class.
+func dispatchLabelEntry(run *dispatchRun, t, model string) string {
+	if agentPinsModel(run, t) {
+		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, SessionModel: model})
+		if blocked != "" || label == "" {
+			return ""
+		}
+		return t + "=" + label + ":"
+	}
+	var labels []string
+	for _, tier := range []string{models.Haiku, models.Sonnet, models.Opus} {
+		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, Model: tier, SessionModel: model})
+		if blocked != "" || label == "" {
+			return ""
+		}
+		if !slices.Contains(labels, label+":") {
+			labels = append(labels, label+":")
+		}
+	}
+	return t + "=" + strings.Join(labels, "|") // the hook picks one by the brief's tier
 }
 
 // sessionModel is the last turn's model, else the SessionStart payload's own (the transcript is empty then).
