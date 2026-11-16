@@ -287,7 +287,7 @@ func TestNukeLeavesCredentialShapedUntrackedInPlace(t *testing.T) {
 	}
 }
 
-// A credential-shaped ignored file under a user tree stays in place and out of the archive; other ignored files archive.
+// A credential-shaped ignored file under a user tree stays in place, out of the archive; other ignored files archive.
 func TestNukeLeavesCredentialShapedIgnoredInPlace(t *testing.T) {
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
