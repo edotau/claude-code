@@ -49,7 +49,7 @@ func parseHunkSpans(diff string) lineSpans {
 
 // renamedFrom is the path a file had at base when git pairs it as a rename ("" otherwise).
 func renamedFrom(path, base string) string {
-	out, err := GitInherit(".", "diff", "-M", "--name-status", base)
+	out, err := GitInherit(".", "diff", "-M", "--relative", "--name-status", base)
 	if err != nil {
 		return ""
 	}

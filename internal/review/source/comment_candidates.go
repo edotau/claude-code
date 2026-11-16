@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -67,7 +68,7 @@ func restatesSymbol(name, doc string) bool {
 func goCommentCandidates(path, text string) []commentCandidate {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, text, parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil || strings.Contains(text, "Code generated") {
+	if err != nil || isGeneratedGo(file) {
 		return nil
 	}
 	out := blockCandidates(text, file, fset)
@@ -75,6 +76,23 @@ func goCommentCandidates(path, text string) []commentCandidate {
 	out = append(out, trailingCandidates(text, file, fset)...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].line < out[j].line })
 	return out
+}
+
+var generatedHeader = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+
+// isGeneratedGo reports the Go generated-file marker in a comment line before the package clause.
+func isGeneratedGo(file *ast.File) bool {
+	for _, g := range file.Comments {
+		if g.End() > file.Package {
+			break
+		}
+		for _, c := range g.List {
+			if generatedHeader.MatchString(c.Text) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // declSymbols maps each declaration's start line to its name, for the symbol column.
