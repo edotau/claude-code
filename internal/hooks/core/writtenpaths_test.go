@@ -1,7 +1,13 @@
 package core
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +81,44 @@ func TestWrittenPathsPrecise(t *testing.T) {
 				t.Errorf("WrittenPathsPrecise(%q) = %q, want %q", c.cmd, got, c.want)
 			}
 		})
+	}
+}
+
+// Given every string literal in this package's tests, Then a command with no `<<` passes the heredoc droppers as is.
+func TestDropHeredocBodiesNeedsHeredocOperator(t *testing.T) {
+	files, err := filepath.Glob("*_test.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("glob test files: %v (%d)", err, len(files))
+	}
+	n := 0
+	for _, f := range files {
+		file, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			lit, ok := node.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil || strings.Contains(s, "<<") {
+				return true
+			}
+			n++
+			for _, s := range []string{s, s + "\n" + s, "cat > f\n" + s + "\nEOF"} {
+				if got := DropDataHeredocs(s); got != s {
+					t.Errorf("DropDataHeredocs(%q) = %q, want it unchanged", s, got)
+				}
+				if got := DropStdinHeredocs(s); got != s {
+					t.Errorf("DropStdinHeredocs(%q) = %q, want it unchanged", s, got)
+				}
+			}
+			return true
+		})
+	}
+	if n < 100 {
+		t.Fatalf("only %d string literals without `<<`; the scan found too few inputs", n)
 	}
 }
 

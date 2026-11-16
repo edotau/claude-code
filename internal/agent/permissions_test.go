@@ -437,6 +437,25 @@ func TestPermissionHeredocBodyIsData(t *testing.T) {
 		"cat <<'EOF' > f\nrm x\nEOF": Deny, "rm x <<'EOF'\nok\nEOF": Deny})
 }
 
+func bigHeredoc(lines int) string {
+	return "python3 - <<'EOF'\n" + strings.Repeat("print('a line of the heredoc body')\n", lines) + "EOF"
+}
+
+// Given a 5,000-line heredoc, Then scanning its body does not copy the rest of the command once per line.
+func TestShellCodeHeredocLinearAllocs(t *testing.T) {
+	cmd := bigHeredoc(5000)
+	if got := testing.AllocsPerRun(5, func() { shellCode(cmd) }); got > 100 {
+		t.Fatalf("shellCode allocs = %v, want <= 100", got)
+	}
+}
+
+func BenchmarkShellCodeHeredoc(b *testing.B) {
+	cmd := bigHeredoc(5000)
+	for b.Loop() {
+		shellCode(cmd)
+	}
+}
+
 // Given shell comments, Then the commented text is not a command; quoted, escaped or mid-word `#` is no comment.
 func TestPermissionShellComments(t *testing.T) {
 	checkBash(t, gatedPerms(t), map[string]Decision{

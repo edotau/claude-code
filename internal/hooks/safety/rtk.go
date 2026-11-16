@@ -76,15 +76,23 @@ func RTKRewrite(in *core.Input) core.Result {
 // rtkNotes is the once-per-session context: the bypass hint, plus the shadow notice when PATH lacks the pinned rtk.
 func rtkNotes(sessionID, word, found, bin string, onPath bool) string {
 	var notes []string
-	if first, err := core.SeenAdd("hooks/rtk-note", sessionID, "note"); sessionID == "" || err != nil || first {
+	if first, err := rtkSeen("hooks/rtk-note", sessionID, "note"); err != nil || first {
 		notes = append(notes, fmt.Sprintf("rtk: output summarized; exact bytes: %s bypass <cmd>", word))
 	}
 	if !onPath {
-		if first, err := core.SeenAdd("hooks/rtk-shadow", sessionID, "shadow"); err == nil && first {
+		if first, err := rtkSeen("hooks/rtk-shadow", sessionID, "shadow"); err == nil && first {
 			notes = append(notes, rtkShadowNotice(found, bin))
 		}
 	}
 	return strings.Join(notes, "\n")
+}
+
+// rtkSeen is core.SeenAdd, but no session id records nothing and counts as first: there is nothing to dedupe against.
+func rtkSeen(kind, sessionID, key string) (bool, error) {
+	if sessionID == "" {
+		return true, nil
+	}
+	return core.SeenAdd(kind, sessionID, key)
 }
 
 // rtkShadowNotice names PATH's rtk (untrusted: by path, never executed) and the fix; found "" means PATH has none.
