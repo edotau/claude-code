@@ -10,8 +10,7 @@ import (
 	"strings"
 )
 
-// WantsHelp reports a -h/-help/--help token before any literal "--" terminator, so a caller can route
-// explicit help to stdout itself instead of letting fs.Parse's automatic usage call land on stderr.
+// WantsHelp reports a -h/-help/--help token before any "--", so callers can send help to stdout themselves.
 func WantsHelp(args []string) bool {
 	for _, a := range args {
 		if a == "--" {
@@ -62,8 +61,7 @@ func Explicit(fs *flag.FlagSet, name string) bool {
 	return explicit
 }
 
-// ExtractBool pulls a `--name` boolean flag out of args wherever it appears (NAME --flag and
-// --flag NAME must both work — the stdlib `flag` package only accepts flags before positionals).
+// ExtractBool pulls a `--name` boolean out of args wherever it appears; stdlib flag needs them before positionals.
 func ExtractBool(args []string, name string) (bool, []string) {
 	flag := "--" + name
 	found := false
@@ -131,9 +129,7 @@ func WriteJSON(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
-// ParseArgs is fs.Parse with flags allowed after positionals (`profile gemini --format json`); returns the positionals.
-// Everything from the first literal "--" onward is positional, never flag-parsed: fs.Parse itself swallows a
-// "--" it meets mid-stream, so a second "--"-check after the fact (on its own) misses "-h" two tokens later.
+// ParseArgs is fs.Parse with flags allowed after positionals; everything after the first "--" is positional.
 func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	head, tail := args, []string(nil)
 	for i := 0; i < len(args); i++ {
@@ -158,8 +154,7 @@ func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-// consumesValue reports whether a is a registered, non-bool flag given without "=": fs.Parse consumes the
-// very next token as its value, so the terminator scan above must skip that token too.
+// consumesValue reports whether a is a registered non-bool flag without "=", so the "--" scan skips its value token.
 func consumesValue(fs *flag.FlagSet, a string) bool {
 	if len(a) < 2 || a[0] != '-' {
 		return false
@@ -186,8 +181,7 @@ var removedFlags = map[string]string{
 	"--1m":       "was removed; 1M context is the base behavior on serving and anthropic endpoints",
 }
 
-// RemovedFlagHint returns the error for a removed flag in args, or nil; the scan stops at "--" or at the first
-// bare word that is not a flag's value (a claude subcommand such as `mcp add --env` owns the flags after it).
+// RemovedFlagHint returns the error for a removed flag in args, or nil; the scan stops at "--" or a bare word.
 func RemovedFlagHint(args []string) error {
 	for i, a := range args {
 		if a == "--" || (!strings.HasPrefix(a, "-") && (i == 0 || !strings.HasPrefix(args[i-1], "-"))) {

@@ -169,7 +169,6 @@ var Registry = []Group{
 	}},
 }
 
-// Specs flattens Registry to its handlers in group order.
 func Specs() []EventSpec {
 	var out []EventSpec
 	for _, g := range Registry {
@@ -178,7 +177,6 @@ func Specs() []EventSpec {
 	return out
 }
 
-// Hook and MatcherGroup are the settings.json hook schema.
 type Hook struct {
 	Type          string `json:"type"`
 	Command       string `json:"command"`
@@ -271,7 +269,6 @@ func Events() map[string][]MatcherGroup {
 	return block
 }
 
-// settingsJSON renders the object under settings.json's "hooks" key.
 func settingsJSON() ([]byte, error) { return textutil.MarshalIndentNoEscape(Events()) }
 
 // HookEvents derives from the hook chain the registry declares, in declaration order, deduplicated.

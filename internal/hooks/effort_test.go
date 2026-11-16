@@ -103,8 +103,7 @@ func TestAgentEffortAlwaysProceeds(t *testing.T) {
 	}
 }
 
-// wantModel "" means the dispatch must be left untouched: explicit and roster-pinned models win, other tools and
-// path-shaped types are ignored, and high complexity is pinned to sonnet rather than inheriting.
+// wantModel "" means the dispatch is left untouched (explicit or roster-pinned models, other tools, path-shaped types).
 func TestAgentEffortModelPin(t *testing.T) {
 	effortHome(t, "pinned-agent:sonnet", "inherit-agent:inherit")
 	cases := []struct{ name, stdin, wantModel string }{
@@ -256,8 +255,7 @@ func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
-// TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput: in auto mode a recall-only result must carry no
-// updatedInput (the classifier returns no verdict on a rewritten call); the recall goes to additionalContext.
+// TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput: auto mode sends recall via additionalContext only.
 func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seedHomeRecallBlock(t, 2)
@@ -388,8 +386,7 @@ func autoDispatch(st, desc string) string {
 		`"prompt":"do it","description":%q}}`, st, desc)
 }
 
-// In auto mode a missing model prefix is denied once with the exact description to resend (tool input is never
-// rewritten there); the resend passes, and outside auto mode the hook rewrites as before.
+// In auto mode a missing model prefix is denied once with the description to resend; elsewhere the hook rewrites.
 func TestDispatchLabelAutoModeDeniesOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "")
@@ -554,8 +551,7 @@ func inventoryLabel(st, model string) string {
 	return model
 }
 
-// TestDispatchLabelInventory: every allowed type × {explicit, agent-file, classified} model × {plain, correct, wrong,
-// doubled} description ends as exactly one `<model>: ` prefix; auto mode blocks only a missing or wrong prefix.
+// TestDispatchLabelInventory: every type × model source × description shape ends with exactly one `<model>: ` prefix.
 func TestDispatchLabelInventory(t *testing.T) {
 	const task = "review the diff"
 	for _, st := range allowedTypes {
@@ -614,8 +610,7 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 	}
 }
 
-// D1: a codex leaf whose Agent: line mentions claude-code was labelled with the wrapper's alias stacked on the
-// routed model; an external type's label is its own pick, once.
+// D1: a codex leaf whose Agent: line mentions claude-code got the wrapper's alias stacked on its model; label once.
 func TestDispatchLabelExternalTypeIgnoresAgentLineWords(t *testing.T) {
 	useAgentsDir(t, "codex")
 	stubLabelModels(t, "databricks-gpt-6-1-sol")

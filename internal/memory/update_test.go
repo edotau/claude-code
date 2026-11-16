@@ -58,8 +58,6 @@ func TestAgentUpdatePrompt_UsesReference(t *testing.T) {
 	}
 }
 
-// TestAgentUpdatePrompt_WithCWDAppendsGitActivity: a transcript with a parseable timestamp and a
-// real git cwd gets a "git activity" block with the session's commits/touched files appended.
 func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 	cwd := t.TempDir()
 	hosttest.In(t, cwd, "init", "-q")
@@ -302,9 +300,7 @@ func hitContaining(hits []SearchHit, sub string) (found SearchHit, ok bool) {
 	return found, ok
 }
 
-// TestCompoundMatchFindsHyphenatedAndSubstringTerms: "agent routing" finds a block that only carries
-// "subagent" (agent is a substring of subagent) and "routing" exactly; a block with an exact "agent"
-// outranks the substring-only match; a hyphenated query term ("agent-routing") matches both parts.
+// An exact "agent" outranks the substring-only match in "subagent"; hyphenated terms match both parts.
 func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
@@ -329,8 +325,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	if !exactSeen {
 		t.Fatalf("\"agent routing\" missed the exact block: %#v", hits)
 	}
-	// Matched must credit BOTH query terms on the compound block — "agent" only via the subagent
-	// substring — not just the one term ("routing") that was already an exact token.
+	// Matched must credit both terms, "agent" only via the "subagent" substring.
 	if compoundMatched != 2 {
 		t.Errorf("compound block matched %d terms, want 2 (agent via substring, routing exact): %#v", compoundMatched, hits)
 	}
@@ -395,12 +390,9 @@ func TestLiveTranscript(t *testing.T) {
 	}
 }
 
-// embeddedVerbs are every verb Go actually calls memory.Reference with — grepped by hand from
-// update.go, dream.go, promote.go — each must resolve to a non-empty embedded prompt.
+// embeddedVerbs are the verbs update.go, dream.go and promote.go pass to Reference.
 var embeddedVerbs = []string{"init", "review", "promote", "update", "dream"}
 
-// TestReferenceEmbeddedVerbsNonEmpty: every verb Go calls Reference(verb) with resolves to a
-// non-empty embedded prompt — no disk path left to go missing at runtime.
 func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 	for _, verb := range embeddedVerbs {
 		got, err := Reference(verb)
@@ -414,8 +406,7 @@ func TestReferenceEmbeddedVerbsNonEmpty(t *testing.T) {
 	}
 }
 
-// TestReferenceUnknownVerbErrors: a verb with no embedded prompts/<verb>.md is an error, not an
-// empty string — a caller must never run a background job on a silently empty prompt.
+// An unknown verb must error, never return "": a background job must not run on an empty prompt.
 func TestReferenceUnknownVerbErrors(t *testing.T) {
 	if _, err := Reference("does-not-exist"); err == nil {
 		t.Fatal("Reference(\"does-not-exist\") = nil error, want one")
@@ -447,10 +438,7 @@ func TestAgentDreamPrompt_UsesReference(t *testing.T) {
 	}
 }
 
-// TestDreamFreshStoreRunsWithoutDeadlock: on a fresh store Dream used to re-take its
-// own bank lock inside settleBank and hang. Reference("dream") is now embedded and always resolves
-// (the old "missing reference" repro is unreachable), so this instead confirms Dream still returns
-// promptly and the agent still runs, proving the lock-then-settle-outside-the-lock fix holds.
+// Regression: on a fresh store Dream re-took its own bank lock inside settleBank and hung.
 func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 	clearChildEnv(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

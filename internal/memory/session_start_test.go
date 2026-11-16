@@ -388,8 +388,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	}
 }
 
-// TestUnifiedSurfaceCarriesNoCatalogRows: a 200-repo catalog adds one pointer line and no rows, and the home
-// bank's focus rides along with this repo's.
+// A 200-repo catalog adds one pointer line and no rows.
 func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
@@ -421,8 +420,6 @@ func TestUnifiedSurfaceCarriesNoCatalogRows(t *testing.T) {
 	}
 }
 
-// TestSectionBodyEdgeCases: case-insensitive heading match, an absent heading, an empty section, and the
-// last section in the file all resolve correctly.
 func TestSectionBodyEdgeCases(t *testing.T) {
 	t.Parallel()
 	text := "# Active\n\n## Current Focus\n\n- a\n- b\n\n## Blockers\n\n- none\n"
@@ -443,8 +440,7 @@ func TestSectionBodyEdgeCases(t *testing.T) {
 	}
 }
 
-// Correctness fix (mdsmith AST headings, md-spec.md): a "## " line inside a fenced code block is no
-// longer mistaken for the next heading, so the fence's full contents stay inside the section.
+// Regression: a "## " line inside a fenced code block is not the next heading.
 func TestSectionBodyRespectsFence(t *testing.T) {
 	t.Parallel()
 	text := "# Active\n\n## Current Focus\n\n```\n## not a heading\n```\n- a\n\n## Blockers\n\n- none\n"
@@ -501,8 +497,6 @@ func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	}
 }
 
-// TestRepoBankKnowledgeIsCatalogedAndSearched: a repo bank's knowledge/*.md shows under its own key in the
-// catalog and is reachable by search, same as the home-bank tier.
 func TestRepoBankKnowledgeIsCatalogedAndSearched(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)

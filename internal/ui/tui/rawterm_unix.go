@@ -45,8 +45,7 @@ func restore(fd int, st *termState) error {
 	return ioctlTermios(fd, ioctlSet, &st.t)
 }
 
-// readPassword reads one line from fd with echo off, calling onChange (if set) after every read so a paste shows
-// as it lands; Backspace and Ctrl-U edit, Esc/Ctrl-C/Ctrl-D cancel. The terminal is restored before returning.
+// readPassword reads one line with echo off, calling onChange per read; Esc/Ctrl-C/Ctrl-D cancel; terminal restored.
 func readPassword(fd int, onChange func([]byte)) ([]byte, error) {
 	var t syscall.Termios
 	if err := ioctlTermios(fd, ioctlGet, &t); err != nil {

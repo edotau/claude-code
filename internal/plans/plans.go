@@ -199,8 +199,7 @@ func WorktreeName(top string) string {
 	return ""
 }
 
-// Active picks home's tick target: a dated plan with an open owned task, never an unapproved draft in skip; a plan
-// whose claim names worktree wins, else the newest by mtime.
+// Active picks home's tick target: a dated plan with an open owned task, never a skipped draft.
 func Active(home, worktree string, skip []string) (string, bool) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
@@ -262,8 +261,7 @@ func hasOpenOwnedTask(plan Plan) bool {
 	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && len(t.Owns) > 0 })
 }
 
-// spliceOwn expands an entry abbreviated against the previous one (a bare name takes its directory); an entry a
-// committed file already matches stays as is.
+// spliceOwn expands an entry abbreviated against the previous one (a bare name takes its directory).
 func spliceOwn(prev, entry string, files []string) string {
 	first, _, ok := strings.Cut(entry, "/")
 	if !ok {
@@ -308,8 +306,7 @@ func isDirOwn(entry string) bool {
 	return strings.Contains(entry, "/") && !strings.Contains(base, ".") && !strings.ContainsAny(base, "*?[")
 }
 
-// covers reports which of owns a commit's files touch: all entries and/or at least one; a directory entry never
-// completes a task alone, so all needs at least one file entry.
+// covers reports whether a commit touches all and/or any of owns; a directory entry alone never completes a task.
 func covers(root string, owns, files []string) (all, any bool) {
 	if len(owns) == 0 {
 		return false, false
@@ -338,8 +335,7 @@ func ownEntries(owns, files []string) []string {
 	return out
 }
 
-// absCovers reports whether an absolute entry names file: under root it is compared by its root-relative path, outside
-// root (another checkout) it must end in the repo-relative file or in any of the file's ancestor directories.
+// absCovers reports whether an absolute entry names file, by root-relative path or repo-relative suffix.
 func absCovers(root, entry, dir, file string) bool {
 	if !path.IsAbs(entry) {
 		return false

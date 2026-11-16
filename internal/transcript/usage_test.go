@@ -54,9 +54,7 @@ func TestUsageAggregateFixtures(t *testing.T) {
 	sonnet := wantModel(t, agg.Models, "claude-sonnet-5", 300, 30, 5, 50)
 	wantModel(t, agg.Models, "claude-opus-4-8", 800, 55, 0, 0)
 
-	// Peak per-minute bucket sums uncached input (input_tokens + cache_creation_input_tokens), not input
-	// alone: minute 06:36 sums (100+50)+(200+0)[A] + (300+0)[B] = 650; minute 06:40 sums 500+0=500[B] alone.
-	// 650 must win, not the 500 in the file scanned last.
+	// Peak sums input + cache writes per minute: 06:36 totals 650 and must win over 06:40's 500, scanned last.
 	if agg.PeakInputTokensPerMin != 650 {
 		t.Errorf("PeakInputTokensPerMin = %d, want 650", agg.PeakInputTokensPerMin)
 	}
@@ -73,8 +71,7 @@ func TestUsageAggregateMissingFile(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileFixtures pins summarizeFile against the same fixture AddFile is pinned against
-// (usage --workflows reuses this helper for per-run/per-phase wall time and turn counts).
+// summarizeFile is pinned against the fixture AddFile uses; usage --workflows reuses it for wall time and turns.
 func TestSummarizeFileFixtures(t *testing.T) {
 	s, err := summarizeFile("testdata/usage_a.jsonl")
 	if err != nil {
@@ -96,8 +93,7 @@ func TestSummarizeFileFixtures(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileNoTimestamps confirms a file with unparseable/absent timestamps degrades to a
-// zero span rather than erroring — the WALL column must print "-", never a 1970-based duration.
+// Absent timestamps give a zero span so the WALL column prints "-", never a 1970-based duration.
 func TestSummarizeFileNoTimestamps(t *testing.T) {
 	s, err := summarizeFile("testdata/usage_no_timestamps.jsonl")
 	if err != nil {
@@ -111,12 +107,7 @@ func TestSummarizeFileNoTimestamps(t *testing.T) {
 	}
 }
 
-// TestSummarizeFileDedupesByMessageID pins the dedupe: Claude Code writes one JSONL line per
-// content block of an API response, each repeating message.usage under the same message.id, and
-// output_tokens grows across a response's lines while streaming. testdata/usage_dedup.jsonl's first
-// four lines are real records sampled 2026-09-26 (trimmed) sharing one id — a naive per-line sum would
-// give input 8, output 262; the last-line-wins fix must give input 2, output 247 for that response. The
-// fifth line is synthetic (no message.id) and must count as its own, separate response.
+// usage_dedup.jsonl's first four lines (real, 2026-09-26) share one id: last wins, input 2 output 247, not 8/262.
 func TestSummarizeFileDedupesByMessageID(t *testing.T) {
 	s, err := summarizeFile("testdata/usage_dedup.jsonl")
 	if err != nil {
@@ -129,21 +120,17 @@ func TestSummarizeFileDedupesByMessageID(t *testing.T) {
 	if !ok {
 		t.Fatal("missing claude-sonnet-5 in file summary")
 	}
-	// Deduped response (last line wins): input 2, cache_creation 23879, cache_read 0, output 247.
-	// Standalone no-id line: input 7, cache_creation 1, cache_read 2, output 3. Summed: 9/23880/2/250.
+	// Deduped response plus the standalone no-id line (7/1/2/3) sum to 9/23880/2/250.
 	if sonnet.InputTokens != 9 || sonnet.OutputTokens != 250 || sonnet.CacheCreationTokens != 23880 || sonnet.CacheReadTokens != 2 {
 		t.Errorf("sonnet totals = %+v, want {9 250 2 23880}", sonnet)
 	}
 }
 
-// TestSummarizeFileOversizedLineDoesNotAbortScan: transcript's EachLine has no per-line cap (an
-// overflow buffer joins arbitrarily long lines), so a >16 MB line — legal JSON, just huge — must not
-// truncate or abort the scan of the valid lines before and after it.
+// EachLine has no per-line cap, so a >16 MB line must not truncate or abort the scan around it.
 func TestSummarizeFileOversizedLineDoesNotAbortScan(t *testing.T) {
 	huge := strings.Repeat("a", 16*1024*1024+1024)
 	line1 := `{"type":"assistant","timestamp":"2026-07-19T06:36:00.000Z","message":{"model":"claude-sonnet-5","id":"msg_before","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1}}}`
-	// A single legal (if oversized) assistant JSONL line: an extra, unread "filler" field pads it past
-	// the old 16 MB scanner cap, and its own usage still must be counted.
+	// An unread "filler" field pads the line past the old 16 MB scanner cap; its usage must still count.
 	line2 := fmt.Sprintf(`{"type":"assistant","timestamp":"2026-07-19T06:37:00.000Z","message":{"model":"claude-sonnet-5","id":"msg_huge","usage":{"input_tokens":11,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":2},"filler":%q}}`, huge)
 	line3 := `{"type":"assistant","timestamp":"2026-07-19T06:38:00.000Z","message":{"model":"claude-sonnet-5","id":"msg_after","usage":{"input_tokens":9,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":3}}}`
 

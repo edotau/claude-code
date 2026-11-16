@@ -90,7 +90,6 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	return env, nil
 }
 
-// claudeCodeBin resolves the binary to self-exec: os.Executable, else PATH (e.g. under `go run`).
 func claudeCodeBin() (string, error) {
 	if exe, err := os.Executable(); err == nil {
 		return exe, nil
@@ -134,7 +133,6 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 	return runAndFinalize(ctx, op, plan, resolvePrompt(plan, conflictPaths))
 }
 
-// newResolveOperation is the "resolving" record for a fresh agent resolution, pinned to plan's OIDs.
 func newResolveOperation(repo *Repo, plan *MergePlan, agentName string, conflictPaths []string) *Operation {
 	op := &Operation{
 		ID:                newOperationID(),
@@ -316,7 +314,6 @@ func agentChangedPaths(ctx context.Context, op *Operation, worktreePath string) 
 	return result, nil
 }
 
-// outsideConflictPaths reports every entry of changed not present in conflictPaths.
 func outsideConflictPaths(changed, conflictPaths []string) []string {
 	allowed := make(map[string]bool, len(conflictPaths))
 	for _, p := range conflictPaths {
@@ -362,7 +359,6 @@ func finalizeAgentResolution(ctx context.Context, op *Operation, worktreePath st
 	return markResolved(ctx, op, worktreePath)
 }
 
-// markResolved checkpoints op as resolved at the worktree's HEAD and returns the integrate result.
 func markResolved(ctx context.Context, op *Operation, worktreePath string) (*Operation, *MergeResult, error) {
 	head, err := headOfContext(ctx, worktreePath)
 	if err != nil {
@@ -488,7 +484,6 @@ func checkPinnedAncestry(ctx context.Context, op *Operation, worktreePath, head 
 	return resolutionResolved, "", nil
 }
 
-// unmergedPaths reads `git diff --name-only --diff-filter=U -z`; empty means every handed conflict is resolved.
 func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 	out, err := runGit(ctx, path, nil, "diff", "--name-only", "--diff-filter=U", "-z")
 	if err != nil {
@@ -503,7 +498,6 @@ func unmergedPaths(ctx context.Context, path string) ([]string, error) {
 	return paths, nil
 }
 
-// hasMergeHead reports whether path's own git-dir still has an in-progress merge recorded.
 func hasMergeHead(path string) (bool, error) {
 	gitDir, err := gitDirFromPath(path)
 	if err != nil {
@@ -512,7 +506,6 @@ func hasMergeHead(path string) (bool, error) {
 	return markerExists(gitDir, "MERGE_HEAD")
 }
 
-// failOperation marks op failed and re-saves it; the file is never cleaned up, so resume decides what to do next.
 func failOperation(op *Operation, err error) (*Operation, *MergeResult, error) {
 	return endOperation(op, "failed", err)
 }
@@ -539,7 +532,6 @@ func resolvePrompt(plan *MergePlan, conflictPaths []string) string {
 		plan.WorktreePath, plan.TargetRef, plan.TargetOID, conflictPaths)
 }
 
-// newOperationID is a short random tag; collisions are harmless since the file path is keyed by repo+worktree.
 func newOperationID() string {
 	b := make([]byte, 6)
 	if _, err := rand.Read(b); err != nil {
@@ -556,5 +548,4 @@ func ResolveAgents() []string {
 	})
 }
 
-// ValidResolveAgent reports whether a is a --resolve-agent value merge accepts ("" means none).
 func ValidResolveAgent(a string) bool { return a == "" || slices.Contains(ResolveAgents(), a) }

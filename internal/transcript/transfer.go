@@ -19,9 +19,7 @@ const maxTurns = 40
 // handoffCap is the byte budget Handoff trims the transcript to.
 const handoffCap = 64 * 1024
 
-// defaultSource finds the newest *.jsonl Claude Code session file for cwd, under Claude Code's own
-// projects/<slug> dir (ConfigDir()/projects/<slug>) — never memory.Dir, which redirects into the
-// memory store post-cutover and holds no transcripts.
+// defaultSource finds cwd's newest session *.jsonl under ConfigDir()/projects/<slug>, never memory.Dir.
 func defaultSource(cwd string) (string, error) {
 	dir := filepath.Join(paths.ConfigDir(), "projects", paths.ProjectSlug(cwd))
 	ents, err := os.ReadDir(dir)
@@ -88,8 +86,7 @@ func readTurns(source string) ([]string, error) {
 	return turns, nil
 }
 
-// Handoff builds the hand-off prompt for cwd from source's transcript: the last maxTurns turns,
-// trimmed from the oldest until the prompt fits handoffCap, then a lone turn clipped to what remains.
+// Handoff builds the hand-off prompt from the last maxTurns turns, trimmed oldest-first to fit handoffCap.
 func Handoff(source, cwd, note string) (string, error) {
 	turns, err := readTurns(source)
 	if err != nil {
@@ -139,8 +136,7 @@ func clipBytes(s string, limit int) string {
 	return textutil.CutBytes(s, limit-len(marker)) + marker
 }
 
-// TransferArgs builds the `ask` argv for a transfer: --tools lets the agent edit, --background
-// detaches unless wait asks for the foreground answer.
+// TransferArgs builds the `ask` argv for a transfer: --tools for edits, --background unless wait.
 func TransferArgs(agentName, cwd, prompt string, wait bool) []string {
 	args := []string{"--agent", agentName, "--tools", "--workdir", cwd}
 	if !wait {

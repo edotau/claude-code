@@ -83,8 +83,7 @@ func paintCell(c cell, mode string, dim, rgb ansi.RGB) string {
 	return ansi.Paint(mode, rgb, string(c.ch), true)
 }
 
-// wrapSegments writes pieces from col, swapping a separator for a newline before a segment crossing width (0: never).
-// Widths are terminal cells, as clip measures them, so a wide rune counts two.
+// wrapSegments writes pieces from col, breaking before a segment that crosses width (0: never); widths are cells.
 func wrapSegments(out *strings.Builder, pieces []string, cells []cell, brks []brk, col, width int) int {
 	next := 0
 	for i := 0; i < len(pieces); {
@@ -191,8 +190,7 @@ func gradientCells(v values, cfg config) cellBuf {
 	return b
 }
 
-// pushMetrics pushes enabled cfg.Order segments but path, provider, limits and total: the context block after the
-// major separator, the rest as text joined by the minor separator.
+// pushMetrics pushes the enabled segments but path, provider, limits and total: context block first, the rest as text.
 func (b *cellBuf) pushMetrics(v values, cfg config) {
 	sepMajor := cfg.sep("major", "  ●  ")
 	sepMinor := cfg.sep("minor", " · ")

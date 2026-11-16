@@ -19,15 +19,13 @@ func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {
 	}
 }
 
-// kbDestFlag isolates every Run call below from the real machine's keybindings.json: without
-// it, a call that omits --keybindings-dest falls back to the platform default and writes there.
+// kbDestFlag keeps Run calls off the real machine's keybindings.json, which the platform default would write.
 func kbDestFlag(t *testing.T) []string {
 	t.Helper()
 	return []string{"--keybindings-dest", filepath.Join(t.TempDir(), "keybindings.json")}
 }
 
-// extDirFlag isolates every Run call below from the real machine's VS Code extensions dir:
-// without it, a call falls back to the platform default and symlinks the extension there for real.
+// extDirFlag keeps Run calls off the real VS Code extensions dir, which the platform default would symlink into.
 func extDirFlag(t *testing.T) []string {
 	t.Helper()
 	return []string{"--extensions-dir", filepath.Join(t.TempDir(), "extensions")}
@@ -60,8 +58,7 @@ func writeVSCodeFixture(t *testing.T) (tmpl, dest string) {
 	return tmpl, dest
 }
 
-// An explicit --dest with no --keybindings-dest must default next to that dest, never to the
-// platform's real keybindings.json — the bug this guards shipped keybindings into the live machine.
+// An explicit --dest with no --keybindings-dest defaults next to it, never to the real keybindings.json (shipped bug).
 func TestCmdVSCodeDefaultsKeybindingsNextToExplicitDest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // backups go to StateDir(); keep them out of the live tree
 	tmpl, dest := writeVSCodeFixture(t)

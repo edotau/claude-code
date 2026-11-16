@@ -34,8 +34,7 @@ var rtkValueSubcommands = map[string]bool{
 	"check-ignore": true, "check-attr": true, "count-objects": true,
 }
 
-// RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
-// when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
+// RTKRewrite rewrites a Bash command via `rtk rewrite`; silent when rtk is absent, vetoed or leaves it unchanged.
 func RTKRewrite(in *core.Input) core.Result {
 	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
 		return core.Result{}
@@ -53,8 +52,7 @@ func RTKRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 
-	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
-	// dropping one (description, timeout, run_in_background) would silently alter the call.
+	// updatedInput REPLACES the whole tool_input: every original key must be echoed back or the call silently changes.
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}

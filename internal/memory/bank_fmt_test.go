@@ -139,8 +139,6 @@ func runWrapCases(t *testing.T, cases []wrapCase) {
 	}
 }
 
-// TestFormatBankMarkdownWrapTable: bullet, nested bullet, numbered item, plain paragraph (indented and not)
-// each wrap at a word boundary with continuation indented to the item's content column.
 func TestFormatBankMarkdownWrapTable(t *testing.T) {
 	t.Parallel()
 	runWrapCases(t, slices.Concat(wrapBreakCases(), markerAfterOneTokenCases(), markerRunCases()))
@@ -197,9 +195,7 @@ func TestFormatBankMarkdownNeverTouches(t *testing.T) {
 	runWrapCases(t, untouchedCases())
 }
 
-// TestFormatBankMarkdownNeverSplitsProtectedSpans: an inline code span, a markdown link, and an HTML
-// comment marker stay byte-identical, contiguous substrings of the output even when the line around
-// them is wrapped, and even when the span itself is wider than the wrap cap (kept whole, over-width).
+// A span wider than the wrap cap is kept whole, over-width.
 func TestFormatBankMarkdownNeverSplitsProtectedSpans(t *testing.T) {
 	t.Parallel()
 	assertProtectedCodeSpan(t)
@@ -236,8 +232,6 @@ func assertProtectedCodeSpan(t *testing.T) {
 
 func utf8RuneCount(s string) int { return len([]rune(s)) }
 
-// TestFormatBankMarkdownUnsplittableTokenStaysOverWidth: a single token with no space (a long URL-shaped
-// run) is wider than the cap but is kept whole on its own line rather than cut mid-word.
 func TestFormatBankMarkdownUnsplittableTokenStaysOverWidth(t *testing.T) {
 	t.Parallel()
 	token := strings.Repeat("y", 150)
@@ -259,8 +253,7 @@ func assertUnsplittableTokenLine(t *testing.T, out, token string) {
 	}
 }
 
-// bankFmtFixture is synthetic text shaped like real decisionLog.md/sessionHistory.md entries — written
-// fresh for this test, not copied from any real memory content.
+// bankFmtFixture is synthetic text shaped like real decisionLog.md/sessionHistory.md entries.
 const bankFmtFixture = `# decisionLog
 
 harness_kind: bank
@@ -282,9 +275,7 @@ See the [full note](http://example.com/some/long/path/that/keeps/the/whole/link/
 run ` + "`claude-code memory fmt --check`" + ` before committing. <!-- id:deadbeef0123 -->
 `
 
-// TestFormatBankMarkdownLosslessWordEquality: word content survives — runs of whitespace collapse, but
-// the ordered sequence of words in the document is identical before and after (assert word-equality,
-// not byte-equality, per the documented contract).
+// Asserts word-equality, not byte-equality: whitespace runs collapse.
 func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
 	t.Parallel()
 	out := formatBankMarkdown(bankFmtFixture)
@@ -300,8 +291,6 @@ func TestFormatBankMarkdownLosslessWordEquality(t *testing.T) {
 	}
 }
 
-// TestFormatBankMarkdownIdempotent: a second pass over already-wrapped text is a no-op, for the fixture
-// and for the specific plain-paragraph-with-leading-indent case the implementer's fix targets.
 func TestFormatBankMarkdownIdempotent(t *testing.T) {
 	t.Parallel()
 	once := formatBankMarkdown(bankFmtFixture)
@@ -336,8 +325,6 @@ func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
 	return HomeBankDir(), dir
 }
 
-// TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex: bankFmtTargets walks the six typed
-// files and archive/handoffs/reports under every store, and never index.md or MEMORY.md.
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {
 	global, repo := bankFmtRepoStore(t)
 	for _, name := range bankFiles {
@@ -382,8 +369,6 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	}
 }
 
-// TestFormatBankCheckWritesNothingAndListsFiles: --check mode (check=true) reports every file that would
-// change, writes nothing (mtimes untouched, bytes untouched), and the store stays uncommitted.
 func TestFormatBankCheckWritesNothingAndListsFiles(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	target := filepath.Join(global, "decisionLog.md")
@@ -436,8 +421,6 @@ func assertWrappedKeepsWords(t *testing.T, target, longLine string) {
 	}
 }
 
-// TestFormatBankWritesAndCommitsOnlyOnChange: the default (non-check) pass rewrites a dirty file and
-// commits it; a second pass with nothing left to wrap makes no new commit.
 func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	global, _ := bankFmtRepoStore(t)
 	target := filepath.Join(global, "decisionLog.md")
@@ -500,8 +483,7 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	}
 }
 
-// headOrEmpty is Head() with the error folded away for test readability (Head() never errors; it
-// returns "" when there is no commit yet).
+// headOrEmpty is Head() with the error folded away ("" when there is no commit yet).
 func (r Repo) headOrEmpty(t *testing.T) string {
 	t.Helper()
 	h, _ := r.head()

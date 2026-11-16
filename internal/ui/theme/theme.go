@@ -1,5 +1,4 @@
-// Package theme applies the tracked theme/ directory: one JSON file per tool, merged over that tool's
-// own config so a fresh box (or a clobbered panel) gets the look back with one verb.
+// Package theme applies the tracked theme/ directory: one JSON file per tool, merged over that tool's own config.
 package theme
 
 import (
@@ -54,8 +53,7 @@ type Outcome struct {
 	Backup     string
 }
 
-// Apply merges every present theme/<name>.json (or .conf) into its destination. dryRun reports without writing.
-// Keys the theme file omits are kept; a key it carries wins. Maps merge recursively for JSON; lines replace for .conf.
+// Apply merges every present theme/<name>.json (or .conf) into its destination; dryRun reports without writing.
 func Apply(dir, home string, only []string, dryRun bool) ([]Outcome, error) {
 	targets, err := selectTargets(targets(home), only)
 	if err != nil {
@@ -225,9 +223,7 @@ func DeepMerge(base, overlay map[string]any) map[string]any {
 	return out
 }
 
-// mergeGhostty returns dest with each overlay key's lines replacing that key's dest lines at its first
-// position; keys new to dest are appended in overlay order; overlay comments are dropped.
-// Indexed palette overlays ("palette = N=#rrggbb") merge per index and keep unmentioned dest entries.
+// mergeGhostty replaces dest lines per overlay key, appends new keys, drops overlay comments, merges palette by index.
 func mergeGhostty(dest, overlay []byte) []byte {
 	set, order := overlayKeys(overlay)
 	byIdx, indexed := paletteByIndex(set["palette"])

@@ -166,8 +166,7 @@ func assertGradientRows(t *testing.T, wide string, lines []string, width int) {
 	}
 }
 
-// gradientEase is behavior, not a pinned value: for any ease, the cell a fraction f along the line wears the ramp's
-// color at f^ease (0.45 puts the ¼ cell at 54% of the ramp, 1.0 at 25%, 1.5 at 13%).
+// gradientEase is behavior: the cell at fraction f wears the ramp color at f^ease (0.45 puts the 1/4 cell at 54%).
 func TestGradientEaseColorsAlongLine(t *testing.T) {
 	hermetic(t)
 	cfg := loadConfig()

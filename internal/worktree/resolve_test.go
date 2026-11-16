@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// resolveFixtureConflictSetup builds the same divergent-edit-to-the-same-file conflict preflight_test.go
-// exercises (TestPreflightPredictsTextConflict's shape), then runs Preflight so the caller gets back a
-// plan with exactly one IssueConflict ready to hand to resolveWithAgent.
+// resolveFixtureConflictSetup builds a same-file divergent-edit conflict and returns its one-IssueConflict plan.
 func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *MergePlan) {
 	t.Helper()
 	repo, main, wt = preflightFixtureSetup(t)
@@ -31,9 +29,7 @@ func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, pla
 	return repo, main, wt, p
 }
 
-// resolveFixtureFakeClock replaces nowFn/sleepFn with a deterministic in-memory clock (sleepFn just
-// advances it) and shrinks pollInterval/maxResolveWait, so every test below runs in milliseconds with
-// no real sleeping and no real model call — restoring every package var on cleanup.
+// resolveFixtureFakeClock swaps in an in-memory clock and short poll/wait bounds, restored on cleanup.
 func resolveFixtureFakeClock(t *testing.T, maxWait time.Duration) {
 	t.Helper()
 	origNow, origSleep, origPoll, origMax := nowFn, sleepFn, pollInterval, maxResolveWait
@@ -47,8 +43,7 @@ func resolveFixtureFakeClock(t *testing.T, maxWait time.Duration) {
 	})
 }
 
-// resolveFixtureFakeAgent installs fn as the one seam resolveWithAgent calls instead of a real
-// `claude-code agents ask`, restoring the real var on cleanup.
+// resolveFixtureFakeAgent stubs the agent seam resolveWithAgent calls, restored on cleanup.
 func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error)) {
 	t.Helper()
 	orig := runResolveAgent
@@ -75,7 +70,6 @@ func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
 	}
 }
 
-// requireMergeHead fails with why unless wt's MERGE_HEAD presence equals want.
 func requireMergeHead(t *testing.T, wt string, want bool, why string) {
 	t.Helper()
 	mh, err := hasMergeHead(wt)
@@ -87,7 +81,6 @@ func requireMergeHead(t *testing.T, wt string, want bool, why string) {
 	}
 }
 
-// requireFileText fails unless the file at path holds exactly want.
 func requireFileText(t *testing.T, path, want string) {
 	t.Helper()
 	got, err := os.ReadFile(path)
@@ -99,7 +92,6 @@ func requireFileText(t *testing.T, path, want string) {
 	}
 }
 
-// requirePhase fails unless got (the named operation's Phase) equals want.
 func requirePhase(t *testing.T, name, got, want string) {
 	t.Helper()
 	if got != want {
@@ -107,7 +99,6 @@ func requirePhase(t *testing.T, name, got, want string) {
 	}
 }
 
-// requireIntegrate fails unless result is an integrate result landing on wantOID.
 func requireIntegrate(t *testing.T, result *MergeResult, wantOID string) {
 	t.Helper()
 	if result == nil || result.Phase != "integrate" || result.AfterOID != wantOID {
@@ -120,10 +111,7 @@ func resolveFixtureRunGit(t *testing.T, dir string, args ...string) {
 	mergeFixtureRun(t, dir, args...)
 }
 
-// TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits is the fresh-path happy case for the
-// new resolve contract: a sandboxed agent (e.g. codex's workspace-write) can't write inside .git, so
-// it only edits the conflicted file — finalizeAgentResolution is the one that stages and commits once
-// the agent exits successfully with no leftover markers.
+// A sandboxed agent can't write inside .git: it only edits, finalizeAgentResolution stages and commits.
 func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -147,11 +135,7 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentUntrackedResidueIgnoredAndPromotes covers a plugin/hook leaving an UNTRACKED
-// file behind in the worktree (e.g. a cache file like .impeccable/hook.cache.json) outside the
-// conflicted paths: changedPaths now lists tracked changes only (--untracked-files=no), so
-// finalizeAgentResolution never stages it, never refuses the commit over it, and the resolution still
-// promotes — the residue is simply left on disk, untouched, exactly as the agent's tooling left it.
+// Untracked tooling residue outside the conflicted paths is never staged and never blocks the commit.
 func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -178,7 +162,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 		t.Fatalf("op.Phase = %q, want %q", op.Phase, "resolved")
 	}
 	// The residue itself must be left exactly as the agent's tooling wrote it — never staged, never removed.
-	requireFileText(t, filepath.Join(wt, "hook.cache.json"), `{"residue":true}`) // still on disk, never staged or touched
+	requireFileText(t, filepath.Join(wt, "hook.cache.json"), `{"residue":true}`)
 	staged, err := runGit(context.Background(), wt, nil, "status", "--porcelain", "--", "hook.cache.json")
 	if err != nil {
 		t.Fatal(err)
@@ -189,12 +173,7 @@ func TestResolveWithAgentUntrackedResidueIgnoredAndPromotes(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestCleanRefusesWhileUntrackedResidueExists covers the other half of the untracked-residue change:
-// Clean's own dirty check (inspect, --untracked-files=all) is unchanged, so residue left behind in a
-// worktree still blocks an ordinary `worktree clean` — the two checks are deliberately different (the
-// resolve controller's commit scope vs. Clean's "is this worktree empty-handed" bar) and this pins
-// that they stay different. Built on a clean fast-forward merge (not a resolve) to isolate Clean's own
-// dirty check from the post-resolution re-plan, which tolerates the same residue (preflightAfterResolution).
+// Clean still refuses on untracked residue (--untracked-files=all), unlike the resolve commit scope.
 func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, _, wt := preflightFixtureSetup(t)
@@ -234,10 +213,7 @@ func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	}
 }
 
-// TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState covers the agent exiting without
-// actually clearing every conflict marker: finalizeAgentResolution's conflictMarkersClear must refuse
-// to stage or commit, failing the operation outright (no further agent turn is coming) while
-// preserving the operation file and the agent's in-progress edits for a later --resume.
+// Leftover markers: nothing is staged or committed, and the op file and edits survive for --resume.
 func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -261,7 +237,6 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 		t.Fatalf("err = %q, want a markers-remain message", err)
 	}
 	requirePhase(t, "op", op.Phase, "failed")
-	// The operation file itself must be preserved (not deleted) and reflect the same terminal state.
 	reloaded, loadErr := loadOperation(repo, "feature")
 	if loadErr != nil {
 		t.Fatalf("loadOperation after failure: %v", loadErr)
@@ -269,22 +244,16 @@ func TestResolveWithAgentMarkersRemainFailsLikeTimeoutPreservingState(t *testing
 	if reloaded.Phase != "failed" || reloaded.ID != op.ID {
 		t.Fatalf("reloaded operation = %+v, want the preserved failed record", reloaded)
 	}
-	// The agent's edit must be preserved on disk — no `git merge --abort` or checkout on our part.
-	requireFileText(t, filepath.Join(wt, "f.txt"), markeredEdit) // the agent's preserved marker-laden edit
+	requireFileText(t, filepath.Join(wt, "f.txt"), markeredEdit)
 	requireMergeHead(t, wt, true, "MERGE_HEAD was cleaned up after a markers-remain failure — no automatic cleanup is permitted")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentEditsUnrelatedFileRefused covers the agent touching a file outside the
-// conflicted paths it was handed: finalizeAgentResolution must refuse to stage or commit anything,
-// even though the conflicted file itself was correctly resolved.
+// An agent edit outside the conflicted paths is refused even when the conflict itself was resolved.
 func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
-	// A pre-existing TRACKED file, committed before the conflict is ever materialized — distinct from
-	// an untracked residue file (which the controller now ignores; see
-	// TestResolveWithAgentUntrackedResidueIgnoredAndPromotes), so this pins the refusal to a change
-	// git itself already tracks, not merely a new file on disk.
+	// Tracked file: unlike untracked residue, a change to it must be refused.
 	mergeFixtureWrite(t, wt, "tracked.txt", "original\n", "add tracked file")
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
@@ -320,8 +289,7 @@ func TestResolveWithAgentEditsUnrelatedFileRefused(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentAutoMergedFileAllowed is the regression test: a target branch that also adds a clean new file
-// stages it during the merge, and finalizeAgentResolution must not count it as an agent edit outside the conflict.
+// Regression: a clean file auto-merged from the target is not counted as an agent edit outside the conflict.
 func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
@@ -351,10 +319,7 @@ func TestResolveWithAgentAutoMergedFileAllowed(t *testing.T) {
 	}
 }
 
-// TestResolveWithAgentCleanAbortNeverCommittedByController covers the agent running `git merge
-// --abort` despite the prompt telling it not to run any git command: the worktree reverts to a clean,
-// unmerged state, so finalizeAgentResolution's own commit has nothing staged to commit and fails —
-// the abort is never mistaken for, or silently turned into, a resolved state.
+// An agent's `git merge --abort` leaves nothing staged, so the controller's commit fails rather than resolving.
 func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -381,13 +346,7 @@ func TestResolveWithAgentCleanAbortNeverCommittedByController(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentStaleMergeCommitNeverPromoted covers an agent that fabricates its own commit
-// (ignoring the instruction not to run git commands): finalizeAgentResolution's own commit attempt
-// finds nothing staged (the agent's commit already cleared the working tree) and fails — the
-// fabricated commit is never promoted past this controller, by construction, regardless of its
-// ancestry. (A human can still --resume: that path polls checkResolution directly instead of trying
-// to re-commit, and rejects the stale commit there — see TestResolveWithAgentResumeRevalidatesAndCompletes
-// and the ancestry check in checkResolution.)
+// An agent-fabricated commit leaves nothing staged, so the fresh run fails and never promotes it.
 func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -414,12 +373,7 @@ func TestResolveWithAgentStaleMergeCommitNeverPromoted(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds covers the documented fallback for an
-// agent that commits on its own despite the instruction not to (resolveWithAgent's doc comment): the
-// FRESH run fails (finalizeAgentResolution's own re-commit finds nothing staged), but the operation
-// record is preserved with AgentExitOK — a later --resume (the op != nil / polling path) never
-// re-invokes the agent and instead revalidates the already-committed state directly via
-// checkResolution, succeeding without ever trying to commit again.
+// A self-committing agent fails the fresh run, but --resume revalidates the committed state without re-invoking it.
 func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -446,7 +400,6 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	}
 	resolvedHead := headOf(wt) // the agent's own commit, already in place
 
-	// --resume: never re-invokes the agent (the fake would fail the test if called again).
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
 		return askEnvelope{}, errors.New("unreachable")
@@ -487,17 +440,13 @@ func crashedOperation(t *testing.T, repo *Repo, wt string, plan *MergePlan) *Ope
 	return op
 }
 
-// TestResolveWithAgentResumeRevalidatesAndCompletes simulates a crash: an operation was saved and the
-// conflict materialized, but the controller process died before ever polling. The resolution — done by
-// the agent before the crash — is already a clean, committed, ancestor-correct merge on disk. --resume
-// (op != nil) must revalidate that state and report success WITHOUT re-invoking the agent.
+// After a controller crash, --resume revalidates the already-committed merge without re-invoking the agent.
 func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
 
 	op := crashedOperation(t, repo, wt, plan)
 
-	// Simulate the agent having actually finished the resolution before the crash.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved by agent before crash\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -524,15 +473,12 @@ func TestResolveWithAgentResumeRevalidatesAndCompletes(t *testing.T) {
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced chains a successful agent resolution into
-// promote, then advances main before promote runs — reproducing "target moved between resolve and
-// promote". promote must stop with a retry hint rather than falling back to a real conflicting merge.
+// promote stops with a retry hint when main advances between resolve and promote.
 func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	resolveFixtureFakeClock(t, time.Second)
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
-		// Edit only — the controller (finalizeAgentResolution) stages and commits once the agent exits.
 		if err := os.WriteFile(filepath.Join(workDir, "f.txt"), []byte("resolved\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -546,13 +492,11 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	requirePhase(t, "result", result.Phase, "integrate")
 	requireIntegrate(t, result, headOf(wt)) // AfterOID is the resolved worktree HEAD
 
-	// Matches production order (cmdWorktreeMerge): integrateTarget always runs after resolution,
-	// pinning plan.IntegratedOID — content is already merged, so this is a no-op re-merge.
+	// Production order: integrateTarget runs after resolution and pins plan.IntegratedOID.
 	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
 
-	// Main moves on after resolution but before promote — plan.TargetOID is now stale.
 	mergeFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
 	advancedMain := headOf(main)
 
@@ -571,12 +515,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	}
 }
 
-// TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns is the regression test for Appendix A
-// codex-review finding #3's lease half (WithWorktreeLease in internal/worktree/resolve.go), updated for the lease
-// having moved to the caller's responsibility (resolveWithAgent itself "does no locking of its own"
-// per its own doc comment): a concurrent resolve/resume/merge/clean for the same worktree must never
-// run alongside a still-active one — WithWorktreeLease must refuse outright, and its fn (here wrapping
-// resolveWithAgent, the way cmdWorktreeMerge and Merge both call it) must never run at all.
+// Regression: WithWorktreeLease refuses a second concurrent op on the same worktree and never runs its fn.
 func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
@@ -613,14 +552,11 @@ func TestWithWorktreeLeaseRefusesWhileHeldBeforeResolveRuns(t *testing.T) {
 	if resolveWasCalled {
 		t.Fatal("ResolveWithAgent ran despite the lease being held — the lease refusal must happen before fn runs")
 	}
-	// Refused before ever touching the worktree: no conflict was materialized, main stayed clean.
 	requireMergeHead(t, wt, false, "a conflict was materialized despite the lease refusal")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
-// TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch covers an explicitly selected Codex
-// dispatch that silently ran as Claude instead (the agent runner's own fallback) — resolveWithAgent must
-// stop and report the mismatch rather than accept a different model's resolution as the selected one.
+// An explicit Codex dispatch that fell back to Claude is reported as a mismatch, not accepted.
 func TestResolveWithAgentExplicitCodexFallenBackToClaudeIsMismatch(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
@@ -740,8 +676,7 @@ func TestConflictMarkersClearHonorsCustomMarkerSize(t *testing.T) {
 	}
 }
 
-// TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge: a failed first SaveOperation must not leave a real merge
-// half-applied (MERGE_HEAD set) with no operation file to resume from.
+// A failed first SaveOperation must not leave a half-applied merge (MERGE_HEAD set) with nothing to resume.
 func TestResolveWithAgentFreshSaveFailureAbortsMaterializedMerge(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)

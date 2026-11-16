@@ -83,8 +83,7 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 	}
 }
 
-// listLive's copilot dispatch (dispatched via the provider name)
-// reports the copilot CLI as not found (never a panic) when it is absent from bin/.
+// listLive's copilot dispatch reports the CLI as not found (never a panic) when it is absent from bin/.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
 	reg := &providers.Registry{}
@@ -125,8 +124,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	}
 }
 
-// listLive's subscription (passthrough) dispatch falls back to the registry's configured models on a 401,
-// and never prints the OAuth bearer token it tried — in the note, the table, or anywhere else.
+// listLive's passthrough dispatch falls back to the registry models on a 401 and never prints the OAuth bearer token.
 func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	cliScratch(t)
 	const secret = "sk-setup-token-super-secret-value"

@@ -41,7 +41,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// cliChainRE matches the wl-paste bmp leg of the CLI save chain in the parent cmdline.
 var cliChainRE = regexp.MustCompile(`(?s)wl-paste.*image/bmp`)
 
 // cliLegRE is the second half of the chain match: the xclip or PowerShell leg beside the wl-paste one.
@@ -50,10 +49,8 @@ var cliLegRE = regexp.MustCompile(`(?s)xclip.*clipboard|powershell`)
 // agentTUIRE matches the allowlisted agent TUIs that spawn wl-paste directly (gemini is a node script).
 var agentTUIRE = regexp.MustCompile(`(?s)node.*gemini|gemini.*node|opencode`)
 
-// proxyExec replaces the process with the real wl-paste; a var so tests never exec.
 var proxyExec = proc.Exec
 
-// proxyCall is one wl-paste invocation: the real binary, its argv and env, and the caller's streams.
 type proxyCall struct {
 	real           string
 	args, env      []string
@@ -79,7 +76,6 @@ func RunProxy(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// route answers the call per mode and parent cmdline; ok is false when it should be delegated.
 func (c proxyCall) route(mode, parent string) (code int, ok bool) {
 	switch {
 	case mode == "0":
@@ -180,7 +176,6 @@ func (c proxyCall) pngLeg() int {
 	return 0
 }
 
-// requestsType reports whether args ask for mime as --type=V, "--type V" or "-t V".
 func requestsType(args []string, mime string) bool {
 	for i, a := range args {
 		switch {
@@ -231,14 +226,12 @@ func findRealWlPaste() string {
 	return ""
 }
 
-// isSocket reports whether path is a Unix socket.
 func isSocket(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.Mode()&os.ModeSocket != 0
 }
 
-// ProxyScript is the wl-paste shim: it hands every call to `claude-code wl-paste` (RunProxy), which
-// answers the agent CLIs' image/bmp and image/png legs and delegates every other call untouched.
+// ProxyScript is the wl-paste shim that forwards every call to `claude-code wl-paste`.
 //
 //go:embed wl-paste-claude.sh
 var ProxyScript []byte
@@ -267,7 +260,6 @@ func proxyPath() (string, error) {
 	return filepath.Join(home, ".local", "bin", "wl-paste"), nil
 }
 
-// proxyFileState is the proxy file's state at proxyPath.
 type proxyFileState int
 
 const (
@@ -277,7 +269,6 @@ const (
 	proxyForeign                       // some other file; never overwritten
 )
 
-// proxyState classifies the file at path.
 func proxyState(path string) proxyFileState {
 	b, err := os.ReadFile(path)
 	switch {
@@ -306,7 +297,6 @@ func InstallProxy(w io.Writer, dryRun bool) error {
 	return installProxyAt(w, dest, dryRun)
 }
 
-// installProxyAt is InstallProxy without the WSL gate, writing atomically to dest.
 func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 	switch proxyState(dest) {
 	case proxyCurrent:

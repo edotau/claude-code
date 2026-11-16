@@ -77,8 +77,7 @@ func menuRows() []menuRow {
 	return rows
 }
 
-// usage renders the grouped menu, painting heads dim and the name column along the status line's gradient.
-// It buffers the whole menu and returns the single write's error so a closed or broken stdout fails the command.
+// usage renders the grouped menu in one buffered write, so a broken stdout fails the command.
 func usage(w *os.File) error {
 	var b strings.Builder
 	for _, l := range menuHeader {

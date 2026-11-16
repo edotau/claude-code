@@ -184,9 +184,7 @@ func TestDocsPlacementKnobOff(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementThroughSymlink: a sibling symlink into the repo still resolves to the realpath git
-// reports, so a root doc written by its symlinked name must block exactly as the physical one does,
-// and a subdir under that name must still be let through.
+// TestDocsPlacementThroughSymlink: a symlinked root doc blocks like the physical one; a subdir under that name passes.
 func TestDocsPlacementThroughSymlink(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)
@@ -221,8 +219,7 @@ func TestDocsPlacementThroughSymlink(t *testing.T) {
 	}
 }
 
-// isTracked hands the basename to git as a PATHSPEC: a glob-shaped name would otherwise match some
-// other tracked file (ARCHITECTURE.md here) and wave the untracked root write straight through.
+// isTracked passes the basename as a PATHSPEC: a glob-shaped name would match another tracked file and pass the write.
 func TestDocsPlacementGlobShapedNameStillBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)
@@ -251,8 +248,7 @@ func ignoredDocsRepo(t *testing.T) string {
 	return dir
 }
 
-// TestDocsPlacementIgnoredDocsDir: <repo>/docs is gated too, but only where git REFUSES to keep the
-// page. A repo that owns docs/ is untouched (its new pages are merely not-yet-added, not ignored).
+// TestDocsPlacementIgnoredDocsDir: <repo>/docs is gated only where git REFUSES to keep the page.
 func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ignored := ignoredDocsRepo(t)
@@ -326,10 +322,7 @@ func TestDocsPlacementExcludedLocalDoc(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementHarnessDocsTreeExempt: the harness docs tree admits only images/ and templates/ — the
-// knowledge/ tier retired out of docs/ entirely, to memory/<bank>/knowledge/, so it blocks here like any
-// other retired home. docs/templates-evil (a sibling, not a child) must still block — a prefix-string bug
-// would wave it through.
+// TestDocsPlacementHarnessDocsTreeExempt: only docs/images and docs/templates pass; docs/templates-evil still blocks.
 func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	harness := ignoredDocsRepo(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", harness)
@@ -348,8 +341,7 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	}
 }
 
-// TestDocsPlacementGitFileRoot: a linked worktree's `.git` is a FILE, and the stat walk-up must still
-// find its root; a `.git` file git rejects fails open rather than blocking on an unreadable repo.
+// TestDocsPlacementGitFileRoot: a linked worktree's `.git` FILE must resolve its root; an unreadable repo fails open.
 func TestDocsPlacementGitFileRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)

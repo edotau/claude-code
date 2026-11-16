@@ -57,8 +57,7 @@ func segmentCommits(seg string, depth int) bool {
 	return isGitCommit(rest, depth)
 }
 
-// noExecShell reports whether toks is a bash/sh/zsh call with a `-n` (noexec) flag before its `-c` string, so the
-// script never runs; words after the string are positional parameters and never change that.
+// noExecShell reports whether toks is a bash/sh/zsh call with `-n` before its `-c` string, so the script never runs.
 func noExecShell(toks []string) bool {
 	if len(toks) == 0 || !slices.Contains([]string{"bash", "sh", "zsh"}, filepath.Base(toks[0])) {
 		return false
@@ -120,8 +119,7 @@ func scanGitOpts(opts []string) (aliases map[string]string, shortCircuit bool) {
 	return aliases, false
 }
 
-// gitBuiltinVerbs are git's builtin command names (`git --list-cmds=builtins`, git 2.53): git never runs
-// an alias under one of these names, so `-c alias.<builtin>=…` never registers.
+// gitBuiltinVerbs are git 2.53's builtin command names; an alias under one of them never runs.
 var gitBuiltinVerbs = map[string]bool{
 	"add": true, "am": true, "annotate": true, "apply": true, "archive": true, "backfill": true,
 	"bisect": true, "blame": true, "branch": true, "bugreport": true, "bundle": true, "cat-file": true,
@@ -165,8 +163,7 @@ func splitAliasAssign(val string) (name, value string, ok bool) {
 	return strings.ToLower(n[len(prefix):]), v, true // git lowercases config section and key names
 }
 
-// aliasIsCommit reports whether an alias's raw value runs a commit: directly (`commit`), through another
-// alias in aliases (depth-limited) or as a shell alias (`!git commit …`); val == "" means no alias was registered.
+// aliasIsCommit reports whether an alias value runs a commit, directly, via another alias or `!git commit`.
 func aliasIsCommit(val string, aliases map[string]string, depth int) bool {
 	if val == "" {
 		return false
@@ -185,8 +182,7 @@ func aliasIsCommit(val string, aliases map[string]string, depth int) bool {
 	return false
 }
 
-// stripHeredocBodies removes the body lines of every `<<WORD`/`<<'WORD'`/`<<\WORD`/`<<-WORD` heredoc (several
-// per line allowed, bodies in order) and each terminator line from cmd, so a commit mentioned only in a body never counts.
+// stripHeredocBodies removes every heredoc body and terminator from cmd, so a commit named only in a body never counts.
 func stripHeredocBodies(cmd string) string {
 	if !strings.Contains(cmd, "<<") {
 		return cmd

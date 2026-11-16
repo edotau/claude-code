@@ -323,7 +323,7 @@ func tierPoints(n, top, mid, low int) int {
 }
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
-	// A custom format, not --oneline: log.decorate and color.ui would put "(HEAD -> main)" or escapes before the subject.
+	// Custom format, not --oneline: log.decorate and color.ui would put "(HEAD -> main)" or escapes before the subject.
 	out, err := source.GitInherit(repo, "log", "--format=%h %s", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil {

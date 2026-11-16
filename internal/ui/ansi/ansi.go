@@ -189,8 +189,7 @@ func Mix(a, b RGB, w float64) RGB {
 	}
 }
 
-// GradAt samples the gradient at frac∈[0,1] across stops, smoothstep-eased per span.
-// 0 stops → a neutral gray; 1 stop → that flat color.
+// GradAt samples the gradient at frac in [0,1], smoothstep-eased; 0 stops is gray, 1 stop is flat.
 func GradAt(stops []RGB, frac float64) RGB {
 	n := len(stops)
 	if n == 0 {

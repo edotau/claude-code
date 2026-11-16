@@ -66,8 +66,7 @@ func TestMirrorRecordFailureDropsClaim(t *testing.T) {
 	}
 }
 
-// TestPlanTitleSkipsFrontMatter: planTitle parses via the mdsmith AST, so a "#"-prefixed line inside the
-// "---" front-matter fences is never mistaken for the real H1 below it (fixed from a raw line scan).
+// TestPlanTitleSkipsFrontMatter: a "#" line inside the "---" front-matter fences is never mistaken for the H1.
 func TestPlanTitleSkipsFrontMatter(t *testing.T) {
 	plan := "---\n# title: Real Title\ntitle: Something\n---\n\n# Actual Heading\n\nbody\n"
 	if got, want := planTitle([]byte(plan)), "actual-heading"; got != want {
@@ -75,8 +74,7 @@ func TestPlanTitleSkipsFrontMatter(t *testing.T) {
 	}
 }
 
-// TestPlanTitleSkipsFencedHeading: a "#" line inside a fenced code block is not an AST heading, so planTitle
-// correctly falls through to the real heading after the fence (fixed from a raw line scan).
+// TestPlanTitleSkipsFencedHeading: a "#" line inside a fenced block is not a heading, so planTitle takes the real one.
 func TestPlanTitleSkipsFencedHeading(t *testing.T) {
 	plan := "```\n# Not A Title\n```\n\n# Real Title\n\nbody\n"
 	if got, want := planTitle([]byte(plan)), "real-title"; got != want {
@@ -84,9 +82,7 @@ func TestPlanTitleSkipsFencedHeading(t *testing.T) {
 	}
 }
 
-// TestPlanTemplateRejectsFencedOnlyHeading: Gate now parses the mdsmith AST, so a heading that
-// only appears inside a fenced code block does not count as present (fixed from a strings.Contains scan,
-// which previously let this through as ExitProceed).
+// TestPlanTemplateRejectsFencedOnlyHeading: a heading only inside a fenced block does not count (was ExitProceed).
 func TestPlanTemplateRejectsFencedOnlyHeading(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -125,8 +121,7 @@ func TestSavePlanWriteFailureDoesNotAudit(t *testing.T) {
 	}
 }
 
-// TestSavePlanFromNestedConfigRepoFilesUntagged: a cwd in a git repo nested in the config dir (memory/<repo>) is
-// the harness itself, so the plan lands untagged under plans/, not under plans/memory/.
+// TestSavePlanFromNestedConfigRepoFilesUntagged: a repo nested in the config dir is the harness; its plan is untagged.
 func TestSavePlanFromNestedConfigRepoFilesUntagged(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -154,9 +149,7 @@ func TestPlanMirrorUntaggedWhenCWDIsMemoryStoreRepo(t *testing.T) {
 	wantMirrorFile(t, filepath.Join(cfg, "plans", dateStamp()+"-widget-refactor.md"), planTemplate, "mirrored file at")
 }
 
-// TestPlanMirrorNeverAdoptsAnIdenticalDatedFile: two drafts share the same H1 and the same first-mirrored
-// content on the same day. The second draft must never adopt the first's dated file as its own dest — even
-// though the bytes are identical — or a later edit to draft B would silently overwrite draft A's file.
+// TestPlanMirrorNeverAdoptsAnIdenticalDatedFile: a second draft with identical bytes must not adopt the first's file.
 func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -177,8 +170,7 @@ func TestPlanMirrorNeverAdoptsAnIdenticalDatedFile(t *testing.T) {
 	wantMirrorFile(t, destB, edited, "destB should hold draft B's edit")
 }
 
-// TestSavePlanKeepsDraftEditedAfterApproval: the draft on disk no longer matches the approved plan text
-// (e.g. a concurrent agent kept editing it) — Save must file the approved plan but leave the draft alone.
+// TestSavePlanKeepsDraftEditedAfterApproval: Save files the approved plan but leaves a later-edited draft alone.
 func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

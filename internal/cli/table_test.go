@@ -760,8 +760,7 @@ func checkHelpFormat(t *testing.T, path []string, parents []string) {
 	if rows == 0 && !helpAllowsNoRows(path) {
 		t.Errorf("help has no rows under COMMANDS or FLAGS:\n%s", text)
 	}
-	// Parent-page help is intentional for some flagless actions; never dispatch its rows again.
-	// `anthropic science` forwards -h to the external claude-science CLI.
+	// Parent-page help is intentional for some flagless actions; `anthropic science` forwards -h to claude-science.
 	if slices.Contains(parents, text) || path[0] == "hook" || path[0] == "anthropic" {
 		return
 	}
@@ -879,8 +878,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// cliScratch isolates CLAUDE_CONFIG_DIR, every credential env var, and PATH (no real copilot/gh/etc.
-// binary reachable) so provider/model commands never touch real machine state.
+// cliScratch isolates CLAUDE_CONFIG_DIR, credential env vars and PATH so commands never touch real machine state.
 func cliScratch(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

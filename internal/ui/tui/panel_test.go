@@ -61,8 +61,7 @@ func TestHandlePickKeyQuit(t *testing.T) {
 	}
 }
 
-// Left is wired to the same pickQuit signal as Esc/Back: a submenu's caller is the top menu, so from any
-// sub-page Left lands back on the first page exactly the way picking Back already does.
+// Left is wired to the same pickQuit signal as Esc/Back, so from any sub-page it lands on the first page.
 func TestHandlePickKeyLeftIsBack(t *testing.T) {
 	s := pickState{rows: []string{"a", "b", "Back"}, sel: 1}
 	_, act := handlePickKey(s, Key{Kind: KeyLeft})
@@ -91,8 +90,7 @@ func TestLayoutRowsAligns(t *testing.T) {
 
 // The panel draws where the cursor is and redraws by rewinding its own height; it must never home the cursor,
 
-// render puts one blank line between the last regular row and the trailing Submit/Back row every picker
-// appends as its final row, in every menu — not just the ones built through PickBack.
+// render puts one blank line before the trailing Submit/Back row in every menu, not just PickBack ones.
 func TestRenderBlankLineBeforeTrailingRow(t *testing.T) {
 	s := pickState{rows: layoutRows([][2]string{{"a", "x"}, {"b", "y"}, {"Back", "return to the previous menu"}}, 0)}
 	out := render("title", s, false)
@@ -104,9 +102,7 @@ func TestRenderBlankLineBeforeTrailingRow(t *testing.T) {
 	}
 }
 
-// A row too long for a narrow terminal wraps there; panelLines (and so rewind's up-count) must grow with
-// it, or a redraw undercounts and leaves a stale copy of the previous frame behind in the scrollback —
-// the "menu printed three times" symptom a real narrow terminal showed over a wide pty in CI.
+// A row too long for a narrow terminal wraps; panelLines must grow with it or redraws leave stale frames.
 func TestPanelLinesCountsWrappedRows(t *testing.T) {
 	s := pickState{rows: []string{"short", strings.Repeat("x", 90)}}
 	wide := panelLines("title", s, 200)  // every line fits on one terminal row
@@ -119,11 +115,7 @@ func TestPanelLinesCountsWrappedRows(t *testing.T) {
 	}
 }
 
-// PickBack's own index remap ("Back" row, appended at len(rows), maps to -1; every other index passes
-// through unchanged) only runs past Pick's TTY gate, so it can't be driven with a fake key stream the
-// way handlePickKey is above (no injectable seam on openTerminal/isTerminal here). What IS testable without a
-// TTY is Pick's own documented non-TTY contract, which PickBack inherits unchanged: -1 and a non-nil
-// error, regardless of how many rows (and therefore where the synthetic Back row would land).
+// PickBack's index remap runs past Pick's TTY gate, so only Pick's non-TTY contract (-1 and a non-nil error) is tested.
 func TestPickBackNonTTYReturnsMinusOneRegardlessOfRowCount(t *testing.T) {
 	for _, rows := range [][][2]string{
 		nil,
@@ -137,8 +129,7 @@ func TestPickBackNonTTYReturnsMinusOneRegardlessOfRowCount(t *testing.T) {
 	}
 }
 
-// TestSectionsOpenWithBlankLineBeforeEachTitle: a sectioned panel has no title line; every section title, the
-// first included, follows a blank line, and the cursor starts on the first real row.
+// A sectioned panel has no title line; each section title follows a blank line and the cursor starts on a real row.
 func TestSectionsOpenWithBlankLineBeforeEachTitle(t *testing.T) {
 	s := pickState{rows: []string{"== agents ==", "a", "== tools ==", "b", "Enter"}, heads: map[int]bool{0: true, 2: true}}
 	s = s.step(1)
@@ -162,8 +153,7 @@ func TestPanelLinesFullWidthSectionHeading(t *testing.T) {
 	}
 }
 
-// TestFitWindowsRowsToTerminalHeight: a panel taller than the screen shows only the rows that fit, cursor
-// included, so the cursor-up rewind never has to reach scrolled-off lines.
+// A panel taller than the screen shows only the rows that fit, so the rewind never reaches scrolled-off lines.
 func TestFitWindowsRowsToTerminalHeight(t *testing.T) {
 	rows := make([]string, 30)
 	for i := range rows {

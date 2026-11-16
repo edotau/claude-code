@@ -104,8 +104,7 @@ func (a *ResponseAccumulator) Add(line []byte) {
 	a.Responses = append(a.Responses, r)
 }
 
-// ReadResponses lists each API response once: Claude Code writes one line per content block, each repeating
-// the response's usage under one message.id, so the last line per id wins (output grows while streaming).
+// ReadResponses lists each API response once, since one message.id repeats across content-block lines (last wins).
 func ReadResponses(path string) ([]Response, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -149,8 +148,7 @@ func (s *FileSummary) count(r Response) {
 	}
 }
 
-// UsageAggregate totals many transcripts. PeakInputTokensPerMin is the 429-risk proxy: the highest one-minute
-// sum of uncached input (input + cache writes) across all concurrent subagents.
+// UsageAggregate totals many transcripts; PeakInputTokensPerMin (peak one-minute uncached input) is the 429-risk proxy.
 type UsageAggregate struct {
 	Models                map[string]*ModelUsage `json:"models"`
 	PeakInputTokensPerMin int64                  `json:"peak_input_tokens_per_min"`
@@ -206,8 +204,7 @@ func SessionAgentFiles(sessionDir string) ([]string, error) {
 	return files, err
 }
 
-// WorkflowAgentFiles lists one run dir's agent transcripts; the agent-*.jsonl shape keeps the sibling
-// *.meta.json sidecars out of the token scan.
+// WorkflowAgentFiles lists one run dir's agent-*.jsonl transcripts, keeping *.meta.json sidecars out of the scan.
 func WorkflowAgentFiles(runDir string) []string {
 	matches, err := filepath.Glob(filepath.Join(runDir, "agent-*.jsonl"))
 	if err != nil {
@@ -217,8 +214,7 @@ func WorkflowAgentFiles(runDir string) []string {
 	return matches
 }
 
-// WorkflowPhaseFromMeta reads the sibling agent-*.meta.json's workflowPhase; plenty of real metas
-// carry none, so "" is a normal answer routed to `(none)` .
+// WorkflowPhaseFromMeta reads the sibling meta's workflowPhase; "" is normal (many metas carry none).
 func WorkflowPhaseFromMeta(transcriptPath string, errw io.Writer) string {
 	raw, err := os.ReadFile(strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json")
 	if err != nil {
@@ -322,8 +318,7 @@ func usageFromLine(line []byte) (Usage, bool) {
 	return Usage{Tokens: u.Input + u.CacheRead + u.CacheCreation + u.Output, Model: rec.Message.Model}, true
 }
 
-// Window is the context window for a session model: 1M once usage exceeds 200K, else providers.Window on the session
-// provider (the env may pin a 4.x [1m] variant; transcripts omit the marker).
+// Window is the session model's context window: 1M once usage exceeds 200K, else providers.Window.
 func Window(model string, used int) int {
 	if used > models.ContextWindowStd {
 		return models.ContextWindow1M
@@ -342,8 +337,7 @@ func Window(model string, used int) int {
 	return providers.Window(p, model)
 }
 
-// windowFile holds the context window Claude Code reported for a session, written by the status line;
-// "" for an id that is not a plain file name (".", "..", a separator).
+// windowFile holds the status-line-reported window for a session; "" for an id that is not a plain file name.
 func windowFile(session string) string {
 	name := filepath.Base(session)
 	if name == "." || name == ".." || name == string(filepath.Separator) {

@@ -182,10 +182,7 @@ func TestCmdWorktreeCleanEligible(t *testing.T) {
 	}
 }
 
-// TestCmdWorktreeListReopenCommandIsShellSafe is the regression test for Appendix A codex-review
-// finding #7 (internal/cli/worktree.go:110): Go's %q uses double-quote syntax, which a POSIX shell
-// still expands $(...) and `...` inside of — pasting the printed "reopen" command for a worktree
-// named with a command substitution must never execute it.
+// Regression (codex-review #7): a worktree named with $(...) must never execute from the printed reopen command.
 func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
@@ -300,9 +297,7 @@ func TestCmdWorktreeCleanForceNeverTouchesMainCheckout(t *testing.T) {
 	}
 }
 
-// mergeFixtureCLIWrite writes content to file in dir and commits it with msg, with the test identity
-// also set into local repo config so the CLI's own git invocations (not just this helper's) resolve
-// a committer for any merge commit worktree merge creates.
+// mergeFixtureCLIWrite writes and commits a file, with the test identity set in local repo config.
 func mergeFixtureCLIWrite(t *testing.T, dir, file, content, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
@@ -323,8 +318,7 @@ func mergeFixtureCLIRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// mergeFixtureCLISetup makes a repo + a "feature" worktree via the CLI's own create path, with
-// local git identity configured so a later `worktree merge` apply can create a merge commit.
+// mergeFixtureCLISetup makes a repo plus a "feature" worktree via the CLI create path, with a local git identity.
 func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -342,8 +336,7 @@ func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	return repo
 }
 
-// mergeFixtureCLIWorktreePath resolves the "feature" worktree's path the same way the CLI itself
-// does (worktree.Root), rather than re-deriving ~/worktrees/<name> by hand.
+// mergeFixtureCLIWorktreePath resolves the feature worktree via worktree.Root, not a hand-built path.
 func mergeFixtureCLIWorktreePath(t *testing.T, repo string) string {
 	t.Helper()
 	return filepath.Join(worktree.Root(repo), "feature")

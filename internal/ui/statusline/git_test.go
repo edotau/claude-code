@@ -35,8 +35,7 @@ func TestGitBranchFast(t *testing.T) {
 	}
 }
 
-// gitFixture builds a repo dir whose .git is a directory (gitfile "") or a gitdir file ("relative", "absolute",
-// "empty"), writes head as its HEAD unless head is "missing", and returns a nested cwd inside it.
+// gitFixture builds a repo dir (.git as directory or gitdir file variant), writes head, and returns a nested cwd.
 func gitFixture(t *testing.T, gitfile, head string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -69,8 +68,7 @@ func gitFixture(t *testing.T, gitfile, head string) string {
 	return cwd
 }
 
-// checkoutOf maps a subdir or a linked worktree to the main checkout (naming the worktree), and leaves a
-// non-repo cwd as is.
+// checkoutOf maps a subdir or linked worktree to the main checkout and leaves a non-repo cwd as is.
 func TestCheckoutOf(t *testing.T) {
 	base := t.TempDir()
 	main := filepath.Join(base, "repo")

@@ -11,8 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// Apply merges a theme file over a tool config (keeping foreign keys), backs the original up, and is
-// a no-op when nothing differs; dry-run reports the change without writing.
+// Apply merges a theme file over a tool config, backs up the original, and no-ops when nothing differs.
 func TestApplyMergesKeepsForeignKeysAndIsIdempotent(t *testing.T) {
 	dir, home, dest := applyFixture(t)
 
@@ -162,9 +161,7 @@ func TestApplyReportsMergeErrorForEachFormat(t *testing.T) {
 	}
 }
 
-// TestSetGradientRejectsNullConfigWithoutPanicking: json.Unmarshal("null", &m) succeeds but leaves m
-// nil — a bare `if err != nil` check would miss it and panic on the m["gradient"] = assignment.
-// SetGradient must error out instead, and must not touch the file.
+// json.Unmarshal("null", &m) leaves m nil, so SetGradient must error rather than panic.
 func TestSetGradientRejectsNullConfigWithoutPanicking(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// timeoutExplicit distinguishes a --timeout the caller typed from the flag's own zero-cost default,
-// so the --tools-aware 45m default never clobbers an explicit value.
+// timeoutExplicit tells a typed --timeout from the default, so the --tools-aware 45m default never clobbers it.
 func TestTimeoutExplicit(t *testing.T) {
 	newFS := func() (*flag.FlagSet, *time.Duration) {
 		fs := flag.NewFlagSet("ask", flag.ContinueOnError)
@@ -130,9 +129,7 @@ func TestParseBoolFlagThenDoubleDashTerminates(t *testing.T) {
 	}
 }
 
-// ParseArgs must still error on a genuinely unknown flag preceding "--": consumesValue only skips a token
-// for a REGISTERED non-bool flag, so an unregistered one leaves the terminator scan untouched and
-// fs.Parse still rejects the unknown flag on the head slice it was handed.
+// ParseArgs must still reject an unregistered unknown flag before "--"; consumesValue skips only registered flags.
 func TestParseUnknownFlagBeforeDoubleDashStillErrors(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	_, err := ParseArgs(fs, []string{"--nope", "--", "x"})

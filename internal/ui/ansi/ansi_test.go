@@ -90,8 +90,7 @@ func TestToANSI16Nearest(t *testing.T) {
 	}
 }
 
-// TestFgSeqPerMode pins every branch of the mode switch. The default arm downsamples to 16 colors, so a
-// caller passing a mode label that does not match these consts loses truecolor with no other symptom.
+// The default arm downsamples to 16 colors, so a caller with a non-matching mode label silently loses truecolor.
 func TestFgSeqPerMode(t *testing.T) {
 	cases := []struct {
 		mode string
@@ -106,8 +105,7 @@ func TestFgSeqPerMode(t *testing.T) {
 		// A dim index carries no bright prefix; bold only adds the 1; attribute.
 		{"ansi16", RGB{255, 0, 0}, false, "\x1b[31m"},
 		{"ansi16", RGB{255, 0, 0}, true, "\x1b[1;31m"},
-		// Indices ≥ 8 are reached via the bright prefix, which bold already supplies — so the bold and
-		// non-bold escapes for a bright color are deliberately the same bytes.
+		// Indices >= 8 go through the bright prefix that bold already supplies, so both escapes are the same bytes.
 		{"ansi16", RGB{255, 255, 255}, false, "\x1b[1;37m"},
 		{"ansi16", RGB{255, 255, 255}, true, "\x1b[1;37m"},
 		{"nonsense", RGB{255, 0, 0}, false, "\x1b[31m"}, // unknown mode falls back to 16 colors
@@ -137,8 +135,7 @@ func TestBgSeqPerMode(t *testing.T) {
 	}
 }
 
-// TestPaintAlwaysResets: painted cells are concatenated, so a missing reset bleeds one color into every
-// following segment of the line.
+// Painted cells are concatenated, so a missing reset bleeds one color into the following segments.
 func TestPaintAlwaysResets(t *testing.T) {
 	got := Paint(TrueColor, RGB{1, 2, 3}, "x", false)
 	if want := "\x1b[38;2;1;2;3mx" + Reset; got != want {
@@ -220,10 +217,7 @@ func TestMixAndTowardWhite(t *testing.T) {
 	}
 }
 
-// legacySpan is the span selector the cli package carried in its own sampler before both callers were
-// folded onto GradAt: a linear scan comparing t against each boundary, where GradAt divides. The two
-// forms disagree the moment a float lands a hair either side of a boundary, and the symptom would be a
-// silently repainted sweep — nothing downstream compares an escape against the ramp it came from.
+// legacySpan is the old linear-scan span selector; it disagrees with GradAt at float boundaries, silently repainting.
 func legacySpan(n int, t float64) int {
 	step := 100 / float64(n-1)
 	k := 0

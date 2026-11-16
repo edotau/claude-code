@@ -35,9 +35,7 @@ func (s pickState) step(dir int) pickState {
 	return s
 }
 
-// handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C/Left (no choice, same as Back), pickChoose
-// on Enter. Left is the same "go back" signal as Back/Esc at this level: a submenu's caller is the top
-// menu, so pickQuit there already is "back to the first page".
+// handlePickKey is the pure transition: pickQuit on Esc/q/Ctrl-C/Left (same as Back), pickChoose on Enter.
 func handlePickKey(s pickState, k Key) (pickState, int) {
 	switch {
 	case k.Kind == KeyCtrlC, k.Kind == KeyEsc, k.Kind == KeyLeft, k.Kind == KeyRune && k.Rune == 'q':
@@ -85,8 +83,7 @@ func layoutRows(rows [][2]string, width int) []string {
 // hintText is the key-hint line render draws last; panelLines counts it by the same literal.
 const hintText = "↑/↓ to navigate · enter to select · esc to go back"
 
-// wrappedLines is how many terminal rows a plain (unstyled) line of length n occupies at cols columns -
-// 1 below cols, ceil(n/cols) at or above it. cols<=0 (size query failed) never wraps.
+// wrappedLines is the terminal rows a plain line of length n takes at cols columns; cols<=0 never wraps.
 func wrappedLines(n, cols int) int {
 	if cols <= 0 || n <= cols {
 		return 1
@@ -94,9 +91,7 @@ func wrappedLines(n, cols int) int {
 	return (n + cols - 1) / cols
 }
 
-// panelLines is how many terminal lines render emits at cols columns: title, blank, one per row
-// (each 2 cols wider for its marker/space prefix), blank, hint - each counted by its wrapped height, not
-// 1, so a row too long for a narrow terminal doesn't make rewind undercount and leave stale frames behind.
+// panelLines counts render's terminal lines by wrapped height, so a long row cannot make rewind undercount.
 func panelLines(title string, s pickState, cols int) int {
 	lines := 0
 	if title != "" { // a title-less (sectioned) panel opens straight on its first section title
@@ -120,10 +115,7 @@ func panelLines(title string, s pickState, cols int) int {
 	return lines
 }
 
-// render draws the panel at the cursor: title, one row per option (▸ plus reverse video on the highlighted
-// row), status tokens painted on the others, then the key hint. Each line clears to its end so a redraw
-// over the previous frame leaves no residue. It never homes the cursor — the panel lives where the
-// dialogue already is, below earlier output, not over the top of the screen.
+// render draws the panel at the cursor without homing it; each line clears to its end so redraws leave no residue.
 func render(title string, s pickState, color bool) string {
 	var b strings.Builder
 	if title != "" {
@@ -157,9 +149,7 @@ func render(title string, s pickState, color bool) string {
 	return b.String()
 }
 
-// Pick runs an arrow-key single-choice panel titled title over rows (name, detail pairs), opening on
-// start (clamped). Returns the chosen row index, or -1 on Esc/q/Ctrl-C. A non-error, non-nil err
-// means stdin is not a terminal; the caller should fall back to a line prompt.
+// Pick runs an arrow-key single-choice panel; it returns the chosen index or -1, with a non-nil err off a terminal.
 func Pick(title string, rows [][2]string, start int) (int, error) {
 	return pickHeads(title, func(cols int) []string { return layoutRows(rows, cols) }, nil, start)
 }
@@ -206,8 +196,7 @@ func pickHeads(title string, lay func(cols int) []string, heads map[int]bool, st
 	return -1, t.Err()
 }
 
-// fit windows s's rows around the cursor so the panel fits h-1 terminal lines; a panel taller than the screen
-// scrolls its top out of reach of the cursor-up rewind, and every redraw then leaves a stale copy above.
+// fit windows rows around the cursor to h-1 lines; a taller panel would scroll out of the cursor-up rewind's reach.
 func fit(title string, s pickState, cols, h int) pickState {
 	if len(s.rows) == 0 || panelLines(title, s, cols) < h {
 		return s
@@ -225,9 +214,7 @@ func fit(title string, s pickState, cols, h int) pickState {
 	return win(lo, hi)
 }
 
-// PickBack is Pick with a trailing "Back" row appended; picking it (or Esc/q/Ctrl-C) both return -1, so a
-// caller with a menu loop re-shows the enclosing menu on -1 and a caller without one keeps its existing
-// "kept, nothing changed" path unmodified.
+// PickBack is Pick with a trailing "Back" row; picking it, Esc, q or Ctrl-C all return -1.
 func PickBack(title string, rows [][2]string, start int) (int, error) {
 	withBack := make([][2]string, len(rows)+1)
 	copy(withBack, rows)
@@ -261,9 +248,7 @@ func sectionLines(sections []Section) (map[int]bool, []int) {
 	return heads, append(pos, line)
 }
 
-// PickSections draws every section's rows under its own title (each section carries one; title is unused), with
-// columns shared across all sections, then trailing after a blank line. It returns the index among selectable rows
-// in order (trailing = the last), or -1 on Esc/q/Ctrl-C/Left; start is in the same numbering.
+// PickSections draws each section's rows under its title with shared columns; returns the selectable-row index or -1.
 func PickSections(title string, sections []Section, trailing [2]string, start int) (int, error) {
 	return pickSections("", sections, trailing, start)
 }
