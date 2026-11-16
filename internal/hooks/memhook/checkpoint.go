@@ -61,8 +61,8 @@ func inFlight(in *core.Input, now time.Time) bool {
 }
 
 // handoffPrompt asks the model to write the handoff, then the owner to compact.
-func handoffPrompt(in *core.Input, pct int) core.Result {
-	path := memory.BankFor(cwdOf(in)).Sub("handoffs", "YYYY-MM-DD-<slug>.md")
+func handoffPrompt(pct int) core.Result {
+	path := memory.HomeBank().Sub("handoffs", "YYYY-MM-DD-<slug>.md")
 	return core.Result{
 		Context: fmt.Sprintf("Context at %d%% with nothing in flight: write a handoff to %s "+
 			"(State, In flight, Next), then ask the owner to run /compact.", pct, path),
@@ -70,7 +70,7 @@ func handoffPrompt(in *core.Input, pct int) core.Result {
 	}
 }
 
-// contextCheckpoint: once per crossing with nothing in flight, spawn an update and prompt a handoff; in has the root.
+// contextCheckpoint: once per crossing with nothing in flight, spawn an update and prompt a handoff.
 func contextCheckpoint(in *core.Input) core.Result {
 	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return core.Result{}
@@ -93,7 +93,7 @@ func contextCheckpoint(in *core.Input) core.Result {
 	if !prompt {
 		return core.Result{}
 	}
-	return handoffPrompt(in, pct)
+	return handoffPrompt(pct)
 }
 
 // claimCrossing writes flag for a first crossing of threshold with nothing in flight; below it, it re-arms.

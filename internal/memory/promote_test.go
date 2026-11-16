@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// seedConventionBlock plants one id-marked conventions.md bullet in root's local bank and returns its id.
-func seedConventionBlock(t *testing.T, root string) string {
+// seedConventionBlock plants one id-marked conventions.md bullet in the bank and returns its id.
+func seedConventionBlock(t *testing.T) string {
 	t.Helper()
-	id, err := Remember(root, "feedback", "promote me to home", time.Now())
+	id, err := Remember("feedback", "promote me to home", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,14 +19,14 @@ func seedConventionBlock(t *testing.T, root string) string {
 }
 
 // judgmentFixture seeds a proj bank with one convention block; before is its conventions.md.
-func judgmentFixture(t *testing.T) (root, id, localPath string, before []byte) {
+func judgmentFixture(t *testing.T) (id, localPath string, before []byte) {
 	t.Helper()
 	tempConfig(t)
-	root = repoRoot(t, "proj")
-	id = seedConventionBlock(t, root)
-	localPath = BankFor(root).Path("conventions.md")
+	repoRoot(t, "proj")
+	id = seedConventionBlock(t)
+	localPath = HomeBank().Path("conventions.md")
 	before, _ = os.ReadFile(localPath)
-	return root, id, localPath, before
+	return id, localPath, before
 }
 
 // TestPromoteJudgmentTargetsPrintOnly: rules/skill only print the block and procedure.
@@ -35,11 +35,11 @@ func TestPromoteJudgmentTargetsPrintOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reference(\"promote\"): %v", err)
 	}
-	root, id, localPath, before := judgmentFixture(t)
+	id, localPath, before := judgmentFixture(t)
 	homePath := filepath.Join(StoreDir(), "conventions.md")
 	_, homeErrBefore := os.Stat(homePath)
 	for _, to := range []string{"rules", "skill"} {
-		out, err := Promote(root, id, to, false, time.Now())
+		out, err := Promote(id, to)
 		if err != nil {
 			t.Fatalf("Promote --to %s: %v", to, err)
 		}
@@ -61,10 +61,10 @@ func TestPromoteJudgmentTargetsPrintOnly(t *testing.T) {
 
 // TestPromoteClaudeMDNeedsADreamRun: claude-md is refused outside a dream run and printed inside one.
 func TestPromoteClaudeMDNeedsADreamRun(t *testing.T) {
-	root, id, localPath, before := judgmentFixture(t)
+	id, localPath, before := judgmentFixture(t)
 	t.Run("RefusedOutsideDream", func(t *testing.T) {
 		t.Setenv(dreamChildEnv, "")
-		_, err := Promote(root, id, "claude-md", false, time.Now())
+		_, err := Promote(id, "claude-md")
 		if err == nil {
 			t.Fatal("Promote --to claude-md outside a dream run = nil error, want one")
 		}
@@ -78,7 +78,7 @@ func TestPromoteClaudeMDNeedsADreamRun(t *testing.T) {
 	})
 	t.Run("AllowedInsideDream", func(t *testing.T) {
 		t.Setenv(dreamChildEnv, "1")
-		out, err := Promote(root, id, "claude-md", false, time.Now())
+		out, err := Promote(id, "claude-md")
 		if err != nil {
 			t.Fatalf("Promote --to claude-md inside a dream run: %v", err)
 		}
@@ -90,7 +90,7 @@ func TestPromoteClaudeMDNeedsADreamRun(t *testing.T) {
 
 // TestPromoteUnknownTargetErrors: an unmapped --to is refused, naming the valid set, before any bank access.
 func TestPromoteUnknownTargetErrors(t *testing.T) {
-	if _, err := Promote("", "x", "bogus", false, time.Now()); err == nil || !strings.Contains(err.Error(), "want") {
+	if _, err := Promote("x", "bogus"); err == nil || !strings.Contains(err.Error(), "want") {
 		t.Fatalf("Promote --to bogus = %v, want an error naming the valid targets", err)
 	}
 }
@@ -98,8 +98,8 @@ func TestPromoteUnknownTargetErrors(t *testing.T) {
 // TestPromoteUnknownIDErrors: a --to home on a nonexistent id is refused rather than silently no-op.
 func TestPromoteUnknownIDErrors(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj") // scaffolds the bank; the id below is deliberately wrong
-	if _, err := Promote(root, "deadbeef", "rules", false, time.Now()); err == nil {
+	repoRoot(t, "proj") // scaffolds the bank; the id below is deliberately wrong
+	if _, err := Promote("deadbeef", "rules"); err == nil {
 		t.Fatal("Promote with an unknown id = nil error, want one")
 	}
 }

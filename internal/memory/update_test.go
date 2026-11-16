@@ -80,25 +80,24 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 
 func TestInitNoOverwrite(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "My Repo.v2")
-	_, err := Init(root)
+	_, err := Init()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(BankFor(root).Path(name)); err != nil {
+		if _, err := os.Stat(HomeBank().Path(name)); err != nil {
 			t.Errorf("missing %s", name)
 		}
 	}
-	write(t, BankFor(root).Path("activeContext.md"), "mine\n")
-	_ = os.Remove(BankFor(root).Path("progress.md"))
-	if _, err := Init(root); err != nil {
+	write(t, HomeBank().Path("activeContext.md"), "mine\n")
+	_ = os.Remove(HomeBank().Path("progress.md"))
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(BankFor(root).Path("activeContext.md")); string(b) != "mine\n" {
+	if b, _ := os.ReadFile(HomeBank().Path("activeContext.md")); string(b) != "mine\n" {
 		t.Error("Init overwrote an existing file")
 	}
-	if !bankExists(root) || !fileExists(BankFor(root).Path("progress.md")) {
+	if !bankExists() || !fileExists(HomeBank().Path("progress.md")) {
 		t.Error("Init did not re-seed a missing file")
 	}
 }
@@ -121,33 +120,31 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	dir := BankFor(root)
+	dir := HomeBank()
 	write(t, dir.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
 	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
 	write(t, dir.Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
-	hits := searchBanks(root, "the router 429", 0)
+	hits := searchBanks("the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "home" {
 		t.Fatalf("hits %+v", hits)
 	}
 	if hits[0].Title() != "2026-01-01 — router retries on 429" {
 		t.Errorf("title %q", hits[0].Title())
 	}
-	if g := searchBanks(root, "commits", 5); len(g) != 1 || g[0].Bank != "home" {
+	if g := searchBanks("commits", 5); len(g) != 1 || g[0].Bank != "home" {
 		t.Errorf("global hit %+v", g)
 	}
-	if searchBanks(root, "the and of", 5) != nil {
+	if searchBanks("the and of", 5) != nil {
 		t.Error("all-stopword query must return nothing")
 	}
 }
 
 func TestRotateAndSettle(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	bank := BankFor(root)
+	bank := HomeBank()
 	var sb strings.Builder
 	sb.WriteString("# Session History\n\n> newest first\n")
 	for i := 35; i >= 1; i-- {
@@ -155,7 +152,7 @@ func TestRotateAndSettle(t *testing.T) {
 	}
 	write(t, bank.Path("sessionHistory.md"), sb.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	rotated, err := settleBank(root, now)
+	rotated, err := settleBank(now)
 	if err != nil || rotated != 5 {
 		t.Fatalf("rotated %d err %v", rotated, err)
 	}
@@ -185,13 +182,13 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	_, _ = Init(root)
+	_, _ = Init()
 	ok := func(ctx context.Context, _, _ string) (string, error) {
 		if !slices.Contains(ChildEnv(ctx), UpdateChildEnv+"=1") {
 			return "fake", errors.New("update child env not passed")
 		}
 		time.Sleep(10 * time.Millisecond)
-		f, err := os.OpenFile(BankFor(root).Path("sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(HomeBank().Path("sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return "fake", err
 		}
@@ -208,7 +205,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.needsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if st, err := StoreRepo().Status(BankFor(root).Prefix() + "*"); err != nil || len(st) != 0 {
+	if st, err := StoreRepo().Status("*"); err != nil || len(st) != 0 {
 		t.Errorf("update did not settle the bank: %+v, %v", st, err)
 	}
 	assertUpdateFailure(t, root)
@@ -232,16 +229,15 @@ func assertUpdateFailure(t *testing.T, root string) {
 
 func TestNativeTopicsJoinSearch(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := BankFor(root)
+	native := HomeBank()
 	write(t, native.Path("gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
 	write(t, native.NativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, native.Path("loose.md"), "gateway ssh status without frontmatter\n")
-	hits := searchBanks(root, "gateway ssh status", 0)
-	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != native.Prefix()+"gw.md" || hits[0].Matched != 3 {
+	hits := searchBanks("gateway ssh status", 0)
+	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
 	}
 	if !strings.HasPrefix(hits[0].Block, "gateway — home gateway over ssh\n") {
@@ -251,9 +247,8 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
-	root := t.TempDir()
 	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
-	resetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
+	resetSeen("11111111-1111-1111-1111-111111111111", "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := seenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
@@ -262,7 +257,7 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	if !seenBlocks("11111111-1111-1111-1111-111111111111")[blockKey("- other rule")] {
 		t.Error("markSeen did not record the hit")
 	}
-	resetSeen("11111111-1111-1111-1111-111111111111", root, "")
+	resetSeen("11111111-1111-1111-1111-111111111111", "")
 	if len(seenBlocks("11111111-1111-1111-1111-111111111111")) != 0 {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
@@ -288,8 +283,7 @@ func hitContaining(hits []SearchHit, sub string) (found SearchHit, ok bool) {
 func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	repo := gitRepo(t, t.TempDir(), "routing")
-	dir, err := EnsureBank(repo, "")
+	dir, err := EnsureBank("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +292,7 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
 
-	hits := searchBanks(repo, "agent routing", 0)
+	hits := searchBanks("agent routing", 0)
 	compound, compoundSeen := hitContaining(hits, "Subagent routing")
 	exact, exactSeen := hitContaining(hits, "Agent routing")
 	compoundScore, compoundMatched := compound.Score, compound.Matched
@@ -320,13 +314,13 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 		t.Errorf("exact match score %v did not outrank the compound match score %v", exactScore, compoundScore)
 	}
 
-	assertHyphenatedMatchesBoth(t, repo)
+	assertHyphenatedMatchesBoth(t)
 }
 
 // assertHyphenatedMatchesBoth: the hyphenated query "agent-routing" matches both the compound and the exact block.
-func assertHyphenatedMatchesBoth(t *testing.T, repo string) {
+func assertHyphenatedMatchesBoth(t *testing.T) {
 	t.Helper()
-	hyphen := searchBanks(repo, "agent-routing", 0)
+	hyphen := searchBanks("agent-routing", 0)
 	var hyphenHitsCompound, hyphenHitsExact bool
 	for _, h := range hyphen {
 		if strings.Contains(h.Block, "Subagent routing") {
@@ -406,7 +400,7 @@ func TestReferenceEmptyVerbErrors(t *testing.T) {
 
 // TestAgentDreamPrompt_UsesReference: the embedded dream procedure lands in the built prompt.
 func TestAgentDreamPrompt_UsesReference(t *testing.T) {
-	got, err := agentDreamPrompt("/w", []string{"/m/a.md"})
+	got, err := agentDreamPrompt([]string{"/m/a.md"})
 	if err != nil {
 		t.Fatalf("agentDreamPrompt: %v", err)
 	}
@@ -455,7 +449,7 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	fail := func(context.Context, string, string) (string, error) { return "x", errors.New("boom") }
@@ -463,10 +457,10 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 		t.Fatal("failed agent run must return an error")
 	}
 	now := time.Now()
-	if dreamDue(root, now) {
+	if dreamDue(now) {
 		t.Error("a failed dream is due again at once, so every session start would rerun it")
 	}
-	if !dreamDue(root, now.Add(dreamRetry+time.Minute)) {
+	if !dreamDue(now.Add(dreamRetry + time.Minute)) {
 		t.Error("a failed dream is not due after its backoff")
 	}
 }
@@ -476,7 +470,7 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := BankFor(root)
+	dir := HomeBank()
 	write(t, dir.Path("activeContext.md"), "live focus\n")
 	var prompt string
 	run := func(_ context.Context, p, _ string) (string, error) {
@@ -518,7 +512,7 @@ func TestDreamPassesChildEnvWithoutMutatingParent(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	var got []string
@@ -739,13 +733,13 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 			tempConfig(t)
 			t.Setenv(DetachedEnv, "1")
 			root := repoRoot(t, "proj")
-			_, _ = Init(root)
+			_, _ = Init()
 			runs := 0
 			agent := func(ctx context.Context, _, _ string) (string, error) {
 				runs++
 				NoteGateBlocks(ctx, tc.blocks[runs-1])
 				if runs == tc.writeOn {
-					f := BankFor(root).Path("sessionHistory.md")
+					f := HomeBank().Path("sessionHistory.md")
 					future := time.Now().Add(time.Hour)
 					if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
 						return "fake", err
@@ -772,14 +766,14 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 
 func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
+		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
 		p, err := agentUpdatePrompt("", root, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, b := range []Bank{BankFor(root), HomeBank()} {
+		for _, b := range []Bank{HomeBank(), HomeBank()} {
 			for _, name := range bankFiles {
 				if !strings.Contains(p, b.Path(name)) {
 					t.Errorf("prompt lacks %s", b.Path(name))

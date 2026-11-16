@@ -12,8 +12,7 @@ import (
 func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	tempConfig(t)
 	shortBankWait(t)
-	root := repoRoot(t, "proj")
-	b := BankFor(root)
+	b := HomeBank()
 	path := b.Path("conventions.md")
 	body := "# Conventions\n\n- old one\n- old two\n"
 	write(t, path, body)
@@ -31,7 +30,7 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	if got := aliasRead(t, path); got != body {
 		t.Fatal("archiveFile rewrote the bank while its lock was held")
 	}
-	id, err := Remember(root, "feedback", "concurrent knowledge", now)
+	id, err := Remember("feedback", "concurrent knowledge", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +49,7 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 
 func TestSplitOverflowSurfacesReadErrorNotAbsence(t *testing.T) {
 	isolatedConfig(t)
-	b := Bank{Key: "repo"}
+	b := HomeBank()
 	if _, _, _, err := splitOverflow(b.Path("absent.md"), 5); err != nil {
 		t.Errorf("absent file: err = %v, want nil", err)
 	}
@@ -64,7 +63,7 @@ func TestSplitOverflowSurfacesReadErrorNotAbsence(t *testing.T) {
 
 func TestExtractBlockSurfacesReadError(t *testing.T) {
 	isolatedConfig(t)
-	b := Bank{Key: "repo"}
+	b := HomeBank()
 	if err := os.MkdirAll(b.Path("decisionLog.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}

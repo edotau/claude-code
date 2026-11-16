@@ -49,16 +49,25 @@ func wantFile(t *testing.T, path, want string) {
 }
 
 func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
+	for name, stamp := range map[string]string{"unstamped": "", "flat 2": layoutFlat2 + "\n"} {
+		t.Run(name, func(t *testing.T) {
+			tempConfig(t)
+			from := t.TempDir()
+			if stamp != "" {
+				write(t, filepath.Join(from, layoutFile), stamp)
+			}
+			_, err := ImportBank(ImportOptions{From: from, DryRun: true})
+			var in *ImportInputError
+			if !errors.As(err, &in) || !strings.Contains(err.Error(), "older store layout") {
+				t.Errorf("import of a %s source err = %v, want the migrate hint", name, err)
+			}
+			if _, err := os.Stat(filepath.Join(StoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("import --dry-run stamped the store layout (stat err = %v); it must write nothing", err)
+			}
+		})
+	}
 	tempConfig(t)
 	from := t.TempDir()
-	_, err := ImportBank(ImportOptions{From: from, DryRun: true})
-	var in *ImportInputError
-	if !errors.As(err, &in) || !strings.Contains(err.Error(), "older store layout") {
-		t.Errorf("import of a per-repo source into a flat store err = %v, want the migrate hint", err)
-	}
-	if _, err := os.Stat(filepath.Join(StoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("import --dry-run stamped the store layout (stat err = %v); it must write nothing", err)
-	}
 	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
 	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
 	if _, err := ImportBank(ImportOptions{From: from, DryRun: true}); !errors.Is(err, errStoreNotFlat) {

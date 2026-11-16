@@ -260,7 +260,7 @@ func logHits(hits []SearchHit, reason string, now time.Time) {
 }
 
 // logShown logs access for a single shown block.
-func logShown(path, id, reason string, now time.Time) {
+func logShown(id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}

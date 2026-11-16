@@ -15,7 +15,7 @@ import (
 
 func ledgerFile(t *testing.T, main, name string) string {
 	t.Helper()
-	path := ledgerPath(main, name)
+	path := ledgerPath(main, name, time.Time{})
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read ledger %s: %v", path, err)
@@ -161,7 +161,7 @@ func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 	if err != nil || ok {
 		t.Fatalf("AppendLedger(unmanaged repo) = %v, %v; want false, nil", ok, err)
 	}
-	if _, err := os.Stat(ledgerPath(main, "anything")); !os.IsNotExist(err) {
+	if _, err := os.Stat(ledgerPath(main, "anything", time.Time{})); !os.IsNotExist(err) {
 		t.Fatalf("a ledger file appeared for an unmanaged append: %v", err)
 	}
 }
@@ -252,7 +252,7 @@ func TestLedgerMergeThenCleanBranchState(t *testing.T) {
 // Finding 4: a ledger failure during clean is written to the supplied writer.
 func TestLedgerCleanWarningsUseWriter(t *testing.T) {
 	repo, main, _ := ledgerSetup(t, "fc")
-	path := ledgerPath(main, "fc")
+	path := ledgerPath(main, "fc", time.Time{})
 	data, _ := os.ReadFile(path)
 	if err := os.WriteFile(path, []byte(strings.Replace(string(data), "- Base: ", "- Basis: ", 1)), 0o600); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestLedgerTakesBankLock(t *testing.T) {
 
 func TestSetLedgerTaskFillsUnclaimed(t *testing.T) {
 	_, main, dest := ledgerSetup(t, "wt-task")
-	path := ledgerPath(main, "wt-task")
+	path := ledgerPath(main, "wt-task", time.Time{})
 	if ok, err := SetLedgerTask(dest, "1.2 in plan-x", time.Now()); !ok || err != nil {
 		t.Fatalf("SetLedgerTask = %v, %v", ok, err)
 	}
@@ -308,5 +308,41 @@ func TestLocateLedgerInsideGitDirErrors(t *testing.T) {
 	}
 	if _, _, _, found, err := locateLedger(t.TempDir()); err != nil || found {
 		t.Errorf("non-repo dir: found=%v err=%v, want found=false and nil error", found, err)
+	}
+}
+
+// TestLedgerPathResolvesPerRepo checks same-named worktrees of two repos each find their own ledger form.
+func TestLedgerPathResolvesPerRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := memory.HomeBank().SubDir("worktrees")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a, b := filepath.Join(t.TempDir(), "repoA"), filepath.Join(t.TempDir(), "repoB")
+	put := func(file, repo string) {
+		body := "# Worktree w\n\n- Repo: " + repo + "\n- Path: /x\n- Status: open\n"
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("2026-01-01-w.md", a)
+	put("2026-01-01-w-repoB.md", b)
+	if got := filepath.Base(ledgerPath(a, "w", time.Time{})); got != "2026-01-01-w.md" {
+		t.Fatalf("repo A ledger = %s", got)
+	}
+	if got := filepath.Base(ledgerPath(b, "w", time.Time{})); got != "2026-01-01-w-repoB.md" {
+		t.Fatalf("suffixed ledger for repo B = %s", got)
+	}
+	c := filepath.Join(t.TempDir(), "repoC")
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if got := filepath.Base(ledgerPath(c, "w", now)); got != "2026-01-01-w-repoC.md" {
+		t.Fatalf("new ledger on a taken name = %s", got)
+	}
+	body := "# Worktree w2\n\n- Repo: " + a + "\n- Status: open\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude-code--w2.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Base(ledgerPath(a, "w2", time.Time{})); got != "claude-code--w2.md" {
+		t.Fatalf("legacy prefixed ledger = %s", got)
 	}
 }

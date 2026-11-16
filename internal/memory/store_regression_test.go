@@ -22,13 +22,12 @@ func TestBankFilesReturnsIndependentSlice(t *testing.T) {
 
 func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
-	dir, err := Init(root)
+	repoRoot(t, "proj")
+	dir, err := Init()
 	if err != nil {
 		t.Fatal(err)
 	}
-	own := BankFor(root).Prefix() + "*"
-	entries, _ := filepath.Glob(filepath.Join(dir, own))
+	entries, _ := filepath.Glob(filepath.Join(dir, "*"))
 	for _, en := range entries {
 		if err := os.Remove(en); err != nil {
 			t.Fatal(err)
@@ -40,10 +39,10 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 		return errors.New("no space left on device")
 	}
 	t.Cleanup(func() { writeBody = orig })
-	if _, err = Init(root); err == nil {
+	if _, err = Init(); err == nil {
 		t.Fatal("Init succeeded although every write failed")
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, own)); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
 		t.Errorf("failed Init left %d file(s) behind, first %q", len(left), left[0])
 	}
 }
@@ -51,10 +50,9 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 // Init seeds every missing template byte-exact, keeps a file that already exists and leaves no temp file.
 func TestInitLeavesNoTempFile(t *testing.T) {
 	tempConfig(t)
-	root := repoRoot(t, "proj")
 	const own = "# my own conventions\n"
-	write(t, BankFor(root).Path("conventions.md"), own)
-	dir, err := Init(root)
+	write(t, HomeBank().Path("conventions.md"), own)
+	dir, err := Init()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +60,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 		if name == "conventions.md" {
 			want = own
 		}
-		if got := mustRead(t, BankFor(root).Path(name)); got != want {
+		if got := mustRead(t, HomeBank().Path(name)); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}

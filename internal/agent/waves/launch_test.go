@@ -182,7 +182,7 @@ func launchCheckLine(t *testing.T, line launchLine, spec Spec, profile, reportsD
 	if line.Profile != profile || line.Timeout != "1m0s" || line.Tools == nil || !*line.Tools {
 		t.Fatalf("routing: %+v", line)
 	}
-	if !strings.Contains(line.Prompt, spec.Task) || !strings.Contains(line.Prompt, "Report: "+filepath.Join(reportsDir, line.ID+".md")) {
+	if !strings.Contains(line.Prompt, spec.Task) || !strings.Contains(line.Prompt, "Report: "+filepath.Join(reportsDir, dateFirst(line.ID, time.Time{})+".md")) {
 		t.Fatalf("brief: %s", line.Prompt)
 	}
 }
@@ -286,16 +286,17 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 	}
 }
 
-func TestLaunchEnvelopesPrefixReportAndResultNames(t *testing.T) {
-	options := LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), ReportPrefix: "alpha--"}
+func TestLaunchEnvelopesReportAndResultNames(t *testing.T) {
+	day := time.Date(2020, 1, 2, 23, 59, 0, 0, time.UTC)
+	options := LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), Day: day}
 	out, err := launchEnvelopes([]byte(`{"task_id":"toy-1.1","status":"ok","dispatch_id":"d"}`+"\n"), []Spec{{ID: "1.1"}}, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(options.ReportsDir, "alpha--toy-1.1.md"); out[0].Report != want {
+	if want := filepath.Join(options.ReportsDir, "2020-01-02-toy-1.1.md"); out[0].Report != want {
 		t.Errorf("Report = %s, want %s", out[0].Report, want)
 	}
-	if want := filepath.Join(options.ReportsDir, "alpha--toy-1.1.result.txt"); out[0].Result != want {
+	if want := filepath.Join(options.ReportsDir, "2020-01-02-toy-1.1.result.txt"); out[0].Result != want {
 		t.Errorf("Result = %s, want %s", out[0].Result, want)
 	}
 }

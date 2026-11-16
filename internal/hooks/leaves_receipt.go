@@ -528,7 +528,7 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 	}
 	_, b, err := memory.ResolveBank("")
 	if in.CWD != "" {
-		b, err = memory.BankFor(in.CWD), nil
+		b, err = memory.HomeBank(), nil
 	}
 	if err != nil {
 		return res

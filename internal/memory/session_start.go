@@ -20,7 +20,7 @@ var hasBank = bankExists
 // StartSession records the session root, renders the note line + bank surface and advances the session chain.
 func StartSession(sessionID, cwd string, now time.Time) string {
 	recordSessionRoot(sessionID, cwd)
-	prefix, banked := maybeAutoInit(cwd, hasBank(cwd)) // the gate probe; a scaffold and the surface re-probe
+	prefix, banked := maybeAutoInit(cwd, hasBank()) // the gate probe; a scaffold and the surface re-probe
 	if !IsUpdateChild() {
 		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
@@ -29,7 +29,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 	if !IsUpdateChild() {
 		startWorkers(cwd, sessionID, now, banked)
 		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
-		resetSeen(sessionID, cwd, out)
+		resetSeen(sessionID, out)
 	}
 	// An update worker is never the next "previous session"; a non-UUID (probe) id must not clobber the pointer.
 	if looksLikeSessionID(sessionID) && !IsUpdateChild() {
@@ -46,7 +46,7 @@ func SessionText(sessionID, cwd string, now time.Time) string {
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
 	if surface := sessionSurface(cwd); surface != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice(cwd)
+		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice()
 		return strings.TrimSpace(note) + "\n\n" + surface
 	}
 	// a fresh scaffold has no surface yet; still say where the bank went
@@ -56,7 +56,7 @@ func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) str
 // startWorkers launches the detached dream and catch-up sweep a start may owe; banked is cwd's bank probe.
 func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 	// The daily dream (consolidate) runs detached on Claude; never blocks launch.
-	if banked && dreamDue(cwd, now) {
+	if banked && dreamDue(now) {
 		spawn.dream(cwd)
 	}
 	// Every start sweeps for finished sessions whose update was missed, detached; the child does all the scanning.
@@ -117,8 +117,8 @@ func maybeAutoInit(cwd string, banked bool) (string, bool) {
 	if cwd == "" || banked || !scaffoldSafe(cwd) {
 		return "", banked
 	}
-	dir, err := Init(cwd)
-	banked = hasBank(cwd) // a scaffold, even a failed partial one, changes the answer
+	dir, err := Init()
+	banked = hasBank() // a scaffold, even a failed partial one, changes the answer
 	if err != nil {
 		return "", banked
 	}
@@ -204,7 +204,7 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 			parts = append(parts, compactedText(r))
 		}
 	}
-	b := BankFor(cwd)
+	b := HomeBank()
 	model := newestHandoff(b, now, 24*time.Hour)
 	if model != "" {
 		parts = append(parts, "handoff: "+model)
@@ -397,12 +397,12 @@ const focusCapChars = 1200
 
 // sessionSurface is the capped session preload: the one bank's focus plus a pointer to the catalog, whatever root is.
 func sessionSurface(root string) string {
-	b := BankFor(root)
+	b := HomeBank()
 	var parts []string
 	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
 		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), catalogFile)+"; search: `claude-code memory search <terms>` -->")
 	}
-	if bankExists(root) { // the header alone still names the bank when there is no focus text yet
+	if bankExists() { // the header alone still names the bank when there is no focus text yet
 		head := "<!-- MEMORY (" + b.SubDir("") + ") -->"
 		if focus := repoFocus(b); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")

@@ -31,9 +31,9 @@ var fileCaps = map[string]int{
 	"conventions.md":    80,
 }
 
-// bankExists reports whether any typed file exists in root's local bank.
-func bankExists(root string) bool {
-	b := BankFor(root)
+// bankExists reports whether any typed file exists in the bank.
+func bankExists() bool {
+	b := HomeBank()
 	for _, name := range BankFiles() {
 		if _, err := os.Stat(b.Path(name)); err == nil {
 			return true
@@ -42,9 +42,9 @@ func bankExists(root string) bool {
 	return false
 }
 
-// Init ensures root's bank exists and seeds missing files (never overwrites); returns the dir holding them.
-func Init(root string) (string, error) {
-	b, err := ensureResolvedBank(root)
+// Init ensures the bank exists and seeds missing files (never overwrites); returns the dir holding them.
+func Init() (string, error) {
+	b, err := EnsureBank("")
 	if err != nil {
 		return "", err
 	}
@@ -98,12 +98,8 @@ func createExcl(p, body string, mode os.FileMode) error {
 }
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
-func isProjectContextTemplate(root string) bool {
-	_, b, err := ResolveBank(root)
-	if err != nil {
-		return false
-	}
-	data, err := os.ReadFile(b.Path("projectContext.md"))
+func isProjectContextTemplate() bool {
+	data, err := os.ReadFile(HomeBank().Path("projectContext.md"))
 	if err != nil {
 		return false
 	}
@@ -209,19 +205,8 @@ func storeLockDir(b Bank) string {
 	return d
 }
 
-// repoHomeStateKey names a repo bank keyed "home"; keys never hold "--", so no other bank can take it.
-const repoHomeStateKey = "repo--home"
-
-// stateKey names b in per-bank state (locks, stamps, notices): "home" for the home bank, never for a repo.
-func stateKey(b Bank) string {
-	switch {
-	case b.Home():
-		return homeDir
-	case b.Key == homeDir:
-		return repoHomeStateKey
-	}
-	return b.Key
-}
+// stateKey names b in per-bank state (locks, stamps, notices): always "home".
+func stateKey(Bank) string { return homeDir }
 
 // WithBankLock runs fn under the bank lock (wait<=0 = BankLockWait); not reentrant, so *Locked helpers never take it.
 func WithBankLock(wait time.Duration, fn func() error) error {

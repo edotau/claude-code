@@ -35,6 +35,9 @@ func Placement(in *core.Input) core.Result {
 	if res, ok := noteRedirect(in); ok {
 		return res
 	}
+	if res, ok := storeNameRedirect(in); ok {
+		return res
+	}
 	dest, err := planDest(in)
 	var placed core.Result
 	if dest == "" { // a dated plan dest is rewritten (or blocked) below, never placement-denied
@@ -72,6 +75,42 @@ func noteRedirect(in *core.Input) (core.Result, bool) {
 	dest := filepath.Join(memory.StoreDir(), folder, base)
 	updated["file_path"] = dest
 	return core.Result{UpdatedInput: updated, SystemMessage: "memory-note-path: " + from + " → " + dest}, true
+}
+
+// storeNameRedirect renames a NEW file in the store's handoffs/, reports/ or worktrees/ to YYYY-MM-DD-<name>.
+func storeNameRedirect(in *core.Input) (core.Result, bool) {
+	from := in.Nested("tool_input", "file_path")
+	if from == "" || strings.ToLower(in.ToolName) != "write" {
+		return core.Result{}, false
+	}
+	abs := core.AnchorPath(from, in.CWD)
+	dir, base := filepath.Dir(abs), filepath.Base(abs)
+	if _, err := os.Stat(abs); err == nil {
+		return core.Result{}, false
+	}
+	hit := false
+	for _, f := range []string{"handoffs", "reports", "worktrees"} {
+		hit = hit || paths.SameFile(dir, filepath.Join(memory.StoreDir(), f))
+	}
+	name := memory.DatedName(base, time.Now())
+	updated := in.CloneToolInput()
+	if !hit || name == base || updated == nil {
+		return core.Result{}, false
+	}
+	dest := freeName(filepath.Join(dir, name))
+	updated["file_path"] = dest
+	return core.Result{UpdatedInput: updated, SystemMessage: "memory-store-name: " + from + " → " + dest}, true
+}
+
+// freeName returns path, or the first free <stem>-2<ext>, -3, … when path exists.
+func freeName(path string) string {
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for n, p := 2, path; ; n, p = n+1, fmt.Sprintf("%s-%d%s", stem, n, ext) {
+		if _, err := os.Stat(p); err != nil {
+			return p
+		}
+	}
 }
 
 // placeFiles gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
@@ -215,7 +254,7 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	b := memory.BankFor(root)
+	b := memory.HomeBank()
 	fix := fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
 		plans.Home(planRepoRoot(root)), b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
 	if dest := exactDest(base, root, b); dest != "" {

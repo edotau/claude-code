@@ -28,7 +28,7 @@ var RememberTypes = map[string]string{
 var afterRememberWrite = func() {}
 
 // Remember writes fact under kind's file, settles to stamp an id, and returns that id.
-func Remember(root, kind, fact string, now time.Time) (string, error) {
+func Remember(kind, fact string, now time.Time) (string, error) {
 	file, ok := RememberTypes[kind]
 	if !ok {
 		return "", fmt.Errorf("--type %q: want user, feedback, project, or reference", kind)
@@ -37,7 +37,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	b, err := ensureResolvedBank(root)
+	b, err := EnsureBank("")
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +70,7 @@ func stampAndSettle(b Bank, file string, now time.Time) error {
 		}
 	}
 	afterRememberWrite()
-	return settleLockedBank(b, now)
+	return settleLockedBank(now)
 }
 
 // writeRememberFact adds fact to b's file, stamps its id in memory, writes the file once, and returns the id.
@@ -81,7 +81,7 @@ func writeRememberFact(b Bank, file, kind, fact string, now time.Time) (string, 
 		return "", err // never rewrite the file from an unread one
 	}
 	line, text := rememberedText(path, file, kind, fact, string(data), now)
-	text, _ = stampIDs(b, file, idFiles[file], text, now)
+	text, _ = stampIDs(file, idFiles[file], text, now)
 	id, err := lastStampedID(text, line, file == "decisionLog.md")
 	if err != nil { // an unclosed fence above it or an id marker inside the fact: refuse before writing
 		return "", fmt.Errorf("%s: the fact would get no id of its own: %w", file, err)

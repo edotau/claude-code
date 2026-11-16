@@ -124,7 +124,7 @@ func workspacePlan(root string, with []string) []workspaceAction {
 		out = append(out, workspaceIgnoreAction(root))
 	}
 	if slices.Contains(with, "memory") {
-		out = append(out, workspaceMemoryAction(root))
+		out = append(out, workspaceMemoryAction())
 	}
 	return out
 }
@@ -223,9 +223,9 @@ func workspaceHasIgnore(path string) (bool, error) {
 	return false, nil
 }
 
-// workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
-func workspaceMemoryAction(root string) workspaceAction {
-	bank := memory.BankFor(root).Path(memory.BankFiles()[0])
+// workspaceMemoryAction seeds the memory bank, or reports it kept.
+func workspaceMemoryAction() workspaceAction {
+	bank := memory.HomeBank().Path(memory.BankFiles()[0])
 	dir := filepath.Dir(bank)
 	present, err := workspaceExists(bank)
 	if err != nil {
@@ -235,7 +235,7 @@ func workspaceMemoryAction(root string) workspaceAction {
 		return workspaceAction{verb: "keep", path: dir}
 	}
 	return workspaceAction{verb: "create", path: dir, apply: func() error {
-		_, err := memory.Init(root)
+		_, err := memory.Init()
 		return err
 	}}
 }
@@ -304,7 +304,7 @@ func workspaceStatus(root string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bank := memory.BankFor(root).Path(memory.BankFiles()[0])
+	bank := memory.HomeBank().Path(memory.BankFiles()[0])
 	bankState, err := workspacePresent(bank)
 	if err != nil {
 		return err

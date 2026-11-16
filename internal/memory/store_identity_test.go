@@ -2,7 +2,6 @@ package memory
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,7 +31,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	hosttest.In(t, repo, "worktree", "add", "-q", wt)
 	want := Resolve(repo)
-	if want.HomeBank || want.Harness || want.Base != "proj" || want.Origin != paths.CanonDeep(repo) {
+	if want.Origin != paths.CanonDeep(repo) {
 		t.Fatalf("Resolve(repo) = %+v", want)
 	}
 	for _, root := range []string{sub, wt, filepath.Join(wt, "a")} {
@@ -41,7 +40,7 @@ func TestResolveSharesWorktreeAndSubdir(t *testing.T) {
 			t.Errorf("Resolve(%s) = %+v want %+v", root, got, want)
 		}
 	}
-	if got := Resolve(t.TempDir()); !got.HomeBank || got.Origin != "" {
+	if got := Resolve(t.TempDir()); got.Origin != "" {
 		t.Errorf("non-repo must be global, got %+v", got)
 	}
 }
@@ -110,7 +109,7 @@ func TestResolveHarness(t *testing.T) {
 	idMkdir(t, sub)
 	for _, root := range []string{cfg, sub} {
 		id := Resolve(root)
-		if !id.Harness || id.HomeBank || id.Origin != paths.CanonDeep(cfg) {
+		if id.Origin != paths.CanonDeep(cfg) {
 			t.Errorf("Resolve(%s) = %+v", root, id)
 		}
 
@@ -132,7 +131,7 @@ func TestResolveConfigDirWorktree(t *testing.T) {
 	main := t.TempDir()
 	cfg := tempConfig(t)
 	write(t, filepath.Join(cfg, ".git"), "gitdir: "+filepath.Join(main, ".git", "worktrees", "x")+"\n")
-	if got := Resolve(cfg); !got.Harness {
+	if got := Resolve(cfg); got.Origin != paths.CanonDeep(cfg) {
 		t.Errorf("Resolve(config worktree) = %+v, want harness identity", got)
 	}
 }
@@ -144,104 +143,8 @@ func TestResolveIgnoresInheritedGitEnv(t *testing.T) {
 	decoy := gitRepo(t, t.TempDir(), "decoy")
 	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy)
-	if got := Resolve(a); got.Base != "proj" || got.Origin != paths.CanonDeep(a) {
+	if got := Resolve(a); got.Origin != paths.CanonDeep(a) {
 		t.Errorf("Resolve under hostile GIT_DIR/GIT_WORK_TREE = %+v, want proj", got)
-	}
-}
-
-// countRemoteLookups puts a git shim on PATH that logs each `remote get-url` call, and returns the count func.
-func countRemoteLookups(t *testing.T) func() int {
-	t.Helper()
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git not found")
-	}
-	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "calls")
-	shim := "#!/bin/sh\ncase \"$*\" in *\"remote get-url\"*) echo x >> '" + log + "';; esac\nexec '" + real + "' \"$@\"\n"
-	idFatal(t, os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o755))
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func() int {
-		b, _ := os.ReadFile(log)
-		return strings.Count(string(b), "x")
-	}
-}
-
-// resetRemoteCache drops the memoized remotes.
-func resetRemoteCache() { remoteCache.Clear() }
-
-// The second lookup for one checkout (hit or miss) forks no git; the reset hook clears it.
-func TestOriginRemoteURLIsMemoized(t *testing.T) {
-	tempConfig(t)
-	withRemote := gitRepo(t, t.TempDir(), "has-remote")
-	hosttest.In(t, withRemote, "remote", "add", "origin", "https://github.com/tester/memo.git")
-	noRemote := gitRepo(t, t.TempDir(), "no-remote")
-	resetRemoteCache()
-	t.Cleanup(resetRemoteCache)
-	calls := countRemoteLookups(t)
-	for _, c := range []struct{ dir, want string }{
-		{withRemote, "https://github.com/tester/memo.git"}, {noRemote, ""},
-	} {
-		before := calls()
-		if got := originRemoteURL(c.dir); got != c.want {
-			t.Fatalf("originRemoteURL(%s) = %q, want %q", c.dir, got, c.want)
-		}
-		if calls()-before != 1 {
-			t.Fatalf("first lookup of %s forked git %d times, want 1", c.dir, calls()-before)
-		}
-		before = calls()
-		if got := originRemoteURL(c.dir); got != c.want {
-			t.Fatalf("cached originRemoteURL = %q, want %q", got, c.want)
-		}
-		if calls() != before {
-			t.Fatalf("second lookup of %s forked git again", c.dir)
-		}
-	}
-	hosttest.In(t, noRemote, "remote", "add", "origin", "https://github.com/tester/later.git")
-	if got := originRemoteURL(noRemote); got != "" {
-		t.Fatalf("cache should hide the new remote, got %q", got)
-	}
-	resetRemoteCache()
-	if got := originRemoteURL(noRemote); got != "https://github.com/tester/later.git" {
-		t.Fatalf("after reset, originRemoteURL = %q, want the new remote", got)
-	}
-}
-
-func TestRepoKeyFromRemote(t *testing.T) {
-	t.Parallel()
-	cases := []struct{ url, want string }{
-		{"ssh://git@ssh.github.com:443/tester/claude-code.git", "claude-code"},
-		{"git@github.com:tester/claude-dbx.git", "claude-dbx"},
-		{"https://github.com/tester/claude-other.git", "claude-other"},
-		{"https://github.com/tester/tester.github.io.git", "tester.github.io"},
-		{"https://github.com/tester/claude-code", "claude-code"},      // no .git suffix
-		{"https://github.com/tester/claude-code.git/", "claude-code"}, // trailing slash
-		{"", ""},
-	}
-	for _, c := range cases {
-		if got := repoKeyFromRemote(c.url); got != c.want {
-			t.Errorf("repoKeyFromRemote(%q) = %q, want %q", c.url, got, c.want)
-		}
-	}
-}
-
-// A git repo in a scratch folder never becomes its own store: it takes the launching workspace, else home.
-func TestThrowawayRepoUsesLaunchingWorkspace(t *testing.T) {
-	tempConfig(t)
-	orig := throwawayInTests
-	throwawayInTests = true
-	t.Cleanup(func() { throwawayInTests = orig })
-	scratch := gitRepo(t, t.TempDir(), "p4-opencode-fix1")
-	t.Setenv(OriginEnv, "")
-	if id := Resolve(scratch); !id.HomeBank {
-		t.Errorf("no %s: Resolve = %+v, want the home tier", OriginEnv, id)
-	}
-	ws := paths.CanonDeep(t.TempDir())
-	t.Setenv(OriginEnv, ws)
-	if id := Resolve(scratch); id.HomeBank || id.Origin != ws {
-		t.Errorf("%s=%s: Resolve = %+v, want that workspace", OriginEnv, ws, id)
-	}
-	if got := LaunchOrigin(scratch); got != ws {
-		t.Errorf("LaunchOrigin = %q, want the inherited %q", got, ws)
 	}
 }
 
@@ -305,43 +208,5 @@ func TestRouteMatchWholeWordAndShortKeysIgnored(t *testing.T) {
 		if got := routeMatch(strings.ToLower(c.query), c.key); got != c.want {
 			t.Errorf("routeMatch(%q, %q) = %v, want %v", c.query, c.key, got, c.want)
 		}
-	}
-}
-
-// The bank key comes from the origin remote's basename, not the dir name; a remote naming no repo uses the dir.
-// A config that [include]s another file is never cached on disk: the included file is not in the stamp.
-func TestOriginRemoteURLSeesIncludedConfigChange(t *testing.T) {
-	tempConfig(t)
-	for _, e := range os.Environ() { // the test host's GIT_CONFIG_* env would disable the disk cache under test
-		if k, _, _ := strings.Cut(e, "="); strings.HasPrefix(k, "GIT_CONFIG") {
-			t.Setenv(k, "")
-			idFatal(t, os.Unsetenv(k))
-		}
-	}
-	repo := gitRepo(t, t.TempDir(), "inc")
-	included := filepath.Join(repo, "origin.conf")
-	write := func(name string) {
-		idFatal(t, os.WriteFile(included, []byte("[remote \"origin\"]\n url = https://example.invalid/"+name+".git\n"), 0o600))
-	}
-	cfg, err := os.OpenFile(filepath.Join(repo, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0o600)
-	idFatal(t, err)
-	_, err = cfg.WriteString("\n[include]\n\tpath = " + included + "\n")
-	idFatal(t, err)
-	idFatal(t, cfg.Close())
-	resetRemoteCache()
-	t.Cleanup(resetRemoteCache)
-	write("one")
-	if got := originRemoteURL(repo); got != "https://example.invalid/one.git" {
-		t.Fatalf("first originRemoteURL = %q, want one", got)
-	}
-	write("two")
-	resetRemoteCache() // a fresh hook process: only the on-disk cache survives
-	if got := originRemoteURL(repo); got != "https://example.invalid/two.git" {
-		t.Fatalf("after the included file changed, originRemoteURL = %q, want two", got)
-	}
-	write("three")
-	resetRemoteCache()
-	if got := originRemoteURL(repo); got != "https://example.invalid/three.git" {
-		t.Fatalf("after a second change, originRemoteURL = %q, want three", got)
 	}
 }

@@ -465,7 +465,7 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	repo := placementRepo(t)
-	day, bank := time.Now().Format("2006-01-02"), memory.BankFor(repo)
+	day, bank := time.Now().Format("2006-01-02"), memory.HomeBank()
 	planHome := plans.Home(planRepoRoot(repo))
 	if err := errors.Join(os.MkdirAll(planHome, 0o700), os.WriteFile(filepath.Join(planHome, day+"-taken-plan.md"), nil, 0o600)); err != nil {
 		t.Fatal(err)
@@ -521,5 +521,43 @@ func TestDocsPlacementFeedbackRedirect(t *testing.T) {
 		if got != c.want || r.Decision == core.Block {
 			t.Errorf("%s %s: updated %q block=%v, want %q", c.tool, c.path, got, r.Decision == core.Block, c.want)
 		}
+	}
+}
+
+func TestStoreNameRedirect(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	store := memory.StoreDir()
+	if err := os.MkdirAll(filepath.Join(store, "reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "reports", "old.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format("2006-01-02")
+	if err := os.WriteFile(filepath.Join(store, "reports", day+"-dup.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, path, want string }{
+		{"dated destination exists", "reports/dup.md", "reports/" + day + "-dup-2.md"},
+		{"undated new report", "reports/foo.md", "reports/" + day + "-foo.md"},
+		{"key prefix stripped", "handoffs/claude-code--2026-11-16-x.md", "handoffs/2026-11-16-x.md"},
+		{"compact date", "worktrees/20261116-x.md", "worktrees/2026-11-16-x.md"},
+		{"already dated", "reports/2026-11-16-x.md", ""},
+		{"existing undated file", "reports/old.md", ""},
+		{"knowledge untouched", "knowledge/foo.md", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(store, c.path)))))
+			got := ""
+			if r.UpdatedInput != nil {
+				got, _ = r.UpdatedInput["file_path"].(string)
+				got, _ = filepath.Rel(store, got)
+			}
+			if got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
 	}
 }

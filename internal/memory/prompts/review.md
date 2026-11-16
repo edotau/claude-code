@@ -8,11 +8,11 @@
 
 Read in order:
 
-1. **Catalog** — `index.md` in the store root (the generated router, one row per repo); `claude-code
-   memory path` prints the store root, and this repo's files are the `<key>--` ones
+1. **Catalog** — `index.md` in the store root (the generated router); `claude-code
+   memory path` prints the store root
 2. **Native `MEMORY.md` + topic files** — in the store root (the native loader reads the one shared `MEMORY.md` up to
    200 lines / 25 KB, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region of ≤ 20 lines)
-3. **Typed bank files** — this repo's six `<key>--` files beside `MEMORY.md`; `claude-code memory
+3. **Typed bank files** — the six typed files (`decisionLog.md`, …) beside `MEMORY.md`; `claude-code memory
    review` surfaces caps/staleness across both native and typed
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`
 5. **Always-on tier** — the global `~/.claude/CLAUDE.md` and the project `./CLAUDE.md`
