@@ -346,11 +346,11 @@ type Semantic struct {
 }
 
 // embedQuery embeds a query with the first usable workspace's endpoint and scores it against the shared cache.
-func embedQuery(ctx context.Context, query string) (*Semantic, error) {
+func embedQuery(parent context.Context, query string) (*Semantic, error) {
 	if os.Getenv("CLAUDE_RECALL_SEMANTIC") == "0" {
 		return nil, errors.New("disabled by CLAUDE_RECALL_SEMANTIC=0")
 	}
-	ctx, cancel := context.WithTimeout(ctx, embedRecallWait)
+	ctx, cancel := context.WithTimeout(parent, embedRecallWait)
 	defer cancel()
 	profile, cache, err := semanticCache(ctx)
 	if err != nil {
@@ -358,13 +358,18 @@ func embedQuery(ctx context.Context, query string) (*Semantic, error) {
 	}
 	attempt := time.Now()
 	backoff := embedBackoffPath(profile)
+	pause := func() { // the caller's cancel or deadline says nothing about the endpoint
+		if parent.Err() == nil {
+			_ = paths.AtomicWrite(backoff, nil, 0o600)
+		}
+	}
 	done := make(chan semanticResult, 1)
 	go func() { done <- querySemantic(ctx, profile, query, cache) }()
 	select {
 	case r := <-done:
 		if r.err != nil {
 			if !errors.Is(r.err, errEmbedMismatch) { // a local config mismatch says nothing about the endpoint
-				_ = paths.AtomicWrite(backoff, nil, 0o600)
+				pause()
 			}
 			if ctx.Err() != nil {
 				return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
@@ -374,7 +379,7 @@ func embedQuery(ctx context.Context, query string) (*Semantic, error) {
 		clearOldBackoff(backoff, attempt)
 		return newSemantic(r.vec, cache.Rows), nil
 	case <-ctx.Done():
-		_ = paths.AtomicWrite(backoff, nil, 0o600) // a slow endpoint costs one prompt the full wait, not every prompt
+		pause() // a slow endpoint costs one prompt the full wait, not every prompt
 		return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -467,6 +468,52 @@ func TestEmbedQueryHonoursCallerCancellation(t *testing.T) {
 	start := time.Now()
 	if _, err := embedQuery(ctx, "q"); err == nil || time.Since(start) > time.Second {
 		t.Fatalf("embedQuery returned %v after %s, want an error within the caller's 50ms deadline", err, time.Since(start))
+	}
+}
+
+// A caller's cancel or deadline mid-request says nothing about the endpoint, so it writes no backoff marker.
+func TestEmbedQueryCallerEndDoesNotPause(t *testing.T) {
+	for name, budget := range map[string]time.Duration{"cancelled": time.Minute, "deadline": 30 * time.Millisecond} {
+		t.Run(name, func(t *testing.T) {
+			isolatedConfig1(t)
+			prevWait, prev := embedRecallWait, openEmbedClient
+			embedRecallWait = 3 * time.Second
+			t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+			t.Setenv("CLAUDE_PROFILE", "fake")
+			row := vectorRow{Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}
+			if err := saveEmbedCache(vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": row}}); err != nil {
+				t.Fatal(err)
+			}
+			hit, finished := make(chan struct{}, 1), make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body) // the server sees the client hang up only once the body is read
+				hit <- struct{}{}
+				<-r.Context().Done()
+			}))
+			t.Cleanup(func() { srv.Close(); openEmbedClient, embedRecallWait = prev, prevWait })
+			openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
+				return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+					defer close(finished)
+					return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
+				}}, nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			defer cancel()
+			if name == "cancelled" {
+				go func() { <-hit; cancel() }()
+			}
+			if _, err := embedQuery(ctx, "q"); err == nil {
+				t.Fatal("embedQuery succeeded, want the caller's end")
+			}
+			select {
+			case <-finished:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the query never reached the endpoint")
+			}
+			if err := backoffPause(embedBackoffPath("fake")); err != nil {
+				t.Errorf("caller end paused semantic recall: %v", err)
+			}
+		})
 	}
 }
 
