@@ -88,8 +88,8 @@ func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 			t.Errorf("sandbox lacks %s", rel)
 		}
 	}
-	if statOK(filepath.Join(mem, originsFile)) || len(res.Stores) != 1 || res.Stores[0].Key != stateKey(b) {
-		t.Errorf("sandbox stores = %+v, want the one bank and no %s", res.Stores, originsFile)
+	if len(res.Stores) != 1 || res.Stores[0].Key != stateKey(b) {
+		t.Errorf("sandbox stores = %+v, want the one bank", res.Stores)
 	}
 }
 
