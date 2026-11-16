@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -219,6 +220,14 @@ func inferProvider(name string, row json.RawMessage) string {
 
 // AddGithubAccount writes a github profile named after login: the built-in github row minus opencodeID.
 func AddGithubAccount(login string) error {
+	reg, err := Load()
+	if err != nil {
+		return err
+	}
+	if p := reg.Providers[login]; p != nil && (p.Provider != "github" || p.Login != login) {
+		// profiles are account logins; never rewrite another row into GitHub
+		return fmt.Errorf("a %s profile named %q already exists; rename or remove it first", cmp.Or(p.Provider, "provider"), login)
+	}
 	base, err := builtinEntry(builtinGithubRow())
 	if err != nil {
 		return err

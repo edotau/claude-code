@@ -329,7 +329,8 @@ they do not perform discovery or identity validation for this cache.
 Sync selects non-gateway `READY` endpoints with task `llm/v1/chat` and a `databricks-` name whose canonical menu ID
 round-trips to the exact serving name. It deduplicates and sorts eligible IDs, then appends only absent entries.
 Existing entries retain their order, labels and explicit Responses flags, even when absent from discovery;
-new entries use the catalog's inferred Responses flag. Nothing is removed. Failed probe outcomes block new
+new entries use the catalog's inferred Responses flag. Chat-only ids never use Responses, and a flag that matches
+the catalog is not stored. Nothing is removed. Failed probe outcomes block new
 additions, including cached outcomes explicitly labeled **historical**, not live. Listing-only models without a
 known failed check may be added as **discovered/unverified**. Empty discovery and no-change runs do not write the
 menu. Discovery/authentication failures do not save a snapshot or change the menu.
