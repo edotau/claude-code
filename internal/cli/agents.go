@@ -238,6 +238,9 @@ func cmdAgentsSync(args []string) int {
 // syncAgentConfigs re-renders the agents' native hook and config files, which project.Sync does not write.
 func syncAgentConfigs(name, format string, dryRun, check bool) int {
 	o := agentconfig.RenderOptions{DryRun: dryRun, Check: check}
+	if format != "json" {
+		o.Out = os.Stdout // SyncConfigs names the agents it skipped here
+	}
 	if name != "" {
 		if !slices.Contains(agent.DefaultAgents, name) {
 			return 0

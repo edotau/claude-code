@@ -655,6 +655,83 @@ func TestRenderGeminiHooks(t *testing.T) {
 	}
 }
 
+// A hooks.json that does not parse is an error naming the file, never a silent skip, and stays as it was.
+func TestRenderGeminiHooksMalformedIsAnError(t *testing.T) {
+	for _, bad := range []string{"{broken", "[1]", "null", `{"a":1} x`, `{"a":1}}`} {
+		home := t.TempDir()
+		path := agyHooksPath(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := stagedHooks(home)
+		if err == nil || !strings.Contains(err.Error(), path) {
+			t.Errorf("%q: err = %v, want one naming %s", bad, err, path)
+		}
+		if b, _ := os.ReadFile(path); string(b) != bad {
+			t.Errorf("%q: file rewritten to %q", bad, b)
+		}
+	}
+}
+
+// Foreign entries keep their exact bytes and order; an unchanged harness entry means no rewrite at all.
+func TestRenderGeminiHooksKeepsForeignBytes(t *testing.T) {
+	home := t.TempDir()
+	path := agyHooksPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `"foreign" : { "PreToolUse" : [ { "matcher" : "Bash", "hooks" : [] } ] }`
+	stale := `"claude-code" : {"PreToolUse":[]}`
+	for _, seed := range []string{"{" + foreign + "}", "{" + stale + ", " + foreign + "}", "{" + foreign + ", " + stale + "}"} {
+		if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if changed, err := stagedHooks(home); err != nil || !changed {
+			t.Fatalf("seed %q: changed = %v, err = %v; want a rewrite", seed, changed, err)
+		}
+		b, _ := os.ReadFile(path)
+		if !strings.Contains(string(b), foreign) {
+			t.Errorf("seed %q: foreign entry changed:\n%s", seed, b)
+		}
+		if (strings.Index(string(b), `"claude-code"`) < strings.Index(string(b), `"foreign"`)) != strings.HasPrefix(seed, "{"+stale) {
+			t.Errorf("seed %q: entry order changed:\n%s", seed, b)
+		}
+		if changed, err := stagedHooks(home); err != nil || changed {
+			t.Errorf("seed %q: second render changed = %v, err = %v; want none", seed, changed, err)
+		}
+		if again, _ := os.ReadFile(path); !bytes.Equal(again, b) {
+			t.Errorf("seed %q: a no-change render rewrote the file", seed)
+		}
+	}
+}
+
+// An existing harness entry equal in value but spaced differently is not rewritten.
+func TestRenderGeminiHooksSpacingIsNotDrift(t *testing.T) {
+	home := t.TempDir()
+	if _, err := stagedHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	path := agyHooksPath(home)
+	b, _ := os.ReadFile(path)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		t.Fatal(err)
+	}
+	respaced := append(append([]byte("{ \"claude-code\" :  "), bytes.ReplaceAll(obj["claude-code"], []byte("\n"), nil)...), " }"...)
+	if err := os.WriteFile(path, respaced, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := stagedHooks(home); err != nil || changed {
+		t.Errorf("respaced entry: changed = %v, err = %v; want none", changed, err)
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, respaced) {
+		t.Errorf("respaced file rewritten:\n%s", got)
+	}
+}
+
 func stagedHooks(home string) (bool, error) {
 	var plan agentconfig.RenderPlan
 	changed, err := renderGeminiHooks(home, agentconfig.RenderOptions{}.Stage(&plan), io.Discard)

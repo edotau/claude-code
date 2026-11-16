@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -521,6 +522,21 @@ func decodePlainObject(raw []byte) (map[string]any, error) {
 	return obj, nil
 }
 
+// SameJSONObject reports whether a and b are JSON objects of equal value, whatever their spacing and key order.
+func SameJSONObject(a, b []byte) bool {
+	x, errA := decodePlainObject(a)
+	y, errB := decodePlainObject(b)
+	return errA == nil && errB == nil && reflect.DeepEqual(x, y)
+}
+
+// HooksFileBytes is raw when merged holds the same JSON object (respacing is no drift), else merged + newline.
+func HooksFileBytes(raw, merged []byte) []byte {
+	if SameJSONObject(raw, merged) {
+		return raw
+	}
+	return append(merged, '\n')
+}
+
 // RenderHooksFile writes body to path, merged over whatever is already there.
 func RenderHooksFile(path string, body []byte, merge func(existing, body []byte) ([]byte, error), o RenderOptions, out io.Writer, label string) (bool, error) {
 	raw, existed, err := ReadExisting(path)
@@ -531,7 +547,7 @@ func RenderHooksFile(path string, body []byte, merge func(existing, body []byte)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", label, err)
 	}
-	return CommitFile(path, raw, append(next, '\n'), existed, o, out, label)
+	return CommitFile(path, raw, HooksFileBytes(raw, next), existed, o, out, label)
 }
 
 // DecodeRawObject decodes raw as a JSON object of raw values; blank is empty, JSON null is refused.

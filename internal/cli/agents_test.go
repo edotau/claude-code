@@ -1028,3 +1028,89 @@ func TestSyncAgentConfigsRewritesRetiredHookModule(t *testing.T) {
 		t.Errorf("--check after sync exit = %d, want 0", code)
 	}
 }
+
+// syncHome is a hermetic HOME that is a harness home, with the given agent homes created.
+func syncHome(t *testing.T, agentHomes ...string) string {
+	t.Helper()
+	hosttest.HermeticEnv(t)
+	home := os.Getenv("HOME")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	for _, h := range agentHomes {
+		if err := os.MkdirAll(filepath.Join(home, h), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
+// A hooks file that does not parse fails sync and --check by name, stays untouched, and does not stop the other agents.
+func TestSyncAgentConfigsMalformedHooksFile(t *testing.T) {
+	home := syncHome(t, ".gemini", ".codex")
+	bad := filepath.Join(home, ".gemini", "config", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bad, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []bool{true, false} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return syncAgentConfigs("", "text", false, check) })
+		if code != 1 || !strings.Contains(stderr, bad) || !strings.Contains(stderr, "gemini") {
+			t.Errorf("check=%v: exit %d, stderr %q; want 1 naming gemini and %s", check, code, stderr, bad)
+		}
+	}
+	if b, _ := os.ReadFile(bad); string(b) != "{broken" {
+		t.Errorf("malformed file rewritten to %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "hooks.json")); err != nil {
+		t.Errorf("codex was not synced after gemini failed: %v", err)
+	}
+}
+
+// An agent whose home does not exist is skipped by sync, --check and --dry-run, and its home is never created.
+func TestSyncAgentConfigsSkipsAbsentAgentHome(t *testing.T) {
+	home := syncHome(t)
+	for _, mode := range []struct{ dry, check bool }{{false, false}, {false, true}, {true, false}} {
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return syncAgentConfigs("", "text", mode.dry, mode.check) })
+		if code != 0 || !strings.Contains(stdout, "skipped gemini") {
+			t.Errorf("%+v: exit %d, stdout %q, stderr %q; want 0 naming the skipped gemini", mode, code, stdout, stderr)
+		}
+		for _, h := range []string{".gemini", ".codex", ".copilot"} {
+			if _, err := os.Stat(filepath.Join(home, h)); err == nil {
+				t.Errorf("%+v: sync created %s", mode, h)
+			}
+		}
+	}
+}
+
+// A codex or copilot hooks file respaced but equal in value is current: --check passes and sync leaves its bytes alone.
+func TestSyncAgentConfigsRespacedHooksAreCurrent(t *testing.T) {
+	home := syncHome(t, ".codex", ".copilot")
+	if code := syncAgentConfigs("", "text", false, false); code != 0 {
+		t.Fatalf("first sync exit = %d", code)
+	}
+	var before = map[string][]byte{}
+	for _, p := range []string{".codex/hooks.json", ".copilot/hooks/claude-code-harness.json"} {
+		path := filepath.Join(home, p)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		respaced := []byte(strings.Replace(string(b), `"hooks"`, `"hooks"   `, 1))
+		if err := os.WriteFile(path, respaced, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before[path] = respaced
+	}
+	for _, check := range []bool{true, false} {
+		if code := syncAgentConfigs("", "text", false, check); code != 0 {
+			t.Errorf("check=%v: exit %d, want 0 (respaced file is current)", check, code)
+		}
+	}
+	for path, want := range before {
+		if got, _ := os.ReadFile(path); string(got) != string(want) {
+			t.Errorf("%s rewritten:\n%s", path, got)
+		}
+	}
+}

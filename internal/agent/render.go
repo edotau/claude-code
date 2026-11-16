@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -64,7 +66,7 @@ func PrepareConfigs(o agentconfig.RenderOptions) (*agentconfig.RenderPlan, bool,
 	return p, drift, nil
 }
 
-// SyncConfigs renders each agent's config alone and returns those that differ; skipped = not a harness home.
+// SyncConfigs renders each agent's config alone and returns those that differ; an absent agent home is skipped.
 func SyncConfigs(o agentconfig.RenderOptions) (changed []string, skipped bool, err error) {
 	if skipConfigHomes(o) {
 		return nil, true, nil
@@ -73,7 +75,15 @@ func SyncConfigs(o agentconfig.RenderOptions) (changed []string, skipped bool, e
 	if len(agents) == 0 {
 		agents = DefaultAgents
 	}
+	note := o.Out
+	if note == nil {
+		note = io.Discard
+	}
 	for _, a := range agents {
+		if dir := absentHome(a, o); dir != "" {
+			fmt.Fprintf(note, "sync: skipped %s: %s does not exist\n", a, dir)
+			continue
+		}
 		probe := o
 		probe.Agents, probe.Check, probe.Out = []string{a}, true, io.Discard
 		drift, rerr := RenderConfigs(probe)
@@ -91,6 +101,26 @@ func SyncConfigs(o agentconfig.RenderOptions) (changed []string, skipped bool, e
 		}
 	}
 	return changed, false, err
+}
+
+// absentHome is the missing directory a known agent's config files live under (its home); "" when present or unknown.
+func absentHome(a string, o agentconfig.RenderOptions) string {
+	if knownAgents([]string{a}) != nil {
+		return ""
+	}
+	files, err := SchemaFor(a).Eng().ConfigPaths(o.Home)
+	userHome, herr := agentconfig.HomeOr(o.Home)
+	if err != nil || herr != nil || len(files) == 0 {
+		return ""
+	}
+	dir := filepath.Dir(files[0].Path)
+	if rel, err := filepath.Rel(userHome, files[0].Path); err == nil && !strings.HasPrefix(rel, "..") {
+		dir = filepath.Join(userHome, strings.SplitN(filepath.ToSlash(rel), "/", 2)[0])
+	}
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return dir
+	}
+	return ""
 }
 
 func skipConfigHomes(o agentconfig.RenderOptions) bool {
