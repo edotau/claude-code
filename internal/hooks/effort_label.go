@@ -13,6 +13,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -197,7 +198,31 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	case r.Note != "":
 		note = fmt.Sprintf("dispatch-effort: label %s: %s.", r.Label(), r.Note)
 	}
-	return r.Label(), note
+	return r.Label(), strings.TrimSpace(note + "\n" + googleQuotaNote(ctx, r))
+}
+
+// googleQuotaCheck is the agy /usage seam (60 s cache); tests assert a non-Google route never reads it.
+var googleQuotaCheck = gemini.Check
+
+// googleQuotaNote is the low-pool warning and a held model's reset for a gemini dispatch on Google; "" otherwise.
+func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
+	if r.Agent != agentid.Gemini || !router.PerModelQuota(r.Account) {
+		return ""
+	}
+	now := time.Now()
+	q, err := googleQuotaCheck(ctx, r.Model, now)
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	if w := q.Warning(); w != "" {
+		lines = append(lines, "dispatch-effort: "+w)
+	}
+	if q.HeldUntil.After(now) {
+		lines = append(lines, fmt.Sprintf("dispatch-effort: %s is held until %s (local); the ask will refuse it.",
+			r.Model, q.HeldUntil.Local().Format("2006-01-02 15:04")))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, as `agents ask` reads them.

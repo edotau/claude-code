@@ -3,10 +3,13 @@ package gemini
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -152,5 +155,72 @@ func TestQuotaLineFitsEightyColumns(t *testing.T) {
 		if n := len([]rune(r.Line())); n > 80 || !strings.Contains(r.Line(), "% left") {
 			t.Errorf("Line() = %q (%d runes)", r.Line(), n)
 		}
+	}
+}
+
+func TestCheckHoldsEveryModelOfAZeroPool(t *testing.T) {
+	for pool, want := range map[string][]string{
+		"Gemini Models":         {"gemini-4-argon", "gemini-4-hydrogen", "gemini-3-8-flash"},
+		"Claude and GPT models": {"claude-opus-5-5", "claude-sonnet-5-5", "gpt-oss-120b"},
+	} {
+		out := strings.Replace(usageSample, pool+"\tWeekly Limit Remaining\t"+map[string]string{"Gemini Models": "96", "Claude and GPT models": "99"}[pool]+"%", pool+"\tWeekly Limit Remaining\t0%", 1)
+		stubUsage(t, fixedUsage(out))
+		if _, err := Check(context.Background(), want[0], quotaNow0); err != nil {
+			t.Fatal(err)
+		}
+		st := router.LoadState()
+		for _, id := range want {
+			if !st.ModelDead(googleAccount, id, quotaNow0) {
+				t.Errorf("%s at 0%%: %s not held (marks %v)", pool, id, st[googleAccount].ModelDead)
+			}
+		}
+		other := "claude-sonnet-5-5"
+		if pool != "Gemini Models" {
+			other = "gemini-4-hydrogen"
+		}
+		if st.ModelDead(googleAccount, other, quotaNow0) {
+			t.Errorf("%s at 0%% held %s of the other pool", pool, other)
+		}
+	}
+}
+
+func TestUsageOutputSharesTheQuotasRead(t *testing.T) {
+	calls := 0
+	stubUsage(t, func(context.Context) ([]byte, error) { calls++; return []byte(usageSample), nil })
+	if _, err := Quotas(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := UsageOutput(context.Background()); calls != 1 || len(out) == 0 {
+		t.Errorf("agy runs = %d, raw %d bytes; want one run serving both readers", calls, len(out))
+	}
+}
+
+func TestUsageTextReadsAgyJSON(t *testing.T) {
+	stubUsage(t, fixedUsage(`{"status":"SUCCESS","response":"Gemini Models\tWeekly Limit Remaining\t96%\t2026-11-21T00:05:28Z\n"}`))
+	if rows, err := Quotas(context.Background()); err != nil || len(rows) != 1 || rows[0].Remaining != 96 {
+		t.Errorf("rows from the JSON reply = %+v, %v", rows, err)
+	}
+}
+
+func TestDiskCachedSharesOneReadAcrossProcesses(t *testing.T) {
+	stubUsage(t, nil)
+	calls := 0
+	run := func(context.Context) ([]byte, error) { calls++; return []byte(usageSample), nil }
+	for range 3 {
+		if out, err := diskCached(context.Background(), run); err != nil || len(ParseQuotas(usageText(out))) == 0 {
+			t.Fatalf("diskCached = %q, %v", out, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("agy runs = %d within a minute, want 1", calls)
+	}
+	quotaNow = func() time.Time { return quotaNow0.Add(quotaTTL + time.Second) }
+	file := filepath.Join(paths.StateDir(), "agy-usage.json")
+	if err := os.Chtimes(file, quotaNow0, quotaNow0); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = diskCached(context.Background(), run)
+	if calls != 2 {
+		t.Errorf("agy runs = %d after the minute, want 2", calls)
 	}
 }

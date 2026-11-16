@@ -342,15 +342,6 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 
 func dash(s string) string { return cmp.Or(s, "-") }
 
-// agyUsageCmd is the agy exec seam; tests replace it with a fake binary so none of this reaches agy.
-var agyUsageCmd = func(ctx context.Context) ([]byte, error) {
-	bin, err := paths.AgentBin("agy")
-	if err != nil {
-		return nil, err
-	}
-	return exec.CommandContext(ctx, bin, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s").Output()
-}
-
 // agyUsageBucket is one rate-limit bucket inside an agy usage group; disabled buckets carry no numbers.
 type agyUsageBucket struct {
 	Window        string  `json:"window"`

@@ -54,6 +54,18 @@ func TestAcceptedEfforts(t *testing.T) {
 	}
 }
 
+func TestAgentModels(t *testing.T) {
+	got := strings.Join(AgentModels("gemini"), " ")
+	for _, id := range []string{"gemini-4-argon", "claude-opus-5-5", "gpt-oss-120b"} {
+		if !strings.Contains(got, id) {
+			t.Errorf("AgentModels(gemini) = %q, missing %s", got, id)
+		}
+	}
+	if strings.Contains(got, "gemini-3-7-flash") || len(AgentModels("nobody")) != 0 {
+		t.Errorf("AgentModels listed a model with no gemini efforts: %q", got)
+	}
+}
+
 func TestResolveForms(t *testing.T) {
 	cases := map[string]string{
 		"opus": "claude-opus-5-5", "Sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",

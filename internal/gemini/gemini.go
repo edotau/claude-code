@@ -56,7 +56,7 @@ func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpti
 	res.Model = areq.Model
 	res.Emulated = append(res.Emulated, p.Emulated...)
 	out, err := runAgy(ctx, areq, sink)
-	err = classifyAgyError(areq.Model, err)
+	err = classifyAgyError(ctx, areq.Model, err)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	if out.SessionID != "" {
 		res.SessionID = out.SessionID
@@ -410,8 +410,21 @@ func agyModelLimit(text string) bool {
 	return strings.Contains(low, "usage limit reached") || strings.Contains(low, "individual quota reached")
 }
 
-// classifyAgyError names the held model on a rate limit and the sign-in flow on an auth failure; others pass through.
-func classifyAgyError(model string, err error) error {
+// agyResetAfter is when the model's limit ends: the error's retry hint, else the 0% limit in /usage; zero if unknown.
+func agyResetAfter(ctx context.Context, model string, e *retry.Error) time.Time {
+	now := quotaNow()
+	if e.RetryAfter > 0 {
+		return now.Add(e.RetryAfter)
+	}
+	rows, err := Quotas(ctx)
+	if err != nil {
+		return time.Time{}
+	}
+	return statusFor(rows, model, now).HeldUntil
+}
+
+// classifyAgyError names the held model (Terminal when its reset is past the retry budget) or the sign-in flow.
+func classifyAgyError(ctx context.Context, model string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -428,7 +441,12 @@ func classifyAgyError(model string, err error) error {
 	}
 	switch e.Kind {
 	case retry.KindRateLimit:
-		e.Err = fmt.Errorf("agy: %s is rate limited (%s); that model's limit is held, try gemini-4-hydrogen-medium", model, detail)
+		held := "held"
+		if reset := agyResetAfter(ctx, model, e); reset.Sub(quotaNow()) > retry.DefaultMaxDelay {
+			e.Terminal = true
+			held = "held until " + reset.Local().Format("2006-01-02 15:04")
+		}
+		e.Err = fmt.Errorf("agy: %s is rate limited (%s); that model's limit is %s, try gemini-4-hydrogen-medium", model, detail, held)
 	case retry.KindAuth:
 		e.Err = fmt.Errorf("agy: not signed in or the token expired (%s); run `agy` and sign in with Google again", detail)
 	}

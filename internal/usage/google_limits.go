@@ -11,6 +11,9 @@ import (
 // googleLimits is the agy /usage seam; tests stub it so no run reaches the binary.
 var googleLimits = gemini.Quotas
 
+// agyUsageCmd reads agy's /usage JSON through the same cached reader, so `usage` runs agy once; tests replace it.
+var agyUsageCmd = gemini.UsageOutput
+
 type googleResult struct {
 	rows []gemini.QuotaRow
 	err  error

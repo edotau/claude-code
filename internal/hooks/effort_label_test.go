@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -175,6 +177,49 @@ func TestAskLinePackFileTools(t *testing.T) {
 	} {
 		if got := parseAskLine(context.Background(), brief).tools; got != want {
 			t.Errorf("tools(%q) = %v, want %v", brief, got, want)
+		}
+	}
+}
+
+// A gemini dispatch on Google gets the low-pool warning and a held model's reset; no other dispatch reads agy.
+func TestLabelModelGoogleQuotaNote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reset := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC)
+	low := gemini.QuotaRow{Pool: "Gemini Models", Limit: "Five Hour Limit Remaining", Remaining: 12}
+	for _, tc := range []struct {
+		name, agent, account string
+		q                    gemini.ModelQuota
+		err                  error
+		reads                int
+		want                 []string
+	}{
+		{"low pool", "gemini", "google·antigravity", gemini.ModelQuota{Low: &low}, nil, 1, []string{"google quota low", "12% left"}},
+		{"held model", "gemini", "google·antigravity", gemini.ModelQuota{HeldUntil: reset}, nil, 1,
+			[]string{"is held until " + reset.Local().Format("2006-01-02 15:04"), "ask will refuse"}},
+		{"read failed", "gemini", "google·antigravity", gemini.ModelQuota{}, errors.New("agy usage unavailable"), 1, nil},
+		{"non-gemini dispatch", "codex", "google·antigravity", gemini.ModelQuota{Low: &low}, nil, 0, nil},
+		{"non-Google route", "gemini", "databricks·dev", gemini.ModelQuota{Low: &low}, nil, 0, nil},
+	} {
+		reads := 0
+		orig := googleQuotaCheck
+		googleQuotaCheck = func(context.Context, string, time.Time) (gemini.ModelQuota, error) { reads++; return tc.q, tc.err }
+		stubResolve(t, func(agentpkg.ModelQuery) string { return "gemini-4-argon-low" })
+		resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
+			return agentpkg.ModelRoute{Agent: q.Agent, Account: tc.account, Model: "gemini-4-argon-low"}, nil
+		}
+		task := "Run: claude-code agents ask --agent " + tc.agent + " 'do x'"
+		_, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
+		googleQuotaCheck = orig
+		if reads != tc.reads {
+			t.Errorf("%s: quota reads = %d, want %d", tc.name, reads, tc.reads)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(note, w) {
+				t.Errorf("%s: note %q lacks %q", tc.name, note, w)
+			}
+		}
+		if tc.want == nil && strings.Contains(note, "quota") || tc.want == nil && strings.Contains(note, "held until") {
+			t.Errorf("%s: note %q, want no quota line", tc.name, note)
 		}
 	}
 }
