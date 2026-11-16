@@ -117,9 +117,14 @@ func preflightBlock(ctx context.Context, run *dispatchRun, task string) *core.Re
 
 // preflightDeny is ask's own refusal plus the fix: code cannot pick the workspace or model the brief meant.
 func preflightDeny(agent string, err error) *core.Result {
-	return &core.Result{Decision: core.Block, Reason: "dispatch-effort: " + err.Error() + ". Fix the brief's `Run:` line " +
+	reason := "dispatch-effort: " + err.Error() + ". Fix the brief's `Run:` line " +
 		"(a --profile the registry has, a --model that workspace serves, or --fallback agents) and resend; " +
-		"`claude-code gateway resolve " + agent + " --profile <p> --model <m>` checks a route offline."}
+		"`claude-code gateway resolve " + agent + " --profile <p> --model <m>` checks a route offline."
+	var pe *agentpkg.PreflightError
+	if errors.As(err, &pe) && len(pe.Finding.Served) > 0 {
+		reason += " " + pe.Finding.Profile + " serves " + strings.Join(pe.Finding.Served, ", ") + "."
+	}
+	return &core.Result{Decision: core.Block, Reason: reason}
 }
 
 // refusal is ask's error for l's Databricks row and model, judged on reg and the row's fresh listing; nil passes.

@@ -20,10 +20,11 @@ import (
 
 // Finding is one failed preflight check on a Databricks target; Check is credential, auth, served or wire.
 type Finding struct {
-	Check   string `json:"check"`
-	Profile string `json:"profile"`
-	Model   string `json:"model,omitempty"`
-	Detail  string `json:"detail"`
+	Check   string   `json:"check"`
+	Profile string   `json:"profile"`
+	Model   string   `json:"model,omitempty"`
+	Detail  string   `json:"detail"`
+	Served  []string `json:"served,omitempty"` // READY ids of the model's family the workspace does list
 }
 
 func (f Finding) String() string { return f.Check + ": " + f.Detail }
@@ -131,7 +132,11 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 		return model, nil, ""
 	}
 	fail := func(check, detail string) (string, *Finding, string) {
-		return "", &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}, ""
+		f := &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}
+		if check == "served" {
+			f.Served = servedAlternatives(p, model, now)
+		}
+		return "", f, ""
 	}
 	served := servedSpelling(agentName, p, model, now)
 	wire, why := preflightModelWire(agentName, p, served)
@@ -212,6 +217,50 @@ func preflightEndpoint(p *providers.Provider, wire string, now time.Time) (note,
 		return "", wire + " is not a READY endpoint on " + p.Name
 	}
 	return "", ""
+}
+
+// maxAlternatives caps the served ids a refusal names.
+const maxAlternatives = 5
+
+// servedAlternatives is up to maxAlternatives READY ids of model's family in p's fresh listing; nil without one.
+func servedAlternatives(p *providers.Provider, model string, now time.Time) []string {
+	fam := models.FamilyKind(model)
+	s, ok := router.LoadServed(p.Name)
+	if !ok || !s.Fresh(now) || fam != models.FamilyClaude && fam != models.FamilyGPT && fam != models.FamilyGemini {
+		return nil
+	}
+	var out []string
+	for _, m := range s.Models {
+		if (m.Ready == "" || m.Ready == "READY") && models.FamilyKind(m.ID) == fam && m.ID != model && len(out) < maxAlternatives {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// checkRouteServed marks r Served on a Databricks row; none turns an unlisted or not-READY model into ErrModelRoute.
+func checkRouteServed(reg *providers.Registry, r ModelRoute, none bool, now time.Time) (ModelRoute, error) {
+	p := reg.Row(r.Profile)
+	if p == nil || p.Preset != providers.PresetDatabricks || r.Dialect == "own-login" {
+		return r, nil
+	}
+	if _, _, fresh := router.ServedListed(p, "", now); !fresh {
+		r.Served = ServedUnverified
+		return r, nil
+	}
+	f := FreshModelFinding(r.Agent, p, r.Model, now)
+	if f == nil {
+		return r, nil
+	}
+	detail := f.Detail
+	if len(f.Served) > 0 {
+		detail += "; " + p.Name + " serves " + strings.Join(f.Served, ", ")
+	}
+	if none {
+		return r, fmt.Errorf("%w: %s (no fallback)", ErrModelRoute, detail)
+	}
+	r.Served, r.Note = ServedNo, joinNotes(r.Note, detail)
+	return r, nil
 }
 
 // CheckModelNoted is checkModel whose skipped-check note starts one listing refresh and lands in pf (nil: stderr).

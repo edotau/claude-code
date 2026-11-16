@@ -32,8 +32,15 @@ type ModelRoute struct {
 	Source   string `json:"source"`             // prefix|type|flag|account|pool|session|pin|default|own-login
 	Identity string `json:"identity,omitempty"` // the overlay's identity, echoed
 	Fallback string `json:"fallback,omitempty"` // the overlay's fallback mode, echoed
+	Served   string `json:"served,omitempty"`   // Databricks row only: ServedNo (fresh listing lacks Model) or ServedUnverified
 	Note     string `json:"note,omitempty"`     // a substitution or skip said aloud
 }
+
+// Served values: the row's fresh listing lacks the model, or no fresh listing exists to judge by.
+const (
+	ServedNo         = "no"
+	ServedUnverified = "unverified"
+)
 
 // ModelQuery is what a launch or dispatch typed, then the fallbacks QueryFor fills, highest precedence first.
 type ModelQuery struct {

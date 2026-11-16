@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,7 @@ func cmdGatewayResolve(args []string) int {
 	model := fs.String("model", "", "typed model string, as --model takes it")
 	profile := fs.String("profile", "", "profile (a registry row, or auto for the Databricks pool)")
 	overlay := fs.String("overlay", "", "overlay document: file, inline JSON or -")
+	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(router.FallbackModes, "|")+"); none refuses a model the listing lacks")
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
 	format := fs.String("format", "text", "text or json")
@@ -61,7 +63,7 @@ func cmdGatewayResolve(args []string) int {
 	if err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
-	q.Task, q.Tools = task, *tools
+	q.Task, q.Tools, q.Fallback = task, *tools, cmp.Or(*fallback, q.Fallback)
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
@@ -147,6 +149,9 @@ func routeLine(r agent.ModelRoute) string {
 		line += " effort " + r.Effort
 	}
 	line += " (" + r.Source + ")"
+	if r.Served != "" {
+		line += " served: " + r.Served
+	}
 	if r.Note != "" {
 		line += " note: " + r.Note
 	}
@@ -174,8 +179,10 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 			if why := liveCheck(ctx, p, r); why != "" {
 				row.Pass, row.Reason = false, why
 			}
-		} else if p.Preset == providers.PresetDatabricks {
-			row.Pass, row.Reason = servedVerdict(p, r.Model)
+		} else if r.Served == agent.ServedNo {
+			row.Pass, row.Reason = false, r.Model+" is not listed"
+		} else if r.Served == agent.ServedUnverified {
+			row.Reason = "served: unverified"
 		}
 		rows = append(rows, row)
 	}
@@ -228,17 +235,6 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 		return r.Model + " endpoint is not READY"
 	}
 	return ""
-}
-
-// servedVerdict is the cached-listing verdict for a Databricks row: a listed model passes, an absent one fails.
-func servedVerdict(p *providers.Provider, model string) (pass bool, reason string) {
-	switch listed, _, fresh := router.ServedListed(p, model, time.Now()); {
-	case !fresh:
-		return true, "served: unknown"
-	case !listed:
-		return false, model + " is not listed"
-	}
-	return true, ""
 }
 
 func firstLine(s string) string { return strings.SplitN(s, "\n", 2)[0] }
