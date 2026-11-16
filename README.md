@@ -228,7 +228,7 @@ parses a profile name.
 | --- | --- | --- | --- |
 | anthropic | `ultra` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
 | databricks | `dev`, `qa`, `prod` · service principals | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
-| github | `personal`, `work` | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
+| github | `copilot` (own login), one row per GitHub username | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
 | openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
 | google | `antigravity` | `cli` | none |
 

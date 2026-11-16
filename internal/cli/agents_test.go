@@ -817,8 +817,8 @@ func assertCopilotProfileOff(t *testing.T) {
 		t.Fatalf("copilot profile: code=%d out=%q", code, out)
 	}
 	// on is a profile: with none recorded the agent stays off, and setting one switches it on.
-	if code, _, errOut := profileCmd(t, "copilot", "personal"); code != 0 || !agent.AgentActive("copilot") {
-		t.Fatalf("copilot profile personal: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
+	if code, _, errOut := profileCmd(t, "copilot", "copilot"); code != 0 || !agent.AgentActive("copilot") {
+		t.Fatalf("copilot profile copilot: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)
 	}
 	if code, _, errOut := onOff("copilot"); code != 0 || agent.AgentActive("copilot") {
 		t.Fatalf("copilot off with a profile: code=%d active=%v err=%q", code, agent.AgentActive("copilot"), errOut)

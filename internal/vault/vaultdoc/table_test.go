@@ -43,14 +43,14 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	for _, r := range [][3]string{
 		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "aliases.opus", "opus-x"},
-		{"codex", "profile", "personal"}, {"codex", "effort", "high"},
+		{"codex", "profile", "copilot"}, {"codex", "effort", "high"},
 	} {
 		vaulttest.SetRecord(t, r[0], r[1], r[2])
 	}
 	doc := exportDoc(t)
 	text := Text(doc, nil, []string{"pins", "agents"}, 200, false)
 	flat := strings.Join(strings.Fields(text), " ")
-	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex personal high", "gemini (off)"} {
+	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex copilot high", "gemini (off)"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("missing %q in:\n%s", want, text)
 		}

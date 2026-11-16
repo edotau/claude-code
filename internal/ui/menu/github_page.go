@@ -141,8 +141,7 @@ func GitHubAccounts(reg *providers.Registry) []string {
 	return out
 }
 
-// githubProfile is the profile behind a GitHub account, written on first use: personal while it has no login,
-// else a profile named after the account.
+// githubProfile is the profile behind a GitHub account, named after it and written on first use.
 func githubProfile(reg *providers.Registry, login string) (string, error) {
 	if reg != nil {
 		for _, n := range reg.ProfilesOf("github") {
@@ -150,8 +149,10 @@ func githubProfile(reg *providers.Registry, login string) (string, error) {
 				return n, nil
 			}
 		}
-		if p := reg.Providers["personal"]; p != nil && p.Provider == "github" && p.Login == "" {
-			return "personal", providers.SetProviderFields("personal", map[string]any{"login": login})
+		for _, n := range reg.ProfilesOf("github") {
+			if reg.Providers[n].Login == "" {
+				return login, providers.SetProviderFields(n, map[string]any{"login": login})
+			}
 		}
 	}
 	return login, providers.AddGithubAccount(login)

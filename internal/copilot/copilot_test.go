@@ -141,7 +141,7 @@ func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []st
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", gh)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{"protocol":"openai",`+
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",`+
 		`"base_url":"https://api.githubcopilot.com","login":"work","auth":{"type":"cli","login":"copilot"},`+
 		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"}}}}}`)
 	pathstest.FakeVendor(t, "copilot", "exit 0")
@@ -156,7 +156,7 @@ func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []st
 
 func runPersonal(t *testing.T) (wire.Result, error) {
 	t.Helper()
-	req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir()}
+	req := agent.RunOptions{Prompt: "do it", Provider: "work", WorkDir: t.TempDir()}
 	return copilotAgent.Run(context.Background(), req, wire.Discard)
 }
 
@@ -169,7 +169,7 @@ func TestRunQuotaWritesRedactedHandoff(t *testing.T) {
 	if k := retry.Classify("copilot", err, false).Kind; k != retry.KindQuota {
 		t.Fatalf("err = %v (kind %v), want a quota error", err, k)
 	}
-	if filepath.Dir(res.Handoff) != dir || res.SessionID != "abcdef1234567" || res.Provider != "personal" {
+	if filepath.Dir(res.Handoff) != dir || res.SessionID != "abcdef1234567" || res.Provider != "work" {
 		t.Fatalf("result = %+v, want a hand-off in %s with the run's session and provider", res, dir)
 	}
 	body, _ := os.ReadFile(res.Handoff) // an unreadable file fails the partial-answer check below
@@ -369,7 +369,7 @@ func TestRunSDKOptionsReadSettings(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: c.flag}
+			req := agent.RunOptions{Prompt: "do it", Provider: "work", WorkDir: t.TempDir(), Effort: c.flag}
 			if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
 				t.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestRunBadRecordFailsHeadless(t *testing.T) {
 				return sdkResult{Text: "ok"}, nil
 			})
 			put(t)
-			req := agent.RunOptions{Prompt: "do it", Provider: "personal", WorkDir: t.TempDir(), Effort: "low"}
+			req := agent.RunOptions{Prompt: "do it", Provider: "work", WorkDir: t.TempDir(), Effort: "low"}
 			_, err := copilotAgent.Run(t.Context(), req, wire.Discard)
 			if err == nil || asked || !strings.Contains(err.Error(), "copilot") || strings.Contains(err.Error(), "ghp-record-secret") {
 				t.Errorf("err = %v, session started = %v; want a copilot error before any session, no value", err, asked)

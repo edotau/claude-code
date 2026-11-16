@@ -130,7 +130,7 @@ func TestPickVendorAfterDatabricksPin(t *testing.T) {
 	if got := accountsOf(r, "codex"); !slices.Equal(got, []string{dbxAcct, dbxChatgpt}) {
 		t.Errorf("non-want codex accounts = %v, want [%s %s] (skipped %+v)", got, dbxAcct, dbxChatgpt, r.Skipped)
 	}
-	if got := accountsOf(r, "copilot"); slices.Contains(got, "github·personal") {
+	if got := accountsOf(r, "copilot"); slices.Contains(got, "github·copilot") {
 		t.Errorf("wanted copilot accounts = %v, want the pin only without Lead", got)
 	}
 }
@@ -377,7 +377,7 @@ func TestPickPinnedVendorOffersEveryLoginRow(t *testing.T) {
 	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: allConfigured,
 		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"copilot": {Profile: "dev"}}})
 	got := accountsOf(r, "copilot")
-	if !slices.Contains(got, "github·personal") || !slices.Contains(got, "github·zz-second") {
+	if !slices.Contains(got, "github·copilot") || !slices.Contains(got, "github·zz-second") {
 		t.Fatalf("copilot accounts = %v, want every login row (skipped %+v)", got, r.Skipped)
 	}
 }

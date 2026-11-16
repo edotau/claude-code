@@ -56,7 +56,7 @@ paths:
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
   | `fallback` | `none\|pin\|agents\|all` (`1`/`true`/`yes` = `all`) | `--fallback`, `AGENT_ERROR_FALLBACK` |
   | `host` / `remote` | ssh host (not both) | `--host`, remote run |
-  | `account` | copilot GitHub account (`business`, `personal`) | the credit gate's account pick |
+  | `account` | copilot GitHub account (its GitHub username) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 

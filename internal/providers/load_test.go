@@ -111,7 +111,7 @@ func TestParseNestedByProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"work": "anthropic", "scratch": "openai", "ultra": "anthropic", "personal": "github"} {
+	for name, want := range map[string]string{"work": "anthropic", "scratch": "openai", "ultra": "anthropic", "copilot": "github"} {
 		if p := reg.Providers[name]; p == nil || p.Provider != want || p.Name != name {
 			t.Errorf("profile %q = %+v, want provider %q", name, p, want)
 		}
@@ -348,6 +348,26 @@ func walkCloneReferences(t *testing.T, original, cloned reflect.Value, field str
 		for i := 0; i < original.Len(); i++ {
 			name := fmt.Sprintf("%s[%d]", field, i)
 			assertCloneReferences(t, original.Index(i), cloned.Index(i), name)
+		}
+	}
+}
+
+func TestParseNamesGithubRowsByLogin(t *testing.T) {
+	const row = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}`
+	for _, tc := range []struct{ name, rows, want string }{
+		{"keyed row takes its login", `"x":{` + row + `,"login":"octo"}`, ""},
+		{"two rows one login", `"x":{` + row + `,"login":"octo"},"y":{` + row + `,"login":"octo"}`, "share login"},
+		{"login names another row", `"x":{` + row + `,"login":"copilot"}`, "already the name"},
+	} {
+		reg, err := Parse(defaultsJSON, []byte(`{"providers":{"github":{`+tc.rows+`}}}`))
+		if tc.want != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+			}
+			continue
+		}
+		if err != nil || reg.Providers["octo"] == nil || reg.Providers["octo"].Name != "octo" || reg.Providers["x"] != nil {
+			t.Errorf("%s: err = %v, rows = %v, want the row named octo", tc.name, err, reg.Names())
 		}
 	}
 }

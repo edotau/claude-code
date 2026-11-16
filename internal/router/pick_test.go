@@ -421,7 +421,7 @@ func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 // TestArmPickWantedClaudeFallsThrough: inside the route a wanted claude leads tier 1, the other agents follow on
 // databricks·dev, then the first-party logins in ladder order (its own subscription last, under all and agents).
 func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
-	wantTier2 := []string{"copilot/github·personal", "codex/openai·chatgpt", "gemini/google·antigravity",
+	wantTier2 := []string{"copilot/github·copilot", "codex/openai·chatgpt", "gemini/google·antigravity",
 		"opencode/opencode·go", "claude/anthropic·ultra"}
 	for _, fb := range []string{FallbackAll, FallbackAgents} {
 		tier1, tier2 := armTiers(armPick(t, "claude", fb))

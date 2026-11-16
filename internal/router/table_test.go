@@ -200,7 +200,7 @@ func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
 func TestCopilotUserFollowsProfilePin(t *testing.T) {
 	row := `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},` +
 		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"}`
-	for _, tc := range []struct{ pin, want string }{{"personal", "personal"}, {"", ""}, {"bare", "bare"}} {
+	for _, tc := range []struct{ pin, want string }{{"tester", "tester"}, {"personal", "tester"}, {"", ""}, {"bare", "bare"}} {
 		vaulttest.Use(t)
 		vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"personal":{`+row+`,"login":"tester"},"bare":{`+row+`}}}}`)
 		if tc.pin != "" {
