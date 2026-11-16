@@ -616,7 +616,7 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 	return nil
 }
 
-// ApplyOverlay layers r under req's --env (the shorthand wins), reading values from req, else ctx; the child's $COWORKER_OVERLAY is the confinement only.
+// ApplyOverlay layers r under req's --env (the shorthand wins); the child's $COWORKER_OVERLAY is the confinement only.
 func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) RunOptions {
 	_, values := RunValues(ctx, req.Values)
 	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && values[agentconfig.OverlayVar] == "" {

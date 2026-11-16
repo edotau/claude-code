@@ -508,7 +508,7 @@ func pathMatches(pattern, p string) bool {
 func globMatches(pattern, p string) bool {
 	cached, ok := pathPatterns.Load(pattern)
 	if !ok {
-		re, _ := regexp.Compile("^" + globRegexp(pattern) + "$") // Cache failed compilations as non-matches.
+		re, _ := regexp.Compile("^" + globRegexp(pattern) + "$")
 		cached, _ = pathPatterns.LoadOrStore(pattern, re)
 	}
 	re := cached.(*regexp.Regexp)

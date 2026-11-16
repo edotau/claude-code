@@ -193,7 +193,7 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	return out, req
 }
 
-// recordFallbackIndex is the wanted agent's candidate on its record's fallback profile, the hop after the pin; -1 = none.
+// recordFallbackIndex is the wanted agent's candidate on its record's fallback profile (after the pin); -1 = none.
 func (rc routeCtx) recordFallbackIndex(cands []router.Candidate) int {
 	fb := vault.GetAgentRecord(rc.want).Fallback
 	if fb == "" || rc.mode == router.FallbackNone || rc.want == "claude" {

@@ -235,7 +235,7 @@ var readOnlyClaudeVerbs = map[string][]string{
 	"network": {"websearch"},
 }
 
-// readOnlyClaudeCode is a listed `claude-code <group> <verb>` without a write-looking flag; `agents diff --check` is out.
+// readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag; `agents diff --check` is out.
 func readOnlyClaudeCode(args []string) bool {
 	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) {
 		return false
@@ -402,7 +402,7 @@ func recursiveGrep(a string) bool {
 		strings.ContainsAny(a, "rR")
 }
 
-// gitReadOperands: status, rev-parse, ls-files, branch and a patch-less log show no contents; the rest cannot be mapped.
+// gitReadOperands: status, rev-parse, ls-files, branch and a patch-less log show no contents; others cannot be mapped.
 func gitReadOperands(args []string) ([]string, bool) {
 	for len(args) > 0 && strings.HasPrefix(args[0], "--no-") {
 		args = args[1:]

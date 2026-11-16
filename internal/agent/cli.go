@@ -99,7 +99,7 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	return t, r.Note, nil
 }
 
-// leadProfile is the lead of an untyped request: the overlay account's row, else the pin when no session row serves (D3).
+// leadProfile is an untyped request's lead: the overlay account's row, else the pin when no session row serves (D3).
 func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, account string) (string, error) {
 	if reg != nil && account != "" {
 		if p := accountRow(reg, account); p != nil {
