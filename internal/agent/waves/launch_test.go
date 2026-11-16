@@ -285,3 +285,17 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 		t.Fatalf("Launch with route flags: %+v, %v (a helper exit 5 means the flags did not reach the child)", envelopes, err)
 	}
 }
+
+func TestLaunchEnvelopesPrefixReportAndResultNames(t *testing.T) {
+	options := LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), ReportPrefix: "alpha--"}
+	out, err := launchEnvelopes([]byte(`{"task_id":"toy-1.1","status":"ok","dispatch_id":"d"}`+"\n"), []Spec{{ID: "1.1"}}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(options.ReportsDir, "alpha--toy-1.1.md"); out[0].Report != want {
+		t.Errorf("Report = %s, want %s", out[0].Report, want)
+	}
+	if want := filepath.Join(options.ReportsDir, "alpha--toy-1.1.result.txt"); out[0].Result != want {
+		t.Errorf("Result = %s, want %s", out[0].Result, want)
+	}
+}

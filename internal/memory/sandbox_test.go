@@ -214,7 +214,9 @@ func TestSandboxFlatCopiesOwnFilesAndWritesNoOrigins(t *testing.T) {
 	repo := gitRepo(t, t.TempDir(), "checkout")
 	b := BankFor(repo)
 	for _, f := range []string{b.Path("progress.md"), HomeBank().Path("progress.md"), Bank{Key: "other"}.Path("progress.md"),
-		b.Sub("reports", "r.md"), Bank{Key: "other"}.Sub("reports", "r.md")} {
+		b.Sub("reports", "r.md"), Bank{Key: "other"}.Sub("reports", "r.md"),
+		b.Sub("reports", "bundle/sub/review.md"), b.Sub("waves", "plan/state.json"), b.Sub("archive", "bk/day/MEMORY.md"),
+		Bank{Key: "other"}.Sub("reports", "bundle/sub/review.md")} {
 		write(t, f, "x")
 	}
 	res, err := Sandbox(SandboxOptions{Repo: repo})
@@ -223,12 +225,13 @@ func TestSandboxFlatCopiesOwnFilesAndWritesNoOrigins(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
 	mem := filepath.Join(res.Dir, "memory")
-	for _, rel := range []string{b.Prefix() + "progress.md", "progress.md", "reports/" + b.Prefix() + "r.md", layoutFile} {
+	for _, rel := range []string{b.Prefix() + "progress.md", "progress.md", "reports/" + b.Prefix() + "r.md", layoutFile,
+		"reports/" + b.Prefix() + "bundle/sub/review.md", "waves/" + b.Prefix() + "plan/state.json", "archive/" + b.Prefix() + "bk/day/MEMORY.md"} {
 		if !statOK(filepath.Join(mem, rel)) {
 			t.Errorf("sandbox lacks %s", rel)
 		}
 	}
-	for _, rel := range []string{"other--progress.md", "reports/other--r.md"} {
+	for _, rel := range []string{"other--progress.md", "reports/other--r.md", "reports/other--bundle/sub/review.md"} {
 		if statOK(filepath.Join(mem, rel)) {
 			t.Errorf("sandbox copied another bank's %s", rel)
 		}

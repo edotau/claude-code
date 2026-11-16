@@ -3,7 +3,10 @@ package memory
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // setStoreFlat forces the store layout for one test, restoring the previous force on cleanup.
@@ -108,22 +111,61 @@ func TestBankOfFileNestedBundle(t *testing.T) {
 	}
 }
 
-func TestBankKeysAndOwnerAllowDoubleDashInKey(t *testing.T) {
+func TestBankKeysAndOwnerSplitOnFirstDoubleDash(t *testing.T) {
 	isolatedConfig(t)
 	setStoreFlat(t, true)
 	s := StoreDir()
 	for _, n := range []string{"my--progress.md", "my--repo--progress.md"} {
 		write(t, filepath.Join(s, n), "x\n")
 	}
-	if got := BankKeys(); len(got) != 2 || got[0] != "my" || got[1] != "my--repo" {
-		t.Fatalf("BankKeys = %v, want [my my--repo]", got)
+	if got := BankKeys(); len(got) != 1 || got[0] != "my" {
+		t.Fatalf("BankKeys = %v, want [my]", got)
 	}
-	for file, want := range map[string]string{"my--repo--topic.md": "my--repo", "my--topic.md": "my", "reports/my--repo--r.md": "my--repo"} {
+	for file, want := range map[string]string{"my--repo--topic.md": "my", "my--topic.md": "my", "reports/my--repo--r.md": "my", "other--x.md": ""} {
 		if got := BankOfFile(filepath.Join(s, filepath.FromSlash(file))); got.Key != want {
 			t.Errorf("BankOfFile(%s) = %q, want %q", file, got.Key, want)
 		}
 	}
-	if got := ownerKey("my--repo--topic.md", BankKeys()); got != "my--repo" {
-		t.Errorf("ownerKey = %q, want my--repo", got)
+}
+
+func TestBankForCollapsesDashRunsAndSplitsSameBasenameRepos(t *testing.T) {
+	cfg := tempConfig(t)
+	setStoreFlat(t, true)
+	a := gitRepo(t, t.TempDir(), "my--api")
+	hosttest.In(t, a, "remote", "add", "origin", "https://github.com/org-a/my--api.git")
+	b := gitRepo(t, t.TempDir(), "x")
+	hosttest.In(t, b, "remote", "add", "origin", "https://github.com/org-b/my--api.git")
+	if got := BankFor(a).Key; got != "my-api" {
+		t.Fatalf("BankFor key = %q, want my-api", got)
+	}
+	if _, err := EnsureBank(a, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureBank(a, ""); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(cfg, "memory", ".origins"))
+	if want := "my-api\thttps://github.com/org-a/my--api.git\n"; string(data) != want {
+		t.Fatalf(".origins = %q, want %q", data, want)
+	}
+	kb := BankFor(b).Key
+	if kb == "my-api" || !strings.HasPrefix(kb, "my-api-") || len(kb) != len("my-api-")+8 {
+		t.Fatalf("second origin's key = %q, want my-api-<8 hex>", kb)
+	}
+	if got := BankFor(a).Key; got != "my-api" {
+		t.Errorf("first origin's key moved to %q", got)
+	}
+}
+
+func TestPrefixIsEmptyOnLegacyLayout(t *testing.T) {
+	isolatedConfig(t)
+	b := Bank{Key: "alpha"}
+	setStoreFlat(t, false)
+	if got := b.Prefix(); got != "" {
+		t.Errorf("legacy Prefix = %q, want empty", got)
+	}
+	setStoreFlat(t, true)
+	if got := b.Prefix(); got != "alpha--" {
+		t.Errorf("flat Prefix = %q, want alpha--", got)
 	}
 }

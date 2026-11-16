@@ -591,3 +591,111 @@ func TestPlanMigrateBlocksBankWithoutTypedFile(t *testing.T) {
 		t.Fatalf("Blockers = %v, want only alpha", p.Blockers)
 	}
 }
+
+func TestMigrateRevertKeepsUnsectionedIndexPointers(t *testing.T) {
+	h, _ := migrateFixture(t)
+	for _, d := range []string{h, homeDir, "beta"} {
+		if err := os.Remove(filepath.Join(StoreDir(), d, nativeIndexFile)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commitFixture(t, "only alpha has an index")
+	mustMigrate(t, MigrateOptions{})
+	migrateWrite(t, nativeIndexFile, "- [New](topic.md) — new root pointer\n"+snapshot(t)[nativeIndexFile])
+	commitFixture(t, "root pointer")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got := snapshot(t)[h+"/"+nativeIndexFile]; !strings.Contains(got, "- [New](topic.md) — new root pointer") {
+		t.Fatalf("unsectioned pointer lost: %q", got)
+	}
+}
+
+func TestMigrateRevertUsesCurrentIndex(t *testing.T) {
+	h, _ := migrateFixture(t)
+	mustMigrate(t, MigrateOptions{})
+	cur := snapshot(t)[nativeIndexFile]
+	cur = strings.ReplaceAll(cur, "- [A](alpha--a.md) — alpha topic\n", "")
+	cur = strings.ReplaceAll(cur, "- [Topic](topic.md) — harness topic\n", "")
+	cur = strings.ReplaceAll(cur, "- [Home](home-topic.md) — shared\n", "")
+	cur = strings.ReplaceAll(cur, "- [B](beta--b.md) — beta topic", "- [Renamed](beta--b.md) — current fact")
+	migrateWrite(t, nativeIndexFile, cur)
+	commitFixture(t, "delete and edit index facts")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	got := snapshot(t)
+	for _, d := range []string{h, homeDir, "alpha", "beta"} {
+		text := got[d+"/"+nativeIndexFile]
+		for _, stale := range []string{"harness topic", "alpha topic", "beta topic", "— shared"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s resurrected %q: %s", d, stale, text)
+			}
+		}
+	}
+	if !strings.Contains(got["beta/MEMORY.md"], "- [Renamed](b.md) — current fact") {
+		t.Fatalf("edited fact lost: %q", got["beta/MEMORY.md"])
+	}
+}
+
+func TestMigrateRelativeMarkdownLinks(t *testing.T) {
+	migrateFixture(t)
+	original := "[self](a.md) [archive](./archive/y.md#fact) [other](../beta/b.md)\n" +
+		"[url](https://example.com/a.md) [anchor](#fact) [missing](archive/missing.md)\n" +
+		"```md\n[self](a.md) [archive](archive/y.md)\n```\n" +
+		"~~~markdown\n[other](../beta/b.md)\n~~~\n"
+	migrateWrite(t, "alpha/a.md", original)
+	migrateWrite(t, "alpha/archive/y.md", "[back](../a.md)\n")
+	commitFixture(t, "relative links")
+	mustMigrate(t, MigrateOptions{})
+	got := snapshot(t)
+	want := strings.Replace(original, "[self](a.md) [archive](./archive/y.md#fact) [other](../beta/b.md)",
+		"[self](alpha--a.md) [archive](archive/alpha--y.md#fact) [other](beta--b.md)", 1)
+	if got["alpha--a.md"] != want || got["archive/alpha--y.md"] != "[back](../alpha--a.md)\n" {
+		t.Errorf("relative links = %q, nested = %q; want %q", got["alpha--a.md"], got["archive/alpha--y.md"], want)
+	}
+	migrateWrite(t, "alpha--a.md", got["alpha--a.md"]+"\nuser edit\n")
+	commitFixture(t, "edited relative links")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got := snapshot(t)["alpha/a.md"]; got != original+"\nuser edit\n" {
+		t.Fatalf("edited relative links did not round trip: %q", got)
+	}
+}
+
+func TestMigrateLegacyCollisionKey(t *testing.T) {
+	migrateFixture(t)
+	const key = "legacy---a1b2"
+	for rel, text := range map[string]string{
+		key + "/progress.md":  "see memory/" + key + "/archive/y.md\n",
+		key + "/MEMORY.md":    "- [Y](archive/y.md)\n",
+		key + "/archive/y.md": "[progress](../progress.md)\n",
+		".origins":            "origin record\n",
+	} {
+		migrateWrite(t, rel, text)
+	}
+	commitFixture(t, "legacy collision key")
+	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(t)
+	mustMigrate(t, MigrateOptions{})
+	got := snapshot(t)
+	if got["legacy-a1b2--progress.md"] != "see memory/archive/legacy-a1b2--y.md\n" ||
+		got["archive/legacy-a1b2--y.md"] != "[progress](../legacy-a1b2--progress.md)\n" ||
+		!strings.Contains(got[nativeIndexFile], "## legacy-a1b2\n- [Y](archive/legacy-a1b2--y.md)") ||
+		got[".origins"] != before[".origins"] {
+		t.Fatalf("legacy key mapping failed: %v", got)
+	}
+	migrateWrite(t, "legacy-a1b2--new.md", "new\n")
+	migrateWrite(t, "legacy-a1b2--progress.md", got["legacy-a1b2--progress.md"]+"user edit\n")
+	commitFixture(t, "new file for mapped bank")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	got = snapshot(t)
+	for rel, text := range before {
+		if rel == key+"/progress.md" {
+			text += "user edit\n"
+		}
+		if got[rel] != text {
+			t.Errorf("%s = %q, want %q", rel, got[rel], text)
+		}
+	}
+	if got[key+"/new.md"] != "new\n" {
+		t.Fatal("new file did not revert to the legacy key")
+	}
+}

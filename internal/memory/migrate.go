@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -123,7 +125,7 @@ func refuse(blockers []string) error {
 
 // flatTarget is rel's flat path for bank dir; ok is false for a shape the migration does not know.
 func flatTarget(dir, rel string) (string, bool) {
-	pre := dir + "--"
+	pre := dashRun.ReplaceAllString(dir, "-") + "--"
 	if dir == homeDir {
 		pre = ""
 	}
@@ -153,7 +155,7 @@ func ambiguousMigrationPath(rel string) bool {
 }
 
 func sharedTop(top string) bool {
-	return top == ".git" || top == "receipts" || slices.Contains(flatSubs, top)
+	return top == ".git" || top == ".origins" || top == "receipts" || slices.Contains(flatSubs, top)
 }
 
 // planMigrate sorts tracked files into moves, unplanned shapes and target collisions; it reads nothing.
@@ -206,7 +208,7 @@ func (p *flatPlan) place(targets map[string]string, f, top, rel string) {
 		return
 	}
 	to, ok := flatTarget(top, rel)
-	if !ok || strings.Contains(top, "--") {
+	if !ok {
 		p.Unplanned = append(p.Unplanned, f)
 		return
 	}
@@ -259,6 +261,88 @@ func rewriteLinks(text, dir string, dirs []string) (string, int) {
 		return sub[1] + to + sub[2][len(rest):]
 	})
 	return text, n
+}
+
+func migrationTargets(moves []migMove, reverse bool) map[string]string {
+	targets := map[string]string{}
+	for _, m := range moves {
+		if m.To != "" {
+			if reverse {
+				targets[m.To] = m.From
+			} else {
+				targets[m.From] = m.To
+			}
+		}
+	}
+	return targets
+}
+
+func relativeLinkTarget(target, from, to string, targets map[string]string) string {
+	if strings.HasPrefix(target, "/") || strings.Contains(target, ":") {
+		return target
+	}
+	name, suffix := target, ""
+	if i := strings.IndexAny(name, "?#"); i >= 0 {
+		name, suffix = name[:i], name[i:]
+	}
+	if name == "" {
+		return target
+	}
+	dest, ok := targets[path.Join(path.Dir(from), name)]
+	if !ok {
+		return target
+	}
+	rel, err := filepath.Rel(filepath.FromSlash(path.Dir(to)), filepath.FromSlash(dest))
+	if err != nil {
+		return target
+	}
+	return filepath.ToSlash(rel) + suffix
+}
+
+// Fenced examples and Markdown targets are excluded from the legacy bare-path passes.
+func rewriteFileLinks(text, from, to string, dirs []string, targets map[string]string) (string, int) {
+	var out strings.Builder
+	n, fence := 0, ""
+	dir, _, _ := strings.Cut(from, "/")
+	for line := range strings.SplitAfterSeq(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if fence != "" {
+			out.WriteString(line)
+			if strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]) == "" {
+				fence = ""
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			fence = trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
+			out.WriteString(line)
+			continue
+		}
+		next, count := rewriteMarkdownLine(line, from, to, dir, dirs, targets)
+		out.WriteString(next)
+		n += count
+	}
+	return out.String(), n
+}
+
+func rewriteMarkdownLine(line, from, to, dir string, dirs []string, targets map[string]string) (string, int) {
+	var out strings.Builder
+	n, start := 0, 0
+	for _, loc := range indexLink.FindAllStringSubmatchIndex(line, -1) {
+		before, count := rewriteLinks(line[start:loc[0]], dir, dirs)
+		out.WriteString(before)
+		target := line[loc[2]:loc[3]]
+		next := relativeLinkTarget(target, from, to, targets)
+		if next != target {
+			count++
+		}
+		out.WriteString("](" + next + ")")
+		n += count
+		start = loc[1]
+	}
+	after, count := rewriteLinks(line[start:], dir, dirs)
+	out.WriteString(after)
+	return out.String(), n + count
 }
 
 func linkFlatTarget(dir, rel string) (string, bool) {
@@ -326,7 +410,7 @@ func mergeIndexes(p *flatPlan, read func(string) ([]byte, error), now time.Time)
 			continue
 		}
 		if text := texts[d]; text != "" {
-			sb.WriteString("\n## " + d + "\n" + ensureNL(text))
+			sb.WriteString("\n## " + dashRun.ReplaceAllString(d, "-") + "\n" + ensureNL(text))
 		}
 	}
 	return sb.String(), nil
@@ -334,6 +418,7 @@ func mergeIndexes(p *flatPlan, read func(string) ([]byte, error), now time.Time)
 
 // buildFlatContent fills the plan's new bytes: rewritten files, the merged index and the layout stamp.
 func buildFlatContent(p *flatPlan, read func(string) ([]byte, error), now time.Time) error {
+	targets := migrationTargets(p.Moves, false)
 	for i, m := range p.Moves {
 		if m.To == "" {
 			continue
@@ -343,8 +428,7 @@ func buildFlatContent(p *flatPlan, read func(string) ([]byte, error), now time.T
 			return err
 		}
 		if strings.HasSuffix(m.From, ".md") {
-			top, _, _ := strings.Cut(m.From, "/")
-			next, n := rewriteLinks(string(data), top, p.dirs)
+			next, n := rewriteFileLinks(string(data), m.From, m.To, p.dirs, targets)
 			data = []byte(next)
 			if n > 0 {
 				p.Rewrites = append(p.Rewrites, migRewrite{File: m.From, Count: n})
@@ -873,8 +957,12 @@ func undoRecordedLinks(current, original []byte, from string, rec migRecord) ([]
 	if !strings.HasSuffix(from, ".md") {
 		return current, nil
 	}
-	dir, _, _ := strings.Cut(from, "/")
-	flat, n := rewriteLinks(string(original), dir, rec.Dirs)
+	targets := migrationTargets(rec.Moves, false)
+	to, ok := targets[from]
+	if !ok {
+		return current, nil
+	}
+	flat, n := rewriteFileLinks(string(original), from, to, rec.Dirs, targets)
 	if n == 0 {
 		return current, nil
 	}
@@ -923,15 +1011,12 @@ func quotedMigrationTokens(text string) string {
 }
 
 func ownerOf(name string, rec migRecord) string {
-	if b := BankOfFile(name); !b.Home() {
-		return b.Key
-	}
 	for _, d := range rec.Dirs {
-		if d != homeDir && strings.HasPrefix(name, d+"--") {
+		if d != homeDir && strings.HasPrefix(name, dashRun.ReplaceAllString(d, "-")+"--") {
 			return d
 		}
 	}
-	return ""
+	return BankOfFile(name).Key
 }
 
 // invertTarget is f's per-repo path by the prefix rule; unprefixed top-level topics go to the harness bank.
@@ -945,7 +1030,7 @@ func invertTarget(f string, rec migRecord) string {
 	dir := owner
 	switch {
 	case owner != "":
-		parts[i] = strings.TrimPrefix(parts[i], owner+"--")
+		parts[i] = strings.TrimPrefix(parts[i], dashRun.ReplaceAllString(owner, "-")+"--")
 	case i > 0, slices.Contains(bankFiles, parts[i]):
 		dir = homeDir
 	default:
@@ -969,7 +1054,7 @@ func unflattenLinks(text string, rec migRecord) string {
 	})
 }
 
-// revertIndexes restores each per-bank MEMORY.md from the pre commit and appends pointer lines added since.
+// Edited indexes are rebuilt from current sections; only an unchanged shared index restores historical bytes.
 func revertIndexes(rec migRecord) ([]Change, error) {
 	if len(rec.IndexDirs) == 0 {
 		return nil, nil
@@ -978,30 +1063,50 @@ func revertIndexes(rec migRecord) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	sections := revertIndexSections(string(cur), rec)
+	baseline, err := gitShow(rec.Post, nativeIndexFile)
+	if err != nil {
+		return nil, err
+	}
 	old, err := originalIndexes(rec)
 	if err != nil {
 		return nil, err
 	}
-	if err := checkIndexProse(string(cur), old, rec); err != nil {
-		return nil, err
+	if string(cur) != string(baseline) {
+		if err := checkIndexProse(string(cur), old, rec); err != nil {
+			return nil, err
+		}
+		old = currentIndexes(string(cur), rec)
 	}
 	cs := []Change{{Rel: nativeIndexFile, Delete: true}}
-	for _, d := range rec.IndexDirs {
-		known, lines := old[d], sections[d]
-		if d == rec.Harness {
-			known, lines = known+old[homeDir], sections[""]
-		}
-		var out strings.Builder
-		out.WriteString(ensureNL(old[d]))
-		for _, l := range lines {
-			if l = unrelinkIndex(l, d); !slices.Contains(strings.Split(known, "\n"), l) {
-				out.WriteString(l + "\n")
-			}
-		}
-		cs = append(cs, Change{Rel: d + "/" + nativeIndexFile, Data: []byte(out.String())})
+	for _, d := range slices.Sorted(maps.Keys(old)) {
+		cs = append(cs, Change{Rel: d + "/" + nativeIndexFile, Data: []byte(old[d])})
 	}
 	return cs, nil
+}
+
+func currentIndexes(text string, rec migRecord) map[string]string {
+	sections := revertIndexSections(text, rec)
+	out := map[string]string{}
+	targets := migrationTargets(rec.Moves, true)
+	for _, d := range rec.IndexDirs {
+		out[d] = ""
+	}
+	for d, lines := range sections {
+		body := strings.Trim(strings.Join(lines, "\n"), "\n")
+		if body == "" {
+			continue
+		}
+		body = indexLink.ReplaceAllStringFunc(body, func(m string) string {
+			target := indexLink.FindStringSubmatch(m)[1]
+			next := relativeLinkTarget(target, nativeIndexFile, d+"/"+nativeIndexFile, targets)
+			if next != target {
+				return "](" + next + ")"
+			}
+			return unrelinkIndex(m, d)
+		})
+		out[d] = ensureNL(body)
+	}
+	return out
 }
 
 func checkIndexProse(current string, old map[string]string, rec migRecord) error {
@@ -1028,7 +1133,7 @@ func indexProse(text string, rec migRecord) []string {
 		if strings.TrimSpace(l) == "" || strings.HasPrefix(l, "- ") {
 			continue
 		}
-		if h, ok := strings.CutPrefix(l, "## "); ok && slices.Contains(rec.IndexDirs, h) {
+		if h, ok := strings.CutPrefix(l, "## "); ok && slices.ContainsFunc(rec.IndexDirs, func(d string) bool { return dashRun.ReplaceAllString(d, "-") == h }) {
 			continue
 		}
 		lines = append(lines, l)
@@ -1040,13 +1145,16 @@ func revertIndexSections(text string, rec migRecord) map[string][]string {
 	if s, e := bankRegionBounds(text); s >= 0 {
 		text = text[:s] + text[e:]
 	}
-	sections, name := map[string][]string{}, ""
+	sections, name := map[string][]string{}, rec.Harness
 	for l := range strings.SplitSeq(text, "\n") {
-		if h, ok := strings.CutPrefix(l, "## "); ok && slices.Contains(rec.IndexDirs, h) {
-			name = h
-		} else if strings.HasPrefix(l, "- ") {
-			sections[name] = append(sections[name], l)
+		if h, ok := strings.CutPrefix(l, "## "); ok {
+			if i := slices.IndexFunc(rec.IndexDirs, func(d string) bool { return dashRun.ReplaceAllString(d, "-") == h }); i >= 0 {
+				sections[name] = strings.Split(strings.TrimRight(strings.Join(sections[name], "\n"), "\n"), "\n")
+				name = rec.IndexDirs[i]
+				continue
+			}
 		}
+		sections[name] = append(sections[name], l)
 	}
 	return sections
 }
@@ -1071,7 +1179,7 @@ func unrelinkIndex(line, d string) string {
 		if i == 1 && !slices.Contains(flatSubs, parts[0]) {
 			return m
 		}
-		parts[i] = strings.TrimPrefix(parts[i], d+"--")
+		parts[i] = strings.TrimPrefix(parts[i], dashRun.ReplaceAllString(d, "-")+"--")
 		return "](" + strings.Join(parts, "/") + ")"
 	})
 }

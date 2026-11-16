@@ -117,3 +117,31 @@ func TestJobScopeFlatUpdateStaysInItsBanks(t *testing.T) {
 		}
 	}
 }
+
+func TestJobScopeFlatDashRunRepoDoesNotReachSiblingBank(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	store := memory.StoreDir()
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, ".layout"), []byte("flat 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(t.TempDir(), "alpha--private")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	p := permissions(memory.JobScope(memory.JobUpdate, work))
+	for rel, want := range map[string]agent.Decision{
+		"alpha-private--topic.md": agent.Allow,
+		"alpha--topic.md":         agent.Deny,
+		"alpha--private--x.md":    agent.Deny,
+	} {
+		if got := p.Decide("Write", filepath.Join(store, rel)); got != want {
+			t.Errorf("Decide(Write, %s) = %v, want %v", rel, got, want)
+		}
+	}
+}

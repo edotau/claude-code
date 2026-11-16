@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -48,7 +50,7 @@ func TestBriefParseOwned(t *testing.T) {
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
 	key := filepath.Base(config)
-	want := filepath.Join(config, "memory", key, "reports") + "/" + key + "--YYYY-MM-DD-<name>.md"
+	want := filepath.Join(config, "memory", key, "reports") + "/" + "YYYY-MM-DD-<name>.md"
 	if got := strings.Count(brief, want); got != 2 {
 		t.Errorf("brief has %d report paths matching %q; want 2", got, want)
 	}
@@ -61,5 +63,41 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
 		}
+	}
+}
+
+func TestBriefReportPathPrefixOnlyOnFlatStore(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := filepath.Join(t.TempDir(), "alpha")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	t.Chdir(repo)
+	in := BriefInput{Task: "x", ReadOnly: true, Verify: "true"}
+	legacy, err := RenderBrief(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(legacy, "alpha--") || !strings.Contains(legacy, "/YYYY-MM-DD-<name>.md") {
+		t.Errorf("legacy brief carries a key prefix:\n%s", legacy)
+	}
+	cfg = t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "memory", ".layout"), []byte("flat 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flat, err := RenderBrief(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(flat, "/alpha--YYYY-MM-DD-<name>.md") {
+		t.Errorf("flat brief lacks the key prefix:\n%s", flat)
 	}
 }

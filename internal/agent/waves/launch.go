@@ -29,6 +29,7 @@ type Spec struct {
 // LaunchOptions supplies wave-wide routing and the memory reports directory.
 type LaunchOptions struct {
 	Slug, Provider, ReportsDir string
+	ReportPrefix               string // the flat bank's "<key>--" on every report and result file name
 	Profiles                   []string
 	Route                      []string // ask.RouteFlags.Args(): overlay, fallback, mode, allow, ask, deny
 	Tools                      *bool
@@ -187,7 +188,7 @@ func launchLines(specs []Spec, options LaunchOptions) ([]byte, error) {
 }
 
 func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLine, error) {
-	report := filepath.Join(options.ReportsDir, id+".md")
+	report := filepath.Join(options.ReportsDir, options.ReportPrefix+id+".md")
 	verify := spec.Verify
 	if verify == "" {
 		verify = defaultVerify(spec.Owns)
@@ -252,8 +253,8 @@ func launchEnvelopes(data []byte, specs []Spec, options LaunchOptions) ([]Envelo
 		if err := launchCheckEnvelope(envelope); err != nil {
 			return nil, err
 		}
-		envelope.Report = filepath.Join(options.ReportsDir, envelope.TaskID+".md")
-		envelope.Result = filepath.Join(options.ReportsDir, envelope.TaskID+".result.txt")
+		envelope.Report = filepath.Join(options.ReportsDir, options.ReportPrefix+envelope.TaskID+".md")
+		envelope.Result = filepath.Join(options.ReportsDir, options.ReportPrefix+envelope.TaskID+".result.txt")
 		out[i] = envelope
 	}
 	for _, envelope := range out {

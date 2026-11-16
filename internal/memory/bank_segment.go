@@ -74,15 +74,12 @@ func ownerDir(bank, path string) string {
 	return filepath.Dir(path)
 }
 
-// ownerKey is the longest known bank key prefixing name as "<key>--", else "" (the home tier).
+// ownerKey is name's "<key>--" prefix when key is a known bank, else "" (the home tier); keys never hold "--".
 func ownerKey(name string, keys []string) string {
-	owner := ""
-	for _, k := range keys {
-		if len(k) > len(owner) && strings.HasPrefix(name, k+"--") {
-			owner = k
-		}
+	if k, _, ok := strings.Cut(name, "--"); ok && slices.Contains(keys, k) {
+		return k
 	}
-	return owner
+	return ""
 }
 
 // ownedFiles lists b's *.md in sub: a legacy dir whole, else the flat dir's names carrying b's prefix.

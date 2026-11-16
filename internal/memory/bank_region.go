@@ -129,7 +129,11 @@ func writeKnowledgeRows(b *strings.Builder, banks []Bank) {
 			label = "home"
 		}
 		for _, f := range knowledgeNotes(bk) {
-			rows = append(rows, "- "+label+"/knowledge/"+filepath.Base(f)+" — "+storeHookFile(f))
+			rel := label + "/knowledge/" + filepath.Base(f)
+			if storeFlat() {
+				rel = "knowledge/" + filepath.Base(f)
+			}
+			rows = append(rows, "- "+rel+" — "+storeHookFile(f))
 		}
 	}
 	if len(rows) > 0 {

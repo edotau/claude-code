@@ -1,8 +1,12 @@
 package memory
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -20,8 +24,9 @@ type Bank struct{ Key string }
 func HomeBank() Bank      { return Bank{} }
 func (b Bank) Home() bool { return b.Key == "" }
 
+// Prefix is the "<key>--" file prefix; "" for home and for the legacy layout, whose files are never prefixed.
 func (b Bank) Prefix() string {
-	if b.Key == "" {
+	if b.Key == "" || !storeFlat() {
 		return ""
 	}
 	return b.Key + "--"
@@ -81,11 +86,55 @@ func BankFor(root string) Bank {
 			return Bank{Key: filepath.Base(d)}
 		}
 	}
-	base := id.Base
+	base, origin := id.Base, bankOrigin(id)
 	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
 		base = rb
 	}
-	return Bank{Key: paths.Slug(base, "._-", 0, "repo")}
+	key := dashRun.ReplaceAllString(paths.Slug(base, "._-", 0, "repo"), "-")
+	if o, ok := readOrigins()[key]; ok && o != origin {
+		sum := sha256.Sum256([]byte(origin))
+		key += "-" + hex.EncodeToString(sum[:4])
+	}
+	return Bank{Key: key}
+}
+
+// dashRun collapses "--" runs so no bank key contains the key/name separator.
+var dashRun = regexp.MustCompile(`-{2,}`)
+
+// originsFile maps each flat bank key to the origin that first claimed it, one "<key>\t<origin>" line each.
+const originsFile = ".origins"
+
+func readOrigins() map[string]string {
+	out := map[string]string{}
+	data, _ := os.ReadFile(filepath.Join(StoreDir(), originsFile))
+	for l := range strings.SplitSeq(string(data), "\n") {
+		if k, o, ok := strings.Cut(l, "\t"); ok {
+			out[k] = o
+		}
+	}
+	return out
+}
+
+// recordOrigin registers a new flat key's origin; the caller holds the bank lock.
+func recordOrigin(key, origin string) error {
+	cur := readOrigins()
+	if _, ok := cur[key]; ok || origin == "" {
+		return nil
+	}
+	cur[key] = origin
+	var sb strings.Builder
+	for _, k := range slices.Sorted(maps.Keys(cur)) {
+		sb.WriteString(k + "\t" + cur[k] + "\n")
+	}
+	return paths.AtomicWrite(filepath.Join(StoreDir(), originsFile), []byte(sb.String()), 0o600)
+}
+
+// bankOrigin is the origin a flat key is claimed by: the remote URL, else the canonical checkout path.
+func bankOrigin(id Identity) string {
+	if url := strings.TrimSpace(originRemoteURL(id.Origin)); repoKeyFromRemote(url) != "" {
+		return url
+	}
+	return id.Origin
 }
 
 // Banks lists home first, then every repo bank sorted by key.
@@ -103,13 +152,8 @@ func BankKeys() []string {
 	if storeFlat() {
 		ents, _ := os.ReadDir(StoreDir())
 		for _, e := range ents {
-			if e.IsDir() {
-				continue
-			}
-			for _, name := range bankFiles {
-				if k, ok := strings.CutSuffix(e.Name(), "--"+name); ok && k != "" {
-					keys = append(keys, k)
-				}
+			if k, name, ok := strings.Cut(e.Name(), "--"); ok && k != "" && !e.IsDir() && slices.Contains(bankFiles, name) {
+				keys = append(keys, k)
 			}
 		}
 	} else {
@@ -173,5 +217,9 @@ func EnsureBank(root, sub string) (Bank, error) {
 		}
 	}
 	b := BankFor(root)
-	return b, b.Ensure(sub)
+	if err := b.Ensure(sub); err != nil || !storeFlat() || b.Home() || b.Key == harnessStoreKey() {
+		return b, err
+	}
+	origin := bankOrigin(Resolve(root))
+	return b, WithBankLock(BankLockWait, func() error { return recordOrigin(b.Key, origin) })
 }
