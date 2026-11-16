@@ -29,6 +29,8 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 	for _, b := range s.Bash {
 		p.Allow = append(p.Allow, agent.Rule{Tool: "Bash", Arg: b})
 	}
+	// read-only inspection; echo is the job's separator, and the redirect deny still refuses `echo x > f`
+	p.Allow = append(p.Allow, agent.ReadOnlyAllow, agent.Rule{Tool: "Bash", Arg: "echo *"})
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
 		Fallback: router.FallbackNone, Gate: true, Permissions: p}
 }
