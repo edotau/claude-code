@@ -674,12 +674,12 @@ func attributionScanCases(otherRepo string) []attributionScanCase {
 		{
 			"heredoc -m footer",
 			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
-			core.Allow, // rewritten without the footer
+			core.Ask, // heredoc bodies are never rewritten
 		},
 		{
 			"-C other repo, -F heredoc, generated-with footer",
 			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
-			core.Allow, // rewritten without the footer
+			core.Ask, // heredoc bodies are never rewritten
 		},
 		{
 			"cd into other repo first",

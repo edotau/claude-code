@@ -438,7 +438,7 @@ func TestSafetyScanHardeningInertTextDoesNotAsk(t *testing.T) {
 		{"sudo in echo", `echo "use sudo apt"`, core.Allow},
 		{"rm .git in a commit message", `git commit -m "docs: never rm -rf .git"`, core.Allow},
 		{"real sudo", `sudo apt install x`, core.Ask},
-		{"sudo after a commit", `git commit -m x && sudo make install`, core.Ask},
+		{"sudo after a commit", `git commit -m "fix: x" && sudo make install`, core.Ask},
 		{"sudo in a substitution inside echo", `echo "$(sudo id)"`, core.Ask},
 		{"real force push", `git push -f origin main`, core.Ask},
 		{"sudo in a data-sink heredoc stays checked", "cat <<'EOF' > n.md\nsudo make install\nEOF", core.Ask},

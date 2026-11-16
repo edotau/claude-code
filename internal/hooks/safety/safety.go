@@ -102,10 +102,10 @@ var softWarn = core.LazyCompile(
 
 // Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
-	if fix, ok := gitFix(in); ok {
+	decision, msg, detail := safetyVerdict(in)
+	if fix, ok := gitFix(in, decision); ok {
 		return fix
 	}
-	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
 		for _, re := range softWarn() {
@@ -158,10 +158,8 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if d > ask {
 		return d, askMsg + msg, detail
 	}
-	if ask == core.Allow && d == core.Allow {
-		if pd, pmsg, pdetail := gitPolicyVerdict(in, cmd); pd != core.Allow {
-			return pd, askMsg + pmsg, pdetail
-		}
+	if pd, pmsg, pdetail := gitPolicyVerdict(in, cmd); pd > ask {
+		return pd, pmsg, pdetail // a hard git-policy deny is never softened by an ask
 	}
 	return ask, askMsg, askDetail
 }
