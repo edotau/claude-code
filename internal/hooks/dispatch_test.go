@@ -263,8 +263,8 @@ var pointerBound = map[string]core.Runner{
 	"format-stop": quality.StopFormat, "codex-agent-route": CodexAgentRoute, "codex-routing-start": CodexRoutingStart,
 	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
-	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": docs.Reminder,
-	"worktree-busy": wthook.Busy, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
+	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": reminderWatched,
+	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 }
 
 // Bind routes every hook name to its own handler: a probe only it reacts to, else its runner's identity.

@@ -91,6 +91,7 @@ var agentsPage = helptext.Page{
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
+		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"brief", "render a leaf brief: the task plus the contract footer"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
@@ -183,6 +184,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"cancel": cmdAgentsCancel,
 	"wait":   cmdAgentsWait,
 	"brief":  cmdAgentsBrief,
+	"watch":  cmdAgentsWatch,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.

@@ -146,10 +146,10 @@ func pollNudge(in *core.Input) core.Result {
 	return core.Result{Context: fmt.Sprintf("job %s ended: hand back now with this result", own)}
 }
 
-// AfterTool is dispatch-workflow: a finished Workflow releases its slots; a relay's returned Bash poll is nudged.
+// AfterTool is dispatch-workflow: a Workflow releases its slots; Bash marks read jobs collected and nudges a relay.
 func AfterTool(in *core.Input) core.Result {
 	if in.ToolName == "Bash" {
-		return pollNudge(in)
+		return core.WithStderr(pollNudge(in), markCollected(in))
 	}
 	return Release(in)
 }
