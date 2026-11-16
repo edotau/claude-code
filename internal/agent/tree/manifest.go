@@ -21,16 +21,6 @@ type subagentMeta struct {
 	Finished    bool   `json:"finished"`
 }
 
-// readSubagentMeta reads the sidecar .meta.json beside transcriptPath; a missing or bad one yields a zero meta.
-func readSubagentMeta(transcriptPath string) subagentMeta {
-	raw, err := os.ReadFile(metaPath(transcriptPath))
-	if err != nil {
-		return subagentMeta{}
-	}
-	m, _ := parseMeta(raw)
-	return m
-}
-
 // metaPath is the sidecar .meta.json beside transcriptPath.
 func metaPath(transcriptPath string) string {
 	return strings.TrimSuffix(transcriptPath, ".jsonl") + ".meta.json"

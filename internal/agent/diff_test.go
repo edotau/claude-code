@@ -136,8 +136,12 @@ func TestDiffRejectsBadPath(t *testing.T) {
 			t.Errorf("--path %q: exit %d stdout %q stderr %q, want 2 and %q", path, code, out, errOut, msg)
 		}
 	}
-	got, err := cleanPaths(dir, []string{filepath.Join(dir, "pkg"), "./pkg/p.go", "rules/**/*.md"})
-	if err != nil || !slices.Equal(got, []string{"pkg", "pkg/p.go", "rules/**/*.md"}) {
+	real, err := filepath.EvalSymlinks(dir) // macOS: /var/folders/... resolves to /private/var/folders/...
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := cleanPaths(dir, []string{filepath.Join(dir, "pkg"), filepath.Join(real, "pkg"), "./pkg/p.go", "rules/**/*.md"})
+	if err != nil || !slices.Equal(got, []string{"pkg", "pkg", "pkg/p.go", "rules/**/*.md"}) {
 		t.Errorf("cleanPaths = %v, %v", got, err)
 	}
 }

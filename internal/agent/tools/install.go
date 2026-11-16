@@ -320,7 +320,7 @@ var codexCompanions = []string{"codex-code-mode-host"}
 
 // installCodex extracts the latest release and its companions into BinDir(), never another dir.
 func installCodex(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	if dir != paths.BinDir() {
+	if !paths.SamePath(dir, paths.BinDir()) {
 		dir = redirectToBinDir(w, "codex ships real release binaries")
 	}
 	fmt.Fprintf(w, "  github   %s\n", codexReleaseURL)

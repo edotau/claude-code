@@ -20,11 +20,10 @@ const FingerprintAbsent = "absent"
 
 // Wave and leaf status values stored in state.json.
 const (
-	WaveStatePassed   = "passed"
-	WaveStateFailed   = "failed"
-	WaveStateRunning  = "running"
-	LeafStateOK       = "ok"
-	LeafStateMismatch = "mismatch"
+	WaveStatePassed  = "passed"
+	WaveStateFailed  = "failed"
+	WaveStateRunning = "running"
+	LeafStateOK      = "ok"
 )
 
 // FingerprintFunc returns the content fingerprint of path, or FingerprintAbsent when it does not exist.

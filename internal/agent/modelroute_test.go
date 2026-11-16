@@ -33,6 +33,7 @@ func routeRegistry(t *testing.T) *providers.Registry {
 
 func TestResolveModel(t *testing.T) {
 	reg := routeRegistry(t)
+	reg.Providers["qa"].Auth.Type = providers.AuthNone // the pool skips dev (no stored credential) and lands on qa
 	cells := []struct{ agent, model, profile, wire string }{
 		{"claude", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
 		{"claude", "ultra:claude-opus-5-5", "ultra", "claude-opus-5-5"},
@@ -42,6 +43,8 @@ func TestResolveModel(t *testing.T) {
 		{"copilot", "aueric_boehcp:opus", "aueric_boehcp", "gpt-6-astra"},
 		{"copilot", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
 		{"codex", "openai:opus", "openai", "gpt-5"},
+		{"claude", "databricks:claude-opus-5-5", "qa", "databricks-claude-opus-5-5"},
+		{"codex", "auto:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
 	}
 	for _, c := range cells {
 		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Model: c.model}, time.Now())
@@ -69,6 +72,7 @@ func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, c := range [][2]string{
 		{"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
+		{"claude", "ultra:databricks-claude-opus-5-5"},
 	} {
 		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Model: c[1], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s %s: err = %v; want ErrModelRoute", c[0], c[1], err)

@@ -277,10 +277,10 @@ func mdsmithGate(ctx context.Context, in gateInput) (string, string, error) {
 
 // memoryFmtGate runs the `memory fmt --check` package function and fails on the changed memory-store files it lists.
 func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
-	store := paths.Canon(memory.StoreDir())
+	store := paths.CanonDeep(memory.StoreDir())
 	changed := map[string]bool{}
 	for _, p := range in.mds {
-		abs := paths.Canon(filepath.Join(in.root, filepath.FromSlash(p)))
+		abs := paths.CanonDeep(filepath.Join(in.root, filepath.FromSlash(p)))
 		if rel, rerr := filepath.Rel(store, abs); rerr == nil && !strings.HasPrefix(rel, "..") {
 			changed[abs] = true
 		}
@@ -294,7 +294,7 @@ func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
 	}
 	var dirty []string
 	for line := range strings.Lines(report.String()) {
-		if line = strings.TrimSpace(line); changed[paths.Canon(line)] {
+		if line = strings.TrimSpace(line); changed[paths.CanonDeep(line)] {
 			dirty = append(dirty, line)
 		}
 	}

@@ -127,6 +127,9 @@ func uncommittedDiff(ctx context.Context, cwd string) (string, error) {
 
 // untrackedBlock renders untracked text files as "new file: <path>" plus content, capped per file and overall.
 func untrackedBlock(ctx context.Context, cwd string) (string, error) {
+	if top := paths.GitTop(ctx, cwd); top != "" { // from a subdirectory, list the whole repo like `git diff HEAD` does
+		cwd = top
+	}
 	listing, err := proc.RunGit(ctx, cwd, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err

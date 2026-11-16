@@ -671,7 +671,8 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 
 // fitChain keeps the lead and every later dispatch whose budget holds n bytes (no transport cap when viaFile).
 func fitChain(c Chain, n int, o RunOptions, viaFile bool) Chain {
-	out := Chain{Want: c.Want, Dispatches: c.Dispatches[:1:1], Skipped: slices.Clone(c.Skipped)}
+	out := c // keeps Preflight and requested; only the dispatch list and skips change
+	out.Dispatches, out.Skipped = c.Dispatches[:1:1], slices.Clone(c.Skipped)
 	for _, d := range c.Dispatches[1:] {
 		if b, _ := packBudget(d, o, viaFile); b < n {
 			out.Skipped = append(out.Skipped, fmt.Sprintf("%s: packed prompt (%d KB) is over its %d KB budget", d.Agent.Name(), n/1024, b/1024))

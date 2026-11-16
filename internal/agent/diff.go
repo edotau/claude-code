@@ -180,6 +180,9 @@ func cleanPaths(root string, sel []string) ([]string, error) {
 		}
 		if filepath.IsAbs(p) {
 			rel, err := filepath.Rel(root, p)
+			if err == nil && (rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+				rel, err = filepath.Rel(paths.CanonDeep(root), paths.CanonDeep(p)) // /tmp/x vs /private/tmp/x
+			}
 			if err != nil {
 				return nil, fmt.Errorf("--path %q: %v", p, err)
 			}

@@ -831,7 +831,7 @@ func gitRepoWith(t *testing.T, files map[string]string) string {
 func TestFitChainSkipsSmallWindows(t *testing.T) {
 	lead := Dispatch{Agent: namedEngine("claude"), Model: "claude-sonnet-5-5[1m]"}
 	small := Dispatch{Agent: namedEngine("stub"), Model: "mystery-model"}
-	chain := Chain{Dispatches: []Dispatch{lead, small}}
+	chain := Chain{Dispatches: []Dispatch{lead, small}, Preflight: &Preflight{}, requested: "p:m"}
 	lb, _ := packBudget(lead, RunOptions{}, false)
 	sb, _ := packBudget(small, RunOptions{}, false)
 	if sb >= lb {
@@ -840,6 +840,9 @@ func TestFitChainSkipsSmallWindows(t *testing.T) {
 	got := fitChain(chain, (lb+sb)/2, RunOptions{}, false)
 	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
 		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
+	}
+	if got.Preflight != chain.Preflight || got.requested != "p:m" {
+		t.Errorf("fitChain dropped Preflight or requested: %+v", got)
 	}
 	if kept := fitChain(chain, sb-1, RunOptions{}, false); len(kept.Dispatches) != 2 {
 		t.Errorf("a prompt under both budgets must keep both, got %+v", kept)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.
@@ -352,8 +353,8 @@ func checkHashObject(dir, rel string) (string, error) {
 	if _, err := os.Lstat(filepath.Join(dir, rel)); errors.Is(err, os.ErrNotExist) {
 		return "absent", nil
 	}
-	out, err := exec.CommandContext(context.Background(), "git", "-C", dir, "hash-object", "--", rel).Output()
-	return strings.TrimSpace(string(out)), err
+	out, err := proc.RunGit(context.Background(), dir, "hash-object", "--", rel)
+	return strings.TrimSpace(out), err
 }
 
 // checkDiff runs Diff in JSON mode and decodes its report; exit 2 (usage) is an error, 1 and 3 are in the report.

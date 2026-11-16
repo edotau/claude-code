@@ -1,15 +1,11 @@
 package tree
 
 import (
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func TestReadSubagentMetaRejectsPartialDecode(t *testing.T) {
-	transcript := filepath.Join(t.TempDir(), "agent-partial.jsonl")
-	writeFixFixture(t, strings.TrimSuffix(transcript, ".jsonl")+".meta.json", `{"finished":true,"spawnDepth":"invalid"}`)
-	if got := readSubagentMeta(transcript); got != (subagentMeta{}) {
+	if got, _ := parseMeta([]byte(`{"finished":true,"spawnDepth":"invalid"}`)); got != (subagentMeta{}) {
 		t.Fatalf("metadata = %+v, want zero value for invalid sidecar", got)
 	}
 }
