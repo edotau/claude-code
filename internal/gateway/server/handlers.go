@@ -40,7 +40,7 @@ func (r *Router) authFailure(ctx context.Context, p *providers.Provider, err err
 	return r.condemned(ctx, p, v, "authentication failed ("+string(v)+")")
 }
 
-// condemned marks p auth-dead and returns the 401 failure; an oauth row's text names the login command and the fallback.
+// condemned marks p auth-dead and returns the 401 failure, naming an oauth row's login command.
 func (r *Router) condemned(ctx context.Context, p *providers.Provider, v providers.AuthVerdict, msg string) error {
 	r.condemn(p, v)
 	text := loginText(ctx, p, v)

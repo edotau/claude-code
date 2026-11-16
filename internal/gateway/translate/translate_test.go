@@ -612,8 +612,7 @@ func BenchmarkStream(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	// Correctness check once, outside the timed loop: the output hash is logged so a before/after
-	// run can be diffed by eye; StreamChat itself must still produce non-empty, error-free output.
+	// Correctness check once, outside the timed loop: StreamChat must still produce non-empty, error-free output.
 	var golden bytes.Buffer
 	if err := StreamChat(&golden, nil, bytes.NewReader(raw), "bench-model"); err != nil {
 		b.Fatalf("StreamChat: %v", err)

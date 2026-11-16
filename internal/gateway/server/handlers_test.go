@@ -441,8 +441,7 @@ func TestFailoverPromptTooLongNotOtherStatus(t *testing.T) {
 	}
 }
 
-// A dev session token is refused on /p/qa with 401 before any upstream call (authorized fails, so resolveTarget's
-// 403 is never reached); on dev it reaches /serving-endpoints on the Messages, chat and Responses wires.
+// A dev session token gets 401 on /p/qa before any upstream call, and reaches /serving-endpoints on dev.
 func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 	useGate(t)
 	up := newRawUp(t, okRaw)

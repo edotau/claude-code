@@ -289,8 +289,7 @@ func TestStreamReadErrorBeforeOutputFailsOver(t *testing.T) {
 	}
 }
 
-// stalledUploadUpstream accepts headers but never reads the body. A small receive
-// buffer keeps the large request in the write phase, before ResponseHeaderTimeout.
+// stalledUploadUpstream accepts headers but never reads the body, keeping the request in its write phase.
 func stalledUploadUpstream(t *testing.T) *httptest.Server {
 	t.Helper()
 	release := make(chan struct{})
