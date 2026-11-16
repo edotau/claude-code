@@ -4,7 +4,7 @@ What Go cannot generate is the narrative: what actually happened this session, i
 account. The bank is injected every session, so keep it to what is wrong-and-dangerous to forget;
 don't fatten it with facts a lookup can serve.
 
-File names below are bare; edit the exact paths the prompt lists (`<key>--<name>`, unprefixed for home).
+File names below are bare; edit the exact paths the prompt lists (under the store root from `claude-code memory path`).
 
 ## Step 1: Session summary → `sessionHistory.md`
 
