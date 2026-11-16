@@ -669,7 +669,9 @@ func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base i
 	}
 	// A carried in-memory token is re-sealed on every mint until the vault takes it.
 	if _, carried := unsealedRefresh.Load(p.Name); carried || (tok.Refresh != "" && tok.Refresh != secret) {
-		if err := sealRotated(ctx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}, base); err != nil {
+		sealCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sealTimeout)
+		defer cancel()
+		if err := sealRotated(sealCtx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}, base); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: re-seal rotated refresh token (%s) failed; kept in memory: %v\n", p.Name, name, err)
 		}
 	}
@@ -684,6 +686,9 @@ type carriedRefresh struct {
 
 // unsealedRefresh maps a provider to its carriedRefresh; mintSource prefers it until the vault holds a newer record.
 var unsealedRefresh sync.Map
+
+// sealTimeout bounds the re-seal of a rotated refresh token, which outlives its caller's context.
+const sealTimeout = 10 * time.Second
 
 // sealRetryDelay is the backoff unit between re-seal attempts (1x, then 2x).
 var sealRetryDelay = time.Second
