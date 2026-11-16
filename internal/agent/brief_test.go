@@ -47,6 +47,25 @@ func TestBriefParseOwned(t *testing.T) {
 	}
 }
 
+func TestBriefReadOnlyOwnsNothing(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Chdir(config)
+	brief, err := RenderBrief(BriefInput{Task: "look", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(brief, "Owned: []\n") {
+		t.Errorf("read-only brief should print an empty ownership list: %q", brief)
+	}
+	if got := ParseOwned(brief); len(got) != 0 {
+		t.Errorf("read-only brief owns %q; want nothing", got)
+	}
+	if got := ParseOwned("Owned: null\nMode: read-only"); len(got) != 0 {
+		t.Errorf("legacy null ownership parsed as %q", got)
+	}
+}
+
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
 	key := filepath.Base(config)

@@ -104,8 +104,9 @@ its directory, `<dir>/<file>` drops the shared leading part (`internal/configure
 everything after the last `owns:`:
 `... Agent: codex — verify: go test ./internal/claude — findings: reports/x.md#key — owns: internal/claude/gate.go`.
 `verify:` defaults to `claude-code agents diff --check` on the owned files. The wave gate is the first `bash` fence
-under `## Phases` unless `--gate CMD` overrides it; a gate with a git write verb (add, commit, stash, reset, checkout,
-restore, clean, push, rebase, merge) is refused. Exit: 0 every requested wave passed; 1 a leaf, gate or verifier
+under `## Phases` unless `--gate CMD` overrides it; a gate or `verify:` with a git write verb (add, commit, stash,
+reset, checkout, switch, restore, clean, push, rebase, merge, rm, mv, cherry-pick, am, tag, pull, revert, update-ref,
+apply --index/--cached) is refused. Exit: 0 every requested wave passed; 1 a leaf, gate or verifier
 failed, or a leaf ran off its asked route; 2 usage or invalid plan; 3 a changed file outside every package's owned set
 or unattributed; 4 interrupted or timed out with leaves still running (run it again). It never commits; a failed wave
 reruns whole and skips packages whose verification already passed. Launch it in the background and await it with
@@ -123,5 +124,5 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Scoped tests for the touched packages
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
-- [ ] Commit, `make install`, push per task (named files only)
+- [ ] Commit, `make audit`, `make install`, push per task (named files only)
 - [ ] Handoff / `claude-code memory update`

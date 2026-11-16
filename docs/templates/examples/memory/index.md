@@ -7,7 +7,7 @@
 - alpha-example — alpha-example: a sample API service, routes deploys over ssh · last 2026-01-15 → alpha-example--projectContext.md
 - beta-example — beta-example: a sample CLI tool, ships as a single binary · last 2026-01-15 → beta-example--projectContext.md
 
-## Home (memory/home/)
+## Home (unprefixed files)
 
 ## conventions.md (2 items)
 - commit messages follow Conventional Commits
