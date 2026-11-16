@@ -36,7 +36,8 @@ func sshHoldsHeredoc(line string) bool {
 // fdToSubst matches a redirect to fd 3+, which `exec 3> >(sh)` can point at an interpreter.
 var fdToSubst = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[<>]&[3-9]`) })
 
-// inertStripped blanks data-only text but keeps command substitutions; pipeBlocks, exfilPatterns match this view.
+// inertStripped blanks text that is only data (message values, echo/grep arguments, file-only heredoc bodies)
+// but keeps every command substitution; pipeBlocks, exfilPatterns and sqlDestructive match this view.
 func inertStripped(cmd string) string { return blankInert(dropInertHeredocs(cmd)) }
 
 // blankInert is cmd with each inert segment's words blanked (substitutions kept), heredoc bodies untouched.

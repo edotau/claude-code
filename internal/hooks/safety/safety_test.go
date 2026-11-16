@@ -78,7 +78,8 @@ func TestSafetyBlockIsAuditedWithoutCommand(t *testing.T) {
 	}
 }
 
-// heredocMustBlock are heredocs whose body is EXECUTED; the body must still be checked for a destructive pattern.
+// heredocMustBlock are shell/interpreter/client heredocs whose body is EXECUTED; the body must still
+// be checked for a destructive pattern even though it arrives inside a heredoc.
 var heredocMustBlock = []string{
 	"bash <<'EOF'\nsudo rm -rf /\nEOF",
 	"sh <<EOF\nrm -rf ~\nEOF",
@@ -184,7 +185,8 @@ func TestSafetyScanBlocksHeredocDataSinkMentions(t *testing.T) {
 	}
 }
 
-// Arithmetic `<<` (e.g. $((1<<y))) is plain text: it must not block nor be misread as a heredoc start.
+// Arithmetic `<<` (e.g. $((1<<y))) is plain text now that the revert parses no heredoc operator at
+// all; it must not block and must not be misread as a heredoc start.
 func TestSafetyScanIgnoresArithmeticShift(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cmd := "echo $((1<<y))"
@@ -327,6 +329,7 @@ func safetyAskCases(harness string) []safetyTierCase {
 		{"rm -r -f ./.git", "", core.Ask},
 		{"git stash", harness, core.Ask}, // cwd inside the shared config tree
 		{"psql -c 'DROP TABLE t'", "", core.Ask},
+		{`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`, "", core.Ask},
 	}
 }
 
@@ -378,7 +381,6 @@ func safetyBlockCases() []safetyTierCase {
 // safetyAllowCases are near-miss shapes that must keep proceeding.
 func safetyAllowCases() []safetyTierCase {
 	return []safetyTierCase{
-		{`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`, "", core.Allow},
 		{"git push --force-with-lease origin my-branch", "", core.Allow},
 		{"git push origin main", "", core.Allow},
 		{"git push my-f main", "", core.Allow},
@@ -575,7 +577,9 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 	}
 }
 
-// TestHarnessGitBlocked pins harnessGitVerb: config-tree verbs, worktree exception, target resolution, nested shells.
+// TestHarnessGitBlocked pins harnessGitVerb's current behavior directly (gocognit refactor-risk,
+// internal/hooks/safety/safety.go): banned verbs inside the config tree, the worktree exception, -C/
+// --work-tree/--git-dir target resolution, cd tracking, substitutions and nested shells.
 func TestHarnessGitBlocked(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -663,28 +667,28 @@ type attributionScanCase struct {
 	want core.Decision
 }
 
-// attributionScanCases lists footer commits (rewritten) and look-alikes (untouched); otherRepo is not the harness tree.
+// attributionScanCases lists footer commits (Ask) and look-alikes (Allow); otherRepo is not the harness tree.
 func attributionScanCases(otherRepo string) []attributionScanCase {
 	return []attributionScanCase{
 		{
 			"inline -m footer",
 			`git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`,
-			core.Allow, // rewritten without the footer
+			core.Ask,
 		},
 		{
 			"heredoc -m footer",
 			"git commit -m \"$(cat <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>\nEOF\n)\"",
-			core.Ask, // heredoc bodies are never rewritten
+			core.Ask,
 		},
 		{
 			"-C other repo, -F heredoc, generated-with footer",
 			"git -C " + otherRepo + " commit -F - <<'EOF'\nfeat: x\n\nGenerated with [Claude Code](https://claude.com/claude-code)\nEOF",
-			core.Ask, // heredoc bodies are never rewritten
+			core.Ask,
 		},
 		{
 			"cd into other repo first",
 			"cd " + otherRepo + " && git commit -m \"feat: x\" -m \"Co-Authored-By: Claude\"",
-			core.Allow, // rewritten without the footer
+			core.Ask,
 		},
 		{
 			"plain commit proceeds",
@@ -718,6 +722,9 @@ func TestSafetyScanBlocksAttributionFooterCommit(t *testing.T) {
 			res := scanPayload(hosttest.BashPayload(c.cmd))
 			if res.Decision != c.want {
 				t.Errorf("%q: got %d want %d (reason=%s)", c.cmd, res.Decision, c.want, res.Reason)
+			}
+			if c.want == core.Ask && !strings.Contains(strings.ToLower(res.Reason), "attribution") {
+				t.Errorf("%q: ask reason missing 'attribution': %s", c.cmd, res.Reason)
 			}
 		})
 	}

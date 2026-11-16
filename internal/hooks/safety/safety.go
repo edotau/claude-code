@@ -32,7 +32,8 @@ var hardBlocks = core.LazyCompile(
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
-// pipeBlocks match the whole command text (minus inert data): pipes, fork bombs and heredocs span segments.
+// pipeBlocks match the WHOLE command text (minus inert data, see inertStripped): pipes, a fork bomb and encoded Python
+// heredocs span shell segments.
 var pipeBlocks = core.LazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
 	`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`,
@@ -103,9 +104,6 @@ var softWarn = core.LazyCompile(
 // Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
-	if fix, ok := gitFix(in, decision); ok {
-		return fix
-	}
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
 		for _, re := range softWarn() {
@@ -158,27 +156,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if d > ask {
 		return d, askMsg + msg, detail
 	}
-	if pd, pmsg, pdetail := gitPolicyVerdict(in, cmd); pd > ask {
-		return pd, pmsg, pdetail // a hard git-policy deny is never softened by an ask
-	}
 	return ask, askMsg, askDetail
-}
-
-// gitPolicyVerdict blocks a nonconforming commit message, a broad `git add` and `; git push` after a gate.
-func gitPolicyVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
-	cmd = core.DropDataHeredocs(cmd)
-	var reason string
-	if p := shell.CommitMessageProblem(cmd, in.CWD); p != "" {
-		reason = "safety: " + p + "; " + commitUse
-	} else if shell.BroadStage(cmd, in.CWD) != "" {
-		reason = "safety: stage named files only; use: git add <file> <file>"
-	} else if shell.PushAfterGate(cmd) {
-		reason = "safety: chain git push after a gate; use: <gate> && git push"
-	}
-	if reason == "" {
-		return core.Allow, "", ""
-	}
-	return core.Block, reason, reason
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
@@ -189,7 +167,8 @@ func safetyAskVerdict(in *core.Input, scan string) (core.Decision, string, strin
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
-	// Each pattern matches inside ONE shell segment, inert text blanked first; heredoc bodies stay, as for hard blocks.
+	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
+	// Inert text (a commit message mentioning sudo) is blanked first; heredoc bodies stay, as for the hard blocks.
 	for _, seg := range shell.Segments(blankInert(cmd)) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
@@ -244,7 +223,8 @@ func askPatternVerdict(in *core.Input, cmd, scan string) (core.Decision, string,
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
 
-// harnessGitVerb is the first banned verb (or shell.Uninspectable) whose target tree is under the config dir.
+// harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) whose target tree
+// (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	var harness, worktrees, hit string
 	shell.EachGit(dropRemoteHeredocs(core.DropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
@@ -396,7 +376,8 @@ func impliedRefspec(args []string) bool {
 	return len(words) <= 1 || (len(words) == 2 && words[1] == "HEAD")
 }
 
-// protectedHead is the branch checked out in dir when main or master, else ""; an unknown branch counts as protected.
+// protectedHead is the branch checked out in dir when it is main or master, else "" (detached, no repo);
+// a git that cannot run or times out leaves the branch unknown, reported as protected so the push asks.
 func protectedHead(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
