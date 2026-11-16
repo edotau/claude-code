@@ -457,33 +457,25 @@ func ShowBlock(ref string) (string, string, error) {
 	return foundPath, foundBlock, nil
 }
 
-// blockWithRef returns the last block in file p carrying ref (an id marker, or a contentRef when derived).
+// blockWithRef returns the block in file p owning ref (an id marker), or the last one whose contentRef is ref.
 func blockWithRef(p, ref string, derived bool) (found string, ok bool, err error) {
 	if !strings.HasSuffix(p, ".md") {
 		return "", false, nil
 	}
-	data, err := readFile(p)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
+	if !derived {
+		found, err = blockIn(p, logicalName(p), ref)
+		return found, found != "", err
 	}
+	data, err := readIfExists(p)
 	if err != nil {
 		return "", false, err
 	}
-	if !derived && !strings.Contains(string(data), "<!-- id:"+ref+" -->") {
-		return "", false, nil
-	}
 	_, blocks := entryBlocks(logicalName(p), string(data))
-	if derived { // native topics and knowledge notes are indexed whole, under their own grammar
-		base := filepath.Base(p)
-		blocks = append(blocks, parseBlocks(segNative, base, data)...)
-		blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
-	}
+	base := filepath.Base(p) // native topics and knowledge notes are indexed whole, under their own grammar
+	blocks = append(blocks, parseBlocks(segNative, base, data)...)
+	blocks = append(blocks, parseBlocks(segKnowledge, base, data)...)
 	for _, b := range blocks {
-		matches := strings.Contains(b, "<!-- id:"+ref+" -->")
-		if derived {
-			matches = contentRef(b) == ref
-		}
-		if matches {
+		if contentRef(b) == ref {
 			found, ok = b, true
 		}
 	}

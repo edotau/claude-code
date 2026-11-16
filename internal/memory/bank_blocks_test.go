@@ -421,6 +421,16 @@ func TestShowBlockKeepsMatchBeforeUnreadableDirectory(t *testing.T) {
 	}
 }
 
+func TestShowBlockSkipsLaterBlockQuotingMarker(t *testing.T) {
+	isolatedConfig1(t)
+	owner := "## Owner <!-- id:abcd1234 -->\nowner body"
+	quote := "## Later <!-- id:bbbbbbbb -->\n```\n<!-- id:abcd1234 -->\n```"
+	write(t, filepath.Join(StoreDir(), "decisionLog.md"), owner+"\n\n"+quote+"\n")
+	if _, got, err := ShowBlock("abcd1234"); err != nil || !strings.Contains(got, "owner body") {
+		t.Fatalf("ShowBlock = %q, %v; want the owning block", got, err)
+	}
+}
+
 func TestShowBlockReturnsWalkErrors(t *testing.T) {
 	for _, sub := range []string{"", "unreadable"} {
 		t.Run(sub, func(t *testing.T) {
