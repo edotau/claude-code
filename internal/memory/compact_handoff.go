@@ -217,7 +217,11 @@ func dispatchSection(ds []HandoffDispatch, now, since time.Time) []string {
 	}
 	line := fmt.Sprintf("- Finished since the last compaction (%d)", len(done))
 	if len(done) > 0 {
-		line += ": " + strings.Join(done, ", ")
+		shown := done[:min(len(done), 20)] // a long session finishes hundreds of probes
+		line += ": " + strings.Join(shown, ", ")
+		if more := len(done) - len(shown); more > 0 {
+			line += fmt.Sprintf(", … %d more", more)
+		}
 	}
 	return append(out, line)
 }
