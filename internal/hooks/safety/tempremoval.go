@@ -44,6 +44,7 @@ func tempWriteAllowed(cmd, p string) bool {
 
 // tempGitRemoval reports a plain `rm` whose operands and their targets pass tempWriteAllowed's rules (a fixture .git).
 func tempGitRemoval(seg, cmd, cwd string) bool {
+	seg, cmd = expandWith(seg, varPaths(cmd)), expandVars(cmd) // `T=/tmp/x && rm -rf $T/.git` removes a temp copy
 	toks := shell.Tokens(seg)
 	if len(toks) == 0 || toks[0] != "rm" || !removalAllowed(cmd, cwd) {
 		return false

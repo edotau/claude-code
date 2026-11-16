@@ -436,7 +436,7 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 func TestSafetyAskDocumentExactShape(t *testing.T) {
 	hosttest.TierHarness(t)
 	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", hosttest.BashPayload("sudo apt-get install jq"), &out, &errb); code != core.ExitProceed {
+	if code := runDirect("safety-scan", hosttest.BashPayload("psql -c 'DROP TABLE t'"), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var top map[string]json.RawMessage
@@ -484,10 +484,10 @@ func keys(m map[string]json.RawMessage) []string {
 
 // TestSafetyDispatcherGateVsBare: `--all` carries the gate's ask, the bare dispatcher must not.
 func TestSafetyDispatcherGateVsBare(t *testing.T) {
-	harness := flagHarness(t)
+	flagHarness(t)
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash", "cwd": t.TempDir(),
-		"tool_input": map[string]string{"command": "git -C " + harness + " stash"},
+		"tool_input": map[string]string{"command": "psql -c 'DROP TABLE t'"},
 	})
 	t.Run("gate carries the ask", func(t *testing.T) {
 		var out, errb bytes.Buffer
