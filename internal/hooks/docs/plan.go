@@ -401,7 +401,7 @@ func planDest(in *core.Input) (string, error) {
 	}
 	dir := filepath.Dir(abs)
 	root := planRepoRoot(in.CWD)
-	if dir != root && dir != filepath.Join(root, "docs") {
+	if canon := core.CanonPath(dir); canon != core.CanonPath(root) && canon != core.CanonPath(filepath.Join(root, "docs")) {
 		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")

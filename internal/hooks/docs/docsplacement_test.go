@@ -3,6 +3,7 @@ package docs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -385,6 +386,21 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 		in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, sub, "2026-11-07-x.md"))))
 		if code := Placement(in, &e); code != core.ExitProceed {
 			t.Errorf("%s inside the store = %d, want proceed (%s)", sub, code, e.String())
+		}
+	}
+	store := filepath.Join(cfg, "memory")
+	if out, err := exec.Command("git", "-C", store, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	link := filepath.Join(cfg, "projects", "-x", "memory")
+	if err := errors.Join(os.MkdirAll(filepath.Dir(link), 0o755), os.Symlink(store, link)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, dir := range []string{store, link} {
+		var e bytes.Buffer
+		in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(dir, "a-new-note.md"))))
+		if code := Placement(in, &e); code != core.ExitProceed {
+			t.Errorf("note at store root via %s = %d, want proceed (%s)", dir, code, e.String())
 		}
 	}
 }
