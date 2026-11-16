@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/waves"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -58,6 +59,18 @@ func dispatchWaveNumber(s string) (int, error) {
 	return n, err
 }
 
+// wavesDir is the repo top enclosing cwd, so owned paths and fingerprints resolve from any subdirectory.
+func wavesDir(ctx context.Context) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	if top := paths.GitTop(ctx, cwd); top != "" {
+		return top, nil
+	}
+	return cwd, nil // outside git: the runner's own git checks report it
+}
+
 type waveJob struct {
 	background bool
 	id         string
@@ -77,12 +90,12 @@ func dispatchWaves(pos []string, route *ask.RouteFlags, o *waves.Options, job wa
 	if err != nil {
 		return helptext.FailUsage("agents dispatch: %v", err)
 	}
-	o.Dir, err = os.Getwd()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	o.Dir, err = wavesDir(ctx)
 	if err != nil {
 		return helptext.Fail("agents dispatch: %v", err)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if job.background {
 		return waves.Background(ctx, *o, job.args)
 	}
