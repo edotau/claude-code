@@ -104,7 +104,7 @@ func usage(w *os.File) error {
 			fmt.Fprintln(&b)
 		}
 	}
-	fmt.Fprintln(&b) // Why: a blank line between the menu and the next shell prompt
+	fmt.Fprintln(&b)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

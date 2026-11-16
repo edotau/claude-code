@@ -20,7 +20,7 @@ import (
 
 const loginSecret = "DATABRICKS_HAND_OAUTH"
 
-// loginTokenServer fakes the workspace token endpoint: ok mints a one-hour JWT, otherwise it refuses with invalid_grant.
+// loginTokenServer fakes the workspace token endpoint: ok mints a one-hour JWT, else it refuses with invalid_grant.
 func loginTokenServer(t *testing.T, ok bool) *atomic.Int32 {
 	t.Helper()
 	var hits atomic.Int32

@@ -84,7 +84,7 @@ func printPlanSummaries(summaries []plans.Summary) {
 			rel = s.Path
 		}
 		row := fmt.Sprintf("%d/%d  %s", s.Ticked, s.Total, filepath.ToSlash(rel))
-		fmt.Println(textutil.Truncate(row, 80)) // one 80-column terminal line
+		fmt.Println(textutil.Truncate(row, 80))
 		for _, c := range s.Claims {
 			fmt.Printf("  %s\n", c)
 		}

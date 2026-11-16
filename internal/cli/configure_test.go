@@ -195,7 +195,7 @@ func TestConfigureAuthRejectedOutsideGithubPage(t *testing.T) {
 	}
 }
 
-// TestConfigureAuthRejectedWithRestore: on the github page --auth with --restore or --revert fails instead of being dropped.
+// TestConfigureAuthRejectedWithRestore: on the github page --auth with --restore or --revert fails, not dropped.
 func TestConfigureAuthRejectedWithRestore(t *testing.T) {
 	resetEnv(t)
 	for _, flagName := range []string{"--restore", "--revert"} {

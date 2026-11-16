@@ -33,7 +33,7 @@ func TestCmdWorktreeNoArgsAndUnknownSub(t *testing.T) {
 func TestCmdWorktreeNonRepoCWD(t *testing.T) {
 	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
-	t.Chdir(t.TempDir()) // not a git repository
+	t.Chdir(t.TempDir())
 	code, _, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"list"}) })
 	if code == 0 {
 		t.Fatalf("want non-zero exit outside a git repo, stderr=%q", errb)
@@ -66,7 +66,7 @@ func TestCmdWorktreeListEmptyTextAndJSON(t *testing.T) {
 	}
 }
 
-// TestCmdWorktreeGateOutsideRepo runs the gate verb in a non-git dir: a go.mod prints the full gate, a bare dir exits 1.
+// TestCmdWorktreeGateOutsideRepo runs the gate verb outside git: a go.mod prints the full gate, a bare dir exits 1.
 func TestCmdWorktreeGateOutsideRepo(t *testing.T) {
 	scrubGitEnv(t)
 	t.Setenv("HOME", t.TempDir())
@@ -74,7 +74,7 @@ func TestCmdWorktreeGateOutsideRepo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(t.TempDir()) // not a git repository
+	t.Chdir(t.TempDir())
 
 	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"gate", "--dir", goDir}) })
 	if code != 0 || strings.TrimSpace(out) != "go build ./... && go vet ./... && go test ./..." {

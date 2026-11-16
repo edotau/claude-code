@@ -51,7 +51,7 @@ func parseRecordPairs(words []string) (map[string]string, error) {
 	return set, nil
 }
 
-// applyRecord validates every field first, then prints (and unless dryRun writes) each change as "agent key: old → new".
+// applyRecord validates every field first, then prints (unless dryRun, writes) each change as "agent key: old → new".
 func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {

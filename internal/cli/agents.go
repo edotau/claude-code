@@ -309,7 +309,7 @@ func cmdAgentsLabel(args []string) int {
 	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
 	}
-	if row.Label != "" { // an empty label is no prefix, as the hook writes none
+	if row.Label != "" {
 		if _, err := fmt.Println(row.Label + ": "); err != nil {
 			return helptext.Fail("agents label: %v", err)
 		}
@@ -401,7 +401,7 @@ func cmdAgentsDispatch(args []string) int {
 	return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})
 }
 
-// cmdAgentsWait is `agents wait <id>...`: one row per dispatch once all have settled; exit 1 on error or lost, 4 on timeout.
+// cmdAgentsWait is `agents wait <id>...`: one row per settled dispatch; exit 1 on error or lost, 4 on timeout.
 func cmdAgentsWait(args []string) int {
 	fs := agentsFlags("wait")
 	timeout := fs.Duration("timeout", 10*time.Minute, "give up on unfinished dispatches after this long (state timeout)")

@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// vault env set/unset: one line per change, --dry-run writes nothing, a secret name is refused, a wrong shape is exit 2.
+// vault env set/unset: one line per change, --dry-run writes nothing, a secret name is refused, a bad shape is exit 2.
 func TestVaultEnvSetUnset(t *testing.T) {
 	vaulttest.Use(t)
 	for _, c := range []struct {

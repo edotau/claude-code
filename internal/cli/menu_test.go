@@ -37,7 +37,7 @@ func captureUsage(t *testing.T) string {
 	return out
 }
 
-// Every rendered usage line fits 80 columns (barring one unbreakable word) and continuations start at the description column.
+// Every usage line fits 80 columns (barring one unbreakable word); continuations start at the description column.
 func TestUsageRowsWrapAtDescriptionColumn(t *testing.T) {
 	out := captureUsage(t)
 	const menuWidth = 80

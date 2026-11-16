@@ -608,7 +608,7 @@ func checkFilteredJSON(t *testing.T, filtered, pinsOnly string) {
 	}
 }
 
-// checkFilteredText asserts bare text lists sections in canonical order and the filtered text keeps only SECRETS and PINS.
+// checkFilteredText asserts bare text lists sections in canonical order and filtered text keeps only SECRETS and PINS.
 func checkFilteredText(t *testing.T, bare, filtered string) {
 	t.Helper()
 	order := []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}

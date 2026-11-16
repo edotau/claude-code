@@ -285,13 +285,13 @@ func runRouted(argv []string, name string) (code int, ok bool) {
 		return helptext.FailUsage("%v", err), true
 	}
 	if name == remote.Flag || strings.HasPrefix(name, remote.Flag+"=") {
-		if rest, local := remote.LocalArgs(remote.Flag, argv[1:]); local { // the named host is this machine: run here
+		if rest, local := remote.LocalArgs(remote.Flag, argv[1:]); local {
 			return Run(append(argv[:1:1], rest...)), true
 		}
 		return remote.Run(argv[1:]), true
 	}
 	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
-		if rest, local := remote.LocalArgs(egressFlag, argv[1:]); local { // this machine is the exit: no tunnel
+		if rest, local := remote.LocalArgs(egressFlag, argv[1:]); local {
 			if err := proc.Unsetenv(egress.EnvHost); err != nil {
 				return helptext.Fail("%s: %v", egressFlag, err), true
 			}
@@ -311,7 +311,7 @@ func runVia(argv []string) int {
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
-	if host, err = remote.ResolveAuto(host); err != nil { // `--remote auto`: the other machine, as `--host auto`
+	if host, err = remote.ResolveAuto(host); err != nil {
 		return helptext.Fail("%s %v", egressFlag, err)
 	}
 	if err := egress.Valid(host); err != nil {
