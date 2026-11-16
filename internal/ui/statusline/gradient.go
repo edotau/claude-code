@@ -171,11 +171,11 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 	b.push(textutil.CompactCount(int64(d.tokens))+"/"+textutil.CompactCount(int64(d.size)), "g")
 	if v.limits != "" {
 		b.pushBreakable(" ", "g")
-		b.push(v.limits, "g") // 7d:N% on a subscription
+		b.push(v.limits, "g")
 	}
 	if v.auth != "" {
 		b.pushBreakable(twoSep, "g")
-		b.push(v.auth, "g") // the token countdown ends the context block
+		b.push(v.auth, "g")
 	}
 	return true
 }

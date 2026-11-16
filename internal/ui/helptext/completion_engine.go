@@ -125,11 +125,11 @@ func positionalInfo(path []string, node *Node, rest []string) (count int) {
 			count++
 			continue
 		}
-		if strings.Contains(w, "=") { // --flag=value consumes no following word.
+		if strings.Contains(w, "=") {
 			continue
 		}
 		if !flagIsBool(path, node, w) && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "-") {
-			i++ // The next word is this flag's value, not a positional.
+			i++
 		}
 	}
 	return count

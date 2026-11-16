@@ -111,14 +111,14 @@ func limitsFromPayload(in input) int {
 	return in.RateLimits.SevenDay.pct(time.Now().Unix())
 }
 
-// limitsFromCache reads internal/usage's cached 7d window (no network); -1 means absent, stale, expired or another login's.
+// limitsFromCache returns internal/usage's cached 7d window without network; -1 if absent, stale, expired or foreign.
 func limitsFromCache() int {
 	util, resets, ok := usage.CachedSevenDay(limitsCacheMaxAge)
 	if !ok {
 		return -1
 	}
 	if t, err := time.Parse(time.RFC3339, resets); err != nil || !t.After(time.Now()) {
-		return -1 // the window's reset is unparsable or already passed
+		return -1
 	}
 	return clampPct(int(util + 0.5))
 }

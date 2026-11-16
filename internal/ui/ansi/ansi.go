@@ -26,7 +26,7 @@ const (
 // ParseHex reads #RGB, #RGBA, #RRGGBB or #RRGGBBAA (# optional); alpha is 255 when absent, ok=false otherwise.
 func ParseHex(h string) (rgb RGB, alpha int, ok bool) {
 	h = strings.TrimPrefix(h, "#")
-	if len(h) == 3 || len(h) == 4 { // shorthand: each nibble doubles
+	if len(h) == 3 || len(h) == 4 {
 		var wide strings.Builder
 		for i := 0; i < len(h); i++ {
 			wide.WriteByte(h[i])

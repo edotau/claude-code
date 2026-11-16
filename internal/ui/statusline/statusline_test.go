@@ -116,7 +116,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	cfg.Style = "dashboard"
 	cfg.Segments = map[string]bool{"session": false} // pin columns so alignment is checked regardless of defaults
 	cfg.Dashboard.Columns = []string{"workspace", "model", "provider", "proxy", "total", "branch", "context"}
-	cfg.Dashboard.Width, cfg.Bar.Percent = 90, "after" // the row right-aligns to the configured width
+	cfg.Dashboard.Width, cfg.Bar.Percent = 90, "after"
 	lines := strings.Split(plain(render(sample(), cfg, theme.LoadPalettes())), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want header + value rows, got %q", lines)
@@ -131,7 +131,7 @@ func TestDashboardAlignsHeadersOverValues(t *testing.T) {
 	for _, pair := range [][2]string{{"provider", "openrouter"}, {"proxy", "proxy:18765"}, {"context", "42%"}} {
 		h := strings.Index(string(hdr), pair[0])
 		v := strings.Index(string(val), pair[1])
-		if pair[0] == "context" { // right-aligned: both columns end at the same cell
+		if pair[0] == "context" {
 			h, v = utf8.RuneCountInString(lines[0]), utf8.RuneCountInString(lines[1])
 		} else {
 			h, v = utf8.RuneCountInString(lines[0][:h]), utf8.RuneCountInString(lines[1][:v])
@@ -238,7 +238,7 @@ func TestModelSegment(t *testing.T) {
 	for _, c := range [][3]string{
 		{"claude-opus-5[1m]", "Opus 5 (1M context)", "opus-5"},
 		{"openai:gpt-5-nano", "openai:gpt-5-nano", "gpt-5-nano ⇄openai"},
-		{"qwen3:30b", "qwen3:30b", "qwen3:30b"}, // an ollama tag, not a provider prefix
+		{"qwen3:30b", "qwen3:30b", "qwen3:30b"},
 		{"anthropic:claude-haiku-5", "Haiku 5", "haiku-5"},
 		{"claude-sonnet-5-20260101", "", "sonnet-5"},
 		{"claude-opus-5-5[1m]", "Opus 5.5 (1M context)", "opus-5-5"},
@@ -515,7 +515,7 @@ func TestLabelTracksSessionEnvOverVaultPin(t *testing.T) {
 	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "antigravity") {
 		t.Errorf("env session label: %q", got)
 	}
-	vaulttest.SetRecord(t, "claude", "profile", "openai") // the other session switches again
+	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	if got := renderPayload(t, "claude-opus-5"); !strings.Contains(got, "databricks·qa") || strings.Contains(got, "openai") {
 		t.Errorf("label moved with the pin: %q", got)
 	}
@@ -550,7 +550,7 @@ func TestProfileFitsWidth(t *testing.T) {
 		width int
 		want  string
 	}{{200, full}, {50, "databricks·my-long-workspa…"}, {20, "…"}} {
-		termWidth = func() int { return tc.width + ccMargin } // the terminal; the line gets ccMargin less
+		termWidth = func() int { return tc.width + ccMargin }
 		_ = os.RemoveAll(filepath.Dir(stampFile("termwidth", "x")))
 		got := plain(renderFit(v, cfg, pal, lineWidth(cfg)))
 		if !strings.Contains(got, tc.want) || longestLine(got) > tc.width {

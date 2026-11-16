@@ -105,7 +105,7 @@ func TestRenderBlankLineBeforeTrailingRow(t *testing.T) {
 // A row too long for a narrow terminal wraps; panelLines must grow with it or redraws leave stale frames.
 func TestPanelLinesCountsWrappedRows(t *testing.T) {
 	s := pickState{rows: []string{"short", strings.Repeat("x", 90)}}
-	wide := panelLines("title", s, 200)  // every line fits on one terminal row
+	wide := panelLines("title", s, 200)
 	narrow := panelLines("title", s, 50) // the 90-char row wraps across 2 (2 prefix + 90 = 92/50); the hint still fits
 	if wide != 7 {
 		t.Errorf("panelLines(wide) = %d, want 7 (len(rows)+4 unwrapped, +1 trailing-row separator)", wide)

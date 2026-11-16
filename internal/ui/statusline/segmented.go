@@ -317,7 +317,7 @@ func renderDashboard(v values, cfg config, pal theme.Palettes, stops []ansi.RGB,
 	head := promptHead(v, cfg, pal, stops, mode)
 	indentW := 0
 	if head != "" {
-		indentW = utf8.RuneCountInString(v.userHost + ":" + v.path + sepPath) // the head's printable width
+		indentW = utf8.RuneCountInString(v.userHost + ":" + v.path + sepPath)
 	}
 	built := buildDashboardCols(dashboardColumns(dash), v, cfg, head != "")
 	if len(built) == 0 {

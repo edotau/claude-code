@@ -4,8 +4,7 @@ package tui
 
 import "time"
 
-// Only the Linux and darwin builds can wait on stdin with a timeout, so elsewhere the pump keeps its historical
-// blocking read: waitReadable never delays and Close has no pump to join.
+// Only Linux and darwin can poll stdin with a timeout; elsewhere waitReadable never delays and Close joins no pump.
 const (
 	pollTick = 0
 	canPoll  = false

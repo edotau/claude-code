@@ -99,7 +99,7 @@ func TestListFilterDropsEmptySectionHeader(t *testing.T) {
 
 func TestListCursorClampsAndKeepsRowAfterFilter(t *testing.T) {
 	spec := sampleSpec(true)
-	s := newListState(spec, 4) // last row in grouped order
+	s := newListState(spec, 4)
 	if s.cur != 4 {
 		t.Fatalf("start cursor = %d, want 4", s.cur)
 	}
@@ -107,7 +107,7 @@ func TestListCursorClampsAndKeepsRowAfterFilter(t *testing.T) {
 	if s.cur != 1 || s.selected() != 3 {
 		t.Errorf("clamped cursor = %d (row %d), want 1 (row 3)", s.cur, s.selected())
 	}
-	s = newListState(spec, 3) // row 3 survives the filter: the cursor stays on it
+	s = newListState(spec, 3)
 	s = feed(t, s, runes("git")...)
 	if s.selected() != 3 {
 		t.Errorf("kept row = %d, want 3", s.selected())
@@ -174,7 +174,7 @@ func TestListDoublePressConfirmFires(t *testing.T) {
 func TestListDoublePressAnotherKeyCancels(t *testing.T) {
 	d := ctrl('d')
 	s, _, _ := listKey(newListState(sampleSpec(true), 2), d)
-	s = feed(t, s, ctrl('x')) // unbound and not a filter keystroke, so the row stays selected
+	s = feed(t, s, ctrl('x'))
 	if s.pending != -1 {
 		t.Errorf("another key must cancel the pending confirm")
 	}

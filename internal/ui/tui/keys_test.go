@@ -48,9 +48,9 @@ func TestDecodeBasicKeys(t *testing.T) {
 
 func TestDecodeIncomplete(t *testing.T) {
 	cases := [][]byte{
-		{0x1b, '['}, // CSI with no final byte yet
-		{0xc3},      // split UTF-8 rune (é is 0xc3 0xa9)
-		nil,         // empty buffer
+		{0x1b, '['},
+		{0xc3}, // split UTF-8 rune (é is 0xc3 0xa9)
+		nil,
 	}
 	for _, buf := range cases {
 		if _, n := decode(buf); n != 0 {
@@ -61,8 +61,8 @@ func TestDecodeIncomplete(t *testing.T) {
 
 func TestDecodeDropsUnknown(t *testing.T) {
 	cases := [][]byte{
-		{0x1c},           // unbound control byte
-		[]byte("\x1b[Z"), // CSI final byte with no mapping
+		{0x1c},
+		[]byte("\x1b[Z"),
 	}
 	for _, buf := range cases {
 		key, n := decode(buf)
@@ -269,7 +269,7 @@ func checkPollsWithPselect6(t *testing.T, want string) {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		defer close(done)
-		self, _ := os.Readlink("/proc/thread-self") // "<pid>/task/<tid>" of this locked thread
+		self, _ := os.Readlink("/proc/thread-self")
 		threads <- self
 		waitReadable(int(r.Fd()), 100*time.Millisecond)
 	}()

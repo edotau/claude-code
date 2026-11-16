@@ -139,7 +139,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 				rgb = ansi.Hex(cmp.Or(th["sep"]["fg"], "#CAD3F5"))
 			} else if s.fg != "" {
 				rgb = ansi.Hex(s.fg)
-			} else if fg := th[s.key]["fg"]; fg != "" { // a palette with cell colors (minimal) sets fg with its bg
+			} else if fg := th[s.key]["fg"]; fg != "" {
 				rgb = ansi.Hex(fg)
 			}
 			b.WriteString(ansi.FgSeq(mode, rgb, s.bold))
@@ -153,15 +153,15 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 
 // renderTwoline draws the two-row style, both rows left-packed so a resize clips only their ends.
 func renderTwoline(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string) string {
-	th := pal.Powerline[cfg.Gradient] // background blocks only with a palette that defines them (minimal)
+	th := pal.Powerline[cfg.Gradient]
 	row1, row2 := twolineRows(v)
-	for i := range row1 { // velocity keeps the add/del tones every style uses
+	for i := range row1 {
 		if k := row1[i].key; k == "add" || k == "del" {
 			row1[i].fg = pal.Sem(k)
 		}
 	}
 	out := paintTwoRow(row1, th, stops, mode)
-	if head := promptHead(v, cfg, pal, stops, mode); head != "" { // the PS1 head leads
+	if head := promptHead(v, cfg, pal, stops, mode); head != "" {
 		out = head + paintTwoRow([]twoSeg{{key: "sep", bare: true, text: sepPath}}, th, stops, mode) + out
 	}
 	if len(row2) == 0 {

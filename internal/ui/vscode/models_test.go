@@ -128,7 +128,7 @@ func assertGroups(t *testing.T, raw []byte) {
 	names := make([]string, len(all))
 	for i, r := range all {
 		var g endpointGroup
-		_ = json.Unmarshal(r, &g) // "not-an-object" decodes to a zero group
+		_ = json.Unmarshal(r, &g)
 		groups, names[i] = append(groups, g), g.Name
 	}
 	if strings.Join(names, ",") != "Anthropic,Databricks prod,,Databricks dev" {

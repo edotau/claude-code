@@ -16,7 +16,7 @@ var termWidth = ancestorTTYWidth
 // termWidthTTL lets a resize show within seconds while sparing a process walk per render.
 const termWidthTTL = 5 * time.Second
 
-// ccMargin is the columns Claude Code keeps around the statusline (2-cell indent + 2 at the right: 81 of 85 cols shown).
+// ccMargin is the columns Claude Code keeps around the statusline: a 2-cell indent plus 2 at the right.
 const ccMargin = 4
 
 // lineWidth is config "width", else $COLUMNS or the nearest ancestor terminal's width less ccMargin, else 0 (no clip).

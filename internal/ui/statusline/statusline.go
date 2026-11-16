@@ -114,7 +114,7 @@ func (v values) text(key string) string {
 // Styles are the --style values; unset means config.json's style, and an unknown --style is refused.
 var Styles = []string{"gradient", "powerline", "capsule", "minimal", "dashboard", "twoline"}
 
-// Run is `claude-code theme statusline [--style S]`: payload on r, rendered line(s) on w; fs carries the caller's Usage.
+// Run is `claude-code theme statusline [--style S]`: payload on r, line(s) on w; fs carries the caller's Usage.
 func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	style := fs.String("style", "", strings.Join(Styles, "|"))
 	if code, done := helptext.Parse(fs, args); done {
@@ -149,7 +149,7 @@ func renderStatusline(raw []byte, style string) string {
 	if style != "" {
 		cfg.Style = style
 	}
-	if cfg.Style != "twoline" { // twoline never clips, so it skips the terminal probe
+	if cfg.Style != "twoline" {
 		cfg.Width = lineWidth(cfg)
 	}
 	return renderFit(collect(in, cfg), cfg, theme.LoadPalettes(), cfg.Width)
@@ -160,7 +160,7 @@ func renderFit(v values, cfg config, pal theme.Palettes, width int) string {
 	if cfg.gradientStyle() { // renderGradient wraps whole segments; clip only a segment wider than the line
 		return clip(renderRaw(v, cfg, pal), width)
 	}
-	if width > 0 && cfg.Style != "twoline" { // twoline fits each row itself: shorter path, row 2 clipped alone
+	if width > 0 && cfg.Style != "twoline" {
 		wide := v
 		wide.provider = v.providerFull
 		short := v
@@ -171,7 +171,7 @@ func renderFit(v values, cfg config, pal theme.Palettes, width int) string {
 				return out
 			}
 		}
-		return clip(out, lineWidth(cfg)) // out is short's render; clip as render would
+		return clip(out, lineWidth(cfg))
 	}
 	return render(v, cfg, pal)
 }
@@ -217,8 +217,8 @@ func collect(in input, cfg config) values {
 		provider, routed = providers.SessionName()
 	}
 	v.collectRouting(in, cfg, provider, routed)
-	if git := cfg.seg("git") && cfg.Style != "twoline"; git && worktree != "" { // twoline shows no branch
-		v.branch = filepath.Base(worktree) // a linked worktree shows its own name, the main checkout its branch
+	if git := cfg.seg("git") && cfg.Style != "twoline"; git && worktree != "" {
+		v.branch = filepath.Base(worktree)
 	} else if git {
 		v.branch = gitBranch(cwd)
 	}
@@ -228,7 +228,7 @@ func collect(in input, cfg config) values {
 		v.model = rawModelID(in, v.model, provider, routed)
 	}
 	if cfg.Style == "twoline" {
-		v.path = filepath.Base(cwd) // twoline's head names only the current directory
+		v.path = filepath.Base(cwd)
 		v.two = collectTwoline(in, v.auth)
 	}
 	return v
@@ -297,10 +297,10 @@ func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 	if limits && sub && !twoline {
 		v.limits = limitsSegment(in)
 	}
-	if (limits || twoline) && !sub { // twoline shows the countdown whatever the limits switch
+	if (limits || twoline) && !sub {
 		v.auth = authSegment(provider)
 	}
-	if !cfg.gradientStyle() && !twoline { // gradient and twoline draw their own context bar and no total
+	if !cfg.gradientStyle() && !twoline {
 		if cfg.seg("context") {
 			v.contextPct = contextPct(in)
 		}
@@ -332,7 +332,7 @@ func modelFamily(id string) string {
 	return ""
 }
 
-// providerLabel renders "<provider>·<profile>" from the registry row, the provider alone when the profile bears its name.
+// providerLabel renders "<provider>·<profile>", or the provider alone when the profile bears its name.
 func providerLabel(name string) string {
 	if reg := registry(); reg != nil {
 		if p, err := reg.Get(name); err == nil && p.Provider != "" {
@@ -362,7 +362,7 @@ func modelSegment(in input, session string, routed bool) string {
 		if prov == session {
 			id = model
 		} else if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-			return shortModelID(servedModelID(model, prov, true)) + " ⇄" + prov // spelled as prov serves it
+			return shortModelID(servedModelID(model, prov, true)) + " ⇄" + prov
 		}
 	}
 	if id == "" {

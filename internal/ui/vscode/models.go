@@ -130,7 +130,7 @@ func profileGroup(p *providers.Provider, infos []providers.ModelInfo, session st
 func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, session string) endpointModel {
 	api := wireAPI[wire]
 	window, output := providers.Window(p, info.ID), maxOutputCap
-	if l, ok := models.Limits(info.ID); ok { // the catalog output limit only lowers the cap
+	if l, ok := models.Limits(info.ID); ok {
 		output = minPositive(output, l.Output)
 	}
 	claude := models.FamilyKind(info.ID) == models.FamilyClaude
@@ -195,7 +195,7 @@ func mergeModels(dest string, mg modelGroups, check bool) (mergeResult, error) {
 // ownsGroup is true for a group this merge wrote: the Databricks prefix and the proxy token reference, both.
 func ownsGroup(raw json.RawMessage) (profile string, ours bool) {
 	var head struct{ Name, APIKey string }
-	_ = json.Unmarshal(raw, &head) // a non-object entry is foreign: kept
+	_ = json.Unmarshal(raw, &head)
 	profile, prefixed := strings.CutPrefix(head.Name, groupPrefix)
 	return profile, prefixed && head.APIKey == proxyKeyRef
 }
@@ -365,7 +365,7 @@ func resolveModelsDest(modelsDest, dest string) (path string, skip bool, note st
 	case dest != "":
 		return filepath.Join(filepath.Dir(dest), modelsFileName), false, "", nil
 	}
-	kb, skip, note, err := defaultKeybindingsDest() // chat models are UI-side too: the client's User dir
+	kb, skip, note, err := defaultKeybindingsDest()
 	if err != nil || skip {
 		return "", skip, strings.ReplaceAll(note, "keybindings", "chat models"), err
 	}
