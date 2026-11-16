@@ -317,7 +317,6 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 	if spec == "" {
 		return ""
 	}
-	// a cross-provider pin is respelled for p
 	return opencodeModel(p, p.WireModel(providers.ParseTarget(reg, spec, p).Model))
 }
 

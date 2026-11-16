@@ -50,10 +50,9 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 type copilotRegistryRoute struct {
 	providers []copilotRegistryProvider
 	models    []copilotRegistryModel
-	// the selected provider/id
-	ref   string
-	token string
-	home  copilotPrivateHome
+	ref       string
+	token     string
+	home      copilotPrivateHome
 }
 
 // prepareCopilotRegistry discovers what t's profile serves, selects t.Model and mints a token for this process.
@@ -135,7 +134,6 @@ type copilotRegistryProvider struct {
 
 // copilotRegistryModel is one selectable entry; the CLI selects it as Provider + "/" + ID.
 type copilotRegistryModel struct {
-	// canonical
 	ID       string
 	Provider string
 	// the Databricks endpoint id

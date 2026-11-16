@@ -435,7 +435,6 @@ func opencodeAuthV2Cached(bin string) ([]OpencodeIntegration, error) {
 	}
 	ints, err := opencodeAuthV2()
 	if err == nil && cacheable {
-		// best effort
 		_ = updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = &opencodeDiskAuth{Bin: bin, DB: db, Integrations: ints} })
 	}
 	return ints, err

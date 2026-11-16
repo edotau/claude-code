@@ -118,7 +118,6 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
 	}
 	for _, m := range menu {
-		// the catalog spells the id the way this row serves it
 		wire := agentconfig.MenuWire(p, m.ID)
 		allowed[wire] = true
 		entry := map[string]any{"name": m.Label + " · " + p.Name}

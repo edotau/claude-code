@@ -446,7 +446,6 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 	orig := gitRemoteURLs
 	t.Cleanup(func() { gitRemoteURLs = orig })
 	origMarkers := workRepoMarkers
-	// test-only stand-in markers
 	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil }
 	t.Cleanup(func() { workRepoMarkers = origMarkers })
 	cases := []struct {
@@ -516,7 +515,6 @@ func routeRunGit(t *testing.T, dir string, args ...string) {
 // Runs IsWorkRepo against real scratch git repos so gitRemoteURLs' `git remote -v` parsing is proven.
 func TestIsWorkRepoRealGitRemotes(t *testing.T) {
 	origMarkers := workRepoMarkers
-	// test-only stand-in markers
 	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil }
 	t.Cleanup(func() { workRepoMarkers = origMarkers })
 	t.Run("personal origin plus corp upstream is work", func(t *testing.T) {
