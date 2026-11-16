@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -319,7 +320,29 @@ func readPoolOverlay() ([]string, error) {
 		}
 		return nil
 	})
-	return out, err
+	return catalogPool(out), err
+}
+
+// warnedPoolDrop limits the dropped-entries warning to one per process.
+var warnedPoolDrop sync.Once
+
+// catalogPool drops entries the model catalog does not know, so a retired or mistyped id never gets picked.
+func catalogPool(pool []string) []string {
+	var kept, dropped []string
+	for _, entry := range pool {
+		if _, _, ok := models.Resolve(entry); ok {
+			kept = append(kept, entry)
+		} else {
+			dropped = append(dropped, entry)
+		}
+	}
+	if len(dropped) > 0 {
+		warnedPoolDrop.Do(func() {
+			fmt.Fprintf(os.Stderr, "warning: vault overlay %s: skipping ids not in the model catalog: %s\n",
+				vault.PoolKey, strings.Join(dropped, ", "))
+		})
+	}
+	return kept
 }
 
 // DiscoveryRepick skips the failed model for agent, then returns the next pool pick ("" if unchanged).
