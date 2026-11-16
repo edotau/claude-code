@@ -571,7 +571,9 @@ func editFileLine(file string) string {
 	return `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"` + file + `"}}]}}` + "\n"
 }
 
-func TestEditedFilesFromMatchesFullScan(t *testing.T) {
+// incrementalScan writes a transcript in two steps (the first ends mid-line) and returns it with the scan after step 2.
+func incrementalScan(t *testing.T) (string, EditScan) {
+	t.Helper()
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	step1 := editFileLine("/r/b.go") + editFileLine("/r/a.go")
 	partial := editFileLine("/r/c.go")
@@ -585,6 +587,11 @@ func TestEditedFilesFromMatchesFullScan(t *testing.T) {
 	if err != nil || strings.Join(second.Files, ",") != "/r/a.go,/r/b.go,/r/c.go,/r/d.go" {
 		t.Fatalf("step 2 = %+v, %v; want the first set plus the lines added since offset %d", second, err, first.Offset)
 	}
+	return tr, second
+}
+
+func TestEditedFilesFromMatchesFullScan(t *testing.T) {
+	tr, second := incrementalScan(t)
 	full, err := EditedFiles(tr)
 	if err != nil || !slices.Equal(second.Files, full) {
 		t.Fatalf("incremental %v != full scan %v (%v)", second.Files, full, err)

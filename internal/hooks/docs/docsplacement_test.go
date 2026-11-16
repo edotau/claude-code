@@ -487,6 +487,7 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 		{"no kind word", "Write", map[string]any{"file_path": filepath.Join(repo, "NOTES.md")}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel() // each case forks git three times, so the cases overlap
 			b, _ := json.Marshal(map[string]any{"tool_name": c.tool, "cwd": repo, "tool_input": c.input})
 			var stderr bytes.Buffer
 			if code := placeFiles(core.ParseInput(bytes.NewReader(b)), &stderr); code != core.ExitBlock {

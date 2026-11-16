@@ -76,7 +76,7 @@ func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
 	live := vaultIn(t, liveCfg)
 	link := filepath.Join(tmp, "linkcfg")
 	if err := os.Symlink(liveCfg, link); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	copyDir := filepath.Join(tmp, "copy")
 	temp := vaultIn(t, copyDir)
@@ -106,7 +106,7 @@ func TestSafetyTempFixtureWrites(t *testing.T) {
 	live := vaultIn(t, liveCfg)
 	link := filepath.Join(tmp, "linkcfg")
 	if err := os.Symlink(liveCfg, link); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	runTempCases(t, []tempCase{
 		{"redirect into a temp copy", "echo x > " + temp, core.Allow},
@@ -133,7 +133,7 @@ func TestSafetyTempGitRemoval(t *testing.T) {
 	liveCfg := paths.ConfigDir()
 	link := filepath.Join(tmp, "linkcfg")
 	if err := os.Symlink(liveCfg, link); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	fx := filepath.Join(tmp, "fixture")
 	runTempCases(t, []tempCase{

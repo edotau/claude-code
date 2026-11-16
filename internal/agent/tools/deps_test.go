@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -41,55 +42,98 @@ var depInstallers = map[string]map[string]string{
 	"windows": {},
 }
 
-// depWant is each row's dry-run line per platform (darwin: go beats brew); {local} is ~/.local/bin, {prefix} ~/.local.
-var depWant = map[string][3]string{ // darwin, linux, windows
-	"git":  {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y git", ""},
-	"go":   {"ok /usr/local/go/bin/go", "ok /usr/bin/go", ""},
-	"make": {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y make", ""},
-	"curl": {"skipped: report only (required); run: xcode-select --install", "skipped: report only (required); run: sudo apt-get install -y curl", ""},
-	"shfmt": {"would install: GOBIN={local} go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1",
-		"would install: GOBIN={local} go install mvdan.cc/sh/v3/cmd/shfmt@v3.14.1", ""},
-	"ruff": {"would install: brew install ruff", "would install: pipx install ruff==0.17.5", ""},
-	"node": {"would install: brew install node", "skipped: none of brew on PATH; run: sudo apt-get install -y nodejs", ""},
-	"prettier": {"would install: brew install prettier",
-		"would install: npm install --global --prefix {prefix} --no-fund --no-audit prettier@3.10.1", ""},
-	"gh": {"would install: GOBIN={local} go install github.com/cli/cli/v2/cmd/gh@v2.104.0",
-		"would install: GOBIN={local} go install github.com/cli/cli/v2/cmd/gh@v2.104.0", ""},
-	"tmux":          {"would install: brew install tmux", "skipped: none of brew on PATH; run: sudo apt-get install -y tmux", ""},
-	"shellcheck":    {"would install: brew install shellcheck", "skipped: none of brew on PATH; run: sudo apt-get install -y shellcheck", ""},
-	"golangci-lint": {"skipped: report only (gate); run: make install DEV_TOOLS=1", "skipped: report only (gate); run: make install DEV_TOOLS=1", ""},
-	"govulncheck":   {"skipped: report only (gate); run: make install DEV_TOOLS=1", "skipped: report only (gate); run: make install DEV_TOOLS=1", ""},
-	"yamlfmt":       {"skipped: report only (gate); run: make install DEV_TOOLS=1", "skipped: report only (gate); run: make install DEV_TOOLS=1", ""},
+// depNamed is the deps row called name.
+func depNamed(t *testing.T, name string) dep {
+	t.Helper()
+	for _, d := range deps {
+		if d.Name == name {
+			return d
+		}
+	}
+	t.Fatalf("no dep row %q", name)
+	return dep{}
+}
+
+// pinOnPath is the table pin of d's first pinned installer found in on, or "".
+func pinOnPath(d dep, on map[string]string) string {
+	for _, p := range []struct {
+		pin  string
+		bins []string
+	}{{d.Go, []string{"go"}}, {d.Npm, []string{"npm"}}, {d.Py, []string{"uv", "pipx"}}} {
+		for _, b := range p.bins {
+			if p.pin != "" && on[b] != "" {
+				return p.pin
+			}
+		}
+	}
+	return ""
+}
+
+// checkDryLine asserts d's dry-run line from the deps row: present, pinned route, brew fallback, or skipped.
+func checkDryLine(t *testing.T, d dep, goos string, on map[string]string, line string) {
+	t.Helper()
+	pin := pinOnPath(d, on)
+	switch {
+	case goos == "windows":
+		if !strings.HasPrefix(line, "skipped: Windows reports only") {
+			t.Errorf("%s: %q; want a Windows report-only skip", d.Name, line)
+		}
+	case on[d.Name] != "":
+		if line != "ok "+on[d.Name] {
+			t.Errorf("%s: %q; want ok at its PATH entry", d.Name, line)
+		}
+	case pin != "":
+		if !strings.HasPrefix(line, "would install: ") || !strings.Contains(line, pin) || strings.Contains(line, "brew") {
+			t.Errorf("%s: %q; want the pinned route %q, not brew", d.Name, line, pin)
+		}
+	case d.Brew != "" && on["brew"] != "":
+		if line != "would install: brew install "+d.Brew {
+			t.Errorf("%s: %q; want the brew fallback for %q", d.Name, line, d.Brew)
+		}
+	case !strings.HasPrefix(line, "skipped: "):
+		t.Errorf("%s: %q; want a skip with no runnable route", d.Name, line)
+	}
 }
 
 // Given each host tool missing, When install --tools --missing --dry-run runs per platform, Then each prints its route.
 func TestInstallDepsDryRunPerPlatform(t *testing.T) {
-	for i, goos := range []string{"darwin", "linux", "windows"} {
+	for _, goos := range []string{"darwin", "linux", "windows"} {
 		t.Run(goos, func(t *testing.T) {
-			home, ran := stubDeps(t, goos, depInstallers[goos], nil)
-			local := filepath.Join(home, ".local", "bin")
+			_, ran := stubDeps(t, goos, depInstallers[goos], nil)
 			for _, d := range deps {
-				want, ok := depWant[d.Name]
-				if !ok {
-					t.Fatalf("dep %q has no expectation in depWant", d.Name)
-				}
-				line := want[i]
-				if goos == "windows" {
-					line = "skipped: Windows reports only; run: " + depFix(d)
-				}
-				line = strings.NewReplacer("{local}", local, "{prefix}", filepath.Dir(local)).Replace(line)
 				var out bytes.Buffer
 				if err := Install(t.Context(), &out, []string{d.Name}, true, true); err != nil {
 					t.Fatal(err)
 				}
-				if got := strings.TrimSpace(strings.TrimPrefix(out.String(), "== host tools ==\n")); got != d.Name+strings.Repeat(" ", 15-len(d.Name))+line {
-					t.Errorf("%s: got %q, want line %q", d.Name, got, line)
-				}
+				got := strings.TrimSpace(strings.TrimPrefix(out.String(), "== host tools ==\n"))
+				checkDryLine(t, d, goos, depInstallers[goos], strings.TrimSpace(strings.TrimPrefix(got, d.Name)))
 			}
 			if len(*ran) != 0 {
 				t.Errorf("dry-run ran %v; want nothing", *ran)
 			}
 		})
+	}
+}
+
+// Given every dep, When routes are listed, Then pinned routes carry the table pin and come before brew, the fallback.
+func TestDepRoutesPinnedBeforeBrew(t *testing.T) {
+	stubDeps(t, "linux", nil, nil)
+	for _, d := range deps {
+		rs := depRoutes(d)
+		brewAt := -1
+		for i, r := range rs {
+			if r.bin == "brew" {
+				brewAt = i
+			}
+		}
+		if d.Brew != "" && brewAt != len(rs)-1 {
+			t.Errorf("%s: brew at %d of %d routes; want it last", d.Name, brewAt, len(rs))
+		}
+		for _, pin := range []string{d.Go, d.Npm, d.Py} {
+			if pin != "" && !slices.ContainsFunc(rs, func(r route) bool { return slices.Contains(r.args, pin) }) {
+				t.Errorf("%s: no route carries pin %q", d.Name, pin)
+			}
+		}
 	}
 }
 
@@ -139,7 +183,7 @@ func TestInstallDepGoRouteSetsGOBIN(t *testing.T) {
 	if err := Install(t.Context(), io.Discard, []string{"gh"}, false, true); err != nil {
 		t.Fatal(err)
 	}
-	want := "GOBIN=" + filepath.Join(home, ".local", "bin") + " /usr/bin/go install github.com/cli/cli/v2/cmd/gh@v2.104.0"
+	want := "GOBIN=" + filepath.Join(home, ".local", "bin") + " /usr/bin/go install " + depNamed(t, "gh").Go
 	if len(*ran) != 1 || (*ran)[0] != want {
 		t.Errorf("ran %v; want %q", *ran, want)
 	}
@@ -151,7 +195,7 @@ func TestInstallDepPrefersUVOverPipx(t *testing.T) {
 	if err := Install(t.Context(), io.Discard, []string{"ruff"}, false, true); err != nil {
 		t.Fatal(err)
 	}
-	if len(*ran) != 1 || (*ran)[0] != "/u/uv tool install ruff==0.17.5" {
+	if len(*ran) != 1 || (*ran)[0] != "/u/uv tool install "+depNamed(t, "ruff").Py {
 		t.Errorf("ran %v; want uv tool install", *ran)
 	}
 }

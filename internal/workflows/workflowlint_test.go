@@ -200,11 +200,29 @@ func TestWorkflowLintInlineUnpinnedFillsModel(t *testing.T) {
 	wfLintArgsK1(t, doc)
 }
 
+type lintFixCase struct{ name, script, saved, byName, want, note string }
+
+// lintFixRun lints c's workflow (inline, saved or by name) and returns the rewrite and the saved file's path, if any.
+func lintFixRun(t *testing.T, c lintFixCase) (doc wfLintInlineDoc, path string) {
+	t.Helper()
+	_, path = wfLintConfig(t, &c.byName)
+	in := wfM{"name": "gate-loop"}
+	if c.script != "" {
+		in = wfM{"script": c.script}
+	} else if c.saved != "" {
+		path = wfLintSaved(t, "saved.js", c.saved)
+		in = wfM{"scriptPath": path}
+	}
+	code, out, errb := runWorkflowLint(wfLintPayload(t, in))
+	if code != core.ExitProceed {
+		t.Fatalf("exit = %d, want a rewrite (stderr=%q)", code, errb)
+	}
+	return decodeWfLintInline(t, out), path
+}
+
 // A case-only pin miss is lowercased and a saved unpinned call is pinned, both sent as one inline rewrite.
 func TestWorkflowLintAutofix(t *testing.T) {
-	cases := []struct {
-		name, script, saved, byName, want, note string
-	}{
+	cases := []lintFixCase{
 		{name: "inline case fold", script: "agent('x', { model: 'Sonnet', effort: 'HIGH' });\n",
 			want: "agent('x', { model: 'sonnet', effort: 'high' });\n", note: "effort:'HIGH' → 'high'"},
 		{name: "scriptPath unpinned", saved: "agent('x', { label: 'l' });\n",
@@ -216,19 +234,7 @@ func TestWorkflowLintAutofix(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, path := wfLintConfig(t, &c.byName)
-			in := wfM{"name": "gate-loop"}
-			if c.script != "" {
-				in = wfM{"script": c.script}
-			} else if c.saved != "" {
-				path = wfLintSaved(t, "saved.js", c.saved)
-				in = wfM{"scriptPath": path}
-			}
-			code, out, errb := runWorkflowLint(wfLintPayload(t, in))
-			if code != core.ExitProceed {
-				t.Fatalf("exit = %d, want a rewrite (stderr=%q)", code, errb)
-			}
-			doc := decodeWfLintInline(t, out)
+			doc, path := lintFixRun(t, c)
 			if got, _ := doc.HSO.UpdatedInput["script"].(string); got != c.want || doc.HSO.UpdatedInput["scriptPath"] != nil {
 				t.Errorf("updatedInput = %v, want script %q only", doc.HSO.UpdatedInput, c.want)
 			}

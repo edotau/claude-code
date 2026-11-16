@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,14 @@ func claimEdit(t *testing.T, repo string, owner int, session, rel string) {
 	Claim(claimInput(t, map[string]any{"session_id": session, "cwd": repo, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": rel}}))
 	useClaimOwner(t, checkerOwner) // the checks that follow run as another process
+}
+
+// resetClaimCase forgets every recorded claim, so cases can share one fixture repo.
+func resetClaimCase(t *testing.T) {
+	t.Helper()
+	if err := os.RemoveAll(worktree.ClaimsDir()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func claimCheckOn(t *testing.T, repo, session, tool string, input map[string]any) core.Result {
@@ -537,7 +546,10 @@ func TestClaimCheckHintIsNonInteractive(t *testing.T) {
 // TestClaimCheckCleanRetiresOlderClaims: a claimed file seen clean drops claims made before; a later claim still asks.
 func TestClaimCheckCleanRetiresOlderClaims(t *testing.T) {
 	now := time.Now().Unix()
-	for _, tc := range []struct {
+	t.Setenv("GIT_COMMITTER_DATE", time.Now().Add(-time.Hour).Format(time.RFC3339))
+	repo := claimFixture(t)
+	b := filepath.Join(repo, "b.txt")
+	for i, tc := range []struct {
 		name       string
 		peerDirty  bool
 		claimAfter bool
@@ -548,19 +560,19 @@ func TestClaimCheckCleanRetiresOlderClaims(t *testing.T) {
 		{"peer claims again after the clean", false, true, core.Ask},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("GIT_COMMITTER_DATE", time.Now().Add(-time.Hour).Format(time.RFC3339))
-			repo := claimFixture(t)
-			b := filepath.Join(repo, "b.txt")
+			resetClaimCase(t)
+			session := "B" + strconv.Itoa(i) // clean marks live in the session's seen store
+			hosttest.WriteRel(t, repo, "b.txt", "b\n")
 			appendClaims(claimsFile(liveOwner, "A"), []worktree.Claim{{Path: b, TS: now - 60}})
 			if tc.peerDirty {
 				hosttest.WriteRel(t, repo, "b.txt", "A's edit\n")
 			}
-			claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": b})
+			claimCheckOn(t, repo, session, "Edit", map[string]any{"file_path": b})
 			hosttest.WriteRel(t, repo, "b.txt", "B's edit\n")
 			if tc.claimAfter {
 				appendClaims(claimsFile(liveOwner, "A"), []worktree.Claim{{Path: b, TS: now + 60}})
 			}
-			if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt"}); r.Decision != tc.want {
+			if r := claimCheckOn(t, repo, session, "Bash", map[string]any{"command": "git add b.txt"}); r.Decision != tc.want {
 				t.Fatalf("git add b.txt: %v %q; want %v", r.Decision, r.Reason, tc.want)
 			}
 		})
@@ -581,6 +593,7 @@ func TestClaimCheckInterruptedOrCutLeafEnded(t *testing.T) {
 		maxTok = `{"type":"assistant","message":{"stop_reason":"max_tokens","content":[{"type":"text","text":"x"}]}}`
 		resume = `{"type":"user","isMeta":true,"message":{"content":"Output token limit hit. Resume directly"}}`
 	)
+	repo := claimFixture(t)
 	for _, tc := range []struct {
 		name  string
 		lines []string
@@ -596,7 +609,7 @@ func TestClaimCheckInterruptedOrCutLeafEnded(t *testing.T) {
 		{"resumed after interrupt", []string{work, cut, work}, core.Ask},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := claimFixture(t)
+			resetClaimCase(t)
 			useClaimOwner(t, liveOwner)
 			tr := filepath.Join(t.TempDir(), "S.jsonl")
 			hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", strings.Join(tc.lines, "\n")+"\n")
@@ -614,6 +627,8 @@ func TestClaimCheckInterruptedOrCutLeafEnded(t *testing.T) {
 
 // TestClaimCheckDryRunAndIntentStageNothing: a dry run or intent-to-add passes; staging or commit -n blocks.
 func TestClaimCheckDryRunAndIntentStageNothing(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
 	for _, tc := range []struct {
 		command string
 		want    core.Decision
@@ -630,8 +645,6 @@ func TestClaimCheckDryRunAndIntentStageNothing(t *testing.T) {
 		{"git add -n a.txt && git add a.txt", core.Block},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
-			repo := claimFixture(t)
-			claimEdit(t, repo, liveOwner, "A", "a.txt")
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
 				"tool_name": "Bash", "tool_input": map[string]any{"command": tc.command}}))
 			if r.Decision != tc.want {
