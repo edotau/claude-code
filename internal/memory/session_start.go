@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
-	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
-	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // hasBank is bankExists behind a seam; tests count the bank probes one start makes.
@@ -454,67 +453,30 @@ func nativeLinked(root, dir string) bool {
 // sectionBody is the text under "## heading" up to the next "## " heading; "" when absent or empty.
 func sectionBody(text, heading string) string { return sectionBodies(text, heading)[0] }
 
-// sectionBodies is sectionBody per heading from one AST parse, so a "## " line inside a fence never ends a section.
+// sectionBodies is sectionBody per heading from one heading scan, so a "## " line inside a fence never ends a section.
 func sectionBodies(text string, headings ...string) []string {
-	doc := markdown.Parse([]byte(text))
-	heads := level2Headings(doc)
+	_, body := textutil.StripFrontMatter([]byte(text))
+	var heads []textutil.Heading
+	for _, h := range textutil.Headings(body) {
+		if h.Level == 2 && h.Text != "" { // a bare "## " has no title
+			heads = append(heads, h)
+		}
+	}
 	out := make([]string, len(headings))
 	for n, heading := range headings {
 		for i, h := range heads {
-			if !strings.EqualFold(h.title, heading) {
+			if !strings.EqualFold(h.First, heading) {
 				continue
 			}
-			end := len(doc.Body)
+			end := len(body)
 			if i+1 < len(heads) {
-				end = heads[i+1].lineStart
+				end = heads[i+1].Start
 			}
-			out[n] = strings.TrimSpace(string(doc.Body[h.lineEnd:end]))
+			out[n] = strings.TrimSpace(string(body[h.End:end]))
 			break
 		}
 	}
 	return out
-}
-
-// headingSpan is a level-2 ("## ") heading's title and the byte range of its own line, body-relative.
-type headingSpan struct {
-	title              string
-	lineStart, lineEnd int
-}
-
-// level2Headings returns every "## " heading's title and line span, read against the front-matter-free doc.Body.
-func level2Headings(doc *markdown.Document) []headingSpan {
-	var out []headingSpan
-	_ = mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
-		if !entering {
-			return mdast.WalkContinue, nil
-		}
-		hn, ok := n.(*mdast.Heading)
-		if !ok || hn.Level != 2 {
-			return mdast.WalkContinue, nil
-		}
-		if hn.Lines().Len() == 0 { // a bare "## " has no title and no segment to locate it by
-			return mdast.WalkContinue, nil
-		}
-		out = append(out, headingLineSpan(doc.Body, hn))
-		return mdast.WalkContinue, nil
-	})
-	return out
-}
-
-func headingLineSpan(body []byte, hn *mdast.Heading) headingSpan {
-	seg := hn.Lines().At(0)
-	lineStart := seg.Start
-	for lineStart > 0 && body[lineStart-1] != '\n' {
-		lineStart--
-	}
-	lineEnd := seg.Stop
-	for lineEnd < len(body) && body[lineEnd] != '\n' {
-		lineEnd++
-	}
-	if lineEnd < len(body) {
-		lineEnd++
-	}
-	return headingSpan{title: string(seg.Value(body)), lineStart: lineStart, lineEnd: lineEnd}
 }
 
 const truncatedNotice = "\n<!-- (surface truncated) -->"

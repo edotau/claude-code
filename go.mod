@@ -5,7 +5,6 @@ go 1.27.4
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/github/copilot-sdk/go v1.0.28
-	github.com/jeduden/mdsmith v0.57.0
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/sys v0.49.0
 )
@@ -23,6 +22,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
+	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -32,5 +32,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 )

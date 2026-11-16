@@ -1,11 +1,8 @@
 package textutil
 
 import (
-	"bytes"
 	"slices"
 	"testing"
-
-	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
 // A CRLF (or BOM-prefixed) agent.md must not silently parse as all-body — that drops `name:`.
@@ -89,22 +86,39 @@ func TestParseFrontmatterContinuationLineJoinsDescription(t *testing.T) {
 	}
 }
 
-// StripFrontMatter must match mdsmith's StripFrontMatter byte for byte (the dependency it replaces).
-func TestStripFrontMatterMatchesMdsmith(t *testing.T) {
-	cases := []string{
-		"", "plain body\n", "x\n---\na: b\n---\nbody\n", "---\na: b\nbody only, unterminated\n",
-		"---  \na: b\n---\nbody\n", "---\na: b\n---  \nbody\n", "---\n---\nbody\n", "---\n---\n", "---\n", "---",
-		"---\na: b\n...\nbody\n", "---\na: b\n---", "---\na: b\n---\nbody\n---\nmore\n", "---\na: |\n  ---\n  x\n---\nb\n",
-		"---\n\n---\nbody\n", "---\r\na: b\r\n---\r\n",
+// StripFrontMatter anchors the closing fence at a line start and never treats a bare or CRLF fence as front matter.
+func TestStripFrontMatterFences(t *testing.T) {
+	cases := []struct {
+		in      string
+		prefix  *string
+		content string
+	}{
+		{"", nil, ""},
+		{"plain body\n", nil, "plain body\n"},
+		{"x\n---\na: b\n---\nbody\n", nil, "x\n---\na: b\n---\nbody\n"},
+		{"---\na: b\nbody only, unterminated\n", nil, "---\na: b\nbody only, unterminated\n"},
+		{"---  \na: b\n---\nbody\n", nil, "---  \na: b\n---\nbody\n"},
+		{"---\na: b\n---  \nbody\n", nil, "---\na: b\n---  \nbody\n"},
+		{"---\n---\nbody\n", ptr("---\n---\n"), "body\n"},
+		{"---\n---\n", ptr("---\n---\n"), ""},
+		{"---\n", nil, "---\n"},
+		{"---", nil, "---"},
+		{"---\na: b\n...\nbody\n", nil, "---\na: b\n...\nbody\n"},
+		{"---\na: b\n---", nil, "---\na: b\n---"},
+		{"---\na: b\n---\nbody\n---\nmore\n", ptr("---\na: b\n---\n"), "body\n---\nmore\n"},
+		{"---\na: |\n  ---\n  x\n---\nb\n", ptr("---\na: |\n  ---\n  x\n---\n"), "b\n"},
+		{"---\n\n---\nbody\n", ptr("---\n\n---\n"), "body\n"},
+		{"---\r\na: b\r\n---\r\n", nil, "---\r\na: b\r\n---\r\n"},
 	}
 	for _, c := range cases {
-		wp, wc := markdown.StripFrontMatter([]byte(c))
-		gp, gc := StripFrontMatter([]byte(c))
-		if (wp == nil) != (gp == nil) || !bytes.Equal(wp, gp) || !bytes.Equal(wc, gc) {
-			t.Errorf("%q: got (%q,%q), want (%q,%q)", c, gp, gc, wp, wc)
+		gp, gc := StripFrontMatter([]byte(c.in))
+		if (gp == nil) != (c.prefix == nil) || (c.prefix != nil && string(gp) != *c.prefix) || string(gc) != c.content {
+			t.Errorf("%q: got (%q,%q), want (%v,%q)", c.in, gp, gc, c.prefix, c.content)
 		}
 	}
 }
+
+func ptr(s string) *string { return &s }
 
 // An indented "---" inside a description block scalar is not the closing fence, which only matches at line start.
 func TestParseFrontmatterBlockScalarContainingDashes(t *testing.T) {

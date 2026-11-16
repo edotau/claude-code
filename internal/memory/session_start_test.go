@@ -623,3 +623,18 @@ func TestRepoFocusReadsTheBanksTypedFiles(t *testing.T) {
 		}
 	})
 }
+
+// sectionBody skips front matter and fenced "## " lines and ends a section at a setext "---" heading.
+func TestSectionBodyHeadingEdges(t *testing.T) {
+	cases := []struct{ name, text, want string }{
+		{"front matter", "---\nname: x\n---\n## Focus\nbody\n", "body"},
+		{"tilde fence", "## Focus\n~~~~\n## nope\n~~~\nstill\n~~~~\nend\n## Next\nx\n", "~~~~\n## nope\n~~~\nstill\n~~~~\nend"},
+		{"setext ends section", "## Focus\nbody\n\nNext\n----\nx\n", "body"},
+		{"crlf", "## Focus\r\nbody\r\n## Next\r\nx\r\n", "body"},
+	}
+	for _, c := range cases {
+		if got := sectionBody(c.text, "Focus"); got != c.want {
+			t.Errorf("%s: sectionBody = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

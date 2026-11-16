@@ -20,13 +20,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
-	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
-	"github.com/jeduden/mdsmith/pkg/markdown"
-
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md, reusing a mirrored dest.
@@ -147,24 +145,19 @@ func dropRecord(record string, stderr io.Writer) {
 	}
 }
 
-// planHeading is a heading's level and text from the plan AST; a "#" in a code fence or front matter never yields one.
+// planHeading is a heading's level and text; a "#" in a code fence or front matter never yields one.
 type planHeading struct {
 	level int
 	text  string
 }
 
-// planHeadings walks body's parsed markdown AST for every heading, in document order.
+// planHeadings scans body for every heading, in document order.
 func planHeadings(body []byte) []planHeading {
-	doc := markdown.Parse(body)
+	_, body = textutil.StripFrontMatter(body)
 	var out []planHeading
-	_ = mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
-		if entering {
-			if h, ok := n.(*mdast.Heading); ok {
-				out = append(out, planHeading{level: h.Level, text: string(h.Lines().Value(doc.Body))})
-			}
-		}
-		return mdast.WalkContinue, nil
-	})
+	for _, h := range textutil.Headings(body) {
+		out = append(out, planHeading{level: h.Level, text: h.Text})
+	}
 	return out
 }
 
