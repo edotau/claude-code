@@ -41,7 +41,7 @@ func Tick(root, planPath, sha string, files []string) (ticked, partial []string,
 	return ticked, partial, err
 }
 
-// tickCommits ticks per commit under one lock, a task completing once the range's union covers it; dryRun skips writing.
+// tickCommits ticks per commit under one lock, a task completing once the range's union covers it; dryRun skips writes.
 func tickCommits(root, planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text

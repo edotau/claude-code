@@ -47,7 +47,7 @@ func CopilotHome() (string, error) {
 	return filepath.Join(home, ".copilot"), nil
 }
 
-// OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode); with no home, a dir under the private noHomeRoot.
+// OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode); with no home, under noHomeRoot.
 func OpencodeDataDir() string {
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {

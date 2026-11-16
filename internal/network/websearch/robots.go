@@ -64,7 +64,7 @@ func addRobotsRule(groups map[string][]robotsRule, agents []string, allow bool, 
 	}
 }
 
-// robotsDisallows applies longest-match semantics (Allow wins ties) and reports whether the deciding rule is a Disallow.
+// robotsDisallows applies longest-match semantics (Allow wins ties) and reports whether the winner is a Disallow.
 func robotsDisallows(rules []robotsRule, path string) bool {
 	var best robotsRule
 	found := false
@@ -121,7 +121,7 @@ var robotsCache = struct {
 	m map[string]robotsEntry
 }{m: map[string]robotsEntry{}}
 
-// robotsAllowed reports whether robots.txt permits u; missing allows, unreadable (5xx/transport) refuses and joins dead.
+// robotsAllowed reports whether robots.txt permits u; missing allows, unreadable (5xx/transport) refuses into dead.
 func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	origin := u.Scheme + "://" + u.Host
 	if dead[origin] {
@@ -134,7 +134,7 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 	return ok && !robotsDisallows(rules, u.RequestURI())
 }
 
-// cachedRobotsRules is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched, parsed and cached.
+// cachedRobotsRules is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched and cached.
 func cachedRobotsRules(ctx context.Context, origin string) ([]robotsRule, bool) {
 	robotsCache.Lock()
 	e, ok := robotsCache.m[origin]

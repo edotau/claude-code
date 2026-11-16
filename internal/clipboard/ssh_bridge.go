@@ -147,7 +147,7 @@ func serveConn(w io.Writer, in net.Conn, home string, png func(io.Writer) error)
 	return serveFile(w, home, req.Path)
 }
 
-// readReqLine reads the request line; silence for serveReqWait means an old client, but a started line is awaited in full.
+// readReqLine reads the request line; silence for serveReqWait means an old client, a started line is awaited.
 func readReqLine(in net.Conn) ([]byte, bool) {
 	_ = in.SetReadDeadline(time.Now().Add(serveReqWait))
 	br := bufio.NewReaderSize(in, 4096)
@@ -318,7 +318,7 @@ func secretRoots(home string) []string {
 	return withTargets(named)
 }
 
-// logServed appends the served path (never its bytes) to the clip-serve log; an error means the file must not be served.
+// logServed appends the served path (never its bytes) to the clip-serve log; an error means do not serve.
 func logServed(home, path string) error {
 	log := filepath.Join(home, ".claude", "state", "harness", "clip-serve.log")
 	if err := os.MkdirAll(filepath.Dir(log), 0o700); err != nil {

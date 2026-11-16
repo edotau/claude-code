@@ -48,7 +48,7 @@ var ScrubDeny = append(slices.Clone(AnthropicStripEnv), []string{
 	"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG",
 }...)
 
-// ScrubDenyCredentials is ScrubDeny plus every credential-shaped name glob, for a child whose credential owner is unknown.
+// ScrubDenyCredentials is ScrubDeny plus every credential-shaped name glob, for a child of unknown credential owner.
 var ScrubDenyCredentials = append(slices.Clone(ScrubDeny), "*_KEY", "*_TOKEN", "*_SECRET", "*_PASSWORD", "*_CREDENTIALS")
 
 // OwnLoginEnv is each agent's own sign-in credential env by agent name; a Databricks overlay hop holds none of them.
@@ -108,7 +108,7 @@ func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped
 	return kept, dropped
 }
 
-// EnvBlocked reports whether name is one a launch never passes through (ScrubDeny, scrubAgentOnlyDeny, anything HARNESS_*).
+// EnvBlocked reports whether a launch never passes name through (ScrubDeny, scrubAgentOnlyDeny, HARNESS_*).
 func EnvBlocked(name string) bool {
 	return strings.HasPrefix(name, "HARNESS_") || denied(name, ScrubDeny) || denied(name, scrubAgentOnlyDeny)
 }
