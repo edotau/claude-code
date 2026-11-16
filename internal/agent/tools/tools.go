@@ -34,10 +34,11 @@ type tool struct {
 	UserLocal bool
 	// OwnTarget: the installer ignores dir and names its own target, so runOne prints no "into" line.
 	OwnTarget bool
+	dep       *dep // a host-tool row (deps.go): installed only when missing, one status line
 }
 
-// tools is the install table in roster order; npmPackages must cover entries that also ship via npm.
-var tools = []tool{
+// tools is the install table in roster order, then the host tools; npmPackages covers entries also shipped via npm.
+var tools = append([]tool{
 	{Name: agentid.Claude, Binary: agentid.Claude, Install: installClaude, UserLocal: true},
 	{Name: agentid.Copilot, Binary: agentid.Copilot, Install: installCopilot},
 	{Name: agentid.Codex, Binary: agentid.Codex, Install: installCodex},
@@ -47,7 +48,7 @@ var tools = []tool{
 	{Name: "tailscale", Binary: "tailscale", Install: installTailscale, OwnTarget: true},
 	{Name: "browser", Install: installBrowser, Hint: "claude-code network browser --setup; CDP + chrome-devtools-mcp on WSL"},
 	{Name: "clipboard", Install: installClipboard, Hint: "WSL only: wl-paste proxy for image paste"},
-}
+}, depTools()...)
 
 // Names lists every tool in roster order.
 func Names() []string {
@@ -73,7 +74,13 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOn
 		return err
 	}
 	var errs []error
+	header := false
 	for _, t := range sel {
+		if t.dep != nil {
+			header = depHeader(w, header)
+			installDep(ctx, w, *t.dep, dryRun)
+			continue
+		}
 		old := installedBin(t)
 		if missingOnly && (t.Binary == "" || old != "") {
 			continue
@@ -340,7 +347,7 @@ type Status struct {
 func StatusAll() []Status {
 	var out []Status
 	for _, t := range tools {
-		if t.Binary != "" { // a setup-only row (browser) has no binary to report; doctor has its own browser row
+		if t.Binary != "" && t.dep == nil { // setup-only rows have no binary; host tools report via DepStatusAll
 			out = append(out, statusOne(t))
 		}
 	}

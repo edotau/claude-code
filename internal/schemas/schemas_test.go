@@ -208,6 +208,7 @@ var writers = map[string]string{
 	"internal/memory/bank_settle.go:rotateSessionHistory":       unversioned("memory-bank: sessionHistory rotation"),
 	"internal/memory/sandbox.go:sandboxFlat":                    unversioned("marker: flat layout stamp in a disposable sandbox"),
 	"internal/memory/sandbox.go:placeStoreRels":                 unversioned("memory-bank: disposable flat sandbox copy"),
+	"internal/memory/store_identity.go:originRemoteURL":         unversioned("cache: a checkout's origin remote URL under its git config stamp"),
 	"internal/memory/bank.go:requireFlat":                       unversioned("marker: flat-layout stamp of a fresh store"),
 	"internal/memory/bank.go:recordOrigin":                      unversioned("text: flat bank key to origin map"),
 	"internal/memory/sandbox.go:recordSandbox":                  unversioned("marker: sandbox owner pid and start"),
