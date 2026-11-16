@@ -23,11 +23,20 @@ paths:
 - A fresh install (file missing) seeds it from `internal/settings/template.json` plus the hook chain in
   `internal/settings/hookspec.go`. `make install` never writes an existing file; its only audit is validity.
 - Host tools live in `internal/agent/tools/deps.go`; `install --tools --missing` (run by `make install`) installs
-  only absent ones through brew, `go install`, npm or uv/pipx and prints ok / installed / skipped per tool. A skip or
-  failed install never fails `make install`, no root command runs (apt is a printed hint), and `doctor` shows a
-  `dep <name>` row.
+  only absent ones through `go install`, npm, uv/pipx or, as the fallback, brew and prints ok / installed / skipped
+  per tool; a bare `install --dry-run` lists them. A skip or failed install never fails `make install`, no root
+  command runs (apt is a printed hint), and `doctor` shows a `dep <name>` row.
 - `configure --restore` is the one reset (backup, then the clean render); `--check` and `--dry-run` are refused. A hook
   change in `hookspec.go` reaches an existing file only through it or a hand edit.
+- An existing `settings.json` needs the async Bash `PostToolUse` entry added by hand after `make install`, never
+  before the new binary is installed (an older one rejects `--async` and the Bash hooks stop running): remove `Bash`
+  from the sync `PostToolUse` matcher and add this entry. Without it both Bash hooks keep running synchronously.
+
+  ```json
+  {"matcher": "Bash", "hooks": [{"type": "command", "async": true, "timeout": 15,
+    "command": "$HOME/.claude/bin/claude-code hook PostToolUse --async"}]}
+  ```
+
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.
 - Confirm a new field's name and shape against the schema (`internal/settings/claude-code-settings.schema.json`,
   from <https://www.schemastore.org/claude-code-settings.json>) first.
