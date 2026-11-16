@@ -786,7 +786,7 @@ func TestGatewayRouteRefusesModelNoEndpointServes(t *testing.T) {
 	}
 }
 
-// TestGatewayRouteNamesBadFallbackEnv: a bad AGENT_ERROR_FALLBACK is reported as the variable, not as a --fallback flag.
+// TestGatewayRouteNamesBadFallbackEnv: a bad AGENT_ERROR_FALLBACK is reported as the variable, not a --fallback flag.
 func TestGatewayRouteNamesBadFallbackEnv(t *testing.T) {
 	t.Setenv(router.EnvFallback, "pinn")
 	code, _, errOut := hosttest.CaptureOutput(t, func() int { return gatewayRoute(nil) })
