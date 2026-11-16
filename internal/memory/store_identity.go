@@ -34,8 +34,7 @@ var identities sync.Map
 // Resolve maps root to its canonical identity; any git failure is the home tier, never an error.
 func Resolve(root string) Identity { return resolveWith(root, gitMain) }
 
-// gitMain is root's main checkout per git, "" outside a repo; a caller that already ran it passes the answer on.
-// definitive is false when git itself failed (timeout, spawn), so "" may not mean a non-repo.
+// gitMain is root's main checkout per git, "" outside a repo; definitive is false when git itself failed.
 func gitMain(root string) (top string, definitive bool) {
 	definitive = true
 	top = paths.MainCheckout(root, func(dir string, args ...string) (string, error) {

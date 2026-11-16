@@ -42,7 +42,7 @@ func TestCatchUpSweepDryRunListsMissedSession(t *testing.T) {
 	}
 }
 
-// Given transcripts from each entrypoint, When classified, Then IDE and desktop sessions are people and sdk-* runs are workers.
+// Given transcripts from each entrypoint, When classified, Then IDE and desktop are people and sdk-* are workers.
 func TestTranscriptInteractiveByEntrypoint(t *testing.T) {
 	dir := t.TempDir()
 	for entry, want := range map[string]bool{"cli": true, "claude-vscode": true, "claude-desktop": true, "sdk-cli": false, "sdk-ts": false} {

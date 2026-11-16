@@ -53,10 +53,7 @@ func referenceCalls(t *testing.T, memDir string) map[string]bool {
 	return seen
 }
 
-// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb Go's Reference(verb) is actually
-// called with (grepped from internal/memory source, not hardcoded) resolves to a non-empty
-// embedded prompt — commands/reflection and skills/reflection/references are gone, so this is the
-// drift check that used to compare against on-disk files.
+// TestGoReferenceCallsResolveToEmbeddedPrompts: every verb passed to Reference (grepped) has a prompt.
 func TestGoReferenceCallsResolveToEmbeddedPrompts(t *testing.T) {
 	seen := referenceCalls(t, ".")
 	if len(seen) == 0 {

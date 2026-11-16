@@ -57,8 +57,7 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 	}
 }
 
-// TestSettleBankLockLivesUnderStateNotStore: settleBank's physical lock is BankLockPath() under state
-// — never a dotfile beside the committed bank files.
+// TestSettleBankLockLivesUnderStateNotStore: settleBank locks BankLockPath() under state, not a dotfile in the store.
 func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
 	root := repoRoot(t, "proj")
@@ -84,8 +83,7 @@ func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 // fakeCredential builds a credential-shaped string at runtime; it is not a real secret.
 func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y_", 6) }
 
-// TestSettleBankIgnoresAnotherReposCredentialFile: Given a credential-shaped file in another repo's memory dir, When
-// this repo settles, Then it commits and leaves that file alone; the same file in the settled dir is still refused.
+// TestSettleBankIgnoresAnotherReposCredentialFile: a credential-shaped file in another repo's dir is left alone.
 func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

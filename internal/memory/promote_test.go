@@ -10,8 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// seedConventionBlock plants one id-marked conventions.md bullet in root's local bank via Remember,
-// returning its id — the subject every Promote test moves/surfaces.
+// seedConventionBlock plants one id-marked conventions.md bullet in root's local bank and returns its id.
 func seedConventionBlock(t *testing.T, root string) string {
 	t.Helper()
 	id, err := Remember(root, "feedback", "promote me to home", time.Now())
@@ -21,8 +20,7 @@ func seedConventionBlock(t *testing.T, root string) string {
 	return id
 }
 
-// TestPromoteHomeMovesExactlyOneBlock: --dry-run first prints the move without touching either file; then
-// --to home removes the block from the local bank and adds it, unchanged (same id), to the matching home-bank file.
+// TestPromoteHomeMovesExactlyOneBlock: --dry-run touches nothing; --to home moves the block, same id, to the home bank.
 func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
@@ -93,8 +91,7 @@ func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
 	}
 }
 
-// TestPromoteJudgmentTargets: rules/skill/claude-md never move or copy the block — Go prints the block, the target,
-// and the embedded procedure inline; claude-md is refused outside a dream run.
+// TestPromoteJudgmentTargets: rules/skill/claude-md only print the block and procedure; claude-md needs a dream run.
 func TestPromoteJudgmentTargets(t *testing.T) {
 	ref, err := Reference("promote")
 	if err != nil {

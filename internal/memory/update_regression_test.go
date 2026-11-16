@@ -146,7 +146,7 @@ func TestUpdateReturnsReceiptWriteError(t *testing.T) {
 	}
 }
 
-// Given a peer holds the store lock, When a dispatched update gives up as busy, Then its bg stamp no longer claims the work.
+// Given a peer holds the store lock, When a dispatched update gives up as busy, Then its bg stamp claims no work.
 func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
@@ -184,7 +184,7 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	}
 }
 
-// Given an update for one repo, When its agent runs, Then the shared home bank's lock is held so other repos' agents queue.
+// Given an update for one repo, When its agent runs, Then the shared home bank's lock is held so other agents queue.
 func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)

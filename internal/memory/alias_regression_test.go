@@ -81,7 +81,7 @@ func TestPersistenceAliasDryRunRefusesReadErrors(t *testing.T) {
 	}
 }
 
-// Given a stray file in projects/, When the plan scans project links, Then it is skipped and the real link is still found.
+// Given a stray file in projects/, When the plan scans links, Then it is skipped and the real link is found.
 func TestAliasPlanSkipsStrayFileInProjects(t *testing.T) {
 	e := newAliasEnv(t)
 	link := filepath.Join(e.cfg, "projects", "p", "memory")

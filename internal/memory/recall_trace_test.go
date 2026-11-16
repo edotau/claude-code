@@ -51,8 +51,7 @@ func TestRecallLoadStopsAfterCut(t *testing.T) {
 	}
 }
 
-// TestRecallLoadSkipsWhatDoesNotFit: a later block too big for the rest is skipped whole, a smaller one after it still
-// loads, and the id wrappers count toward recallLoadCap.
+// TestRecallLoadSkipsWhatDoesNotFit: a too-big block is skipped whole, a smaller later one loads; id wrappers count.
 func TestRecallLoadSkipsWhatDoesNotFit(t *testing.T) {
 	tempConfig(t)
 	facts := []string{strings.Repeat("m", 3000), strings.Repeat("b", 2000), "small fact"}

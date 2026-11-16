@@ -226,7 +226,7 @@ func lockStoreIndex(t *testing.T) func() {
 	}
 }
 
-// TestRememberSettleFailureRollsBackTheWrite: a failed settle leaves the bank file as it was, so a retry is not a duplicate.
+// TestRememberSettleFailureRollsBackTheWrite: a failed settle leaves the bank file as it was; a retry is no duplicate.
 func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

@@ -53,7 +53,7 @@ type leaseEnv struct {
 
 const lease3Bank = "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\n## 2026-10-02 — delta <!-- id:aaaa0002 -->\n\nb2\n\n## 2026-10-03 — eps <!-- id:aaaa0003 -->\n\nb3\n"
 
-// The 1h lease end to end: mint, no-op inside it, re-mint after it, the 52m override window, the race, partial run, recall.
+// The 1h lease end to end: mint, no-op inside it, re-mint after it, the 52m override, the race, partial run, recall.
 func TestEmbedLeaseEndToEnd(t *testing.T) {
 	isolatedConfig1(t)
 	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"),
@@ -556,7 +556,7 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 	}
 }
 
-// Given a zero-byte or damaged embeddings.db, When refresh is due and a mint runs, Then the file is set aside and re-minted.
+// Given a zero-byte or damaged embeddings.db, When a due mint runs, Then the file is set aside and re-minted.
 func TestBrokenEmbedDBHeals(t *testing.T) {
 	for name, body := range map[string][]byte{"zero-byte": nil, "damaged": append([]byte("not a bbolt file"), make([]byte, 16384)...), "truncated": nil} {
 		t.Run(name, func(t *testing.T) {
@@ -621,7 +621,7 @@ func seedLegacy(t *testing.T, profile, model string, rows map[string]vectorRow) 
 	}
 }
 
-// The v2 per-profile records fold once into the shared cache: same-model rows deduped by id, other models and stamps dropped.
+// The v2 per-profile records fold once into the shared cache: same-model rows deduped by id, others dropped.
 func TestFoldLegacyMergesProfilesOfTheCurrentModel(t *testing.T) {
 	isolatedConfig1(t)
 	vec := encodeVec([]float32{1, 0, 0})

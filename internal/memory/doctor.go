@@ -142,7 +142,7 @@ func updateLogNote(log string) string {
 // journalGrace leaves an in-flight commit's journal alone; older ones are ones recovery keeps skipping.
 const journalGrace = 10 * time.Minute
 
-// journalProblems names each bank journal left on disk past the grace window, so a stuck one is seen, not retried silently.
+// journalProblems names each bank journal left on disk past the grace window, so a stuck one is seen.
 func journalProblems(now time.Time) []string {
 	entries, err := os.ReadDir(JournalDir())
 	if err != nil {

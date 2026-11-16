@@ -167,7 +167,7 @@ type e2eRun struct {
 
 const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
 
-// TestE2EMemoryLifecycle drives init -> session-start -> remember -> recall -> promote -> index through the real binary.
+// TestE2EMemoryLifecycle drives init, session-start, remember, recall, promote and index through the real binary.
 func TestE2EMemoryLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the claude-code binary")
@@ -425,8 +425,7 @@ func equalSnap(a, b map[string]string) bool {
 	return true
 }
 
-// decisionLogOver writes n decisionLog.md entries (newest-first), each carrying enough distinct
-// tokens to stay distinct.
+// decisionLogOver writes n newest-first decisionLog.md entries, each with enough distinct tokens to stay distinct.
 func decisionLogOver(t *testing.T, path string, n int) {
 	t.Helper()
 	var b strings.Builder

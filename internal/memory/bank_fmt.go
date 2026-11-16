@@ -26,7 +26,7 @@ var (
 	bankFmtSpan    = regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
 )
 
-// bankFmtTargetDirs are the subdirs of one bank dir whose *.md files get formatted; top-level files come from bankFiles.
+// bankFmtTargetDirs are the bank subdirs whose *.md files get formatted; top-level files come from bankFiles.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
 // bankFmtTargets lists every markdown file formatBank formats, across every repo store and home/.

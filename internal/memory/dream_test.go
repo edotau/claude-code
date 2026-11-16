@@ -159,7 +159,7 @@ func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
 	}
 }
 
-// Given a peer dreamed after this worker's due check, When the worker takes the lock, Then it skips and leaves the stamp.
+// Given a peer dreamed after this worker's due check, When it takes the lock, Then it skips and leaves the stamp.
 func TestDreamIfDueSkipsUnderLockWhenPeerJustDreamed(t *testing.T) {
 	isolatedConfig(t)
 	t.Setenv(UpdateChildEnv, "")

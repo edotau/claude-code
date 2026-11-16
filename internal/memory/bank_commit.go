@@ -144,7 +144,7 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	}
 	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, Schema: journalSchema}
 	for _, c := range changes {
-		pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel)) // nil when absent
+		pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel))
 		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}

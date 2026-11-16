@@ -59,7 +59,6 @@ func expireEmbed(t *testing.T) {
 	}
 }
 
-// wantEmbedded fails unless the run embedded wantN entries without error and the endpoint has seen wantCalls texts.
 // mustEntryHashes is currentEntryHashes for tests: it fails the test on a corpus read error.
 func mustEntryHashes(t *testing.T, root string) map[string]string {
 	t.Helper()
@@ -70,6 +69,7 @@ func mustEntryHashes(t *testing.T, root string) map[string]string {
 	return h
 }
 
+// wantEmbedded fails unless the run embedded wantN entries without error and the endpoint saw wantCalls texts.
 func wantEmbedded(t *testing.T, label string, n, calls int, err error, wantN, wantCalls int) {
 	t.Helper()
 	if err != nil || n != wantN || calls != wantCalls {
@@ -327,7 +327,7 @@ func vecServer(t *testing.T, hits *[]string, status int) *httptest.Server {
 	return srv
 }
 
-// With the router up, the query embedding goes through its /p/<profile>/openai/<model>/invocations path with the secret.
+// With the router up, the query embedding goes through its /p/<profile>/openai/<model>/invocations path.
 func TestEmbedGoesThroughRouterWithSecret(t *testing.T) {
 	var proxyHits, directHits []string
 	px, direct := vecServer(t, &proxyHits, 200), vecServer(t, &directHits, 200)
@@ -660,7 +660,7 @@ func TestSemanticCachePausedProfileFallsThrough(t *testing.T) {
 	}
 }
 
-// Given a vault lookup that blocks past the deadline, When semanticCache runs, Then it returns the budget error in time.
+// Given a vault lookup that blocks past the deadline, When semanticCache runs, Then it returns the budget error.
 func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_PROFILE", "pa")
@@ -685,7 +685,7 @@ func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
 	}
 }
 
-// Given a run snapshot naming the session profile, When embedProfiles walks, Then the snapshot's profile leads, not the ambient one.
+// Given a run snapshot naming the session profile, When embedProfiles walks, Then that profile leads.
 func TestEmbedProfilesFollowTheRunSnapshot(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_PROFILE", "ambient")

@@ -156,7 +156,7 @@ func countBankReads(t *testing.T) map[string]int {
 	return reads
 }
 
-// TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds a block in an archive.
+// TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds archives.
 func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
@@ -198,7 +198,7 @@ func firstBlockID(t *testing.T, data string) string {
 	return id
 }
 
-// assertShownFromArchive checks ShowBlock finds id in the archive, an unknown id reports errNoBlock, and the index line hides the raw marker.
+// assertShownFromArchive checks ShowBlock finds id in the archive, an unknown id gives errNoBlock, no raw marker shows.
 func assertShownFromArchive(t *testing.T, id, archive string) {
 	t.Helper()
 	if path, _, err := ShowBlock(id); err != nil || !strings.Contains(path, "archive") {
@@ -257,7 +257,7 @@ func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
 	}
 }
 
-// TestAssignIDsSameTextDifferentFilesGetDistinctIDs: the same block text stamped in two different typed files must not collide.
+// TestAssignIDsSameTextDifferentFilesGetDistinctIDs: the same block text stamped in two typed files must not collide.
 func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -447,7 +447,7 @@ func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 	}
 }
 
-// A long conventions bullet keeps its wrapped marker: a second settle rewrites no byte, and the catalog still sees its id.
+// A long conventions bullet keeps its wrapped marker: a second settle rewrites no byte and the catalog sees its id.
 func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "conventions.md")
