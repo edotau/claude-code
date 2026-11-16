@@ -13,7 +13,7 @@ Language specifics: `rules/software/<lang>/` (Go: `rules/harness/go.md`).
 
 ## Code Quality Checklist
 
-Functions < 50 lines, files < 1200 (test files < 1500), ≤ 25 imports per file, nesting ≤ 4 (early returns); no
+Functions ≤ 50 lines, files ≤ 1200 (test files ≤ 1500), ≤ 25 imports per file, nesting ≤ 4 (early returns); no
 hardcoded values, secrets or leftover debug prints. Enforced on new Go lines by `make lint` (`claude-code review
 simplify --fail`); trim comments first.
 

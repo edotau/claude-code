@@ -12,11 +12,12 @@ This repo's Go conventions (module `github.com/edotau/claude-code`). They win ov
 ## Layout and placement
 
 - `cmd/claude-code/main.go` wires and exits; all logic lives under `internal/<area>/`.
-- `internal/cli` is the command table, menu and dispatcher. A verb is one `internal/cli/<verb>.go` (+ `_test.go`) or a
-  table entry into the area package; the CLI file holds flags and output only (table-wired: `databricks`, `doctor`,
-  `network`, `usage`, `setup`).
+- `internal/cli` is the command table, menu and dispatcher. A verb is a `cmd<Verb>` function in `internal/cli/`
+  (usually in `<verb>.go` with `<verb>_test.go`; small verbs share their area's file) or a table entry into the area
+  package; the CLI file holds flags and output only (table-wired: `databricks`, `doctor`, `network`, `usage`,
+  `setup`).
 - Placement by importer count: a package more than one area imports stays top-level (`internal/router`,
-  `internal/tokenledger`); one area's helper nests under it (`internal/agent/tools`); a provider's code stays under
+  `internal/tokenledger`); one area's helper nests under it (`internal/agent/pack`); a provider's code stays under
   that provider (`internal/databricks/oauth`). External SDKs are boxed one package each.
 - No DI container, cobra or viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
 
@@ -52,8 +53,9 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
 
 - The comment cap (`rules/standards/quality.md` → Comments) applies to godoc too; a `Deprecated:` paragraph is exempt;
   a package narrative goes to `README.md`/`docs/`, never `doc.go` prose.
-- `.golangci.yml` uses `linters.default: none` plus an explicit `enable` list (`modernize` included); thresholds come
-  from `quality.md`, not upstream defaults.
+- `.golangci.yml` uses `linters.default: none` plus an explicit `enable` list (`modernize` included); its
+  one threshold is `gocognit` `min-complexity: 30`, and the `quality.md` size, import and nesting caps are enforced by
+  `claude-code review simplify --fail`, not golangci.
 - Process-wide state (`os.Setenv`, `os.Unsetenv`, `os.Clearenv`, `os.Chdir`) goes through `internal/proc`; `forbidigo`
   fails a direct call outside it, `internal/hosttest` and tests; per-run values travel on the context
   (`proc.WithValues`, `agent.RunValues`).

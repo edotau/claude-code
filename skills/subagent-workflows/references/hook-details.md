@@ -70,8 +70,9 @@ slots, recalls context and labels the row. Recall is a context note in auto mode
 `--fallback none`) a model that workspace's fresh cached listing does not serve, is denied with `agents ask`'s own
 preflight text plus the fix (code cannot pick the workspace or model); a stale or missing listing passes. The label is
 the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no `--model` runs its
-pin, else opus; claude runs the brief's alias), an untyped external dispatch takes the route ladder's first hop; a route
-that does not resolve offline leaves the description unlabelled with a note. Every fix (type, label, pin) rides one
+pin, else the model of the brief's task tier, opus when the brief has no text; claude runs the brief's alias), an
+untyped external dispatch takes the route ladder's first hop; a route that does not resolve offline leaves the
+description unlabelled with a note. Every fix (type, label, pin) rides one
 `updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
 Implementation: `internal/hooks/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In auto mode a
 rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a hook-modified input

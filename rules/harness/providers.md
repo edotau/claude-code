@@ -22,8 +22,9 @@ paths:
 
 - Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Built-in providers are
   `internal/providers/defaults.json`; a vault overlay row replaces one by name.
-- Agent settings are vault-only, one record per agent (`vault` AGENT table); `--model` beats them; `switch` and
-  `<agent> profile` write the record (no last-used profile exists).
+- Agent settings live in the vault, one record per agent (`vault` AGENT table); an external agent's shell
+  `<AGENT>_MODEL` outranks the record's `model`, and `--model` beats both; `switch` and `<agent> profile` write the
+  record (no last-used profile exists).
 - Agents run on their pins (gemini on Google); per-call routes use the overlay: keys, precedence and fallback in
   `agent.md` → Dispatch behavior. A standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
   (`claude-code vault env set\|unset COWORKER_OVERLAY`). Brief fields: `skills/subagent-workflows/SKILL.md`.
@@ -40,10 +41,11 @@ paths:
   [--all-profiles [--live]] --format json`. A model the workspace's fresh listing lacks is marked `served: no` with
   the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
   `unverified`.
-- **Profile order:** explicit `<profile>:` or overlay `profile` > unique provider-type prefix > `databricks:<m>` or
-  profile `auto` (first valid workspace in vault order dev, prod, qa; least-busy under `auto`) > the session profile
-  (with its model for the agent) > the agent record's profile (the pin); a pin on the agent's own sign-in row
-  (copilot's GitHub row, gemini's Google row) skips the session.
+- **Profile order:** a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
+  `provider`, then `account` > the session profile (with its model for the agent) > the agent record's profile or
+  account (the pin) > the registry default > the agent's own sign-in row. `databricks:<m>` or profile `auto` picks the
+  pool before these (first valid workspace in vault order dev, prod, qa; least-busy under `auto`); a pin on the
+  agent's own sign-in row (copilot's GitHub row, gemini's Google row) skips the session.
 - **`--profile` vs a prefix:** an interactive launch errors naming both; `agents ask` and dispatches let the prefix win
   with a note, but an overlay confinement refuses a prefix outside it.
 - **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);
@@ -66,8 +68,9 @@ the vault overlay map each alias per provider.
 - Model `auto` is the harness pick, never a wire id: a listed model named auto is ignored.
 - Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); an unlisted
   name is refused at preflight (with `--fallback` it falls back instead).
-- `opus` architecture and max-reasoning research; `sonnet` planning, review, orchestration, exploration (the default
-  `claude` leaf); `haiku` high-frequency cheap leaves; `gemini` sweeps beyond a session window (1M tokens).
+- `opus` architecture and max-reasoning research; `sonnet` planning, review, orchestration, exploration (an untyped
+  `claude` leaf gets sonnet for a standard-tier brief, haiku for fast, opus for deep); `haiku` high-frequency cheap
+  leaves; `gemini` sweeps beyond a session window (1M tokens).
 
 ## Served-aware Databricks routing
 
@@ -78,9 +81,10 @@ static menu: routing never touches the network.
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
   `<agent> profile`, `configure` exit and a detached `models preflight --refresh`
   at session start (≤ once per 15 minutes).
-- **A swap ignores the alias:** a pinned or explicit model that is not READY is replaced by the first READY entry in
-  menu order, so a sonnet dispatch can land on an opus endpoint; menu order is the control. The swap shows in
-  `gateway` skips.
+- **A swap ignores the alias:** an alias-derived pick (no `--model`, overlay `model` or record model) that is not
+  READY is replaced by the first READY entry in menu order, so a sonnet dispatch can land on an opus endpoint; menu
+  order is the control. A pinned or explicit model that is not READY is never swapped: its candidate is skipped
+  (`<m> is not served on <p>` in `gateway` skips).
 - **Live rescue:** a codex `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once on the next READY
   Responses model; an exact `--model` never retries. copilot and opencode have none: preflight refuses an unlisted name
   (a cold listing skips the check with a note).
@@ -105,11 +109,14 @@ static menu: routing never touches the network.
 - A u2m (`oauth`) row may pair a service principal: `auth.spClientId` plus sealed secret `DATABRICKS_<PROFILE>_M2M`;
   `identity` is `auto` (default) | `user` | `sp` (`claude-code databricks identity --profile <p> auto|user|sp`).
   Precedence: `--as` > the row's `identity` > `auto`.
-- `auto` tries the user token, then `oauth.MintM2M` on rejection or login-required, with a one-line stderr note; `user`
-  never mints the SP; `sp` mints only the SP. The SP never refreshes the user login.
+- `auto` serves the paired SP first when no user login is stored or a dead login is recorded; otherwise it tries the
+  user token, then `oauth.MintM2M` on rejection, login-required or an unreadable vault, with a one-line stderr note;
+  `user` never mints the SP; `sp` mints only the SP. The SP never refreshes the user login.
 - Headless dispatch (`agents ask`, `--batch`, `--background`, `--live`, `--host`) with no `--as` runs a paired `auto`
   row as its SP first, falling back to the user login with a note when the secret is missing or the mint rejected.
-  No credential path opens a browser except `databricks login` (not on an `sp` row) and an interactive prompt.
+  No credential path opens a browser except `databricks login` on a row with no stored SP secret (or `--as user`, or
+  `--remote`) and an interactive prompt; on an `sp` row, or an `auto` row with a stored SP secret, `login` mints the
+  SP.
 - A dead user login (`needs_login`) is remembered in `state/harness/cache/login-state/<profile>.json` (state and times
   only) and reported: `doctor` and `databricks check --all` say the SP covers, the status line shows
   `login:<profile>`, a proxy 401 names `claude-code --remote <host> databricks login --profile <p>`. It is not

@@ -20,8 +20,8 @@ rule or agent change that never reaches the sessions and agents that load it.
 1. **Settings or hooks** — edit `~/.claude/settings.json` by hand (`settings-management.md`, `hooks.md`), then
    `claude-code doctor`; a `hookspec.go` or `internal/hooks/` change also needs `make install` for native projections.
 2. **Agent or command renamed/moved** — layout rules in `rules/workflows/agents.md` → Agent and command files (a `name:`
-   mismatch silently breaks memory resolution); grep the old name and fix every caller in
-   the same commit.
+   that differs from the file stem fails `agents sync` and `doctor --prompts`); grep the old name and fix every caller
+   in the same commit.
 3. **Rule added or moved** — a rule without `paths:` loads into every prompt, so a new `workflows/` or `harness/` rule
    needs `paths:` (unscoped `standards/*.md` are the always-on core rendered to other agents); a moved rule's
    references (overlay "extends" links, the `CLAUDE.md` index, skills, commands) are fixed in the same commit.
