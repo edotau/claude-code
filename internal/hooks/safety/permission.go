@@ -60,7 +60,7 @@ func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result
 			j = agent.Permissions{Deny: p.Deny}
 		}
 		if decideCall(j, cwd, tool, arg) == agent.Deny {
-			return denyResult(p, agent.Rule{Tool: tool, Arg: arg})
+			return denyResult(p, cwd, agent.Rule{Tool: tool, Arg: arg})
 		}
 	}
 	return core.Result{}
@@ -139,8 +139,8 @@ func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result 
 		"\nPass an explicit path outside the denied scope, or report it."}
 }
 
-func explainDeniedCall(p agent.Permissions, call agent.Rule) agent.Denial {
-	d := p.Explain(call.Tool, call.Arg)
+func explainDeniedCall(p agent.Permissions, cwd string, call agent.Rule) agent.Denial {
+	d := p.ExplainAt(cwd, call.Tool, call.Arg)
 	alias := ""
 	switch call.Tool {
 	case "Edit":
@@ -149,15 +149,15 @@ func explainDeniedCall(p agent.Permissions, call agent.Rule) agent.Denial {
 		alias = "Read"
 	}
 	if alias != "" {
-		if other := p.Explain(alias, call.Arg); other.Source == "permissions.deny" {
+		if other := p.ExplainAt(cwd, alias, call.Arg); other.Source == "permissions.deny" {
 			d = other
 		}
 	}
 	return d
 }
 
-func denyResult(p agent.Permissions, call agent.Rule) core.Result {
-	d := explainDeniedCall(p, call)
+func denyResult(p agent.Permissions, cwd string, call agent.Rule) core.Result {
+	d := explainDeniedCall(p, cwd, call)
 	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
 	next := "\nReport it instead of retrying another way."
 	if seg := deniedSegment(p, call); seg != "" {

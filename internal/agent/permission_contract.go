@@ -19,13 +19,16 @@ type Denial struct {
 }
 
 // Explain returns zero for an allowed call; an allow remedy is offered only when that rule repairs Decide.
-func (p Permissions) Explain(tool, arg string) Denial {
-	if p.Decide(tool, arg) == Allow {
+func (p Permissions) Explain(tool, arg string) Denial { return p.ExplainAt("", tool, arg) }
+
+// ExplainAt is Explain for a call run in cwd, matching DecideAt.
+func (p Permissions) ExplainAt(cwd, tool, arg string) Denial {
+	if p.DecideAt(cwd, tool, arg) == Allow {
 		return Denial{}
 	}
 	d := Denial{Call: Rule{Tool: tool, Arg: arg}, Layer: "permissions"}
 	for _, r := range p.Deny {
-		if (Permissions{Deny: []Rule{r}}).Decide(tool, arg) == Deny {
+		if (Permissions{Deny: []Rule{r}}).DecideAt(cwd, tool, arg) == Deny {
 			d.Rule, d.Source = r, "permissions.deny"
 			d.Remedy = "remove or narrow the deciding deny rule at its source: " + r.String()
 			return d
