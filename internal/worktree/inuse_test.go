@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"errors"
 	"maps"
 	"os"
 	"os/exec"
@@ -287,6 +288,25 @@ func TestPeerAgentsScansOnceWithLinkedDirs(t *testing.T) {
 	}
 	if len(pids) != 2 || pids[0] != 101 || pids[1] != 105 {
 		t.Errorf("peers = %v, want [101 105] (linked and .git dirs skipped)", pids)
+	}
+}
+
+// A failed agent-only scan (denied sysctl, empty pid list) falls back to the full scan instead of reporting no peers.
+func TestPeerAgentsFallsBackWhenAgentScanFails(t *testing.T) {
+	co := "/co"
+	stubProcesses(t, nil)
+	parentOf = func(pid int) (int, error) { return 0, nil }
+	origScan, origAgents, origArgs, origName := scanProcs, scanAgentProcs, argvOf, commName
+	scanAgentProcs = func() ([]procCwd, error) { return nil, errors.New("sysctl denied") }
+	scanProcs = func() ([]procCwd, error) {
+		return []procCwd{{101, co, "claude"}, {102, "/co/src", "codex"}, {103, "/elsewhere", "claude"}}, nil
+	}
+	argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
+	commName = func(int) string { return "" }
+	t.Cleanup(func() { scanProcs, scanAgentProcs, argvOf, commName = origScan, origAgents, origArgs, origName })
+	got, err := PeerAgents(co, nil)
+	if err != nil || len(got) != 2 || got[0].PID != 101 || got[1].PID != 102 {
+		t.Fatalf("PeerAgents = %v, %v; want pids 101 and 102 from the full scan", got, err)
 	}
 }
 
