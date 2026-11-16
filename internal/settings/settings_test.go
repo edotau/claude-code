@@ -140,6 +140,8 @@ func TestCheckReportsSyntaxLocationAndSchemaErrors(t *testing.T) {
 		`{"cleanupPeriodDays": "7"}`:        "cleanupPeriodDays: want a number",
 		"{\n  \"model\": \"x\",\n  oops\n}": "line 3 col 4",
 		`[]`:                                "cannot unmarshal array",
+		`{"teammateDefaultModel": null}`:    "",
+		`{"model": null}`:                   "model: want a value, got null",
 		`null`:                              "not a JSON object",
 	} {
 		err := Check([]byte(in))

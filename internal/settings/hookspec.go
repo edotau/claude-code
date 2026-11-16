@@ -133,7 +133,7 @@ var Registry = []Group{
 		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
-		// One Stop hook: context checkpoint, then the memory update; only the update can block.
+		// One Stop hook: context checkpoint, then the memory update; neither blocks.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
@@ -156,7 +156,7 @@ var Registry = []Group{
 		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
-		// Each Write/Edit path (and each landed commit sha) appends to this session's claims ledger; never blocks.
+		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
 		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
 		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
