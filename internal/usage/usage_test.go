@@ -96,6 +96,22 @@ func TestUsageCmdSessionScope(t *testing.T) {
 	}
 }
 
+// usageFilesForSession matches the id literally and rejects one holding a path separator.
+func TestUsageFilesForSessionLiteralID(t *testing.T) {
+	claudeDir := t.TempDir()
+	want := writeUsageFixture(t, claudeDir, "-p", "s[1]", time.Hour, "{}")
+	writeUsageFixture(t, claudeDir, "-p", "s1", time.Hour, "{}") // what an unescaped `s[1]` glob would match
+	got, err := usageFilesForSession(claudeDir, "s[1]")
+	if err != nil || !reflect.DeepEqual(got, []string{want}) {
+		t.Errorf("usageFilesForSession(s[1]) = %v, %v; want [%s]", got, err, want)
+	}
+	for _, id := range []string{"../s1", `a\b`} {
+		if _, err := usageFilesForSession(claudeDir, id); err == nil {
+			t.Errorf("usageFilesForSession(%q) = nil error, want a rejection", id)
+		}
+	}
+}
+
 func TestUsageCmdNoMatches(t *testing.T) {
 	claudeDir := t.TempDir()
 	var out, errw bytes.Buffer

@@ -323,12 +323,18 @@ var readLedger = tokenledger.Read
 
 // usageFilesForSession globs every project dir for a session's subagent and workflow-agent transcripts.
 func usageFilesForSession(claudeDir, id string) ([]string, error) {
-	matches, err := transcript.SessionAgentFiles(filepath.Join(claudeDir, "projects", "*", id))
+	if strings.ContainsAny(id, `/\`) {
+		return nil, fmt.Errorf("usage: session id %q must not contain a path separator", id)
+	}
+	matches, err := transcript.SessionAgentFiles(filepath.Join(claudeDir, "projects", "*", sessionGlobLiteral(id)))
 	if err != nil {
 		return nil, fmt.Errorf("usage: glob session %s: %w", id, err)
 	}
 	return dedupeFiles(matches), nil
 }
+
+// sessionGlobLiteral escapes glob metacharacters as one-rune classes; ids holding `\` are rejected before this.
+var sessionGlobLiteral = strings.NewReplacer(`*`, `[*]`, `?`, `[?]`, `[`, `[[]`).Replace
 
 // usageFilesWithinDays keeps only subagent and workflow transcripts modified in the last N days, not whole histories.
 func usageFilesWithinDays(claudeDir string, days int, errw io.Writer) ([]string, error) {
