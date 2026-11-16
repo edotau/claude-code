@@ -10,17 +10,17 @@ import (
 
 // ModelSpec is a typed model string split at its "<profile>:" prefix.
 type ModelSpec struct {
-	Row      string // registry row the prefix names; "" when none was typed
-	ByType   bool   // the prefix was a provider type with exactly one row
-	Pool     bool   // the prefix was databricks: or auto:, the shared Databricks pool (no row)
-	Provider string // the pool's provider type, set with Pool
-	Model    string // the rest as typed, [1m] kept
+	Row      string
+	ByType   bool
+	Pool     bool
+	Provider string
+	Model    string
 }
 
 // ErrModelSpec marks a prefix naming no usable row; callers exit 2.
 var ErrModelSpec = errors.New("model spec")
 
-// SplitModelSpec reads "<row>:<model>", "<provider type>:<model>" (one row) or the pool; any other prefix stays in the model.
+// SplitModelSpec reads "<row>:<model>", "<provider type>:<model>" or the pool; any other prefix stays in the model.
 func SplitModelSpec(reg *Registry, spec string) (ModelSpec, error) {
 	spec = strings.TrimSpace(spec)
 	name, rest, ok := strings.Cut(spec, ":")
@@ -43,5 +43,6 @@ func SplitModelSpec(reg *Registry, spec string) (ModelSpec, error) {
 	if _, _, known := models.Resolve(rest); known {
 		return ModelSpec{}, fmt.Errorf("%w: --model %s: unknown profile %q", ErrModelSpec, spec, name)
 	}
-	return ModelSpec{Model: spec}, nil // a local tag such as qwen3:30b
+	// a local tag such as qwen3:30b
+	return ModelSpec{Model: spec}, nil
 }

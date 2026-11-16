@@ -11,9 +11,7 @@ import (
 // keepaliveMargin is how little life a token may have left before Keepalive refreshes it.
 const keepaliveMargin = 15 * time.Minute
 
-// Keepalive refreshes the tokens p's next request would use when under keepaliveMargin remains on one: an oauth row's
-// user login (a dead one only after its retry window, as one probe; never an SP-covered or sp row's) and paired SP, an
-// m2m row's token. It makes no network call and takes no lock when nothing is due; refreshed reports an exchange.
+// Keepalive refreshes tokens p's next request would use once under keepaliveMargin remains; nothing due, no lock.
 func Keepalive(ctx context.Context, p *Provider) (refreshed bool, err error) {
 	switch p.Auth.Type {
 	case AuthM2M:
@@ -26,8 +24,7 @@ func Keepalive(ctx context.Context, p *Provider) (refreshed bool, err error) {
 	return false, nil
 }
 
-// tokenDue reports whether tok has under keepaliveMargin left: by its JWT exp, else by the expiry record under record,
-// and a token with neither is due.
+// tokenDue reports whether tok has under keepaliveMargin left, by JWT exp else the record under record; neither is due.
 func tokenDue(tok, record string) bool {
 	if exp, ok := JWTExp(tok); ok {
 		return time.Until(time.Unix(exp, 0)) < keepaliveMargin
@@ -45,7 +42,7 @@ func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
 		if time.Now().Before(rec.Until) || spCovers(p) {
 			return false, nil
 		}
-		_, stillDead, err := ProbeUserLogin(ctx, p) // a login renewed in another shell clears the mark
+		_, stillDead, err := ProbeUserLogin(ctx, p)
 		return err == nil && !stillDead, err
 	}
 	ov, err := readOAuth(p)
@@ -56,7 +53,8 @@ func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
 		return false, nil
 	}
 	_, minted, err := lockedUserMint(ctx, p, false, keepaliveMargin)
-	if Verdict(err).Condemns() { // the dead login is recorded; LoginStatus reports it
+	// the dead login is recorded; LoginStatus reports it
+	if Verdict(err).Condemns() {
 		return false, nil
 	}
 	return minted, err
@@ -91,7 +89,7 @@ func keepaliveM2M(ctx context.Context, p *Provider) (bool, error) {
 	}
 	minted := false
 	err = withRefreshLock(p, func() error {
-		if v, ok := sealedClientAccess(name+"_ACCESS", bind, keepaliveMargin); ok { // a peer refreshed meanwhile
+		if v, ok := sealedClientAccess(name+"_ACCESS", bind, keepaliveMargin); ok {
 			return finishCredential(p, v, time.Time{})
 		}
 		_, _, err := mintAndCache(ctx, p, true)

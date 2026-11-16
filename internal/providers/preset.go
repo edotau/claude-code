@@ -21,7 +21,7 @@ const PresetDatabricks = "databricks"
 
 var (
 	cliProfileRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	EnvNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`) // an env-var name; also the vault key-name shape
+	EnvNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 	secretNameRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 )
 
@@ -198,7 +198,7 @@ func validateServingRoutes(n string, p *Provider) []string {
 	return errs
 }
 
-// loopbackServing is a /serving-endpoints URL on this machine (an ssh tunnel or test server): the token never leaves it.
+// loopbackServing is a /serving-endpoints URL on this machine (ssh tunnel or test server): the token never leaves it.
 func loopbackServing(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Path != "/serving-endpoints" && !strings.HasPrefix(u.Path, "/serving-endpoints/")) {
@@ -295,7 +295,7 @@ const WireServing = "serving"
 
 // Options are a preset row's non-secret tuning knobs.
 type Options struct {
-	Wire string `json:"wire,omitempty"` // "" or serving
+	Wire string `json:"wire,omitempty"`
 }
 
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.
@@ -311,8 +311,7 @@ func (p Provider) SpellingRule() string {
 	return ""
 }
 
-// WireModel spells a catalog model id the way p serves it; idempotent, keeps a trailing [1m], and leaves
-// non-catalog and provider-qualified ids as written.
+// WireModel spells a catalog id the way p serves it; idempotent, keeps a trailing [1m], leaves other ids as written.
 func (p Provider) WireModel(id string) string {
 	base, oneM := strings.CutSuffix(id, oneMMarker)
 	rule := p.SpellingRule()
@@ -341,8 +340,7 @@ func (p *Provider) Serves1M() bool {
 	return false
 }
 
-// Window is the context window id runs at on p: the model's own (models.Window), capped at 200K when p cannot serve
-// 1M (a typed [1m] stays) or CLAUDE_CODE_DISABLE_1M_CONTEXT is set.
+// Window is the context window id runs at on p: the model's own, capped at 200K when p cannot serve 1M or env disables.
 func Window(p *Provider, id string) int {
 	w := models.Window(id)
 	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" || !p.Serves1M() && !models.Keeps1M(id) {

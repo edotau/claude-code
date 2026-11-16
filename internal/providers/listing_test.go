@@ -25,8 +25,7 @@ func TestProviderModeLabels(t *testing.T) {
 	}
 }
 
-// ModelTableLines aligns every column to the widest cell in it, including the header, and drops a
-// gemini "models/" id prefix for display only.
+// ModelTableLines aligns every column to its widest cell and drops a gemini "models/" id prefix for display only.
 func TestModelTableLinesAligns(t *testing.T) {
 	infos := []ModelInfo{
 		{ID: "models/gemini-2.5-flash", Name: "Gemini 2.5 Flash", UseCase: "Balanced", Capabilities: ""},

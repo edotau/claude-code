@@ -50,9 +50,9 @@ func neverSecret(val string) bool {
 	switch {
 	case val == "":
 		return true
-	case strings.HasPrefix(val, "$"): // ${ENV} or $ENV reference
+	case strings.HasPrefix(val, "$"):
 		return true
-	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"): // file path
+	case strings.HasPrefix(val, "/") || strings.HasPrefix(val, "~/"):
 		return true
 	}
 	return strings.ContainsAny(val, "<>") || strings.Contains(val, "PLACEHOLDER") ||
@@ -64,12 +64,12 @@ func knownSecretShape(val string) bool {
 	switch {
 	case textutil.HasGitHubPrefix(val), textutil.IsSlackToken(val):
 		return true
-	case strings.HasPrefix(val, "AKIA"): // AWS
+	case strings.HasPrefix(val, "AKIA"):
 		return true
-	case strings.HasPrefix(val, "sk-"): // OpenAI-style
+	case strings.HasPrefix(val, "sk-"):
 		return true
 	}
-	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2 // JWT
+	return strings.HasPrefix(val, "eyJ") && strings.Count(val, ".") >= 2
 }
 
 // secretPattern scans raw git diff lines; narrower than LooksLikeSecret (no bare base64 rule) to avoid noise.
@@ -93,13 +93,13 @@ func gitLogArgs(dir, rev string, since int) []string {
 	return args
 }
 
-// scanGitLogOutput walks `git log -p` output and returns one finding per secret-shaped added line.
-// ReadLine fragments an over-long line (minified bundle, lockfile) instead of aborting the scan mid-pipe.
+// scanGitLogOutput returns one finding per secret-shaped added line; ReadLine fragments an over-long line.
 func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 	var findings []string
 	commit, file := "", ""
 	addition, hunk := false, false
-	var pending []byte // fragments of one over-long line, joined before any match
+	// fragments of one over-long line, joined before any match
+	var pending []byte
 	br := bufio.NewReaderSize(stdout, 1<<20)
 	for {
 		frag, isPrefix, err := br.ReadLine()
@@ -122,8 +122,7 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 	}
 }
 
-// parseGitLogLine advances commit, file and hunk state from a line, and reports whether it is an added (+) line.
-// A "+++ " file header only occurs before the first hunk; inside one, "++…" content is an addition.
+// parseGitLogLine advances commit, file and hunk state and reports an added line; "+++ " occurs only before a hunk.
 func parseGitLogLine(line, commit, file string, hunk bool) (string, string, bool, bool) {
 	switch {
 	case strings.HasPrefix(line, "commit "):
@@ -148,7 +147,8 @@ func parseGitLogLine(line, commit, file string, hunk bool) (string, string, bool
 // ScanGit reports secret-shaped additions in dir's history by commit and file, never the line; since caps commits.
 func ScanGit(out io.Writer, dir, rev string, since int) int {
 	fmt.Fprintln(out, "== git history credential scan ==")
-	if strings.HasPrefix(rev, "-") { // a leading '-' would be parsed by git log as an option
+	// a leading '-' would be parsed by git log as an option
+	if strings.HasPrefix(rev, "-") {
 		fmt.Fprintf(out, "  ⚠ invalid rev %q: must not start with '-'\n", rev)
 		return ExitFindings
 	}
@@ -196,7 +196,8 @@ func gitLogFindings(out io.Writer, dir, rev string, since int) (findings []strin
 
 	findings, readErr := scanGitLogOutput(stdout)
 	if readErr != nil {
-		cancel() // unread output would block git on a full pipe until the timeout
+		// unread output would block git on a full pipe until the timeout
+		cancel()
 	}
 	waitErr := cmd.Wait()
 	if readErr != nil {
@@ -244,8 +245,7 @@ func isTestFixture(p string) bool {
 	return false
 }
 
-// tokenShaped rejects prose that merely starts like a key (`sk-before-changing-appearance`): a minted prefixed
-// key always mixes digits in. A JWT (eyJ…) is base64url and may legitimately carry none, so it always counts.
+// tokenShaped rejects prose that merely starts like a key, since a minted key mixes digits; a JWT always counts.
 func tokenShaped(match string) bool {
 	return strings.HasPrefix(match, "eyJ") || strings.ContainsAny(match, "0123456789")
 }

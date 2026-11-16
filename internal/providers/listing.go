@@ -20,8 +20,7 @@ type AgentServer struct {
 	Serves func(*Provider) bool
 }
 
-// ListTable renders the `configure provider --list` summary: one row per provider family, then one per agent CLI,
-// over the profiles whose credential is ready (m2m service principals excluded), then the fallback chain.
+// ListTable renders the `configure provider --list` summary: provider families, agent CLIs, then the fallback chain.
 func ListTable(reg *Registry, ready func(*Provider) bool, agents []AgentServer) []string {
 	groups, modes := readyGroups(reg, ready)
 	rows, live := providerRows(reg, groups, modes)
@@ -52,7 +51,8 @@ func readyGroups(reg *Registry, ready func(*Provider) bool) (groups, modes map[s
 		g := p.Provider
 		modes[g] = appendUnique(modes[g], providerMode(p))
 		if p.Auth.Method() == AuthM2M {
-			continue // a service principal mints oauth logins from a cold start; it is an auth, not a profile
+			// a service principal mints oauth logins from a cold start; it is an auth, not a profile
+			continue
 		}
 		groups[g] = append(groups[g], n)
 	}
@@ -65,7 +65,7 @@ func providerRows(reg *Registry, groups, modes map[string][]string) (rows [][3]s
 		if len(groups[g]) == 0 {
 			continue
 		}
-		names := groups[g] // reg.Names() is sorted, so readyGroups filed them in order
+		names := groups[g]
 		rows = append(rows, [3]string{g, familyProfiles(reg, names), strings.Join(modes[g], ", ")})
 		for _, n := range names {
 			live = append(live, reg.Providers[n])
@@ -182,11 +182,11 @@ type LiveModel struct {
 // Catalog is a provider's live model listing and what to tell the user.
 type Catalog struct {
 	Infos []ModelInfo
-	Note  string // set when Infos came from the offline fallback list
+	// set when Infos came from the offline fallback list
+	Note string
 }
 
-// LoadCatalog fetches p's catalog (listOwn for a provider with its own SDK, else a plain /models GET), falling
-// back to a known offline list where one exists, then the endpoint's models.
+// LoadCatalog fetches p's catalog (listOwn, else GET /models), falling back to an offline list, then the endpoint's.
 func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)) (Catalog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -235,8 +235,7 @@ func endpointTableLines(infos []ModelInfo) []string {
 	return lines
 }
 
-// modelTableLines renders an aligned ID/Model/Use case/Capabilities table; widths come from the rows, and a
-// gemini "models/" id prefix is dropped for display only (JSON keeps the raw id).
+// modelTableLines renders an aligned model table; a gemini "models/" id prefix is dropped for display only.
 func modelTableLines(infos []ModelInfo) []string {
 	idW, nameW, caseW, capW := len("ID"), len("Model"), len("Use case"), len("Capabilities")
 	ids := make([]string, len(infos))

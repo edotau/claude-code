@@ -27,7 +27,7 @@ func TestKeepaliveUserRefreshesAt14MinutesAndNotAt16(t *testing.T) {
 		r := newLoginRig(t, "ka-user-"+c.left.String())
 		r.mode.Store("ok")
 		putAccess(t, r.p, jwtExpIn(c.left, "https://x"))
-		holdRefreshLock(t, r.p) // a no-op keepalive must not even ask for the lock
+		holdRefreshLock(t, r.p)
 		defer func(d time.Duration) { refreshLockWait = d }(refreshLockWait)
 		refreshLockWait = 30 * time.Millisecond
 		if !c.want {
@@ -106,7 +106,7 @@ func TestKeepaliveSkipsADeadLoginInsideItsWindowAndProbesAfter(t *testing.T) {
 	reopenWindow(t, r.p)
 	assertKeepalive(t, r, "after the window, still dead", false, 2, "one probe and no refreshed")
 	reopenWindow(t, r.p)
-	r.mode.Store("ok") // renewed in another shell
+	r.mode.Store("ok")
 	assertKeepalive(t, r, "after the window, healed", true, 3, "the probe to refresh")
 	if _, dead := LoginStatus(r.p); dead {
 		t.Error("the healed login stayed marked")

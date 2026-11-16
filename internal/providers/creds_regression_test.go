@@ -179,7 +179,7 @@ func TestFlightGroupCanceledLeaderStopsWaitingWhileFollowerMints(t *testing.T) {
 	})
 	waitFlightSignal(t, joining.joined)
 	cancel()
-	result := authFixWaitResult(t, leader) // The mint is still blocked on release: the leader must return first.
+	result := authFixWaitResult(t, leader)
 	if !errors.Is(result.err, context.Canceled) || result.value != "" {
 		t.Fatalf("canceled leader returned value=%t err=%v", result.value != "", result.err)
 	}

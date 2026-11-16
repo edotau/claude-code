@@ -40,10 +40,10 @@ func TestSealedAuthHerdMintsOnce(t *testing.T) {
 	for _, k := range sealedKinds {
 		t.Run(k.kind, func(t *testing.T) {
 			var posts atomic.Int32
-			ready := mintFollowersReady(t, 19) // all 19 followers of the 20-caller herd must wait on the flight
+			ready := mintFollowersReady(t, 19)
 			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 				posts.Add(1)
-				select { // hold the flight open until every follower is waiting on it
+				select {
 				case <-ready:
 				case <-time.After(10 * time.Second):
 					t.Error("not all 19 followers joined the mint flight")
@@ -73,7 +73,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 				n := posts.Add(1)
 				if n == 1 {
-					<-gate // the non-forced mint stays in flight until released
+					<-gate
 				}
 				return 200, map[string]any{"access_token": fmt.Sprintf("tok-%d", n), "expires_in": 3600}
 			})
@@ -89,7 +89,7 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			time.AfterFunc(150*time.Millisecond, func() { close(gate) }) // Refresh is queued behind the flight by then
+			time.AfterFunc(150*time.Millisecond, func() { close(gate) })
 			got, err := Refresh(context.Background(), p)
 			wg.Wait()
 			if err != nil || got != "tok-2" {

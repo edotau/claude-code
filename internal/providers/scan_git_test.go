@@ -154,14 +154,13 @@ func TestScanGitSkipsTestFixtures(t *testing.T) {
 	}
 }
 
-// ScanGit must still finish promptly and find a planted secret when some other line in history is
-// enormous (a minified bundle or lockfile) — ReadLine fragments it instead of failing the scan.
+// ScanGit must finish promptly and find a planted secret when another history line is enormous.
 func TestScanGitLongLine(t *testing.T) {
 	for _, order := range []string{"leak-then-long", "long-then-leak"} {
 		t.Run(order, func(t *testing.T) {
 			dir := hosttest.Repo(t)
 			run := gitIn(t, dir)
-			long := strings.Repeat("x", 1<<20+1) // one line, just past scanGitLogOutput's 1 MiB reader
+			long := strings.Repeat("x", 1<<20+1)
 			leak := "k=ghp_abcdefghij1234567890ABCD\n"
 
 			writeCommit := func(name, content string) {
@@ -215,12 +214,11 @@ func checkLongLineScan(t *testing.T, dir string) {
 	}
 }
 
-// A secret that lands on a fragment of an over-long added line must still be reported exactly once,
-// not once per ReadLine fragment.
+// A secret on a fragment of an over-long added line must be reported exactly once, not once per fragment.
 func TestScanGitSecretInsideLongLine(t *testing.T) {
-	dir := runGitScratch(t) // seeds an initial unrelated commit so this isn't the repo's first commit
+	dir := runGitScratch(t)
 	run := gitIn(t, dir)
-	line := strings.Repeat("x", 15*(1<<17)) + "ghp_abcdefghij1234567890ABCD" // ~1.5 MiB prefix + token
+	line := strings.Repeat("x", 15*(1<<17)) + "ghp_abcdefghij1234567890ABCD"
 	if err := os.WriteFile(filepath.Join(dir, "long.txt"), []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +236,7 @@ func TestScanGitSecretInsideLongLine(t *testing.T) {
 	}
 }
 
-// ScanGit passes --no-textconv, so a repo-configured textconv filter (which could run arbitrary
-// commands) must never execute during the scan.
+// ScanGit passes --no-textconv so a repo-configured textconv filter never executes during the scan.
 func TestScanGitNoTextconv(t *testing.T) {
 	dir := runGitScratch(t)
 	run := gitIn(t, dir)

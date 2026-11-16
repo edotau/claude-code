@@ -147,7 +147,8 @@ func TestKindSecretName(t *testing.T) {
 }
 
 func TestPATCredentialAndPresence(t *testing.T) {
-	vaulttest.Use(t) // sealing needs the vault master key; Linux CI has no keyring
+	// sealing needs the vault master key; Linux CI has no keyring
+	vaulttest.Use(t)
 	p := kindRow(AuthPAT, "", AuthKey)
 	if CredentialPresent(p) {
 		t.Fatal("present before sealing")
@@ -353,7 +354,7 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 	if err != nil || got != "sp-token" || *m2m != 1 {
 		t.Fatalf("Credential = %q, %v (m2m %d)", got, err, *m2m)
 	}
-	n := note.String() // one line reports the fallback, one the mint
+	n := note.String()
 	if !strings.Contains(n, p.Name+": on the service principal; your own login is not signed in (to sign in: "+LoginCommand(p.Name)+")") ||
 		strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 2 {
 		t.Errorf("note = %q", n)
@@ -489,7 +490,7 @@ func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("auto request never reached SP mint")
 	}
-	time.AfterFunc(200*time.Millisecond, finish) // the SP mint holds the profile lock; the user flight mints once it is free
+	time.AfterFunc(200*time.Millisecond, finish)
 	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), 10*time.Second)
 	defer cancel()
 	got, err := Credential(ctx, p)
@@ -522,7 +523,7 @@ func TestSPNoteOnlyOnMint(t *testing.T) {
 	if v, err := Credential(ctx, p); err != nil || v != tok {
 		t.Fatalf("first Credential = %v", err)
 	}
-	spCache.Delete(p.Name) // a new process: only the sealed _ACCESS slot remains
+	spCache.Delete(p.Name)
 	if v, err := Credential(ctx, p); err != nil || v != tok {
 		t.Fatalf("second Credential = %v", err)
 	}
@@ -592,7 +593,7 @@ func TestIdentityResolutionTable(t *testing.T) {
 	}
 	creds := map[string]idCreds{"sp-only": {sp: true}, "user-only": {user: true}, "both": {sp: true, user: true},
 		"neither": {}, "both-rejected": {sp: true, user: true, rejected: true}}
-	want := map[string]map[string][5]string{ // per path and creds: auto, sp, user, --as sp, --as user
+	want := map[string]map[string][5]string{
 		"dispatch": {"sp-only": {"sp", "sp", "", "sp", ""}, "user-only": {"user fb", "", "user", "", "user"},
 			"both": {"sp", "sp", "user", "sp", "user"}, "neither": {" fb", "", "", "", ""},
 			"both-rejected": {"user fb", "", "user", "", "user"}},
@@ -606,7 +607,7 @@ func TestIdentityResolutionTable(t *testing.T) {
 			for i, m := range modes {
 				n++
 				as := m.as
-				if path == "dispatch" { // what agents ask, pool and job put on a run's context
+				if path == "dispatch" {
 					as = cmp.Or(as, IdentityHeadless)
 				}
 				got := resolveCell(t, WithIdentity(context.Background(), as), fmt.Sprintf("idrow-%d", n), m.identity, creds[cname])
@@ -784,11 +785,11 @@ func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
 	t.Cleanup(func() { refreshU2M = orig })
 	t.Cleanup(func() { cmdCache.Delete(p.Name) })
 	ctx := context.Background()
-	forced, err := Refresh(ctx, p) // process A
+	forced, err := Refresh(ctx, p)
 	if err != nil || calls != 1 {
 		t.Fatalf("forced mint: calls=%d err=%v", calls, err)
 	}
-	cmdCache.Store(p.Name, cached{value: "b-old-token", until: time.Now().Add(-time.Second)}) // process B, token near expiry
+	cmdCache.Store(p.Name, cached{value: "b-old-token", until: time.Now().Add(-time.Second)})
 	got, err := Credential(ctx, p)
 	if err != nil || got != forced || calls != 1 {
 		t.Fatalf("process B: adopted=%t calls=%d err=%v; want A's sealed token with no mint", got == forced, calls, err)
@@ -817,8 +818,7 @@ func TestM2MForcedMintLeavesOtherRowSlot(t *testing.T) {
 	}
 }
 
-// rotRig is a u2m row whose token endpoint rotates the refresh token on every call (refresh-1 → refresh-2 → …) and
-// runs onCall(n) just before answering call n.
+// rotRig is a u2m row whose token endpoint rotates the refresh token on every call and runs onCall(n) before call n.
 type rotRig struct {
 	p      *Provider
 	mu     sync.Mutex
@@ -860,8 +860,7 @@ func needReadOnlyVault(t *testing.T) {
 	}
 }
 
-// breakWrites makes the vault file read-only so a seal fails while reads still work; the returned func restores it.
-// It runs on the token server's goroutine, so it reports with t.Error.
+// breakWrites makes the vault file read-only so a seal fails while reads work; it reports with t.Error.
 func breakWrites(t *testing.T) (restore func()) {
 	path := vault.Path()
 	if err := os.Chmod(path, 0o400); err != nil {
@@ -957,7 +956,7 @@ func TestFailedAccessSealIsAudited(t *testing.T) {
 	srvRefresh := refreshU2M
 	refreshU2M = func(ctx context.Context, host, rt string) (oauth.Token, error) {
 		tok, err := srvRefresh(ctx, host, rt)
-		tok.Refresh = "" // the endpoint did not rotate: only the access token is sealed
+		tok.Refresh = ""
 		return tok, err
 	}
 	t.Cleanup(func() { refreshU2M = srvRefresh })
@@ -988,7 +987,7 @@ func TestCarriedRefreshYieldsToNewerLogin(t *testing.T) {
 		t.Fatal("precondition: the failed seal must leave a carried refresh")
 	}
 	restore()
-	putOAuth(t, r.p, oauthValue{Refresh: "login-refresh"}) // another process logs in
+	putOAuth(t, r.p, oauthValue{Refresh: "login-refresh"})
 	if _, err := Refresh(ctx, r.p); err != nil {
 		t.Fatal(err)
 	}
@@ -1006,7 +1005,7 @@ func TestCarriedRefreshYieldsToNewerLogin(t *testing.T) {
 // A rotation that lands after another process sealed a newer login must not overwrite that login.
 func TestStaleRotationNeverOverwritesNewerLogin(t *testing.T) {
 	r := newRotRig(t, "stale-rotation")
-	r.onCall = func(int) { // another process's login lands while the mint is in flight
+	r.onCall = func(int) {
 		if err := writeOAuth(r.p, oauthValue{Refresh: "login-refresh"}); err != nil {
 			t.Error(err)
 		}
@@ -1141,7 +1140,7 @@ func TestReadOAuthRetriesOneVaultLockTimeout(t *testing.T) {
 		writer <- vault.Update(func(*vault.Tx) error { close(held); <-release; return nil })
 	}()
 	<-held
-	time.AfterFunc(450*time.Millisecond, func() { close(release) }) // after the first attempt's 300ms, inside the retry's
+	time.AfterFunc(450*time.Millisecond, func() { close(release) })
 	ov, err := readOAuth(p)
 	if err != nil || ov.Refresh != "refresh-1" {
 		t.Fatalf("readOAuth = %+v, %v; want the retry to read once the writer is done", ov, err)

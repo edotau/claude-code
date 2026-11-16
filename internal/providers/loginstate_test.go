@@ -16,12 +16,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// loginRig is a user-only oauth row on a token server whose answer the test picks: dead (400 invalid_grant), reject
-// (401), down (500) or ok (a one-hour JWT).
+// loginRig is a user-only oauth row on a token server answering dead (400), reject (401), down (500) or ok (a JWT).
 type loginRig struct {
 	p    *Provider
 	hits atomic.Int32
-	mode atomic.Value // string
+	mode atomic.Value
 }
 
 func newLoginRig(t *testing.T, name string) *loginRig {
@@ -97,7 +96,7 @@ func TestDeadLoginMarkCrossesProcessesAndSuccessClearsIt(t *testing.T) {
 	if st, dead := LoginStatus(r.p); !dead || st.State != "rejected" {
 		t.Fatalf("LoginStatus = %+v, %v; want rejected", st, dead)
 	}
-	loginMarks.Delete(r.p.Name) // a fresh process holds no in-memory state; the file carries the mark
+	loginMarks.Delete(r.p.Name)
 	cmdCache.Delete(r.p.Name)
 	if _, err := Credential(ctx, r.p); err == nil || r.hits.Load() != 1 {
 		t.Fatalf("fresh process: err %v, hits %d; want the file's mark to suppress the refresh", err, r.hits.Load())
@@ -304,7 +303,7 @@ func TestSPIdentityNeverTouchesTheUserLogin(t *testing.T) {
 	p, _, refresh, note := spHarness(t, IdentitySP)
 	t.Cleanup(func() { loginMarks.Delete(p.Name); loginNoted.Delete(p.Name) })
 	sealSPAccess(t, p, time.Hour)
-	putAccess(t, p, jwtExpIn(5*time.Minute, "https://x")) // a user token a keepalive would refresh
+	putAccess(t, p, jwtExpIn(5*time.Minute, "https://x"))
 	ctx := context.Background()
 	for range 3 {
 		if _, err := Credential(ctx, p); err != nil {
@@ -317,8 +316,8 @@ func TestSPIdentityNeverTouchesTheUserLogin(t *testing.T) {
 	if _, err := os.Stat(cacheRecordPath("login-state", p.Name)); *refresh != 0 || !os.IsNotExist(err) {
 		t.Fatalf("user refreshes %d, mark file err %v; want none and no mark", *refresh, err)
 	}
-	markLoginDead(p, ErrNeedsLogin) // a mark left from before the row was pinned
-	reopenWindow(t, p)              // 11 minutes pass
+	markLoginDead(p, ErrNeedsLogin)
+	reopenWindow(t, p)
 	if _, err := Keepalive(ctx, p); err != nil || *refresh != 0 {
 		t.Fatalf("Keepalive past the window = %v (user refreshes %d); want no probe", err, *refresh)
 	}
@@ -337,7 +336,7 @@ func TestDeadLoginIsNotRetriedOnATimerWhileSPCovers(t *testing.T) {
 		t.Fatalf("first Credential = %q, %v (user refreshes %d); want one failed refresh then the SP", got, err, *refresh)
 	}
 	for range 3 {
-		reopenWindow(t, p) // 11 minutes pass
+		reopenWindow(t, p)
 		cmdCache.Delete(p.Name)
 		if _, err := Credential(ctx, p); err != nil {
 			t.Fatal(err)

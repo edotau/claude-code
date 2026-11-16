@@ -13,8 +13,7 @@ import (
 	"time"
 )
 
-// outputInGroup runs cmd in a group led by a sleeping sentinel and kills the group as soon as cmd exits, before its
-// pipes are drained; the unreaped sentinel keeps the group id ours, so the signal never reaches a reused group.
+// outputInGroup kills cmd's group once cmd exits, before pipes drain; the unreaped sentinel keeps the group id ours.
 func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 	lead, release, err := startSentinel()
 	if err != nil {
@@ -28,11 +27,12 @@ func outputInGroup(cmd *exec.Cmd) ([]byte, error) {
 
 // startSentinel starts the sleeping process-group leader; it blocks reading a pipe until release is closed.
 func startSentinel() (lead *exec.Cmd, release *os.File, err error) {
-	hold, release, err := os.Pipe() // the sentinel blocks reading hold until we close release
+	// the sentinel blocks reading hold until we close release
+	hold, release, err := os.Pipe()
 	if err != nil {
 		return nil, nil, err
 	}
-	lead = exec.CommandContext(context.Background(), "sh", "-c", "read _") // only sh, which the auth command needs anyway
+	lead = exec.CommandContext(context.Background(), "sh", "-c", "read _")
 	lead.Stdin = hold
 	lead.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := lead.Start(); err != nil {
@@ -56,10 +56,11 @@ func runInGroup(cmd *exec.Cmd, pg int, killGroup func() error) ([]byte, error) {
 		_ = outW.Close()
 		return nil, err
 	}
-	cmd.Stdout, cmd.Stderr = outW, errW // *os.File: no copy goroutines, so Wait returns when the shell exits
+	// *os.File: no copy goroutines, so Wait returns when the shell exits
+	cmd.Stdout, cmd.Stderr = outW, errW
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pg}
 	cmd.Cancel = killGroup
-	stdout, stderr := &capBuffer{max: 1 << 20}, &capBuffer{max: 32 << 10, tail: true} // stderr keeps the final error
+	stdout, stderr := &capBuffer{max: 1 << 20}, &capBuffer{max: 32 << 10, tail: true}
 	done := make(chan struct{}, 2)
 	drain := func(dst io.Writer, r *os.File) { _, _ = io.Copy(dst, r); done <- struct{}{} }
 	if err := cmd.Start(); err != nil {
@@ -74,7 +75,8 @@ func runInGroup(cmd *exec.Cmd, pg int, killGroup func() error) ([]byte, error) {
 	go drain(stdout, outR)
 	go drain(stderr, errR)
 	werr := cmd.Wait()
-	_ = killGroup() // leftovers die now, closing the pipe ends they inherited
+	// leftovers die now, closing the pipe ends they inherited
+	_ = killGroup()
 	awaitDrain(done, outR, errR)
 	if ee, ok := errors.AsType[*exec.ExitError](werr); ok {
 		ee.Stderr = stderr.Bytes()
@@ -91,7 +93,8 @@ func awaitDrain(done <-chan struct{}, outR, errR *os.File) {
 	for range 2 {
 		select {
 		case <-done:
-		case <-expire: // an escaped child still holds a pipe: closing our read ends unblocks both copies
+		// an escaped child still holds a pipe: closing our read ends unblocks both copies
+		case <-expire:
 			_ = outR.Close()
 			_ = errR.Close()
 			<-done

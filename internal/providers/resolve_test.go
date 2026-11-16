@@ -7,7 +7,7 @@ import (
 
 func TestParseTargetCanonicalAndOneM(t *testing.T) {
 	reg := load(t)
-	def := &Provider{Name: "plain"} // OneM=false
+	def := &Provider{Name: "plain"}
 	other := reg.Providers["openai"]
 	if other == nil {
 		t.Fatal("openai provider missing from test registry")
@@ -18,10 +18,10 @@ func TestParseTargetCanonicalAndOneM(t *testing.T) {
 		model string
 		oneM  bool
 	}{
-		{"claude-opus-5-5[1m]", def, "claude-opus-5-5", false}, // 5+ marker is a no-op
+		{"claude-opus-5-5[1m]", def, "claude-opus-5-5", false},
 		{"claude-opus-4-8[1m]", def, "claude-opus-4-8", true},
 		{"claude-opus-5-5", def, "claude-opus-5-5", false},
-		{"databricks-claude-opus-5-5", def, "claude-opus-5-5", false}, // no ModelPrefix: canonical
+		{"databricks-claude-opus-5-5", def, "claude-opus-5-5", false},
 		{"opus-4-8[1m]", def, "claude-opus-4-8", true},
 		{"openai:gpt-5-nano", other, "gpt-5-nano", false},
 		{"openai:databricks-claude-opus-5[1m]", other, "claude-opus-5", false},
@@ -42,7 +42,7 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 	sel := Selection{Provider: plain, Aliases: map[string]Target{
 		"opus":   {Provider: plain, Model: "claude-opus-4-8", OneM: true},
 		"sonnet": {Provider: plain, Model: "claude-sonnet-5"},
-		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true}, // haiku never had 1M: marker dropped
+		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true},
 		"fable":  {Provider: other, Model: "gpt-5"},
 	}}
 	want := map[string]string{
@@ -116,7 +116,7 @@ func TestWireForTable(t *testing.T) {
 	pre := func(row, id string) string { return rows[row].WireModel(id) }
 	const (
 		a, o, r = ProtocolAnthropic, ProtocolOpenAI, ProtocolResponses
-		none    = "" // no wire: ok false with a reason
+		none    = ""
 	)
 	cases := []struct {
 		row, model, want string
@@ -157,12 +157,12 @@ func TestAnthropicRoute(t *testing.T) {
 		want       bool
 	}{
 		{"serving", "claude-opus-5-5", true},
-		{"serving", "kimi-k3", false}, // Databricks anthropic is Claude-only
+		{"serving", "kimi-k3", false},
 		{"serving", "gpt-5-5", false},
 		{"anthropic", "claude-opus-5-5", true},
-		{"anthropic", "kimi-k3", true}, // unservable on a third-party host: it serves its own models
+		{"anthropic", "kimi-k3", true},
 		{"anthropic", "gpt-5-5", true},
-		{"openai", "claude-opus-5-5", false}, // no anthropic route at all
+		{"openai", "claude-opus-5-5", false},
 	}
 	for _, c := range cases {
 		route, ok := AnthropicRoute(rows[c.row], rows[c.row].WireModel(c.model))
@@ -183,7 +183,7 @@ func TestClaudeCodeError(t *testing.T) {
 	}
 	for _, c := range []struct{ row, model string }{
 		{"serving", "databricks-kimi-k3"}, {"serving", "databricks-claude-opus-5-5"},
-		{"openai", "gpt-5-5"}, // unservable is not a Claude Code refusal; the route check owns it
+		{"openai", "gpt-5-5"},
 	} {
 		if err := ClaudeCodeError(rows[c.row], c.model); err != nil {
 			t.Errorf("%s/%s: err = %v, want nil", c.row, c.model, err)

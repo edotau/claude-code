@@ -61,7 +61,7 @@ func TestDemote(t *testing.T) {
 	}
 }
 
-// IsQuota is any account-exhaustion or model-denial marker; ModelDenied is a model marker no hard account marker vetoes.
+// IsQuota is any account-exhaustion or model-denial marker; ModelDenied is a model marker no hard marker vetoes.
 func TestQuotaClassification(t *testing.T) {
 	for _, c := range []struct {
 		text          string
@@ -79,14 +79,14 @@ func TestQuotaClassification(t *testing.T) {
 		{"insufficient_quota", true, true},
 		{"quota exceeded for metric: generate_content_free_tier_requests", true, true},
 		{"exceeded your current quota", true, true},
-		{"exceeded your current quota, limit: 0", true, true}, // gemini free tier: model-denied, not account-wide
+		{"exceeded your current quota, limit: 0", true, true},
 		{"HTTP 402 payment required: insufficient_quota", true, false},
 		{"out of credits", true, false},
 		{"status 402", true, false},
 		{"status=402", true, false},
 		{"code: 402", true, false},
 		{"read tcp 10.0.0.1:402: connection reset", false, false},
-		{"stream ended after 402 bytes limit: 0", true, true}, // a bare 402 does not veto
+		{"stream ended after 402 bytes limit: 0", true, true},
 		{"read tcp 10.0.0.1:402: connection reset limit: 0", true, true},
 		{"stream ended after 402 bytes", false, false},
 		{"monthly quota", true, false},

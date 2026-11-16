@@ -29,7 +29,7 @@ type cached struct {
 	until time.Time
 }
 
-var cmdCache sync.Map // provider name → cached
+var cmdCache sync.Map
 
 // Credential resolves a cached command token first, then env → vault → file → command; sealed types mint.
 func Credential(ctx context.Context, p *Provider) (string, error) {
@@ -42,7 +42,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, false)
 	}
-	if v, ok := cachedCommand(p.Name); ok && p.Auth.Command != "" { // a refreshed command token outranks static sources
+	if v, ok := cachedCommand(p.Name); ok && p.Auth.Command != "" {
 		return v, nil
 	}
 	v, vaultErr := vaultCredential(ctx, p)
@@ -147,7 +147,7 @@ type flight struct {
 	force    bool
 	val      string
 	err      error
-	panicked any // the mint's panic value, re-raised in the leader
+	panicked any
 }
 
 // errMintAborted is what followers see when the leader's mint panics before it returns.
@@ -214,7 +214,8 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 // runMint runs one flight's mint, then retires the flight and wakes its waiters, even if the leader gave up.
 func (g *flightGroup) runMint(name string, f *flight, mint func()) {
 	defer func() {
-		f.panicked = recover() // re-raised in the leader's caller by awaitFlight
+		// re-raised in the leader's caller by awaitFlight
+		f.panicked = recover()
 		g.mu.Lock()
 		delete(g.flights, name)
 		g.mu.Unlock()
@@ -330,13 +331,16 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 	ctx, cancel := context.WithTimeout(ctx, authCommandTimeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, "sh", "-c", cmd)
-	c.WaitDelay = 5 * time.Second // orphaned pipeline children must not hold stdout open past the timeout
-	out, err := outputInGroup(c)  // the timeout, and the command's end, kill everything it started
+	// orphaned pipeline children must not hold stdout open past the timeout
+	c.WaitDelay = 5 * time.Second
+	// the timeout, and the command's end, kill everything it started
+	out, err := outputInGroup(c)
 	if err != nil {
 		return "", authCommandError(ctx, p, err)
 	}
 	v := strings.TrimSpace(string(out))
-	if v == "" || v == "null" { // `jq -r .access_token` prints null when the upstream call failed
+	// `jq -r .access_token` prints null when the upstream call failed
+	if v == "" || v == "null" {
 		return "", fmt.Errorf("%s: auth command printed nothing", p.Name)
 	}
 	if strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
@@ -345,10 +349,10 @@ func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error
 	return v, nil
 }
 
-// capBuffer bounds what a helper's output can cost: it keeps the first max bytes (or, with tail, the last max) and
-// records whether anything was dropped.
+// capBuffer keeps the first max bytes of a helper's output (the last max with tail) and records any drop.
 type capBuffer struct {
-	buf  bytes.Buffer // named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
+	// named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
+	buf  bytes.Buffer
 	max  int
 	tail bool
 	over bool

@@ -65,8 +65,7 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 	return ids, err
 }
 
-// liveModelEntry is one catalog row: the id plus the display name when the API sends one (Anthropic does);
-// task and ready come only from a Databricks serving-endpoints listing.
+// liveModelEntry is one catalog row: the id plus a display name when sent; task and ready are Databricks-only.
 type liveModelEntry struct{ id, name, task, ready string }
 
 func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
@@ -76,7 +75,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	}
 	hdr := http.Header{}
 	if anthropicDialect {
-		hdr.Set("anthropic-version", "2023-06-01") // required by api.anthropic.com on every direct call
+		hdr.Set("anthropic-version", "2023-06-01")
 	}
 	status, body, _, readErr := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
 		Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
@@ -86,7 +85,8 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if status != http.StatusOK {
 		return nil, &catalogStatusError{url: url, status: fmt.Sprintf("%d %s", status, http.StatusText(status)), code: status, body: strings.TrimSpace(string(body))}
 	}
-	if readErr != nil { // a truncated body must not decode as a complete list
+	// a truncated body must not decode as a complete list
+	if readErr != nil {
 		return nil, fmt.Errorf("read %s: %w", url, readErr)
 	}
 	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
@@ -115,7 +115,7 @@ func authorizeCatalog(ctx context.Context, p *Provider, h http.Header) error {
 		return Authorize(ctx, p, h)
 	}
 	if !anthropicCLIHost(p) {
-		return ErrPassthrough // the setup-token belongs to api.anthropic.com only
+		return ErrPassthrough
 	}
 	tok := HeadlessOAuthToken()
 	if tok == "" {
@@ -197,11 +197,11 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 
 // ProbeCredential's statuses; the vault persists verified and rejected, so the values never change.
 const (
-	ProbeLogin       = "login"       // passthrough: not probeable here
-	ProbeVerified    = "verified"    // the catalog GET succeeded
-	ProbeRejected    = "rejected"    // 401, or a 403 naming a refused credential
-	ProbeUnreachable = "unreachable" // no connection
-	ProbeUnverified  = "unverified"  // any other error
+	ProbeLogin       = "login"
+	ProbeVerified    = "verified"
+	ProbeRejected    = "rejected"
+	ProbeUnreachable = "unreachable"
+	ProbeUnverified  = "unverified"
 )
 
 // ProbeCredential makes one authenticated catalog GET to tell a present credential from a working one; never fatal.
@@ -228,22 +228,20 @@ func ProbeCredential(ctx context.Context, p *Provider) (status, detail string) {
 	}
 }
 
-// ModelInfo is one live catalog entry: ID is always set, UseCase always filled (models.UseCase never
-// returns ""); Name and Capabilities are blank where the backend has nothing to report.
+// ModelInfo is one live catalog entry: ID and UseCase are always set, Name and Capabilities blank when unreported.
 type ModelInfo struct {
 	ID           string
 	Name         string
 	UseCase      string
-	Capabilities string // e.g. "vision · reasoning · x2"; blank when none
-	Task         string // Databricks serving endpoints only, e.g. "llm/v1/chat"
-	Ready        string // Databricks serving endpoints only, e.g. "READY"
+	Capabilities string
+	Task         string
+	Ready        string
 }
 
 // ReadyChat reports a READY llm/v1/chat serving endpoint.
 func (m ModelInfo) ReadyChat() bool { return m.Ready == "READY" && m.Task == "llm/v1/chat" }
 
-// ListModels lists p's live catalog with names/use-case/capabilities when the backend reports them.
-// The github row is listed by copilot.ListModels, not here.
+// ListModels lists p's live catalog with names, use case and capabilities (github: copilot.ListModels).
 func ListModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	entries, err := liveModelEntries(ctx, p)
 	if err != nil {
@@ -263,7 +261,7 @@ func endpointCapabilities(e liveModelEntry) string {
 	return strings.Join(slices.DeleteFunc([]string{e.task, e.ready}, func(s string) bool { return s == "" }), " · ")
 }
 
-// displayName derives a readable name from an id when the catalog sends none: models/gemini-2.5-flash → Gemini 2.5 Flash.
+// displayName derives a name from an id when the catalog sends none: models/gemini-2.5-flash → Gemini 2.5 Flash.
 func displayName(id string) string {
 	parts := strings.FieldsFunc(strings.TrimPrefix(id, "models/"), func(r rune) bool { return r == '-' || r == '_' })
 	for i, w := range parts {

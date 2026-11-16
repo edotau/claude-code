@@ -151,7 +151,7 @@ func TestListModelsNonDatabricksUsesV1Models(t *testing.T) {
 					writeJSON(w, 200, `{"data":[{"id":"plain-model","display_name":"Plain Model"}]}`)
 					return
 				}
-				writeJSON(w, 200, dbxServingBody) // must never be parsed for a non-Databricks row
+				writeJSON(w, 200, dbxServingBody)
 			}))
 			t.Cleanup(srv.Close)
 			t.Setenv("PLAIN_LIVE_TEST_TOKEN", "tok-plain")

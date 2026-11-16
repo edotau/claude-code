@@ -13,8 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// firstOutputFloor is FirstOutput's last-resort value when FreeFirstOutput is empty or fails to parse;
-// every other field reads the merged routing object directly — defaults.json seeds the real defaults.
+// firstOutputFloor is FirstOutput's last-resort value when FreeFirstOutput is empty or unparsable.
 const firstOutputFloor = 90 * time.Second
 
 // Routing is the one `routing` object in the providers overlay: weights, cells, switches, ladders, opencode knobs.
@@ -51,16 +50,11 @@ type Rung struct {
 // label names the rung in errors and skips: "agent/provider", "*" for an unset side.
 func (g Rung) label() string { return cmp.Or(g.Agent, "*") + "/" + cmp.Or(g.Provider, "*") }
 
-// OpencodeRouting is opencode's own sub-pick knobs: the paid-backend ladder order, the work-repo markers
-// that block zen-free, which aliases zen-free may serve, and the free dispatch's stall deadline. Ladder,
-// WorkRepoMarkers and FreeTiers are pointers: nil means unset (inherit the default), a pointer to an
-// empty slice means explicitly empty — the distinction `omitempty` on a plain slice cannot survive a
-// marshal round-trip (an empty slice and an absent field both omit).
+// OpencodeRouting is opencode's sub-pick knobs; Ladder, WorkRepoMarkers and FreeTiers are pointers: nil is unset.
 type OpencodeRouting struct {
 	// Ladder orders opencode's own paid backends (RouteOpencodeSubIDs); the free Zen catalog always runs first.
 	Ladder *[]string `json:"ladder,omitempty"`
-	// WorkRepoMarkers are the remote-URL substrings marking a repo as work (zen-free never serves one);
-	// defaults.json seeds an empty list — no repo is a work repo until the user sets markers.
+	// WorkRepoMarkers are remote-URL substrings marking a repo as work, which zen-free never serves; none by default.
 	WorkRepoMarkers *[]string `json:"workRepoMarkers,omitempty"`
 	// FreeTiers are the aliases zen-free may serve; defaults.json seeds sonnet+haiku. "opus" is rejected by Validate.
 	FreeTiers *[]string `json:"freeTiers,omitempty"`
@@ -68,8 +62,7 @@ type OpencodeRouting struct {
 	FreeFirstOutput string `json:"freeFirstOutput,omitempty"`
 }
 
-// LadderOrder returns the configured paid-backend ladder order (merged registry field; defaults.json
-// seeds it); nil (unset) reads as no paid backends.
+// LadderOrder returns the configured paid-backend ladder order; nil (unset) reads as no paid backends.
 func (o OpencodeRouting) LadderOrder() []string {
 	if o.Ladder == nil {
 		return nil
@@ -93,8 +86,7 @@ func (o OpencodeRouting) FreeTierOK(alias string) bool {
 	return slices.Contains(*o.FreeTiers, alias)
 }
 
-// FirstOutput is the free dispatch's stall deadline: the merged registry field when it parses to a positive
-// duration, else firstOutputFloor — the only case Validate does not already reject is an unset field.
+// FirstOutput is the free dispatch's stall deadline: the merged field when it parses positive, else firstOutputFloor.
 func (o OpencodeRouting) FirstOutput() time.Duration {
 	if d, err := time.ParseDuration(o.FreeFirstOutput); err == nil && d > 0 {
 		return d
@@ -118,18 +110,16 @@ func ServedRoutingOn() bool {
 	return err == nil && reg.Routing.ServedAwareOn()
 }
 
-// DefaultRouting is defaults.json's own routing object, with no overlay applied — lane B labels a resolved
-// value "default" or "vault" by comparing against it.
+// DefaultRouting is defaults.json's own routing object with no overlay, so lane B can label a value default or vault.
 func DefaultRouting() Routing {
 	var base Registry
 	if err := json.Unmarshal(defaultsJSON, &base); err != nil {
-		return Routing{} // defaults.json always parses; a failure here is a build break, not a runtime one
+		return Routing{}
 	}
 	return base.Routing
 }
 
-// validateRouting checks a routing object's shape: weight names/sum, cell agent/alias/account names, and
-// opencode's own freeTiers/freeFirstOutput.
+// validateRouting checks a routing object's shape: weight names/sum, cell names and opencode's own fields.
 func validateRouting(r Routing) []string {
 	errs := validateRouteCells(r.Cells)
 	if err := ValidateRouteWeights(r.Weights); err != nil {
@@ -240,7 +230,7 @@ func rungNameErrors(label string, g Rung) []string {
 	return errs
 }
 
-// rungModelOK: opencode takes its sub ids; any other agent an alias or a catalog model a row or the Databricks menu serves.
+// rungModelOK: opencode takes its sub ids; any other agent takes an alias or a model a row or Databricks menu serves.
 func rungModelOK(r *Registry, agent, m string) bool {
 	if agent == "opencode" {
 		return slices.Contains(RouteOpencodeSubIDs, m)

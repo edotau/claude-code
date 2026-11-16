@@ -24,7 +24,7 @@ func TestResolveProfileStoredCredentialWithoutEnv(t *testing.T) {
 	}
 }
 
-// Status picks the slot the effective identity mints from: a paired SP's M2M secret alone is present for sp and auto only.
+// Status picks the slot the effective identity mints from: a paired SP's M2M secret is present for sp and auto only.
 func TestResolveOAuthPairedSPSlot(t *testing.T) {
 	vaulttest.Use(t)
 	for identity, want := range map[string]string{IdentitySP: "vault", IdentityAuto: "vault", IdentityUser: "none"} {

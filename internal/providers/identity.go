@@ -11,9 +11,9 @@ import (
 
 // Identity modes for a paired Databricks profile: which credential a launch uses.
 const (
-	IdentityAuto = "auto" // user login first, the service principal when it is rejected or needs a login
-	IdentityUser = "user" // user login only
-	IdentitySP   = "sp"   // service principal only, no browser
+	IdentityAuto = "auto"
+	IdentityUser = "user"
+	IdentitySP   = "sp"
 	// IdentityHeadless marks a headless dispatch with no --as: on an auto row, the SP first, the user login as fallback.
 	IdentityHeadless = "headless"
 )

@@ -45,7 +45,7 @@ type loginRecord struct {
 	State  string    `json:"state"`
 	Since  time.Time `json:"since"`
 	Until  time.Time `json:"until"`
-	Set    time.Time `json:"set,omitzero"` // the login secret's vault set-time when it was marked; never a token
+	Set    time.Time `json:"set,omitzero"`
 }
 
 const loginStateSchema = 1
@@ -58,10 +58,10 @@ var loginStateFormat = schemas.Register(schemas.Format{
 })
 
 // loginMarks holds a mark whose file could not be written, so this process still suppresses retries.
-var loginMarks sync.Map // profile name -> loginRecord
+var loginMarks sync.Map
 
 // loginNoted is the Since of the mark whose fallback to the service principal this process already reported.
-var loginNoted sync.Map // profile name -> time.Time
+var loginNoted sync.Map
 
 // readLoginMark is p's dead-login mark: the file (another process's included), else the unwritable-file fallback.
 func readLoginMark(name string) (loginRecord, bool) {
@@ -80,8 +80,7 @@ func readLoginMark(name string) (loginRecord, bool) {
 	return loginRecord{}, false
 }
 
-// LoginStatus is p's remembered dead login, of any age until a login or a successful refresh clears it (none on an sp
-// row). It reads one small cache file: no network, no vault.
+// LoginStatus is p's remembered dead login until a login or refresh clears it; one cache file read, no network.
 func LoginStatus(p *Provider) (LoginState, bool) {
 	if p.Auth.Type != AuthOAuth || p.Identity == IdentitySP {
 		return LoginState{}, false
@@ -100,8 +99,7 @@ func loginSetAt(p *Provider) (time.Time, bool) {
 	return at, err == nil && !at.IsZero()
 }
 
-// liveLoginMark is p's mark unless the login secret was rewritten since (a hand-set login), which makes it stale: the
-// new value gets one try. A mark without a set-time, or an unreadable vault, never goes stale.
+// liveLoginMark is p's mark unless the login secret was rewritten since (stale); an unreadable vault never stales it.
 func liveLoginMark(p *Provider) (loginRecord, bool) {
 	rec, ok := readLoginMark(p.Name)
 	if !ok || rec.Set.IsZero() {
@@ -167,8 +165,7 @@ func fallbackToSP(ctx context.Context, p *Provider, force bool) (string, error) 
 	return v, err
 }
 
-// ProbeUserLogin makes one real user refresh under p's refresh lock and marks or clears the dead login. It is for an
-// oauth row with a stored login; err is a transport or other transient failure, which never marks.
+// ProbeUserLogin makes one user refresh under p's refresh lock, marking or clearing the dead login.
 func ProbeUserLogin(ctx context.Context, p *Provider) (LoginState, bool, error) {
 	if p.Auth.Type != AuthOAuth || !hasUserLogin(p) {
 		return LoginState{}, false, nil
