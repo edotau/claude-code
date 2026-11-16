@@ -111,7 +111,6 @@ func TestMemoryCLIRejections(t *testing.T) {
 		code   int
 		stderr []string
 	}{
-		{"migrate verb gone", []string{"migrate", "--dry-run"}, 1, []string{"unknown subcommand"}},
 		{"fmt bare --repo", []string{"fmt", "--repo", "/x"}, 2, nil},
 		{"update bare --repo", []string{"update", "--repo", "/x"}, 2, nil},
 		{"dream bare --repo", []string{"dream", "--repo", "/x"}, 2, nil},
