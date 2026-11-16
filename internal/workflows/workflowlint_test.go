@@ -1,4 +1,4 @@
-package quality
+package workflows
 
 import (
 	"bytes"
@@ -251,7 +251,7 @@ func TestWorkflowLintAutoModeByNameUnderCwdInlines(t *testing.T) {
 // realScript reads a saved workflow from this repo's workflows/ (the hook's real input).
 func realScript(t *testing.T, name string) ([]byte, string) {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "workflows"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "workflows"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,21 +492,21 @@ func TestBadPinValues(t *testing.T) {
 // routeTier('<tier>') counts as pinned and its literal is validated; routeTier(cfg.x) has no literal and passes.
 func TestRouteTierWrappedModelPin(t *testing.T) {
 	t.Parallel()
-	if hits := LintPins("inline", []byte("agent('a', { model: routeTier('sonnet'), effort: 'low' })\n")); len(hits) != 0 {
-		t.Fatalf("LintPins(routeTier('sonnet')) = %v, want none — the wrapped literal is a valid pin", hits)
+	if hits := lintAllPins("inline", []byte("agent('a', { model: routeTier('sonnet'), effort: 'low' })\n")); len(hits) != 0 {
+		t.Fatalf("lintAllPins(routeTier('sonnet')) = %v, want none — the wrapped literal is a valid pin", hits)
 	}
-	if hits := LintPins("inline", []byte("agent('a', { model: routeTier('gpt-5'), effort: 'low' })\n")); len(hits) != 1 || !strings.Contains(hits[0], `"gpt-5"`) {
-		t.Fatalf("LintPins(routeTier('gpt-5')) = %v, want one hit naming value gpt-5", hits)
+	if hits := lintAllPins("inline", []byte("agent('a', { model: routeTier('gpt-5'), effort: 'low' })\n")); len(hits) != 1 || !strings.Contains(hits[0], `"gpt-5"`) {
+		t.Fatalf("lintAllPins(routeTier('gpt-5')) = %v, want one hit naming value gpt-5", hits)
 	}
-	if hits := LintPins("inline", []byte("agent('a', { model: routeTier(cfg.x), effort: 'low' })\n")); len(hits) != 0 {
-		t.Fatalf("LintPins(routeTier(cfg.x)) = %v, want none — no literal to validate, and model: text alone pins it", hits)
+	if hits := lintAllPins("inline", []byte("agent('a', { model: routeTier(cfg.x), effort: 'low' })\n")); len(hits) != 0 {
+		t.Fatalf("lintAllPins(routeTier(cfg.x)) = %v, want none — no literal to validate, and model: text alone pins it", hits)
 	}
 }
 
 // lint:opus-ok exempts only the effort axis — a marked call missing model: is still a model hit.
 func TestOpusOKExemptsEffortOnly(t *testing.T) {
 	t.Parallel()
-	hits := LintPins("inline", []byte("await agent('x', { label: 'l' }) // lint:opus-ok\n"))
+	hits := lintAllPins("inline", []byte("await agent('x', { label: 'l' }) // lint:opus-ok\n"))
 	if len(hits) != 1 {
 		t.Fatalf("hits = %v, want exactly 1 (model hit, no effort hit)", hits)
 	}
@@ -522,7 +522,7 @@ func TestShippedWorkflowsAreClean(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller failed — cannot locate the repo root")
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(thisFile))))
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
 	if rc, out, errs := lintVerb(repoRoot); rc != 0 || !strings.Contains(out, "script(s) clean") || strings.HasPrefix(out, "workflow lint: 0 ") {
 		t.Fatalf("shipped workflows under %s: rc=%d out=%q\n%s", repoRoot, rc, out, errs)
 	}
@@ -545,12 +545,12 @@ func TestAgentCallWhitespaceAndIdentifierBoundary(t *testing.T) {
 	} {
 		t.Run(tc.src, func(t *testing.T) {
 			t.Parallel()
-			out, ambiguous := FillModel(tc.src, "sonnet")
+			out, ambiguous := fillModel(tc.src, "sonnet")
 			if out != tc.want || len(ambiguous) != 0 {
-				t.Errorf("FillModel = %q, %v; want %q, no ambiguity", out, ambiguous, tc.want)
+				t.Errorf("fillModel = %q, %v; want %q, no ambiguity", out, ambiguous, tc.want)
 			}
-			if hits := LintPins("inline", []byte(tc.src)); len(hits) != tc.wantHits {
-				t.Errorf("LintPins = %v, want %d hits", hits, tc.wantHits)
+			if hits := lintAllPins("inline", []byte(tc.src)); len(hits) != tc.wantHits {
+				t.Errorf("lintAllPins = %v, want %d hits", hits, tc.wantHits)
 			}
 		})
 	}
@@ -669,7 +669,7 @@ func TestRegistryHidingTopLevelThrows(t *testing.T) {
 	}
 }
 
-// FillModel inserts the pin into every literal options shape it can edit and refuses the ones it cannot.
+// fillModel inserts the pin into every literal options shape it can edit and refuses the ones it cannot.
 func TestFillModel(t *testing.T) {
 	t.Parallel()
 	ambiguous := []string{"line 1"}
@@ -698,9 +698,9 @@ func TestFillModel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out, amb := FillModel(tc.src, "sonnet")
+			out, amb := fillModel(tc.src, "sonnet")
 			if out != tc.want || !slices.Equal(amb, tc.ambiguous) {
-				t.Errorf("FillModel(%q) = %q, %v; want %q, %v", tc.src, out, amb, tc.want, tc.ambiguous)
+				t.Errorf("fillModel(%q) = %q, %v; want %q, %v", tc.src, out, amb, tc.want, tc.ambiguous)
 			}
 		})
 	}

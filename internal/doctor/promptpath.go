@@ -16,11 +16,11 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
-	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	workflowchecks "github.com/edotau/claude-code/internal/workflows"
 )
 
 const claudeMDCap = 200
@@ -294,7 +294,7 @@ func hasHeading(ls []string, want string) bool {
 // workflows reports saved-workflow doc and helper-block drift, each as file:1 with its origin.
 func workflows(root string) []string {
 	var out []string
-	for _, m := range quality.WorkflowDrift(root) {
+	for _, m := range workflowchecks.WorkflowDrift(root) {
 		head, what, _ := strings.Cut(m, ": ")
 		origin := head
 		if head == "saved-workflows.md" {
