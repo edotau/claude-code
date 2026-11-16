@@ -107,7 +107,8 @@ func TestAgentEffortModelPin(t *testing.T) {
 	cases := []struct{ name, stdin, wantModel string }{
 		{"low -> haiku", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`, "haiku"},
 		{"medium -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"add a --verbose flag to the token command"}}`, "sonnet"},
-		{"high capped at sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`, "sonnet"},
+		{"ordinary multi-step -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`, "sonnet"},
+		{"audit -> opus", `{"tool_name":"Agent","tool_input":{"prompt":"audit the safety-scan rules for false blocks"}}`, "opus"},
 		{"explicit model wins", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","model":"opus"}}`, ""},
 		{"inherit is unset", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text","model":"inherit"}}`, "haiku"},
 		{"other tool ignored", `{"tool_name":"Bash","tool_input":{"prompt":"fix a typo","command":"ls"}}`, ""},
@@ -309,7 +310,7 @@ func stubResolve(t *testing.T, f func(agentpkg.ModelQuery) string) {
 	}
 }
 
-// tierOracle labels a query `<agent>-<model>`; "pin" stands for a vendor CLI's own pin (no alias reaches it).
+// tierOracle labels a query `<agent>-<model>`: the typed model, else the task tier, else "pin" (the agent's own).
 func tierOracle(q agentpkg.ModelQuery) string {
 	return q.Agent + "-" + cmp.Or(q.Model, q.Default, "pin")
 }
@@ -329,11 +330,11 @@ func TestDispatchAgentLabels(t *testing.T) {
 		t.Errorf("Explore label = %q, want its own model prefix", got)
 	}
 	cases := []struct{ st, agent, want string }{
-		{"claude", "copilot", "copilot-pin: task"},
-		{"copilot", "claude", "copilot-pin: task"},
+		{"claude", "copilot", "copilot-sonnet: task"},
+		{"copilot", "claude", "copilot-sonnet: task"},
 		{"claude", "claude (in-context)", "sonnet: task"},
 		{"claude", "claude", "sonnet: task"},
-		{"codex", "codex → gemini", "codex-pin: task"},
+		{"codex", "codex → gemini", "codex-sonnet: task"},
 	}
 	// Mode: compare joins with ", "; relay (explicit or absent) keeps the arrow.
 	for _, c := range []struct{ prompt, want string }{
@@ -357,17 +358,17 @@ func TestDispatchAgentLabels(t *testing.T) {
 func TestDispatchLabelLowercase(t *testing.T) {
 	useAgentsDir(t, "claude", "copilot", "Plan")
 	lower := []struct{ st, agent, desc, want string }{
-		{"claude", "copilot", "Fix bug", "copilot-pin: fix bug"},
-		{"claude", "copilot", "copilot: Fix bug", "copilot-pin: fix bug"},
+		{"claude", "copilot", "Fix bug", "copilot-sonnet: fix bug"},
+		{"claude", "copilot", "copilot: Fix bug", "copilot-sonnet: fix bug"},
 		{"claude", "none", "Exercising live-session cap", "sonnet: exercising live-session cap"},
 		{"claude", "none", "HTTP retry", "sonnet: HTTP retry"},
-		{"claude", "copilot", "CLAUDE.md rewrite", "copilot-pin: CLAUDE.md rewrite"},
+		{"claude", "copilot", "CLAUDE.md rewrite", "copilot-sonnet: CLAUDE.md rewrite"},
 		{"claude", "none", "internal_x fix", "sonnet: internal_x fix"},
 		{"claude", "none", "Fix v2 bug", "sonnet: fix v2 bug"},
 		{"claude", "none", "V2 bug", "sonnet: V2 bug"},
 		{"claude", "none", "Done. Next", "sonnet: done. Next"},
 		{"claude", "none", "claude: RTK hook", "sonnet: RTK hook"},
-		{"copilot", "none", "copilot: repair tests", "copilot-pin: repair tests"},
+		{"copilot", "none", "copilot: repair tests", "copilot-sonnet: repair tests"},
 		{"Plan", "none", "Plan: Repo-wide package consolidation", "sonnet: repo-wide package consolidation"},
 	}
 	for _, c := range lower {
@@ -585,10 +586,11 @@ func writeAgentFile(t *testing.T, cfg, spec string) {
 // allowedTypes are the dispatch types the inventory covers: the seven-file roster shape plus the built-ins.
 var allowedTypes = []string{"claude", "codex", "copilot", "gemini", "opencode", "Explore", "Plan", "general-purpose"}
 
-// inventoryLabel is the label oracle: an external type shows "<agent>-pin", else its model.
-func inventoryLabel(st, model string) string {
+// inventoryLabel is the label oracle: an external type shows "<agent>-<task tier>", else its model.
+func inventoryLabel(st, model, task string) string {
 	if externalTypes[st] {
-		return st + "-pin" // a vendor CLI runs its pin (else opus), never the classifier's alias nor the relay's model
+		tier, _ := agentpkg.TaskTier(task) // a vendor CLI runs its pin, else the task tier, never the relay's model
+		return st + "-" + tier
 	}
 	return model
 }
@@ -609,7 +611,7 @@ func TestDispatchLabelInventory(t *testing.T) {
 			if src == "none" {
 				_, model, _ = dispatchLabel(context.Background(), LabelInput{Type: st, Brief: task})
 			}
-			label := inventoryLabel(st, model)
+			label := inventoryLabel(st, model, task)
 			if pinned != label {
 				t.Errorf("%s/%s: agents label = %q, want %q", st, src, pinned, label)
 			}

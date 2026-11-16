@@ -70,7 +70,7 @@ func overlayAccount(ctx context.Context) string {
 	return ov.Account
 }
 
-// routedModel is t with the model ResolveModel spells for t's row: req.Model typed, else the record pin, else opus.
+// routedModel is t with the model ResolveRun spells for t's row: req.Model typed, else the pin, else the task tier.
 func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Target, applied bool) (providers.Target, string, error) {
 	if t.Provider == nil || applied && req.Model != "" && !req.CellModel {
 		if t.Provider == nil && req.Model != "" && !slices.Contains(models.AliasNames, req.Model) {
@@ -82,11 +82,15 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	if err != nil {
 		return t, "", err
 	}
-	typed := req.Model
+	q := ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name}
 	if req.CellModel {
-		typed = ""
+		q.Model = "" // a bare ladder cell is the classifier's alias, not a typed model
 	}
-	r, err := ResolveModel(reg, QueryFor(ctx, ModelQuery{Agent: s.Name, Model: typed, Profile: t.Provider.Name}), time.Now())
+	typed := q.Model
+	if typed == "" {
+		q.Default, _ = TaskTier(req.Prompt)
+	}
+	r, err := ResolveRun(reg, QueryFor(ctx, q), time.Now())
 	switch {
 	case errors.Is(err, ErrModelRoute) && typed == "":
 		return t, "", nil // a record model the row cannot serve keeps the row's own tier model

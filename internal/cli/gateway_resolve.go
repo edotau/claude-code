@@ -42,6 +42,7 @@ func cmdGatewayResolve(args []string) int {
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
 	format := fs.String("format", "text", "text or json")
+	taskFile := fs.String("task", "", "the brief the run gets (- reads stdin): an untyped model resolves to its tier")
 	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -51,9 +52,16 @@ func cmdGatewayResolve(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
+	task, err := agent.ReadBrief(*taskFile)
+	if err != nil {
+		return helptext.Fail("gateway resolve: %v", err)
+	}
 	q, err := resolveQuery(ctx, words[0], *model, *profile, *overlay)
 	if err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
+	}
+	if q.Model == "" {
+		q.Default, _ = agent.TaskTier(task) // an untyped run's pick below its pin
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -62,7 +70,7 @@ func cmdGatewayResolve(args []string) int {
 	if *all {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
-	r, err := resolveFirstHop(ctx, reg, q)
+	r, err := resolveFirstHop(ctx, reg, q, task)
 	if errors.Is(err, agent.ErrModelRoute) {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	} else if err != nil {
@@ -75,12 +83,12 @@ func cmdGatewayResolve(args []string) int {
 var resolveRunQuery = agent.RunQuery
 
 // resolveFirstHop resolves q as the run's first hop does: an untyped external agent takes the ladder, like the label.
-func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery) (agent.ModelRoute, error) {
-	hop, note, err := resolveRunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(""))
+func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task string) (agent.ModelRoute, error) {
+	hop, note, err := resolveRunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(task))
 	if err != nil {
 		return agent.ModelRoute{}, err
 	}
-	r, err := agent.ResolveModel(reg, agent.QueryFor(ctx, hop), time.Now())
+	r, err := agent.ResolveRun(reg, agent.QueryFor(ctx, hop), time.Now())
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
 	return r, err
 }
@@ -138,7 +146,7 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 	for _, p := range allRows(reg) {
 		q.Profile, q.Provider = p.Name, ""
 		row := resolveRow{Profile: p.Name}
-		r, err := agent.ResolveModel(reg, q, time.Now())
+		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
 			row.Reason = strings.TrimPrefix(err.Error(), agent.ErrModelRoute.Error()+": ")
 			rows = append(rows, row)

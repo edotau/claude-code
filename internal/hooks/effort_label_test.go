@@ -29,7 +29,7 @@ func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	}
 }
 
-// A Run: line's flags reach the resolver whole; a vendor CLI gets no classifier alias (it runs its pin, else opus).
+// A Run: line's flags reach the resolver whole; an untyped ask gets the prompt's task tier below its pin.
 func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
@@ -40,13 +40,13 @@ func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 		hint                      string // the alias the ladder classifies ("" = no ladder asked)
 	}{
 		{"--agent codex --profile dev --model sonnet --fallback none", "codex", "sonnet", "dev", "", "haiku"},
-		{"--agent opencode --profile dev", "opencode", "", "dev", "", "haiku"},
+		{"--agent opencode --profile dev", "opencode", "", "dev", "haiku", "haiku"},
 		{"--agent opencode --profile dev --model databricks-claude-opus-5-5", "opencode", "databricks-claude-opus-5-5", "dev", "", "haiku"},
-		{"--agent codex", "codex", "", "", "", "haiku"},
+		{"--agent codex", "codex", "", "", "haiku", "haiku"},
 		{"--agent codex --model gpt-6-1-sol", "codex", "gpt-6-1-sol", "", "", "haiku"},
-		{"--agent copilot --profile aueric_boehcp", "copilot", "", "aueric_boehcp", "", "haiku"},
-		{"--agent gemini", "gemini", "", "", "", "haiku"},
-		{"--agent claude --profile dev", "claude", "", "dev", "sonnet", "haiku"}, // claude's ask runs the alias
+		{"--agent copilot --profile aueric_boehcp", "copilot", "", "aueric_boehcp", "haiku", "haiku"},
+		{"--agent gemini", "gemini", "", "", "haiku", "haiku"},
+		{"--agent claude --profile dev", "claude", "", "dev", "haiku", "haiku"},
 	} {
 		var seen agentpkg.ModelQuery
 		stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
