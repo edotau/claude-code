@@ -38,7 +38,11 @@ func SetIdentity(reg *providers.Registry, profile, mode string, dryRun bool) (Id
 				SaveIdentity(reg, profile, mode, "", ""))
 		}
 		name := providers.SecretName(providers.GroupDatabricks, profile, providers.AuthM2M)
-		if _, ok, err := vault.ReadSecret(name); err != nil || !ok {
+		_, ok, err := vault.ReadSecret(name)
+		if err != nil {
+			return ch, fmt.Errorf("%s: cannot read %s: %w", profile, name, err)
+		}
+		if !ok {
 			return ch, fmt.Errorf("%s: SP %s has no secret; seal one with `claude-code vault set %s`, or keep identity %s",
 				profile, ch.SP, name, old)
 		}

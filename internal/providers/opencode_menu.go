@@ -4,7 +4,10 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -34,17 +37,30 @@ func OpencodeMenuFromVault() bool {
 // menuCache holds the vault menu per vault.db stamp; vaultOpencodeMenu hands out clones.
 var menuCache paths.StampCache[[]OpencodeModel]
 
+// warnedMenu limits the unusable-overlay warning to one per process.
+var warnedMenu sync.Once
+
 func vaultOpencodeMenu() ([]OpencodeModel, bool) {
 	out, err := menuCache.Get(vault.Path(), func() (out []OpencodeModel, err error) {
 		err = vault.View(func(t *vault.Tx) error {
-			if raw, ok := t.Get(vault.Overlay, opencodeMenuKey); ok && raw != "" && json.Unmarshal([]byte(raw), &out) != nil {
-				out = nil
+			if raw, ok := t.Get(vault.Overlay, opencodeMenuKey); ok && raw != "" {
+				if err := json.Unmarshal([]byte(raw), &out); err != nil {
+					out = nil
+					warnMenu(fmt.Errorf("vault overlay %s is not a JSON menu: %w", opencodeMenuKey, err))
+				}
 			}
 			return nil
 		})
 		return out, err
 	})
+	if err != nil {
+		warnMenu(err)
+	}
 	return slices.Clone(out), err == nil && len(out) > 0
+}
+
+func warnMenu(err error) {
+	warnedMenu.Do(func() { fmt.Fprintf(os.Stderr, "warning: %v; using the built-in opencode menu\n", err) })
 }
 
 // SetOpencodeMenu stores menu as the vault overlay; an empty menu deletes the entry (back to the seed).

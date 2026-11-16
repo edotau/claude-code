@@ -230,7 +230,7 @@ func rungNameErrors(label string, g Rung) []string {
 	return errs
 }
 
-// rungModelOK: opencode takes its sub ids; any other agent takes an alias or a model a row or Databricks menu serves.
+// rungModelOK: opencode takes its sub ids; others take an alias or a model a row, the seed or saved menu serves.
 func rungModelOK(r *Registry, agent, m string) bool {
 	if agent == "opencode" {
 		return slices.Contains(RouteOpencodeSubIDs, m)
@@ -252,7 +252,8 @@ func rungModelOK(r *Registry, agent, m string) bool {
 			}
 		}
 	}
-	return false
+	// The saved menu is read last, so a rung the seed or a row already accepts never opens the vault.
+	return slices.ContainsFunc(OpencodeMenu(), func(e OpencodeModel) bool { return e.ID == id })
 }
 
 // validRouteRow reports whether key names a routed row: an alias, or a canonical Claude id of a routed alias.
