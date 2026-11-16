@@ -114,6 +114,7 @@ func TestMemoryCLIRejections(t *testing.T) {
 		stderr []string
 	}{
 		{"fmt bare --repo", []string{"fmt", "--repo", "/x"}, 2, nil},
+		{"fmt --own outside the config dir", []string{"fmt", "--own"}, 1, []string{"is not the live config dir"}},
 		{"update bare --repo", []string{"update", "--repo", "/x"}, 2, nil},
 		{"dream bare --repo", []string{"dream", "--repo", "/x"}, 2, nil},
 		{"show bare --repo", []string{"show", "--repo", "/x"}, 2, nil},

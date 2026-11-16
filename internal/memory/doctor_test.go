@@ -541,7 +541,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 		t.Errorf("report %q", report)
 	}
 
-	entries, sessions, err := timeline(root, 10)
+	entries, sessions, err := timelineBank(BankFor(root), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

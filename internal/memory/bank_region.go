@@ -182,9 +182,7 @@ func newestBankMarkdown(b Bank) (time.Time, error) {
 	return newest, nil
 }
 
-// knowledgeFiles are the home bank's knowledge notes plus root's own bank's.
-func knowledgeFiles(root string) []string { return knowledgeOf(BankFor(root)) }
-
+// knowledgeOf is the home bank's knowledge notes plus b's own.
 func knowledgeOf(b Bank) []string {
 	out := knowledgeNotes(HomeBank())
 	if !b.Home() {

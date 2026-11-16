@@ -280,6 +280,6 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		searchBanksTerms(f.root, query, terms, 0)
+		searchBankTerms(BankFor(f.root), query, terms, 0)
 	}
 }

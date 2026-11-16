@@ -125,7 +125,7 @@ func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
-	return rotated, commitBanks("settle: "+bankName(banks[0]), banks)
+	return rotated, commitBanks("settle: "+stateKey(banks[0]), banks)
 }
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.

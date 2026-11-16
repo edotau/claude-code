@@ -167,6 +167,7 @@ func sourceStores(from string) (map[string]string, error) {
 			continue
 		}
 		key, name, prefixed := strings.Cut(e.Name(), "--")
+		key = stateKey(Bank{Key: key})
 		if !prefixed {
 			key, name = homeDir, e.Name()
 		}
@@ -203,7 +204,7 @@ func (p *importPlan) flatImportFile(pr importPair, rel string) bool {
 		name = parts[1]
 	}
 	if prefix, _, ok := strings.Cut(name, "--"); ok {
-		key = prefix
+		key = stateKey(Bank{Key: prefix})
 	}
 	return key == pr.key && !strings.HasPrefix(path.Base(rel), ".")
 }
@@ -627,8 +628,11 @@ var indexLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 
 // bankOfStateKey inverts stateKey: "home" is the home bank.
 func bankOfStateKey(key string) Bank {
-	if key == homeDir {
+	switch key {
+	case homeDir:
 		return HomeBank()
+	case repoHomeStateKey:
+		return Bank{Key: homeDir}
 	}
 	return Bank{Key: key}
 }

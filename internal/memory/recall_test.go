@@ -18,6 +18,12 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
+// searchBanks ranks root's local, home and archive banks plus native topics; top k (0 = all).
+func searchBanks(root, query string, k int) []SearchHit {
+	ranked, _, _ := searchBankTerms(BankFor(root), query, contentTerms(query), k)
+	return ranked
+}
+
 // TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks enter results only when the query names it.
 func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 	isolatedConfig1(t)
