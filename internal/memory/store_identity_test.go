@@ -360,4 +360,9 @@ func TestOriginRemoteURLSeesIncludedConfigChange(t *testing.T) {
 	if got := originRemoteURL(repo); got != "https://example.invalid/two.git" {
 		t.Fatalf("after the included file changed, originRemoteURL = %q, want two", got)
 	}
+	write("three")
+	resetRemoteCache()
+	if got := originRemoteURL(repo); got != "https://example.invalid/three.git" {
+		t.Fatalf("after a second change, originRemoteURL = %q, want three", got)
+	}
 }

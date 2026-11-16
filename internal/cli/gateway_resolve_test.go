@@ -51,8 +51,8 @@ func TestResolveFirstHop(t *testing.T) {
 	t.Cleanup(func() { resolveRunQuery = old })
 	resolveRunQuery = stub
 	r, _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, "fix the typo")
-	if err != nil || got.Agent != "codex" || hint != "haiku" || r.Agent != "claude" || r.Model != "claude-sonnet-5-5" || !strings.Contains(r.Note, "gated out") {
-		t.Errorf("resolveFirstHop = %+v, %v (query %+v); want the stubbed claude sonnet hop with its note", r, err, got)
+	if err != nil || got.Agent != "codex" || hint != "haiku" || r.Agent != "claude" || r.Model != "claude-sonnet-5-5" || r.Account != "anthropic·ultra" || !strings.Contains(r.Note, "gated out") {
+		t.Errorf("resolveFirstHop = %+v, %v (query %+v); want the stubbed claude sonnet hop on anthropic·ultra with its note", r, err, got)
 	}
 	resolveRunQuery = func(context.Context, *providers.Registry, agent.ModelQuery, string) (agent.ModelQuery, string, error) {
 		return agent.ModelQuery{}, "", errors.New("no route runs codex")
