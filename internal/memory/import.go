@@ -20,9 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// appendOnly files merge by block; replaceFiles keep the target and archive the source verbatim.
+// replaceFiles keep the target and archive the source verbatim; idFiles merge by block.
 var (
-	appendOnly   = map[string]bool{"decisionLog.md": true, "conventions.md": true, "sessionHistory.md": true}
 	replaceFiles = map[string]bool{"activeContext.md": true, "progress.md": true, "projectContext.md": true}
 	headingDate  = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
 )
@@ -77,8 +76,6 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 	return res, err
 }
 
-type importPair struct{ key, src, tgt string }
-
 type importStats struct{ merged, copied, kept, conflicts, skipped, left int }
 
 type importPlan struct {
@@ -101,8 +98,8 @@ func planImport(opt ImportOptions) (*importPlan, error) {
 	if err != nil {
 		return p, err
 	}
-	for _, pr := range pairs {
-		if err := p.planStore(pr); err != nil {
+	for _, key := range pairs {
+		if err := p.planStore(opt.From, key); err != nil {
 			return p, err
 		}
 	}
@@ -198,7 +195,7 @@ func importName(rel string) string {
 	return strings.Join(parts, "/")
 }
 
-func (p *importPlan) flatImportFile(pr importPair, rel string) bool {
+func (p *importPlan) flatImportFile(key, rel string) bool {
 	if rel == nativeIndexFile {
 		if !p.topics || p.native {
 			return false
@@ -206,15 +203,15 @@ func (p *importPlan) flatImportFile(pr importPair, rel string) bool {
 		p.native = true
 		return true
 	}
-	key := homeDir
+	owner := homeDir
 	name, _, _ := strings.Cut(rel, "/")
 	if parts := strings.Split(rel, "/"); len(parts) > 1 {
 		name = parts[1]
 	}
 	if prefix, _, ok := strings.Cut(name, "--"); ok {
-		key = stateKey(Bank{Key: prefix})
+		owner = stateKey(Bank{Key: prefix})
 	}
-	return key == pr.key && !strings.HasPrefix(path.Base(rel), ".")
+	return owner == key && !strings.HasPrefix(path.Base(rel), ".")
 }
 
 func localNativePointers(data []byte) []byte {
@@ -237,14 +234,14 @@ func localNativePointers(data []byte) []byte {
 }
 
 // localStores limits imports to banks already known on this host.
-func localStores() (map[string]string, error) {
-	out := map[string]string{}
+func localStores() map[string]bool {
+	out := map[string]bool{}
 	for _, b := range Banks() {
-		if d := b.SubDir(""); statOK(d) {
-			out[stateKey(b)] = d
+		if statOK(b.SubDir("")) {
+			out[stateKey(b)] = true
 		}
 	}
-	return out, nil
+	return out
 }
 
 func (p *importPlan) skipStore(key, why string) {
@@ -253,7 +250,7 @@ func (p *importPlan) skipStore(key, why string) {
 }
 
 // selectPairs pairs source and local stores; a store missing on either side is skipped and listed.
-func selectPairs(opt ImportOptions, p *importPlan) ([]importPair, error) {
+func selectPairs(opt ImportOptions, p *importPlan) ([]string, error) {
 	stores, err := sourceStores(opt.From)
 	if err != nil {
 		return nil, err
@@ -261,35 +258,29 @@ func selectPairs(opt ImportOptions, p *importPlan) ([]importPair, error) {
 	if opt.All {
 		return allPairs(stores, p)
 	}
-	root, own, err := ResolveBank(opt.Repo)
+	_, own, err := ResolveBank(opt.Repo)
 	if err != nil {
 		return nil, importInput("%v", err)
 	}
-	tgt, key := own.SubDir(""), stateKey(own)
-	if _, ok := insideStore(tgt); !ok {
-		return nil, importInput("no local store for %s (run `claude-code memory init` there)", root)
-	}
-	src, ok := stores[key]
-	switch fi, serr := os.Stat(tgt); {
+	key := stateKey(own)
+	_, ok := stores[key]
+	switch fi, serr := os.Stat(StoreDir()); {
 	case serr != nil || !fi.IsDir() || (!own.Home() && !slices.Contains(BankKeys(), own.Key)):
 		p.skipStore(key, "no local store")
 	case !ok:
 		p.skipStore(key, "no store in the source")
 	default:
-		return []importPair{{key, src, tgt}}, nil
+		return []string{key}, nil
 	}
 	return nil, nil
 }
 
-func allPairs(stores map[string]string, p *importPlan) ([]importPair, error) {
-	local, err := localStores()
-	if err != nil {
-		return nil, err
-	}
-	var pairs []importPair
+func allPairs(stores map[string]string, p *importPlan) ([]string, error) {
+	local := localStores()
+	var pairs []string
 	for _, key := range slices.Sorted(maps.Keys(stores)) {
-		if tgt, ok := local[key]; ok {
-			pairs = append(pairs, importPair{key, stores[key], tgt})
+		if local[key] {
+			pairs = append(pairs, key)
 		} else {
 			p.skipStore(key, "no local store")
 		}
@@ -298,36 +289,36 @@ func allPairs(stores map[string]string, p *importPlan) ([]importPair, error) {
 }
 
 // planStore walks one source store through os.Root, so no entry can resolve outside it.
-func (p *importPlan) planStore(pr importPair) error {
-	root, err := os.OpenRoot(pr.src)
+func (p *importPlan) planStore(from, key string) error {
+	root, err := os.OpenRoot(from)
 	if err != nil {
-		p.skipStore(pr.key, err.Error())
+		p.skipStore(key, err.Error())
 		return nil
 	}
 	defer root.Close()
 	return fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
-			p.skipFile(pr, rel, err.Error())
+			p.skipFile(key, rel, err.Error())
 		case d.IsDir() && (d.Name() == ".git" || d.Name() == "locks" || d.Name() == ".locks"):
 			return fs.SkipDir
 		case d.IsDir() && rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0]):
 			return fs.SkipDir
 		case d.IsDir(), foldSkips(rel), rel == layoutFile:
-		case !p.flatImportFile(pr, rel):
+		case !p.flatImportFile(key, rel):
 		case !filepath.IsLocal(filepath.FromSlash(rel)):
-			p.skipFile(pr, rel, "path escapes the store")
+			p.skipFile(key, rel, "path escapes the store")
 		case !d.Type().IsRegular():
-			p.skipFile(pr, rel, "not a regular file")
+			p.skipFile(key, rel, "not a regular file")
 		default:
-			p.importFile(pr, root, rel)
+			p.importFile(key, root, rel)
 		}
 		return nil
 	})
 }
 
-func (p *importPlan) skipFile(pr importPair, rel, why string) {
-	p.lines = append(p.lines, pr.key+": skipped "+rel+": "+why)
+func (p *importPlan) skipFile(key, rel, why string) {
+	p.lines = append(p.lines, key+": skipped "+rel+": "+why)
 	p.st.skipped++
 }
 
@@ -348,30 +339,30 @@ func readSource(root *os.Root, rel string) ([]byte, error) {
 	return data, err
 }
 
-func (p *importPlan) importFile(pr importPair, root *os.Root, rel string) {
+func (p *importPlan) importFile(key string, root *os.Root, rel string) {
 	name := importName(rel)
-	if !p.topics && !appendOnly[name] && !monthlyArchive(name) { // logs only unless --topics
+	if !p.topics && idFiles[name] == "" && !monthlyArchive(name) { // logs only unless --topics
 		p.st.left++
 		return
 	}
 	data, err := readSource(root, rel)
 	if err != nil {
-		p.skipFile(pr, rel, err.Error())
+		p.skipFile(key, rel, err.Error())
 		return
 	}
 	if rel == nativeIndexFile {
 		data = localNativePointers(data)
 	}
-	if appendOnly[name] {
-		data = unarchived(pr.tgt, rel, data)
+	if idFiles[name] != "" {
+		data = unarchived(StoreDir(), rel, data)
 	}
-	dst := filepath.Join(pr.tgt, filepath.FromSlash(rel))
+	dst := filepath.Join(StoreDir(), filepath.FromSlash(rel))
 	cur, err := os.ReadFile(dst)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		p.record(pr, rel, importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"})
+		p.record(key, rel, importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"})
 		return
 	}
-	p.record(pr, rel, decideImport(name, cur, data, err == nil))
+	p.record(key, rel, decideImport(name, cur, data, err == nil))
 }
 
 // unarchived drops the source blocks the target's archives already hold, so a rotated entry is not imported again.
@@ -409,11 +400,11 @@ type importAction struct {
 	line string
 }
 
-func (p *importPlan) record(pr importPair, rel string, a importAction) {
+func (p *importPlan) record(key, rel string, a importAction) {
 	if a.kind == impNone {
 		return
 	}
-	p.lines = append(p.lines, pr.key+": "+a.line)
+	p.lines = append(p.lines, key+": "+a.line)
 	switch a.kind {
 	case impMerge:
 		p.st.merged += a.n
@@ -430,8 +421,8 @@ func (p *importPlan) record(pr importPair, rel string, a importAction) {
 	if textutil.CredentialRE.Match(a.data) {
 		p.leaks = append(p.leaks, rel)
 	}
-	p.changes = append(p.changes, Change{Rel: storeRel(pr.tgt, filepath.FromSlash(rel)), Data: a.data})
-	b := bankOfStateKey(pr.key)
+	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data})
+	b := bankOfStateKey(key)
 	if !slices.Contains(p.touched, b) {
 		p.touched = append(p.touched, b)
 	}
@@ -448,7 +439,7 @@ func decideImport(rel string, cur, data []byte, exists bool) importAction {
 			return importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"}
 		}
 		return mergedAction(rel, "append %d pointer line(s)", merged, n)
-	case appendOnly[rel] || monthlyArchive(rel):
+	case idFiles[rel] != "" || monthlyArchive(rel):
 		merged, n := mergeLog(logicalName(rel), string(cur), string(data))
 		return mergedAction(rel, "merge %d entr(ies)", merged, n)
 	case bytes.Equal(cur, data):
@@ -530,11 +521,6 @@ func writeTarFile(root *os.Root, name string, r io.Reader) error {
 		return errors.Join(err, f.Close())
 	}
 	return f.Close()
-}
-
-func storeRel(dir, name string) string {
-	r, _ := filepath.Rel(StoreDir(), filepath.Join(dir, name))
-	return r
 }
 
 // foldSkips reports the generated index and lock files, which do not travel.
