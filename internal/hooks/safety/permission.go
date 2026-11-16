@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // gateTools maps a canonical hook tool name (codex's apply_patch is Edit) to the rule tool Decide judges it as.
@@ -40,12 +41,12 @@ func PermissionGate(in *core.Input) core.Result {
 	if !ok {
 		return core.Result{}
 	}
-	return judgeCall(p, tool, gateArgs(in, tool))
+	return judgeCall(p, in.CWD, tool, gateArgs(in, tool))
 }
 
 // judgeCall refuses the first of args the policy denies as tool, or whose unknown target a scoped deny may cover.
-func judgeCall(p agent.Permissions, tool string, args []string) core.Result {
-	judge := p
+func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result {
+	judge := anchorAllow(p, cwd)
 	if tool != "Bash" && tool != "Edit" {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
@@ -67,7 +68,22 @@ func judgeCall(p agent.Permissions, tool string, args []string) core.Result {
 
 // GateBlocks reports whether the permission-gate refuses tool(arg) under p, for the doctor permissions report.
 func GateBlocks(p agent.Permissions, tool, arg string) bool {
-	return judgeCall(p, tool, []string{arg}).Decision == core.Block
+	return judgeCall(p, "", tool, []string{arg}).Decision == core.Block
+}
+
+// anchorAllow adds each relative Edit/Write allow rule anchored at an absolute cwd, so an absolute path meets it too.
+func anchorAllow(p agent.Permissions, cwd string) agent.Permissions {
+	if !filepath.IsAbs(cwd) {
+		return p
+	}
+	allow := slices.Clone(p.Allow)
+	for _, r := range p.Allow {
+		if (r.Tool == "Edit" || r.Tool == "Write") && r.Arg != "" && !filepath.IsAbs(r.Arg) && !strings.HasPrefix(r.Arg, "~") {
+			allow = append(allow, agent.Rule{Tool: r.Tool, Arg: filepath.ToSlash(filepath.Join(cwd, r.Arg))})
+		}
+	}
+	p.Allow = allow
+	return p
 }
 
 // decideCall judges arg as tool plus the rule tool that also covers it: Edit is Write too, Grep and Glob are Read too.
@@ -144,6 +160,9 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	d := explainDeniedCall(p, call)
 	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
 	next := "\nReport it instead of retrying another way."
+	if seg := deniedSegment(p, call); seg != "" {
+		rules += "\n  denied segment: " + seg
+	}
 	switch {
 	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, agent.RedirectFileArg):
 		next = "\nFile redirects (`>`, `>>`, `&>`) are refused; `2>&1` is allowed: run the same command again without them."
@@ -155,6 +174,9 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 		} else if d.Source != "permissions.deny" {
 			next += "\n" + d.Remedy + "."
 		}
+	case call.Tool == "Bash" && d.Rule == agent.ReadOnlyDeny[0]: // read-only is an allow list spelled as a deny
+		next = "\nOnly read-only commands run here: drop the denied segment or rewrite it with an allowed command " +
+			"(absolute paths, no cd)."
 	}
 	if d.Source != "" {
 		rules += "\n  layer: " + d.Layer + " source: " + d.Source
@@ -164,6 +186,20 @@ func denyResult(p agent.Permissions, call agent.Rule) core.Result {
 	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the dispatch's permission rules deny " +
 		call.String() + rules + modeNote(p) + next}
+}
+
+// deniedSegment is the first segment of a compound Bash call that p denies on its own; "" otherwise.
+func deniedSegment(p agent.Permissions, call agent.Rule) string {
+	if call.Tool != "Bash" {
+		return ""
+	}
+	segs := shell.Segments(call.Arg)
+	for _, seg := range segs {
+		if seg = strings.TrimSpace(seg); len(segs) > 1 && p.Decide("Bash", seg) == agent.Deny {
+			return seg
+		}
+	}
+	return ""
 }
 
 func anyDenyArg(rules []agent.Rule, arg string) bool {

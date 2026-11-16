@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -64,7 +65,11 @@ func RTKRewrite(in *core.Input) core.Result {
 	if !rtkEnvAltered().MatchString(cmd) {
 		word = rtkWord(bin, os.Getenv("HOME"), onPath)
 	}
-	updated["command"] = rtkAbsolute(rewritten, word)
+	pinned := rtkAbsolute(rewritten, word)
+	if word != "rtk" && rtkBareCount(pinned) > rtkBareCount(cmd) { // rtk put a bare rtk where PATH may not find it
+		return core.Result{}
+	}
+	updated["command"] = pinned
 
 	return core.Result{Context: rtkNotes(in.SessionID, word, found, bin, onPath), UpdatedInput: updated}
 }
@@ -111,7 +116,9 @@ func rtkFirstInSession(kind, session string) (bool, error) {
 func rtkRewritten(bin, cmd string) string {
 	ctx, cancel := core.HookContext("rtk-rewrite")
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "rewrite", cmd).Output()
+	c := exec.CommandContext(ctx, bin, "rewrite", cmd)
+	c.WaitDelay = 200 * time.Millisecond // a grandchild holding stdout must not outlive the hook budget
+	out, err := c.Output()
 	var ee *exec.ExitError
 	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 3) {
 		return ""
@@ -134,6 +141,13 @@ var rtkEnvAltered = sync.OnceValue(func() *regexp.Regexp {
 var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
 })
+
+// rtkBareWord matches `rtk` as a whole word not inside a path (after NAME=val, a wrapper word, or in a -c string).
+var rtkBareWord = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|[^\w./-])rtk($|[^\w.-])`)
+})
+
+func rtkBareCount(cmd string) int { return len(rtkBareWord().FindAllStringIndex(cmd, -1)) }
 
 // rtkAbsolute points every command-position `rtk` at word (rtkWord's spelling), so the pinned binary always runs.
 func rtkAbsolute(cmd, word string) string {
@@ -211,17 +225,27 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 		return true
 	}
 	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git
-	return rtkGitInLinkedWorktree(cmd, cwd) || rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoVet(cmd)
+	return rtkGitInLinkedWorktree(cmd, cwd) || rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoRaw(cmd)
 }
 
-// rtkGoVet: rtk 1.1.0 summarizes a failed `go vet` (e.g. a missing package) as "No issues found", so vet stays raw.
-func rtkGoVet(cmd string) bool {
+// rtkGoRaw: rtk 1.1.0 reports a failed `go vet` as "No issues found" and drops `go test -v`/`-list` output.
+func rtkGoRaw(cmd string) bool {
 	for _, seg := range shell.Segments(cmd) {
-		if t, _ := shell.Unwrap(shell.Tokens(seg), ""); len(t) > 1 && t[0] == "go" && t[1] == "vet" {
+		t, _ := shell.Unwrap(shell.Tokens(seg), "")
+		if len(t) < 2 || t[0] != "go" {
+			continue
+		}
+		if t[1] == "vet" || t[1] == "test" && slices.ContainsFunc(t[2:], rtkGoTestRawFlag) {
 			return true
 		}
 	}
 	return false
+}
+
+// rtkGoTestRawFlag reports a go test flag whose output rtk's summary drops: -v, -list (also -test.* and --).
+func rtkGoTestRawFlag(arg string) bool {
+	name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
+	return strings.HasPrefix(arg, "-") && slices.Contains([]string{"v", "list", "test.v", "test.list"}, name)
 }
 
 // rtkGitValueVetoed reports whether any git segment runs a value subcommand or one gitRTKSubcommand can't classify.
