@@ -1,4 +1,4 @@
-package quality
+package workflows
 
 import (
 	"bytes"
@@ -37,9 +37,9 @@ func TestLintPinsFlagsUnpinnedCall(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			hits := LintPins("inline", []byte(tc.src))
+			hits := lintAllPins("inline", []byte(tc.src))
 			if len(hits) != len(tc.want) {
-				t.Fatalf("LintPins(%q) = %v, want %d diagnostics %v", tc.src, hits, len(tc.want), tc.want)
+				t.Fatalf("lintAllPins(%q) = %v, want %d diagnostics %v", tc.src, hits, len(tc.want), tc.want)
 			}
 			for i, w := range tc.want {
 				if !strings.HasPrefix(hits[i], "inline:1: "+w) {
@@ -52,27 +52,27 @@ func TestLintPinsFlagsUnpinnedCall(t *testing.T) {
 
 func TestTernaryLabelDoesNotPinModel(t *testing.T) {
 	src := "agent('x', { label: flag ? 'model' : 'sonnet', effort: 'low' })"
-	hits := LintPins("inline", []byte(src))
+	hits := lintAllPins("inline", []byte(src))
 	if len(hits) != 1 {
-		t.Fatalf("LintPins = %v, want one missing-model diagnostic", hits)
+		t.Fatalf("lintAllPins = %v, want one missing-model diagnostic", hits)
 	}
 	if !strings.HasPrefix(hits[0], "inline:1: agent() without model:") {
 		t.Errorf("diagnostic = %q, want missing model on line 1", hits[0])
 	}
-	out, ambiguous := FillModel(src, "sonnet")
+	out, ambiguous := fillModel(src, "sonnet")
 	want := "agent('x', { model: 'sonnet', label: flag ? 'model' : 'sonnet', effort: 'low' })"
 	if out != want || len(ambiguous) != 0 {
-		t.Fatalf("FillModel = %q, %v; want %q, no ambiguity", out, ambiguous, want)
+		t.Fatalf("fillModel = %q, %v; want %q, no ambiguity", out, ambiguous, want)
 	}
-	if remaining := LintPins("inline", []byte(out)); len(remaining) != 0 {
-		t.Errorf("LintPins after FillModel = %v, want no diagnostics", remaining)
+	if remaining := lintAllPins("inline", []byte(out)); len(remaining) != 0 {
+		t.Errorf("lintAllPins after fillModel = %v, want no diagnostics", remaining)
 	}
 }
 
 func TestQuotedModelKeyIsValidated(t *testing.T) {
-	hits := LintPins("inline", []byte("agent('work', { 'model': 'bogus', effort: 'low' })"))
+	hits := lintAllPins("inline", []byte("agent('work', { 'model': 'bogus', effort: 'low' })"))
 	if len(hits) != 1 || !strings.Contains(hits[0], `model value "bogus"`) {
-		t.Fatalf("LintPins = %v, want one invalid-model diagnostic for 'bogus'", hits)
+		t.Fatalf("lintAllPins = %v, want one invalid-model diagnostic for 'bogus'", hits)
 	}
 }
 
@@ -83,17 +83,17 @@ func TestCommentCommaDoesNotSplitArgs(t *testing.T) {
 	}
 	src := "agent('p', { effort: 'low' } /* a, b */)"
 	want := "agent('p', { model: 'sonnet', effort: 'low' } /* a, b */)"
-	if out, amb := FillModel(src, "sonnet"); out != want || len(amb) != 0 {
-		t.Errorf("FillModel = %q, %v; want %q", out, amb, want)
+	if out, amb := fillModel(src, "sonnet"); out != want || len(amb) != 0 {
+		t.Errorf("fillModel = %q, %v; want %q", out, amb, want)
 	}
 	src = "agent('p', /* a, b */ { effort: 'low' })" // a leading comment is skipped, the object still gets the pin
 	want = "agent('p', /* a, b */ { model: 'sonnet', effort: 'low' })"
-	if out, amb := FillModel(src, "sonnet"); out != want || len(amb) != 0 {
-		t.Errorf("FillModel (comment before options) = %q, %v; want %q", out, amb, want)
+	if out, amb := fillModel(src, "sonnet"); out != want || len(amb) != 0 {
+		t.Errorf("fillModel (comment before options) = %q, %v; want %q", out, amb, want)
 	}
 	src = "agent('p', /* a */ opts)" // a non-literal after the comment stays ambiguous
-	if out, amb := FillModel(src, "sonnet"); out != src || len(amb) != 1 {
-		t.Errorf("FillModel (comment before identifier) = %q, %v; want unchanged and one ambiguous line", out, amb)
+	if out, amb := fillModel(src, "sonnet"); out != src || len(amb) != 1 {
+		t.Errorf("fillModel (comment before identifier) = %q, %v; want unchanged and one ambiguous line", out, amb)
 	}
 }
 

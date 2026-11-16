@@ -66,7 +66,7 @@ wiring + diff verify into 2.17 (`cli/agents.go`, wave 2); permissions P12's `rul
   dispatch.go
 - [ ] Phase 2.7 — P8 roles — leaf: opencode, Agent: opencode — owns: internal/agent/roles/run.go
 - [ ] Phase 2.8 — P9 workflow stages — leaf: codex, Agent: codex — owns: workflows/code-analyzer.js, code-engineer.js,
-  code-evaluator.js, code-workers.js, green-keeper-loop.js, internal/hooks/quality/workflowlint.go
+  code-evaluator.js, code-workers.js, green-keeper-loop.js, internal/workflows/workflowlint.go
 - [ ] Phase 2.9 — P10 memory job scope — leaf: opencode, Agent: opencode — owns: internal/memory/update.go, jobscope.go
 - [ ] Phase 2.10 — P11 hook denials — leaf: codex, Agent: codex — owns: internal/hooks/safety/permission.go,
   internal/hooks/agents/effort.go, leaves.go, codex.go

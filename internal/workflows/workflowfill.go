@@ -1,4 +1,4 @@
-package quality
+package workflows
 
 import (
 	"fmt"
@@ -106,8 +106,8 @@ func skipLeadingComments(s string) string {
 	}
 }
 
-// FillModel adds model: '<model>' to each agent() call missing a pin; non-object options are reported ambiguous.
-func FillModel(src, model string) (string, []string) {
+// fillModel adds model: '<model>' to each agent() call missing a pin; non-object options are reported ambiguous.
+func fillModel(src, model string) (string, []string) {
 	var edits []fillEdit
 	var ambiguous []string
 	scanAgentCalls(src, func(i, line int, window string, _ bool) {

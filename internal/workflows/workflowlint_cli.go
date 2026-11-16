@@ -1,4 +1,4 @@
-package quality
+package workflows
 
 // `workflow lint` flags agent() calls without model:/effort: pins, bad pin values and registry-hiding shapes.
 
@@ -99,7 +99,7 @@ func lintScript(f string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: cannot read file: %v\n", f, err)
 		return 1
 	}
-	return printHits(stderr, append(LintPins(f, data), registryHidingDefects(f)...))
+	return printHits(stderr, append(lintAllPins(f, data), registryHidingDefects(f)...))
 }
 
 // parseCheckJS compiles each file as an AsyncFunction body (the Workflow runtime's shape), `export` stripped.
@@ -166,10 +166,10 @@ func isWorkflowScript(f string) bool {
 	return strings.HasPrefix(skipLeadingComments(string(data)), "export const meta")
 }
 
-// LintPins returns every agent() pin problem in src, for `workflow lint`; the hook's lintPins skips the effort check.
-func LintPins(name string, src []byte) []string { return lintPins(name, string(src), true) }
+// lintAllPins checks model and effort pins; saved-script hook linting skips the effort check.
+func lintAllPins(name string, src []byte) []string { return lintPins(name, string(src), true) }
 
-// lintPins is LintPins; withEffort false drops the missing-effort problems.
+// lintPins is lintAllPins; withEffort false drops the missing-effort problems.
 func lintPins(name, s string, withEffort bool) []string {
 	var out []string
 	for _, hit := range unpinnedAgentCalls(name, s) {

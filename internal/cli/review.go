@@ -5,11 +5,11 @@ import (
 	"os"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/diff"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/workflows"
 )
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.
@@ -103,11 +103,11 @@ func cmdWorkflow(args []string) int {
 	}
 	switch args[0] {
 	case "skeleton":
-		return quality.RunSkeleton(args[1:], os.Stdout, os.Stderr)
+		return workflows.RunSkeleton(args[1:], os.Stdout, os.Stderr)
 	case "lint":
 		return workflowLint(args[1:])
 	case "sync":
-		return quality.RunWorkflowSync(args[1:], os.Stdout, os.Stderr)
+		return workflows.RunWorkflowSync(args[1:], os.Stdout, os.Stderr)
 	}
 	return unknownSub("workflow", args[0], workflowPage)
 }
@@ -122,9 +122,9 @@ func helpArgs(args []string) []string {
 
 func workflowLint(args []string) int {
 	if len(args) == 0 {
-		return quality.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+		return workflows.RunWorkflowLint([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
 	}
-	return quality.RunWorkflowLint(args, os.Stdout, os.Stderr)
+	return workflows.RunWorkflowLint(args, os.Stdout, os.Stderr)
 }
 
 // reviewToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.
