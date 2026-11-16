@@ -431,12 +431,7 @@ type agyEvent struct {
 	} `json:"result"`
 }
 
-// parseAgyStream reads `agy --output-format stream-json`: agent_response deltas, then one result event.
-func parseAgyStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
-	return parseAgyEvents(br, sink, false, wire.PickLog(logs), nil)
-}
-
-// parseAgyEvents stops at the first result when once is set, preserving buffered lines for the next turn.
+// parseAgyEvents reads agy stream-json; once stops at the first result, keeping buffered lines for the next turn.
 func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog, dn *agyDenier) (res wire.Result, _ error) {
 	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res, dn: dn}
 	onBad := func(err error) { t.flush(); _ = wire.EmitError(lg, sink, err.Error()) } // the decode error aborts

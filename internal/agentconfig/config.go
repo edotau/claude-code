@@ -4,7 +4,7 @@
 //   - gemini: Claude's deny list carried over as GuardRules (templateGuardRules), on by default unless the
 //     agent's `useGuardRules` extra is "false"; converted in internal/gemini (agyGuardRules).
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
-//   - safety-scan hook: internal/hooks/safety*.go blocks destructive shapes for every agent, on top of all of the above.
+//   - safety-scan hook: internal/hooks/safety/ guards destructive shapes for every agent, on top of all of the above.
 package agentconfig
 
 import (

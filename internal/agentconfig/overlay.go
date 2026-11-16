@@ -164,7 +164,8 @@ var (
 func readOverlayFile(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	switch {
-	case errors.Is(err, fs.ErrNotExist) && (strings.Contains(path, "/") || strings.HasSuffix(path, ".json")):
+	case errors.Is(err, fs.ErrNotExist) &&
+		(strings.ContainsAny(path, "/"+string(os.PathSeparator)) || strings.HasSuffix(path, ".json")):
 		return nil, errNoSuchFile
 	case err != nil:
 		return nil, errNoOverlay

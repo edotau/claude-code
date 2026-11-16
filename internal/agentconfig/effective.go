@@ -81,7 +81,7 @@ func serves(l Launch, agent string, p *providers.Provider) bool {
 	return l.CanServe(agent, p)
 }
 
-// ForContext is agent's pin overlaid by the launch flags, then the last-used profile; a registry profile must exist.
+// ForContext is agent's pin overlaid by the launch flags; a registry profile must exist.
 func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) {
 	reg, err := providers.Load()
 	if err != nil {
