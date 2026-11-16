@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// opencodeMenuKey is the vault Overlay entry holding the user's menu: a JSON array of OpencodeModel.
+// opencodeMenuKey is the vault Overlay entry holding the user's menu: a JSON array of savedMenuEntry.
 const opencodeMenuKey = "opencode-models"
 
 // OpencodeMenu is the menu opencode (and codex's /model) shows: the vault overlay if set and valid, else the seed.
@@ -44,10 +45,12 @@ func vaultOpencodeMenu() ([]OpencodeModel, bool) {
 	out, err := menuCache.Get(vault.Path(), func() (out []OpencodeModel, err error) {
 		err = vault.View(func(t *vault.Tx) error {
 			if raw, ok := t.Get(vault.Overlay, opencodeMenuKey); ok && raw != "" {
-				if err := json.Unmarshal([]byte(raw), &out); err != nil {
-					out = nil
+				var saved []savedMenuEntry
+				if err := json.Unmarshal([]byte(raw), &saved); err != nil {
 					warnMenu(fmt.Errorf("vault overlay %s is not a JSON menu: %w", opencodeMenuKey, err))
+					return nil
 				}
+				out = loadSavedMenu(saved)
 			}
 			return nil
 		})
@@ -63,11 +66,44 @@ func warnMenu(err error) {
 	warnedMenu.Do(func() { fmt.Fprintf(os.Stderr, "warning: %v; using the built-in opencode menu\n", err) })
 }
 
+// savedMenuEntry is the stored form: Responses is set only where the user overrode the catalog.
+type savedMenuEntry struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Responses *bool  `json:"responses,omitempty"`
+}
+
+// loadSavedMenu resolves each entry's Responses: chat-only ids never, else the saved override, else the catalog.
+func loadSavedMenu(saved []savedMenuEntry) []OpencodeModel {
+	out := make([]OpencodeModel, 0, len(saved))
+	for _, e := range saved {
+		r := models.ResponsesOnly(e.ID)
+		if e.Responses != nil {
+			r = *e.Responses
+		}
+		out = append(out, OpencodeModel{ID: e.ID, Label: e.Label, Responses: r && !models.ChatOnly(e.ID)})
+	}
+	return out
+}
+
+// saveMenu keeps Responses only where it differs from the catalog, so a catalog change reaches saved entries.
+func saveMenu(menu []OpencodeModel) []savedMenuEntry {
+	out := make([]savedMenuEntry, 0, len(menu))
+	for _, m := range menu {
+		e := savedMenuEntry{ID: m.ID, Label: m.Label}
+		if m.Responses != models.ResponsesOnly(m.ID) && !models.ChatOnly(m.ID) {
+			e.Responses = &m.Responses
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // SetOpencodeMenu stores menu as the vault overlay; an empty menu deletes the entry (back to the seed).
 func SetOpencodeMenu(menu []OpencodeModel) error {
 	raw := ""
 	if len(menu) > 0 {
-		b, err := json.Marshal(menu)
+		b, err := json.Marshal(saveMenu(menu))
 		if err != nil {
 			return err
 		}
@@ -119,7 +155,7 @@ func FirstResponsesModel(p *Provider) string {
 // ServesResponses reports whether p serves model on Responses: its menu entry's flag when listed, else the catalog.
 func ServesResponses(p *Provider, model string) bool {
 	for _, m := range OpencodeMenu() {
-		if p.WireModel(m.ID) == model {
+		if p.WireModel(m.ID) == model || models.SameModel(m.ID, model) {
 			return m.Responses
 		}
 	}
@@ -134,7 +170,7 @@ func ResponsesServable(p *Provider, wire string) bool {
 // ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, else the catalog.
 func ResponsesID(id string) bool {
 	for _, m := range OpencodeMenu() {
-		if m.ID == id {
+		if models.SameModel(m.ID, id) {
 			return m.Responses
 		}
 	}
@@ -214,7 +250,7 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 		if m.ID == "" || seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue
 		}
-		if p.Preset == PresetDatabricks && !m.ReadyChat() {
+		if p.Preset == PresetDatabricks && (!m.ReadyChat() || llama3Instruct(m.ID)) {
 			continue
 		}
 		seen[p.WireModel(models.Strip1M(m.ID))] = true
@@ -223,6 +259,12 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 	}
 	slices.SortFunc(out, func(a, b ModelInfo) int { return cmp.Compare(a.ID, b.ID) })
 	return out
+}
+
+// llama3Instruct is a llama 3.x instruct id, kept out of the catalog because it answers tool tasks wrong.
+func llama3Instruct(id string) bool {
+	id = strings.TrimPrefix(strings.ToLower(id), "databricks-")
+	return strings.HasPrefix(id, "meta-llama-3-") && strings.HasSuffix(id, "-instruct")
 }
 
 // pickerSeen is the set of wire ids already offered: configured aliases, the legacy menu (Databricks), saved additions.
