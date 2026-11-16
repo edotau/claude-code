@@ -3,10 +3,12 @@ package clipboard
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -210,6 +212,53 @@ func TestProxyShimForwardsArgs(t *testing.T) {
 	}
 	if got, want := string(out), "clip\npaste\n--type\nimage/png\n--help\n"; got != want {
 		t.Errorf("shim passed %q, want %q", got, want)
+	}
+}
+
+// RunProxy hands an unrouted call to the real wl-paste verbatim, 126 when exec fails, 127 when none is installed.
+func TestRunProxyDelegation(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("CLAUDE_WL_PASTE_PROXY", "0") // never intercept, whatever the parent process is
+	args := []string{"--type", "image/bmp", "--help"}
+	for _, tc := range []struct {
+		name     string
+		hasReal  bool
+		execErr  error
+		wantCode int
+		wantErr  string
+	}{
+		{"delegates verbatim", true, nil, 0, ""},
+		{"exec failure", true, errors.New("boom"), 126, "wl-paste: boom"},
+		{"no real wl-paste", false, nil, 127, "no real wl-paste"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			real := filepath.Join(dir, "wl-paste")
+			if tc.hasReal {
+				if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", dir)
+			var gotBin string
+			var gotArgs []string
+			old := proxyExec
+			proxyExec = func(bin string, a, _ []string) error { gotBin, gotArgs = bin, a; return tc.execErr }
+			t.Cleanup(func() { proxyExec = old })
+			var out, errb bytes.Buffer
+			if code := RunProxy(args, &out, &errb); code != tc.wantCode {
+				t.Fatalf("RunProxy = %d, want %d; stderr %q", code, tc.wantCode, errb.String())
+			}
+			if !strings.Contains(errb.String(), tc.wantErr) {
+				t.Errorf("stderr %q, want %q", errb.String(), tc.wantErr)
+			}
+			if tc.hasReal && (gotBin != real || !slices.Equal(gotArgs, args)) {
+				t.Errorf("exec %q %q, want %q %q", gotBin, gotArgs, real, args)
+			}
+			if !tc.hasReal && gotBin != "" {
+				t.Errorf("exec ran %q with no real wl-paste", gotBin)
+			}
+		})
 	}
 }
 
