@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -293,7 +294,9 @@ type leafScan struct {
 	seenBrief         bool
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask or result
 	ranOn, handedBack bool
-	askFailed         bool // an ask call's result says no agent ran
+	askFailed         bool     // an ask call's result says no agent ran
+	resumed           bool     // a plain user turn followed the delivered hand-back
+	bgAsks            []string // task output files of asks run in the background
 	gates             int
 }
 
@@ -337,6 +340,26 @@ func (s *leafScan) addLine(b []byte) {
 	}
 }
 
+// addBgAsk records the task output files an ask result's background notice names.
+func (s *leafScan) addBgAsk(text string) {
+	for _, m := range bgOutputPattern().FindAllStringSubmatch(text, -1) {
+		if !slices.Contains(s.bgAsks, m[1]) {
+			s.bgAsks = append(s.bgAsks, m[1])
+		}
+	}
+}
+
+// askOutputRan reads the ends of each background ask's output file: whether one shows a receipt, and whether one did not run.
+func askOutputRan(paths []string) (ran, failed bool) {
+	for _, p := range paths {
+		text := readEnds(p, savedResultCap)
+		ok := ranOnPattern().MatchString(text)
+		ran = ran || ok
+		failed = failed || !ok && didNotRunRe().MatchString(text)
+	}
+	return ran, failed
+}
+
 // addCalls records the ids of the Bash calls in an assistant message that run an ask or result.
 func (s *leafScan) addCalls(content json.RawMessage) {
 	var items []leafToolUse
@@ -357,8 +380,11 @@ func (s *leafScan) addCalls(content json.RawMessage) {
 func (s *leafScan) addResults(content json.RawMessage) {
 	var items []leafToolResult
 	if json.Unmarshal(content, &items) != nil {
-		if text := transcript.ContentText(content); strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
+		text := transcript.ContentText(content)
+		if strings.Contains(text, "hook feedback:") && strings.Contains(text, ranOnGateMark) {
 			s.gates++
+		} else if s.handedBack {
+			s.resumed = true
 		}
 		return
 	}
@@ -373,6 +399,7 @@ func (s *leafScan) addResults(content json.RawMessage) {
 func (s *leafScan) scanResult(it leafToolResult) {
 	text := resultText(transcript.ContentText(it.Content))
 	if s.askCalls[it.ToolUseID] {
+		s.addBgAsk(text)
 		ran := ranOnPattern().MatchString(text)
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
@@ -462,6 +489,11 @@ func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, boo
 	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
 	}
+	ran, failed := askOutputRan(lr.scan.bgAsks) // a backgrounded ask's receipt is in its output file, not the transcript
+	if ran {
+		return core.Result{}, false
+	}
+	lr.scan.askFailed = lr.scan.askFailed || failed
 	if lr.scan.askFailed { // the ask ran and refused or found no agent: the failure is the report, not a reason to re-ask
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: its ask did not run an agent", agentID)}, false
 	}
@@ -472,6 +504,9 @@ func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, boo
 func ranOnBlock(s leafScan, agentID string, stopActive bool) (core.Result, bool) {
 	if stopActive && s.gates == 0 { // a prior block the scan cannot read: fail open rather than trap the leaf
 		s.gates = ranOnMaxBlocks
+	}
+	if s.resumed {
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: resumed after its hand-back; no new `ask: ran on` receipt this round", agentID)}, false
 	}
 	if s.handedBack || s.gates >= ranOnMaxBlocks {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: hand-back BLOCKED: no `ask: ran on` receipt, "+
@@ -498,9 +533,9 @@ func Handback(in *core.Input) core.Result {
 
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
 
-// bgOutputPattern matches the Bash run_in_background result; Monitor results name no output path, so they are not reaped.
+// bgOutputPattern matches the Bash run_in_background and moved-to-background notices; Monitor results name no output path, so they are not reaped.
 var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`Command running in background with ID: [A-Za-z0-9]+\. Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
+	return regexp.MustCompile(`Command (?:running in background with ID: [A-Za-z0-9]+\.|was moved to the background \(ID: [A-Za-z0-9]+\)[^"]*?\.) Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
 })
 
 const reapGrace = 2 * time.Second
