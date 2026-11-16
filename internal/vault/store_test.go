@@ -577,12 +577,13 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 	}
 }
 
-func TestMetaPrefixNoSchemeShowsFirstFive(t *testing.T) {
+// Owner decision 14 (2026-11-16): a value with no vendor scheme keeps no plaintext characters.
+func TestMetaPrefixNoSchemeKeepsNothing(t *testing.T) {
 	for _, tc := range []struct{ v, want string }{
-		{"abcdefghijklmnopqrstuvwxyz", "abcde"}, // plain long value: 5 chars
-		{"abcdefghijkl", "abcd"},                // 12 chars: a third is 4, under the 5 cap
-		{"abcdefghijk", ""},                     // under redactMin: nothing kept
+		{"abcdefghijklmnopqrstuvwxyz", ""}, // password-like: nothing outside the sealed value
+		{"abcdefghijkl", ""},               // 12 chars, no scheme
 		{"short", ""},
+		{`{"access_token":"abcdefghij"}`, `{"`}, // JSON token set: structure only, for the json/oauth label
 	} {
 		got := MetaPrefix(tc.v)
 		if got != tc.want || len(got) > len(tc.v)/3 {

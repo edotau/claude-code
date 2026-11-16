@@ -183,3 +183,28 @@ func TestLoginRenamesKeepsCollidingRows(t *testing.T) {
 		t.Errorf("renames = %v, warns = %v; want a and d renamed, b and c kept with a warning each", renames, warns)
 	}
 }
+
+// An agent record naming an old GitHub row key reads back under the account login.
+func TestAgentRecordsRenameOldGithubProfile(t *testing.T) {
+	useZeroRootVault(t)
+	const provs = `{"providers":{"github":{"business":{"login":"octo-user"}}}}`
+	const recs = `{"copilot":{"profile":"business","fallback":"business","model":"business:gpt-5","aliases":{"opus":"business:o"}}}`
+	if err := Update(func(tx *Tx) error {
+		if err := tx.Put(Overlay, "providers", provs); err != nil {
+			return err
+		}
+		return tx.Put(Overlay, AgentRecordsKey, recs)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := AgentRecord{Profile: "octo-user", Fallback: "octo-user", Model: "octo-user:gpt-5", Aliases: map[string]string{"opus": "octo-user:o"}}
+	if err := View(func(tx *Tx) error {
+		got, err := tx.AgentRecords()
+		if err == nil && !reflect.DeepEqual(got["copilot"], want) {
+			t.Errorf("copilot record = %+v, want %+v", got["copilot"], want)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
