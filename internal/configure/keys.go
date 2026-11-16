@@ -72,8 +72,7 @@ type KeyTarget struct {
 // setupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
 var setupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
 
-// maxPlanTarget fills the claude row for the Claude Max plan (passthrough): the interactive /login session as
-// reported by `claude auth status`, plus whether a long-lived setup-token is stored for unattended runs.
+// maxPlanTarget fills the claude row for the Claude Max plan: its /login session plus any stored setup-token.
 func maxPlanTarget(kt KeyTarget) KeyTarget {
 	kt.LoginArgv = []string{"claude", "auth", "login"}
 	kt.MintArgv = []string{"claude", "setup-token"}
@@ -184,8 +183,7 @@ func AgentKeyTarget(reg *providers.Registry, name string) KeyTarget {
 	return kt
 }
 
-// fallbackKeyTarget is the key target for an agent whose own sign-in is absent: the selected provider's key
-// when it is usable, the agent's own stored login, or the configure hint.
+// fallbackKeyTarget is the key target for an agent whose own sign-in is absent.
 func fallbackKeyTarget(reg *providers.Registry, name string, s agent.Schema, known bool) KeyTarget {
 	if sel, err := providers.Select(reg, ""); err == nil { // only when the agent's own sign-in is absent
 		target, note, rerr := s.ResolveTarget(context.Background(), agent.RunOptions{}, reg, sel, false)
@@ -330,8 +328,7 @@ func DiscoverAfterSignin() {
 	}
 }
 
-// ctxErr wraps ctx's error under verb when ctx is already done, else nil — the one cancellation check
-// shared by every exec.CommandContext caller here and in home.go's registerClaudeMCPContext.
+// ctxErr wraps ctx's error under verb when ctx is already done, else nil.
 func ctxErr(ctx context.Context, verb string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%s: %w", verb, err)
@@ -339,8 +336,7 @@ func ctxErr(ctx context.Context, verb string) error {
 	return nil
 }
 
-// RunLogin execs an agent's own login CLI attached to the real terminal: picking the row that leads here
-// already was the confirmation, so it runs directly rather than asking [y/N] a second time.
+// RunLogin execs an agent's own login CLI on the real terminal, without a second [y/N] confirmation.
 func RunLogin(argv []string) error {
 	return withInterrupt(func(ctx context.Context) error { return runAttached(ctx, "login", argv, os.Stdout) })
 }
@@ -365,9 +361,7 @@ func ProbeValue(p *providers.Provider, envVar, candidate string) (status, detail
 	return probeWith(providers.WithCredentialOverride(context.Background(), envVar, candidate), p)
 }
 
-// RotateOptions lists how an already-present kt can be rotated: its own CLI first (login, then mint —
-// the anthropic subscription row carries both, named explicitly), else a plain paste when it is a
-// keyed credential with no generator.
+// RotateOptions lists how an already-present kt can be rotated: its own CLI first, else a plain paste.
 func RotateOptions(kt KeyTarget) []AuthOption {
 	var opts []AuthOption
 	if len(kt.LoginArgv) > 0 {
@@ -444,8 +438,7 @@ func locateSecret(name string, meta map[string]vault.SecretMeta, metaErr error) 
 	return src, shadowed
 }
 
-// ParseAssignment splits a pasted secret: `export NAME="value"`, `NAME=value`, or a bare value (name "").
-// Surrounding quotes and whitespace are stripped; a bare value containing '=' (base64 padding) stays whole.
+// ParseAssignment splits a pasted `export NAME="value"`, `NAME=value` or bare value (name "") and strips quotes.
 func ParseAssignment(raw string) (name, value string) {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimSpace(strings.TrimPrefix(s, "export "))

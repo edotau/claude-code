@@ -121,7 +121,7 @@ func renderOpenCodeAgent(agent Source) string {
 	if !readOnlyTools(agent) {
 		return out
 	}
-	// The field writer only emits scalars and flat lists, so the nested permission block is spliced in before the closing ---.
+	// The field writer emits only scalars and flat lists, so the nested permission block is spliced in here.
 	return strings.Replace(out, "\n---\n\n", "\npermission:\n  edit: deny\n  bash: deny\n---\n\n", 1)
 }
 

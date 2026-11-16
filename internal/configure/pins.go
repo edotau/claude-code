@@ -62,8 +62,7 @@ func AgentField(rec vault.AgentRecord, field string) string {
 	return rec.Fallback
 }
 
-// ValidateAgentField checks val for one record field before any write: a profile the agent can serve, or a valid record.
-// Only the touched field is checked: a stored record already invalid elsewhere is reported as before, not blocking.
+// ValidateAgentField checks val for one record field before any write; a record invalid elsewhere does not block.
 func ValidateAgentField(agent, field, val string) error {
 	if field == "PROFILE" || field == "FALLBACK" {
 		if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}); err != nil {

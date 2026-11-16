@@ -37,8 +37,7 @@ func checkEnvName(name string) error {
 	return nil
 }
 
-// checkEnvSet applies the menu's name check, then refuses what belongs to the sealed-secret path: names the
-// vault or the harness owns or that look like credentials, and values `doctor --scan` flags in this bucket.
+// checkEnvSet applies the name check, then refuses credential-like names and values `doctor --scan` flags.
 func checkEnvSet(name, value string) error {
 	if err := checkEnvName(name); err != nil {
 		return err
@@ -59,8 +58,7 @@ func checkEnvSet(name, value string) error {
 	return nil
 }
 
-// secretEnvName reports a name the sealed-secret path owns: harness-internal, a route credential, a stored secret
-// or a credential-shaped name (KEY, TOKEN, AUTH, ...).
+// secretEnvName reports a name the sealed-secret path owns: internal, route credential, stored or credential-shaped.
 func secretEnvName(name string) bool {
 	return providers.InternalSecretName(name) || providers.IsSecretName(strings.ToUpper(name)) ||
 		providers.RouteSecretGuard()(name) || slices.Contains(providers.SecretNames(), name)

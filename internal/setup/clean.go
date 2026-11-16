@@ -736,7 +736,7 @@ func readJSON(path string) map[string]any {
 	return m
 }
 
-// keepCodexHome protects a codex home that has contents (resume anchor, unsaved auth) or is under a day old (still being set up).
+// keepCodexHome protects a codex home that has contents or is under a day old.
 func keepCodexHome(p string) bool {
 	entries, err := os.ReadDir(p)
 	fi, serr := os.Stat(p)

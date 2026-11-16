@@ -13,9 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ApplyProfile sets profile as the Profile of each agent whose record differs, in one vault update that leaves every
-// other field alone, then clears all targeted agents' last-used profiles. It returns the agents whose records changed.
-// A non-empty profile must exist and be one each agent can serve; "" (off) always applies.
+// ApplyProfile sets profile on each differing agent record in one vault update and returns the agents changed.
 func ApplyProfile(agents []string, profile string) (changed []string, err error) {
 	if err := ValidProfile(agents, profile); err != nil {
 		return nil, err
@@ -56,8 +54,7 @@ func ValidProfile(agents []string, profile string) error {
 	return nil
 }
 
-// SwitchTargets are the agents a switch to profile moves: claude, and each external agent that is on and serves it.
-// Serves, not CanServe: a gemini gateway row is reachable only by an explicit `gemini profile`.
+// SwitchTargets are the agents a profile switch moves; Serves, not CanServe, keeps gemini gateway rows explicit.
 func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, profile string) (move, off []string) {
 	for _, spec := range agentpkg.Roster() {
 		ok, _ := agentpkg.Serves(spec.Name, reg.Providers[profile], "")

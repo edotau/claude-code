@@ -41,9 +41,7 @@ var AgySignInTimeout = 10 * time.Minute
 // AgyStopGrace is how long SIGINT gets to land before AgySignIn escalates to SIGTERM, then to SIGKILL.
 var AgyStopGrace = 3 * time.Second
 
-// AgySignIn starts agy on the real terminal, polls for its login marker every AgySignInPoll, and stops it
-// (SIGINT, SIGTERM, SIGKILL, each after AgyStopGrace) once the marker appears, on AgySignInTimeout, or when
-// agy exits on its own. The caller never has to return to a menu with agy's own TUI still on screen.
+// AgySignIn runs agy on the real terminal and stops it once its login marker appears, on timeout, or when it exits.
 func AgySignIn() (ok bool, msg string) {
 	defer proc.Preserve()()
 	home, err := os.UserHomeDir()
@@ -220,8 +218,7 @@ func HasAdminCredential() bool {
 		(hasSecretPresent("TAILSCALE_OAUTH_CLIENT_ID") && hasSecretPresent("TAILSCALE_OAUTH_CLIENT_SECRET"))
 }
 
-// hasSecretPresent is presence only: no decrypt per home render. An unreadable vault counts as present so the
-// owner is not told to re-enter a credential that may exist; the real use surfaces the vault error.
+// hasSecretPresent checks presence only; an unreadable vault counts as present so no credential is re-requested.
 func hasSecretPresent(name string) bool {
 	src, err := vault.HasSecretErr(name)
 	return err != nil || src != ""

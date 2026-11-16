@@ -56,9 +56,7 @@ func HistoryDir() string { return filepath.Join(paths.StateDir(), "history") }
 // plane is the store's one subdirectory and the commit-subject prefix Log/Diff filter on.
 const plane = "config"
 
-// configFiles are the config files whose ownership is CONTESTED: a tool other than the one that last
-// wrote one of these can rewrite it. The provider overlay and pins are read from the vault; its secrets
-// bucket is never read here — textutil.CredentialRE is only the backstop for a credential leaked into one of these.
+// configFiles are the contested config files; the vault's secrets bucket is never read here.
 func configFiles() []HistoryFile {
 	cfg := paths.ConfigDir()
 	files := []HistoryFile{
@@ -71,9 +69,7 @@ func configFiles() []HistoryFile {
 	return append(files, agentConfigs()...)
 }
 
-// agentConfigs are the agent CLIs' own on-disk configs. claude-code writes the codex and gemini ones
-// (render/MCP registration) and never opencode's (routing goes via env vars / `-c` flags, internal/agent/launch.go);
-// the user or the agent's own `login` can rewrite any of them, so a change here is a contested one.
+// agentConfigs are the agent CLIs' own on-disk configs, which the user or the agent's own `login` can rewrite.
 func agentConfigs() []HistoryFile {
 	var out []HistoryFile
 	home, err := os.UserHomeDir()
@@ -95,9 +91,7 @@ func agentConfigs() []HistoryFile {
 		HistoryFile{Label: "gemini-hooks.json", Path: filepath.Join(geminiHome, ".gemini", "config", "hooks.json")})
 }
 
-// Snapshot copies each of files into the store and commits iff something actually changed. An absent
-// file is a FACT (an agent config is often absent on a fresh box), not an error; its appearance and
-// its deletion are both recorded, so a revert stays auditable.
+// Snapshot copies files into the store and commits only on change; an absent file is a recorded fact, not an error.
 func (s *HistoryStore) Snapshot(files []HistoryFile, note string) (SnapshotResult, error) {
 	var res SnapshotResult
 	// The lock file sits beside Dir, not inside it, so `add -A` never stages it.
@@ -186,8 +180,7 @@ func readFile(f HistoryFile) ([]byte, error) {
 	return os.ReadFile(f.Path)
 }
 
-// subject names what moved, so `git log --oneline` alone answers "when did the opus pin change?".
-// The leading "config: " is also the Log/Diff filter (git log --grep=^config: ).
+// subject names what moved; its leading "config: " is also the Log/Diff filter.
 func subject(r SnapshotResult, note string) string {
 	what := strings.Join(r.Changed, ", ")
 	if what == "" {
@@ -264,11 +257,7 @@ func mergeLeftover(r SnapshotResult, leftover []string) []string {
 	return changed
 }
 
-// commit stages the whole store (a pathspec restricted to individual LABELS errors outright —
-// "pathspec did not match any file(s) known to git" — the moment one watched file has never existed
-// on disk, which a first Snapshot hits for whichever files are absent) and records the config
-// subdirectory only. The directory pathspec itself is always valid once `add -A` has staged
-// at least one file under it, unlike a bare filename pathspec that was never tracked.
+// commit stages the whole store and records the config subdirectory, as a per-label pathspec errors on unseen files.
 func (s *HistoryStore) commit(subject, body string) (string, error) {
 	if _, err := s.git("add", "-A"); err != nil {
 		return "", err
