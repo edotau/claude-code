@@ -16,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// writeOverlay isolates CLAUDE_CONFIG_DIR and seeds vault overlay/agents.
 func writeOverlay(t *testing.T, body string) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -90,9 +89,7 @@ func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	}
 }
 
-// TestOverlayEmptyGuardRulesClearDefaults: an overlay that PRESENTS guardRules with an empty deny
-// array clears the defaults (matches TestOverlayGuardRulesReplaceWholesale's non-empty case);
-// presence, not length, decides the replace.
+// TestOverlayEmptyGuardRulesClearDefaults
 func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 	writeOverlay(t, `{"guardRules":{"deny":[]}}`)
 	cfg, err := LoadConfig()
@@ -105,8 +102,7 @@ func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
 	}
 }
 
-// TestOverlayOmittedGuardRulesKeepsDefaults: an overlay that never mentions guardRules at all keeps
-// the built-in defaults, distinguishing "omitted" from "presented empty".
+// TestOverlayOmittedGuardRulesKeepsDefaults
 func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	writeOverlay(t, `{"agents":{}}`)
 	cfg, err := LoadConfig()
@@ -123,8 +119,7 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	}
 }
 
-// TestDefaultGuardsMirrorSettingsTemplate: the built-in guard rules are exactly Render()'s
-// permissions.ask/deny, order included — not a hand-copied subset in defaults.json.
+// TestDefaultGuardsMirrorSettingsTemplate
 func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
 	rendered, err := settings.Render()
 	if err != nil {
@@ -175,7 +170,6 @@ func TestGuardIsNilSafe(t *testing.T) {
 	}
 }
 
-// loadDefaults loads the shipped defaults with no user overlay.
 func loadDefaults(t *testing.T) *Config {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

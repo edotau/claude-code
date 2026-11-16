@@ -18,12 +18,11 @@ import (
 
 // Test seams: the sign-in factory, the TTY gate, and the prompt's input and output.
 var (
-	signinFor           = agent.SigninFor
-	canPrompt           = func() bool { return agent.IsTerminal(os.Stdin) && agent.IsTerminal(os.Stderr) }
-	loginIn   io.Reader = os.Stdin
-	loginOut  io.Writer = os.Stderr
-	// credCheckTimeout bounds the pre-launch sign-in check; a var so tests stay fast.
-	credCheckTimeout = 12 * time.Second
+	signinFor                  = agent.SigninFor
+	canPrompt                  = func() bool { return agent.IsTerminal(os.Stdin) && agent.IsTerminal(os.Stderr) }
+	loginIn          io.Reader = os.Stdin
+	loginOut         io.Writer = os.Stderr
+	credCheckTimeout           = 12 * time.Second
 )
 
 // offerLogin offers a sign-in for each provider whose check says it needs one; failures warn.
@@ -81,7 +80,6 @@ func runChecks(ctx context.Context, todo []*providers.Provider) []checkResult {
 	return checks
 }
 
-// checkResult is one provider's concurrent pre-launch check.
 type checkResult struct {
 	s      agent.Signin
 	v      providers.AuthVerdict
@@ -127,7 +125,6 @@ func consentToLogin(p *providers.Provider, in *bufio.Reader) bool {
 	return a == "" || strings.HasPrefix(a, "y")
 }
 
-// loginSkipped is the warning for a declined login, naming the manual command.
 func loginSkipped(p *providers.Provider, v providers.AuthVerdict) error {
 	if p.Auth.Method() == "" && p.CLIProfile != "" {
 		return fmt.Errorf("login skipped; requests will fail until `databricks auth login -p %s` (%s)", p.CLIProfile, v)

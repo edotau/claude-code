@@ -72,7 +72,6 @@ var verbStates = map[string]string{
 	"DRY": stateStale, "WRITE": stateStale, "LINK": stateStale, "PRUNE": stateStale,
 }
 
-// originOf classifies a destination by the verb and the path it sits under.
 func originOf(verb, path string) string {
 	switch {
 	case verb == "EXTRA":

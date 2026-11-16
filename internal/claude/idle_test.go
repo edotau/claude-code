@@ -50,8 +50,7 @@ const (
 	resultLine = `{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"s"}`
 )
 
-// Given claude goes silent after system/init, Then the run is a stalled failure naming the idle time and the last
-// event, and the child is killed.
+// A claude that goes silent after system/init is a stalled failure naming the idle time and last event, and is killed.
 func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	start := time.Now()

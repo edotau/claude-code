@@ -20,7 +20,6 @@ func decodeObj(t *testing.T, b []byte) map[string]json.RawMessage {
 	return m
 }
 
-// rawEqual compares two JSON values by parsed structure, not byte layout.
 func rawEqual(t *testing.T, a, b json.RawMessage) bool {
 	t.Helper()
 	var av, bv any
@@ -33,8 +32,7 @@ func rawEqual(t *testing.T, a, b json.RawMessage) bool {
 	return reflect.DeepEqual(av, bv)
 }
 
-// TestStripWindowsOnly proves stripWindowsOnly drops hooks/statusLine and every Linux-path string
-// (top-level and inside env), while keeping plain keys and permissions untouched.
+// stripWindowsOnly drops hooks/statusLine and Linux-path strings but keeps plain keys and permissions.
 func TestStripWindowsOnly(t *testing.T) {
 	in := []byte(`{
 		"theme": "auto",
@@ -94,8 +92,7 @@ func assertWindowsPermissions(t *testing.T, m map[string]json.RawMessage) {
 	}
 }
 
-// TestStripWindowsOnlyKeepsNonPathStrings proves the marker match is substring-specific: a plain
-// string that merely looks unix-ish (no marker substring) survives, so the strip isn't over-eager.
+// TestStripWindowsOnlyKeepsNonPathStrings proves the marker match is substring-specific
 func TestStripWindowsOnlyKeepsNonPathStrings(t *testing.T) {
 	in := []byte(`{"NOTE": "/opt/foo/bar", "COUNT": "3"}`)
 	out, err := stripWindowsOnly(in)
@@ -111,8 +108,7 @@ func TestStripWindowsOnlyKeepsNonPathStrings(t *testing.T) {
 	}
 }
 
-// winHermetic isolates config/vault (hermetic) and points the Windows profile at a fresh temp dir,
-// so these tests never touch the real Windows profile.
+// winHermetic isolates config/vault and points the Windows profile at a temp dir, never the real one.
 func winHermetic(t *testing.T) string {
 	t.Helper()
 	hermetic(t)
@@ -135,8 +131,7 @@ func winSettingsPath(profile string) string {
 	return filepath.Join(profile, ".claude", "settings.json")
 }
 
-// TestInstallWindowsSettingsSeedsMissingKeepsExisting: a missing file gets the render minus hooks and statusLine;
-// an existing one (BOM included) stays byte-identical.
+// TestInstallWindowsSettingsSeedsMissingKeepsExisting
 func TestInstallWindowsSettingsSeedsMissingKeepsExisting(t *testing.T) {
 	profile := winHermetic(t)
 	file := winSettingsPath(profile)
@@ -162,17 +157,14 @@ func TestInstallWindowsSettingsSeedsMissingKeepsExisting(t *testing.T) {
 	}
 }
 
-// brokenCmdPATH points PATH at an empty dir so `cmd.exe` can never be found, without touching the
-// real Windows profile or filesystem; it leaves HARNESS_WINDOWS_PROFILE unset so resolution falls
-// through to the real cmd.exe lookup, which then fails safely.
+// brokenCmdPATH points PATH at an empty dir so `cmd.exe` is never found and resolution fails safely.
 func brokenCmdPATH(t *testing.T) {
 	t.Helper()
 	t.Setenv(windowsProfileEnv, "")
 	t.Setenv("PATH", t.TempDir())
 }
 
-// TestInstallWindowsSettings_MissingProfileSkip proves installWindowsSettings prints a one-line skip
-// note and returns nil, never an error, when the profile can't be resolved.
+// installWindowsSettings prints a one-line skip note and returns nil when the profile cannot be resolved.
 func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	hermetic(t)
 	setOnWSL(t, true)
@@ -186,7 +178,6 @@ func TestInstallWindowsSettings_MissingProfileSkip(t *testing.T) {
 	}
 }
 
-// setOnWSL swaps the onWSL seam for the test.
 func setOnWSL(t *testing.T, v bool) {
 	t.Helper()
 	orig := onWSL

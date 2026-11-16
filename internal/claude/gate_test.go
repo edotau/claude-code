@@ -30,7 +30,6 @@ func launchOf(t *testing.T, req agent.RunOptions) (agent.RunOptions, []string, [
 	return req, cmd.Args, cmd.Env
 }
 
-// envPolicy is the Permissions the child env hands the gate.
 func envPolicy(t *testing.T, env []string) (p agent.Permissions) {
 	t.Helper()
 	i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, agent.DispatchPermissionsEnv+"=") })

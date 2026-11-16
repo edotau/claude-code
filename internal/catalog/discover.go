@@ -15,8 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// SpawnDiscover starts `preflight --discover <profile>` detached (a goroutine would die at a launch's exec); false when
-// deduped by the profile's claim stamp. force skips the check but still stamps, so later unforced spawns dedup.
+// SpawnDiscover starts `preflight --discover <profile>` detached (a goroutine would die at a launch's exec)
 func SpawnDiscover(profile string, force bool) bool {
 	self, err := os.Executable()
 	if err != nil {

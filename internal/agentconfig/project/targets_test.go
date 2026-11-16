@@ -37,7 +37,6 @@ func sourcePath(claude, kind, dir string) string {
 	return filepath.Join(claude, kind, dir, "SKILL.md")
 }
 
-// writeSource writes the agent or skill source at sourcePath declaring `name`.
 func writeSource(t *testing.T, claude, kind, dir, name string) {
 	t.Helper()
 	projectWriteFile(t, sourcePath(claude, kind, dir), "---\nname: "+name+"\ndescription: test source.\n---\n\nbody\n")

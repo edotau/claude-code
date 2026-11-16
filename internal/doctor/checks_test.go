@@ -182,8 +182,7 @@ func TestNestedDetailWorktrees(t *testing.T) {
 	}
 }
 
-// doctorScratch isolates CLAUDE_CONFIG_DIR, every credential, and opencode's own auth.json/opencode.jsonc
-// (XDG_DATA_HOME/XDG_CONFIG_HOME) so Checks never reads real machine state.
+// doctorScratch isolates config dir, credentials and opencode's own files so Checks never reads real machine state.
 func doctorScratch(t *testing.T) (xdgData string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -229,8 +228,7 @@ func findCheck(checks []check, name string) *check {
 	return nil
 }
 
-// Without opencode's own github-copilot login, the doctor row names the session provider, never a
-// model/small_model pair (that's the github-copilot route's own shape).
+// Without opencode's own github-copilot login, the doctor row names the session provider, not the copilot pair.
 func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 	doctorScratch(t)
 	checks, _ := runChecks(context.Background())
@@ -246,13 +244,10 @@ func TestDoctorOpenCodeRouteWithoutCopilotLogin(t *testing.T) {
 	}
 }
 
-// With opencode's own github-copilot login present, the doctor row names provider=personal and
-// both model/small_model: the registry now pins both aliases to concrete ids (no "auto" default to
-// swap for OpencodeFallback any more — that swap path is covered directly in internal/agent).
+// With opencode's own github-copilot login present, the doctor row names provider=copilot and both model/small_model
 func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	xdgData := doctorScratch(t)
-	// github-copilot's registry defaults are "auto" (Copilot's own router); pin real ids here so this
-	// test still proves alias ids pass through unchanged, distinct from the auto -> OpencodeFallback swap.
+	// github-copilot's registry defaults are "auto" (Copilot's own router)
 	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "gpt-5.3-codex")
 	vaulttest.SetRecord(t, "claude", "aliases.haiku", "gpt-5.4-mini")
 	authDir := filepath.Join(xdgData, "opencode")
@@ -267,8 +262,8 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	if c == nil {
 		t.Fatal(`no "opencode route" check in Checks output`)
 	}
-	if !strings.Contains(c.Detail, "provider=personal") {
-		t.Errorf("detail = %q, want provider=personal", c.Detail)
+	if !strings.Contains(c.Detail, "provider=copilot") {
+		t.Errorf("detail = %q, want provider=copilot", c.Detail)
 	}
 	if !strings.Contains(c.Detail, "opencode_login=true") {
 		t.Errorf("detail = %q, want opencode_login=true", c.Detail)
@@ -281,8 +276,7 @@ func TestDoctorOpenCodeRouteWithCopilotLogin(t *testing.T) {
 	}
 }
 
-// On the copilot CLI's own-login dispatch, the doctor row names COPILOT_MODEL's resolved source and the
-// effort/context pins: unpinned, source is the github-copilot default and both pins read "default".
+// On the copilot own-login dispatch, the row names COPILOT_MODEL's source; unpinned effort/context read "default".
 func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 	doctorScratch(t)
 	workableCopilotPin(t, "alice")
@@ -299,8 +293,7 @@ func TestDoctorCopilotRouteSourceEffortContextUnpinned(t *testing.T) {
 	}
 }
 
-// With COPILOT_MODEL pinned and the effort/context pins set, the doctor row names the pin source
-// and the pinned values, not the github-copilot provider default.
+// With COPILOT_MODEL and the effort/context pins set, the row names the pin source and values.
 func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	doctorScratch(t)
 	workableCopilotPin(t, "alice")
@@ -323,8 +316,7 @@ func TestDoctorCopilotRouteSourceEffortContextPinned(t *testing.T) {
 	}
 }
 
-// A stale static key in opencode's own auth.json for a provider the vault now covers fires the
-// soft "opencode auth.json" check, naming the integration id and the logout command, never a value.
+// A stale key in opencode's auth.json for a vault-covered provider gives a soft check naming the logout command.
 func TestDoctorOpenCodeAuthJSONStaleKeyFires(t *testing.T) {
 	xdgData := doctorScratch(t)
 	t.Setenv("OPENAI_API_KEY", "nvapi-doctorFAKEkey1234567890")
@@ -400,8 +392,7 @@ func TestDoctorOpenCodeRouteNamesNoSecret(t *testing.T) {
 	}
 }
 
-// RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep; its detail must
-// equal the "<vendor> route" row Checks prints, for every vendor whose engine is registered.
+// RouteDetail is the per-vendor shim `vendoragent setup` calls instead of the whole doctor sweep
 func TestRouteDetailEqualsDoctorRouteRow(t *testing.T) {
 	doctorScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_doctorFAKEtoken1234567890")
@@ -536,7 +527,6 @@ func TestToolHealthPreservesExhaustedQuotaFailure(t *testing.T) {
 	}
 }
 
-// hermetic isolates config and the env a doctor row reads.
 func hermetic(t *testing.T) {
 	t.Helper()
 	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG

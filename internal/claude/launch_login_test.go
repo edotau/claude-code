@@ -360,8 +360,7 @@ func TestOfferLoginSkippedHintNamesConfigureProviderAll(t *testing.T) {
 	}
 }
 
-// barrierSignin's first Check blocks until every sibling's first Check has started (or 3s pass): only concurrent
-// checks reach the barrier together. Later Checks (the post-login recheck) return ok.
+// barrierSignin's first Check blocks until every sibling's first Check has started (or 3s pass)
 type barrierSignin struct {
 	name    string
 	arrived *atomic.Int32

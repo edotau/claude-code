@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// cfgFlags are the flags `config` and `rescue` share.
 type cfgFlags struct {
 	profile, host, auth, out, model string
 	force                           bool
@@ -93,7 +92,6 @@ func checkTokenHelperHost(reg *providers.Registry, name, host, auth string) erro
 	return nil
 }
 
-// flagHost normalizes a --host value; "" stays "" (use the registry).
 func flagHost(h string) (string, error) {
 	if h == "" {
 		return "", nil
@@ -104,7 +102,6 @@ func flagHost(h string) (string, error) {
 	return "", fmt.Errorf("host %q is not a valid https workspace URL", h)
 }
 
-// registryHost returns the registry row for name and its https workspace host.
 func registryHost(reg *providers.Registry, lerr error, name string) (*providers.Provider, string, error) {
 	if reg == nil {
 		return nil, "", fmt.Errorf("cannot read the registry (%v); pass --host URL", lerr)
@@ -145,7 +142,6 @@ func (f cfgFlags) options(ctx context.Context, target, self string) (renderOptio
 		Model: f.model, Set: f.set, Unset: f.unset}, nil
 }
 
-// config is `databricks config <claude|codex>`.
 func config(args []string) int {
 	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
 		configUsage()
@@ -193,7 +189,6 @@ func configUsage() {
 	fs.Usage()
 }
 
-// findClaude locates the claude binary: the harness agent link, else PATH.
 func findClaude() (string, error) {
 	if p, err := paths.AgentBin("claude"); err == nil {
 		return p, nil
@@ -204,7 +199,6 @@ func findClaude() (string, error) {
 // rescueDeny is what rescue drops beyond proc.ScrubDeny, so only the scratch settings steer claude.
 var rescueDeny = []string{"HARNESS_*", "ANTHROPIC_*", "CLAUDE_CODE_USE_*", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 
-// scrubbed drops proc.ScrubDeny plus every inherited var matching rescueDeny.
 func scrubbed(environ []string) []string {
 	return proc.Drop(environ, nil, slices.Concat(proc.ScrubDeny, rescueDeny))
 }
@@ -249,7 +243,6 @@ func rescue(args []string) int {
 	return code
 }
 
-// renderScratch renders the claude config for f and writes it to a scratch file.
 func renderScratch(ctx context.Context, fs *flag.FlagSet, f cfgFlags) (renderResult, string, error) {
 	if err := checkProfileFlag(fs, f.profile); err != nil {
 		return renderResult{}, "", err
@@ -267,7 +260,6 @@ func renderScratch(ctx context.Context, fs *flag.FlagSet, f cfgFlags) (renderRes
 	return res, file, err
 }
 
-// writeScratch writes text to a fresh 0600 file under the OS temp dir.
 func writeScratch(text string) (string, error) {
 	w, err := os.CreateTemp("", "dbx-rescue-*.json")
 	if err != nil {

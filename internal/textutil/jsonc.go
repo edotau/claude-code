@@ -1,8 +1,6 @@
 package textutil
 
-// StripJSONC removes // and /* */ comments and trailing commas so VS Code's own settings.json
-// dialect (JSONC) parses as plain JSON. String contents are left untouched either pass.
-// An unterminated /* comment returns data unchanged so the caller's JSON parser rejects it.
+// StripJSONC removes comments and trailing commas outside strings; an unterminated /* returns data unchanged.
 func StripJSONC(data []byte) []byte {
 	stripped, ok := stripComments(data)
 	if !ok {
@@ -62,7 +60,6 @@ func stripComments(data []byte) (out []byte, ok bool) {
 	return out, true
 }
 
-// hasPair reports data[i]==a and data[i+1]==b.
 func hasPair(data []byte, i int, a, b byte) bool {
 	return data[i] == a && i+1 < len(data) && data[i+1] == b
 }

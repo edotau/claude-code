@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/ui/table"
 )
 
-// workflowPhaseRow is one phase's agents folded together inside a single run.
 type workflowPhaseRow struct {
 	phase  string
 	agents int
@@ -50,8 +49,7 @@ type workflowRun struct {
 	mtime  time.Time
 }
 
-// runUsageWorkflows prints one block per workflow run, newest first, honouring the same --session /
-// --days scoping as the per-model table.
+// runUsageWorkflows prints one block per workflow run, newest first, with the same --session/--days scoping.
 func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, days int) int {
 	runDirs, err := workflowRunDirsForScope(claudeDir, session, days)
 	if err != nil {
@@ -81,8 +79,7 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 		return 0
 	}
 
-	// Newest first: run ids are random, so recency comes from the last transcript timestamp, with the
-	// run dir's mtime as the fallback when no record carried a parseable one.
+	// Newest first by last transcript timestamp (run ids are random).
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].recency().After(runs[j].recency()) })
 	w := &textutil.ErrWriter{W: out}
 	for i, run := range runs {
@@ -100,7 +97,6 @@ func runUsageWorkflows(claudeDir string, out, errw io.Writer, session string, da
 	return 0
 }
 
-// recency is the run's sort key for newest-first ordering.
 func (r *workflowRun) recency() time.Time {
 	if !r.total.last.IsZero() {
 		return r.total.last
@@ -108,8 +104,6 @@ func (r *workflowRun) recency() time.Time {
 	return r.mtime
 }
 
-// workflowRunDirsForScope resolves the run dirs in scope: every project dir for --session, else every
-// session dir whose mtime falls within --days (the same gate the per-model table uses).
 func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, error) {
 	if session != "" {
 		return transcript.WorkflowRunDirs(filepath.Join(claudeDir, "projects", "*", session)), nil
@@ -125,8 +119,7 @@ func workflowRunDirsForScope(claudeDir, session string, days int) ([]string, err
 	return dirs, nil
 }
 
-// loadWorkflowRun folds the in-window responses of every agent transcript in one run dir into phase rows,
-// returning the run and the number of transcripts that contributed (nil when none did).
+// loadWorkflowRun folds a run dir's in-window agent responses into phase rows; nil when no transcript contributed.
 func loadWorkflowRun(runDir string, errw io.Writer, cutoff time.Time, turns *transcript.SummaryCache,
 	scans workflowNameScans) (*workflowRun, int) {
 	files := transcript.WorkflowAgentFiles(runDir)
@@ -222,11 +215,9 @@ func addAgentToRow(row *workflowPhaseRow, s *transcript.FileSummary) {
 	}
 }
 
-// modelDateSuffix strips a trailing -YYYYMMDD date (e.g. haiku-4-5-20251001 -> haiku-4-5); a numeric
-// minor version like -4-8 or -5-5 has fewer than 8 digits and is left alone.
+// modelDateSuffix strips a trailing -YYYYMMDD date (e.g. haiku-4-5-20251001 -> haiku-4-5)
 var modelDateSuffix = regexp.MustCompile(`-\d{8}$`)
 
-// modelContextSuffix strips a trailing context-window tag such as "[1m]".
 var modelContextSuffix = regexp.MustCompile(`\[\d+m\]$`)
 
 // shortModelName strips the "databricks-" and "claude-" prefixes, a trailing context tag and a trailing date suffix.
@@ -257,7 +248,6 @@ func sortedModelStats(models map[string]*modelStats) []*modelStats {
 	return list
 }
 
-// printModelRollup renders one MODEL/AGENTS/TURNS/... block, one row per model.
 func printModelRollup(out io.Writer, models map[string]*modelStats) {
 	if len(models) == 0 {
 		return
@@ -286,9 +276,7 @@ func rightAlign(head []string, rows [][]string, from, to int) [][]string {
 	return rows
 }
 
-// printAllRunsByModel folds every listed run's total.models together and prints one rollup block,
-// keyed by model rather than by run; skipped when there are fewer than two runs, since a single
-// run's own per-phase rollup already shows the same totals.
+// printAllRunsByModel prints one by-model rollup across runs; skipped for a single run, whose own rollup shows it.
 func printAllRunsByModel(out io.Writer, runs []*workflowRun) {
 	if len(runs) < 2 {
 		return
@@ -329,10 +317,7 @@ func sessionDirOf(runDir string) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(runDir)))
 }
 
-// workflowNameForRun derives the workflow name from the sibling script <session>/workflows/scripts/
-// <name>-<runId>.js; the run id itself carries hyphens, so the exact suffix is stripped, never split.
-// That glob only matches inline/by-name runs, so a {scriptPath} run falls back to scanning the
-// session's own main transcript for the tool_use that launched it.
+// workflowNameForRun derives the workflow name from the sibling script <session>/workflows/scripts/ <name>-<runId>.js
 func workflowNameForRun(runDir, runID string, scans workflowNameScans) string {
 	sessionDir := sessionDirOf(runDir)
 	matches, err := filepath.Glob(filepath.Join(sessionDir, "workflows", "scripts", "*-"+runID+".js"))
@@ -348,8 +333,7 @@ func workflowNameForRun(runDir, runID string, scans workflowNameScans) string {
 	return runID
 }
 
-// toolUseBlock is the subset of an assistant content block's tool_use fields needed to resolve a
-// workflow run's name.
+// toolUseBlock is the subset of an assistant content block's tool_use fields needed to resolve a workflow run's name.
 type toolUseBlock struct {
 	Type  string `json:"type"`
 	ID    string `json:"id"`
@@ -359,16 +343,13 @@ type toolUseBlock struct {
 	} `json:"input"`
 }
 
-// toolResultBlock is the subset of a user content block's tool_result fields needed to pair it back
-// to the tool_use that produced it.
+// toolResultBlock is the subset of tool_result fields needed to pair it with its tool_use.
 type toolResultBlock struct {
 	Type      string          `json:"type"`
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 }
 
-// runIDPattern matches a workflow run id following either the "Run ID: " marker or a "Transcript
-// dir: .../<runId>" path, the two shapes a Workflow launch result carries it in.
 var runIDPattern = regexp.MustCompile(`(?:Run ID: |Transcript dir: \S*/)(wf_\S+)`)
 
 // workflowNameEntry is one session transcript's scan: names, the failure that cut it short, whether reported.
@@ -381,8 +362,7 @@ type workflowNameEntry struct {
 // workflowNameScans caches the scan per session transcript path for one invocation (not safe for concurrent use).
 type workflowNameScans map[string]*workflowNameEntry
 
-// namesFromTranscript returns runID -> workflow name for every Workflow launch found in the
-// session's main transcript, scanning it at most once per invocation.
+// namesFromTranscript returns runID -> workflow name from the main transcript, scanned at most once per invocation.
 func (c workflowNameScans) namesFromTranscript(sessionTranscript string) map[string]string {
 	e, ok := c[sessionTranscript]
 	if !ok {
@@ -393,7 +373,6 @@ func (c workflowNameScans) namesFromTranscript(sessionTranscript string) map[str
 	return e.names
 }
 
-// warn reports once, on errw, a failed name scan of the session that owns runDir.
 func (c workflowNameScans) warn(runDir string, errw io.Writer) {
 	path := sessionDirOf(runDir) + ".jsonl"
 	if e := c[path]; e != nil && e.err != nil && !e.reported && !errors.Is(e.err, fs.ErrNotExist) {
@@ -466,8 +445,6 @@ func matchWorkflowToolResults(content json.RawMessage, toolUses map[string]toolU
 	}
 }
 
-// workflowNameFromToolUse resolves a Workflow tool_use's name: the by-name input.name, else the
-// scriptPath's basename minus .js, else "" (an inline script carries neither).
 func workflowNameFromToolUse(use toolUseBlock) string {
 	if use.Input.Name != "" {
 		return use.Input.Name
@@ -498,8 +475,6 @@ func printWorkflowRow(out io.Writer, row *workflowPhaseRow) {
 		joinedModelNames(row.models))
 }
 
-// formatWall renders a first→last span; "-" when no record carried a parseable RFC3339 timestamp, so
-// an interrupted transcript degrades instead of printing a 1970-based duration.
 func formatWall(first, last time.Time) string {
 	if first.IsZero() || last.IsZero() || last.Before(first) {
 		return "-"

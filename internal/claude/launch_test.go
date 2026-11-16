@@ -217,8 +217,7 @@ func testClaudeRejectsVendorLogin(t *testing.T) {
 	}
 }
 
-// --model takes an alias (the alias's own resolution, so pins apply), a version or a wire id; the provider:model
-// form is gone, and the verb's alias stays the main model unless --model names another family.
+// --model takes an alias (the alias's own resolution, so pins apply), a version or a wire id
 func TestClaudeModelFlag(t *testing.T) {
 	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
 		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-sonnet", "haiku": "qwen3-haiku"}}}}}`)
@@ -447,7 +446,6 @@ func TestClaudePlanReadsRunSnapshot(t *testing.T) {
 	}
 }
 
-// overlayFile is the plan's settings overlay, or the zero file when it has none.
 func overlayFile(p agent.Plan) agent.LaunchFile {
 	if len(p.Files) == 0 {
 		return agent.LaunchFile{}
@@ -455,8 +453,7 @@ func overlayFile(p agent.Plan) agent.LaunchFile {
 	return p.Files[0]
 }
 
-// TestKeepShellEndpointSessionProxyBaseToFirstParty: from a Databricks session (/p/prod), an ultra launch drops the session's
-// proxy base instead of keeping it and withholding its own credential.
+// TestKeepShellEndpointSessionProxyBaseToFirstParty
 func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "prod")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
@@ -482,8 +479,7 @@ func TestKeepShellEndpointSessionRouteBaseToFirstParty(t *testing.T) {
 	}
 }
 
-// An interactive plan carries the record's effort, launch.args and launch.env (never a wiped name) before the typed
-// args; a typed --effort replaces the record's; no record adds nothing; headless leaves it to claudeCmd.
+// An interactive plan carries the record's effort, launch.args and launch.env; a typed --effort replaces the record's.
 func TestClaudeInteractiveRendersRecord(t *testing.T) {
 	const dbx = `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 	rec := vault.AgentRecord{Effort: "high", Launch: &vault.AgentLaunch{Env: []string{"FOO_LAUNCH=1",

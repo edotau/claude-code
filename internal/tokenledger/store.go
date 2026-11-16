@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// Entry is one metered proxy request; never content, keys or headers. Older lines lack the attribution fields
-// and carry the profile name in Provider; ProfileName reads both.
+// Entry is one metered proxy request
 type Entry struct {
 	Schema    int       `json:"schema"`
 	Ts        time.Time `json:"ts"`
@@ -84,7 +83,6 @@ func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	return in, out, cacheRead, err
 }
 
-// schemaVersion is the usage ledger's current schema version.
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{

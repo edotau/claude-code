@@ -122,8 +122,7 @@ func setupWorkspaceGitRoot(t *testing.T) string {
 	return root
 }
 
-// TestSetupWorkspaceLinkRejectsDryRunWithoutLinking: --dry-run only applies to init; on link it is a
-// usage error (2), caught before workspaceLink ever runs — no symlink is created.
+// TestSetupWorkspaceLinkRejectsDryRunWithoutLinking
 func TestSetupWorkspaceLinkRejectsDryRunWithoutLinking(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := setupWorkspaceGitRoot(t)
@@ -190,7 +189,6 @@ func TestSetupWorkspaceHelpListsInitFlagsOnly(t *testing.T) {
 	}
 }
 
-// stdinFrom points os.Stdin at a file holding text until the test ends.
 func stdinFrom(t *testing.T, text string) {
 	t.Helper()
 	input := filepath.Join(t.TempDir(), "stdin")

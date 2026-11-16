@@ -81,7 +81,6 @@ func saveMerged(profile string, results []serving.CheckResult, now time.Time) er
 	})
 }
 
-// checkNow is the check cache's clock.
 var checkNow = time.Now
 
 // checkAgeAfter is the age past which checkCell shows how old a cached verdict is.
@@ -158,7 +157,6 @@ func checkCell(cache map[string]serving.CheckResult, id string) string {
 	return cell
 }
 
-// ageLabel is an age in whole hours under a day, else whole days.
 func ageLabel(age time.Duration) string {
 	if age < 24*time.Hour {
 		return fmt.Sprintf("%dh", int(age/time.Hour))
@@ -166,7 +164,6 @@ func ageLabel(age time.Duration) string {
 	return fmt.Sprintf("%dd", int(age/(24*time.Hour)))
 }
 
-// checkFamily is the id's leading letters, e.g. claude, gpt, gemini, glm, qwen.
 func checkFamily(id string) string {
 	id = stripSpellingPrefix(id)
 	if i := strings.IndexFunc(id, func(r rune) bool { return !unicode.IsLetter(r) }); i > 0 {
@@ -240,7 +237,6 @@ func LoadCheckCache(provider string) (map[string]serving.CheckResult, bool) {
 // checkCacheSchema is the cache's current schema version; a mismatch is a cache miss, never migrated.
 const checkCacheSchema = 2
 
-// checkCacheFormat registers the shared model check cache's on-disk format.
 var checkCacheFormat = schemas.Register(schemas.Format{
 	Name: "opencode-models-check", Owner: "internal/catalog", Kind: schemas.Cache,
 	Glob:    func() string { return CheckCachePath() },

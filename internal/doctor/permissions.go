@@ -34,7 +34,6 @@ const designNote = "by decision: --tools approves; no workdir scope"
 // verdictRuntime is a cell only the live vendor runtime can judge; it is listed apart and never counted.
 const verdictRuntime = "runtime"
 
-// noOverride is the remedy of a safety-hook block.
 const noOverride = "none: a safety-hook block is final; report it instead of retrying another way"
 
 // designDecision is the first owner decision (D1..D6) per agent: its redirect row, then its outside-workdir row.
@@ -70,7 +69,6 @@ func permProbes(wd string) []probe {
 	}
 }
 
-// permModes are the launch modes each agent supports, in column order.
 var permModes = []struct {
 	agent string
 	modes []string
@@ -106,21 +104,17 @@ type permAgent struct {
 	Rows  []permRow `json:"rows"`
 }
 
-// permResult is one layer-combined verdict (allow, deny, ask, decided or runtime), the layer that decided, and for a
-// deny the exact control that repairs it.
+// permResult is one layer-combined verdict, the layer that decided it and, for a deny, the control that repairs it.
 type permResult struct{ verdict, layer, remedy string }
 
-// permVerdict is how one agent in one mode judges a call.
 type permVerdict func(tool, arg string) permResult
 
-// permTally counts the judged expectations, those met, and the by-design notes.
 type permTally struct{ met, total, notes int }
 
 var noFlagDeny = map[string]string{
 	"claude": "no tools launched", "opencode": "no tools launched", "copilot": "SDK rejects every request",
 }
 
-// noFlagRemedy is what lifts a no-flag deny: the tools tier.
 const noFlagRemedy = "relaunch with --tools (or --read-only to read)"
 
 // runtimeJudge is the judge of a layer only the vendor runtime evaluates: every call is listed apart.
@@ -135,8 +129,6 @@ func withAllow(p agent.Permissions, r agent.Rule) agent.Permissions {
 	return p
 }
 
-// remedyFor is eff's repair for a denied tool(arg): an exact --allow only when repaired (the layer rebuilt with that
-// rule) allows the call, else the control Explain names, else the tier that refuses it.
 func remedyFor(eff agent.Permissions, tool, arg string, repaired func(agent.Rule) bool) string {
 	d := eff.Explain(tool, arg)
 	if d.Remedy != "" && (d.Replay == "" || repaired(agent.Rule{Tool: tool, Arg: arg})) {
@@ -154,7 +146,6 @@ func hookInstalled(name, hook string) bool {
 	return slices.ContainsFunc(settings.SpecsFor(name, surface), func(s settings.EventSpec) bool { return s.Name == hook })
 }
 
-// bashInput is the PreToolUse payload a Bash call carries to the safety hook.
 func bashInput(cmd, wd string) *core.Input {
 	raw, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd},
 		"cwd": wd, "hook_event_name": "PreToolUse"})
@@ -244,8 +235,7 @@ func bareLayer(name string, p agent.Permissions, ro bool, wd string) (permVerdic
 	return gateLayer(name, p), p
 }
 
-// permJudge builds the real launch policy for name in mode and the combined decision over it. A layer only the
-// runtime evaluates (codex's OS sandbox, Anthropic's auto-mode judge) keeps its hook verdicts asserted.
+// permJudge builds the real launch policy for name in mode and the combined decision over it.
 func permJudge(name, mode, wd string) (permVerdict, string) {
 	switch {
 	case mode == "no flag" && name == "gemini":
@@ -312,7 +302,6 @@ func permCellFor(judge permVerdict, why string, pr probe, mode string) (c permCe
 	return c, c.Expect != "", design
 }
 
-// permReport evaluates every probe for one agent.
 func permReport(name string, modes []string, wd string) (permAgent, permTally) {
 	rep := permAgent{Agent: name, Modes: modes, Hook: "safety hook: installed"}
 	if !hookInstalled(name, "safety-scan") {
@@ -471,7 +460,6 @@ func permRuntimeRows(reps []permAgent, stages []permStageRow) []permRuntime {
 	return out
 }
 
-// addMatrixRuntime counts one agent's runtime-unavailable matrix cells into rows.
 func addMatrixRuntime(rows []permRuntime, rep permAgent) []permRuntime {
 	for _, r := range rep.Rows {
 		for _, m := range rep.Modes {

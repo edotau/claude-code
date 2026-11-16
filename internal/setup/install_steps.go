@@ -28,9 +28,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// install copies the binary into BinDir, links the agent CLIs, and seeds a missing settings.json
-// (an existing one is never written). A real (non-dry-run) run prints one compact line per step, naming only
-// non-ok items in full; --dry-run and --verbose keep the full step-by-step detail.
+// install copies the binary into BinDir, links the agent CLIs and seeds a missing settings.json (never overwritten).
 func install(w io.Writer, dryRun bool, verbose bool) error {
 	if dryRun || verbose {
 		return installVerbose(w, dryRun)
@@ -70,8 +68,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	return settingsErr
 }
 
-// installCompact runs every install step for real (never dry-run) and prints one line per step:
-// compact one-line-per-step form of install; the extras line prints last. Warnings always print in full.
+// installCompact runs every install step for real (never dry-run) and prints one line per step
 func installCompact(w io.Writer) error {
 	commit := snapshotPreInstall(w, false, true)
 	target, err := installBinaryTarget(io.Discard, false)
@@ -112,8 +109,6 @@ func preflightStep(w io.Writer, bin string) {
 	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now())
 }
 
-// installLine renders the "install" summary line: the installed binary path and, when the pre-install
-// history snapshot produced a commit, its short hash.
 func installLine(target, commit string) string {
 	line := "install  " + paths.ShortHome(target)
 	if commit != "" {
@@ -148,8 +143,7 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	return target, nil
 }
 
-// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w) without linking agents;
-// installCompact passes io.Discard and links agents separately via agentsCompactLine.
+// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w) without linking agents
 func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
@@ -192,8 +186,7 @@ func agentsCompactLine(w io.Writer) {
 	}
 }
 
-// linkOnPathCompact runs linkUserBins, suppressing its routine "link" success line; a "warning" (not on
-// PATH) or "skip" (a real file is there) line always prints in full.
+// linkOnPathCompact runs linkUserBins, suppressing its routine "link" success line
 func linkOnPathCompact(w io.Writer, target string) error {
 	var buf bytes.Buffer
 	if err := linkUserBins(&buf, target, false); err != nil {
@@ -248,8 +241,7 @@ func windowsSettingsCompact(w io.Writer) {
 	}
 }
 
-// agentsSyncCompact runs the agents/skills/instructions projection and reports the agents synced, or
-// the sync's own failure note in full.
+// agentsSyncCompact runs the agents/skills/instructions projection and reports the count, or the failure note in full.
 func agentsSyncCompact(w io.Writer) {
 	if rc := project.Sync(project.Options{Out: io.Discard}); rc != 0 {
 		fmt.Fprintf(w, "agents   sync exit %d (see `claude-code agents sync`) · %s\n", rc, agentConfigsSummary(w))
@@ -258,8 +250,7 @@ func agentsSyncCompact(w io.Writer) {
 	fmt.Fprintf(w, "agents   synced: %s · %s\n", strings.Join(project.Names(), " "), agentConfigsSummary(w))
 }
 
-// agentConfigsSummary re-renders the agent configs `configure --restore` writes (codex, opencode, gemini, copilot) and
-// returns a one-token summary; best-effort, so a render failure warns on w and never fails install.
+// agentConfigsSummary re-renders the agent configs and returns a one-token summary; failure only warns.
 func agentConfigsSummary(w io.Writer) string {
 	var changed []string
 	for _, a := range agent.DefaultAgents {
@@ -289,8 +280,7 @@ func agentConfigsSummary(w io.Writer) string {
 	return "configs rendered: " + strings.Join(changed, " ")
 }
 
-// extrasCompact runs the completion, clipboard-proxy and tmux-seed steps and returns their one-line summary;
-// skip notes print in full immediately.
+// extrasCompact runs the completion, clipboard-proxy and tmux-seed steps and returns their one-line summary
 func extrasCompact(w io.Writer) string {
 	var tokens []string
 	if _, err := helptext.Install("claude-code"); err != nil {
@@ -343,8 +333,7 @@ func splitNonEmpty(s string) []string {
 	return out
 }
 
-// installCompletion is best-effort — an unwritable completions dir (no bash-completion package,
-// read-only $HOME) must never fail the install that got the binary in place.
+// installCompletion is best-effort: an unwritable completions dir must never fail the install.
 func installCompletion(w io.Writer, dryRun bool) {
 	switch {
 	case dryRun:
@@ -358,8 +347,7 @@ func installCompletion(w io.Writer, dryRun bool) {
 	}
 }
 
-// installClipboardProxy ensures the WSL wl-paste proxy; a no-op off WSL, and best-effort like
-// completion — a write failure must never fail the install that got the binary in place.
+// installClipboardProxy ensures the WSL wl-paste proxy
 func installClipboardProxy(w io.Writer, dryRun bool) {
 	if err := clipboard.InstallProxy(w, dryRun); err != nil {
 		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())
@@ -397,8 +385,7 @@ func installGitHooks(w io.Writer, dryRun bool) {
 	}
 }
 
-// syncAgents projects agents/, skills/ and the agent instruction files into every agent home so they track the
-// repo; best-effort, like completion.
+// syncAgents projects agents/, skills/ and the agent instruction files into every agent home so they track the repo
 func syncAgents(w io.Writer, dryRun bool) {
 	fmt.Fprintln(w, "agents   sync agents/ + skills/ + instructions into agent homes (claude-code agents sync)")
 	if rc := project.Sync(project.Options{DryRun: dryRun, Out: io.Discard}); rc != 0 {
@@ -417,7 +404,6 @@ func linkUserBins(w io.Writer, target string, dryRun bool) error {
 	return nil
 }
 
-// linkOnPath points userBinDir/name at target; a real file there is left alone.
 func linkOnPath(w io.Writer, name, target string, dryRun bool) error {
 	dir := userBinDir()
 	if dir == "" {

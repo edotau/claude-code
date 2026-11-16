@@ -32,8 +32,7 @@ func TestInsertCodexSectionSkipsBracketLinesInValues(t *testing.T) {
 	}
 }
 
-// foreignMarker is the literal foreign-hook command a third-party tool (e.g. an agent dashboard) installs into every
-// lifecycle event; real bytes captured in testdata/codex-hooks-with-foreign.json (= ~/.codex/hooks.json.backup).
+// foreignMarker is a third-party tool's hook command, captured in testdata/codex-hooks-with-foreign.json.
 const foreignMarker = "foreign-agent-hook-form=1"
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -100,7 +99,6 @@ func TestRenderCodexFailsHooksMergeLeavesConfigTomlUntouched(t *testing.T) {
 	}
 }
 
-// seedCodexFile writes body to home/.codex/name and returns its path.
 func seedCodexFile(t *testing.T, home, name string, body []byte) string {
 	t.Helper()
 	path := filepath.Join(home, ".codex", name)

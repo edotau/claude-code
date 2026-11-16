@@ -147,7 +147,6 @@ func (r *Resolver) homeOf(name string) string {
 	return ""
 }
 
-// resolveUNC handles "//host/share/rest" (slashes already forward).
 func (r *Resolver) resolveUNC(p string) (string, bool) {
 	host, rest, _ := strings.Cut(strings.TrimLeft(p, "/"), "/")
 	if strings.EqualFold(host, "wsl.localhost") || strings.EqualFold(host, "wsl$") {
@@ -246,7 +245,6 @@ func segsHavePrefix(raw, pre []string, fold bool) bool {
 	return true
 }
 
-// climbsOut reports whether the `..` segments in rest rise above its own root.
 func climbsOut(rest []string) bool {
 	depth := 0
 	for _, s := range rest {
@@ -259,7 +257,6 @@ func climbsOut(rest []string) bool {
 	return false
 }
 
-// trimPrefixPath strips prefix from p on a path-element boundary.
 func trimPrefixPath(p, prefix string, fold bool) (string, bool) {
 	p, prefix = path.Clean("/"+p), path.Clean("/"+prefix)
 	if fold {
@@ -299,8 +296,7 @@ func (r *Resolver) mountFor(local string) (*Mount, string) {
 	return best, bestRest
 }
 
-// cleanLocal cleans p lexically, except a ".." path is resolved through symlinks (existing paths) so
-// /dev/fd/../status keeps its meaning; a path that does not exist falls back to the lexical result.
+// cleanLocal cleans p lexically, but resolves a ".." path through symlinks so /dev/fd/../status keeps its meaning.
 func cleanLocal(p string) string {
 	if slices.Contains(strings.Split(p, "/"), "..") {
 		if real, err := filepath.EvalSymlinks(p); err == nil {

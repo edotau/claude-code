@@ -39,10 +39,8 @@ func (codexEngine) Verify(ctx context.Context) (providers.AuthVerdict, string) {
 
 var _ agent.Authenticator = codexEngine{}
 
-// codexAuthSource is the AuthState.Source of a ChatGPT sign-in.
 const codexAuthSource = "ChatGPT login (codex login)"
 
-// authKey identifies one version of auth.json for the memos below.
 type authKey struct {
 	path  string
 	mtime time.Time
@@ -133,8 +131,7 @@ func (codexEngine) Plan(_ context.Context, st providers.AuthState) providers.Sub
 	return providers.Subscription{Raw: st.PlanHint, Name: textutil.Title(st.PlanHint)}
 }
 
-// codexKeychainService is the macOS/Linux keyring service codex stores its ChatGPT login under when
-// config.toml sets cli_auth_credentials_store = "keyring" (the whole auth.json body as the secret value).
+// codexKeychainService is the keyring service codex stores its ChatGPT login under in "keyring" mode.
 const codexKeychainService = "Codex Auth"
 
 // codexGOOS is the OS whose keyring plane the lookups below use; a seam for tests.
@@ -149,11 +146,7 @@ var codexKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error)
 	return exec.CommandContext(ctx, name, args...).Output()
 }
 
-// codexAuthJSON is codex's ChatGPT login payload, $CODEX_HOME/auth.json first and the OS keyring second —
-// codex writes there instead of the file once config.toml sets cli_auth_credentials_store = "keyring", but
-// that setting is only a hint: the file is always tried first regardless of what it says. data is nil
-// when neither holds a login; keyringNote is "" normally, or the reason a keyring lookup
-// failed for something other than "nothing stored", for a caller that wants to say why.
+// codexAuthJSON is codex's ChatGPT login: auth.json is always tried first, then the keyring; nil data means none.
 func codexAuthJSON() (data []byte, keyringNote string) {
 	if b, ok := codexAuthFile(); ok {
 		return b, ""
@@ -210,8 +203,7 @@ func codexKeyringAuthJSON() (data []byte, note string) {
 	return nil, err.Error()
 }
 
-// codexPlanFrom is the ChatGPT plan ("plus", "pro", "team"…) in the id_token claim of an auth.json body; "" when
-// absent or unreadable. The token is decoded, never verified or printed.
+// codexPlanFrom is the ChatGPT plan in an auth.json id_token claim; the token is decoded, never verified or printed.
 func codexPlanFrom(t codexTokens) string {
 	parts := strings.Split(t.IDToken, ".")
 	if len(parts) < 2 {
@@ -232,9 +224,7 @@ func codexPlanFrom(t codexTokens) string {
 	return claims.Auth.Plan
 }
 
-// CodexAccessToken is codex's ChatGPT access token and account id from its auth.json (file or keyring);
-// "" when absent. keyringNote is "" normally, or the reason a keyring lookup failed for something other
-// than "nothing stored", for callers that want to say why no token was found.
+// CodexAccessToken is codex's ChatGPT access token and account id from its auth.json (file or keyring)
 func CodexAccessToken() (token, accountID, keyringNote string) {
 	b, note := codexAuthJSON()
 	if b == nil {

@@ -9,8 +9,7 @@ import (
 // RTKBinaryEnv overrides the rtk binary: tests cannot rely on rtk being installed, and a wrapper path also works.
 const RTKBinaryEnv = "HARNESS_RTK_BIN"
 
-// RTKBinary returns the absolute rtk binary to invoke, or "" when it is not available. Absence is the
-// normal case on a machine without rtk and must degrade to a no-op, never an error.
+// RTKBinary returns the absolute rtk binary to invoke, or "" when it is not available.
 func RTKBinary() string {
 	candidates := []string{RTKPinned(), "rtk"} // the pinned install first, then PATH
 	if name := os.Getenv(RTKBinaryEnv); name != "" {

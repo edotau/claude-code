@@ -91,7 +91,6 @@ func quotaFix(key string) string {
 	return "routed around until the reset; `claude-code gateway` shows the pick"
 }
 
-// formatsCheck is the soft "formats" row.
 func formatsCheck() check {
 	var stale []string
 	current := 0

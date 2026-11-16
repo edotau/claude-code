@@ -106,7 +106,6 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 	return cfg, checkProfile(reg, agent, cfg.Profile)
 }
 
-// launchProfile is cfg.Profile after the launch flags.
 func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch) (string, error) {
 	switch {
 	case l.Profile != "" || l.Provider != "":

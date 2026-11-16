@@ -179,10 +179,7 @@ func renderCodex(ctx context.Context, reg *providers.Registry, sel providers.Sel
 		return false, err
 	}
 
-	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or
-	// committing config.toml: trust keys must come from the real post-merge positions, and a malformed
-	// existing hooks.json must fail the whole render, not leave new trust hashes written against a
-	// hooks.json that never got merged.
+	// Compute the hooks merge (and read the existing hooks.json) before computing trust entries or committing config.toml
 	hooksPath := filepath.Join(filepath.Dir(path), "hooks.json")
 	hooksRaw, mergedHooks, hooksExisted, err := prepareCodexHooks(hooksPath, body)
 	if err != nil {
@@ -208,7 +205,6 @@ func commitCodexFiles(hooksPath string, hooksRaw, mergedHooks []byte, hooksExist
 	return drift || d, err
 }
 
-// readCodexConfig returns the config.toml path, its bytes and whether it existed.
 func readCodexConfig(home string) (path string, raw []byte, existed bool, err error) {
 	path, err = paths.CodexConfigPath(home)
 	if err != nil {

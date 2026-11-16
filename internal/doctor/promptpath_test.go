@@ -13,7 +13,6 @@ import (
 
 const savedDoc = "skills/subagent-workflows/references/saved-workflows.md"
 
-// wantOne asserts exactly one finding that contains each fragment.
 func wantOne(t *testing.T, got []string, frags ...string) {
 	t.Helper()
 	if len(got) != 1 {

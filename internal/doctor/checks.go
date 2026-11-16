@@ -45,7 +45,6 @@ var doctorSections = []doctorSection{
 	func(context.Context) ([]check, bool) { return []check{formatsCheck()}, true },
 }
 
-// doctorWorkers caps the doctor sections probing at once.
 const doctorWorkers = 4
 
 // fanOut runs fn(0..n-1) on at most workers goroutines and returns the results in index order.
@@ -66,7 +65,6 @@ func fanOut[T any](n, workers int, fn func(i int) T) []T {
 	return out
 }
 
-// sectionRows is one doctorSection's result.
 type sectionRows struct {
 	rows []check
 	ok   bool
@@ -275,7 +273,6 @@ func opencodeStaticKeysDetail(reg *providers.Registry) (bool, string) {
 	return false, strings.Join(notes, "; ")
 }
 
-// hasStaticKey reports whether in holds a static API key connection.
 func hasStaticKey(in opencode.OpencodeIntegration) bool {
 	return slices.ContainsFunc(in.Conns, func(c opencode.OpencodeConn) bool { return c.Kind == "credential" && c.Method == "key" })
 }

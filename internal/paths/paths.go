@@ -269,7 +269,6 @@ func endsMidLine(f *os.File) bool {
 // ErrLockTimeout means WithFileLock gave up waiting for a held lock.
 var ErrLockTimeout = errors.New("timed out waiting for file lock")
 
-// lockTimeout bounds how long WithFileLock waits for a peer to release the lock.
 var lockTimeout = 2 * time.Minute
 
 // TryLock takes the exclusive lock on f without blocking; false means another holder has it or locking is unsupported.
@@ -314,8 +313,7 @@ func IsDir(p string) bool { fi, err := os.Stat(p); return err == nil && fi.IsDir
 // FileExists reports whether p exists (any type).
 func FileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-// SafeName reports whether name is a single safe path component — an unsafe name (`../../escape`,
-// `..`, a dot-file, a backslash on Linux) would let a joined path escape the root it is checked under.
+// SafeName reports whether name is one safe path component; an unsafe one could escape the root it is joined under.
 func SafeName(name string) bool {
 	return name != "" && name != "." && name != ".." &&
 		name == filepath.Base(name) &&
@@ -471,8 +469,7 @@ func SwapSymlink(target, link string) error {
 	return nil
 }
 
-// ResolveLink follows path through symlinks so a write lands on the real file; followDangling chases a dangling
-// link to its missing target, else a dangling link is an error.
+// ResolveLink follows path through symlinks so a write lands on the real file
 func ResolveLink(path string, followDangling bool) (string, error) {
 	real, err := filepath.EvalSymlinks(path)
 	if err == nil {

@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// TestPrintChecksGoldenBytes pins printChecks' byte format (color off, the case for every test and
-// any non-tty run): "<mark> <name>: <detail>\n", mark = ✓ when OK else ✗. Doctor and printVault both
-// share this function now; a drift here changes what both commands print.
+// TestPrintChecksGoldenBytes pins printChecks' byte format (color off, the case for every test and any non-tty run)
 func TestPrintChecksGoldenBytes(t *testing.T) {
 	checks := []check{
 		{Name: "sample", OK: true, Detail: "all good"},

@@ -325,7 +325,6 @@ func mirrorsOf(path string) []string {
 	return matches
 }
 
-// pruneMirror keeps only the newest 5 mirrored backups of path.
 func pruneMirror(path string) {
 	const keep = 5
 	versions := mirrorsOf(path)
@@ -340,7 +339,6 @@ func baselinePath(label, path string) string {
 	return filepath.Join(paths.StateDir(), "vendor-baseline", label+"-"+hex.EncodeToString(sum[:4]))
 }
 
-// writeBaseline caches next as the baseline for path's next CommitFile call.
 func writeBaseline(label, path string, next []byte) error {
 	if ops := fileOps[label]; ops.SaveBaseline != nil {
 		return ops.SaveBaseline(path, next)

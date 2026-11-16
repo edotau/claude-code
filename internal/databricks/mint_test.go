@@ -49,7 +49,6 @@ func stubClipboard(t *testing.T) string {
 	return rec
 }
 
-// noClipboard leaves only sh on PATH, so no clipboard tool resolves.
 func noClipboard(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()

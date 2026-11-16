@@ -12,8 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// writeWorkflowAgentFixture writes one <session>/subagents/workflows/<runID>/agent-<name>.jsonl,
-// its optional sibling .meta.json (workflowPhase), and backdates the files and directories.
+// writeWorkflowAgentFixture writes one workflow agent transcript with its optional .meta.json, backdated.
 func writeWorkflowAgentFixture(t *testing.T, claudeDir, project, session, runID, name, phase string, age time.Duration, lines ...string) string {
 	t.Helper()
 	dir := filepath.Join(claudeDir, "projects", project, session, "subagents", "workflows", runID)
@@ -36,8 +35,7 @@ func writeWorkflowAgentFixture(t *testing.T, claudeDir, project, session, runID,
 	return p
 }
 
-// writeWorkflowScript writes the sibling <session>/workflows/scripts/<name>-<runID>.js the workflow
-// name is derived from.
+// writeWorkflowScript writes the sibling workflows/scripts/<name>-<runID>.js the workflow name is derived from.
 func writeWorkflowScript(t *testing.T, claudeDir, project, session, name, runID string) {
 	t.Helper()
 	sessionDir := filepath.Join(claudeDir, "projects", project, session)
@@ -55,16 +53,14 @@ func writeWorkflowScript(t *testing.T, claudeDir, project, session, name, runID 
 	}
 }
 
-// writeMainTranscript writes the session's own <session>.jsonl (sibling to the projects/<proj>/<session>
-// dir) from real-byte pair content — the scriptPath run-name fallback scans this file.
+// writeMainTranscript writes the session's own .jsonl from real-byte pairs; the scriptPath name fallback scans it.
 func writeMainTranscript(t *testing.T, claudeDir, project, session, content string) {
 	t.Helper()
 	p := filepath.Join(claudeDir, "projects", project, session+".jsonl")
 	writeFile(t, p, content)
 }
 
-// TestUsageCmdIncludesWorkflowAgents: a workflow agent one level deeper than a plain subagent must
-// still land in the default per-model table and count toward "files scanned".
+// TestUsageCmdIncludesWorkflowAgents
 func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "target-session", time.Hour,
@@ -92,8 +88,7 @@ func TestUsageCmdIncludesWorkflowAgents(t *testing.T) {
 	}
 }
 
-// TestUsageCmdIncludesWorkflowAgentsWithinDays: the --days path (usageFilesWithinDays) must also
-// walk the deeper subagents/workflows/<runId>/agent-*.jsonl glob, not just --session.
+// TestUsageCmdIncludesWorkflowAgentsWithinDays
 func TestUsageCmdIncludesWorkflowAgentsWithinDays(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "session-1", "wf_run1", "a", "Find", time.Hour,
@@ -108,8 +103,7 @@ func TestUsageCmdIncludesWorkflowAgentsWithinDays(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsFlag: --workflows prints a header (run id + derived name), one row per
-// phase (including an unphased agent under "(none)"), and a TOTAL row.
+// TestUsageCmdWorkflowsFlag
 func TestUsageCmdWorkflowsFlag(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_2ac0b502-bf2", "a", "Find", time.Hour,
@@ -132,8 +126,7 @@ func TestUsageCmdWorkflowsFlag(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsNewestFirst: runs are ordered by their last transcript timestamp, not by the
-// (random) run id string.
+// TestUsageCmdWorkflowsNewestFirst
 func TestUsageCmdWorkflowsNewestFirst(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_aaa-old", "a", "Find", time.Hour,
@@ -153,8 +146,7 @@ func TestUsageCmdWorkflowsNewestFirst(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsRejectsJSON: --workflows has no JSON form, so --workflows --format json is a usage
-// error rather than silently falling back to the per-model aggregate JSON.
+// TestUsageCmdWorkflowsRejectsJSON
 func TestUsageCmdWorkflowsRejectsJSON(t *testing.T) {
 	claudeDir := t.TempDir()
 	var out, errw bytes.Buffer
@@ -163,8 +155,7 @@ func TestUsageCmdWorkflowsRejectsJSON(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsModelColumnSingleModel: a one-model phase (real haiku-only bytes) prints the
-// short name (date suffix stripped), not the raw model id, and the TOTAL row carries it too.
+// TestUsageCmdWorkflowsModelColumnSingleModel
 func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
@@ -191,8 +182,7 @@ func TestUsageCmdWorkflowsModelColumnSingleModel(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsModelColumnMixed: a phase folding two real agents on different models (haiku
-// + sonnet, same "▸ gate-loop" phase from the live wf_529c9ef1-350 run) joins them with '+'.
+// TestUsageCmdWorkflowsModelColumnMixed
 func TestUsageCmdWorkflowsModelColumnMixed(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
@@ -217,9 +207,7 @@ func TestUsageCmdWorkflowsModelColumnMixed(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsPerRunRollup: after the TOTAL row, one rollup block per run with the fixed
-// header, one row per model, sorted by cache-read desc (sonnet's real cache-read total here beats
-// haiku's).
+// TestUsageCmdWorkflowsPerRunRollup
 func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_529c9ef1-350", "haiku", "gate-loop", time.Hour,
@@ -248,8 +236,7 @@ func TestUsageCmdWorkflowsPerRunRollup(t *testing.T) {
 	}
 }
 
-// TestUsageCmdWorkflowsAllRunsByModel: after every per-run block, one "ALL RUNS BY MODEL" block sums
-// token/agent/turn counts across the listed runs, printed exactly once.
+// TestUsageCmdWorkflowsAllRunsByModel
 func TestUsageCmdWorkflowsAllRunsByModel(t *testing.T) {
 	claudeDir := t.TempDir()
 	writeWorkflowAgentFixture(t, claudeDir, "-home-tester-repoA", "target-session", "wf_65ae8cee-79a", "a", "Detect", time.Hour,
@@ -287,9 +274,7 @@ func TestUsageCmdWorkflowsNoRunsNoAllRunsBlock(t *testing.T) {
 	}
 }
 
-// TestWorkflowNameForRunScriptPathFallback: a {scriptPath} run has no scripts/*-<runId>.js (that glob
-// only matches inline/by-name runs), so the name comes from the main transcript's tool_use/tool_result
-// pair (real bytes from this session's own launch of implement-and-verify.js as wf_c877ead7-adf).
+// TestWorkflowNameForRunScriptPathFallback
 func TestWorkflowNameForRunScriptPathFallback(t *testing.T) {
 	claudeDir := t.TempDir()
 	project, session, runID := "-home-tester-repoA", "target-session", "wf_c877ead7-adf"

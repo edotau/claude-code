@@ -206,8 +206,7 @@ func TestForeignKeysSurviveAndBackupIsWritten(t *testing.T) {
 	agenttest.AssertExists(t, "overlay was not written to state/harness/opencode", filepath.Join(paths.StateDir(), "opencode", "opencode.json"))
 }
 
-// A user-set cli_auth_credentials_store outside the managed banner is kept verbatim, and the render
-// reports it rather than silently overwriting a value the user chose for themselves.
+// A user-set cli_auth_credentials_store outside the managed banner is kept verbatim and reported, never overwritten.
 func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -237,8 +236,7 @@ func TestCodexCredStoreKeyUserValueKept(t *testing.T) {
 	}
 }
 
-// TestVendorBaselineSeededOnFirstWrite: with no prior baseline, the first write seeds one matching
-// exactly what was written — today's behavior, now backed by an on-disk comparison basis for next time.
+// TestVendorBaselineSeededOnFirstWrite
 func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -258,8 +256,7 @@ func TestVendorBaselineSeededOnFirstWrite(t *testing.T) {
 	}
 }
 
-// TestVendorBaselineSeededWhenUnchanged: a file already current but with no baseline (installed before
-// baselines existed) gets one, so a later hand edit is still detected.
+// TestVendorBaselineSeededWhenUnchanged
 func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -294,8 +291,7 @@ func TestVendorBaselineSeededWhenUnchanged(t *testing.T) {
 	}
 }
 
-// TestLostLineNonInteractiveOverwritesWithWarning: a hand edit inside the managed banner, re-rendered
-// non-interactively (Confirm nil — matches launch/configure/make install), writes anyway and warns.
+// TestLostLineNonInteractiveOverwritesWithWarning
 func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -329,8 +325,7 @@ func TestLostLineNonInteractiveOverwritesWithWarning(t *testing.T) {
 	}
 }
 
-// TestConfirmFalseKeepsFile: an interactive caller's Confirm declining the overwrite leaves the file
-// (and its hand edit) untouched.
+// TestConfirmFalseKeepsFile
 func TestConfirmFalseKeepsFile(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -357,8 +352,7 @@ func TestConfirmFalseKeepsFile(t *testing.T) {
 	}
 }
 
-// TestConfirmTrueWrites: an interactive caller's Confirm accepting the overwrite writes through,
-// same as the non-interactive path, but by explicit choice rather than by default.
+// TestConfirmTrueWrites
 func TestConfirmTrueWrites(t *testing.T) {
 	home := agenttest.Scratch(t)
 	codexPath := filepath.Join(home, ".codex", "config.toml")
@@ -434,8 +428,7 @@ func seedCodexBackups(t *testing.T, codexPath, current string, versions ...strin
 	return newest
 }
 
-// TestRevertRestoresNewestThenStepsBack: --revert restores the most recent version, consumes it
-// (removes the version file), and a second --revert steps one version further back.
+// TestRevertRestoresNewestThenStepsBack
 func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	vaulttest.Use(t)
 	home := t.TempDir()
@@ -460,7 +453,6 @@ func TestRevertRestoresNewestThenStepsBack(t *testing.T) {
 	}
 }
 
-// tamperCodexConfig edits the managed block in place and returns the edited text.
 func tamperCodexConfig(t *testing.T, path string) string {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -542,8 +534,7 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	// Own login no longer fully "skips": the model_providers block is skipped, but approval/sandbox
-	// keys (agentconfig, independent of login type) still render.
+	// Own login no longer fully "skips"
 	if !strings.Contains(out.String(), "codex: chatgpt runs on codex's own login; writing approval/sandbox keys only") {
 		t.Fatalf("want the own-login codex report line, got:\n%s", out.String())
 	}

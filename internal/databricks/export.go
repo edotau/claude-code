@@ -302,7 +302,6 @@ func sectionText(r exportRow) string {
 	return b.String()
 }
 
-// renderExport is a fresh config holding rows, one section each.
 func renderExport(rows []exportRow) string {
 	parts := make([]string, 0, len(rows))
 	for _, r := range rows {

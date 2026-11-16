@@ -18,8 +18,7 @@ var (
 	callOrIndex   = regexp.MustCompile(`\b([A-Za-z_]\w{3,})[(\[]`)
 )
 
-// promptText is the argument of every `<x>.<stage>.task(` call in src (spans), with ok=false when the stage has no
-// such call (a shared helper builds its prompt); full adds the declarations the spans name, depth levels deep.
+// promptText is the argument of every `<x>.<stage>.task(` call in src; ok=false when the stage has no such call.
 func promptText(src, stage string, depth int) (spans []string, full string, ok bool) {
 	var text strings.Builder
 	call := regexp.MustCompile(`\b\w+\.` + regexp.QuoteMeta(stage) + `\.task\(`)
@@ -63,9 +62,6 @@ func declBody(src, name string) string {
 	return rest + "\n"
 }
 
-// stageTextNeeds is what a stage's prompt tells its agent to do. direct and full come from promptText; a stage with
-// no direct prompt (ok false) keeps its declared tier's needs. An edit-tier stage whose prompt says "edit nothing"
-// does not edit; a command need is `run:<cmd>`, judged as a Bash call (the nested launcher `agents ask` is no need).
 func stageTextNeeds(spans []string, full string, ok bool, tools string) []string {
 	needs := []string{"read"}
 	direct := strings.Join(spans, "\n")

@@ -84,7 +84,6 @@ func Keeps1M(id string) bool {
 
 func isFamily(s string) bool { return s == Opus || s == Sonnet || s == Haiku || s == Fable }
 
-// hasFamilyDash reports a bare "<family>-..." id (no claude- prefix).
 func hasFamilyDash(s string) bool {
 	i := strings.IndexByte(s, '-')
 	return i > 0 && isFamily(s[:i])
@@ -112,8 +111,7 @@ func Canonical(id string) (base string, oneM bool) {
 	return id, oneM
 }
 
-// Window is the model's own context window: the catalog limit (Gemini is 1,048,576), else 1M for a Claude 5+ id or a
-// 4.x opus/sonnet id typed with [1m], else 200K; endpoint and env caps live in providers.Window.
+// Window is the model's own context window
 func Window(id string) int {
 	if l, ok := Limits(id); ok && l.Context > 0 {
 		return l.Context
@@ -276,7 +274,6 @@ var kindKeywords = []struct {
 	{useVideo, []string{"video", "veo"}},
 }
 
-// familyUse maps a Claude family onto its use-case label.
 var familyUse = map[string]string{Fable: useFrontier, Opus: useAgentic, Sonnet: useBalanced, Haiku: useHighVol}
 
 func geminiUseCase(s string) string {

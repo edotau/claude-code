@@ -75,12 +75,10 @@ func classify(point, source, fstype string) (Mount, bool) {
 	return m, ok // callers discard m when !ok
 }
 
-// isSSHFS matches an sshfs mount, or a fuse mount whose source names a user@host.
 func isSSHFS(source, fstype string) bool {
 	return strings.Contains(fstype, "sshfs") || (strings.Contains(fstype, "fuse") && strings.Contains(source, "@"))
 }
 
-// isDriveSource matches a WSL drvfs source: "C:" or "C:\".
 func isDriveSource(s string) bool {
 	if len(s) < 2 || len(s) > 3 || s[1] != ':' || !isLetter(s[0]) {
 		return false
@@ -98,7 +96,6 @@ func isSMB(source, fstype string) bool {
 	return strings.HasPrefix(source, "//")
 }
 
-// splitSMB splits "//[user[:pw]@]host/share[/sub]" into host and "share[/sub]".
 func splitSMB(source string) (host, share string, ok bool) {
 	rest := strings.Trim(strings.TrimPrefix(source, "//"), "/")
 	h, p, found := strings.Cut(rest, "/")
@@ -136,7 +133,6 @@ func splitHostPath(source string) (host, p string, ok bool) {
 	return host, p, true
 }
 
-// wslpathOut runs `wslpath -w /`; a var so tests fake the probe.
 var wslpathOut = func() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -164,7 +160,6 @@ func distroFromUNC(out string) string {
 	return parts[1]
 }
 
-// parseMountinfo reads /proc/self/mountinfo text into classified mounts.
 func parseMountinfo(text string) []Mount {
 	var out []Mount
 	for line := range strings.SplitSeq(text, "\n") {
@@ -216,7 +211,6 @@ func parseDarwinMount(text string) []Mount {
 	return out
 }
 
-// unescapeOctal decodes the kernel's \040-style escapes in mountinfo fields.
 func unescapeOctal(s string) string {
 	if !strings.Contains(s, `\`) {
 		return s

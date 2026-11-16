@@ -17,8 +17,7 @@ import (
 const (
 	defaultSection  = "DEFAULT"      // the CLI's fallback profile; its values never inherit into named profiles
 	settingsSection = "__settings__" // the CLI's own bookkeeping block, not a profile
-	// envConfigFile is the CLI's own variable, read by name only.
-	envConfigFile = "DATABRICKS_CONFIG_FILE"
+	envConfigFile   = "DATABRICKS_CONFIG_FILE"
 )
 
 // defaultPath is $DATABRICKS_CONFIG_FILE (a leading ~ expanded), else the CLI's own ~/.databrickscfg.
@@ -58,7 +57,6 @@ type iniState struct {
 	err      error // the first fatal parse error: an unterminated multi-line value
 }
 
-// lineScanner counts the lines it scans so notes can name them.
 type lineScanner struct {
 	*bufio.Scanner
 	n int
@@ -74,7 +72,6 @@ func (st *iniState) note(prefix, format string, a ...any) {
 	st.notes = append(st.notes, fmt.Sprintf("%sline %d", prefix, st.sc.n)+fmt.Sprintf(format, a...))
 }
 
-// enter makes name the current section, creating it on first appearance.
 func (st *iniState) enter(name string) {
 	st.skipping = false
 	if st.cur = st.byName[name]; st.cur == nil {
@@ -96,7 +93,6 @@ func (st *iniState) header(name string) {
 	st.pair, st.pairSet = "", false
 }
 
-// keyLine handles a "k = v" line; keys above the first header belong to DEFAULT.
 func (st *iniState) keyLine(line string) {
 	st.pair, st.pairSet = "", false
 	if st.skipping {
@@ -159,7 +155,6 @@ func (st *iniState) line(line string) {
 	}
 }
 
-// headerName returns the name of a "[name]" line, tolerating a trailing comment.
 func headerName(line string) (string, bool) {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, "[") {

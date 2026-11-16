@@ -38,15 +38,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// target is one sweepable family. globs name what may go, resolved fresh on every call (a test
-// reseeding debris between runs must see the current tree, not a snapshot).
+// target is one sweepable family.
 type target struct {
-	name string
-	doc  string
-	// globs are absolute filepath.Glob patterns. A match may be a file or a directory; a directory is
-	// removed whole, aged by the newest mtime anywhere under it.
-	globs func() []string
-	// ageless targets go at any age: --older-than does not gate them.
+	name    string
+	doc     string
+	globs   func() []string
 	ageless bool
 	// optIn targets run only when named in --target, never in a bare sweep.
 	optIn bool
@@ -65,8 +61,7 @@ func statePath(parts ...string) string {
 	return filepath.Join(append([]string{paths.StateDir()}, parts...)...)
 }
 
-// targets are the harness's own debris plus the Claude Code CLI's per-session runtime state — this
-// repo's own .gitignore is the inventory of what the CLI writes at the config dir it treats as home.
+// targets are the harness's own debris plus Claude Code's per-session state; the repo .gitignore is the inventory.
 func targets() []target {
 	var all []target
 	for _, group := range []func() []target{stateTargets, daemonTargets, cliSessionTargets, cliCacheTargets} {
@@ -152,8 +147,7 @@ func daemonTargets() []target {
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{
-			// Every plugin update leaves the previous version dir behind; only the installPath in
-			// installed_plugins.json is live, so the rest is rebuildable debris (a reinstall re-fetches it).
+			// Every plugin update leaves the previous version dir behind
 			name: "plugin-versions", doc: "plugin cache versions installed_plugins.json no longer names",
 			globs: stalePluginVersions,
 		},
@@ -165,8 +159,7 @@ func cliSessionTargets() []target {
 	g := cfgPath
 	return []target{
 		{
-			// jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/ are the Claude
-			// Code CLI's own per-session debris (see .gitignore); nothing in this binary prunes them.
+			// jobs/, file-history/, session-env/, paste-cache/, shell-snapshots/, todos/ are Claude Code's own debris.
 			name: "cli-state", doc: "CLI per-session debris: jobs, file-history, todos, ...",
 			globs: func() []string {
 				return []string{
@@ -192,13 +185,11 @@ func cliSessionTargets() []target {
 	}
 }
 
-// cliCacheTargets are the opt-in transcripts and the CLI's rebuildable caches.
 func cliCacheTargets() []target {
 	g := cfgPath
 	return []target{
 		{
-			// Transcripts feed `claude --resume` and `usage`; opt-in so a bare sweep never drops a session
-			// someone meant to resume. projects/<slug>/memory (auto-memory) matches neither glob.
+			// Transcripts feed `claude --resume` and `usage`
 			name: "sessions", doc: "projects/<slug> transcripts (opt-in)",
 			globs: func() []string {
 				return []string{
@@ -246,7 +237,6 @@ func Clean(args []string, out, errw io.Writer) int {
 	return runClean(all, cleanOpts{want: *want, olderThan: *olderThan, apply: !*dryRun, yes: *yesFlag}, errw)
 }
 
-// cleanOpts are Clean's parsed flags.
 type cleanOpts struct {
 	want, olderThan string
 	apply, yes      bool
@@ -290,7 +280,6 @@ type sweepTotals struct {
 	failed int
 }
 
-// removeVerb is the report verb for an applied or a dry run.
 func removeVerb(apply bool) string {
 	if apply {
 		return "removed"
@@ -374,9 +363,7 @@ func printSummary(errw io.Writer, tot sweepTotals, olderThan string, nTargets in
 	}
 }
 
-// confirmSessions gates the opt-in "sessions" target behind an explicit yes: a [y/N] prompt on a
-// TTY, --yes without one. True when there is nothing to confirm (sessions not selected, or empty)
-// or confirmation was given; false means the whole run must abort without deleting anything.
+// confirmSessions gates the opt-in "sessions" target behind an explicit yes
 func confirmSessions(selected []target, cutoff time.Time, olderThan string, autoYes bool, errw io.Writer) bool {
 	var sess target
 	found := false
@@ -417,13 +404,9 @@ var (
 	promptIn   io.Reader = os.Stdin
 )
 
-// pidAlive is a var so tests can stub the liveness probe.
-// pidAlive keeps a pid when the probe can't answer (off unix proc.Alive is always false), so pruning no-ops there.
 var pidAlive = func(pid int) bool { return pid > 0 && (!proc.Alive(os.Getpid()) || proc.Alive(pid)) }
 
-// keepLiveSession protects a sessions/<pid>.json|.key registry entry whose process is still running;
-// an unparsable pid prefix is kept too, since it is never pruned by Claude Code's own registry writer.
-// Transcripts and subagent dirs (not under a "sessions" dir) are never covered by this filter.
+// keepLiveSession protects a sessions/<pid>.json|.key registry entry whose process is still running
 func keepLiveSession(p string) bool {
 	if filepath.Base(filepath.Dir(p)) != "sessions" {
 		return false
@@ -484,7 +467,6 @@ func dispatchStem(p string) string {
 }
 
 // pruneAgedTo removes every glob match older than cutoff (a directory whole, by its newest mtime).
-// Size is measured BEFORE removal; keep, when non-nil, vetoes a match. Failures go to errw and are counted.
 func pruneAgedTo(errw io.Writer, patterns []string, cutoff time.Time, apply bool, keep func(string) bool) (hit []string, size int64, failed int) {
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
@@ -582,8 +564,7 @@ func parseAge(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// selectTargets resolves --target. Empty selects every target; an unknown name is an error rather than
-// a silent no-op, so a typo can never read as "nothing to clean".
+// selectTargets resolves --target.
 func selectTargets(all []target, want string) ([]target, error) {
 	if strings.TrimSpace(want) == "" {
 		var out []target
@@ -614,9 +595,7 @@ func selectTargets(all []target, want string) ([]target, error) {
 	return out, nil
 }
 
-// newestMTime is the most recent mtime at or under p — "untouched for N days" must mean the whole
-// subtree, since a directory's own mtime misses in-place edits to files already inside it — plus the summed file
-// sizes, as paths.DirSize counts them. ok is false when any entry under p cannot be scanned, so the caller keeps it.
+// newestMTime is the newest mtime at or under p plus summed file sizes; ok is false when any entry cannot be scanned.
 func newestMTime(p string) (time.Time, int64, bool) {
 	st, err := os.Stat(p)
 	if err != nil {
@@ -649,8 +628,7 @@ func newestMTime(p string) (time.Time, int64, bool) {
 	return newest, size, true
 }
 
-// stalePluginVersions lists plugin cache version dirs that installed_plugins.json no longer points at. An unreadable
-// manifest yields nothing: with no record of what is live, nothing in the cache may be called stale.
+// stalePluginVersions lists plugin cache version dirs that installed_plugins.json no longer points at.
 func stalePluginVersions() []string {
 	root := filepath.Join(paths.ConfigDir(), "plugins")
 	raw, err := os.ReadFile(filepath.Join(root, "installed_plugins.json"))
@@ -699,8 +677,7 @@ func (n Nested) OnlyWorktrees() bool {
 	return len(n.Keep) == 1 && n.Keep[0] == KeepWorktrees && len(n.Files) == 1
 }
 
-// NestedConfig inspects the nested dir; it is removable only when every settings key it holds is already set,
-// to the same value, in user settings.json, and it holds nothing but settings*.json.
+// NestedConfig inspects the nested dir
 func NestedConfig() Nested {
 	dir := filepath.Join(paths.ConfigDir(), ".claude")
 	entries, err := os.ReadDir(dir)
@@ -717,8 +694,7 @@ func NestedConfig() Nested {
 	return n
 }
 
-// nestedKeepReasons lists why one nested-dir entry cannot be removed: nothing when it is a settings
-// file whose every key already matches user settings.
+// nestedKeepReasons lists why one nested-dir entry cannot be removed
 func nestedKeepReasons(dir string, e os.DirEntry, user map[string]any) []string {
 	if e.IsDir() && e.Name() == "worktrees" {
 		return []string{KeepWorktrees}

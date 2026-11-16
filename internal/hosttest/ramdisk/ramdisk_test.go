@@ -33,7 +33,6 @@ func stubDisk(t *testing.T, system string, attachErr error) *fakeDisk {
 	return f
 }
 
-// probe writes the child's TMPDIR to out and exits with code.
 func probe(out, code string) []string {
 	return []string{"sh", "-c", `printf %s "$TMPDIR" > "$0"; exit "$1"`, out, code}
 }

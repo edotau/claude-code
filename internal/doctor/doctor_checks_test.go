@@ -132,7 +132,6 @@ func testVaultDoctorSingleRow(t *testing.T) {
 	}
 }
 
-// seedHarness writes a file under state/harness.
 func seedHarness(t *testing.T, name, body string) {
 	t.Helper()
 	p := filepath.Join(paths.StateDir(), name)

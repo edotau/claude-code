@@ -16,8 +16,7 @@ func FirstLine(s string) string {
 
 var lineReaderPool = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 1<<20) }}
 
-// EachLineErr joins oversized lines and includes the final partial line; callback bytes exclude CRLF and are borrowed.
-// It returns the first non-EOF read error.
+// EachLineErr joins oversized lines and includes the final partial line
 func EachLineErr(r io.Reader, fn func(line []byte)) error {
 	_, err := ScanRawLines(r, false, func(line []byte) {
 		line = bytes.TrimSuffix(line, []byte{'\n'})

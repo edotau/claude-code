@@ -46,7 +46,6 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	w.Beat(ev.Type)
 }
 
-// countBlocks counts msg's content blocks of the given type.
 func countBlocks(msg anthropic.Message, typ string) (n int) {
 	for _, b := range msg.Content {
 		if b.Type == typ {

@@ -57,8 +57,7 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	return res, tok, nil
 }
 
-// storedExpiry is the expiry record of the credential ctx's identity mints: an oauth row's SP keeps its own record,
-// and auto (headless SP-first, or the SP when no login is stored) reads whichever of the two was written last.
+// storedExpiry is the expiry record of the credential ctx's identity mints
 func storedExpiry(ctx context.Context, p *providers.Provider) (time.Time, bool) {
 	if p.Auth.Type == providers.AuthOAuth {
 		as := providers.IdentityFrom(ctx)

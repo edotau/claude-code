@@ -18,8 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// TestSnapshotPreInstallWarnsLoudlyOnFailure: a snapshot that cannot be taken (history dir blocked by a file)
-// returns "" and prints a warning that says the binary has no rollback point.
+// TestSnapshotPreInstallWarnsLoudlyOnFailure
 func TestSnapshotPreInstallWarnsLoudlyOnFailure(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -335,7 +334,6 @@ func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 	}
 }
 
-// hermetic isolates config, pins and seams.
 func hermetic(t *testing.T) {
 	t.Helper()
 	hosttest.HermeticEnv(t) // install writes completion and the wl-paste proxy under HOME/XDG
@@ -358,7 +356,6 @@ func hermetic(t *testing.T) {
 }
 
 // TestMain runs in the hermetic host (hosttest), so no test touches the live vault or sees a vendor CLI.
-// rtkFixture installs a pinned rtk under a temp CLAUDE_CONFIG_DIR and points userBinDir at a temp dir.
 func rtkFixture(t *testing.T) (pin, userBin string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

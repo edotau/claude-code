@@ -194,7 +194,6 @@ func profileArg(args []string, i int) (name string, used int, ok bool) {
 	return "", 0, false
 }
 
-// defaultModel is the opus alias spelled the way the profile's row serves it.
 func defaultModel(reg *providers.Registry, profile string) string {
 	id := aliasID(models.Opus)
 	if reg != nil && reg.Providers[profile] != nil {
@@ -309,7 +308,6 @@ func check(self string, p launchPlan) int {
 	return rc
 }
 
-// tail returns the last n lines of s, trailing newlines dropped.
 func tail(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	if len(lines) > n {
@@ -318,7 +316,6 @@ func tail(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// page is the `-h` text; its FLAGS rows come from the FlagSet built in usage.
 var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on a Databricks profile. MODEL (optional) picks the model; check runs a smoke reply.",
@@ -337,7 +334,6 @@ var page = helptext.Page{
 		"claude-code databricks " + helptext.DocsFlag + " prints the databricks CLI's own help.",
 }
 
-// checkPage is `databricks check -h`.
 var checkPage = helptext.Page{
 	Usage: "claude-code databricks check [MODEL] [--all] [--profile NAME]",
 	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile on the " +
@@ -376,7 +372,6 @@ var checkAllPage = helptext.Page{
 // probeClient is the HTTP client for probes; serving.ProbeOnce bounds each request.
 var probeClient = &http.Client{}
 
-// checkRow is one profile's probe outcome.
 type checkRow struct {
 	cell          string
 	reason, notes string
@@ -451,7 +446,6 @@ func printCheck(names []string, head string, rows []checkRow) int {
 	return rc
 }
 
-// checkLine is one table row: the label in a 24-wide column, then the cell.
 func checkLine(label, cell string) string {
 	return fmt.Sprintf("%-24s %s", label, cell)
 }
@@ -564,7 +558,6 @@ func classify(status int, body string) string {
 	return fmt.Sprintf("HTTP %d: %s", status, msg)
 }
 
-// clip cuts s to n runes on one line.
 func clip(s string, n int) string {
 	return textutil.Truncate(strings.Join(strings.Fields(s), " "), n)
 }

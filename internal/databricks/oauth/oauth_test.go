@@ -35,7 +35,6 @@ func (l *loopback) Close() error {
 	return err
 }
 
-// freePort returns a currently free loopback port.
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")

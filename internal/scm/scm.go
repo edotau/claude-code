@@ -124,7 +124,6 @@ func redact(remote string) string {
 	return remote
 }
 
-// splitRemote returns host and path of an https, ssh:// or scp-like remote.
 func splitRemote(r string) (host, path string, ok bool) {
 	if strings.Contains(r, "://") {
 		u, err := url.Parse(r)

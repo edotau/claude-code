@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// codexWriteTools are the tools the read-only sandbox already blocks.
 var codexWriteTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 // codexPolicy is a dispatch's permissions in codex's form: the .rules body, the approval flag, and rules left out.
@@ -53,8 +52,6 @@ func codexGateInstalled() bool {
 	return false
 }
 
-// codexRender maps p onto codex; a Deny it cannot enforce is an error naming the rule, so nothing runs unguarded.
-// gate means the permission-gate hook judges every Bash call, so a Bash Deny that is no command prefix is left to it.
 func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 	var pol codexPolicy
 	if p.Mode == "plan" && tools {
@@ -241,8 +238,6 @@ func userRuleFiles(dir string) ([]string, error) {
 }
 
 // writeRulesDir creates home/rules/ holding links to the user's rule files plus dispatch.rules.
-// The user's dispatch.rules is never linked: writing through that link would truncate the real file,
-// so its content is prepended to the dispatch rules instead.
 func writeRulesDir(home string, user []string, rules string) error {
 	if err := os.Mkdir(filepath.Join(home, "rules"), 0o700); err != nil {
 		return err
@@ -278,8 +273,7 @@ func writeRetargetedConfig(real, home string) error {
 	return os.WriteFile(filepath.Join(home, "config.toml"), cfg, 0o600)
 }
 
-// retargetedConfig is real's config.toml with each hook-trust key moved to home/hooks.json: codex keys trust by the
-// hooks.json path under CODEX_HOME, so without it the linked hooks.json is untrusted and none of its hooks run.
+// retargetedConfig is real's config.toml with each hook-trust key moved to home/hooks.json
 func retargetedConfig(real, home string) ([]byte, error) {
 	raw, err := os.ReadFile(filepath.Join(real, "config.toml"))
 	if err != nil {
@@ -350,8 +344,7 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	return argv, append(slices.Clone(env), "CODEX_HOME="+home), remove, nil
 }
 
-// codexDenial names the layer that refused a failed shell call and its real control. An OS block never offers an
-// --allow (no rule overrides the sandbox), and a rule or hook block offers one only when Explain proves it repairs it.
+// codexDenial names the layer that refused a failed shell call and its real control.
 func codexDenial(p agent.Permissions, command, output string, tools bool, sandbox string) (agent.Denial, bool) {
 	call := agent.Rule{Tool: "Bash", Arg: codexShellCommand(command)}
 	text := strings.ToLower(output)
@@ -404,8 +397,7 @@ func codexShellCommand(command string) string {
 	return command
 }
 
-// denialSink forwards every event and, after a failed shell result or an answer that reports an OS refusal (codex
-// emits no item for a sandbox-denied command), adds a warning naming the layer and its real control.
+// denialSink forwards every event and, on an unitemized OS refusal, adds a warning naming the layer and control.
 type denialSink struct {
 	next     wire.Sink
 	p        agent.Permissions

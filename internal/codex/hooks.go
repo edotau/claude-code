@@ -52,9 +52,7 @@ func codexMatcher(m string) string {
 	return m
 }
 
-// mergeCodexHooks keeps every foreign top-level key, event and hook already in a Codex hooks.json,
-// replacing only the harness's own groups (by command prefix, IsHarness) with the freshly
-// rendered ones; wraps agentconfig.MergeHooksTop for the top-level {"hooks": {...}} file Codex reads directly.
+// mergeCodexHooks keeps every foreign key, event and hook in a Codex hooks.json, replacing only harness groups.
 func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 	next, _, err := agentconfig.MergeHooksTop(existingRaw, body, classifyCodexGroup)
 	if err != nil {
@@ -63,10 +61,7 @@ func mergeCodexHooks(existingRaw, body []byte) ([]byte, error) {
 	return textutil.MarshalIndentNoEscape(next)
 }
 
-// classifyCodexGroup reports a group's foreign remainder (nil if every hook in it was harness-owned, by
-// "command" prefix via IsHarness) and whether it contained any harness-owned hook at all. A
-// group with no harness hook is returned byte-identical (unknown group-level keys included); only a
-// partially-harness group is rebuilt, which preserves every key but loses the original key order.
+// classifyCodexGroup returns a group's foreign remainder; a group with no harness hook comes back byte-identical.
 func classifyCodexGroup(raw json.RawMessage) (*json.RawMessage, bool) {
 	var shape struct {
 		Hooks []json.RawMessage `json:"hooks"`
@@ -139,12 +134,7 @@ func writeCodexHooks(path string, old, next []byte, existed bool) error {
 	})
 }
 
-// Codex hashes sorted compact JSON of event_name and a group containing one normalized handler (verified
-// on 0.163.0). codexTrustEntries reads mergedHooks — the real post-merge hooks.json, not the isolated
-// rendered body — so gi/hi land on the position Codex itself will read; it emits an entry only for a
-// harness-owned hook (IsHarness), leaving whatever trust Codex already recorded for a
-// foreign hook (claude-dbx, ...) alone. An event is checked against Codex's supported set only once it
-// is found to contain a harness hook, so a foreign-only event (Stop, SessionStart, ...) never errors.
+// Codex hashes sorted compact JSON of event_name and a group containing one normalized handler (verified on 0.163.0).
 func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, error) {
 	var config struct {
 		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
@@ -175,7 +165,6 @@ func codexTrustEntries(path string, mergedHooks []byte) (map[string]string, erro
 	return entries, nil
 }
 
-// anyHarnessHook reports whether groups contains at least one harness-owned hook.
 func anyHarnessHook(groups []settings.MatcherGroup) bool {
 	for _, group := range groups {
 		for _, hook := range group.Hooks {
@@ -204,7 +193,6 @@ func addCodexTrustEntries(entries map[string]string, path, event, name string, g
 	return nil
 }
 
-// codexTrustDigest computes Codex's trust digest for one harness hook identity.
 func codexTrustDigest(event, name string, group settings.MatcherGroup, hook settings.Hook) (string, error) {
 	handler := map[string]any{
 		"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async,

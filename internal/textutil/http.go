@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// maxRetrySeconds is the largest second count that still fits a time.Duration.
 const maxRetrySeconds = int(math.MaxInt64 / time.Second)
 
 // ParseRetryAfter parses seconds or an HTTP-date; callers decide how to handle nonpositive durations.

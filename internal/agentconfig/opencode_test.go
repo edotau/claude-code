@@ -23,9 +23,7 @@ func TestOpencodeOverlayTemplatesParse(t *testing.T) {
 	}
 }
 
-// TestWriteOpencodeOverlayWritesBothFiles checks the two overlay files land at state/harness/opencode
-// with mode 0600, and that the cfg file's model/small_model come from the routing table, every other
-// field unchanged from the embedded template (the table-driven contract applyOpencodeTableModels keeps).
+// The cfg file's model/small_model come from the routing table; every other field matches the embedded template.
 func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)

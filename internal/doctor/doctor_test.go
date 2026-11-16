@@ -196,8 +196,7 @@ func checkDoctorVaultJSON(t *testing.T, stdout string) {
 	}
 }
 
-// doctor --audit (text) reproduces exactly what the old `audit` verb printed for the same fixture
-// log: one line per event, newest first, in "<time>  <action><pad><resource><pad><detail>" form.
+// doctor --audit (text) reproduces exactly what the old `audit` verb printed for the same fixture log
 func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	audit.Log(audit.ProviderSwitch, "gemini", "")
@@ -228,8 +227,7 @@ func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	}
 }
 
-// doctor --audit --format json carries the same Days/Summary/Events shape the old `audit --format
-// json` printed.
+// doctor --audit --format json carries the same Days/Summary/Events shape the old `audit --format json` printed.
 func TestDoctorAuditJSONShape(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	audit.Log(audit.SecretSet, "OPENAI_API_KEY", "")
@@ -273,8 +271,7 @@ func pad(s string, n int) string {
 	return s + strings.Repeat(" ", n-len(s))
 }
 
-// TestDoctorJSONWriteError ensures doctor --format json exits non-zero
-// when writing to stdout fails (regression test for the doctor JSON write).
+// Regression: doctor --format json exits non-zero when writing to stdout fails.
 func TestDoctorJSONWriteError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	orig := doctorChecks
@@ -288,8 +285,7 @@ func TestDoctorJSONWriteError(t *testing.T) {
 	}
 }
 
-// TestDoctorAuditJSONWriteError ensures doctor --audit --format json exits non-zero
-// when writing to stdout fails (regression test for the doctor audit JSON write).
+// Regression: doctor --audit --format json exits non-zero when writing to stdout fails.
 func TestDoctorAuditJSONWriteError(t *testing.T) {
 	hosttest.ClosedStdout(t)
 

@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// profileTimeout caps one profile's listing refresh.
 const profileTimeout = 20 * time.Second
 
 // Budget caps the install step's listing refresh; each pong then gets its own pongCap window; a var for tests.
@@ -68,7 +67,6 @@ type Pong struct {
 	Err                             string
 }
 
-// line is the row, at most 80 columns.
 func (p Pong) line() string {
 	state := "ok"
 	if !p.OK {
@@ -167,13 +165,11 @@ func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	return r
 }
 
-// listingFresh reports whether name has a cached listing within its TTL.
 func listingFresh(name string, now time.Time) bool {
 	c, ok := router.LoadServed(name)
 	return ok && c.Fresh(now)
 }
 
-// printRefreshErrors prints one line per failed listing refresh.
 func printRefreshErrors(w io.Writer, errs []error) {
 	for _, err := range errs {
 		fmt.Fprintf(w, "preflight  listing refresh failed: %s\n", fieldsLine(err.Error()))
@@ -283,14 +279,12 @@ func RefreshPinned(ctx context.Context) []error {
 	return RefreshStale(ctx, reg, Check(ctx, reg, now), now, true)
 }
 
-// printFixRows prints one line per pin that is not OK, with its fix or detail.
 func printFixRows(w io.Writer, ps []Pin) {
 	for _, p := range notOK(ps) {
 		fmt.Fprintf(w, "pins     %s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))
 	}
 }
 
-// notOK returns the pins whose status is not OK.
 func notOK(ps []Pin) []Pin {
 	return slices.DeleteFunc(slices.Clone(ps), func(p Pin) bool { return p.Status == StatusOK })
 }
@@ -340,7 +334,6 @@ func staticProblems(ps []Pin, dbx bool) string {
 	return "Preflight: " + strings.Join(parts, "; ")
 }
 
-// proxyUp reads the proxy state file and checks its pid is alive.
 func proxyUp() bool {
 	st, err := gateway.ReadState()
 	return err == nil && st.PID > 0 && proc.Alive(st.PID)

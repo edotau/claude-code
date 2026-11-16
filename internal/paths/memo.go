@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-// errMemoPanic is what runs joined to a panicking fn get.
 var errMemoPanic = errors.New("paths: memoized function panicked")
 
-// memoNow is Memo's clock; tests advance it.
 var memoNow = time.Now
 
 // Memo remembers fn's answer per key (keep: 0 = until Drop or evicted, <0 = not at all); one fn per key runs at a time.

@@ -20,8 +20,7 @@ func TestRedact(t *testing.T) {
 		{"bearer token embedded", "Authorization: Bearer " + strings.Repeat("a", 40), "Authorization: Bearer REDACTED"},
 		{"multiline preserves newlines", "line1\nexport AWS_SECRET=AKIAIOSFODNN7EXAMPLE\nline3", "line1\nexport AWS_SECRET=REDACTED\nline3"},
 		{"non-secret hyphenated text unchanged", "my-feature_flag is-enabled for_user", "my-feature_flag is-enabled for_user"},
-		// replacement is positional (only the matched run), not a global substring ReplaceAll:
-		// "risk-free" contains the literal substring "sk-" but must survive untouched.
+		// replacement is positional (only the matched run), not a global substring ReplaceAll
 		{"replacement is positional not substring-global", "sk-" + strings.Repeat("c", 20) + " risk-free", "REDACTED risk-free"},
 		{"slack app and legacy tokens", "xoxa-2-abc xoxs-123-def xoxb-1 xoxq-1", "REDACTED REDACTED REDACTED xoxq-1"},
 	}

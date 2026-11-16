@@ -106,8 +106,7 @@ func TestStripFrontMatterMatchesMdsmith(t *testing.T) {
 	}
 }
 
-// A description block scalar line that happens to read "---" (indented, part of the YAML value) must not be
-// mistaken for the closing frontmatter fence, which only matches "---" unindented at line start.
+// An indented "---" inside a description block scalar is not the closing fence, which only matches at line start.
 func TestParseFrontmatterBlockScalarContainingDashes(t *testing.T) {
 	content := "---\nname: x\ndescription: |\n  intro line\n  ---\n  more text\n---\n\nBody.\n"
 	fm, body := ParseFrontmatter(content)

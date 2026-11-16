@@ -381,7 +381,6 @@ func makeUnreadable(t *testing.T, name, key string, ring *vaulttest.FakeKeyring)
 	ring.Down = true
 }
 
-// corruptSealed flips the last ciphertext byte of the sealed record key.
 func corruptSealed(t *testing.T, key string) {
 	t.Helper()
 	if err := vault.Update(func(tx *vault.Tx) error {

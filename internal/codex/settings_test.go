@@ -89,7 +89,6 @@ func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	}
 }
 
-// putCodexOverlay seeds the legacy overlay, which production no longer writes.
 func putCodexOverlay(t *testing.T, ov map[string]string) {
 	t.Helper()
 	raw, err := json.Marshal(ov)
@@ -241,9 +240,7 @@ func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
 	}
 }
 
-// mergeCodexTrust must not mistake a "["-led line inside an open array for a table header: an
-// existing trusted_hash AFTER the array, still inside the same table, is replaced in place —
-// not left stale with a duplicate appended at EOF because the array wrongly reset the active table.
+// mergeCodexTrust must not mistake a "["-led line inside an open array for a table header
 func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 	raw := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"old\"\n"
 	entries := map[string]string{"K": "abc123"}
@@ -257,8 +254,7 @@ func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
 	}
 }
 
-// A real table header following a "["-led array element must still pick up its own hash, proving
-// the depth tracking resets once the array closes rather than staying stuck open.
+// A real table header after a "["-led array element still gets its own hash: depth resets once the array closes.
 func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
 	raw := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\n"
 	entries := map[string]string{"K2": "def456"}

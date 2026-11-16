@@ -33,7 +33,6 @@ var (
 
 const defaultAnthropicBase = "https://api.anthropic.com"
 
-// oauthKey survives the wipe only for cli-auth (subscription login) profiles.
 const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
 
 // dropLaunchOwned is launch.env minus the names the launch wipes and resolves itself, so it never redirects the route.
@@ -44,7 +43,6 @@ func dropLaunchOwned(env []string) []string {
 	})
 }
 
-// claudePlan resolves a Claude Code launch.
 func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
 	reg, sel, err := agent.SessionSelection(o, true)
 	if err != nil {
@@ -105,7 +103,6 @@ func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, p
 	return plan, nil
 }
 
-// refuseProvider refuses a vendor sign-in: it cannot back Claude Code.
 func refuseProvider(sel providers.Selection) error {
 	if p := sel.Provider; p.Auth.Login != "" {
 		return fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
@@ -152,8 +149,7 @@ func typesEffort(args []string) bool {
 	return false
 }
 
-// keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution;
-// credentials stay scrubbed.
+// keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution
 func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOptions) {
 	keep := []string{proc.EnvAnthropicBaseURL}
 	if o.Model == "" {
@@ -288,8 +284,6 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 	}
 }
 
-// set1MOff turns 1M off when the session endpoint lacks it: Claude Code assumes 1M for recognised ids. An explicit
-// [1m] typed on an alias keeps it on. DISABLE_1M_CONTEXT over AUTO_COMPACT_WINDOW: it also drops the 1M /model entries.
 func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) {
 	if p.Serves1M() {
 		return
@@ -320,7 +314,6 @@ func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provid
 	return nil
 }
 
-// sessionProviders is the session provider plus each alias's provider.
 func sessionProviders(sel providers.Selection) []*providers.Provider {
 	out := []*providers.Provider{sel.Provider}
 	for _, t := range sel.Aliases {
@@ -335,8 +328,7 @@ func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
 	return arm != "" && p.Name == arm && agent.IsHeadless(args)
 }
 
-// configureRouting wires the router base URL/headers when proxied, else the provider's own route, and
-// returns the apiKeyHelper command for the overlay.
+// configureRouting wires the router URL/headers when proxied, else the provider's route, and returns the apiKeyHelper.
 func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
@@ -397,8 +389,7 @@ func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
 	return nil
 }
 
-// ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`; ScrubDeny's HARNESS_*_API_KEY drops it
-// from grandchildren, so a nested launch mints its own.
+// ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
 // proxyToken is this process's session token on routerBase for the session profile and its alias profiles.

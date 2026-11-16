@@ -24,8 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Glob-free path denies and exact allows map to agy rules; Ask rides as allow, named in the notes (O1: kept, never
-// silent); unmapped Allow/Ask follow.
+// Glob-free path denies and exact allows map to agy rules
 func TestAgyPermissionSettings(t *testing.T) {
 	p := agent.Permissions{
 		Deny:  []agent.Rule{{Tool: "Write", Arg: "denied2.txt"}, {Tool: "Read", Arg: "/abs/secret"}},
@@ -100,8 +99,7 @@ func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	}
 }
 
-// Plan mode is refused where agy cannot deny unmatched calls: with tools on always, with tools off unless the gate hook
-// judges read_file (agy runs workspace reads itself); the refusal names the remedy.
+// Plan mode is refused where agy cannot deny unmatched calls
 func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -410,8 +408,7 @@ func geminiSettingsPath(home string) string {
 // templateDeny is the settings template's bare-command deny list as rendered for gemini (17ff29d5).
 var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)"}
 
-// renderGeminiSettings merges the spec's exact-match guard denies into agy's settings.json,
-// keeping every other key untouched; a second run is byte-identical.
+// renderGeminiSettings merges the guard denies into agy's settings.json, keeping other keys; a rerun is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	home := agenttest.Scratch(t)
 	path := geminiSettingsPath(home)
@@ -579,8 +576,7 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 	}
 }
 
-// An agy settings.json whose top-level JSON value is `null` or an array (not an object) must be
-// left byte-for-byte untouched, and must never panic (a nil map write, not a type-assertion skip).
+// An agy settings.json that is `null` or an array is left byte-for-byte untouched and must not panic.
 func TestGeminiSettingsNullJSONUntouched(t *testing.T) {
 	for _, content := range []string{"null", "[]"} {
 		t.Run(content, func(t *testing.T) {
@@ -659,7 +655,6 @@ func TestRenderGeminiHooks(t *testing.T) {
 	}
 }
 
-// stagedHooks renders the agy hooks.json under home and applies the staged write.
 func stagedHooks(home string) (bool, error) {
 	var plan agentconfig.RenderPlan
 	changed, err := renderGeminiHooks(home, agentconfig.RenderOptions{}.Stage(&plan), io.Discard)
@@ -697,9 +692,7 @@ func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
 	}
 }
 
-// A tool step agy refused for want of a grant yields the exact --allow, and that rule renders natively; a deny rule's
-// refusal, a glob and an unmapped tool yield no allow.
-// failedAgyStep is a failed agy tool step_update carrying parameters and an error message.
+// A tool step agy refused for want of a grant yields the exact --allow, and that rule renders natively
 func failedAgyStep(t *testing.T, tool, params, msg string) agyEvent {
 	t.Helper()
 	var ev agyEvent

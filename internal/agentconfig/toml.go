@@ -109,7 +109,6 @@ func dropTopLevelKeys(raw string, keys []string) string {
 	return out.String()
 }
 
-// assignsKey reports whether line is a "key = ..." assignment of one of keys.
 func assignsKey(line string, keys []string) bool {
 	key, ok := assignedKey(strings.TrimSpace(line))
 	return ok && slices.Contains(keys, key)
@@ -358,7 +357,6 @@ func TOMLStringValue(value string) (string, error) {
 	return parsed, nil
 }
 
-// literalString parses a single-quoted TOML literal string at the start of value.
 func literalString(value string) (parsed, rest string, err error) {
 	end := strings.IndexByte(value[1:], '\'')
 	if end < 0 {
@@ -367,7 +365,6 @@ func literalString(value string) (parsed, rest string, err error) {
 	return value[1 : end+1], value[end+2:], nil
 }
 
-// basicString parses a double-quoted TOML string at the start of value.
 func basicString(value string) (parsed, rest string, err error) {
 	quoted, err := strconv.QuotedPrefix(value)
 	if err != nil || !strings.HasPrefix(quoted, "\"") {

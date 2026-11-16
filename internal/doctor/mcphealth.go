@@ -59,7 +59,6 @@ func (d serverDef) redacted() serverDef {
 	return d
 }
 
-// display renders the "command args" / url / type / "?" column.
 func (d serverDef) display() string {
 	head := d.Command
 	if head == "" {
@@ -77,7 +76,6 @@ func (d serverDef) display() string {
 	return head
 }
 
-// def is one (server, scope) definition row.
 type def struct {
 	Server string    `json:"server"`
 	Scope  string    `json:"scope"`
@@ -170,7 +168,6 @@ func mcpList(claude string) ([]byte, error) {
 	return out, runErr
 }
 
-// healthResult is the outcome of a live `claude mcp list` connect check.
 type healthResult struct {
 	Lines     []string `json:"lines,omitempty"`
 	Connected int      `json:"connected"`
@@ -372,7 +369,6 @@ func (r report) ExitCode() int {
 	return 0
 }
 
-// options configures one Doctor run; every path is read-only.
 type options struct {
 	UserPath      string
 	ProjectFiles  []string
@@ -411,7 +407,6 @@ func doctorMCP(w io.Writer, o options) int {
 	return rep.ExitCode()
 }
 
-// printReport renders rep as the human-readable, section-per-check report.
 func printReport(w io.Writer, rep report) {
 	printDefsSection(w, rep)
 	fmt.Fprintln(w)
@@ -510,7 +505,6 @@ func configReport(o options) report {
 	}
 }
 
-// buildReport is configReport plus the live `claude mcp list` health.
 func buildReport(o options) report {
 	rep := configReport(o)
 	rep.Health = runHealth(o.Claude)

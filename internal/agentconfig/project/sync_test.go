@@ -43,8 +43,7 @@ func TestDiscoverAgentsRejectsNameDirMismatch(t *testing.T) {
 	}
 }
 
-// Agents and skills live on different surfaces now (vendor agent dirs vs ~/.agents/skills), so a shared name is
-// not a collision: both project.
+// Agents and skills live on different surfaces, so a shared name is no collision.
 func TestSyncProjectsAgentsToEveryVendorAndLinksSkills(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "unique-agent", "unique-agent")
@@ -94,8 +93,7 @@ func newDocsHarness(t *testing.T) (home, claude string) {
 	return home, claude
 }
 
-// The instruction render lands in each vendor's GLOBAL file (what its CLI reads from $HOME) plus the local projection
-// copy, byte-identical, and never at the harness root — Claude Code would load a root AGENTS.md twice.
+// The instruction render is byte-identical in each vendor's global file, never at the harness root.
 func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	home, claude := newDocsHarness(t)
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
@@ -169,9 +167,7 @@ func TestInstructionFilesNeverTargetConventionsSource(t *testing.T) {
 	}
 }
 
-// A vendor's own agent (agents/<v>.md, e.g. agents/codex.md declaring `name: codex`) is never
-// projected into that vendor's own CLI home/dist (nesting hazard): syncVendor's own-name skip must
-// also hold for the vendor's self-entry, same as any other agent.
+// A vendor's own agent (agents/<v>.md) is never projected into that vendor's own CLI home/dist (nesting hazard).
 func TestSyncSkipsVendorsOwnAgentEverywhere(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "demo", "demo")
@@ -195,8 +191,7 @@ func TestSyncSkipsVendorsOwnAgentEverywhere(t *testing.T) {
 	}
 }
 
-// Proves teeth: a stale self-projection left over from before the skip existed (or from a manual
-// drop-in) is pruned on the next sync, in both dist and home, exactly like any other orphan.
+// A stale self-projection left from before the skip existed is pruned on the next sync, like any orphan.
 func TestSyncPrunesExistingSelfProjection(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "codex", "codex")
@@ -345,8 +340,6 @@ func TestSyncKeepsHandAuthoredVendorFile(t *testing.T) {
 }
 
 // skills/<x> symlinks point into ~/.agents/skills already, so they are the user's and never re-linked.
-// ~/.agents/skills: a real dir or a foreign symlink under a projected name is kept; a stale harness link is
-// re-pointed; an orphaned harness link is pruned.
 func TestSkillLinksRespectOwnership(t *testing.T) {
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "keeper", "keeper")

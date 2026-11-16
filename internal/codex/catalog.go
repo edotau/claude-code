@@ -108,7 +108,6 @@ func catalogInputs(bin string, p *providers.Provider) ([]providers.OpencodeModel
 	return menu, textutil.SHA256Hex(rawKey), nil
 }
 
-// catalogCached reports a stored catalog file whose key file matches key.
 func catalogCached(path, keyPath, key string) bool {
 	cached, err := os.ReadFile(keyPath)
 	if err != nil || string(cached) != key {
@@ -130,7 +129,6 @@ func validateCodexCatalog(ctx context.Context, bin, home string, body []byte) er
 	return nil
 }
 
-// storeCodexCatalog writes the catalog and its key under dir as one locked pair.
 func storeCodexCatalog(dir, path, keyPath string, body []byte, key string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("directory creation failed: %w", err)
@@ -152,7 +150,6 @@ func storeCodexCatalog(dir, path, keyPath string, body []byte, key string) error
 	})
 }
 
-// catalogTimeout bounds one `codex debug models` run.
 const catalogTimeout = 30 * time.Second
 
 func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]byte, error) {

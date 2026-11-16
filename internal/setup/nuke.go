@@ -50,14 +50,12 @@ func nukeFloor(dir string) error {
 	return nil
 }
 
-// entry is one top-level path under the directory being nuked.
 type entry struct {
 	Name  string
 	Size  int64
 	Class string // "tracked" | "untracked" | "ignored" | "no-git"
 }
 
-// nukePlan is what nuke would do to dir, without doing it.
 type nukePlan struct {
 	Dir          string
 	Entries      []entry
@@ -88,8 +86,7 @@ func planNuke(dir string, keepMemory bool) (nukePlan, error) {
 		}
 		plan.Entries = append(plan.Entries, entry{Name: e.Name(), Size: paths.DirSize(filepath.Join(dir, e.Name())), Class: class})
 	}
-	// An unreadable/corrupt vault must not block the nuke: it is still archived whole, as an opaque
-	// file, by userContentPaths below — just without naming the secrets it may hold.
+	// An unreadable/corrupt vault must not block the nuke
 	if err := vault.ViewAt(filepath.Join(dir, "state", "vault.db"), func(tx *vault.Tx) error {
 		plan.SecretNames = tx.Names(vault.Secrets)
 		plan.HasSecrets = len(plan.SecretNames) > 0
@@ -124,7 +121,6 @@ func planUserContent(dir string, hasGit, keepMemory bool, plan *nukePlan) error 
 	return nil
 }
 
-// nukeOpts configures nuke.
 type nukeOpts struct {
 	Dir        string
 	Apply      bool
@@ -176,8 +172,6 @@ func archiveAndRemove(opts nukeOpts, plan nukePlan) error {
 	return os.RemoveAll(opts.Dir)
 }
 
-// createBackupFile opens a fresh claude-nuke-<date>.tgz under home with O_EXCL: two nukes in the
-// same second get distinct files instead of one silently truncating the other's backup.
 func createBackupFile(home string) (string, *os.File, error) {
 	base := filepath.Join(home, "claude-nuke-"+time.Now().Format("20060102-150405"))
 	for i := 0; ; i++ {
@@ -217,8 +211,7 @@ func printPlan(w io.Writer, plan nukePlan) {
 	}
 }
 
-// classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or
-// neither. A directory counts as "tracked" if any file beneath it is.
+// classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or neither.
 func classify(repo, name string) string {
 	if out, err := exec.Command("git", "-C", repo, "ls-files", "--", name).Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 { //nolint:noctx // one-shot local git call; no caller ctx
 		return "tracked"
@@ -293,8 +286,7 @@ func credentialShaped(path string) bool {
 	return err == nil && textutil.CredentialRE.Match(data)
 }
 
-// untrackedUnder lists the untracked files under repo/sub. A scan error (e.g. an unreadable subdir
-// blocking `git ls-files`) must not be mistaken for "nothing untracked": it propagates instead.
+// untrackedUnder lists the untracked files under repo/sub.
 func untrackedUnder(repo, sub string) ([]string, error) {
 	fi, err := os.Stat(filepath.Join(repo, sub))
 	if err != nil {
@@ -313,8 +305,7 @@ func untrackedUnder(repo, sub string) ([]string, error) {
 	return splitNUL(out), nil
 }
 
-// archiveUserContent writes a tarball of plan.UserContent (+ a manifest naming secrets by key only,
-// never value) to ~/claude-nuke-<date>.tgz; a failure removes the truncated tarball so none poses as a backup.
+// archiveUserContent writes the user-content tarball (secrets named by key only); a failure removes the partial file.
 func archiveUserContent(plan nukePlan, keepMemory bool) (dest string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -396,7 +387,6 @@ func tarWriteEntry(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, buf.Bytes(), 0o600)
 }
 
-// unpushedBundle is the archive entry holding every commit that no remote has.
 const unpushedBundle = "unpushed.bundle"
 
 // planGitWork adds the uncommitted tracked edits and the no-remote commits nuke would otherwise delete with .git.
@@ -482,10 +472,7 @@ func tarWriteFile(tw *tar.Writer, dir, rel string) error {
 	return tarWriteBytes(tw, rel, data, fi.Mode().Perm())
 }
 
-// keepMemoryPaths lists every regular file under memory/ (incl. .git, so per-bank knowledge/ rides along),
-// plans/ and real projects/*/memory dirs, dir-relative.
-// A symlinked native dir is the store's own duplicate: skipped, never followed.
-// A walk error (e.g. an unreadable subdir) propagates instead of silently truncating the archive plan.
+// keepMemoryPaths lists memory/, plans/ and real projects/*/memory files; symlinked dirs are skipped.
 func keepMemoryPaths(dir string) ([]string, error) {
 	roots, err := memoryRoots(dir)
 	if err != nil {
@@ -503,7 +490,6 @@ func keepMemoryPaths(dir string) ([]string, error) {
 }
 
 // memoryRoots returns the existing real (non-symlink) directories under dir that keepMemoryPaths archives.
-// An unreadable projects/ dir is an error: a root dropped from the plan would be deleted unarchived.
 func memoryRoots(dir string) ([]string, error) {
 	candidates := []string{"memory", "plans"}
 	projects, err := projectMemoryRels(dir)

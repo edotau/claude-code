@@ -16,10 +16,7 @@ import (
 	"time"
 )
 
-// Mirrors antigravity_test.go's seam-stub style against claude.go's real seams: claudeOAuthURL (a var,
-// pointed at an httptest.Server), claudeKeychainCmd (the keychain exec seam), and the CLAUDE_CONFIG_DIR
-// file fallback claudeCredentials falls to when the keychain misses.
-// readClaudeFixture loads testdata/claude-oauth-usage.json: the real Claude.ai OAuth usage payload.
+// Mirrors antigravity_test.go's seam-stub style against claude.go's real seams
 func readClaudeFixture(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "claude-oauth-usage.json"))
@@ -99,9 +96,7 @@ func assertClaudeFixtureRows(t *testing.T, got []quota) {
 	}
 }
 
-// TestClaudeQuotasParsesFixture: the real oauth-usage.json becomes three rows — 5h, weekly, and the
-// Fable weekly_scoped limit — each anthropic/Max with a UTC ResetsAt and a local Resets string, and the
-// bearer token sent is the one the keychain returned.
+// TestClaudeQuotasParsesFixture
 func TestClaudeQuotasParsesFixture(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,8 +122,7 @@ func TestClaudeQuotasParsesFixture(t *testing.T) {
 	assertClaudeFixtureRows(t, got)
 }
 
-// TestClaudeQuotasExpiredToken: an expired OAuth token (from the CLAUDE_CONFIG_DIR file fallback, the
-// keychain having missed) reports one note row and never calls the usage HTTP endpoint.
+// TestClaudeQuotasExpiredToken
 func TestClaudeQuotasExpiredToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("usage endpoint must not be called when the credential is stale")
@@ -152,8 +146,7 @@ func TestClaudeQuotasExpiredToken(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasNoCredential: the keychain misses and the CLAUDE_CONFIG_DIR file fallback also misses
-// (empty temp dir, no .credentials.json); reports one note row and never calls the usage HTTP endpoint.
+// TestClaudeQuotasNoCredential
 func TestClaudeQuotasNoCredential(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("usage endpoint must not be called when there is no credential")
@@ -170,8 +163,7 @@ func TestClaudeQuotasNoCredential(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasGarbageCredential: a stored payload that isn't valid JSON (keychain miss, file fallback
-// holds garbage) is treated exactly like no credential — claudeCredentials folds both into ok=false.
+// TestClaudeQuotasGarbageCredential
 func TestClaudeQuotasGarbageCredential(t *testing.T) {
 	stubClaudeKeychain(t, keychainMiss)
 	dir := t.TempDir()
@@ -187,8 +179,7 @@ func TestClaudeQuotasGarbageCredential(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasUsageHTTPError: a non-200 from the usage endpoint (valid credential) is one note row
-// naming the status code, not a crash.
+// TestClaudeQuotasUsageHTTPError
 func TestClaudeQuotasUsageHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -220,8 +211,7 @@ func TestParseClaudeUsageUnreadableBody(t *testing.T) {
 	}
 }
 
-// TestParseClaudeUsageNoFableLimit: a usage body with limits that don't name "Fable" yields only the
-// 5h and weekly rows — the scoped-limit loop must not fabricate a Fable row from an unrelated scope.
+// TestParseClaudeUsageNoFableLimit
 func TestParseClaudeUsageNoFableLimit(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"five_hour": map[string]any{"utilization": 10.0, "resets_at": "2026-10-24T05:29:59Z"},
@@ -245,8 +235,7 @@ func TestParseClaudeUsageNoFableLimit(t *testing.T) {
 	}
 }
 
-// TestClaudeResets: local is "2006-01-02 15:04" in the test machine's zone, utc is RFC3339 in UTC;
-// an unparseable instant yields two empty strings rather than a zero-time string.
+// TestClaudeResets
 func TestClaudeResets(t *testing.T) {
 	in := "2026-10-24T05:29:59Z"
 	wantUTC := "2026-10-24T05:29:59Z"
@@ -266,14 +255,11 @@ func TestClaudeResets(t *testing.T) {
 
 // On-disk cache contract: <claudeCacheDir>/claude-oauth-usage.json, TTL from HARNESS_USAGE_CACHE_TTL (seconds, default 60).
 
-// claudeCachePathFor is this test file's own join of dir+name, used only to read/write fixtures;
-// production code must compute the identical path from claudeCacheDir.
+// claudeCachePathFor is this test file's own join of dir+name, used only to read/write fixtures
 func claudeCachePathFor(dir string) string {
 	return filepath.Join(dir, claudeCacheFileName)
 }
 
-// writeClaudeCache writes a cache file matching the contract JSON shape: fetched_at, optional
-// not_before, subscription_type, and body (the raw oauth/usage response bytes).
 func writeClaudeCache(t *testing.T, dir string, fetchedAt time.Time, notBefore *time.Time, subscriptionType string, body []byte) {
 	t.Helper()
 	m := map[string]any{
@@ -340,8 +326,7 @@ func validClaudeCreds(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCacheWithinTTLSkipsNetwork: a fresh cache file (fetched_at = now) within the default
-// 60s TTL serves rows straight from disk; the httptest handler must never be hit.
+// TestClaudeQuotasCacheWithinTTLSkipsNetwork
 func TestClaudeQuotasCacheWithinTTLSkipsNetwork(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)
@@ -364,8 +349,7 @@ func TestClaudeQuotasCacheWithinTTLSkipsNetwork(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCacheAfterTTLRefetchesAndRewrites: a stale cache (fetched_at well past TTL) triggers
-// exactly one network fetch, and the cache file on disk is rewritten with a fresh fetched_at.
+// TestClaudeQuotasCacheAfterTTLRefetchesAndRewrites
 func TestClaudeQuotasCacheAfterTTLRefetchesAndRewrites(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)
@@ -438,8 +422,7 @@ func stale429Setup(t *testing.T) (dir string, hits *int) {
 	return dir, hits
 }
 
-// TestClaudeQuotasCache429ServesStaleBody: a 429 keeps the old cached body and serves rows from it with
-// "cached; rate limited until" in the first row's Note.
+// TestClaudeQuotasCache429ServesStaleBody
 func TestClaudeQuotasCache429ServesStaleBody(t *testing.T) {
 	_, hits := stale429Setup(t)
 	got := claudeQuotas(context.Background())
@@ -454,8 +437,7 @@ func TestClaudeQuotasCache429ServesStaleBody(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCache429SetsNotBefore: a 429 with Retry-After: 141 sets not_before to ~now+141s, and a second
-// call before not_before elapses makes no further network request.
+// TestClaudeQuotasCache429SetsNotBefore
 func TestClaudeQuotasCache429SetsNotBefore(t *testing.T) {
 	dir, hits := stale429Setup(t)
 	before := time.Now()
@@ -485,8 +467,7 @@ func TestClaudeQuotasCache429SetsNotBefore(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCache429NoCacheReportsHTTPStatus: a 429 with no prior cache has nothing to serve,
-// so the Note names the HTTP status like the existing no-cache error path.
+// TestClaudeQuotasCache429NoCacheReportsHTTPStatus
 func TestClaudeQuotasCache429NoCacheReportsHTTPStatus(t *testing.T) {
 	validClaudeCreds(t)
 	setClaudeCacheDir(t)
@@ -507,8 +488,7 @@ func TestClaudeQuotasCache429NoCacheReportsHTTPStatus(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCache429NoCacheStillBacksOff: a 429 with no prior cache writes not_before, so the next call
-// makes no network request.
+// TestClaudeQuotasCache429NoCacheStillBacksOff
 func TestClaudeQuotasCache429NoCacheStillBacksOff(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)
@@ -534,8 +514,7 @@ func TestClaudeQuotasCache429NoCacheStillBacksOff(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCacheCorruptTreatedAsAbsent: a cache file that isn't valid JSON is treated exactly
-// like no cache — claudeQuotas still fetches and returns rows, not an error row.
+// TestClaudeQuotasCacheCorruptTreatedAsAbsent
 func TestClaudeQuotasCacheCorruptTreatedAsAbsent(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)
@@ -560,8 +539,7 @@ func TestClaudeQuotasCacheCorruptTreatedAsAbsent(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCacheOtherErrorFallsBackToCache: a non-429 5xx with a cache present falls back to the
-// cached body, whose first row's Note starts with "cached;".
+// TestClaudeQuotasCacheOtherErrorFallsBackToCache
 func TestClaudeQuotasCacheOtherErrorFallsBackToCache(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)
@@ -582,8 +560,7 @@ func TestClaudeQuotasCacheOtherErrorFallsBackToCache(t *testing.T) {
 	}
 }
 
-// TestClaudeQuotasCacheTTLFromEnv: HARNESS_USAGE_CACHE_TTL shortens/lengthens the TTL window — a cache
-// 5s old is stale under a 1s TTL (triggers a fetch) but fresh under a 60s TTL (no fetch).
+// TestClaudeQuotasCacheTTLFromEnv
 func TestClaudeQuotasCacheTTLFromEnv(t *testing.T) {
 	validClaudeCreds(t)
 	dir := setClaudeCacheDir(t)

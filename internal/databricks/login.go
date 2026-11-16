@@ -62,7 +62,6 @@ func (h headless) options() oauth.LoginOptions {
 	return o
 }
 
-// describe is the dry-run line for h.
 func (h headless) describe() string {
 	port := "callback port 8030 (next free port up to 8050 if busy)"
 	if h.port > 0 {
@@ -78,7 +77,6 @@ func (h headless) describe() string {
 	return fmt.Sprintf("%s; browser %s; paste %s", port, browser, paste)
 }
 
-// fail prints one error line for the verb and returns exit code 1.
 func fail(format string, a ...any) int {
 	fmt.Fprintf(os.Stderr, "claude-code databricks "+format+"\n", a...)
 	return 1
@@ -254,7 +252,6 @@ func checkProfileFlag(fs *flag.FlagSet, name string) error {
 	return nil
 }
 
-// flagSet reports whether fs was given any of names on the command line.
 func flagSet(fs *flag.FlagSet, names ...string) bool {
 	set := false
 	fs.Visit(func(f *flag.Flag) { set = set || slices.Contains(names, f.Name) })
@@ -351,7 +348,6 @@ func LoginRow(ctx context.Context, name string, out io.Writer) error {
 	return loginRow(ctx, name, out, headless{})
 }
 
-// loginRow is LoginRow with the headless flags h.
 func loginRow(ctx context.Context, name string, out io.Writer, h headless) error {
 	reg, err := providers.Load()
 	if err != nil {
@@ -382,7 +378,6 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 	return nil
 }
 
-// loginHost is the workspace a login would talk to, for display.
 func loginHost(p *providers.Provider) string {
 	if p.Host != "" {
 		return p.Host

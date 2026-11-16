@@ -16,7 +16,6 @@ var identityPage = helptext.Page{
 		"service principal and its secret are kept. sp needs a paired service principal.",
 }
 
-// identityModes are the three identity values a profile row stores.
 var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 
 // IdentityChange is one profile identity write: the mode before and after, and the paired service principal id.

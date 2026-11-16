@@ -26,7 +26,6 @@ const (
 // defaultAPIKeyName is the vault key --x-api-key uses when it carries no =NAME; --oauth uses oauthKey.
 const defaultAPIKeyName = proc.EnvAnthropicAPIKey
 
-// anthropicOptions are the launcher flags plus the verb's own auth selection.
 type anthropicOptions struct {
 	agent.LaunchOptions
 	Mode string // authLogin | authOAuth | authAPIKey

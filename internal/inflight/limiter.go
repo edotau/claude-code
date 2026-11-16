@@ -66,8 +66,7 @@ func Fits(c Claim, lim Limits) (bool, Snapshot) {
 	return ok, snap
 }
 
-// TryClaim counts/writes under one lock; contention rolls back over-cap writes; Snapshot excludes this claim.
-// An empty ID claims nothing and returns (true, Snapshot{}).
+// TryClaim counts/writes under one lock
 func TryClaim(c Claim, lim Limits) (bool, Snapshot) {
 	dir := Dir()
 	if c.Owner <= 0 || c.ID == "" || os.MkdirAll(dir, 0o700) != nil {
@@ -156,7 +155,6 @@ func safeID(id string) string {
 	}, id)
 }
 
-// isLeafSuffix is ".<digits>": a Workflow leaf index.
 func isLeafSuffix(s string) bool {
 	d, ok := strings.CutPrefix(s, ".")
 	if !ok || d == "" {
@@ -166,7 +164,6 @@ func isLeafSuffix(s string) bool {
 	return err == nil
 }
 
-// writeMarkers lands every marker of the claim; false when any write failed.
 func writeMarkers(dir string, c Claim) bool {
 	body := c.Account
 	if c.Transcript != "" {
@@ -214,7 +211,6 @@ func readMarker(dir, name string) (account, transcript string, mod time.Time, ok
 	return account, transcript, fi.ModTime(), true
 }
 
-// scan counts live markers, removing dead ones when prune.
 func scan(dir string, now time.Time, prune bool) Snapshot {
 	snap := Snapshot{Per: map[string]int{}}
 	entries, err := os.ReadDir(dir)
@@ -294,7 +290,6 @@ func sweep(dir string, dryRun bool) ([]string, error) {
 	return removed, errors.Join(errs...)
 }
 
-// scanner caches each session's meta.json map across one scan.
 type scanner struct {
 	now     time.Time
 	trusted bool
@@ -351,7 +346,6 @@ type metaAgent struct {
 	finished bool
 }
 
-// agents maps tool_use_id → agent from one session's agent-*.meta.json files.
 func (s *scanner) agents(transcript string) map[string]metaAgent {
 	if m, ok := s.meta[transcript]; ok {
 		return m

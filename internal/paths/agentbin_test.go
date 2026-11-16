@@ -36,7 +36,6 @@ func TestVendorBinCases(t *testing.T) {
 	}
 }
 
-// binDirReady creates and returns the shim directory.
 func binDirReady(t *testing.T) string {
 	t.Helper()
 	binDir := BinDir()
@@ -46,7 +45,6 @@ func binDirReady(t *testing.T) string {
 	return binDir
 }
 
-// linkCodex symlinks BinDir/codex to target and returns the link path.
 func linkCodex(t *testing.T, target string) string {
 	t.Helper()
 	link := filepath.Join(binDirReady(t), "codex")
@@ -56,7 +54,6 @@ func linkCodex(t *testing.T, target string) string {
 	return link
 }
 
-// writeScript writes an executable shell stub at path.
 func writeScript(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {

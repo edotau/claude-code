@@ -166,7 +166,6 @@ func toolList(v any) []string {
 	return out
 }
 
-// tomlBasic renders a single-line TOML basic string.
 func tomlBasic(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`, "\r", `\r`)
 	return `"` + r.Replace(s) + `"`

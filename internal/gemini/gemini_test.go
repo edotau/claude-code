@@ -25,9 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// agyArgv maps Autonomous onto "--mode auto"; --dangerously-skip-permissions rides on Tools alone, so
-// an autonomous-but-tool-less run must never carry it (agy must never auto-grant write access it wasn't
-// asked for).
+// agyArgv maps Autonomous onto "--mode auto"
 func TestAgyArgvAutonomous(t *testing.T) {
 	cases := []struct {
 		name               string
@@ -51,8 +49,7 @@ func TestAgyArgvAutonomous(t *testing.T) {
 	}
 }
 
-// AgyRequest.SessionID rides as "--conversation <id>"; an empty SessionID must never emit the flag
-// (agy has no bare --conversation value to resume against).
+// AgyRequest.SessionID rides as "--conversation <id>"
 func TestAgyArgvConversation(t *testing.T) {
 	cases := []struct{ name, session string }{{"unset", ""}, {"set", "conv-123"}}
 	for _, c := range cases {
@@ -430,8 +427,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	}
 }
 
-// An explicit own-login profile with a resolvable --model launches the plain CLI with the resolved model and never
-// offers configure.
+// An explicit own-login profile with a resolvable --model launches the plain CLI with it and never offers configure.
 func TestOwnLoginProfileForwardsResolvedModelWithoutOffer(t *testing.T) {
 	agenttest.LaunchHermetic(t)
 	fake := pathstest.FakeVendor(t, "agy", "")
@@ -501,8 +497,6 @@ func liveEnv(t *testing.T) {
 	}
 }
 
-// fakeLiveAgy is a shell agy: one init, then per NDJSON turn an agent_response delta and a result whose usage is
-// cumulative over the conversation, as the real agy reports it.
 const fakeLiveAgy = `#!/bin/sh
 printf '{"event":"init","conversation_id":"c1"}\n'
 mem=none

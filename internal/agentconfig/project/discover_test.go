@@ -80,18 +80,15 @@ func TestDiscoverSkillsDuplicateRejected(t *testing.T) {
 // scriptRefPattern finds a scripts/<name>.sh reference anywhere in a command file's text.
 var scriptRefPattern = regexp.MustCompile(`scripts/[A-Za-z0-9_.-]+\.sh`)
 
-// argPlaceholderPattern matches $ARGUMENTS or a positional $1-$9, neither of which Claude Code
-// substitutes inside a !`...` directive.
+// argPlaceholderPattern matches $ARGUMENTS or $1-$9, which Claude Code never substitutes inside a !`...` directive.
 var argPlaceholderPattern = regexp.MustCompile(`\$(ARGUMENTS|[1-9])\b`)
 
-// isInlineBashDirective reports whether a "!"-led line is a fully-closed single-line !`...` directive —
-// the only shape Claude Code actually executes (code.claude.com/docs/en/skills.md); a bare "!cmd" never runs.
+// isInlineBashDirective reports whether a "!"-led line is a closed !`...` directive; a bare "!cmd" never runs.
 func isInlineBashDirective(line string) bool {
 	return strings.HasPrefix(line, "!`") && strings.HasSuffix(line, "`") && len(line) > 2
 }
 
 // checkCommandScripts walks commands/**/*.md under root, applying the three guard rules below.
-// Returns a slice of "<rel>:<line>: <message>" failures, or nil if the file is clean.
 func checkCommandScripts(root, path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -131,9 +128,7 @@ func checkCommandScripts(root, path string) ([]string, error) {
 	return failures, nil
 }
 
-// TestCommandBashDirectivesDelegateToScripts guards the commands/*.md "!" directive contract: every
-// "!"-led line must be a single-line !`...` directive with no $ARGUMENTS/$1-$9 placeholder (neither
-// substitutes), and every scripts/<name>.sh referenced anywhere in the file must exist and be executable.
+// TestCommandBashDirectivesDelegateToScripts guards the commands/*.md "!" directive contract
 func TestCommandBashDirectivesDelegateToScripts(t *testing.T) {
 	root := repoRoot(t)
 	commandsDir := filepath.Join(root, "commands")
@@ -167,8 +162,7 @@ func TestCommandBashDirectivesDelegateToScripts(t *testing.T) {
 	}
 }
 
-// TestCommandBashDirectiveGuardHasTeeth proves the guard rejects the exact regression it exists to
-// catch: a !`...` directive that passes $ARGUMENTS, which Claude Code never substitutes.
+// TestCommandBashDirectiveGuardHasTeeth proves the guard rejects the exact regression it exists to catch
 func TestCommandBashDirectiveGuardHasTeeth(t *testing.T) {
 	root := repoRoot(t)
 	dir := t.TempDir()
@@ -246,8 +240,7 @@ func TestRosterModelTiersAreValid(t *testing.T) {
 	}
 }
 
-// TestNoStaleReferencesToRemovedAgents guards against a dangling pointer into an agent file that no
-// longer exists — the roster drops agents (sonnet, documentation, reflection) outright, with no shim.
+// The roster drops agents (sonnet, documentation, reflection) outright with no shim, so no reference may dangle.
 func TestNoStaleReferencesToRemovedAgents(t *testing.T) {
 	root := repoRoot(t)
 	agentsDir := filepath.Join(root, "agents")

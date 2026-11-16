@@ -229,7 +229,6 @@ func checkMatrixCommon(t *testing.T, name, text string) {
 	}
 }
 
-// checkMatrixClaude checks the claude cell's key helper and env flags.
 func checkMatrixClaude(t *testing.T, name, text, auth string) {
 	t.Helper()
 	helper := "/bin/cc resolve --profile databricks-dev"
@@ -249,7 +248,6 @@ func checkMatrixClaude(t *testing.T, name, text, auth string) {
 	}
 }
 
-// checkMatrixCodex checks the codex cell's required TOML lines and command.
 func checkMatrixCodex(t *testing.T, name, text, auth string) {
 	t.Helper()
 	for _, w := range []string{`wire_api = "responses"`, "[model_providers.databricks.auth]", "refresh_interval_ms = 1800000"} {

@@ -79,7 +79,6 @@ func opencodeSyncVerify(p *providers.Provider, snapshot *serving.Snapshot, ids [
 	return nil
 }
 
-// defaultMenuLabel is the label an added id gets when none is given.
 func defaultMenuLabel(id string) string {
 	var words []string
 	prevDigits := false
@@ -98,11 +97,8 @@ func defaultMenuLabel(id string) string {
 	return strings.Join(words, " ")
 }
 
-// menuAcronyms are id words a label spells in capitals.
 var menuAcronyms = map[string]bool{"glm": true, "gpt": true, "oss": true, "bge": true, "gte": true}
 
-// menuAdd returns menu with id added, or updated in place when present; catalog Responses-only ids default to Responses.
-// responses is nil when the caller did not say. A blank label keeps the existing one, else the derived default.
 func menuAdd(menu []providers.OpencodeModel, id, label string, responses *bool) []providers.OpencodeModel {
 	id = ID(id)
 	out := slices.Clone(menu)
@@ -244,7 +240,6 @@ func namesProfile(pid string, profiles []string) bool {
 	return slices.ContainsFunc(profiles, func(p string) bool { return strings.Contains(seg, "-"+p+"-") })
 }
 
-// dedupeMenu keeps the last entry per id, in first-seen order.
 func dedupeMenu(in []providers.OpencodeModel) []providers.OpencodeModel {
 	var out []providers.OpencodeModel
 	for _, m := range in {

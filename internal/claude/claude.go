@@ -159,8 +159,6 @@ func claudeEffort(e string) (string, error) {
 	return native, nil
 }
 
-// permissionArgs renders the request's Permissions as claude flags; empty for none.
-// Mode plan adds planDeny and sets no --permission-mode: --permission-prompts none denies what no rule matched.
 func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []string {
 	switch {
 	case tools && !anthropic && p.Mode != "plan" && (!autonomous || !p.IsZero()): // dontAsk: the request's rules only add
@@ -191,7 +189,6 @@ func ruleArgs(p agent.Permissions) []string {
 	return args
 }
 
-// permissionModeArgs is the --permission-mode pair; plan sets none.
 func permissionModeArgs(mode string, anthropic bool) []string {
 	switch {
 	case mode == "plan":
@@ -295,7 +292,6 @@ func claudeChild(ctx context.Context, req agent.RunOptions, cl agent.ClaudeLaunc
 	return cmd, tail, nil
 }
 
-// gateExe is the binary the injected gate runs; a var so tests pin it.
 var gateExe = os.Executable
 
 // gateTools is the only built-in tool set a gated child gets: the permission-gate judges exactly these.
@@ -354,10 +350,6 @@ func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
 	return append(out, argv[min(at+2, len(argv)):]...), nil
 }
 
-// claudeEvent is the union of stream-json fields the agent reads.
-// Message is raw: most event types carry it as an object, but error/system/result-type
-// events sometimes carry it as a plain string (e.g. "system","subtype":"permission_denied") —
-// typing it strictly broke decode of the whole stream on one odd event.
 type claudeEvent struct {
 	Type            string          `json:"type"`
 	Subtype         string          `json:"subtype"`
@@ -739,10 +731,8 @@ func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 	return providers.VerdictNeedsLogin, ""
 }
 
-// claudeProbeTTL is how long a logged-in `claude auth status` result is reused.
 const claudeProbeTTL = 10 * time.Second
 
-// claudeProbe is one `claude auth status` answer.
 type claudeProbe struct {
 	loggedIn bool
 	plan     string
@@ -762,7 +752,6 @@ func claudeLoginProbe() (loggedIn bool, plan string, err error) {
 	return p.loggedIn, p.plan, err
 }
 
-// runClaudeProbe spawns `claude auth status` (≤8s) and parses its JSON.
 func runClaudeProbe() (claudeProbe, error) {
 	bin, err := ClaudeBinary()
 	if err != nil {

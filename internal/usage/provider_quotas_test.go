@@ -153,9 +153,7 @@ func TestUsageZeroRowsOffline(t *testing.T) {
 	}
 }
 
-// TestSetStatesBoundaries: the default threshold (80) draws ok|warn|exceeded exactly at the documented
-// boundaries — 79.9 stays ok, 80.0 (the threshold itself) is already warn, 100.0 and anything past it
-// is exceeded, never "over-exceeded".
+// TestSetStatesBoundaries
 func TestSetStatesBoundaries(t *testing.T) {
 	cases := []struct {
 		pct  float64
@@ -176,8 +174,7 @@ func TestSetStatesBoundaries(t *testing.T) {
 	}
 }
 
-// TestSetStatesSkipsNoteRows: a row with a Note (lookup failed, unlimited, …) carries no numeric meaning —
-// setStates must leave its State empty rather than misreading a zero-value UsedPct as "ok".
+// TestSetStatesSkipsNoteRows
 func TestSetStatesSkipsNoteRows(t *testing.T) {
 	qs := []quota{{Provider: "google", Note: "quota not exposed"}}
 	setStates(qs, 80)
@@ -206,8 +203,7 @@ func TestWarnThreshold(t *testing.T) {
 	}
 }
 
-// TestBarRendering: 10-cell bar, floor-divided from the rounded percent, with a minimum of one filled
-// cell for any positive percentage and a hard cap at 10 filled cells past 100%.
+// TestBarRendering
 func TestBarRendering(t *testing.T) {
 	cases := []struct {
 		pct  float64
@@ -248,9 +244,7 @@ func TestPrintQuotasStateColumn(t *testing.T) {
 	}
 }
 
-// TestUsageRunWarnsOnExceededState: an end-to-end Run() with a quota stub past threshold writes the STATE
-// column to stdout, the warn line to stderr, and "state" in --format json — the full C wiring, not just
-// the helpers in isolation.
+// TestUsageRunWarnsOnExceededState
 func TestUsageRunWarnsOnExceededState(t *testing.T) {
 	isolateAgentStores(t)
 	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro", Window: "monthly", UsedPct: 100, Used: 7000, Limit: 7000}}
@@ -388,7 +382,6 @@ func readAgyFixture(t *testing.T) []byte {
 	return b
 }
 
-// stubAgy replaces the agy exec seam for the duration of the test.
 func stubAgy(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	orig := agyUsageCmd
@@ -396,8 +389,7 @@ func stubAgy(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { agyUsageCmd = orig })
 }
 
-// TestAntigravityQuotasParsesFixture: the real machine-captured agy /usage payload, past a noise line and a
-// disabled bucket, becomes one row per enabled bucket with the right window, used%, resets and group label.
+// TestAntigravityQuotasParsesFixture
 func TestAntigravityQuotasParsesFixture(t *testing.T) {
 	stubAgy(t, func(context.Context) ([]byte, error) { return readAgyFixture(t), nil })
 
@@ -509,8 +501,7 @@ func TestAntigravityQuotasAgyErrorLine(t *testing.T) {
 	}
 }
 
-// TestAntigravityQuotasMissingBinary: no output and an exec error with agy absent from the vendor bin dir
-// (true of this checkout: no internal/paths.AgentBin("agy") target) reports "agy not installed", not a crash.
+// TestAntigravityQuotasMissingBinary
 func TestAntigravityQuotasMissingBinary(t *testing.T) {
 	if _, err := paths.AgentBin("agy"); err == nil {
 		t.Skip("agy is installed in this checkout; the not-installed branch can't be exercised here")
@@ -524,8 +515,7 @@ func TestAntigravityQuotasMissingBinary(t *testing.T) {
 	}
 }
 
-// TestPrintSubscriptionQuotasAntigravityLeftPercent: default --show left renders the fixture's weekly 95% left
-// (UsedPct 5 from remaining_fraction 0.9508) with the group name as DETAIL, not blanked by Limit==0.
+// TestPrintSubscriptionQuotasAntigravityLeftPercent
 func TestPrintSubscriptionQuotasAntigravityLeftPercent(t *testing.T) {
 	q := quota{Provider: "google", Plan: "Antigravity", Window: "weekly", UsedPct: 5, LeftPct: 95, Group: "Gemini Models"}
 	var buf bytes.Buffer
@@ -602,7 +592,7 @@ func personalVault(t *testing.T) {
 
 func TestAccountKeyMapsLoginToProfile(t *testing.T) {
 	personalVault(t)
-	for login, want := range map[string]string{"tester": "github·personal", "octocat": "github·octocat", "": ""} {
+	for login, want := range map[string]string{"tester": "github·tester", "octocat": "github·octocat", "": ""} {
 		if got := accountKey(quota{Provider: "github", Account: login}); got != want {
 			t.Errorf("accountKey(%q) = %q, want %q", login, got, want)
 		}
@@ -618,7 +608,7 @@ func TestRefreshAccountPassesLoginToGh(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	for key, want := range map[string]string{"github·personal": "--user tester", "github·octocat": "--user octocat"} {
+	for key, want := range map[string]string{"github·tester": "--user tester", "github·octocat": "--user octocat"} {
 		_ = os.Remove(log)
 		RefreshAccount(context.Background(), key)
 		raw, _ := os.ReadFile(log)
@@ -640,8 +630,7 @@ func TestRecordQuotasSkipsCachedRows(t *testing.T) {
 	}
 }
 
-// A seat answering with a note (unlimited) records no window: RefreshAccount stamps it checked so picks back off,
-// it stays unknown, and a fetch the caller's own deadline cut short stamps nothing.
+// A seat answering with a note (unlimited) records no window
 func TestRefreshAccountStampsNotedSeat(t *testing.T) {
 	personalVault(t)
 	bin := t.TempDir()

@@ -126,7 +126,6 @@ func TestResolveUnknownSlashUNC(t *testing.T) {
 	}
 }
 
-// classified drops opaque entries, leaving the mounts the tables below describe.
 func classified(ms []Mount) []Mount {
 	var out []Mount
 	for _, m := range ms {

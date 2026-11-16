@@ -52,7 +52,6 @@ func Served(ctx context.Context, p *providers.Provider) (
 	return infos, time.Now().UTC(), false, nil
 }
 
-// byName indexes infos by endpoint name; a repeated name keeps the last row.
 func byName(infos []providers.ModelInfo) map[string]providers.ModelInfo {
 	out := make(map[string]providers.ModelInfo, len(infos))
 	for _, m := range infos {
@@ -61,7 +60,6 @@ func byName(infos []providers.ModelInfo) map[string]providers.ModelInfo {
 	return out
 }
 
-// servedInfo finds id on served under p's model prefix, else as written.
 func servedInfo(served map[string]providers.ModelInfo, p *providers.Provider, id string) (providers.ModelInfo, bool) {
 	if m, ok := served[p.ModelPrefix+id]; ok {
 		return m, true

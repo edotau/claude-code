@@ -14,7 +14,6 @@ var tskeyPrefixes = []struct {
 	{"tskey-auth-", "an auth key"},
 }
 
-// kindFor reports which tskey- kind val looks like, if any.
 func kindFor(val string) (prefix, kind string, ok bool) {
 	for _, p := range tskeyPrefixes {
 		if strings.HasPrefix(val, p.prefix) {
@@ -31,8 +30,7 @@ var credentialPrefixes = map[string]string{
 	"TAILSCALE_AUTHKEY":             "tskey-auth-",
 }
 
-// ValidCredential reports whether value has the documented shape for the named Tailscale
-// credential; names it doesn't know are always valid. Never echoes value in its error.
+// ValidCredential reports whether value has the documented shape for the named Tailscale credential
 func ValidCredential(name, value string) error {
 	want, prefixed := credentialPrefixes[name]
 	if !prefixed && name != "TAILSCALE_OAUTH_CLIENT_ID" {
@@ -58,7 +56,6 @@ func validClientID(name, value string) error {
 	return fmt.Errorf("%s: want a client ID (starts with k, 10-40 alphanumeric chars)", name)
 }
 
-// isAlnum reports whether s is ASCII letters/digits only.
 func isAlnum(s string) bool {
 	for _, r := range s {
 		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {

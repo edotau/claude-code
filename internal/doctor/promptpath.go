@@ -45,7 +45,6 @@ var (
 	agentsRender = project.CheckFreshRender
 )
 
-// promptPath returns one check per implemented hop for the config tree at root.
 func promptPath(root string) []check {
 	return []check{
 		hop("H1 CLAUDE.md", claudeMD(root)),
@@ -234,7 +233,6 @@ func frontMatter(b []byte) string {
 	return ""
 }
 
-// frontName checks the front-matter block head carries name: want.
 func frontName(head, rel, want string) []string {
 	m := nameLine.FindStringSubmatch(head)
 	if m == nil {

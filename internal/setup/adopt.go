@@ -25,8 +25,7 @@ type clash struct {
 	Differs bool   // content differs from the repo's version
 }
 
-// clashes lists every git-tracked path in repo that already exists at dir. Untracked and ignored
-// paths in dir are never clashes — they are the user's own content, never the repo's business.
+// clashes lists every git-tracked path in repo that already exists at dir.
 func clashes(repo, dir string) ([]clash, error) {
 	tracked, err := trackedFiles(repo)
 	if err != nil {
@@ -88,16 +87,13 @@ var (
 	errBadLabel        = errors.New("--label must be a plain name, not a path")
 )
 
-// adoptOpts configures adopt.
 type adoptOpts struct {
 	From, Into, Label string
 	DryRun            bool
 	Out               io.Writer
 }
 
-// adopt moves a staged clone's .git into Into and restores every tracked path from the index,
-// after backing up whatever at Into collides with a tracked path. Into's own runtime state
-// (projects/, sessions/, …) and any untracked user content are left exactly as they were.
+// adopt moves a staged clone's .git into Into and restores tracked paths; runtime state and untracked files stay.
 func adopt(opts adoptOpts) error {
 	if opts.Out == nil {
 		opts.Out = io.Discard
@@ -167,7 +163,6 @@ func backupClashes(into string, clashes []clash, label string, now time.Time) er
 	return backup(into, relPaths, label, now)
 }
 
-// installCheckout moves the staged .git into Into and drops the stage.
 func installCheckout(opts adoptOpts) error {
 	if err := os.MkdirAll(opts.Into, 0o755); err != nil {
 		return err
@@ -192,7 +187,6 @@ func commitHash(dir string) string {
 // gitTimeout bounds a read-only git call so a hung git fails instead of blocking the verb.
 const gitTimeout = 2 * time.Minute
 
-// gitOutput runs git with args under gitTimeout and returns its stdout.
 func gitOutput(args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
@@ -255,7 +249,6 @@ func Read() (State, bool) {
 	return st, true
 }
 
-// stateSchema versions setup-state.
 const stateSchema = 1
 
 var setupFormat = schemas.Register(schemas.Format{
@@ -266,8 +259,7 @@ var setupFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
-// backup copies each of relPaths (dir-relative, slash-separated) into paths.BackupDir(label, now),
-// preserving the file mode.
+// backup copies each of relPaths (dir-relative) into paths.BackupDir(label, now), preserving the file mode.
 func backup(dir string, relPaths []string, label string, now time.Time) error {
 	dest := paths.BackupDir(label, now)
 	for _, rel := range relPaths {

@@ -244,7 +244,6 @@ func settingsText() (string, error) {
 	return b.String(), nil
 }
 
-// pinsOf lists the agent records and vault pins that name id.
 func pinsOf(tx *vault.Tx, id string) ([]string, error) {
 	recs, err := tx.AgentRecords()
 	if err != nil {
@@ -320,7 +319,6 @@ func openSecret(tx *vault.Tx, key *vault.Key, name string) (string, error) {
 	return key.Open(name, record)
 }
 
-// repoint moves every agent record and vault pin naming from to to.
 func repoint(tx *vault.Tx, from, to string) error {
 	recs, err := tx.AgentRecords()
 	if err != nil {

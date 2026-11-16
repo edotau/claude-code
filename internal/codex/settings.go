@@ -108,7 +108,6 @@ func readCodexSettings(raw string) (map[string]string, error) {
 	})
 }
 
-// readCodexStrings parses the top-level string values of the keys want accepts.
 func readCodexStrings(raw string, want func(string) bool) (map[string]string, error) {
 	scan := &codexScan{values: map[string]string{}, want: want}
 	lines := strings.SplitAfter(raw, "\n")
@@ -170,7 +169,6 @@ func (c *codexScan) field(line string) error {
 	return nil
 }
 
-// finish parses the completed multiline string.
 func (c *codexScan) finish() error {
 	parsed, err := agentconfig.TOMLStringValue(c.pending)
 	if err != nil {
@@ -231,8 +229,7 @@ func LoadCodexPreferences() (map[string]string, error) {
 	return codexPreferences(rec, overlay)
 }
 
-// UpdateCodexPreferences edits the preferences in one transaction, writing them to the codex record and emptying
-// the legacy overlay; an effort whose codex spelling is unchanged keeps the record's own value (max stays max).
+// UpdateCodexPreferences edits the preferences in one transaction: writes the codex record, empties the legacy overlay.
 func UpdateCodexPreferences(edit func(map[string]string) map[string]string) error {
 	return vault.Update(func(tx *vault.Tx) error {
 		overlay, err := loadCodexOverlay(tx)
@@ -264,7 +261,6 @@ func UpdateCodexPreferences(edit func(map[string]string) map[string]string) erro
 	})
 }
 
-// withExtra is extras with key set to v, or removed when v is "".
 func withExtra(extras map[string]string, key, v string) map[string]string {
 	out := maps.Clone(extras)
 	if v == "" {

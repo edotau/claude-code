@@ -187,7 +187,6 @@ func readOverlayFile(path string) ([]byte, error) {
 
 var errNotRegular = errors.New("not a regular file")
 
-// infoRules are the opened file's refusals, tested in order.
 var infoRules = []struct {
 	bad func(os.FileInfo) bool
 	err error
@@ -269,7 +268,6 @@ func overlayJSONErr(err error) error {
 	return err
 }
 
-// keyType is the JSON type word a document key wants.
 func keyType(key string) string {
 	switch key {
 	case "schema":
@@ -381,7 +379,6 @@ func (o Overlay) checkRouting() error {
 	return o.checkCrossKeys()
 }
 
-// check is one routing key's own rule for value v; "" is unset and passes.
 func (k routeKey) check(v string) error {
 	switch {
 	case v == "":

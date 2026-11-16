@@ -91,7 +91,6 @@ echo '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"o
 	assertCodexSchemaCleanup(t, capture)
 }
 
-// followedBy reports whether args holds flag immediately followed by val.
 func followedBy(args []string, flag, val string) bool {
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == flag && args[i+1] == val {
@@ -269,7 +268,6 @@ func TestCodexRenderSettingsRefusesBadSandboxFirst(t *testing.T) {
 	}
 }
 
-// putCodexRecord stores rec as the codex agent record.
 func putCodexRecord(t *testing.T, rec vault.AgentRecord) {
 	t.Helper()
 	err := vault.Update(func(tx *vault.Tx) error {
@@ -409,10 +407,7 @@ func TestCodexRunReportsEffortClamp(t *testing.T) {
 	}
 }
 
-// attach per engine: codex folds the file inline (stdin has no live-read channel). gemini (agy)
-// inlines it too when tools are off (agy's no-tools Preamble bars it from reading @path live), but
-// appends a live @path reference once tools are on. Every other vendor (opencode included) leaves the
-// prompt untouched since it carries the attachment in its own argv instead (opencodeRun's -f).
+// Attach per engine: codex and tool-less gemini inline the file, tooled gemini appends @path, others leave the prompt.
 func TestVendorEngineAttachPrompt(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(f, []byte("file-content"), 0o600); err != nil {
@@ -444,8 +439,7 @@ func TestVendorEngineAttachPrompt(t *testing.T) {
 	}
 }
 
-// A missing attachment is a fatal error for the inline path, not a silently dropped reference,
-// regardless of Tools (gemini without tools now inlines too, so it must fail the same way).
+// A missing attachment is a fatal error for the inline path, not a silently dropped reference, regardless of Tools.
 func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 	for _, c := range []struct {
 		vendor string
@@ -459,8 +453,7 @@ func TestVendorEngineAttachPromptMissingPath(t *testing.T) {
 	}
 }
 
-// TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
-// An explicit --no-tools cannot be honored (codex keeps its read-only shell), so it refuses instead of dropping (O2).
+// TestMain runs in the hermetic host (hosttest)
 func TestCodexNoToolsRefusedNotDropped(t *testing.T) {
 	err := agent.CheckCapabilities("codex", agent.RunOptions{NoTools: true})
 	if err == nil || !strings.Contains(err.Error(), "--no-tools") {

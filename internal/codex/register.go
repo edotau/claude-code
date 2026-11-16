@@ -37,5 +37,4 @@ const (
 	extraVerbosity      = "model_verbosity"
 )
 
-// codexVerbosities is the model_verbosity values codex accepts.
 var codexVerbosities = []string{"low", "medium", "high"}
