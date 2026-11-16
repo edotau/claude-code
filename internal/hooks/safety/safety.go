@@ -155,7 +155,30 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if d > ask {
 		return d, askMsg + msg, detail
 	}
+	if ask == core.Allow && d == core.Allow {
+		if pd, pmsg, pdetail := gitPolicyVerdict(in, cmd); pd != core.Allow {
+			return pd, askMsg + pmsg, pdetail
+		}
+	}
 	return ask, askMsg, askDetail
+}
+
+// gitPolicyVerdict blocks what worktree-git.md rules 1, 3 and 5 forbid: a nonconforming commit message,
+// a broad `git add` and `; git push` after a gate command.
+func gitPolicyVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+	cmd = core.DropDataHeredocs(cmd)
+	var reason string
+	if p := shell.CommitMessageProblem(cmd, in.CWD); p != "" {
+		reason = p
+	} else if shell.BroadStage(cmd, in.CWD) != "" {
+		reason = "stage named files only"
+	} else if shell.PushAfterGate(cmd) {
+		reason = "chain git push after a gate with &&, not ;"
+	}
+	if reason == "" {
+		return core.Allow, "", ""
+	}
+	return core.Block, "safety: BLOCKED — " + reason, reason
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.

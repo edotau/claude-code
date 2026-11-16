@@ -1,16 +1,15 @@
 # Git and Worktrees
 
-1. **Conventional Commits** — `<type>[scope][!]: <description>`; types `feat` `fix` `docs` `style` `refactor` `perf`
-   `test` `chore` `ci`; scope = package or area; `!` plus a `BREAKING CHANGE:` body line marks a break (MAJOR; `feat`
-   MINOR, `fix` PATCH); `Fixes #42` where an issue exists. **1–2 lines total** — a body line only for what the diff
-   cannot show. No AI-attribution footers (`safety-scan` blocks).
+1. **Conventional Commits** — `<type>[scope][!]: <description>` (types `feat` `fix` `docs` `style` `refactor` `perf`
+   `test` `chore` `ci`), 2 lines max plus a `BREAKING CHANGE:` line, no AI-attribution footers (`safety-scan` blocks);
+   `Fixes #42` where an issue exists; a body line only for what the diff cannot show.
 2. **Branches** — `feature/<domain>-<component>`, `fix/<issue>-<description>`, `docs/<component>`,
    `hotfix/<issue>-<description>`, `test/<feature>`; delete after merging.
-3. **Stage named files only** — never a directory or a catch-all add (it sweeps `.env`/secrets and other sessions'
-   work); confirm with the user before committing. A file another live session or leaf has uncommitted edits in asks
-   first (`worktree-claim-check` blocks a leaf).
+3. **Stage named files only** (`safety-scan` blocks `add -A`, `.`, `:/` and directories); confirm with the user
+   before committing. A file another live session or leaf has uncommitted edits in asks first (`worktree-claim-check`
+   blocks a leaf).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
-5. Read scoped checks' exit codes before `git push`, and chain lint → commit → push with `&&`, never `;`; a docs
+5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;` (`safety-scan` blocks); a docs
    commit gates on a clean `make lint`.
 
 Executor mechanics (account switching, the `git rm` staging gotcha): `agents/copilot.md` → LAST-MILE.
