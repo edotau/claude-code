@@ -27,10 +27,12 @@ var rootAnchors = map[string]bool{
 	"contributing": true, "code_of_conduct": true, "security": true,
 }
 
+var placementTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "create": true, "apply_patch": true, "bash": true}
+
 // Placement gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
 func Placement(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
-	if tool != "" && tool != "write" && tool != "edit" && tool != "multiedit" && tool != "create" && tool != "apply_patch" && tool != "bash" {
+	if tool != "" && !placementTools[tool] {
 		return core.ExitProceed
 	}
 	if strandedPlanDest(in) != "" { // docs-plan-gate rewrites (or blocks) this write; a parallel deny would mask it

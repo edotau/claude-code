@@ -197,14 +197,8 @@ func draftTarget(in *core.Input) (path string, ok bool) {
 
 // planDestination picks <date>-<title>.md, then -2.md, …; adopt reuses a candidate already holding content.
 func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
-	dir := plans.Home(planRepoRoot(cwd))
-	base := time.Now().Format("2006-01-02") + "-" + title
-	for n := 1; ; n++ {
-		name := base + ".md"
-		if n > 1 {
-			name = fmt.Sprintf("%s-%d.md", base, n)
-		}
-		p := filepath.Join(dir, name)
+	for p := range datedNames(filepath.Join(plans.Home(planRepoRoot(cwd)), time.Now().Format("2006-01-02")+"-"+title)) {
+		dest = p
 		existing, err := os.ReadFile(p)
 		if err != nil {
 			if !os.IsNotExist(err) || claimPlanFile(p) {
@@ -214,6 +208,17 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 		}
 		if adopt && bytes.Equal(existing, content) {
 			return p, false
+		}
+	}
+	return dest, true // all 99 names taken: reuse the last rather than loop forever
+}
+
+// datedNames yields <prefix>.md, <prefix>-2.md, … <prefix>-99.md.
+func datedNames(prefix string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		name := prefix + ".md"
+		for n := 2; n <= 100 && yield(name); n++ {
+			name = fmt.Sprintf("%s-%d.md", prefix, n)
 		}
 	}
 }
@@ -425,13 +430,9 @@ func planDest(in *core.Input) (string, error) {
 	return freeDated(filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug))
 }
 
-// freeDated is the first absent <prefix>.md, <prefix>-2.md, … <prefix>-99.md; a stat failure is returned.
+// freeDated is the first absent datedNames candidate; a stat failure is returned.
 func freeDated(prefix string) (string, error) {
-	for n := 1; n <= 99; n++ {
-		cand := prefix + ".md"
-		if n > 1 {
-			cand = fmt.Sprintf("%s-%d.md", prefix, n)
-		}
+	for cand := range datedNames(prefix) {
 		_, err := os.Stat(cand)
 		if os.IsNotExist(err) {
 			return cand, nil
