@@ -36,7 +36,7 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    exits 0; any `issue:` (dirty worktree, detached target, `--target` mismatch, unrelated histories,
    merge-tree failure, predicted `conflict [<files>]`) exits 1 with nothing mutated — report it and stop.
    A dirty target is refused only when its uncommitted paths overlap files the merge touches; the issue names
-   who claims each one. A predicted conflict also queues a notice for the worktree's owning session.
+   who claims each one.
 2. Ask: "Merge $SLUG into <target>? (Y/n)".
 3. **Apply:** `claude-code worktree merge "$SLUG"`. `--verify "<cmd>"` overrides auto-detection (Makefile test /
    go.mod / pyproject / package.json / Cargo.toml); `--no-verify` is the only unverified path; no gate found
@@ -44,11 +44,15 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    go vet ./...`, then `go test` on the packages `<target>...HEAD` changed (a non-Go file maps to its package,
    embedders and tests naming it), their importers (tests included, transitively) and the registry packages
    (`internal/{hooks,settings,agent,cli,schemas}`, where present); a `go.mod`/`go.sum` change or an unowned
-   non-markdown file tests `./...`. `--full-verify` runs the suite-wide gate; the full `make audit` stays the
-   pre-push gate. Preflight re-runs; a failing gate stops with the worktree untouched; success promotes,
-   ticks the active plan (`claude-code plan tick --range <old>..<new>`) and, unless `--no-clean`, cleans as
-   `clean` would. A failure after promotion prints a retry hint, not a merge commit; re-run step 1.
-4. **Report:** `Merge complete` / `Branch: <branch> -> <target>` / `Verify: <cmd> pass|fail`.
+   non-markdown, non-Go file keeps the full detected gate (`make test` here), as `--full-verify` does; the full
+   `make audit` stays the pre-push gate. Preflight re-runs; a failing gate stops with the worktree untouched; success
+   promotes, ticks the active plan (`claude-code plan tick --range <old>..<new>`) and, unless `--no-clean`, cleans as
+   `clean` would. A refused promote (target moved, worktree HEAD changed since the verified integration, not a
+   fast-forward) prints `retry:` and promotes nothing: re-run step 1. A failure after the promote leaves the merge
+   landed (plan-tick and ledger problems only warn). An apply run (no `--dry-run`, no `--resolve-agent`) that
+   predicts a conflict queues a notice for the worktree's owning session; the preview does not.
+4. **Report:** the `promoted: <old> -> <new> on <target>` line, `verify: passed (<source>)`, and `removed: <path>` /
+   `branch deleted: <branch>` (or the "worktree left on disk" line with `--no-clean`).
 
 **Predicted conflict:** `claude-code worktree merge --resolve-agent codex "$SLUG"` materializes it in the
 worktree and runs the agent once on the conflicted paths only (no `git add`/`commit`); the controller then checks

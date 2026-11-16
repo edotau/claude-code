@@ -23,9 +23,9 @@ for id in s2 s9 s13 s14; do for c in control method; do for n in 1 2; do   # one
 done; done; done
 ```
 
-Invoke the Workflow tool by name:
-`Workflow({name: "code-evaluator", args: {base: "<BASE>", skill: "<SKILL.md or brief under test>",
-scenarios: ["s2","s9","s13","s14"], seeds: 2, steps: {run: {model: "haiku"}}}})`.
+Invoke the Workflow tool by path:
+`Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base: "<BASE>", skill: "<SKILL.md or brief
+under test>", scenarios: ["s2","s9","s13","s14"], seeds: 2, steps: {run: {model: "haiku"}}}})`.
 `args.skill` must point at a `SKILL.md` inside a **full copy** of the skill directory; a bare SKILL.md breaks its
 relative `references/` links.
 

@@ -12,16 +12,18 @@ output is `--json` (`gate` has none). Flags: `claude-code review <tool> -h`. Run
 | `diff` | #3 Surgical | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff |
 | `claude-code plan assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
 | `claude-code plan goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
-| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [-o FILE] [--comments --format tsv]` |
+| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [--json [-o FILE]] [--comments --format tsv]` |
 | `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
 | `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
 | `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]`; `--fail` rejects `--threshold` and `--json` |
 | `gate` | staged-change summary | `[--repo DIR]` |
+| `scope` | files a change touches, sized | `(--range R \| --paths p1,p2) [--caps] [--importers] [--format text\|json] [--repo DIR]` |
 
 ## What each reports
 
 - **complexity** — per-function cyclomatic complexity, length, nesting; per-file import count, class density,
-  premature ABC/Protocol, length. `PASS`/`WARN`/`FAIL`, 0–100 per file. Thresholds: `strict` (new code), `medium`
+  premature ABC/Protocol, length. Run verdict `PASS` (no findings) / `WARN` (average score ≥ 50) / `FAIL` (< 50); each
+  file gets a 0–100 score. Thresholds: `strict` (new code), `medium`
   (default), `relaxed` (legacy).
 - **diff** — whitespace-only, comment-only, docstring-addition and quote-style-swap lines; a noise ratio:
   `CLEAN` (<10%), `NOISY` (<30%), `VERY_NOISY`.
@@ -70,6 +72,7 @@ The gate is opt-in and not in the seeded `settings.json`; higher levels catch mo
   (or edits `settings.json`).
 - **Level 4:** parse the JSON verdict, e.g.
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`
-  (exits 1 when no file matches: skip on a diff with no source files) and
+  (exits 2 on an empty list or any non-source path: filter the list to supported extensions first and skip when it
+  is empty) and
   `claude-code review diff --diff origin/main...HEAD --json`. Fail on `FAIL` only or `WARN` too per team
   tolerance; a regulated repo also fails on CRITICAL/HIGH from `/security-review`.

@@ -16,8 +16,8 @@ An ambiguous requirement gets one silent interpretation; the damage stays invisi
 
 ## #2 Simplicity First
 
-Speculative generality: reading cost for flexibility that never pays off. Fix lane: `rules/standards/quality.md` →
-Simplify (with the built-in `/simplify`).
+Speculative generality: reading cost for flexibility that never pays off. Fix lane: `skills/simplify/SKILL.md` (the
+apply-gate behind it: `rules/standards/quality.md` → Simplify).
 
 - **A3. Factory for a single product** — `review complexity` → `premature-abstraction`, `class-density`
 - **A4. Error handling for impossible states** — `review complexity` → `cyclomatic-complexity`
@@ -38,8 +38,8 @@ Drive-by edits inflate the diff, bury the real change and hurt review and `git b
 
 - **A10. "Done" with no check** — `claude-code plan goals` → `none`. "Implemented the retry logic." **Fix:** "verify:
   kill the upstream mid-request; client retries 3× then surfaces a 503; `test_retry_exhausted` covers it."
-- **A11. Plan with no final verification** — `claude-code plan goals` → missing-final; units pass while the
-  integration is broken. **Fix:** a final step that runs the change on its real surface end-to-end.
+- **A11. Plan with no final verification** — `claude-code plan goals` → `has_final_verification: false`; units pass
+  while the integration is broken. **Fix:** a final step that runs the change on its real surface end-to-end.
 - **A12. Metric claim without a number** — `claude-code plan goals` → `vague`. "Optimized the query."
   **Fix:** "p95 1.8s → 0.3s on the 10k-row fixture; `bench_query` asserts < 0.5s."
 
