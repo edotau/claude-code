@@ -9,14 +9,11 @@ import (
 	"maps"
 	"os"
 	"os/exec"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -29,9 +26,9 @@ var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the repo's bank"},
-	{"review", "", "doctor + bank stats; --candidates adds the promotion procedure"},
+	{"review", "", "doctor + bank stats; --timeline lists recent entries"},
 	{"promote", "<id> --to <target>", "move one block to home, or print it for rules|skill"},
-	{"update", "", "save the live session or --transcript; else print the procedure"},
+	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
 }
 
@@ -40,8 +37,8 @@ var memoryPage = helptext.Page{
 	About: "Per-repo and home memory banks: session-start injects them, the Stop/SessionEnd\n" +
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, alias, import, revise, sandbox, migrate (off menu)\n" +
+	Hint: "plumbing: search, show, index, path, report, fmt, watch,\n" +
+		"          import, sandbox, migrate (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -56,17 +53,14 @@ func memoryCommandRows() [][2]string {
 
 // memoryPlumbing is the off-menu sub-verbs' {args, blurb} for their own -h pages.
 var memoryPlumbing = map[string][2]string{
-	"search":   {"<terms>", "rank blocks for terms, with scores"},
-	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
-	"index":    {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
-	"path":     {"[SUB] [NAME]", "print the bank dir, or its handoffs|reports|knowledge|worktrees path"},
-	"report":   {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
-	"digest":   {"", "write the bank digest"},
-	"fmt":      {"", "wrap the bank files"},
-	"timeline": {"", "recent bank entries and sessionHistory"},
-	"sandbox":  {"", "create a disposable memory config"},
-	"revise":   {"<old-id> --with <new-id>", "mark an entry replaced by a newer one"},
-	"migrate":  {"", "flatten the store into one directory (--dry-run previews, --revert undoes)"},
+	"search":  {"<terms>", "rank blocks for terms, with scores"},
+	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
+	"index":   {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
+	"path":    {"[SUB] [NAME]", "print the bank dir, or its handoffs|reports|knowledge|worktrees path"},
+	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
+	"fmt":     {"", "wrap the bank files"},
+	"sandbox": {"", "create a disposable memory config"},
+	"migrate": {"", "flatten the store into one directory (--dry-run previews, --revert undoes)"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -115,13 +109,18 @@ func cmdMemoryUpdate(args []string) int {
 	transcript := fs.String("transcript", "", "finished session's transcript")
 	cwd := fs.String("cwd", "", "bank's project root (default: session's, else cwd)")
 	session := fs.String("session", "", "finished session's id; result: update-result-<id>")
-	dryRun := fs.Bool("dry-run", false, "print the resolved transcript and session; update nothing")
+	dryRun := fs.Bool("dry-run", false, "preview the session or catch-up candidates; update nothing")
+	catchup := fs.Bool("catchup", false, "save finished sessions whose memory update was missed")
+	skip := fs.String("skip", "", "catch-up session id to leave alone")
 	historical := fs.Bool("historical", false, "older session: history and decisions only")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if fs.NArg() > 0 {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
+	}
+	if *catchup {
+		return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dryRun, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
 		DryRun: *dryRun, Historical: *historical, Run: ask.MemoryRunner(), Out: os.Stdout})
@@ -145,25 +144,6 @@ func cmdMemoryDream(args []string) int {
 	return 0
 }
 
-func cmdMemoryDigest(args []string) int {
-	fs, repo := memoryRepoFlagSet("digest")
-	if code, done := memoryParseNoArgs(fs, "digest", args); done {
-		return code
-	}
-	claudeBin, binErr := claude.ClaudeBinary()
-	if binErr != nil {
-		return helptext.Fail("memory digest: %v", binErr)
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	path, err := memory.DigestRepo(ctx, *repo, claudeBin)
-	if err != nil {
-		return helptext.Fail("memory digest: %v", err)
-	}
-	fmt.Println("wrote " + path)
-	return 0
-}
-
 func cmdMemoryWatch(args []string) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
 		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
@@ -179,17 +159,6 @@ func cmdMemoryWatch(args []string) int {
 		Idle: *idle, Owner: *owner, Stderr: os.Stderr})
 }
 
-func cmdMemoryCatchup(args []string) int {
-	fs := helptext.NewFlagSet("memory catchup", helptext.Page{Usage: "claude-code memory catchup [flags]",
-		About: "Session-start sweep: saves finished sessions whose memory update was missed."})
-	dry := fs.Bool("dry-run", false, "list the sessions it would save; write nothing")
-	skip := fs.String("skip", "", "session id to leave alone (the one that started the sweep)")
-	if code, done := memoryParseNoArgs(fs, "catchup", args); done {
-		return code
-	}
-	return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dry, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
-}
-
 // memorySubcommands dispatches both public verbs and the off-menu plumbing verbs.
 func memorySubcommands() map[string]func([]string) int {
 	return map[string]func([]string) int{
@@ -202,21 +171,16 @@ func memorySubcommands() map[string]func([]string) int {
 		"update":   cmdMemoryUpdate,
 		"dream":    cmdMemoryDream,
 		// private: plumbing
-		"search":   cmdMemorySearch,
-		"show":     cmdMemoryShow,
-		"index":    cmdMemoryIndex,
-		"path":     cmdMemoryPath,
-		"report":   cmdMemoryReport,
-		"digest":   cmdMemoryDigest,
-		"fmt":      cmdMemoryFmt,
-		"watch":    cmdMemoryWatch,
-		"catchup":  cmdMemoryCatchup,
-		"timeline": cmdMemoryTimeline,
-		"alias":    cmdMemoryAlias,
-		"import":   cmdMemoryImport,
-		"revise":   cmdMemoryRevise,
-		"sandbox":  cmdMemorySandbox,
-		"migrate":  cmdMemoryMigrate,
+		"search":  cmdMemorySearch,
+		"show":    cmdMemoryShow,
+		"index":   cmdMemoryIndex,
+		"path":    cmdMemoryPath,
+		"report":  cmdMemoryReport,
+		"fmt":     cmdMemoryFmt,
+		"watch":   cmdMemoryWatch,
+		"import":  cmdMemoryImport,
+		"sandbox": cmdMemorySandbox,
+		"migrate": cmdMemoryMigrate,
 	}
 }
 
@@ -242,26 +206,21 @@ func memorySpec() *helptext.Node {
 		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.ValuedFlag("type", memoryRememberTypes)}},
 		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
 		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
-			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates")}},
+			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n")}},
 		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets }), helptext.BoolFlag("dry-run")}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
-			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical")}},
-		"dream":    {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
-		"search":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
-		"show":     {},
-		"digest":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
-		"index":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
-		"path":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
-		"report":   {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.BankKeys)}},
-		"fmt":      {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
-		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
-		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
-		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("n")}},
-		"sandbox":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"migrate":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
-		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.BankKeys), helptext.BoolFlag("dry-run")}},
-		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
+		"dream":   {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
+		"search":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
+		"show":    {},
+		"index":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"path":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
+		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
+		"sandbox": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
+		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
@@ -378,32 +337,6 @@ func printMemorySearchHits(hits []memory.SearchHit) {
 		}
 		fmt.Printf("%5.2f  %-7s %-18s %s%s\n", h.Score, h.Bank, h.File, h.Title(), id)
 	}
-}
-
-func cmdMemoryRevise(args []string) int {
-	fs, repo := memoryRepoFlagSet("revise")
-	with := fs.String("with", "", "id of the newer entry that replaces <old-id>")
-	dryRun := fs.Bool("dry-run", false, "print what would change; write nothing")
-	ids, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if len(ids) != 1 || *with == "" {
-		return helptext.FailUsage("memory revise: give <old-id> --with <new-id> (usage: %s)", memorySubPage("revise").Usage)
-	}
-	_, _, err = memory.ResolveBank(*repo)
-	if err != nil {
-		return helptext.FailUsage("memory revise: %v", err)
-	}
-	out, err := memory.ReviseEntry(*repo, ids[0], *with, *dryRun)
-	if errors.Is(err, memory.ErrReviseInput) {
-		return helptext.FailUsage("%v", err)
-	}
-	if err != nil {
-		return helptext.Fail("memory revise: %v", err)
-	}
-	fmt.Print(out)
-	return 0
 }
 
 func cmdMemoryShow(args []string) int {
@@ -549,8 +482,16 @@ func cmdMemoryReview(args []string) int {
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
 	candidates := fs.Bool("candidates", false, "also print the promotion-ranking procedure")
+	timeline := fs.Bool("timeline", false, "print recent bank entries and sessionHistory")
+	n := fs.Int("n", 20, "max timeline entries")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
+	}
+	if *timeline {
+		if err := memory.TimelineReport(os.Stdout, *repo, *n); err != nil {
+			return helptext.Fail("memory review: %v", err)
+		}
+		return 0
 	}
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{Repo: *repo, StaleDays: *staleDays, Brief: *brief,
 		Notice: *notice, Candidates: *candidates})
@@ -581,18 +522,6 @@ func cmdMemoryMigrate(args []string) int {
 	return helptext.Fail("memory migrate: %v", err)
 }
 
-func cmdMemoryTimeline(args []string) int {
-	fs, repo := memoryRepoFlagSet("timeline")
-	n := fs.Int("n", 20, "max entries")
-	if code, done := memoryParseNoArgs(fs, "timeline", args); done {
-		return code
-	}
-	if err := memory.TimelineReport(os.Stdout, *repo, *n); err != nil {
-		return helptext.Fail("memory timeline: %v", err)
-	}
-	return 0
-}
-
 // cmdMemoryPromote moves a block to home, or prints a block and target for a human to apply (never writes them).
 func cmdMemoryPromote(args []string) int {
 	fs, repo := memoryRepoFlagSet("promote")
@@ -615,42 +544,6 @@ func cmdMemoryPromote(args []string) int {
 	}
 	fmt.Print(out)
 	return 0
-}
-
-var memoryAliasPage = helptext.Page{
-	Usage: "claude-code memory alias --repo CHECKOUT --into KEY [flags]",
-	About: "Record CHECKOUT as an alias of store KEY and fold any separate store into KEY.",
-}
-
-// cmdMemoryAlias is `memory alias`: --dry-run prints the plan and writes nothing.
-func cmdMemoryAlias(args []string) int {
-	fs := helptext.NewFlagSet("memory alias", memoryAliasPage)
-	repo := fs.String("repo", "", "second checkout of the repo to record as an alias")
-	into := fs.String("into", "", "store key that absorbs it (see the catalog)")
-	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if *repo == "" || *into == "" || fs.NArg() > 0 {
-		return helptext.Fail("memory alias: --repo and --into are required (usage: %s)", memoryAliasPage.Usage)
-	}
-	res, err := memory.AliasRepo(memory.AliasOptions{Repo: *repo, Into: *into, DryRun: *dryRun, Now: time.Now()})
-	if err != nil {
-		return helptext.Fail("memory alias: %v", err)
-	}
-	printAliasPlan(*dryRun, res.Lines)
-	return 0
-}
-
-func printAliasPlan(dryRun bool, lines []string) {
-	verb := "applied"
-	if dryRun {
-		verb = "plan (dry run, nothing written)"
-	}
-	fmt.Println(verb + ":")
-	for _, l := range lines {
-		fmt.Println("  " + l)
-	}
 }
 
 var memoryImportPage = helptext.Page{

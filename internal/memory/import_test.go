@@ -242,3 +242,38 @@ func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
 		}
 	}
 }
+
+type aliasEnv struct {
+	cfg, a, b, ka, kb string // config dir, checkouts, store keys
+	da, db            string // store dirs
+}
+
+// newAliasEnv builds an isolated config (itself a decoy git repo), a cut-over store and two repo stores.
+func newAliasEnv(t *testing.T) aliasEnv {
+	t.Helper()
+	cfg, _ := isolatedConfig(t)
+	gitRepo(t, filepath.Dir(cfg), filepath.Base(cfg))
+	initStore(t)
+	parent := canonTemp(t, t.TempDir())
+	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
+	var err error
+	if e.da, err = EnsureRepoDir(e.a); err != nil {
+		t.Fatal(err)
+	}
+	if e.db, err = EnsureRepoDir(e.b); err != nil {
+		t.Fatal(err)
+	}
+	e.ka, e.kb = filepath.Base(e.da), filepath.Base(e.db)
+	return e
+}
+
+func aliasRead(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }

@@ -228,7 +228,7 @@ var writeFlags = []string{"--out", "--output", "-o", "--write", "--fix", "--appl
 
 var readOnlyClaudeVerbs = map[string][]string{
 	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label"},
-	"memory":  {"recall", "search", "show", "path", "timeline"},
+	"memory":  {"recall", "search", "show", "path"},
 	"review":  {"simplify", "scope", "quality"},
 	"plan":    {"status", "assumptions", "goals"},
 	"models":  {"preflight"},

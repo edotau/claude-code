@@ -22,7 +22,7 @@ list means skip to Phase 5.
 
 ## Phase 3: Review recent sessions
 
-Run `claude-code memory timeline` for the recent update/dream trail:
+Run `claude-code memory review --timeline` for the recent update/dream trail:
 
 1. Extract recurring themes (patterns appearing in 2+ sessions)
 2. Extract corrections (things that failed and their fixes)
@@ -30,7 +30,7 @@ Run `claude-code memory timeline` for the recent update/dream trail:
 
 ## Phase 4: Consolidate native project memory
 
-For each `~/.claude/memory/<repo>/MEMORY.md` (index) + its topic files:
+For the shared `~/.claude/memory/MEMORY.md` (index) and each bank's topic files (`<key>--<topic>.md`; unprefixed = home):
 
 1. **Remove duplicates**: Entries/topic files that say the same thing in different words
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
@@ -54,7 +54,7 @@ Run `claude-code memory review` for cap/staleness findings, then:
 
 ## Phase 6: Cross-pollinate
 
-Using the changed `~/.claude/memory/<repo>/MEMORY.md` files already read (no subagent, no re-read):
+Using the changed `MEMORY.md` sections and topic files already read (no subagent, no re-read):
 
 1. Detect rules that recur across **3+ project memories** and are hard prohibitions.
 2. Only those rules qualify for promotion to `CLAUDE.md` → Hard rules (always-on tier) — and only if visible
@@ -107,4 +107,4 @@ After all updates:
 
 ## Integration
 
-- `claude-code memory timeline` — update/dream receipts + sessionHistory, the real recent-session trail
+- `claude-code memory review --timeline` — update/dream receipts + sessionHistory, the real recent-session trail

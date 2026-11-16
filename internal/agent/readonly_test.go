@@ -56,7 +56,7 @@ func TestReadOnlyTools(t *testing.T) {
 		{"claude-code memory recall x | head -5", true},
 		{"claude-code network websearch --query q", true},
 		{"claude-code agents ask x", false},
-		{"claude-code memory timeline --write", false},
+		{"claude-code memory update --catchup", false},
 		{"claude-code gateway --overlay {}", false},
 		{"go doc fmt.Println", true},
 		{"go list -f {{.Dir}} ./...", true},

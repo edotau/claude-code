@@ -73,7 +73,7 @@ func spawnDream(cwd string) bool {
 }
 
 func spawnCatchup(cwd, sessionID string) bool {
-	args := []string{"memory", "catchup", "--skip", sessionID}
+	args := []string{"memory", "update", "--catchup", "--skip", sessionID}
 	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
 }
 

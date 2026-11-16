@@ -13,12 +13,11 @@ import (
 const (
 	JobUpdate = "update"
 	JobDream  = "dream"
-	JobDigest = "digest"
 )
 
 // Scope is a memory job's agent-neutral tool boundary; internal/agent imports this package and converts it.
 type Scope struct {
-	Tools   bool     // false: the job's model call holds no tool at all (digest; also an unknown kind)
+	Tools   bool     // false: an unknown job kind holds no tools
 	Write   []string // path globs Edit and Write may touch
 	NoWrite []string // path globs never writable, even inside Write
 	Bash    []string // Bash patterns the job may run
@@ -34,7 +33,7 @@ func JobScope(kind, workdir string) Scope {
 	case JobDream:
 		// dream alone may promote a gated hard rule, which it then writes into CLAUDE.md by hand
 		s.Write = []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")}
-		s.Bash = []string{"claude-code memory timeline *", "claude-code memory review *", "claude-code memory index *",
+		s.Bash = []string{"claude-code memory review --timeline *", "claude-code memory review *", "claude-code memory index *",
 			"claude-code memory promote *"}
 	default:
 		return s

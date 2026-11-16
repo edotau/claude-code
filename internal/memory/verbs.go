@@ -301,15 +301,6 @@ func RunDream(o DreamRunOptions) error {
 	return dream(dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force})
 }
 
-// DigestRepo writes the repo bank's digest and returns its path.
-func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	_, b, err := ResolveBank(repo)
-	if err != nil {
-		return "", err
-	}
-	return digest(ctx, b.SubDir(""), claude)
-}
-
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
 func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	changed, err := formatBank(check)

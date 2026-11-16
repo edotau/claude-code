@@ -57,6 +57,8 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 		{memory.JobDream, "Write", filepath.Join(store, ".git", "config"), agent.Deny},
 		{memory.JobDream, "Write", filepath.Join(t.TempDir(), "x.md"), agent.Deny},
 		{memory.JobDream, "Bash", "claude-code memory promote --to claude-md x", agent.Allow},
+		{memory.JobDream, "Bash", "claude-code memory review --timeline --n 3", agent.Allow},
+		{memory.JobDream, "Bash", "claude-code memory review --brief", agent.Allow},
 		{memory.JobDream, "Bash", "rm -rf " + store, agent.Deny},
 		{memory.JobDream, "Bash", "echo x > " + other, agent.Deny},
 	}
@@ -68,9 +70,9 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	}
 }
 
-func TestJobScopeDigestAndUnknownHoldNoTools(t *testing.T) {
+func TestJobScopeUnknownHoldsNoTools(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, kind := range []string{memory.JobDigest, "nonsense", ""} {
+	for _, kind := range []string{"digest", "nonsense", ""} {
 		s := memory.JobScope(kind, t.TempDir())
 		if s.Tools || len(s.Write)+len(s.Bash)+len(s.CdDirs) != 0 {
 			t.Errorf("JobScope(%q) = %+v, want no tools and no grants", kind, s)

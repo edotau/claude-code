@@ -133,7 +133,7 @@ func writeKnowledgeRows(b *strings.Builder, banks []Bank) {
 		}
 	}
 	if len(rows) > 0 {
-		b.WriteString("\n## Knowledge (local, memory/<bank>/knowledge/)\n\n")
+		b.WriteString("\n## Knowledge (local, " + layoutLabel("memory/<bank>/knowledge/", "memory/knowledge/<key>--") + ")\n\n")
 		b.WriteString(strings.Join(rows, "\n"))
 		b.WriteString("\n")
 	}
@@ -151,7 +151,7 @@ func writeHomeRows(b *strings.Builder) error {
 			keep = append(keep, l)
 		}
 	}
-	b.WriteString("\n## Home (memory/home/)\n\n")
+	b.WriteString("\n## Home (" + layoutLabel("memory/home/", "unprefixed files") + ")\n\n")
 	for i, l := range keep {
 		if i >= catalogHomeMax {
 			fmt.Fprintf(b, "- … %d more (memory search)\n", len(keep)-i)
@@ -311,4 +311,12 @@ func repoEntryOf(b Bank) (repoEntry, bool) {
 		}
 	}
 	return repoEntry{}, false
+}
+
+// layoutLabel picks the catalog wording for the store's layout.
+func layoutLabel(legacy, flat string) string {
+	if storeFlat() {
+		return flat
+	}
+	return legacy
 }

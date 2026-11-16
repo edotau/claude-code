@@ -544,3 +544,26 @@ func pruneSeen(dir string) {
 		}
 	}
 }
+
+// RecallRepo is SearchRepo as recall serves it: replaced entries give way to their live replacement, top k kept.
+func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
+	if all {
+		files := allCorpusFiles()
+		segs := loadSegments(files, false)
+		hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
+		if k > 0 && len(hits) > k {
+			hits = hits[:k]
+		}
+		return hits, root(repo), nil
+	}
+	top, b, err := ResolveBank(repo)
+	if err != nil {
+		return nil, "", err
+	}
+	ranked, files, segs := searchBankTerms(b, q, contentTerms(q), 0)
+	hits := followReplaced(ranked, files, segs)
+	if k > 0 && len(hits) > k {
+		hits = hits[:k]
+	}
+	return hits, top, nil
+}

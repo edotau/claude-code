@@ -136,9 +136,6 @@ func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
 // harnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
 func harnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
 
-// archiveDir is dir's cold tier for rotated entries and prior revisions.
-func archiveDir(dir string) string { return filepath.Join(dir, "archive") }
-
 // HandoffsDir is dir's long-form session handoffs.
 func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
 

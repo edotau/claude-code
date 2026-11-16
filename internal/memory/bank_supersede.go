@@ -36,9 +36,6 @@ var reviseFiles = []string{"decisionLog.md", "conventions.md"}
 // reviseHopCap bounds how far recall follows a chain of replacements.
 const reviseHopCap = 8
 
-// ErrReviseInput marks a revise request the caller got wrong (unknown, equal or cyclic ids); the CLI exits 2.
-var ErrReviseInput = errors.New("memory revise")
-
 // bankDoc is one typed bank file or archive split into blocks, for edits that span entries.
 type bankDoc struct {
 	path   string
@@ -264,21 +261,6 @@ func reviseFilesOf(banks []Bank, archives bool) []string {
 		}
 	}
 	return out
-}
-
-// loadBankDocs reads every supersedable file of banks, archives included, for the revise verb.
-func loadBankDocs(banks ...Bank) ([]*bankDoc, error) {
-	var docs []*bankDoc
-	for _, p := range reviseFilesOf(banks, true) {
-		d, err := readDoc(p)
-		if err != nil {
-			return nil, err
-		}
-		if d != nil {
-			docs = append(docs, d)
-		}
-	}
-	return docs, nil
 }
 
 // missingRefs are the marker strings of ids some doc supersedes that no doc holds.
@@ -543,73 +525,6 @@ func reviseBankProblems(own Bank) []string {
 	return out
 }
 
-// ReviseEntry makes newID replace oldID: a `Supersedes` line in the new entry, a strike + pointer on the old one.
-func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
-	_, own, err := ResolveBank(root)
-	if err != nil {
-		return "", err
-	}
-	if oldID == newID {
-		return "", fmt.Errorf("%w: old and new id are both %s", ErrReviseInput, oldID)
-	}
-	var msg string
-	err = withReviseLocks(own, func() error {
-		if skipped, err := recoverEach(); err != nil || skipped != nil {
-			return errors.Join(err, skipped)
-		}
-		docs, err := loadBankDocs(bankSet(own)...)
-		if err != nil {
-			return err
-		}
-		msg, err = reviseDocs(docs, oldID, newID, dryRun)
-		return err
-	})
-	return msg, err
-}
-
-// withReviseLocks takes store, home and bank locks in the worker order, with the foreground wait.
-func withReviseLocks(own Bank, fn func() error) error {
-	banks := []Bank{own}
-	if !banks[0].Home() {
-		banks = append(banks, HomeBank())
-	}
-	var lock func(int) error
-	lock = func(i int) error {
-		if i == len(banks) {
-			return WithBankLock(BankLockWait, fn)
-		}
-		ran, err := paths.TryFileLock(lockPathOf(banks[i])+".lock", updateLockWait, func() error { return lock(i + 1) })
-		if err == nil && !ran {
-			return errors.New("memory revise: busy: another update or dream holds the bank; retry when it finishes")
-		}
-		return err
-	}
-	return lock(0)
-}
-
-// checkRevise refuses unknown ids and cycles, and returns the "nothing to do" note when oldID is already replaced.
-func checkRevise(docs []*bankDoc, loc map[string]blockLoc, oldID, newID string) (note string, err error) {
-	for _, id := range []string{oldID, newID} {
-		if _, ok := loc[id]; !ok {
-			return "", fmt.Errorf("%w: unknown id %s", ErrReviseInput, id)
-		}
-	}
-	ol := loc[oldID]
-	if !revisionVisible(docs[ol.doc].path, docs[loc[newID].doc].path) {
-		return "", fmt.Errorf("%w: a home entry may be replaced only by a home entry", ErrReviseInput)
-	}
-	if partlyStruck(textutil.FirstLine(docs[ol.doc].blocks[ol.idx])) {
-		return "", fmt.Errorf("%w: %s's title is only partly struck, so half of it is still valid; split the entry first", ErrReviseInput, oldID)
-	}
-	if by := replacedBy(docs[ol.doc].blocks[ol.idx]); by != "" {
-		return fmt.Sprintf("nothing to do: %s is already replaced by %s\n", oldID, by), nil
-	}
-	if reaches(reviseEdges(docs), oldID, newID) {
-		return "", fmt.Errorf("%w: %s already supersedes %s", ErrReviseInput, oldID, newID)
-	}
-	return "", nil
-}
-
 // revisionVisible preserves visibility wherever the old entry can be recalled.
 func revisionVisible(oldPath, newPath string) bool {
 	return !inHomeBank(oldPath) || inHomeBank(newPath)
@@ -621,53 +536,6 @@ func inHomeBank(path string) bool {
 		return BankOfFile(path).Home()
 	}
 	return strings.HasPrefix(path, HomeBank().SubDir("")+string(filepath.Separator))
-}
-
-// reviseDocs plans the revision of oldID by newID over docs and commits it unless dryRun.
-func reviseDocs(docs []*bankDoc, oldID, newID string, dryRun bool) (string, error) {
-	loc := locateBlocks(docs)
-	if note, err := checkRevise(docs, loc, oldID, newID); err != nil || note != "" {
-		return note, err
-	}
-	ol, nl := loc[oldID], loc[newID]
-	nd := docs[nl.doc]
-	if !slices.Contains(nd.refs[nl.idx], oldID) {
-		nd.setBlock(nl.idx, nd.blocks[nl.idx]+"\nSupersedes "+oldID+".")
-	}
-	applyRevisions(docs, []revision{{old: ol, oldID: oldID, newID: newID, newDate: blockDate(nd.blocks[nl.idx])}})
-	changes, err := dirtyChanges(docs)
-	if err != nil {
-		return "", err
-	}
-	rels := make([]string, len(changes))
-	for i, c := range changes {
-		rels[i] = "  " + c.Rel + "\n"
-	}
-	head := fmt.Sprintf("%s is replaced by %s in:\n%s", oldID, newID, strings.Join(rels, ""))
-	if dryRun {
-		return "dry run, nothing written: " + head, nil
-	}
-	rec, err := commitChangesLocked("memory: revise "+oldID+" replaced by "+newID, changes)
-	if err == nil && len(rec.Divergent) > 0 {
-		err = fmt.Errorf("%w: files changed underneath: %s", errDivergent, strings.Join(rec.Divergent, ", "))
-	}
-	return head, err
-}
-
-// dirtyChanges is the store-relative rewrite of every doc a revision touched.
-func dirtyChanges(docs []*bankDoc) ([]Change, error) {
-	var changes []Change
-	for _, d := range docs {
-		if !d.dirty {
-			continue
-		}
-		rel, err := filepath.Rel(StoreDir(), d.path)
-		if err != nil {
-			return nil, err
-		}
-		changes = append(changes, Change{Rel: filepath.ToSlash(rel), Data: []byte(d.text)})
-	}
-	return changes, nil
 }
 
 // chainEnd follows h's `Replaced by` pointers to the live entry, within reviseHopCap hops; false when it breaks.
@@ -749,27 +617,4 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 func (h SearchHit) withScore(from SearchHit) SearchHit {
 	h.Score, h.Matched = from.Score, from.Matched
 	return h
-}
-
-// RecallRepo is SearchRepo as recall serves it: replaced entries give way to their live replacement, top k kept.
-func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, error) {
-	if all {
-		files := allCorpusFiles()
-		segs := loadSegments(files, false)
-		hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
-		if k > 0 && len(hits) > k {
-			hits = hits[:k]
-		}
-		return hits, root(repo), nil
-	}
-	top, b, err := ResolveBank(repo)
-	if err != nil {
-		return nil, "", err
-	}
-	ranked, files, segs := searchBankTerms(b, q, contentTerms(q), 0)
-	hits := followReplaced(ranked, files, segs)
-	if k > 0 && len(hits) > k {
-		hits = hits[:k]
-	}
-	return hits, top, nil
 }
