@@ -65,6 +65,7 @@ type nukePlan struct {
 	Kid          string
 	VaultWarning string   // set when the vault couldn't be read; it is still archived opaquely, never named
 	UserContent  []string // untracked and uncommitted-tracked paths nuke archives before removing dir (+ the keep-memory set when kept)
+	Kept         []string // credential-shaped untracked files: never archived, left in place when dir is removed
 	Unpushed     bool     // commits on no remote exist: nuke archives them as a git bundle
 }
 
@@ -101,11 +102,11 @@ func planNuke(dir string, keepMemory bool) (nukePlan, error) {
 
 // planUserContent fills plan.UserContent and plan.Unpushed: everything nuke archives before it removes dir.
 func planUserContent(dir string, hasGit, keepMemory bool, plan *nukePlan) error {
-	userContent, err := userContentPaths(dir, hasGit)
+	userContent, kept, err := userContentPaths(dir, hasGit)
 	if err != nil {
 		return fmt.Errorf("scan user content: %w", err)
 	}
-	plan.UserContent = userContent
+	plan.UserContent, plan.Kept = userContent, kept
 	if hasGit {
 		if err := planGitWork(dir, plan); err != nil {
 			return fmt.Errorf("scan unsaved git work: %w", err)
@@ -169,7 +170,35 @@ func archiveAndRemove(opts nukeOpts, plan nukePlan) error {
 	fmt.Fprintf(opts.Out, "archived user content to %s\n", tarPath)
 	// The audit log lives inside Dir and is about to be removed with it: log to stderr instead.
 	fmt.Fprintf(os.Stderr, "claude-code: setup_nuke %s apply\n", opts.Dir)
-	return os.RemoveAll(opts.Dir)
+	if len(plan.Kept) == 0 {
+		return os.RemoveAll(opts.Dir)
+	}
+	keep := make([]string, len(plan.Kept))
+	for i, rel := range plan.Kept {
+		keep[i] = filepath.Join(opts.Dir, filepath.FromSlash(rel))
+	}
+	return removeExcept(opts.Dir, keep)
+}
+
+// removeExcept removes everything under dir except the keep paths and the directories that hold them.
+func removeExcept(dir string, keep []string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if !slices.ContainsFunc(keep, func(k string) bool { return paths.Within(k, p) }) {
+			if err := os.RemoveAll(p); err != nil {
+				return err
+			}
+		} else if e.IsDir() && !slices.Contains(keep, p) {
+			if err := removeExcept(p, keep); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func createBackupFile(home string) (string, *os.File, error) {
@@ -209,6 +238,12 @@ func printPlan(w io.Writer, plan nukePlan) {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
 	}
+	if len(plan.Kept) > 0 {
+		fmt.Fprintf(w, "credential-shaped untracked files left in place, not archived (%d files):\n", len(plan.Kept))
+		for _, p := range plan.Kept {
+			fmt.Fprintf(w, "  %s\n", p)
+		}
+	}
 }
 
 // classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or neither.
@@ -222,31 +257,37 @@ func classify(repo, name string) string {
 	return "untracked"
 }
 
-// userContentPaths lists the vault, settings.json, local settings, and untracked repo files nuke archives.
-func userContentPaths(dir string, hasGit bool) ([]string, error) {
-	var out []string
+// userContentPaths lists the files nuke archives, and the credential-shaped untracked ones it leaves in place.
+func userContentPaths(dir string, hasGit bool) (out, kept []string, err error) {
 	for _, rel := range []string{"state/vault.db", "settings.json", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			out = append(out, rel)
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("stat %s: %w", rel, err) // a dropped file would be deleted unarchived
+			return nil, nil, fmt.Errorf("stat %s: %w", rel, err) // a dropped file would be deleted unarchived
 		}
 	}
 	if !hasGit {
-		return out, nil
+		return out, nil, nil
 	}
 	rels, err := untrackedUnder(dir, ".") // every untracked, non-ignored file: the plan labels them untracked too
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out = append(out, slices.DeleteFunc(rels, func(r string) bool { // the vault, memory and plans have their own paths
-		return strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/")
-	})...)
+	for _, r := range rels {
+		switch {
+		case strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/"):
+			// the vault, memory and plans have their own paths
+		case credentialShaped(filepath.Join(dir, r)):
+			kept = append(kept, r)
+		default:
+			out = append(out, r)
+		}
+	}
 	ignored, err := ignoredUserContent(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(out, ignored...), nil
+	return append(out, ignored...), kept, nil
 }
 
 // userContentDirs are the user-authored trees whose git-ignored files nuke also archives before deleting them.

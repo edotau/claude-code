@@ -253,6 +253,40 @@ func TestNukeApplyArchivesVaultNeverPlaintextSecrets(t *testing.T) {
 	assertArchivedVault(t, entries["state/vault.db"], secretNames, id, kid)
 }
 
+// A credential-shaped untracked file is never archived and survives the nuke; its siblings are still removed.
+func TestNukeLeavesCredentialShapedUntrackedInPlace(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	secret := "sk-" + strings.Repeat("a", 24)
+	mustWrite(t, filepath.Join(dir, ".env"), "TOKEN=x\n")
+	mustWrite(t, filepath.Join(dir, "skills", "mine", "notes.txt"), "key "+secret+"\n")
+	var out bytes.Buffer
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	for _, rel := range []string{".env", "skills/mine/notes.txt"} {
+		if _, ok := entries[rel]; ok {
+			t.Errorf("tarball archived credential-shaped %s", rel)
+		}
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Errorf("%s must be left in place: %v", rel, err)
+		}
+		if !strings.Contains(out.String(), "  "+rel+"\n") {
+			t.Errorf("plan must name %s as left in place:\n%s", rel, out.String())
+		}
+	}
+	if _, ok := entries["skills/mine/SKILL.md"]; !ok {
+		t.Errorf("tarball missing skills/mine/SKILL.md: %v", tarNames(entries))
+	}
+	for _, rel := range []string{"skills/mine/SKILL.md", "CLAUDE.md", ".git", "state"} {
+		if _, err := os.Lstat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s should be removed, err=%v", rel, err)
+		}
+	}
+}
+
 // assertManifest checks the manifest names the secrets, carries the vault identity and never a secret value.
 func assertManifest(t *testing.T, raw []byte, id, kid string) (secretNames []string) {
 	t.Helper()
