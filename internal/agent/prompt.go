@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -115,8 +116,10 @@ func PromptTooLarge(n, limit int) error {
 	return fmt.Errorf("%w: %d bytes, over the %d limit", ErrPromptTooLarge, n, limit)
 }
 
-var contentPolicyRE = regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +
-	`responsible ai|violates (?:our|the) (?:usage|content) polic|request entity too large|payload too large`)
+var contentPolicyRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)content[ _-]?(?:policy|filter)|safety (?:system|filter|polic)|` +
+		`responsible ai|violates (?:our|the) (?:usage|content) polic|request entity too large|payload too large`)
+})
 
 // requestFault is true when the request itself is at fault (bad attach, 413, oversized prompt, policy refusal).
 func requestFault(err error) bool {
@@ -129,5 +132,5 @@ func requestFault(err error) bool {
 	if e, ok := errors.AsType[*retry.Error](err); ok && e.Status == 413 {
 		return true
 	}
-	return contentPolicyRE.MatchString(err.Error())
+	return contentPolicyRE().MatchString(err.Error())
 }

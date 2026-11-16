@@ -12,13 +12,14 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-var personaNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var personaNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`) })
 
 func personaName(p *Schema) string {
 	if p == nil {
@@ -47,7 +48,7 @@ func loadSchema(ref string) (*Schema, error) {
 	if p.Name == "" {
 		p.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
-	if !personaNameRE.MatchString(p.Name) {
+	if !personaNameRE().MatchString(p.Name) {
 		return nil, fmt.Errorf("persona %q: name %q is not a valid agent name", ref, p.Name)
 	}
 	if strings.TrimSpace(p.Prompt) == "" {
@@ -66,7 +67,7 @@ func schemaPath(ref string) (string, error) {
 	if strings.ContainsAny(ref, `/\`) || strings.HasSuffix(ref, ".md") {
 		return ref, nil
 	}
-	if !personaNameRE.MatchString(ref) {
+	if !personaNameRE().MatchString(ref) {
 		return "", fmt.Errorf("persona %q: not a valid agent name", ref)
 	}
 	return filepath.Join(paths.ConfigDir(), "agents", ref+".md"), nil
@@ -143,7 +144,7 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 		switch {
 		case slices.Contains(names, key):
 			return nil, fmt.Errorf("--agents: key %q is a roster agent name (%s)", key, strings.Join(names, "|"))
-		case !personaNameRE.MatchString(key):
+		case !personaNameRE().MatchString(key):
 			return nil, fmt.Errorf("--agents: key %q is not a valid agent name", key)
 		case strings.TrimSpace(d.Prompt) == "":
 			return nil, fmt.Errorf("--agents: %s has no prompt", key)

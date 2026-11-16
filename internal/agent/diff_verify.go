@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -121,7 +122,7 @@ func modelMismatch(rec Record) []string {
 	return []string{fmt.Sprintf("model: asked for %q, ran %q", m, rec.Model)}
 }
 
-var tokensRe = regexp.MustCompile(`tokens in=(\d+) out=(\d+)`)
+var tokensRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`tokens in=(\d+) out=(\d+)`) })
 
 // logTokens reads the last "tokens in=N out=M" line from the tail of the dispatch's job log.
 func logTokens(logPath string) *VerifyTokens {
@@ -136,7 +137,7 @@ func logTokens(logPath string) *VerifyTokens {
 	}
 	off := max(0, st.Size()-verifyTailBytes)
 	buf, _ := io.ReadAll(io.NewSectionReader(f, off, st.Size()-off))
-	all := tokensRe.FindAllSubmatch(buf, -1)
+	all := tokensRe().FindAllSubmatch(buf, -1)
 	if len(all) == 0 {
 		return nil
 	}

@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -99,10 +100,10 @@ func newID() string {
 // batchNow is the clock newID reads; a var so tests can force two batches onto one millisecond.
 var batchNow = time.Now
 
-var batchIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+var batchIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
 
 // planTaskRE is batchIDRE plus the space, so a plan heading such as "Phase 1.1" is a valid plan_task.
-var planTaskRE = regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`)
+var planTaskRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._ -]{1,64}$`) })
 
 // parseTask validates one line like the ask flags; on error the task keeps its id and agent.
 func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet bool, cwd string,
@@ -142,12 +143,12 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 // checkLineIDs refuses a malformed or already seen id and a malformed plan_task on line n.
 func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 	switch {
-	case !batchIDRE.MatchString(id):
-		return fmt.Errorf("line %d: id %q must match %s", n, id, batchIDRE)
+	case !batchIDRE().MatchString(id):
+		return fmt.Errorf("line %d: id %q must match %s", n, id, batchIDRE())
 	case seen[id]:
 		return fmt.Errorf("line %d: duplicate id %q", n, id)
-	case planTask != "" && !planTaskRE.MatchString(planTask):
-		return fmt.Errorf("line %d: plan_task %q must match %s", n, planTask, planTaskRE)
+	case planTask != "" && !planTaskRE().MatchString(planTask):
+		return fmt.Errorf("line %d: plan_task %q must match %s", n, planTask, planTaskRE())
 	}
 	return nil
 }
