@@ -251,8 +251,9 @@ func pinsOf(tx *vault.Tx, id string) ([]string, error) {
 	}
 	var out []string
 	for n, r := range recs {
-		if r.Profile == id {
-			out = append(out, "agent "+n)
+		_, fields := repointRecord(r, id, "")
+		for _, f := range fields {
+			out = append(out, "agent "+n+f)
 		}
 	}
 	for k, v := range tx.All(vault.Pins) {
@@ -324,14 +325,13 @@ func repoint(tx *vault.Tx, from, to string) error {
 	if err != nil {
 		return err
 	}
-	next := maps.Clone(recs)
+	next, changed := maps.Clone(recs), false
 	for n, r := range recs {
-		if r.Profile == from {
-			r.Profile = to
-			next[n] = r
+		if moved, fields := repointRecord(r, from, to); len(fields) > 0 {
+			next[n], changed = moved, true
 		}
 	}
-	if len(next) > 0 && !maps.EqualFunc(recs, next, func(a, b vault.AgentRecord) bool { return a.Profile == b.Profile }) {
+	if changed {
 		if err := tx.PutAgentRecords(next); err != nil {
 			return err
 		}
@@ -344,6 +344,31 @@ func repoint(tx *vault.Tx, from, to string) error {
 		}
 	}
 	return nil
+}
+
+// repointRecord moves r's Profile, Fallback and the profile head of Model and Aliases from -> to; fields names each.
+func repointRecord(r vault.AgentRecord, from, to string) (vault.AgentRecord, []string) {
+	var fields []string
+	spec := func(s, field string) string {
+		if head, rest, ok := strings.Cut(s, ":"); ok && head == from {
+			fields = append(fields, field)
+			return to + ":" + rest
+		}
+		return s
+	}
+	if r.Profile == from {
+		r.Profile, fields = to, append(fields, "")
+	}
+	if r.Fallback == from {
+		r.Fallback, fields = to, append(fields, " fallback")
+	}
+	r.Model = spec(r.Model, " model")
+	aliases := maps.Clone(r.Aliases)
+	for _, a := range slices.Sorted(maps.Keys(r.Aliases)) {
+		aliases[a] = spec(r.Aliases[a], " alias "+a)
+	}
+	r.Aliases = aliases
+	return r, fields
 }
 
 // legacyFoldKey loads the master key only when a folded row holds a secret to move or compare.

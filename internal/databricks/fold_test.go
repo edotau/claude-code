@@ -146,6 +146,9 @@ func seedFoldReference(t *testing.T, dir, kind string) {
 		switch kind {
 		case "agent":
 			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{"profile":"`+old+`"}}`)
+		case "agent-refs":
+			return tx.Put(vault.Overlay, vault.AgentRecordsKey,
+				`{"claude":{"fallback":"`+old+`","model":"`+old+`:m1","aliases":{"opus":"`+old+`:m2"}}}`)
 		case "alias":
 			return tx.Put(vault.Overlay, "aliases", `{"dev":"`+old+`"}`)
 		case "pin":
@@ -162,7 +165,7 @@ func TestImportFoldReferenceVeto(t *testing.T) {
 	for _, c := range []struct {
 		kind   string
 		folded bool
-	}{{"agent", true}, {"pin", true}, {"alias", false}, {"overlay", false}, {"settings", false}} {
+	}{{"agent", true}, {"agent-refs", true}, {"pin", true}, {"alias", false}, {"overlay", false}, {"settings", false}} {
 		t.Run(c.kind, func(t *testing.T) {
 			dir := vaulttest.UseFreshKey(t)
 			seedLegacyRows(t)
@@ -186,6 +189,10 @@ func assertFoldRepoint(t *testing.T, kind string, folded bool, out string) {
 	}
 	if kind == "agent" && providers.AgentRecord("claude").Profile != "dev" {
 		t.Fatalf("agent pin = %q, want dev", providers.AgentRecord("claude").Profile)
+	}
+	if r := providers.AgentRecord("claude"); kind == "agent-refs" &&
+		(r.Fallback != "dev" || r.Model != "dev:m1" || r.Aliases["opus"] != "dev:m2" || !strings.Contains(out, "agent claude fallback")) {
+		t.Fatalf("agent refs not re-pointed: %+v\n%s", r, out)
 	}
 	if kind == "pin" {
 		var v string

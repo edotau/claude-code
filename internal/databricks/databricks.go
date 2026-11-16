@@ -1,4 +1,4 @@
-// Package databricks launches Claude Code on Databricks; also check, login, token, import, export, config, rescue.
+// Package databricks runs Claude on Databricks, plus check|login|token|import|export|config|rescue|identity|open-url.
 package databricks
 
 import (
@@ -205,7 +205,7 @@ func defaultModel(reg *providers.Registry, profile string) string {
 // errNoProfile is what a verb reports when resolveProfile finds no Databricks profile to default to.
 var errNoProfile = errors.New("no Databricks profile; import ~/.databrickscfg with `claude-code databricks import --apply`, or pass --profile")
 
-// resolveProfile is name, else the session, last or recorded claude profile (if Databricks), else the first one.
+// resolveProfile is name, else the session or recorded claude profile (if Databricks), else the first one.
 func resolveProfile(ctx context.Context, reg *providers.Registry, name string) string {
 	if name != "" || reg == nil {
 		return name

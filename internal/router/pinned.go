@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -286,12 +287,22 @@ func DiscoveryPool() []string {
 // poolCache holds the vault's Discovery pool overlay per vault.db stamp.
 var poolCache paths.StampCache[[]string]
 
+// warnedPool limits the unusable-overlay warning to one per process.
+var warnedPool sync.Once
+
 func vaultDiscoveryPool() ([]string, bool) {
 	pool, err := poolCache.Get(vault.Path(), readPoolOverlay)
+	if err != nil {
+		warnPool(err)
+	}
 	if err != nil || len(pool) == 0 {
 		return nil, false
 	}
 	return slices.Clone(pool), true
+}
+
+func warnPool(err error) {
+	warnedPool.Do(func() { fmt.Fprintf(os.Stderr, "warning: %v; using the built-in discovery pool\n", err) })
 }
 
 // readPoolOverlay decodes the vault's Discovery pool overlay; nil when unset or invalid, an error on a failed read.
@@ -302,8 +313,9 @@ func readPoolOverlay() ([]string, error) {
 		if !ok || raw == "" {
 			return nil
 		}
-		if json.Unmarshal([]byte(raw), &out) != nil {
+		if err := json.Unmarshal([]byte(raw), &out); err != nil {
 			out = nil
+			warnPool(fmt.Errorf("vault overlay %s is not a JSON list: %w", vault.PoolKey, err))
 		}
 		return nil
 	})

@@ -18,6 +18,7 @@ import (
 	"net/http/httptrace"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -337,6 +338,11 @@ type LoginOptions struct {
 
 type loopback struct{ ls []net.Listener }
 
+// addrInUse matches EADDRINUSE and Windows' WSAEADDRINUSE (10048), which syscall.EADDRINUSE does not match there.
+func addrInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || (runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048)))
+}
+
 // listenPorts binds 127.0.0.1 (and ::1 if present) on the first free port in first..last; first == last is exact.
 func listenPorts(first, last int) (*loopback, int, error) {
 	var lc net.ListenConfig
@@ -344,7 +350,7 @@ func listenPorts(first, last int) (*loopback, int, error) {
 	for port := first; port <= last; port++ {
 		v4, err := lc.Listen(context.Background(), "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
-			if !errors.Is(err, syscall.EADDRINUSE) {
+			if !addrInUse(err) {
 				other = err
 			}
 			continue
@@ -354,7 +360,7 @@ func listenPorts(first, last int) (*loopback, int, error) {
 		switch {
 		case err == nil:
 			lb.ls = append(lb.ls, v6)
-		case errors.Is(err, syscall.EADDRINUSE):
+		case addrInUse(err):
 			_ = v4.Close()
 			continue
 		}

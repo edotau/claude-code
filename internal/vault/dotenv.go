@@ -118,7 +118,9 @@ func AppendDotenv(path string, pairs []Pair) (added int, skipped []string, err e
 	if aerr != nil {
 		return 0, nil, aerr
 	}
-	lockPath := filepath.Join(paths.ConfigDir(), "state", "dotenv-"+textutil.SHA256Hex([]byte(abs))[:16])
+	// Resolve the parent so /tmp/x/.env and /private/tmp/x/.env share one lock; the file itself is never a link.
+	canon := filepath.Join(paths.CanonDeep(filepath.Dir(abs)), filepath.Base(abs))
+	lockPath := filepath.Join(paths.ConfigDir(), "state", "dotenv-"+textutil.SHA256Hex([]byte(canon))[:16])
 	err = paths.WithFileLock(lockPath, func() (lerr error) {
 		added, skipped, lerr = appendDotenvLocked(path, pairs)
 		return lerr
