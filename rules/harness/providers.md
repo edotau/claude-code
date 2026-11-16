@@ -35,6 +35,7 @@ paths:
 - **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`), `<profile>:` and
   provider-type model prefixes, `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
   records all normalise into one overlay; launch, preflight, labels and `ran on` read only it. Print it:
+  (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
   `claude-code gateway resolve <agent> --model m [--profile p] [--overlay '{...}']
   [--all-profiles [--live]] --format json`.
 - **Profile order:** explicit `<profile>:` or overlay `profile` > unique provider-type prefix > `databricks:<m>` or
