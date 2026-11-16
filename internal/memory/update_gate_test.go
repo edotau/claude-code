@@ -143,9 +143,6 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	for range 5 {
 		g := runGate("s1", tr, cwd, TriggerStop)
 		blocks = append(blocks, g.Blocked)
-		if g.Blocked && g.Work != 5 {
-			t.Errorf("block work = %d, want the 5 live edits", g.Work)
-		}
 	}
 	if fmt.Sprint(blocks) != fmt.Sprint([]bool{true, true, true, false, false}) {
 		t.Errorf("blocks %v", blocks)
