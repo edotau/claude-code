@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -78,14 +79,16 @@ const (
 	dreamPromptFormat  = dreamPromptOpen + " The local bank is %s; the memory root %s holds the home bank and every repo store. "
 )
 
-var memoryJobPatterns = []*regexp.Regexp{workerPromptPattern(updatePromptFormat), workerPromptPattern(dreamPromptFormat)}
+var memoryJobPatterns = sync.OnceValue(func() []*regexp.Regexp {
+	return []*regexp.Regexp{workerPromptPattern(updatePromptFormat), workerPromptPattern(dreamPromptFormat)}
+})
 
 func workerPromptPattern(format string) *regexp.Regexp {
 	return regexp.MustCompile("^" + strings.ReplaceAll(regexp.QuoteMeta(format), "%s", `[^\r\n]+?`))
 }
 
 func memoryJobPrompt(s string) bool {
-	return slices.ContainsFunc(memoryJobPatterns, func(re *regexp.Regexp) bool { return re.MatchString(s) })
+	return slices.ContainsFunc(memoryJobPatterns(), func(re *regexp.Regexp) bool { return re.MatchString(s) })
 }
 
 func transcriptPrompt(content json.RawMessage) string {

@@ -83,15 +83,12 @@ func (r route) String() string {
 	return strings.Join(append(append(append([]string(nil), r.env...), r.bin), r.args...), " ")
 }
 
-// depRoutes lists d's no-root installers in preference order; Windows has none (report only).
+// depRoutes lists d's no-root installers in preference order, pinned routes before brew; Windows has none.
 func depRoutes(d dep) []route {
 	if goosOverride == "windows" {
 		return nil
 	}
 	var rs []route
-	if d.Brew != "" {
-		rs = append(rs, route{bin: "brew", args: []string{"install", d.Brew}})
-	}
 	local := localBinDir()
 	if d.Go != "" && local != "" {
 		rs = append(rs, route{bin: "go", args: []string{"install", d.Go}, env: []string{"GOBIN=" + local}})
@@ -102,6 +99,9 @@ func depRoutes(d dep) []route {
 	}
 	if d.Py != "" {
 		rs = append(rs, route{bin: "uv", args: []string{"tool", "install", d.Py}}, route{bin: "pipx", args: []string{"install", d.Py}})
+	}
+	if d.Brew != "" { // floats to the current formula, so it is the fallback behind every pinned route
+		rs = append(rs, route{bin: "brew", args: []string{"install", d.Brew}})
 	}
 	return rs
 }
@@ -195,6 +195,14 @@ func lastLine(out string) string {
 		return " (" + last + ")"
 	}
 	return ""
+}
+
+// InstallHostDeps prints one line per host tool and, unless dryRun, installs the missing ones.
+func InstallHostDeps(ctx context.Context, w io.Writer, dryRun bool) {
+	depHeader(w, false)
+	for _, d := range deps {
+		installDep(ctx, w, d, dryRun)
+	}
 }
 
 func depLine(w io.Writer, d dep, msg string) { fmt.Fprintf(w, "  %-14s %s\n", d.Name, msg) }

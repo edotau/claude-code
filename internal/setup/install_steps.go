@@ -43,6 +43,9 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	if err != nil {
 		return err
 	}
+	if dryRun {
+		tools.InstallHostDeps(context.Background(), w, true)
+	}
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
 	installClipBridge(w, target, dryRun)
@@ -252,29 +255,14 @@ func agentsSyncCompact(w io.Writer) {
 
 // agentConfigsSummary re-renders the agent configs and returns a one-token summary; failure only warns.
 func agentConfigsSummary(w io.Writer) string {
-	var changed []string
-	for _, a := range agent.DefaultAgents {
-		var buf bytes.Buffer
-		o := agentconfig.RenderOptions{Agents: []string{a}, Check: true, Out: &buf}
-		drift, err := agent.RenderConfigs(o)
-		if err != nil {
-			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
-			continue
-		}
-		if strings.Contains(buf.String(), "skipping agent configs") {
-			return "configs skipped"
-		}
-		if !drift {
-			continue
-		}
-		o.Check = false
-		if _, err := agent.RenderConfigs(o); err != nil {
-			fmt.Fprintf(w, "agents   config render skip (%s)  %v\n", a, err)
-			continue
-		}
-		changed = append(changed, a)
+	changed, skipped, err := agent.SyncConfigs(agentconfig.RenderOptions{})
+	if err != nil {
+		fmt.Fprintf(w, "agents   config render skip  %v\n", err)
 	}
-	if len(changed) == 0 {
+	switch {
+	case skipped:
+		return "configs skipped"
+	case len(changed) == 0:
 		return "configs unchanged"
 	}
 	return "configs rendered: " + strings.Join(changed, " ")
