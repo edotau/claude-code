@@ -862,3 +862,34 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 		}
 	}
 }
+
+func TestFableAliasEnvOnDatabricks(t *testing.T) {
+	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
+		"models": {"opus": "databricks-claude-opus-5-5"}}},
+		"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic", "auth": {"type": "none"},
+		"models": {"opus": "claude-opus-4-6"}}}}}`)
+	for _, c := range []struct{ profile, want string }{
+		{"dbx", "databricks-claude-opus-5-5"},
+		{"gw", ""},
+	} {
+		sel, err := providers.Select(mustRegistry(t), c.profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan := agent.Plan{Set: map[string]string{}}
+		setModelAliasEnv(&plan, sel)
+		if got := plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"]; got != c.want {
+			t.Errorf("%s: ANTHROPIC_DEFAULT_FABLE_MODEL = %q, want %q", c.profile, got, c.want)
+		}
+	}
+}
+
+func mustRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}

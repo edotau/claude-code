@@ -229,3 +229,23 @@ func TestWantsHelp(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractBool(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		args []string
+		want bool
+		rest []string
+	}{
+		{"bare", []string{"a", "--x", "b"}, true, []string{"a", "b"}},
+		{"explicit true", []string{"--x=true"}, true, []string{}},
+		{"explicit false", []string{"--x", "--x=false"}, false, []string{}},
+		{"stops at --", []string{"a", "--", "--x"}, false, []string{"a", "--", "--x"}},
+		{"bad value stays", []string{"--x=maybe", "c"}, false, []string{"--x=maybe", "c"}},
+	} {
+		got, rest := ExtractBool(c.args, "x")
+		if got != c.want || !slices.Equal(rest, c.rest) {
+			t.Errorf("%s: ExtractBool(%q) = %v, %q; want %v, %q", c.name, c.args, got, rest, c.want, c.rest)
+		}
+	}
+}

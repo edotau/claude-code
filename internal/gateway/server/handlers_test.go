@@ -631,3 +631,42 @@ func TestScopedAuthDeadProviderReturnsForbidden(t *testing.T) {
 		t.Fatalf("scoped request escaped to upstreams: up1=%d up2=%d", up1.hits.Load(), up2.hits.Load())
 	}
 }
+
+func TestUnservedModelErrorNamesIdsAndKeepsStatus(t *testing.T) {
+	useGate(t)
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound} {
+		up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+			w.WriteHeader(status)
+			io.WriteString(w, `{"message":"Endpoint databricks-claude-opus-5-5 does not exist"}`)
+		})
+		t.Setenv("DEV_TOKEN", "dev-workspace-token")
+		srv := setupRouter(t, clientTokenOverlay(up.URL), nil)
+		resp := post(t, srv.URL+"/p/dev/v1/messages", `{"model":"claude-opus-5-5","max_tokens":5}`, nil)
+		got := body(t, resp)
+		if resp.StatusCode != status || !strings.Contains(got, `does not serve model \"claude-opus-5-5\"`) ||
+			!strings.Contains(got, "tried endpoint databricks-claude-opus-5-5") {
+			t.Errorf("upstream %d: got %d %s, want the same status naming both ids", status, resp.StatusCode, got)
+		}
+	}
+}
+
+func TestUnservedOnlyDatabricksMissingEndpoint(t *testing.T) {
+	dbx := &providers.Provider{Preset: providers.PresetDatabricks}
+	for _, c := range []struct {
+		p      *providers.Provider
+		status int
+		body   string
+		want   bool
+	}{
+		{dbx, http.StatusNotFound, "Endpoint does not exist", true},
+		{dbx, http.StatusBadRequest, "Passthrough is not supported for this model", true},
+		{dbx, http.StatusBadRequest, "invalid request", false},
+		{dbx, http.StatusInternalServerError, "does not exist", false},
+		{&providers.Provider{}, http.StatusNotFound, "does not exist", false},
+	} {
+		resp := &http.Response{StatusCode: c.status, Body: io.NopCloser(strings.NewReader(c.body))}
+		if got := unserved(resp, c.p); got != c.want {
+			t.Errorf("unserved(%d %q, preset %q) = %v, want %v", c.status, c.body, c.p.Preset, got, c.want)
+		}
+	}
+}
