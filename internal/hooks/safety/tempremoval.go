@@ -18,7 +18,8 @@ var symlinkMaker = regexp.MustCompile(`(^|[^[:alnum:]_])ln\s|symlink`)
 // darwinUserTemp is the per-user temp folder on macOS (what TMPDIR names), in its resolved /private form.
 var darwinUserTemp = regexp.MustCompile(`^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)`)
 
-// removalAllowed: every removed path is a literal temp path outside the config dir and home; truncate and ln void it.
+// removalAllowed reports whether every path cmd removes is a literal temp path outside the live config dir and home;
+// truncate follows a final symlink and ln can aim a temp path at the real tree, so either one voids the allowance.
 func removalAllowed(cmd, cwd string) bool {
 	if strings.Contains(cmd, "truncate") || symlinkMaker.MatchString(cmd) {
 		return false
@@ -40,7 +41,8 @@ func tempRemovable(p string) bool {
 	return underTemp(target)
 }
 
-// liveRoots are the trees a removal must never reach even under a temp root: config dir, ~/.claude and home, resolved.
+// liveRoots are the trees a removal must never reach even when they sit under a temp root: the config dir, ~/.claude
+// and the home directory, each symlink-resolved.
 func liveRoots() []string {
 	roots := []string{core.CanonPath(paths.ConfigDir())}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {

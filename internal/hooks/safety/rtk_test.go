@@ -98,7 +98,8 @@ func TestRTKPreservesOtherInputKeys(t *testing.T) {
 	}
 }
 
-// The guard's point: this harness's hooks parse porcelain/JSON output, and compressing it would corrupt every parser.
+// The whole point of the guard: this harness's own hooks and workflows parse porcelain/JSON output.
+// Compressing it would silently corrupt every parser downstream.
 func TestRTKNeverWrapsMachineReadableOutput(t *testing.T) {
 	hosttest.FakeRTK(t)
 	for _, cmd := range []string{
@@ -117,7 +118,9 @@ func TestRTKNeverWrapsMachineReadableOutput(t *testing.T) {
 	}
 }
 
-// The flag list cannot catch `git rev-parse HEAD`: callers parse its one line verbatim, so the subcommand decides.
+// The flag list cannot catch these: `git rev-parse HEAD` carries no machine-readable flag, yet its
+// one line is parsed verbatim by callers. Compressing a VALUE is the same corruption as compressing
+// porcelain — the subcommand, not a flag, is what identifies it.
 func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 	hosttest.FakeRTK(t)
 	for _, cmd := range []string{
@@ -131,7 +134,9 @@ func TestRTKNeverWrapsValueProducingSubcommands(t *testing.T) {
 		"git show-ref refs/heads/master",
 		"git cat-file -p HEAD",
 		"git branch --show-current",
-		// Global options precede the subcommand; classifying on fields[1] alone let their values reach the compressor.
+		// Global options precede the subcommand. Classifying on fields[1] alone missed every one of
+		// these, so their values reached the compressor — the exact corruption this guard exists to
+		// prevent, and both forms appear in the harness's own scripts and hooks.
 		"git -C /repo rev-parse HEAD",
 		"git --no-pager config --get user.email",
 		"git -c core.pager=cat rev-parse --abbrev-ref HEAD",
@@ -158,7 +163,8 @@ func TestRTKNeverWrapsGoVet(t *testing.T) {
 	}
 }
 
-// An unrecognized global flag makes gitRTKSubcommand return "" (fail closed); rtkVetoed must skip wrapping, not wrap.
+// An unrecognized global flag makes gitRTKSubcommand return "" (documented "fail closed"); rtkVetoed
+// must treat that the same as a known value subcommand and skip wrapping, not fall through to wrap.
 func TestRTKNeverWrapsUnrecognizedGlobalFlag(t *testing.T) {
 	hosttest.FakeRTK(t)
 	for _, cmd := range []string{
@@ -342,7 +348,8 @@ func TestRTKChainParsingUsesShellHelpers(t *testing.T) {
 	requireRTKWrapped(t, "quoted ; in echo", quoted, main, bin+" "+quoted)
 }
 
-// The safety gate must NOT rewrite the command even with rtk available; rewriting is the rtk group's job afterwards.
+// The safety gate judges safety and nothing else: with rtk available it must NOT rewrite the
+// command — rewriting is the rtk group's job, in a separate process after the gate.
 func TestRtkSplitSafetyScanNeverRewrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	bin := hosttest.FakeRTK(t)

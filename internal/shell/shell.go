@@ -147,6 +147,7 @@ func Tokens(seg string) []string {
 	return trimGroupOpen(out)
 }
 
+// lineContinuation reports a backslash-newline at seg[i] outside single quotes.
 func lineContinuation(seg string, i int, quote byte) bool {
 	return seg[i] == '\\' && quote != '\'' && i+1 < len(seg) && seg[i+1] == '\n'
 }
@@ -189,6 +190,7 @@ func braceExpansionEnd(seg string, i int) int {
 	return -1
 }
 
+// braceAt reports a `{` at seg[i].
 func braceAt(seg string, i int) bool { return i < len(seg) && seg[i] == '{' }
 
 // quotedEnd is the index of the quote closing the one opened at seg[i], or -1 when unterminated.
@@ -272,6 +274,7 @@ func quotedStep(s string, i int, quote byte) (int, byte) {
 	return i, quote
 }
 
+// ansiQuote is the quote state of an open ANSI-C `$'…'` string.
 const ansiQuote = 1
 
 // dqEscapable are the bytes a backslash escapes inside POSIX double quotes; elsewhere it is literal.
@@ -322,6 +325,7 @@ func escapedAt(s string, i int, quote byte) bool {
 	return s[i] == '\\' && i+1 < len(s) && (quote == 0 || dqEscapable(s[i+1]))
 }
 
+// toggleDoubleQuote opens a double quote outside quotes and closes an open one.
 func toggleDoubleQuote(quote byte) byte {
 	if quote == '"' {
 		return 0
@@ -426,6 +430,7 @@ var wrapperValueFlags = map[string]map[string]bool{
 // wrapperOperands are the positional operands a wrapper takes before its command (timeout's duration, chrt's priority).
 var wrapperOperands = map[string]bool{"timeout": true, "chrt": true}
 
+// wrapperNames are the prefix wrappers Unwrap sees through.
 var wrapperNames = map[string]bool{"env": true, "sudo": true, "nice": true, "nohup": true, "command": true,
 	"exec": true, "time": true, "timeout": true, "setsid": true, "stdbuf": true, "ionice": true, "chrt": true}
 
@@ -501,6 +506,7 @@ func NestedCommand(toks []string) (string, bool) {
 	return nestedOf(rest)
 }
 
+// nestedOf is NestedCommand for tokens whose wrappers are already dropped.
 func nestedOf(toks []string) (string, bool) {
 	if len(toks) == 0 {
 		return "", false

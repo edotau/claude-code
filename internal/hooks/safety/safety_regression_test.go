@@ -209,7 +209,7 @@ func treeGitWrapperCases(d treeGitDirs) []treeGitCase {
 		// A backslash is literal inside single quotes, so this is one segment ending in `git stash`.
 		{`bash -c 'echo \"x\"; git stash'`, harness, core.Ask, ""},
 		// Escaped quotes around an ordinary argument must not be mistaken for a nested wrapper.
-		{`git commit -m "feat: say \"hi\""`, harness, core.Allow, ""},
+		{`git commit -m "say \"hi\""`, harness, core.Allow, ""},
 		{`bash -c "cd /tmp && git stash"`, harness, core.Allow, ""},
 		{`FOO=1 make test`, harness, core.Allow, ""},
 		// --login is a long flag distinct from -c; must not block -lc's -c recognition on this wrapper.
@@ -244,7 +244,8 @@ func treeGitSubshellCases(d treeGitDirs) []treeGitCase {
 func treeGitSubstitutionCases(d treeGitDirs) []treeGitCase {
 	harness, elsewhere := d.harness, d.elsewhere
 	return []treeGitCase{
-		// Command substitutions are checked as nested commands with separate cd tracking.
+		// Command substitutions: `$(...)` and backtick spans are pulled out and checked as their own nested
+		// command with independent cd tracking, masked from the outer segment so neighboring tokens don't glue.
 		{"`cd ~/.claude && git stash`", harness, core.Ask, ""},
 		{"`cd /tmp && git stash`", harness, core.Allow, ""},
 		{"$(cd /tmp && git stash)", harness, core.Allow, ""},
@@ -418,7 +419,7 @@ func TestSafetyScanHardeningForcePush(t *testing.T) {
 		{"no force on main", onMain, `git push origin`, core.Allow},
 		{"plain push on main", onMain, `git push`, core.Allow},
 		{"not a repo", t.TempDir(), `git push -f`, core.Allow},
-		{"message mentioning it", onMain, `git commit -m "docs: git push -f is banned"`, core.Allow},
+		{"message mentioning it", onMain, `git commit -m "git push -f is banned"`, core.Allow},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -434,11 +435,11 @@ func TestSafetyScanHardeningInertTextDoesNotAsk(t *testing.T) {
 	hosttest.TierHarness(t)
 	cases := []hardeningCase{
 		{"sudo in a commit message", `git commit -m "docs: sudo needed for install"`, core.Allow},
-		{"force push in a commit message", `git commit -m "docs: git push --force origin main is banned"`, core.Allow},
+		{"force push in a commit message", `git commit -m "note: git push --force origin main is banned"`, core.Allow},
 		{"sudo in echo", `echo "use sudo apt"`, core.Allow},
-		{"rm .git in a commit message", `git commit -m "docs: never rm -rf .git"`, core.Allow},
+		{"rm .git in a commit message", `git commit -m "never rm -rf .git"`, core.Allow},
 		{"real sudo", `sudo apt install x`, core.Ask},
-		{"sudo after a commit", `git commit -m "fix: x" && sudo make install`, core.Ask},
+		{"sudo after a commit", `git commit -m x && sudo make install`, core.Ask},
 		{"sudo in a substitution inside echo", `echo "$(sudo id)"`, core.Ask},
 		{"real force push", `git push -f origin main`, core.Ask},
 		{"sudo in a data-sink heredoc stays checked", "cat <<'EOF' > n.md\nsudo make install\nEOF", core.Ask},
