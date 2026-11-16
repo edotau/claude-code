@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 type roCase struct {
 	cmd  string
@@ -154,6 +157,46 @@ func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 	}
 	if got := (Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: ReadOnlyDeny}).Decide("Bash", "rg foo"); got != Allow {
 		t.Errorf("rg with no Read deny = %v, want Allow", got)
+	}
+}
+
+// A Read deny refuses only segments that may read it: cd elsewhere and echo pass, a cd into or above it does not.
+func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
+	root := filepath.ToSlash(t.TempDir())
+	store, secret := root+"/memory", root+"/state/vault.db"
+	base := []Rule{ReadOnlyAllow, {Tool: "Bash", Arg: "echo *"}, {Tool: "Bash", Arg: "printf *"}, {Tool: "Bash", Arg: "pwd"},
+		{Tool: "Bash", Arg: "true"}, CdRule("/")}
+	rows := map[string][2]Decision{ // command: {with the Read deny, without it}
+		"cd " + store + " && wc -l f && echo done":    {Allow, Allow},
+		"cd " + store + " && pwd && true && printf x": {Allow, Allow},
+		"cat " + secret:                                {Deny, Allow},
+		"cd " + store + " && cat " + secret:            {Deny, Allow},
+		"head -1 " + secret + " | wc -c":               {Deny, Allow},
+		"cd " + root + "/state && cat vault.db":        {Deny, Allow},
+		"cd " + root + " && cat state/vault.db":        {Deny, Allow},
+		"cd " + store + " && cat ../state/vault.db":    {Deny, Allow},
+		"cd memory && cat f":                           {Deny, Deny},
+		"cd $HOME && cat f":                            {Deny, Deny},
+		"cat $(echo " + secret + ")":                   {Deny, Ask},
+		"cat " + root + "/state/vault$(git log -0).db": {Deny, Ask},
+		"cat " + root + "/state/vault$(echo).db":       {Deny, Ask},
+		"wc -l `echo " + secret + "`":                  {Deny, Ask},
+		"grep x " + secret:                             {Deny, Allow},
+		"grep -v '^$' f && grep -c '[0-9]' f":          {Allow, Allow},
+		"grep '^$' '" + secret + "'":                   {Deny, Allow},
+		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Allow},
+		"grep \"$X\" f":                                {Deny, Allow},
+	}
+	for name, deny := range map[string]Rule{"absolute": {Tool: "Read", Arg: secret}, "glob": {Tool: "Read", Arg: "**/state/vault.db"}} {
+		for cmd, want := range rows {
+			with := Permissions{Mode: "plan", Allow: base, Deny: []Rule{deny}}
+			if got := with.Decide("Bash", cmd); got != want[0] {
+				t.Errorf("%s deny: %q = %v, want %v", name, cmd, got, want[0])
+			}
+			if got := (Permissions{Mode: "plan", Allow: base}).Decide("Bash", cmd); got != want[1] {
+				t.Errorf("no deny: %q = %v, want %v", cmd, got, want[1])
+			}
+		}
 	}
 }
 

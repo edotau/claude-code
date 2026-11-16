@@ -238,11 +238,7 @@ func (p Permissions) Decide(tool, arg string) Decision {
 	if tool != "Bash" {
 		return p.decideOne(tool, arg)
 	}
-	d := p.decideBash(arg, 0)
-	if code := shellCode(arg); code != arg { // today's verdict is the floor: dropping dead text only ever loosens
-		d = max(d, p.decideBash(code, 0))
-	}
-	return d
+	return p.decideBash(shellCode(arg), 0) // judge what bash runs: a comment can hide a quote that ends one
 }
 
 // shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
@@ -502,7 +498,7 @@ func (p Permissions) decideBash(cmd string, depth int) Decision {
 		return Deny
 	}
 	outer, subs := shell.ExtractSubstitutions(cmd)
-	if len(subs) > 0 && slices.Contains(p.Deny, ReadOnlyDeny[0]) { // read-only never runs a substitution
+	if len(subs) > 0 && (slices.Contains(p.Deny, ReadOnlyDeny[0]) || p.spliceReadDenied(cmd)) { // read-only never runs one
 		return Deny
 	}
 	worst, seen := Allow, false
@@ -520,6 +516,15 @@ func (p Permissions) decideBash(cmd string, depth int) Decision {
 		return min(worst, p.decideOne("Bash", strings.TrimSpace(cmd)))
 	}
 	return worst
+}
+
+var subOpener = regexp.MustCompile("[$<>]\\(|`")
+
+// spliceReadDenied: under a Read deny, a segment that opens a substitution may read a path no check can see.
+func (p Permissions) spliceReadDenied(cmd string) bool {
+	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
+		return subOpener.MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$")) // `x` is $(x)
+	})
 }
 
 // decideSeg is one segment's verdict with its nested command; heredocs, here-strings and file redirects never Allow.
