@@ -33,8 +33,8 @@ type rewriteRisk struct {
 }
 
 // rewriteVerdict blocks a history rewrite in a shared checkout; an infra error allows it and returns a warning.
-func rewriteVerdict(in *core.Input) (d core.Decision, msg, detail, warn string) {
-	r, risky := rewriteScan(in, in.ToolCommand(), in.CWD)
+func rewriteVerdict(in *core.Input, cmd string) (d core.Decision, msg, detail, warn string) {
+	r, risky := rewriteScan(in, cmd, in.CWD)
 	if !risky {
 		return core.Allow, "", "", r.warn
 	}

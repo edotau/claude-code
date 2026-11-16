@@ -105,7 +105,7 @@ func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
-		cmd := in.ToolCommand()
+		cmd := dropPatchBodies(in.ToolCommand())
 		for _, re := range softWarn() {
 			if re.MatchString(cmd) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
@@ -133,7 +133,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
 		return core.Allow, "", ""
 	}
-	cmd := in.ToolCommand()
+	cmd := dropPatchBodies(in.ToolCommand())
 	if cmd == "" {
 		return core.Allow, "", ""
 	}
@@ -152,7 +152,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
-	ask, askMsg, askDetail := safetyAskVerdict(in, scan)
+	ask, askMsg, askDetail := safetyAskVerdict(in, cmd, scan)
 	if d > ask {
 		return d, askMsg + msg, detail
 	}
@@ -160,10 +160,9 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 }
 
 // safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
-func safetyAskVerdict(in *core.Input, scan string) (core.Decision, string, string) {
-	cmd := in.ToolCommand()
+func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
-	d, msg, detail, warn := rewriteVerdict(in)
+	d, msg, detail, warn := rewriteVerdict(in, cmd)
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
