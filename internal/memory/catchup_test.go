@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -151,5 +152,52 @@ func TestRunSweepRetriesFailedCatchupOnceMore(t *testing.T) {
 	runSweep("", now.Add(48*time.Hour), io.Discard)
 	if calls != 1 {
 		t.Errorf("retries after the first = %d, want 1", calls)
+	}
+}
+
+// A second retry whose child never writes a receipt must not repeat on every later sweep.
+func TestRunSweepStopsAfterSecondRetryWithoutReceipt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const id = "99999999-9999-4999-8999-999999999999"
+	tr := filepath.Join(paths.ConfigDir(), "projects", "p", id+".jsonl")
+	write(t, tr, `{"type":"user","entrypoint":"cli","message":{"content":"hello"}}`+"\n")
+	idle(t, tr, 72*time.Hour)
+	now := time.Now()
+	if err := writeStamp(stampPath(id), now.Add(-48*time.Hour), "catchup", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: now.Add(-47 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	orig := runHistoricalUpdate
+	t.Cleanup(func() { runHistoricalUpdate = orig })
+	runHistoricalUpdate = func(context.Context, string, sweepCand, io.Writer) error { calls++; return errors.New("spawn failed") }
+	for i := range 4 {
+		runSweep("", now.Add(time.Duration(i)*time.Hour), io.Discard)
+	}
+	if calls != 1 {
+		t.Errorf("second retries with no receipt = %d, want 1", calls)
+	}
+	if st, ok := readStamp(stampPath(id)); !ok || st.attempts != 2 {
+		t.Errorf("stamp after the second retry = %+v ok=%v, want attempts 2", st, ok)
+	}
+}
+
+// A catchup stamp with a fourth field round-trips; a three-field one reads as attempts 0.
+func TestReadStampAttemptsField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stamp-x")
+	at := time.Now().Truncate(time.Second)
+	if err := writeStampAttempts(path, at, "catchup", 7, 2); err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := readStamp(path); !ok || st.attempts != 2 || st.edits != 7 || st.state != "catchup" {
+		t.Errorf("four-field stamp = %+v ok=%v", st, ok)
+	}
+	if err := writeStamp(path, at, "bg", 3); err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := readStamp(path); !ok || st.attempts != 0 {
+		t.Errorf("three-field stamp = %+v ok=%v", st, ok)
 	}
 }

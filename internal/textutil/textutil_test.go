@@ -232,6 +232,7 @@ func TestHeadings(t *testing.T) {
 		{"html comment hides", "<!--\n## in\n-->\n## out\n", "2:out"},
 		{"quote and list", "> ## q\n- ## l\n", "2:q|2:l"},
 		{"crlf", "# a\r\n## b\r\n```\r\n## in\r\n```\r\n", "1:a|2:b"},
+		{"lone angle bracket line", "<\na\n<\n> <\n- <\n## h\n", "2:h"},
 	}
 	for _, c := range cases {
 		var got []string

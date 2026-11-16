@@ -2,7 +2,6 @@ package memory
 
 import (
 	"cmp"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Identity is a cwd resolved to the canonical repository it belongs to; worktrees and subdirs share one.
@@ -113,10 +113,8 @@ var remoteCache sync.Map
 
 // remoteStamp fingerprints the config files that decide `origin`; "" when not cacheable (env overrides or any include).
 func remoteStamp(checkout string) string {
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "GIT_CONFIG") || strings.HasPrefix(e, "GIT_DIR") {
-			return ""
-		}
+	if gitEnvSet() {
+		return ""
 	}
 	home, _ := os.UserHomeDir()
 	xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
@@ -141,6 +139,12 @@ func remoteStamp(checkout string) string {
 	return b.String()
 }
 
+func gitEnvSet() bool {
+	return slices.ContainsFunc(os.Environ(), func(e string) bool {
+		return strings.HasPrefix(e, "GIT_CONFIG") || strings.HasPrefix(e, "GIT_DIR")
+	})
+}
+
 // hasInclude reports whether a git config has an [include] or [includeIf] section header.
 func hasInclude(cfg []byte) bool {
 	for line := range strings.SplitSeq(string(cfg), "\n") {
@@ -157,7 +161,7 @@ func originRemoteURL(checkout string) string {
 		return v.(string)
 	}
 	stamp := remoteStamp(checkout)
-	file := filepath.Join(StateDir(), "remote", fmt.Sprintf("%x", sha256.Sum256([]byte(checkout)))[:16])
+	file := filepath.Join(StateDir(), "remote", textutil.SHA256Hex([]byte(checkout))[:16])
 	if data, err := os.ReadFile(file); err == nil && stamp != "" {
 		if s, url, ok := strings.Cut(string(data), "\n"); ok && s == stamp {
 			remoteCache.Store(checkout, url)
