@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/table"
@@ -53,18 +54,18 @@ func handlePickKey(s pickState, k Key) (pickState, int) {
 }
 
 var (
-	detailSplit = regexp.MustCompile(`\s{2,}`)
-	trailBadge  = regexp.MustCompile(` (\[[^\]]*\])$`)
+	detailSplit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s{2,}`) })
+	trailBadge  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(` (\[[^\]]*\])$`) })
 )
 
 // rowCells is a row's cells: the name, then the detail split on 2+ space runs, a trailing " [..]" badge last.
 func rowCells(r [2]string) []string {
 	detail := oneLine(r[1])
 	badge := ""
-	if m := trailBadge.FindStringSubmatchIndex(detail); m != nil {
+	if m := trailBadge().FindStringSubmatchIndex(detail); m != nil {
 		badge, detail = detail[m[2]:m[3]], detail[:m[0]]
 	}
-	cells := append([]string{oneLine(r[0])}, detailSplit.Split(detail, -1)...)
+	cells := append([]string{oneLine(r[0])}, detailSplit().Split(detail, -1)...)
 	if badge != "" {
 		cells = append(cells, badge)
 	}

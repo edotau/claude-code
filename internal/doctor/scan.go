@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -147,11 +148,11 @@ func claudeMetadataKey(key string) bool {
 	return false
 }
 
-var envPairName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+var envPairName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`) })
 
 // envPairValue returns the value of a NAME=value launch-env entry, so the name alone never reads as a secret.
 func envPairValue(val string) string {
-	if loc := envPairName.FindStringIndex(val); loc != nil {
+	if loc := envPairName().FindStringIndex(val); loc != nil {
 		return val[loc[1]:]
 	}
 	return val

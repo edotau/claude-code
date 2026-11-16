@@ -115,13 +115,13 @@ func ghRun(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	return c.Output()
 }
 
-var ghAccountRE = regexp.MustCompile(`Logged in to github\.com account (\S+)`)
+var ghAccountRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Logged in to github\.com account (\S+)`) })
 
 // githubQuotas reads /copilot_internal/user once per gh login — personal and work seats bill separately.
 func githubQuotas(ctx context.Context) []quota {
 	c := exec.CommandContext(ctx, "gh", "auth", "status", "--hostname", "github.com")
 	status, _ := c.CombinedOutput() // exits 1 when any account's token is stale; the others still list
-	logins := ghAccountRE.FindAllSubmatch(status, -1)
+	logins := ghAccountRE().FindAllSubmatch(status, -1)
 	out := make([]quota, len(logins))
 	var wg sync.WaitGroup
 	for i, m := range logins {

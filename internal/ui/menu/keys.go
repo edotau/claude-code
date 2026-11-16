@@ -83,12 +83,12 @@ func keyCols(kt configure.KeyTarget) [2]string {
 	return [2]string{loginLine(kt), "verified"}
 }
 
-var tierRE = regexp.MustCompile(`\((\w+)\)`)
+var tierRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\((\w+)\)`) })
 
 // loginLine is a login credential's mode.
 func loginLine(kt configure.KeyTarget) string {
 	if kt.Label == "claude" {
-		if m := tierRE.FindStringSubmatch(kt.Source); m != nil {
+		if m := tierRE().FindStringSubmatch(kt.Source); m != nil {
 			return "subscription (" + m[1] + ")"
 		}
 	}

@@ -215,7 +215,7 @@ func parseClaude(s string) string {
 	if hasFamilyDash(s) {
 		s = "claude-" + s
 	}
-	m := claudeRE.FindStringSubmatch(s)
+	m := claudeRE().FindStringSubmatch(s)
 	if m == nil {
 		return ""
 	}

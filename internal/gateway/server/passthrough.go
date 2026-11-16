@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -552,11 +553,13 @@ func safeRest(rest string) error {
 }
 
 // geminiCallRE is the one call agy's gateway mode makes: v1beta/models/<id>:(stream)GenerateContent.
-var geminiCallRE = regexp.MustCompile(`^v1beta/models/([A-Za-z0-9._-]+):(generateContent|streamGenerateContent)$`)
+var geminiCallRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^v1beta/models/([A-Za-z0-9._-]+):(generateContent|streamGenerateContent)$`)
+})
 
 // geminiGatewayCall maps an allowed call onto the row's wire id; the query keeps only alt=sse.
 func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, query, model string, err error) {
-	m := geminiCallRE.FindStringSubmatch(rest)
+	m := geminiCallRE().FindStringSubmatch(rest)
 	if m == nil {
 		return "", "", "", errors.New(
 			"proxy: databricks gemini route serves only v1beta/models/<id>:(stream)GenerateContent",

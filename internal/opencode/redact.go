@@ -5,10 +5,13 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // secretFlagRE matches secret-naming CLI flags, case-insensitively (plus -H).
-var secretFlagRE = regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header|authorization|bearer|credential|pass))(=(?s:.*))?|-H)$`)
+var secretFlagRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^((?i:--?[a-z0-9_-]*(key|token|secret|password|header|authorization|bearer|credential|pass))(=(?s:.*))?|-H)$`)
+})
 
 // redactConfig masks structured config secrets; parse errors leave the input unchanged.
 func redactConfig(s string) string {
@@ -25,7 +28,7 @@ func redactConfig(s string) string {
 	return string(body)
 }
 
-var envReferenceRE = regexp.MustCompile(`^\{env:[^{}]+\}$`)
+var envReferenceRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\{env:[^{}]+\}$`) })
 
 // redactProviderOptions masks headers and literal API keys, preserving environment references.
 func redactProviderOptions(raw any) {
@@ -41,7 +44,7 @@ func redactProviderOptions(raw any) {
 		if opts, ok := entry["options"].(map[string]any); ok {
 			redactConfigValues(opts["headers"])
 			key, _ := opts["apiKey"].(string)
-			if _, exists := opts["apiKey"]; exists && !envReferenceRE.MatchString(key) {
+			if _, exists := opts["apiKey"]; exists && !envReferenceRE().MatchString(key) {
 				opts["apiKey"] = "<redacted>"
 			}
 		}
@@ -73,7 +76,7 @@ func redactOAuth(entry map[string]any) {
 		return
 	}
 	secret, exists := oauth["clientSecret"].(string)
-	if exists && !envReferenceRE.MatchString(secret) {
+	if exists && !envReferenceRE().MatchString(secret) {
 		oauth["clientSecret"] = "<redacted>"
 	}
 }
@@ -95,7 +98,7 @@ func redactCommandSecrets(entry map[string]any) {
 	}
 	for i := 0; i < len(argv); i++ {
 		arg, ok := argv[i].(string)
-		if !ok || !secretFlagRE.MatchString(arg) {
+		if !ok || !secretFlagRE().MatchString(arg) {
 			continue
 		}
 		if idx := strings.IndexByte(arg, '='); idx >= 0 {
@@ -135,11 +138,11 @@ func redactURLQuery(entry map[string]any) {
 	entry["url"] = u.String() + marker
 }
 
-var rawUserinfoRE = regexp.MustCompile(`^([^:/?#]*://)[^/?#]*@`)
+var rawUserinfoRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^([^:/?#]*://)[^/?#]*@`) })
 
 // redactRawURL is redactURLQuery's string-level form for a URL net/url rejects.
 func redactRawURL(raw string) string {
-	raw = rawUserinfoRE.ReplaceAllString(raw, "$1")
+	raw = rawUserinfoRE().ReplaceAllString(raw, "$1")
 	marker := ""
 	if i := strings.IndexByte(raw, '#'); i >= 0 {
 		raw, marker = raw[:i], "#<redacted>"

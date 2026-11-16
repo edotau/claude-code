@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -24,7 +25,7 @@ type teeReadCloser struct {
 type ledgerUsage struct{ input, output, cacheRead int }
 
 // usageBlockRE matches one `"usage":{...}` object with at most one nested level (prompt_tokens_details).
-var usageBlockRE = regexp.MustCompile(`"usage"\s*:\s*\{(?:[^{}]|\{[^{}]*\})*\}`)
+var usageBlockRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"usage"\s*:\s*\{(?:[^{}]|\{[^{}]*\})*\}`) })
 
 // wrapUsage turns a matched `"usage":{...}` pair into a standalone JSON object.
 func wrapUsage(m []byte) []byte {
@@ -39,7 +40,7 @@ func scrapeChatUsage(body []byte) ledgerUsage {
 
 // scrapeLastUsage parses the last usage object using the dialect's field names; input excludes cached tokens.
 func scrapeLastUsage(body []byte, inKey, outKey, detailsKey string) ledgerUsage {
-	matches := usageBlockRE.FindAll(body, -1)
+	matches := usageBlockRE().FindAll(body, -1)
 	if len(matches) == 0 {
 		return ledgerUsage{}
 	}
@@ -69,7 +70,7 @@ func count(raw json.RawMessage) int {
 // scrapeAnthropicUsage takes each field's max across usage objects: stream usage is cumulative, a sum double-counts.
 func scrapeAnthropicUsage(body []byte) ledgerUsage {
 	var u ledgerUsage
-	for _, m := range usageBlockRE.FindAll(body, -1) {
+	for _, m := range usageBlockRE().FindAll(body, -1) {
 		var raw struct {
 			Input     int `json:"input_tokens"`
 			Output    int `json:"output_tokens"`

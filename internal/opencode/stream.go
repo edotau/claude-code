@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -183,14 +184,16 @@ func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool) er
 }
 
 // toolCallMarkupRE matches tool-call markup a model writes as text when it has no tools to call.
-var toolCallMarkupRE = regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)`)
+var toolCallMarkupRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)`)
+})
 
 // refuseToolCallText fails a tools-off run whose whole answer is tool-call markup: the model tried to act, nothing ran.
 func refuseToolCallText(name string, req agent.RunOptions, answer string) error {
-	if req.Tools || !toolCallMarkupRE.MatchString(answer) {
+	if req.Tools || !toolCallMarkupRE().MatchString(answer) {
 		return nil
 	}
-	if rest := strings.TrimSpace(toolCallMarkupRE.ReplaceAllString(answer, "")); len(rest) > 40 {
+	if rest := strings.TrimSpace(toolCallMarkupRE().ReplaceAllString(answer, "")); len(rest) > 40 {
 		// prose around the markup is a real answer that quotes it
 		return nil
 	}

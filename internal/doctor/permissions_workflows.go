@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/edotau/claude-code/internal/agent/waves"
@@ -63,22 +64,23 @@ func leafMode(name, launch string) string {
 }
 
 var (
-	stepOfCall = regexp.MustCompile(`stepOf\(\s*[\w.]+,\s*'(\w+)',\s*\{([^}]*)\}`)
-	toolsKey   = regexp.MustCompile(`\btools:\s*'(\w+)'`)
-	checkRef   = regexp.MustCompile(`\bcheck:\s*(?:\w+\.)*(\w+)`)
-	webTool    = regexp.MustCompile(`(?i)websearch|webfetch`)
+	stepOfCall = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`stepOf\(\s*[\w.]+,\s*'(\w+)',\s*\{([^}]*)\}`) })
+	toolsKey   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\btools:\s*'(\w+)'`) })
+	checkRef   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bcheck:\s*(?:\w+\.)*(\w+)`) })
+	webTool    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)websearch|webfetch`) })
 )
 
 // parseStages reads the stepOf stage table of one script; a stage passed as a stageGate `check:` runs the gate.
 func parseStages(script, src string) []stageDef {
 	gate := map[string]bool{}
-	for _, m := range checkRef.FindAllStringSubmatch(src, -1) {
+	for _, m := range checkRef().FindAllStringSubmatch(src, -1) {
 		gate[m[1]] = true
 	}
 	var defs []stageDef
-	for _, m := range stepOfCall.FindAllStringSubmatch(src, -1) {
+	tools := toolsKey()
+	for _, m := range stepOfCall().FindAllStringSubmatch(src, -1) {
 		d := stageDef{Script: script, Stage: m[1]}
-		if t := toolsKey.FindStringSubmatch(m[2]); t != nil {
+		if t := tools.FindStringSubmatch(m[2]); t != nil {
 			d.Tools = t[1]
 		}
 		spans, full, ok := promptText(src, d.Stage, stageDepth(d.Tools))
@@ -98,8 +100,9 @@ func stageDepth(tools string) int {
 // usesWeb reports whether a line naming the stage (`S.<stage>`) also names a web tool.
 func usesWeb(src, stage string) bool {
 	ref := regexp.MustCompile(`\w\.` + regexp.QuoteMeta(stage) + `\b`)
+	web := webTool()
 	for l := range strings.SplitSeq(src, "\n") {
-		if webTool.MatchString(l) && ref.MatchString(l) {
+		if web.MatchString(l) && ref.MatchString(l) {
 			return true
 		}
 	}
