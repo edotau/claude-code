@@ -82,13 +82,10 @@ func agentConfigs() []HistoryFile {
 	// opencode reads $XDG_CONFIG_HOME or ~/.config on every OS; os.UserConfigDir is ~/Library/... on macOS.
 	cfgHome := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
 	out = append(out, HistoryFile{Label: "opencode.json", Path: filepath.Join(cfgHome, "opencode", "opencode.json")})
-	geminiHome := os.Getenv("GEMINI_CLI_HOME")
-	if geminiHome == "" {
-		geminiHome = home
-	}
+	// The renderer writes gemini files under the user home, never GEMINI_CLI_HOME.
 	return append(out,
-		HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(geminiHome, ".gemini", "antigravity-cli", "settings.json")},
-		HistoryFile{Label: "gemini-hooks.json", Path: filepath.Join(geminiHome, ".gemini", "config", "hooks.json")})
+		HistoryFile{Label: "gemini-settings.json", Path: filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")},
+		HistoryFile{Label: "gemini-hooks.json", Path: filepath.Join(home, ".gemini", "config", "hooks.json")})
 }
 
 // Snapshot copies files into the store and commits only on change; an absent file is a recorded fact, not an error.
