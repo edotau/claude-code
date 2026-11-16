@@ -473,6 +473,11 @@ func planFlat(now time.Time) (*flatPlan, error) {
 	if err := buildFlatContent(p, readStoreFile, now); err != nil {
 		return nil, err
 	}
+	for _, rel := range slices.Sorted(maps.Keys(p.writes)) { // the store commit would refuse it after apply
+		if textutil.CredentialRE.Match(p.writes[rel]) {
+			p.Blockers = append(p.Blockers, "credential-shaped content in "+rel+"; scrub it and commit first")
+		}
+	}
 	if p.MemoryMD.Lines > mergedIndexMaxLines || p.MemoryMD.Bytes > mergedIndexMaxBytes {
 		p.Blockers = append(p.Blockers, fmt.Sprintf("merged MEMORY.md is %d lines / %d bytes (cap %d / %d)",
 			p.MemoryMD.Lines, p.MemoryMD.Bytes, mergedIndexMaxLines, mergedIndexMaxBytes))

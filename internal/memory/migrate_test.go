@@ -253,6 +253,22 @@ func TestMigrateRefusesCollision(t *testing.T) {
 	}
 }
 
+func TestMigrateRefusesCredentialShapedFileBeforeApply(t *testing.T) {
+	migrateFixture(t)
+	key := "tvly-" + strings.Repeat("a", 20) // built at runtime so no literal key sits in the source
+	if err := paths.AtomicWrite(filepath.Join(StoreDir(), "alpha", "reports", "leak.md"), []byte("k="+key+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitFixture(t, "leak")
+	err := Migrate(MigrateOptions{})
+	if !errors.Is(err, ErrMigrateRefused) || !strings.Contains(err.Error(), "reports/alpha--leak.md") {
+		t.Fatalf("Migrate with a credential-shaped file = %v, want a refusal naming it", err)
+	}
+	if stampPresent() {
+		t.Fatal("a refused migration must not stamp the store")
+	}
+}
+
 func TestMigrateDryRunWritesNothing(t *testing.T) {
 	migrateFixture(t)
 	want := snapshot(t)
