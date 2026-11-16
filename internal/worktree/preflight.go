@@ -36,14 +36,17 @@ type Issue struct {
 
 // MergePlan is Preflight's pinned, read-only snapshot; a non-empty Issues means Merge must not proceed.
 type MergePlan struct {
-	CommonDir      string
-	MainGitDir     string // main checkout's own git-dir, resolved once by Preflight ("" = look it up)
-	WorktreeGitDir string // the worktree's own git-dir, resolved once by Preflight ("" = look it up)
+	CommonDir string
+	// main checkout's own git-dir, resolved once by Preflight ("" = look it up)
+	MainGitDir string
+	// the worktree's own git-dir, resolved once by Preflight ("" = look it up)
+	WorktreeGitDir string
 	WorktreePath   string
 	TargetRef      string
 	TargetOID      string
 	SourceOID      string
-	IntegratedOID  string // set by integrateTarget; promote refuses unless the worktree HEAD still matches
+	// set by integrateTarget; promote refuses unless the worktree HEAD still matches
+	IntegratedOID string
 	// AfterResolution: planned after an agent resolution, so untracked tool residue in the worktree is tolerated.
 	AfterResolution bool
 	Issues          []Issue
@@ -132,7 +135,7 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 		return false, err
 	}
 	if len(plan.Issues) > 0 {
-		plan.TargetOID, plan.SourceOID = "", "" // dirty or mid-operation: nothing is pinned
+		plan.TargetOID, plan.SourceOID = "", ""
 		return true, nil
 	}
 	return false, nil
@@ -205,7 +208,8 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 	if isoErr != nil {
 		return nil, fmt.Errorf("merge-tree dry-run isolation: %w", isoErr)
 	}
-	defer func() { // a scratch-dir leak is reported only alongside a failure, never in place of a conflict verdict
+	// a scratch-dir leak is reported only alongside a failure, never in place of a conflict verdict
+	defer func() {
 		if cleanErr := cleanup(); err != nil {
 			err = errors.Join(err, cleanErr)
 		}
@@ -213,7 +217,8 @@ func simulateMerge(ctx context.Context, repoPath, commonDir, sourceOID, targetOI
 	out, err := runGit(ctx, repoPath, env, args...)
 	switch code, isExit := asExitErr(err); {
 	case err == nil:
-		return nil, nil // exit 0: clean, nothing past the written tree OID to parse
+		// exit 0: clean, nothing past the written tree OID to parse
+		return nil, nil
 	case isExit && code == 1:
 		return parseConflicts(out), nil
 	default:
@@ -333,7 +338,7 @@ func targetTouchedPaths(ctx context.Context, path, commitRange string) ([]string
 				return nil, ancestryErr
 			}
 			if unrelated {
-				return nil, nil // Leave unrelated histories to the existing later preflight check.
+				return nil, nil
 			}
 		}
 		return nil, fmt.Errorf("git diff in %s: %w", path, err)

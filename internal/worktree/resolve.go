@@ -28,7 +28,8 @@ func WithWorktreeLease(repo *Repo, name string, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(leasePath), 0o755); err != nil {
 		return err
 	}
-	ran, err := paths.TryFileLock(leasePath, 0, fn) // one try, no wait: ran=false means the lease is held elsewhere
+	// one try, no wait: ran=false means the lease is held elsewhere
+	ran, err := paths.TryFileLock(leasePath, 0, fn)
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,8 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	if err != nil {
 		return askEnvelope{}, fmt.Errorf("resolve: locate claude-code binary: %w", err)
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout+30*time.Second) // belt-and-suspenders over ask's own --timeout
+	// belt-and-suspenders over ask's own --timeout
+	runCtx, cancel := context.WithTimeout(ctx, timeout+30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, bin, "agents", "ask", "--agent", agentName, "--workdir", workDir,
 		"--tools", "--fallback", "none", "--timeout", timeout.String(), "--format", "json", "-")
@@ -120,7 +122,8 @@ func resolveWithAgent(ctx context.Context, repo *Repo, plan *MergePlan, agentNam
 		return nil, nil, err
 	}
 	if materialized.Phase != "conflict" {
-		return nil, materialized, nil // merge-tree's prediction didn't reproduce; nothing to hand the agent
+		// merge-tree's prediction didn't reproduce; nothing to hand the agent
+		return nil, materialized, nil
 	}
 	conflictPaths, err := unmergedPaths(ctx, plan.WorktreePath)
 	if err != nil {
@@ -160,8 +163,9 @@ func runAndFinalize(ctx context.Context, op *Operation, plan *MergePlan, prompt 
 		return failOperation(op, fmt.Errorf(
 			"resolve: requested agent %q fell back to %q (%s) — refusing a silently different model", op.Agent, res.Fallback, res.FallbackReason))
 	}
-	op.AgentExitOK = true // the one receipt resume is allowed to trust instead of re-running the agent
-	// A failed receipt save must not abort: the merge holds the agent's finished edits and the next checkpoint saves again.
+	// the one receipt resume is allowed to trust instead of re-running the agent
+	op.AgentExitOK = true
+	// A failed receipt save must not abort: the merge holds the agent's edits and the next checkpoint saves again.
 	saveErr := SaveOperation(op)
 	op, merged, err := finalizeAgentResolution(ctx, op, plan.WorktreePath)
 	if saveErr != nil && err != nil {
@@ -258,7 +262,8 @@ func conflictMarkersClear(ctx context.Context, worktreePath string, paths []stri
 	for _, p := range paths {
 		data, readErr := os.ReadFile(filepath.Join(worktreePath, p))
 		if os.IsNotExist(readErr) {
-			continue // tracked as resolved but no longer on disk (e.g. deleted) — nothing to scan
+			// tracked as resolved but no longer on disk (e.g. deleted) — nothing to scan
+			continue
 		}
 		if readErr != nil {
 			return false, "", fmt.Errorf("scan %s for conflict markers: %w", p, readErr)
@@ -298,7 +303,7 @@ func agentChangedPaths(ctx context.Context, op *Operation, worktreePath string) 
 	tree, _, _ := strings.Cut(string(out), "\x00")
 	seen := map[string]bool{}
 	var result []string
-	for _, args := range [][]string{{"--cached", tree}, nil} { // index vs clean merge, then worktree vs index
+	for _, args := range [][]string{{"--cached", tree}, nil} {
 		diffArgs := append([]string{"diff", "--name-only", "--no-renames", "--ignore-submodules=none", "-z"}, args...)
 		diff, err := runGit(ctx, worktreePath, nil, diffArgs...)
 		if err != nil {

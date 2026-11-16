@@ -47,7 +47,7 @@ func integrateTarget(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeRe
 	if err != nil {
 		return nil, err
 	}
-	plan.IntegratedOID = after // pins exactly what promote is allowed to fast-forward onto
+	plan.IntegratedOID = after
 	return &MergeResult{Phase: "integrate", BeforeOID: before, AfterOID: after}, nil
 }
 
@@ -77,7 +77,8 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *MergePlan) (*MergeResu
 	}
 	// promoteFreshHeads proved ancestry, so the ff-only merge below cannot conflict: no re-simulation.
 	if err := ctx.Err(); err != nil {
-		return nil, err // never start the ff-only update once canceled — repo.Main stays untouched
+		// never start the ff-only update once canceled — repo.Main stays untouched
+		return nil, err
 	}
 	out, err := runGit(ctx, repo.Main, nil, "-c", "submodule.recurse=false", "merge", "--ff-only", "--no-autostash", freshSource)
 	if err != nil {
@@ -230,7 +231,8 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 		return "", "", fmt.Errorf("scoped gate: %w", err)
 	}
 	if full {
-		return gate, gateSource, nil // the whole suite is the Makefile gate itself, not a hard-coded go test
+		// the whole suite is the Makefile gate itself, not a hard-coded go test
+		return gate, gateSource, nil
 	}
 	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
 }
@@ -250,7 +252,8 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 	}
 	result, err := cleanAtWith(repo, req.Name, plan.WorktreePath, false, req.Err, closing)
 	if !result.Removed {
-		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing)) // refused or failed: the merge still landed
+		// refused or failed: the merge still landed
+		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("clean: %w", err)

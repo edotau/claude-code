@@ -40,14 +40,14 @@ type ledgerLifecycle struct {
 	base, wtHead string
 }
 
-// TestLedgerLifecycle walks one worktree ledger through open, append, close, second close and reopen; the
-// subtests run in order and share the one repo.
+// TestLedgerLifecycle runs open, append, close, second close and reopen as ordered subtests on one repo.
 func TestLedgerLifecycle(t *testing.T) {
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home) // AppendLedger resolves the worktree root as ~/worktrees/<repo>
+	// AppendLedger resolves the worktree root as ~/worktrees/<repo>
+	t.Setenv("HOME", home)
 	main := gitRepo(t)
 	repo, err := ResolveRepo(main)
 	if err != nil {
@@ -119,8 +119,7 @@ func (fx *ledgerLifecycle) reopen(t *testing.T) {
 	requireContains(t, "reopened ledger", ledgerFile(t, fx.main, "ledgered"), "- Status: open\n", "reopened")
 }
 
-// TestCleanForceClosesLedger is the regression test for the CloseLedger call in lifecycle.go:
-// force-removing a dirty or unmerged worktree must still record the close, via "clean --force".
+// Regression: force-removing a dirty or unmerged worktree must still record the ledger close.
 func TestCleanForceClosesLedger(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
@@ -149,14 +148,14 @@ func TestCleanForceClosesLedger(t *testing.T) {
 	}
 }
 
-// TestAppendLedgerOutsideManagedWorktree documents the two false-no-error cases: a plain directory
-// that is no repo at all, and a git repo that has no ledger for its checkout.
+// Documents the two false-no-error cases: a plain non-repo directory and a repo with no ledger for its checkout.
 func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 	ok, err := AppendLedger(t.TempDir(), "x", time.Now())
 	if err != nil || ok {
 		t.Fatalf("AppendLedger(non-repo) = %v, %v; want false, nil", ok, err)
 	}
-	main := gitRepo(t) // a repo, but ResolveRepo's root never held a Create-made worktree here
+	// a repo, but ResolveRepo's root never held a Create-made worktree here
+	main := gitRepo(t)
 	t.Setenv("HOME", t.TempDir())
 	ok, err = AppendLedger(main, "x", time.Now())
 	if err != nil || ok {
@@ -196,7 +195,7 @@ func mergeKept(t *testing.T, main, dest, name, msg string) {
 	}
 }
 
-// Findings 2, 3 and 5: resume reopens with a fresh Opened section; the next close lists only new work and the final branch state.
+// Resume reopens with a fresh Opened section; the next close lists only new work and the final branch state.
 func TestLedgerResumeAfterMergeKept(t *testing.T) {
 	repo, main, dest := ledgerSetup(t, "fx")
 	mergeKept(t, main, dest, "fx", "first work")

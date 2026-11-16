@@ -117,7 +117,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 	commonDir, topLine, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if commonDir == "" {
 		if code, isExit := asExitErr(err); err == nil || isExit && code == gitFatalExit && ctx.Err() == nil {
-			return nil, "", "", false, nil // not inside a git repository
+			return nil, "", "", false, nil
 		}
 		return nil, "", "", false, err
 	}
@@ -156,7 +156,8 @@ func editedLedger(repo *Repo, top, path string, now time.Time, gitWait time.Dura
 	}
 	cur = string(raw)
 	if ledgerField(cur, "Status") == "closed" {
-		last := ledgerField(openSection(cur), "Session") // a hook has no session of its own: keep the last one
+		// a hook has no session of its own: keep the last one
+		last := ledgerField(openSection(cur), "Session")
 		info, err := reopenInfo(repo, top, last, gitWait)
 		if err != nil {
 			return "", "", err
@@ -264,7 +265,7 @@ func reopenedText(text string, info ledgerInfo) string {
 	return text
 }
 
-// reopenInfo describes work resuming in a kept worktree (git bounded by gitWait): base is the merge-base with main's HEAD.
+// reopenInfo describes work resuming in a kept worktree: base is the merge-base with main's HEAD.
 func reopenInfo(repo *Repo, dest, session string, gitWait time.Duration) (ledgerInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitWait)
 	defer cancel()

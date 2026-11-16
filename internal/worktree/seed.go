@@ -58,7 +58,8 @@ func seedIgnored(dest, name string) (bool, error) {
 	defer cancel()
 	probe := name
 	if name == ".venv" {
-		probe += "/" // a `.venv/` rule only matches paths git treats as directories
+		// a `.venv/` rule only matches paths git treats as directories
+		probe += "/"
 	}
 	return checkIgnored(ctx, dest, probe)
 }
@@ -86,11 +87,12 @@ func excludeSymlink(dest, name string) error {
 		return fmt.Errorf("git rev-parse --git-path info/exclude: %w", err)
 	}
 	file, line := strings.TrimSpace(string(out)), "/"+name+"\n"
-	data, _ := os.ReadFile(file) // a missing exclude file is created below
+	data, _ := os.ReadFile(file)
 	if strings.Contains("\n"+string(data), "\n"+line) {
 		return nil
 	}
-	return paths.AppendLineRepair(file, []byte(line)) // starts on its own row when the file lacks a final newline
+	// starts on its own row when the file lacks a final newline
+	return paths.AppendLineRepair(file, []byte(line))
 }
 
 // copyEnvFile copies source to a new target with perm, removing a partial target on failure.

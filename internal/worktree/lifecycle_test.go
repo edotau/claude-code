@@ -310,7 +310,8 @@ func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	if err := os.Chmod(gitDir, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) }) // TempDir cleanup needs this back
+	// TempDir cleanup needs this back
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
 
 	locked, lockErr := isLockedAt(gitDir)
 	if lockErr == nil {
@@ -505,9 +506,7 @@ func TestContextAwareWorktreeLookupsReturnCancellation(t *testing.T) {
 	}
 }
 
-// TestPromoteCancelledContextNeverMovesMain covers promote's own early ctx.Err() check: a context
-// already cancelled when promote is entered must return immediately without acquiring the merge lock
-// or touching repo.Main at all — not even a failed fast-forward attempt.
+// promote entered with an already-cancelled context returns at once without taking the lock or touching repo.Main.
 func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -533,10 +532,7 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	}
 }
 
-// TestPromoteCancelledAfterChecksStillRefusesFastForward covers the second ctx.Err() check inside
-// promoteLocked, right before the real `git merge --ff-only` runs: even once every recheck (branch,
-// dirty, OIDs, ancestry, re-simulation) has already passed, a context cancelled in that window must
-// still stop before the ff-only update, never racing a late cancellation into a real mutation.
+// A cancellation after every recheck has passed must still stop promoteLocked before the ff-only update.
 func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -569,14 +565,12 @@ func TestPromoteCancelledAfterChecksStillRefusesFastForward(t *testing.T) {
 	}
 }
 
-// TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds covers --resume's poll
-// loop (pollUntilResolved): a context cancelled mid-poll must return promptly (not wait out
-// maxResolveWait), preserve the operation file and the worktree exactly as they were, and a later
-// --resume (a fresh, uncancelled call) must still be able to pick the resolution up and succeed.
+// A mid-poll cancel returns promptly with the operation and worktree preserved, and a later --resume still succeeds.
 func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds(t *testing.T) {
 	repo, main, wt, plan := resolveFixtureConflictSetup(t)
 	mainBefore := headOf(main)
-	resolveFixtureFakeClock(t, time.Minute) // long enough that a real timeout would never fire first
+	// long enough that a real timeout would never fire first
+	resolveFixtureFakeClock(t, time.Minute)
 
 	materialized, err := materializeConflict(context.Background(), plan)
 	if err != nil {
@@ -608,14 +602,13 @@ func TestResolvePollingCancelledReturnsPromptlyPreservingStateThenResumeSucceeds
 	resolveResumeAfterCancel(t, repo, plan, reloaded, wt)
 }
 
-// resolveCancelledPoll resumes op with an already-cancelled context, asserts the prompt cancelled return with the
-// operation record and MERGE_HEAD preserved, and returns the reloaded operation.
+// resolveCancelledPoll resumes op with a cancelled context, asserts prompt return and preserved state, reloads op.
 func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operation, wt string) *Operation {
 	t.Helper()
-	// The worktree is still genuinely mid-merge (MERGE_HEAD set, unmerged f.txt) — the poll loop must
-	// never move past "pending" on its own; only the ctx cancellation below ends this call.
+	// The worktree is still mid-merge, so only the context cancellation can end this call.
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled: the very first loop iteration's ctx.Err() check must fire
+	// already cancelled: the very first loop iteration's ctx.Err() check must fire
+	cancel()
 
 	start := time.Now()
 	gotOp, result, err := resolveWithAgent(ctx, repo, plan, "claude", op)
@@ -649,8 +642,7 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 // resolveResumeAfterCancel resolves the conflict for real and asserts a live --resume finishes the job.
 func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloaded *Operation, wt string) {
 	t.Helper()
-	// A later --resume with a live (uncancelled) context must still be able to finish the job: resolve
-	// the conflict for real now, matching what checkResolution's own poll would have found.
+	// A later --resume with a live context finishes the job once the conflict is really resolved.
 	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved after cancel\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -669,9 +661,7 @@ func resolveResumeAfterCancel(t *testing.T, repo *Repo, plan *MergePlan, reloade
 	}
 }
 
-// TestCleanRefusesWhileWorktreeLeaseHeld covers Clean's own WithWorktreeLease hold (lifecycle.go): an
-// ordinary clean must refuse outright, before ever rechecking the worktree's state, while another
-// operation already holds the same worktree's lease — even one that would otherwise be eligible.
+// Clean must refuse outright, before rechecking state, while another operation holds the worktree's lease.
 func TestCleanRefusesWhileWorktreeLeaseHeld(t *testing.T) {
 	t.Parallel()
 	repo, main, _ := preflightFixtureSetup(t)

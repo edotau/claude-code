@@ -18,8 +18,9 @@ const gitFatalExit = 128
 
 // Repo is a repository's canonical identity: the main checkout (never a linked worktree) and its worktree root.
 type Repo struct {
-	Main string // canonical main checkout path
-	Root string // Root(Main): ~/worktrees/<basename(Main)>
+	Main string
+	// Root(Main): ~/worktrees/<basename(Main)>
+	Root string
 	// CommonDir is the absolute git common dir ResolveRepo saw; "" (a hand-built Repo) means look it up.
 	CommonDir string
 }
@@ -40,7 +41,8 @@ func Root(main string) string {
 func gitCmd(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = gitEnv()
-	cmd.WaitDelay = gitWaitDelay // a cancelled call must not block on pipes a git child inherited
+	// a cancelled call must not block on pipes a git child inherited
+	cmd.WaitDelay = gitWaitDelay
 	return cmd
 }
 
@@ -93,7 +95,8 @@ func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, erro
 	info, err := os.Lstat(dest)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return dest, nil // nothing there yet — the caller decides whether that's fine
+			// nothing there yet — the caller decides whether that's fine
+			return dest, nil
 		}
 		return "", fmt.Errorf("inspect %s: %w", dest, err)
 	}
@@ -127,7 +130,8 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 
 // rejectLiveCheckoutRoot refuses a repo.Root that is, or sits inside, repo.Main, resolving its longest EXISTING prefix.
 func rejectLiveCheckoutRoot(repo *Repo) error {
-	rootCanon := paths.CanonDeep(repo.Root) // Canon would skip every symlink while Root's basename does not exist yet
+	// Canon would skip every symlink while Root's basename does not exist yet
+	rootCanon := paths.CanonDeep(repo.Root)
 	mainCanon := paths.Canon(repo.Main)
 	if paths.Within(rootCanon, mainCanon) {
 		return fmt.Errorf("worktree root %s is the live main checkout %s (or inside it), refusing to use it", repo.Root, repo.Main)
@@ -137,25 +141,27 @@ func rejectLiveCheckoutRoot(repo *Repo) error {
 
 // ownsWorktree reports whether dest is a worktree root sharing repo's common dir, never the live checkout or inside it.
 func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
-	destCanon := paths.Canon(dest) // a ~/worktrees/<repo> symlinked to main would let name "internal" resolve inside it
+	// a ~/worktrees/<repo> symlinked to main would let name "internal" resolve inside it
+	destCanon := paths.Canon(dest)
 	mainCanon := paths.Canon(repo.Main)
 	if paths.Within(destCanon, mainCanon) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
 	top, ok, err := revParseCanon(ctx, dest, "--show-toplevel")
 	if err != nil || !ok || top != destCanon {
-		return false, err // not a git repo is a collision, and a subdirectory of some checkout is not a worktree root
+		// not a git repo is a collision, and a subdirectory of some checkout is not a worktree root
+		return false, err
 	}
 	common, ok, err := revParseCanon(ctx, dest, "--git-common-dir")
 	return ok && common == paths.Canon(filepath.Join(repo.Main, ".git")), err
 }
 
-// revParseCanon runs `git rev-parse --path-format=absolute flag` in dir; ok is false when git reports no repository there.
+// revParseCanon runs `git rev-parse --path-format=absolute flag` in dir; ok is false when there is no repository.
 func revParseCanon(ctx context.Context, dir, flag string) (path string, ok bool, err error) {
 	out, err := gitCmd(ctx, "-C", dir, "rev-parse", "--path-format=absolute", flag).Output()
 	if err != nil {
 		if code, isExit := asExitErr(err); isExit && code == gitFatalExit && ctx.Err() == nil {
-			return "", false, nil // not a git repo there
+			return "", false, nil
 		}
 		return "", false, fmt.Errorf("git rev-parse %s in %s: %w", flag, dir, err)
 	}

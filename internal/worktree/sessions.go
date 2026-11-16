@@ -91,7 +91,8 @@ func scanFile(file string, fn func(Claim)) error {
 	for sc.Scan() {
 		var c Claim
 		if json.Unmarshal(sc.Bytes(), &c) == nil && c.Path != "" {
-			fn(c) // the first line after a tail seek is usually torn and fails to decode
+			// the first line after a tail seek is usually torn and fails to decode
+			fn(c)
 		}
 	}
 	return sc.Err()
@@ -183,7 +184,7 @@ func DrainErr(session string) ([]Notice, error) {
 	file := inbox(session)
 	if _, err := os.Stat(file); err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // the common case: no inbox, no lock taken
+			return nil, nil
 		}
 		return nil, fmt.Errorf("drain notices %s: %w", file, err)
 	}
@@ -192,7 +193,8 @@ func DrainErr(session string) ([]Notice, error) {
 		return nil, err
 	}
 	var out []Notice
-	for line := range bytes.SplitSeq(raw, []byte("\n")) { // no line-size cap, unlike bufio.Scanner
+	// no line-size cap, unlike bufio.Scanner
+	for line := range bytes.SplitSeq(raw, []byte("\n")) {
 		var n Notice
 		if json.Unmarshal(line, &n) == nil && n.Text != "" {
 			out = append(out, n)
@@ -214,7 +216,8 @@ func takeInbox(file string) (raw []byte, ok bool, err error) {
 	switch {
 	case err == nil:
 	case !ok && errors.Is(readErr, os.ErrNotExist):
-		return nil, false, nil // another drain took it between the stat and the lock
+		// another drain took it between the stat and the lock
+		return nil, false, nil
 	case !ok:
 		return nil, false, fmt.Errorf("drain notices %s: %w", file, err)
 	default:

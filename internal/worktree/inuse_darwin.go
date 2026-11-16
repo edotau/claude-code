@@ -14,7 +14,7 @@ import (
 
 func init() {
 	scanProcs = scanProcsDarwin
-	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
+	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil }
 	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
@@ -29,7 +29,8 @@ func scanProcsDarwin() ([]procCwd, error) {
 			return nil, err
 		}
 		if stderr := strings.TrimSpace(string(exitErr.Stderr)); exitErr.ExitCode() != 1 || stderr != "" {
-			return nil, fmt.Errorf("lsof -d cwd: %w (%s)", err, stderr) // fail closed: no proc list means in use
+			// fail closed: no proc list means in use
+			return nil, fmt.Errorf("lsof -d cwd: %w (%s)", err, stderr)
 		}
 	}
 	return parseLsofCwd(string(out))

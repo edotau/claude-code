@@ -13,7 +13,7 @@ import (
 
 func init() {
 	scanProcs = scanProcsLinux
-	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil } // 0 ends ancestry
+	parentOf = func(pid int) (int, error) { return proc.Parent(pid), nil }
 	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
@@ -28,7 +28,7 @@ func scanProcsLinux() ([]procCwd, error) {
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
-			continue // not a pid directory
+			continue
 		}
 		link, err := os.Readlink(filepath.Join("/proc", e.Name(), "cwd"))
 		if err != nil {

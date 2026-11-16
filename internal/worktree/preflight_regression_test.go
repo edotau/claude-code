@@ -52,7 +52,8 @@ func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancelledAt := make(chan time.Time, 1)
-	go func() { // cancel only once the fake git has recorded its child, so the pid file always exists
+	// cancel only once the fake git has recorded its child, so the pid file always exists
+	go func() {
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if data, err := os.ReadFile(pidFile); err == nil && strings.HasSuffix(string(data), "\n") {
 				break

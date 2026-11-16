@@ -15,19 +15,23 @@ import (
 
 // Operation is the durable record of one agent resolution; OIDs are pinned before the agent runs so resume revalidates.
 type Operation struct {
-	Schema            int `json:"schema"`
-	ID                string
-	Repo              string // repo.Main, the canonical main checkout path
-	Worktree          string // worktree name, as passed to `worktree merge`
-	TargetRef         string // the target branch pinned at resolve start; resume must match both this and TargetOID
+	Schema   int `json:"schema"`
+	ID       string
+	Repo     string
+	Worktree string
+	// the target branch pinned at resolve start; resume must match both this and TargetOID
+	TargetRef         string
 	TargetOID         string
 	OriginalSourceOID string
-	ConflictPaths     []string // paths the agent was handed; finalizeAgentResolution never stages/commits outside these
-	Phase             string   // "resolving" | "resolved" | "failed" | "timeout" | "cancelled"
-	StartedAt         time.Time
-	Deadline          time.Time
-	Agent             string // the agent name given to --resolve-agent
-	AgentExitOK       bool   // true only once the agent process itself returned success with no fallback
+	// paths the agent was handed; finalizeAgentResolution never stages/commits outside these
+	ConflictPaths []string
+	// "resolving" | "resolved" | "failed" | "timeout" | "cancelled"
+	Phase     string
+	StartedAt time.Time
+	Deadline  time.Time
+	Agent     string
+	// true only once the agent process itself returned success with no fallback
+	AgentExitOK bool
 }
 
 // operationsDir holds one JSON file per repo+worktree under the harness's existing runtime state dir.
@@ -36,7 +40,8 @@ func operationsDir() string { return filepath.Join(paths.StateDir(), "worktree-m
 // operationPath is deterministic from repo+name, so --resume needs no id lookup.
 func operationPath(repoMain, name string) string {
 	slug := paths.Slug(filepath.Base(filepath.Clean(repoMain))+"-"+name, "._-", 0, "op")
-	sum := sha256.Sum256([]byte(filepath.Clean(repoMain) + "\x00" + name)) // the slug alone collides across repos/case
+	// the slug alone collides across repos/case
+	sum := sha256.Sum256([]byte(filepath.Clean(repoMain) + "\x00" + name))
 	return filepath.Join(operationsDir(), slug+"-"+hex.EncodeToString(sum[:4])+".json")
 }
 

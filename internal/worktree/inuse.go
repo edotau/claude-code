@@ -54,7 +54,8 @@ func InUseBy(dest string) (string, error) { return inUseBy(dest, nil) }
 func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
 	real, err := filepath.EvalSymlinks(dest)
 	if err != nil {
-		real = dest // not resolvable yet; compare against the raw path
+		// not resolvable yet; compare against the raw path
+		real = dest
 	}
 	inside, err := cwdInside(real)
 	if err != nil {
@@ -67,7 +68,8 @@ func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
 		in = liveLister()
 	}
 	if in == nil {
-		return "", nil // no detector wired for this OS
+		// no detector wired for this OS
+		return "", nil
 	}
 	return settleForeign(in, real)
 }

@@ -37,11 +37,11 @@ func gateRepo(t *testing.T) (dir string, run func(...string) string, write func(
 	return dir, run, write
 }
 
-// TestScopedGoGate covers changed-package selection, present registry packages, non-Go and deleted paths, and go.mod fallback.
+// TestScopedGoGate covers package selection, registry packages, non-Go and deleted paths, and the go.mod fallback.
 func TestScopedGoGate(t *testing.T) {
 	dir, run, write := gateRepo(t)
 	write("internal/old/old.go", "package old\n")
-	write("internal/hooks/hooks.go", "package hooks\n") // one registry package present; the other four are absent and skipped
+	write("internal/hooks/hooks.go", "package hooks\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "old")
 	base := run("rev-parse", "HEAD")
@@ -79,10 +79,10 @@ func TestScopedGoGate(t *testing.T) {
 func TestScopedGoGateReverseDeps(t *testing.T) {
 	dir, run, write := gateRepo(t)
 	write("a/a.go", "package a\n")
-	write("b/b.go", "package b\n\nimport _ \"example.com/m/a\"\n")           // imports a
-	write("c/c.go", "package c\n\nimport _ \"example.com/m/b\"\n")           // imports a transitively
-	write("d/d.go", "package d\n")                                           // only its test imports c
-	write("d/d_test.go", "package d_test\n\nimport _ \"example.com/m/c\"\n") // selects d, not d's importers
+	write("b/b.go", "package b\n\nimport _ \"example.com/m/a\"\n")
+	write("c/c.go", "package c\n\nimport _ \"example.com/m/b\"\n")
+	write("d/d.go", "package d\n")
+	write("d/d_test.go", "package d_test\n\nimport _ \"example.com/m/c\"\n")
 	write("e/e.go", "package e\n\nimport _ \"example.com/m/d\"\n")
 	write("f/f.go", "package f\n")
 	run("add", "-A")
@@ -100,8 +100,7 @@ func TestScopedGoGateReverseDeps(t *testing.T) {
 	}
 }
 
-// TestScopedGoGateNonGoFiles is the regression test: goldens outside a package select the tests naming them, an
-// embed in a sub-package dir selects its embedder, unowned markdown selects nothing, and other unowned files go full.
+// Regression: goldens, embeds and unowned non-markdown files select their consumers; unowned markdown selects nothing.
 func TestScopedGoGateNonGoFiles(t *testing.T) {
 	dir, run, write := gateRepo(t)
 	write("mem/mem.go", "package mem\n")
@@ -319,8 +318,7 @@ func TestChooseVerifyGatePrecedence(t *testing.T) {
 	}
 }
 
-// TestScopedGoGateNoPackagesOmitsGoTest is the regression test: a markdown-only change selects no packages and must
-// not emit a bare `go test`, which fails in a root dir with no Go files.
+// Regression: a markdown-only change selects no packages and must not emit a bare `go test`.
 func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
 	dir, run, write := gateRepo(t)
 	write("a/a.go", "package a\n")

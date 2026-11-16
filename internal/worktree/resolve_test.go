@@ -131,7 +131,7 @@ func TestResolveWithAgentEditOnlyMarkersRemovedControllerCommits(t *testing.T) {
 	requireIntegrate(t, result, headOf(wt))
 	requirePhase(t, "op", op.Phase, "resolved")
 	requireMergeHead(t, wt, false, "MERGE_HEAD still set after the controller's own commit")
-	requireFileText(t, filepath.Join(wt, "f.txt"), "resolved\n") // the agent's edit
+	requireFileText(t, filepath.Join(wt, "f.txt"), "resolved\n")
 	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
@@ -398,7 +398,7 @@ func TestResolveWithAgentCommitsItselfFailsFreshButResumeSucceeds(t *testing.T) 
 	if !failedOp.AgentExitOK {
 		t.Fatal("failedOp.AgentExitOK = false, want true — the agent process itself exited cleanly")
 	}
-	resolvedHead := headOf(wt) // the agent's own commit, already in place
+	resolvedHead := headOf(wt)
 
 	resolveFixtureFakeAgent(t, func(ctx context.Context, agentName, prompt, workDir string, timeout time.Duration) (askEnvelope, error) {
 		t.Fatal("agent must never be re-invoked on --resume")
@@ -432,7 +432,8 @@ func crashedOperation(t *testing.T, repo *Repo, wt string, plan *MergePlan) *Ope
 		StartedAt:         time.Now(),
 		Deadline:          time.Now().Add(10 * time.Minute),
 		Agent:             "claude",
-		AgentExitOK:       true, // the agent itself returned success, fallback-free, before the crash
+		// the agent itself returned success, fallback-free, before the crash
+		AgentExitOK: true,
 	}
 	if err := SaveOperation(op); err != nil {
 		t.Fatalf("SaveOperation: %v", err)
@@ -490,7 +491,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 		t.Fatalf("ResolveWithAgent: %v", err)
 	}
 	requirePhase(t, "result", result.Phase, "integrate")
-	requireIntegrate(t, result, headOf(wt)) // AfterOID is the resolved worktree HEAD
+	requireIntegrate(t, result, headOf(wt))
 
 	// Production order: integrateTarget runs after resolution and pins plan.IntegratedOID.
 	if _, err := integrateTarget(context.Background(), repo, plan); err != nil {
@@ -633,7 +634,8 @@ func TestFinalizeAgentResolutionSurfacesCheckpointSaveFailure(t *testing.T) {
 	}
 	op := &Operation{Repo: repo.Main, Worktree: filepath.Base(wt), TargetRef: plan.TargetRef, TargetOID: plan.TargetOID,
 		OriginalSourceOID: plan.SourceOID, ConflictPaths: conflictPaths, Phase: "resolving", AgentExitOK: true}
-	if err := os.MkdirAll(operationPath(repo.Main, op.Worktree), 0o755); err != nil { // AtomicWrite cannot rename over a directory
+	// AtomicWrite cannot rename over a directory
+	if err := os.MkdirAll(operationPath(repo.Main, op.Worktree), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

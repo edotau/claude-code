@@ -15,8 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// mergeFixtureWrite writes content to file in dir and commits it with msg; a shared helper for every
-// Preflight/Merge test building up divergent history on top of gitRepo's single init commit.
+// mergeFixtureWrite writes content to file in dir and commits it with msg to build divergent history.
 func mergeFixtureWrite(t *testing.T, dir, file, content, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
@@ -51,8 +50,7 @@ func mergeFixtureRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// preflightFixtureSetup makes an isolated main repo with a base file commit plus a "feature" worktree
-// without mutating process env, so read-only/worktree-local tests can run in parallel.
+// preflightFixtureSetup makes an isolated main repo plus a "feature" worktree without touching process env.
 func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
 	r := testRepo(t)
@@ -66,8 +64,7 @@ func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	return r, main, dest
 }
 
-// mergeFixtureAssertMainUntouched checks that the main checkout's HEAD/index are untouched and no MERGE_HEAD
-// exists there — the invariant Preflight/Merge must hold before promotion ever runs.
+// mergeFixtureAssertMainUntouched checks main's HEAD and index are unchanged and no MERGE_HEAD exists there.
 func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 	t.Helper()
 	if got := headOf(main); got != wantHEAD {
@@ -204,9 +201,7 @@ func TestPreflightDeleteConflict(t *testing.T) {
 func TestPreflightRenameConflict(t *testing.T) {
 	t.Parallel()
 	repo, main, wt := preflightFixtureSetup(t)
-	// Rename/rename: same original file renamed to two different names on each side — merge-tree's
-	// rename-aware three-way merge cannot pick one without a decision, unlike a rename plus a
-	// non-conflicting edit (which it resolves silently).
+	// Rename/rename to two different names conflicts in merge-tree, unlike a rename plus a non-conflicting edit.
 	mergeFixtureRename(t, wt, "f.txt", "g.txt", "feature renames to g")
 	mergeFixtureRename(t, main, "f.txt", "h.txt", "main renames to h")
 
@@ -284,10 +279,7 @@ func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
 	assertDirtyTargetIssue(t, plan, "f.txt")
 }
 
-// TestPreflightDirtyWorktreeWithShowUntrackedFilesOff is the regression test for Appendix A
-// codex-review finding #8 (internal/worktree/preflight.go:216): a repo-local
-// status.showUntrackedFiles=no must not let an untracked file hide a dirty worktree from Preflight —
-// isDirty must explicitly request untracked files regardless of that config.
+// Regression: status.showUntrackedFiles=no must not hide a dirty worktree from isDirty.
 func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 	t.Parallel()
 	repo, _, wt := preflightFixtureSetup(t)
@@ -388,10 +380,7 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 	}
 }
 
-// TestInProgressOpPropagatesNonNotExistStatError is the regression test for Appendix A codex-review
-// finding #9's inProgressOp half (internal/worktree/preflight.go:239): a stat failure that is NOT
-// "file doesn't exist" (permission denied on the git-dir) must propagate as an error, never be
-// silently read as "no operation in progress".
+// Regression: a non-NotExist stat failure (permission denied) must propagate, never read as no operation in progress.
 func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {
@@ -420,9 +409,7 @@ func TestPreflightMissingWorktree(t *testing.T) {
 	}
 }
 
-// TestSimulateMergeUnsupportedGit swaps runGit for a fake that reports merge-tree's historical absence
-// (git < 2.38) as git itself would: a nonzero exit code outside {0,1}. Preflight must block, never
-// mistake it for a clean or conflicted result.
+// A fake runGit reporting merge-tree's absence (git < 2.38, exit outside {0,1}) must block Preflight.
 func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
@@ -445,8 +432,7 @@ func TestSimulateMergeUnsupportedGit(t *testing.T) {
 	}
 }
 
-// mergeFixtureFakeExitState runs a trivial subprocess to obtain a real *os.ProcessState with the
-// wanted exit code — exec.ExitError requires one, and this is the only way to fabricate it honestly.
+// mergeFixtureFakeExitState runs a trivial subprocess to get a real *os.ProcessState, which exec.ExitError requires.
 func mergeFixtureFakeExitState(code int) *os.ProcessState {
 	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
 	_ = cmd.Run()

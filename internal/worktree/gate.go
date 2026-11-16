@@ -34,7 +34,7 @@ type goPkg struct {
 
 // scopedGoGate builds the merge gate: build and vet all, test changed packages and their importers; full = whole suite.
 func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
-	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD") // both sides of a move
+	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
 	if err != nil {
 		return "", nil, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
 	}
@@ -42,9 +42,11 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	if err != nil {
 		return "", nil, false, err
 	}
-	abs, err := filepath.Abs(dir) // go list reports absolute package dirs
+	// go list reports absolute package dirs
+	abs, err := filepath.Abs(dir)
 	if err == nil {
-		abs, err = filepath.EvalSymlinks(abs) // ...with symlinks resolved (macOS /var -> /private/var)
+		// ...with symlinks resolved (macOS /var -> /private/var)
+		abs, err = filepath.EvalSymlinks(abs)
 	}
 	if err != nil {
 		return "", nil, false, err
@@ -55,7 +57,8 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 	}
 	set := reverseDeps(list, abs, changed)
 	for _, p := range registryPkgs {
-		if goPkgOf(dir, p) == p { // a repo without the harness registries skips them
+		// a repo without the harness registries skips them
+		if goPkgOf(dir, p) == p {
 			set[p] = true
 		}
 	}
@@ -73,8 +76,10 @@ func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, 
 			return nil, true
 		default:
 			owners := filePackages(list, abs, f, src)
-			if len(owners) == 0 && !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".go") { // .go: build covers deletions
-				return nil, true // an unowned non-markdown file may feed any test
+			// .go: build covers deletions
+			if len(owners) == 0 && !strings.HasSuffix(f, ".md") && !strings.HasSuffix(f, ".go") {
+				// an unowned non-markdown file may feed any test
+				return nil, true
 			}
 			for _, p := range owners {
 				changed[p] = true
@@ -87,7 +92,8 @@ func changedPackages(list []goPkg, abs, names string) (changed map[string]bool, 
 // scopedGateCommand renders the build, vet and test command line for pkgs.
 func scopedGateCommand(pkgs []string) string {
 	args := mapStrings(pkgs, func(p string) string { return textutil.QuoteSH("./" + p) })
-	if len(args) == 0 { // a bare `go test` runs the root dir and fails when it has no Go files
+	// a bare `go test` runs the root dir and fails when it has no Go files
+	if len(args) == 0 {
 		return "go build ./... && go vet ./..."
 	}
 	return "go build ./... && go vet ./... && go test " + strings.Join(args, " ")
@@ -101,7 +107,8 @@ func filePackages(list []goPkg, abs, f string, src func(string) (string, bool)) 
 	dir, isGo := filepath.Dir(f), strings.HasSuffix(f, ".go")
 	p := goPkgOf(abs, dir)
 	if p == "." && dir != "." && !isGo && !strings.Contains("/"+f, "/testdata/") {
-		p = "" // a subdir's non-Go file is not the root package's unless testdata, embed or a test names it
+		// a subdir's non-Go file is not the root package's unless testdata, embed or a test names it
+		p = ""
 	}
 	if p != "" {
 		out = append(out, p)
@@ -127,7 +134,8 @@ func refersTo(p goPkg, r, f string, src func(string) (string, bool)) bool {
 	d := path.Dir(f)
 	for _, t := range slices.Concat(p.TestGoFiles, p.XTestGoFiles) {
 		b, ok := src(filepath.Join(p.Dir, t))
-		if !ok || strings.Contains(b, f) || d != "." && strings.Contains(b, d) { // unreadable: assume it refers
+		// unreadable: assume it refers
+		if !ok || strings.Contains(b, f) || d != "." && strings.Contains(b, d) {
 			return true
 		}
 	}
@@ -173,7 +181,8 @@ func listPackages(ctx context.Context, dir string) ([]goPkg, error) {
 
 // reverseDeps returns changed plus every package importing one transitively, plus those whose tests import any.
 func reverseDeps(list []goPkg, dir string, changed map[string]bool) map[string]bool {
-	rel := map[string]string{} // import path -> repo-relative dir
+	// import path -> repo-relative dir
+	rel := map[string]string{}
 	for _, p := range list {
 		if r, err := filepath.Rel(dir, p.Dir); err == nil {
 			rel[p.ImportPath] = filepath.ToSlash(r)
@@ -199,7 +208,8 @@ func propagateImports(list []goPkg, rel map[string]string, changed map[string]bo
 	for p := range changed {
 		affected[p] = true
 	}
-	for grew := true; grew; { // non-test imports propagate; a test import only selects its own package
+	// non-test imports propagate; a test import only selects its own package
+	for grew := true; grew; {
 		grew = false
 		for _, p := range list {
 			if r := rel[p.ImportPath]; !affected[r] && hit(p.Imports, affected) {
@@ -454,7 +464,8 @@ func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Wr
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	proc.OwnGroup(cmd)
-	cmd.WaitDelay = 5 * time.Second // orphans holding the output pipes must not block Wait after cancel
+	// orphans holding the output pipes must not block Wait after cancel
+	cmd.WaitDelay = 5 * time.Second
 	return cmd.Run()
 }
 

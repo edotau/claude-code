@@ -16,8 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// CreateOptions controls branch selection and lifecycle diagnostics; nil Log discards diagnostics, a zero Deadline
-// leaves only the add timeout.
+// CreateOptions controls branch selection and diagnostics; nil Log discards them, zero Deadline leaves the add timeout.
 type CreateOptions struct {
 	Branch, Session string
 	Log             io.Writer
@@ -75,10 +74,12 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 			if err := resumeLedger(repo, name, dest, opt.Session); err != nil {
 				fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
 			}
-			return dest, nil // `--worktree <name>` again resumes the checkout; resolveWorktreeBounded verified it's ours
+			// `--worktree <name>` again resumes the checkout; resolveWorktreeBounded verified it's ours
+			return dest, nil
 		}
 		fmt.Fprintf(log, "worktree-create: %s is a checkout that never finished; recreating\n", dest)
-		rollbackAdd(repo.Main, dest, branch, false) // the branch may predate the add; the retry reuses it
+		// the branch may predate the add; the retry reuses it
+		rollbackAdd(repo.Main, dest, branch, false)
 	}
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
 		return "", err
@@ -129,8 +130,7 @@ func addWorktree(main, dest, branch string, args []string, newBranch bool, deadl
 	return fmt.Errorf("git worktree add: %v: %s", err, strings.TrimSpace(string(out)))
 }
 
-// addInterrupted reports whether dest is a checkout `git worktree add` never finished: git holds it locked as
-// "initializing" until the add completes, so a kill before then leaves that marker.
+// addInterrupted reports a checkout `git worktree add` never finished: git keeps it locked as "initializing".
 func addInterrupted(dest string) bool {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
@@ -146,7 +146,7 @@ func addInterrupted(dest string) bool {
 func rollbackAdd(main, dest, branch string, newBranch bool) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	_ = gitCmd(ctx, "-C", main, "worktree", "remove", "--force", "--force", dest).Run() // twice: add leaves it locked
+	_ = gitCmd(ctx, "-C", main, "worktree", "remove", "--force", "--force", dest).Run()
 	_ = os.RemoveAll(dest)
 	_ = gitCmd(ctx, "-C", main, "worktree", "prune").Run()
 	if newBranch {
@@ -163,7 +163,8 @@ func createBranchName(name, want string) (string, error) {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	if err := gitCmd(ctx, "check-ref-format", "--branch", branch).Run(); err != nil {
-		if code, isExit := asExitErr(err); !isExit || code < 1 { // exit -1 is a signal kill, e.g. the timeout, not a bad name
+		// exit -1 is a signal kill, e.g. the timeout, not a bad name
+		if code, isExit := asExitErr(err); !isExit || code < 1 {
 			return "", fmt.Errorf("git check-ref-format %q: %w", branch, err)
 		}
 		return "", fmt.Errorf("%q is not a valid branch name; pass --branch <name>", branch)
@@ -171,14 +172,15 @@ func createBranchName(name, want string) (string, error) {
 	return branch, nil
 }
 
-// worktreeAddArgs builds the `git worktree add` arguments, the ref the worktree starts from and whether it makes branch.
+// worktreeAddArgs builds the `git worktree add` arguments, the start ref and whether it makes a branch.
 func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string, newBranch bool) {
 	args = []string{"-C", main, "worktree", "add", dest}
 	if branchExists(main, branch) {
-		return append(args, branch), branch, false // reuse an existing branch rather than failing on -b
+		return append(args, branch), branch, false
 	}
 	baseRef = createBase(main, log)
-	return append(args, "--no-track", "-b", branch, baseRef), baseRef, true // no upstream: branch -d checks merged into HEAD
+	// no upstream: branch -d checks merged into HEAD
+	return append(args, "--no-track", "-b", branch, baseRef), baseRef, true
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
@@ -249,8 +251,10 @@ type CleanResult struct {
 	Branch        string
 	Removed       bool
 	BranchDeleted bool
-	Reason        string // why cleanup was refused, or a forced clean's branch-delete failure when Removed is true
-	Failed        bool   // CleanAll only: the clean errored (Reason is the error) rather than being refused by policy
+	// why cleanup was refused, or a forced clean's branch-delete failure when Removed is true
+	Reason string
+	// CleanAll only: the clean errored (Reason is the error) rather than being refused by policy
+	Failed bool
 }
 
 // Clean removes name's worktree only after a live recheck (unlocked, clean, merged, owned) under the lease; no force.
@@ -294,7 +298,8 @@ func cleanAtWith(repo *Repo, name, dest string, dryRun bool, log io.Writer, clos
 	}
 
 	if dryRun {
-		result.Removed = true // preview: every recheck above passed, so this one is eligible
+		// preview: every recheck above passed, so this one is eligible
+		result.Removed = true
 		return result, nil
 	}
 	return removeMerged(repo, name, dest, entry, result, log, closing), nil
@@ -383,7 +388,8 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 	}
 	result.Removed = true
 	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
-		result.BranchDeleted = true // -d refuses an unmerged branch; failure there just keeps it
+		// -d refuses an unmerged branch; failure there just keeps it
+		result.BranchDeleted = true
 	}
 	closing.BranchDeleted = result.BranchDeleted
 	if closing.Head == "" {
@@ -411,7 +417,8 @@ func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
 			continue
 		}
 		r, err := Clean(repo, filepath.Base(e.Path), !apply)
-		if err != nil { // one busy or vanished worktree must not skip the rest
+		// one busy or vanished worktree must not skip the rest
+		if err != nil {
 			r = CleanResult{Path: e.Path, Reason: err.Error(), Failed: true}
 		}
 		results = append(results, r)
@@ -434,7 +441,8 @@ func currentWorktreeBranch(dest string) (string, error) {
 func headOf(dest string) string {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	head, _ := headOfContext(ctx, dest) // an error leaves head empty
+	// an error leaves head empty
+	head, _ := headOfContext(ctx, dest)
 	return head
 }
 
@@ -469,7 +477,7 @@ func CleanForce(repo *Repo, name string, dryRun bool, report func(DiscardSummary
 }
 
 func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(DiscardSummary), log io.Writer) (CleanResult, error) {
-	dest, err := resolveWorktreeBounded(repo, name) // refuses traversal, symlinks, foreign dirs, a root inside Main
+	dest, err := resolveWorktreeBounded(repo, name)
 	if err != nil {
 		return CleanResult{}, err
 	}
@@ -492,7 +500,8 @@ func cleanForceInLease(repo *Repo, name string, dryRun bool, report func(Discard
 	}
 
 	if dryRun {
-		result.Removed = true // preview: the remaining refusals passed, so this one would be discarded
+		// preview: the remaining refusals passed, so this one would be discarded
+		result.Removed = true
 		return result, nil
 	}
 	return removeForced(repo, name, dest, result, log), nil
