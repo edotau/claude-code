@@ -106,6 +106,8 @@ static menu: routing never touches the network.
 - With no `--profile`, gemini sends a typed `databricks-*` model to the session's Databricks gateway row and a
   Gemini model to the Google sign-in row (unless a `GEMINI_PROFILE` gateway pin holds); an unprefixed `claude-*` or
   `gpt-oss-120b` follows the profile in force. agy signs in by running `agy` (there is no `agy auth login`).
+- On the Google route `gateway resolve`, `agents label` and `usage` read `agy -p /usage` (cached 60 s, spends no
+  quota): the note carries the pool's percent left, under 15% warns, and a model at 0% is held until its reset.
 - VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile into
   `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte. The file holds only
   `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name>` (printed once; the vault keeps its
