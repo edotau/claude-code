@@ -13,8 +13,8 @@ func TestRouteLine(t *testing.T) {
 	}
 }
 
-func TestAgentsResolveUsage(t *testing.T) {
-	if code := cmdAgentsResolve([]string{"claude", "--live"}); code != 2 {
+func TestGatewayResolveUsage(t *testing.T) {
+	if code := cmdGatewayResolve([]string{"claude", "--live"}); code != 2 {
 		t.Errorf("--live without --all-profiles exit = %d; want 2", code)
 	}
 }

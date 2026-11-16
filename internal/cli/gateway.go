@@ -35,11 +35,13 @@ func cmdGateway(args []string) int {
 			return 0
 		case "proxy":
 			return cmdGatewayProxy(args[1:])
+		case "resolve":
+			return cmdGatewayResolve(args[1:])
 		case "token":
 			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return helptext.Fail("gateway: unknown command %q (proxy, token)", args[0])
+			return helptext.Fail("gateway: unknown command %q (proxy, resolve, token)", args[0])
 		}
 	}
 	return gatewayRoute(args)
@@ -246,7 +248,8 @@ var gatewayPage = helptext.Page{
 	About: "Show which agent and model a task routes to: gated on availability, the pinned\n" +
 		"profile and quota, then ordered by ladder rung, then account state, then weighted score; " +
 		"then the loopback proxy's status.",
-	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"}},
+	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"},
+		{"resolve", "print the overlay and wire id a model string runs as"}},
 }
 
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
@@ -516,7 +519,9 @@ func gatewaySpec() *helptext.Node {
 		"model":    func() []string { return router.Aliases },
 		"agent":    func() []string { return router.TableAgents },
 		"fallback": func() []string { return router.FallbackModes },
-	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)}}}
+	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
+		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"),
+			helptext.Plain("overlay"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
 
 func cmdGatewayToken(args []string) int {

@@ -44,6 +44,7 @@ func cmdHook(args []string) int {
 var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
 		"claude-code configure --restore|--revert [flags]\n" +
+		"claude-code configure agents <agent> key=value... [--dry-run]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
 		"(agents, tools, settings), else walks every page in order. " +
@@ -162,6 +163,9 @@ func (o *configureOpts) wantsList() bool {
 }
 
 func configureRun(o *configureOpts, section string, pos []string) int {
+	if section == "agents" && len(pos) >= 2 && strings.Contains(pos[1], "=") {
+		return configureRecord(pos[0], pos[1:], o.dryRun)
+	}
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
 		return helptext.Fail("configure: %v", err)

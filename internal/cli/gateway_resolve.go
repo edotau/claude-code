@@ -25,9 +25,17 @@ type resolveRow struct {
 	Route   *agent.ModelRoute `json:"route,omitempty"`
 }
 
-// cmdAgentsResolve is `agents resolve <agent> ...`: read-only, prints the overlay a typed model string becomes.
-func cmdAgentsResolve(args []string) int {
-	fs := agentsFlags("resolve")
+// gatewayResolvePage is `gateway resolve`: read-only, no side effects.
+var gatewayResolvePage = helptext.Page{
+	Usage: "claude-code gateway resolve <agent> [flags]",
+	About: "Print the overlay and wire id <agent> runs a model string as (read-only). " +
+		"--all-profiles resolves on every profile; --live also checks credential, listing and READY.",
+	Hint: "Exit 0, 1 no profile passed, 2 usage or a model the agent cannot run.",
+}
+
+// cmdGatewayResolve is `gateway resolve <agent> ...`: read-only, prints the overlay a typed model string becomes.
+func cmdGatewayResolve(args []string) int {
+	fs := helptext.NewFlagSet("gateway resolve", gatewayResolvePage)
 	model := fs.String("model", "", "typed model string, as --model takes it")
 	profile := fs.String("profile", "", "profile (a registry row, or auto for the Databricks pool)")
 	overlay := fs.String("overlay", "", "overlay document: file, inline JSON or -")
@@ -45,20 +53,20 @@ func cmdAgentsResolve(args []string) int {
 	ctx := context.Background()
 	q, err := resolveQuery(ctx, words[0], *model, *profile, *overlay)
 	if err != nil {
-		return helptext.FailUsage("agents resolve: %v", err)
+		return helptext.FailUsage("gateway resolve: %v", err)
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return helptext.Fail("agents resolve: %v", err)
+		return helptext.Fail("gateway resolve: %v", err)
 	}
 	if *all {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
 	r, err := agent.ResolveModel(reg, q, time.Now())
 	if errors.Is(err, agent.ErrModelRoute) {
-		return helptext.FailUsage("agents resolve: %v", err)
+		return helptext.FailUsage("gateway resolve: %v", err)
 	} else if err != nil {
-		return helptext.Fail("agents resolve: %v", err)
+		return helptext.Fail("gateway resolve: %v", err)
 	}
 	return printRoute(r, *format)
 }
