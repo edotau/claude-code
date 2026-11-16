@@ -436,6 +436,9 @@ func (v claimView) stageCheck() core.Result {
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
 			res = v.uninspectableVerdict()
+			if shell.TooDeep(args) && !stageWord.MatchString(cmd) {
+				res = core.Result{}
+			}
 		}
 		if res.Decision == core.Allow && res.Stderr != "" {
 			warns = append(warns, res.Stderr)
@@ -448,6 +451,9 @@ func (v claimView) stageCheck() core.Result {
 	}
 	return res
 }
+
+// stageWord matches the git verbs stageVerdict checks, as a whole word, in text too deep to inspect.
+var stageWord = core.Gate(`\b(?:add|commit)\b`, "add", "commit")
 
 // scriptReader names a non-shell interpreter whose heredoc body is its own script, never shell commands.
 var scriptReader = sync.OnceValue(func() *regexp.Regexp {

@@ -441,6 +441,15 @@ func TestClaimCheckNestedTooDeepAsks(t *testing.T) {
 	}
 }
 
+func TestClaimCheckTooDeepWithoutStageWordAllows(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "cat <<'EOF' > n.txt\ngit add x\nEOF\neval eval eval eval eval ls -la"})
+	if r.Decision != core.Allow {
+		t.Errorf("%v %q; want allow for a deep command whose only add is data", r.Decision, r.Reason)
+	}
+}
+
 // TestFirstSightingLeavesNoLockFile: the seen file locks itself, so no .lock sibling is left behind.
 func TestFirstSightingLeavesNoLockFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

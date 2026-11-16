@@ -62,8 +62,34 @@ func TestEachGitStopsAndBoundsNesting(t *testing.T) {
 	if got, want := collectGit(deep, "/w"), []gitCall{{"/w", Uninspectable}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("nesting beyond maxNest must report Uninspectable, got %v", got)
 	}
+	EachGit(deep, "/w", func(_, _ string, args []string) bool {
+		if !TooDeep(args) {
+			t.Errorf("a call past maxNest must carry the too-deep marker, got %v", args)
+		}
+		return false
+	})
+	EachGit("v=x; git $v .", "/w", func(_, _ string, args []string) bool {
+		if TooDeep(args) {
+			t.Errorf("a shell-expanded verb is not nesting too deep")
+		}
+		return false
+	})
 	if got := collectGit("eval eval eval git stash", "/w"); !reflect.DeepEqual(got, []gitCall{{"/w", "stash"}}) {
 		t.Errorf("3-deep nesting stays inspectable, got %v", got)
+	}
+}
+
+// TestEachGitCasePatternsAreNotPipes: `in sh|bash) …` is a pattern list; a real pipe into a shell is still reported.
+func TestEachGitCasePatternsAreNotPipes(t *testing.T) {
+	for _, cmd := range []string{"case $c in sh|bash) p=1;; *) break;; esac", "case $c in\n a|sh|bash) p=1;;\n -zsh|dash) p=2;; esac"} {
+		if got := collectGit(cmd, "/w"); len(got) != 0 {
+			t.Errorf("EachGit(%q) = %v, want no calls", cmd, got)
+		}
+	}
+	for _, cmd := range []string{"(cat f | bash)", "echo x; case $c in a) cat f | bash;; esac"} {
+		if got := collectGit(cmd, "/w"); len(got) == 0 {
+			t.Errorf("EachGit(%q) saw nothing, want the pipe into a shell reported", cmd)
+		}
 	}
 }
 
