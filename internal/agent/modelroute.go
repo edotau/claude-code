@@ -347,7 +347,17 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 		return fmt.Errorf("%w: %s", ErrModelRoute, why)
 	}
 	r.Dialect = wire
-	if r.Agent == agentid.Claude || r.Agent == agentid.Gemini && GeminiGatewayRow(p) {
+	if r.Agent == agentid.Gemini && GeminiGatewayRow(p) {
+		if wire == providers.ProtocolResponses { // chat/completions refuses these models function tools
+			return fmt.Errorf("%w: %s is Responses-only and agy speaks chat/completions; run it with codex, copilot or opencode",
+				ErrModelRoute, r.Model)
+		}
+		if models.FamilyKind(r.Model) != models.FamilyGemini {
+			r.Dialect = providers.ProtocolOpenAI // agy's openai wire: every family rides chat/completions
+		}
+		return agentFamily(r, p)
+	}
+	if r.Agent == agentid.Claude {
 		return agentFamily(r, p)
 	}
 	if ok, why := Serves(r.Agent, p, r.Model); !ok {
@@ -356,13 +366,13 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 	return agentFamily(r, p)
 }
 
-// agentFamily refuses a model the agent's vendor binary cannot run: claude runs Claude models, gemini Gemini models.
+// agentFamily refuses a model the agent's binary cannot run; gemini runs a named non-Gemini id on Databricks.
 func agentFamily(r *ModelRoute, p *providers.Provider) error {
 	fam := models.FamilyKind(r.Model)
 	bad := false
 	switch r.Agent {
 	case agentid.Gemini:
-		bad = fam != models.FamilyGemini
+		bad = fam != models.FamilyGemini && (r.Alias != "" || !GeminiGatewayRow(p)) // a tier alias keeps agy's Gemini default
 	case agentid.Claude:
 		bad = (fam == models.FamilyGPT || fam == models.FamilyGemini) && p.Provider == "anthropic"
 	case agentid.Codex:

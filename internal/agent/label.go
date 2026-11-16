@@ -454,13 +454,13 @@ func servedCandidate(reg *providers.Registry, agentName string, p *providers.Pro
 // chatTask is the serving task of a chat-completions endpoint.
 const chatTask = "llm/v1/chat"
 
-// agentRuns is the tier buckets' rule: claude runs Claude models, gemini Gemini models, codex a Responses model.
+// agentRuns is the tier rule: claude runs Claude, gemini Gemini (any chat model on Databricks), codex Responses.
 func agentRuns(agentName string, p *providers.Provider, wire string) bool {
 	switch agentName {
 	case agentid.Claude:
 		return models.FamilyKind(wire) == models.FamilyClaude
 	case agentid.Gemini:
-		return models.FamilyKind(wire) == models.FamilyGemini
+		return models.FamilyKind(wire) == models.FamilyGemini || GeminiGatewayRow(p)
 	case agentid.Codex:
 		return providers.ServesResponses(p, wire)
 	}

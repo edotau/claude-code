@@ -306,6 +306,28 @@ func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 	}
 }
 
+// A non-Gemini Databricks model rides agy's openai wire on the router's chat/completions route.
+func TestGeminiGatewayForeignModelUsesOpenAIWire(t *testing.T) {
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:19876"))
+	origMint := agent.MintSession
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return "test-session", nil }
+	t.Cleanup(func() { agent.MintSession = origMint })
+	p := &providers.Provider{Name: t.Name(), Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}}
+	env, argv, err := geminiGateway(context.Background(), p, "databricks-claude-sonnet-5-5", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range []string{"AGY_LLM_GATEWAY_WIRE_PROTOCOL=openai", "AGY_LLM_GATEWAY_MODELS=databricks-claude-sonnet-5-5"} {
+		if !slices.Contains(env, kv) {
+			t.Errorf("env lacks %s: %v", kv, env)
+		}
+	}
+	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasSuffix(kv, "/openai") }) ||
+		!slices.Equal(argv, []string{"--model", "databricks-claude-sonnet-5-5"}) {
+		t.Fatalf("want the /openai route and --model databricks-claude-sonnet-5-5: env %v argv %v", env, argv)
+	}
+}
+
 // On a Databricks row agy lists only the base id, so the effort suffix must ride --effort, not --model.
 func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
 	gw := providers.Target{Provider: &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
