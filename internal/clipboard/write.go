@@ -75,7 +75,7 @@ var spawnClear = func(self string, args []string, stdin []byte) error {
 	// A real pipe filled before Start: a bytes.Reader is copied by a goroutine that dies when we exit.
 	r, w, err := os.Pipe()
 	if err != nil {
-		return errors.New("clip-clear: could not start")
+		return errors.New("clip --clear: could not start")
 	}
 	defer r.Close()
 	_, werr := w.Write(stdin)
@@ -84,7 +84,7 @@ var spawnClear = func(self string, args []string, stdin []byte) error {
 	cmd.Stdin = r
 	proc.Detach(cmd)
 	if werr != nil || cmd.Start() != nil {
-		return errors.New("clip-clear: could not start")
+		return errors.New("clip --clear: could not start")
 	}
 	return cmd.Process.Release()
 }
@@ -170,17 +170,17 @@ func Digest(value string) string {
 	return textutil.SHA256Hex([]byte(value))
 }
 
-// ScheduleClear spawns a detached `clip-clear --after <after>` child that clears the clipboard if it
+// ScheduleClear spawns a detached `clip --clear --after <after>` child that clears the clipboard if it
 // still holds value; only the sha256 digest crosses to the child, on stdin.
 func ScheduleClear(after time.Duration, value string) error {
 	if testing.Testing() {
-		return errors.New("clip-clear: refused under test")
+		return errors.New("clip --clear: refused under test")
 	}
 	self, err := selfPath()
 	if err != nil {
-		return errors.New("clip-clear: cannot locate own binary")
+		return errors.New("clip --clear: cannot locate own binary")
 	}
-	return spawnClear(self, []string{"clip-clear", "--after", after.String()}, []byte(Digest(value)))
+	return spawnClear(self, []string{"clip", "--clear", "--after", after.String()}, []byte(Digest(value)))
 }
 
 // ClearIfMatch clears the clipboard only when its text hashes to digest; it reports whether it cleared.

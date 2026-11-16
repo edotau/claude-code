@@ -122,7 +122,7 @@ func TestCompletionContains(t *testing.T) {
 		{"gemini ask shares --agent", []string{"gemini", "ask", "--"}, []string{"--agent"}},
 		{"completion --install", []string{"completion", "--"}, []string{"--install"}},
 		{"usage --show", []string{"usage", "--"}, []string{"--show"}},
-		{"preflight --live", []string{"preflight", "--"}, []string{"--live"}},
+		{"models preflight --live", []string{"models", "preflight", "--"}, []string{"--live"}},
 		{"configure --no-agents", []string{"configure", "--"}, []string{"--no-agents"}},
 		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
 		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},

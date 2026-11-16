@@ -71,8 +71,9 @@ the vault overlay map each alias per provider.
 cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TTL). Off, cold or stale reads as the
 static menu: routing never touches the network.
 
-- **Refresh:** `make install`, `doctor --refresh`, `preflight --live`; switched on, also `switch`, `<agent> profile`,
-  `configure` exit and a detached `preflight --refresh` at session start (≤ once per 15 minutes).
+- **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
+  `<agent> profile`, `configure` exit and a detached `models preflight --refresh`
+  at session start (≤ once per 15 minutes).
 - **A swap ignores the alias:** a pinned or explicit model that is not READY is replaced by the first READY entry in
   menu order, so a sonnet dispatch can land on an opus endpoint; menu order is the control. The swap shows in
   `gateway` skips.

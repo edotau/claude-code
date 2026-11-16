@@ -41,7 +41,7 @@ func runClipClear(t *testing.T, stdin string) int {
 	old := os.Stdin
 	os.Stdin = r
 	t.Cleanup(func() { os.Stdin = old; r.Close() })
-	return cmdClipClear([]string{"--after", "10ms"})
+	return cmdClip([]string{"--clear", "--after", "10ms"})
 }
 
 func TestClipClearClearsOnlyOnMatch(t *testing.T) {
