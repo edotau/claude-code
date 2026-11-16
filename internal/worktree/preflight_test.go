@@ -446,14 +446,14 @@ func TestPlanOrResolveConflictNotifiesLedgerOwner(t *testing.T) {
 	if plan, err := PlanOrResolve(context.Background(), repo, req, true); plan != nil || err != nil {
 		t.Fatalf("dry run = %v, %v; want blocked", plan, err)
 	}
-	if got := Drain("owner-S"); len(got) != 0 {
+	if got, err := DrainErr("owner-S"); err != nil || len(got) != 0 {
 		t.Fatalf("dry run queued %+v, want nothing", got)
 	}
 	if plan, err := PlanOrResolve(context.Background(), repo, req, false); plan != nil || err != nil {
 		t.Fatalf("merge = %v, %v; want blocked", plan, err)
 	}
-	got := Drain("owner-S")
-	if len(got) != 1 || got[0].Kind != "conflict" || !strings.Contains(got[0].Text, "conflict in f.txt") {
+	got, err := DrainErr("owner-S")
+	if err != nil || len(got) != 1 || got[0].Kind != "conflict" || !strings.Contains(got[0].Text, "conflict in f.txt") {
 		t.Fatalf("owner notices = %+v, want one conflict notice naming f.txt", got)
 	}
 }

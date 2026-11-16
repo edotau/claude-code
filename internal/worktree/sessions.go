@@ -170,13 +170,7 @@ func Append(session string, n Notice) error {
 	return paths.AppendLine(inbox(session), line)
 }
 
-// Drain returns and removes session's notices (at most drainMax, newest last); an error yields what was read.
-func Drain(session string) []Notice {
-	out, _ := DrainErr(session)
-	return out
-}
-
-// DrainErr is Drain plus the lock, read or remove error that dropped or may repeat notices; callers should warn.
+// DrainErr returns and removes session's notices (≤ drainMax, newest last); an error still yields what was read.
 func DrainErr(session string) ([]Notice, error) {
 	if session == "" {
 		return nil, nil

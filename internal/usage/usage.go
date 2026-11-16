@@ -87,7 +87,7 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 		files, err = usageFilesForSession(claudeDir, session)
 	} else {
 		cutoff = windowCutoff(days)
-		files, err = usageFilesWithinDays(claudeDir, days)
+		files, err = usageFilesWithinDays(claudeDir, days, errw)
 	}
 	if err != nil {
 		return nil, err
@@ -331,8 +331,8 @@ func usageFilesForSession(claudeDir, id string) ([]string, error) {
 }
 
 // usageFilesWithinDays keeps only subagent and workflow transcripts modified in the last N days, not whole histories.
-func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
-	sessionDirs, err := usageSessionDirsWithinDays(claudeDir, days)
+func usageFilesWithinDays(claudeDir string, days int, errw io.Writer) ([]string, error) {
+	sessionDirs, err := usageSessionDirsWithinDays(claudeDir, days, errw)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +354,7 @@ func usageFilesWithinDays(claudeDir string, days int) ([]string, error) {
 }
 
 // usageSessionDirsWithinDays lists the projects/*/<session> dirs modified within the last N days.
-func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
+func usageSessionDirsWithinDays(claudeDir string, days int, errw io.Writer) ([]string, error) {
 	pattern := filepath.Join(claudeDir, "projects", "*", "*")
 	candidates, err := filepath.Glob(pattern)
 	if err != nil {
@@ -369,8 +369,9 @@ func usageSessionDirsWithinDays(claudeDir string, days int) ([]string, error) {
 			continue
 		}
 		mtime, mErr := newestModTime(dir)
-		if mErr != nil {
-			return nil, fmt.Errorf("usage: %w", mErr)
+		if mErr != nil { // one unreadable session dir must not fail the whole report
+			fmt.Fprintf(errw, "usage: warning: skipping %v\n", mErr)
+			continue
 		}
 		if mtime.Before(cutoff) {
 			continue

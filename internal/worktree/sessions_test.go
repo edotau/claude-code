@@ -57,11 +57,11 @@ func TestDrainDeliversNewestFiveOnceAndRemovesInbox(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := Drain("Sess-1")
-	if len(got) != drainMax || got[0].Text != "n1" || got[4].Text != "n5" || got[4].Schema != noticeSchema {
-		t.Fatalf("drain = %+v, want n1..n5 newest last", got)
+	got, err := DrainErr("Sess-1")
+	if err != nil || len(got) != drainMax || got[0].Text != "n1" || got[4].Text != "n5" || got[4].Schema != noticeSchema {
+		t.Fatalf("drain = %+v, %v; want n1..n5 newest last", got, err)
 	}
-	if again := Drain("Sess-1"); len(again) != 0 {
+	if again, err := DrainErr("Sess-1"); err != nil || len(again) != 0 {
 		t.Fatalf("second drain = %+v, want none: the first must remove the inbox", again)
 	}
 }
@@ -75,7 +75,7 @@ func TestNoticesIsolateSessions(t *testing.T) {
 	if st, err := os.Stat(inbox("a")); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("inbox stat = %v, %v; want mode 0600", st, err)
 	}
-	if Drain("b") != nil || Append("", Notice{Text: "x"}) == nil {
+	if got, err := DrainErr("b"); got != nil || err != nil || Append("", Notice{Text: "x"}) == nil {
 		t.Fatal("another session's drain must be empty and an empty session must be refused")
 	}
 }
@@ -88,8 +88,8 @@ func TestDrainKeepsNoticesAfterOversizedLine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := Drain("big")
-	if len(got) != 3 || got[0].Text != "A" || got[2].Text != "C" {
+	got, err := DrainErr("big")
+	if err != nil || len(got) != 3 || got[0].Text != "A" || got[2].Text != "C" {
 		t.Fatalf("drain returned %d notices, want 3 (A, oversized, C)", len(got))
 	}
 }

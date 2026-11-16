@@ -52,11 +52,7 @@ func InUseBy(dest string) (string, error) { return inUseBy(dest, nil) }
 
 // inUseBy is InUseBy with an optional lister; nil means liveLister.
 func inUseBy(dest string, in func(string) ([]Proc, error)) (string, error) {
-	real, err := filepath.EvalSymlinks(dest)
-	if err != nil {
-		// not resolvable yet; compare against the raw path
-		real = dest
-	}
+	real := paths.CanonDeep(dest) // a vanished dest still resolves its parents (/var -> /private/var)
 	inside, err := cwdInside(real)
 	if err != nil {
 		return "", err
