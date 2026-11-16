@@ -445,10 +445,13 @@ func (r Repo) Ensure() error {
 	} else if len(remotes) > 0 {
 		return fmt.Errorf("memory repo is local-only but has remotes: %s", strings.Join(remotes, ", "))
 	}
-	if err := writeIfAbsent(filepath.Join(gitDir, "hooks", "pre-push"), prePushHook, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755); err != nil {
 		return err
 	}
-	return writeIfAbsent(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
+	if err := createExcl(filepath.Join(gitDir, "hooks", "pre-push"), prePushHook, 0o755); err != nil {
+		return err
+	}
+	return createExcl(filepath.Join(r.Dir, ".gitignore"), storeGitignore, 0o644)
 }
 
 func (r Repo) initIfAbsent(gitDir string) error {
@@ -484,17 +487,6 @@ func (r Repo) checkRoot(gitDir string) error {
 		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
 	}
 	return nil
-}
-
-// writeIfAbsent creates path with body unless it already exists (a user's own edit is never overwritten).
-func writeIfAbsent(path, body string, mode os.FileMode) error {
-	if _, err := os.Lstat(path); err == nil {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(body), mode)
 }
 
 // remotes lists configured remote names; the store must have none.
