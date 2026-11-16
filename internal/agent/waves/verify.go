@@ -397,7 +397,7 @@ func RoutingProof(env CheckEnv, dir, id string) (RoutingResult, error) {
 		Mismatches: v.Mismatches, DurationMs: v.DurationMs}, nil
 }
 
-// GateRefusal is non-nil for a command that would write to git; it is plans.GateRefused, the one refusal the reader uses.
+// GateRefusal is non-nil for a command that would write to git (plans.GateRefused, the one refusal the reader uses).
 func GateRefusal(cmd string) error { return plans.GateRefused(cmd) }
 
 // GateInput is one command to run: a task's verify or the wave gate. Env is extra KEY=VALUE pairs (BASE, OWNED).

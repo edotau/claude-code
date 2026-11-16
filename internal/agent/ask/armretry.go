@@ -45,7 +45,7 @@ type armRetry struct {
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
 func (r *askRun) jobAutoArm() bool { return r.jobRec != nil && r.jobRec.Request.AutoArm }
 
-// armRun is the retry state of r's run, or nil when it was not an auto pick or cannot move (job, host, resumed session).
+// armRun is the retry state of r's run, or nil when it was not an auto pick or cannot move (job, host, resume).
 func (r *askRun) armRun() *armRetry {
 	f := r.f
 	if r.auto == "" || f.host != "" || f.background || f.live || f.session != "" {

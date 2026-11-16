@@ -159,7 +159,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 			if len(records) != wantRecords {
 				t.Fatalf("records = %d, want %d; stderr=%s", len(records), wantRecords, stderr)
 			}
-			if strings.Contains(stderr, "ask: dispatch") { // --format json carries dispatch_id in the envelope
+			if strings.Contains(stderr, "ask: dispatch") {
 				t.Errorf("stderr = %q, want no dispatch line under --format json", stderr)
 			}
 			assertAskRetryRequest(t, dir, tt, records[0].Request)
@@ -305,7 +305,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	}
 }
 
-// hostFixture installs a fake ssh on PATH and a fake remote bin (via $HARNESS_REMOTE_BIN) printing banner then NDJSON lines; returns its path.
+// hostFixture installs a fake ssh on PATH and a fake remote bin ($HARNESS_REMOTE_BIN) printing banner, then NDJSON.
 func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	t.Helper()
 	skipWithoutSh(t)

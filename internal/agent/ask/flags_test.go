@@ -14,7 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 )
 
-// Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the spec the request carries.
+// Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the request's spec.
 func TestAskPackFlagCombos(t *testing.T) {
 	refused := []struct {
 		name string

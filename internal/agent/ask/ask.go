@@ -487,7 +487,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 	return o
 }
 
-// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches it or runs it (run, else once) and reports.
+// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
 	env, keepEnv []string, as, format, name string, background, native bool, run askRunner, out io.Writer) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)

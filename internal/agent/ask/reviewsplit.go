@@ -159,12 +159,12 @@ func splitUnit(u unit, limit int) []unit {
 }
 
 func splitHunks(body []string, room int) []string {
-	var hunks []string // each hunk, or a line-cut slice of one too big for room
+	var hunks []string
 	var h strings.Builder
 	pushHunk := func() {
 		for t := h.String(); t != ""; {
 			n := min(len(t), room)
-			if n < len(t) { // cut an oversized hunk at a line end
+			if n < len(t) {
 				if i := strings.LastIndex(t[:n], "\n"); i >= 0 {
 					n = i + 1
 				}

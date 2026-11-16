@@ -59,7 +59,7 @@ func dropDispatchSessions(sessions []Session, dispatches []Dispatch) []Session {
 // matchesClaudeDispatch reports whether s is the session a running claude dispatch spawned (by id, else by cwd+time).
 func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
 	for _, l := range dispatches {
-		if s, ok := agent.LookupSchema(l.Agent); !ok || s.External() { // not the Claude launcher
+		if s, ok := agent.LookupSchema(l.Agent); !ok || s.External() {
 			continue
 		}
 		if l.sessionID != "" { // a known id decides alone: a title match must not claim another session

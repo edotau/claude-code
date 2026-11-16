@@ -105,7 +105,7 @@ func failBatchLeg(t *testing.T) agent.Record {
 	return failed
 }
 
-// assertReplayedLeg checks a replay kept the failed leg's task, session and route and carries the repair beside the deny.
+// assertReplayedLeg checks a replay kept the failed leg's task, session and route and adds the repair.
 func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) {
 	t.Helper()
 	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt || got.Provider != failed.Request.Provider || got.Lead != failed.Request.Lead {

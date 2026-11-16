@@ -122,7 +122,7 @@ func TestVerifyUnionGateFailureAndScope(t *testing.T) {
 	}
 }
 
-// verifyPackages is a Diff stand-in: the union call (Check) reports union, every other call the report of its Verify id.
+// verifyPackages is a Diff stand-in: the union call (Check) reports union, other calls the report of their Verify id.
 func verifyPackages(union agent.DiffReport, byID map[string]agent.DiffReport) func(agent.DiffOptions) int {
 	return func(o agent.DiffOptions) int {
 		rep := union
