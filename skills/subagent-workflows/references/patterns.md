@@ -10,7 +10,7 @@ ownership: `../SKILL.md` → Who holds the plan.
 
 Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
 (`code-workers` `slice`). The dispatch cap (`rules/harness/hooks.md` → dispatch cap) claims one slot per `agent()`
-site in a script (`internal/hooks/agents/leaves.go` `Effort`).
+site in a script (`internal/hooks/leaves.go` `Effort`).
 
 ## Patterns we run
 
@@ -75,7 +75,7 @@ main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -
 ```
 
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
-  `ask: ran on` line (`externalTypes`, `internal/hooks/agents/leaves.go`).
+  `ask: ran on` line (`externalTypes`, `internal/hooks/leaves.go`).
 
 ### Hierarchical
 

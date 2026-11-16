@@ -38,7 +38,7 @@ pins model and effort from the task's tier (effort only when neither the call no
 a `Run: claude-code agents ask` brief; claims slots, recalls context and labels the row. A `Run:` line naming a
 missing Databricks workspace, or (with `--fallback none`) a model that workspace's fresh cached listing does not
 serve, is denied with `agents ask`'s own preflight text; a stale or missing listing passes. Brief routing:
-`skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/agents/effort.go`; workflow
+`skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
 validation: `internal/hooks/quality/workflowlint.go`. Auto mode avoids recall rewrites and denies wrong labels, but
 model and some inline-Workflow paths still rewrite input and may be refused by the classifier
 

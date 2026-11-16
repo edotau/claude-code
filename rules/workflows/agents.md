@@ -71,7 +71,7 @@ resolves to: `rules/harness/network.md`.
   are silently ignored: check with `claude --debug`.
 - **Prose instructs, hooks guarantee.** A new external agent type is added once, in `agentid.All()`
   (`internal/agentid/agentid.go`); the ran-on stop gate (`externalTypes`) and labels (`labelAgent`) in
-  `internal/hooks/agents/leaves.go` derive from it. Shapes and what enforces each:
+  `internal/hooks/leaves.go` derive from it. Shapes and what enforces each:
   `skills/subagent-workflows/references/patterns.md`.
 
 ## Authoring: thinking and caching
