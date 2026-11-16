@@ -279,6 +279,10 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 		}
 	}
+	if m := sel.ClientModel(models.Opus); m != "" && sel.Aliases[models.Fable].Provider == nil &&
+		sel.Provider.SpellingRule() == "databricks-serving" {
+		plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"] = m // Databricks serves no Fable: use the opus slot
+	}
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
 	}
@@ -339,8 +343,12 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
 	}
 	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
+	name := "overlay-" + p.Name
 	if id := providers.IdentityFrom(ctx); id != "" {
 		helper += " --as " + textutil.QuoteSH(id)
+		if slices.Contains(overlayIdentities, id) { // one file per identity: a concurrent launch must not swap helpers
+			name += "-as-" + id
+		}
 	}
 	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set[proc.EnvAnthropicBaseURL] = route
@@ -351,7 +359,12 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 	if !providers.CredentialPresent(p) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
 	}
-	return helper, filepath.Join(paths.StateDir(), "overlay-"+p.Name+".json"), nil
+	return helper, filepath.Join(paths.StateDir(), name+".json"), nil
+}
+
+// overlayIdentities are the --as values safe to put in an overlay file name; any other value fails at resolve.
+var overlayIdentities = []string{
+	providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP, providers.IdentityHeadless,
 }
 
 func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {

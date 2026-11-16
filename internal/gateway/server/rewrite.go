@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -34,12 +35,27 @@ func resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Regis
 		return providers.Target{}, false
 	}
 	target := providers.ParseTarget(reg, model, sess)
+	target = fableToOpus(reg, target)
 	// a resolved target outside a token's profiles is a 403
 	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
 		writeError(w, http.StatusForbidden, "proxy: this token is limited to profiles "+strings.Join(scope, ", "))
 		return target, false
 	}
 	return target, true
+}
+
+// fableToOpus maps a Fable target on a Databricks serving route to the session's opus slot; Databricks serves no Fable.
+func fableToOpus(reg *providers.Registry, t providers.Target) providers.Target {
+	if t.Provider.SpellingRule() != "databricks-serving" {
+		return t
+	}
+	if canonical, _, ok := models.Resolve(t.Model); !ok || models.FamilyOf(canonical) != models.Fable {
+		return t
+	}
+	if sel, err := providers.Select(reg, t.Provider.Name); err == nil && sel.Aliases[models.Opus].Provider == t.Provider {
+		return sel.Aliases[models.Opus]
+	}
+	return t
 }
 
 // confineLadder drops fallback providers outside a token's profiles; they hold other credentials.

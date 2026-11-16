@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/translate"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -377,4 +378,32 @@ func exhausted(w http.ResponseWriter, ladder []providers.Target, lastErr error) 
 	t := ladder[len(ladder)-1]
 	writeSendError(w, t.Provider, lastErr)
 	return t.Provider.Name, t.Model, len(ladder)
+}
+
+// unserved reports a Databricks 400/404 saying the endpoint is missing or passthrough is unsupported for the model.
+func unserved(resp *http.Response, p *providers.Provider) bool {
+	if p.Preset != providers.PresetDatabricks || resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
+		return false
+	}
+	body := strings.ToLower(string(peekBody(resp, 8<<10)))
+	return strings.Contains(body, "does not exist") || strings.Contains(body, "passthrough is not supported")
+}
+
+// unservedMessage names the requested id, the wire id tried and, from a fresh listing, the served Claude endpoints.
+func unservedMessage(p *providers.Provider, requested, wire string, now time.Time) string {
+	msg := fmt.Sprintf("proxy: %s does not serve model %q (tried endpoint %s)", p.Name, requested, wire)
+	s, ok := router.LoadServed(p.Name)
+	if !ok || !s.Fresh(now) {
+		return msg
+	}
+	var claude []string
+	for _, m := range s.Models {
+		if strings.HasPrefix(m.ID, models.DatabricksPrefix+"claude-") {
+			claude = append(claude, m.ID)
+		}
+	}
+	if len(claude) == 0 {
+		return msg
+	}
+	return msg + "; served Claude endpoints: " + strings.Join(claude, ", ")
 }
