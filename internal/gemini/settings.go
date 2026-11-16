@@ -413,29 +413,23 @@ func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) 
 	return agentconfig.CommitFile(path, raw, next, existed, o, out, "gemini-hooks")
 }
 
-// spliceAgyHook returns raw with its top-level agyHookName value set to entry, every other byte kept; raw if equal.
-func spliceAgyHook(raw, entry []byte) ([]byte, error) {
-	member := []byte(strconv.Quote(agyHookName) + ": ")
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return slices.Concat([]byte("{\n  "), member, entry, []byte("\n}\n")), nil
-	}
+// scanAgyHook is raw's [start, end) agyHookName value spans, the last such value and the last member's end (-1: none).
+func scanAgyHook(raw []byte) (spans [][2]int, last json.RawMessage, lastEnd int, err error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if t, err := dec.Token(); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	} else if t != json.Delim('{') {
-		return nil, errors.New("not a JSON object")
+		return nil, nil, 0, errors.New("not a JSON object")
 	}
-	var spans [][2]int // [start, end) of each existing agyHookName value
-	var last json.RawMessage
-	lastEnd := -1
+	lastEnd = -1
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 		var v json.RawMessage
 		if err := dec.Decode(&v); err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 		lastEnd = int(dec.InputOffset())
 		if key == agyHookName {
@@ -443,10 +437,23 @@ func spliceAgyHook(raw, entry []byte) ([]byte, error) {
 		}
 	}
 	if _, err := dec.Token(); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return nil, errors.New("trailing data after the top-level object")
+		return nil, nil, 0, errors.New("trailing data after the top-level object")
+	}
+	return spans, last, lastEnd, nil
+}
+
+// spliceAgyHook returns raw with its top-level agyHookName value set to entry, every other byte kept; raw if equal.
+func spliceAgyHook(raw, entry []byte) ([]byte, error) {
+	member := []byte(strconv.Quote(agyHookName) + ": ")
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return slices.Concat([]byte("{\n  "), member, entry, []byte("\n}\n")), nil
+	}
+	spans, last, lastEnd, err := scanAgyHook(raw)
+	if err != nil {
+		return nil, err
 	}
 	switch {
 	case len(spans) == 1 && agentconfig.SameJSONObject(last, entry):

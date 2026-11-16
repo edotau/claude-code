@@ -54,6 +54,9 @@ func cmdGatewayResolve(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	if *fallback != "" && !slices.Contains(router.FallbackModes, *fallback) {
+		return helptext.FailUsage("gateway resolve: --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
+	}
 	ctx := context.Background()
 	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
@@ -136,7 +139,9 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 		return 0
 	}
 	reason := choice.Reason()
-	r.Note = strings.Trim(strings.Replace(r.Note, reason, "", 1), "; ")
+	before, after, _ := strings.Cut(r.Note, reason)
+	r.Note = strings.Join(slices.DeleteFunc([]string{strings.TrimSuffix(before, "; "), strings.TrimPrefix(after, "; ")},
+		func(s string) bool { return s == "" }), "; ")
 	fmt.Println(routeLine(r))
 	fmt.Println(reason)
 	return 0

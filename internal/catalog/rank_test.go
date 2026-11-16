@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"path"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +20,28 @@ func TestRanksData(t *testing.T) {
 			if v < 1 || v > 5 {
 				t.Errorf("%s: %+v has a fact outside 1..5", f.Match, f)
 			}
+		}
+	}
+}
+
+// A pattern every id of which an earlier pattern already matches never ranks anything (first match wins).
+func TestRanksNoShadowedPattern(t *testing.T) {
+	fam := loadRanks().Families
+	for j, b := range fam {
+		text := strings.ReplaceAll(b.Match, "*", "\x00") // only a star of the earlier pattern can consume b's star
+		for _, a := range fam[:j] {
+			if ok, _ := path.Match(a.Match, text); ok {
+				t.Errorf("%s is shadowed by the earlier %s", b.Match, a.Match)
+			}
+		}
+	}
+}
+
+// A lite id of a family that also has a plain flash rank keeps the lite rank, not the plain flash one.
+func TestRankOfLiteBeforeFlash(t *testing.T) {
+	for id, want := range map[string]int{"gemini-3-8-flash-lite": 1, "gemini-3-8-flash": 3, "gemini-3-5-flash-lite": 1} {
+		if got := RankOf(id).Capability; got != want {
+			t.Errorf("RankOf(%s).Capability = %d, want %d", id, got, want)
 		}
 	}
 }

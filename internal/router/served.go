@@ -26,9 +26,7 @@ var servedListing = func(profile string, now time.Time) (Served, bool) {
 	if !providers.ServedRoutingOn() {
 		return Served{}, false
 	}
-	s, ok := LoadServed(profile)
-	// an empty listing proves nothing: read it as cold
-	return s, ok && s.Fresh(now) && len(s.Models) > 0
+	return freshShared(profile, now)
 }
 
 // servedKey is the spelling a model is marked and looked up under: the one the agents request from p.
@@ -66,8 +64,8 @@ func ServedReady(p *providers.Provider, model string, now time.Time) (ready, fre
 
 // ServedListed reads p's cached listing whatever the servedAware switch says; fresh is false when absent or past TTL.
 func ServedListed(p *providers.Provider, model string, now time.Time) (listed, ready, fresh bool) {
-	s, ok := LoadServed(p.Name)
-	if !ok || !s.Fresh(now) || len(s.Models) == 0 {
+	s, ok := freshShared(p.Name, now)
+	if !ok {
 		return false, false, false
 	}
 	listed, ready = s.Has(p, model)
@@ -92,16 +90,22 @@ func SpellServed(p *providers.Provider, id string, now time.Time) string {
 
 // exactReady reports p's fresh listing names wire exactly and has it READY.
 func exactReady(p *providers.Provider, wire string, now time.Time) bool {
-	s, ok := LoadServed(p.Name)
-	if !ok || !s.Fresh(now) {
+	s, ok := freshShared(p.Name, now)
+	if !ok {
 		return false
 	}
 	for _, m := range s.Models {
 		if m.ID == wire {
-			return m.Ready == "" || m.Ready == "READY"
+			return m.IsReady()
 		}
 	}
 	return false
+}
+
+// ListedNotReady reports p's fresh listing lacks wire as a READY endpoint (unlisted too); false without a fresh one.
+func ListedNotReady(p *providers.Provider, wire string, now time.Time) bool {
+	_, ready, fresh := ServedListed(p, wire, now)
+	return fresh && !ready
 }
 
 // ServedFirst is the first READY menu entry respelled for p, Responses-only for codex; "" with fresh=true is none.
@@ -157,6 +161,9 @@ type ServedModel struct {
 	Ready string `json:"ready,omitempty"`
 }
 
+// IsReady reports whether the endpoint serves: an unset state counts as READY.
+func (m ServedModel) IsReady() bool { return m.Ready == "" || m.Ready == "READY" }
+
 // Served is one Databricks profile's cached endpoint listing (no secrets).
 type Served struct {
 	Schema    int           `json:"schema"`
@@ -191,8 +198,8 @@ type servedRead struct {
 	ok bool
 }
 
-// LoadServed returns profile's cached listing; false when absent, unreadable or another schema.
-func LoadServed(profile string) (Served, bool) {
+// servedShared is LoadServed without the copy: its Models alias the cache, so callers only read.
+func servedShared(profile string) (Served, bool) {
 	path := servedPath(profile)
 	if path == "" {
 		return Served{}, false
@@ -201,8 +208,27 @@ func LoadServed(profile string) (Served, bool) {
 	if err != nil || !r.ok {
 		return Served{}, false
 	}
-	r.s.Models = slices.Clone(r.s.Models)
 	return r.s, true
+}
+
+// LoadServed returns profile's cached listing; false when absent, unreadable or another schema.
+func LoadServed(profile string) (Served, bool) {
+	s, ok := servedShared(profile)
+	s.Models = slices.Clone(s.Models)
+	return s, ok
+}
+
+// freshShared is servedShared's listing when fresh and non-empty; an empty listing proves nothing, so it reads as cold.
+func freshShared(profile string, now time.Time) (Served, bool) {
+	s, ok := servedShared(profile)
+	return s, ok && s.Fresh(now) && len(s.Models) > 0
+}
+
+// FreshServed is profile's cached listing when it is fresh and non-empty; Models is a copy.
+func FreshServed(profile string, now time.Time) (Served, bool) {
+	s, ok := freshShared(profile, now)
+	s.Models = slices.Clone(s.Models)
+	return s, ok
 }
 
 // readServed decodes profile's listing at path; an absent or invalid file is a miss, a read error is returned.
@@ -263,7 +289,7 @@ func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	for _, m := range s.Models {
 		// runtime prefixes a bare id the listing names databricks-<id>
 		if m.ID == want || m.ID == models.DatabricksPrefix+want {
-			return true, m.Ready == "" || m.Ready == "READY"
+			return true, m.IsReady()
 		}
 	}
 	return false, false

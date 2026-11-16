@@ -94,11 +94,7 @@ func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
 
 // tierUnusable reports wire missing or not READY in p's fresh listing, marked unserved, or quota-dead on dead.
 func tierUnusable(st State, dead []string, p *providers.Provider, wire string, now time.Time) bool {
-	if _, ready, fresh := ServedListed(p, wire, now); fresh && !ready {
-		// ready is false for an unlisted endpoint too
-		return true
-	}
-	return unservedMarked(st[dead[0]], p, wire, now) || st.modelDeadOn(dead, wire, now)
+	return ListedNotReady(p, wire, now) || unservedMarked(st[dead[0]], p, wire, now) || st.modelDeadOn(dead, wire, now)
 }
 
 // Price is USD per 1M tokens.

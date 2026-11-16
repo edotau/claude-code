@@ -656,7 +656,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		}
 	}
 	if disp.Agent != nil {
-		out = autoRunEffort(out, disp.Agent.Name())
+		out = autoRunEffort(out, disp.Agent.Name(), "")
 	}
 	if out.Effort == "" {
 		out.Effort = disp.Effort
@@ -671,23 +671,29 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 	}
 	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude)
 	_, pinAuto := SplitAuto(pin)
+	alias := ""
 	if auto := out.AutoModel || pinAuto; auto || pin == "" {
-		out.Model, _ = TaskTier(out.Prompt)
+		alias, _ = TaskTier(out.Prompt)
+		out.Model = alias
 		if auto {
-			out.Model = cmp.Or(out.Model, models.Opus)
+			out.Model = cmp.Or(alias, models.Opus)
 		}
 	}
-	return autoRunEffort(out, agentid.Claude)
+	return autoRunEffort(out, agentid.Claude, alias)
 }
 
-// autoRunEffort gives a typed or pinned auto run its tier's effort when neither --effort nor the record names one.
-func autoRunEffort(out RunOptions, agentName string) RunOptions {
-	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentName)
-	_, pinAuto := SplitAuto(pin)
-	if out.Effort != "" || !out.AutoModel && !pinAuto || vault.GetAgentRecord(agentName).Effort != "" {
+// autoRunEffort gives an auto run its tier's effort unless --effort or the record names one; alias "" computes it.
+func autoRunEffort(out RunOptions, agentName, alias string) RunOptions {
+	if out.Effort != "" {
 		return out
 	}
-	alias, _ := TaskTier(out.Prompt)
+	_, pinAuto := SplitAuto(agentModelPinContext(valuesContext(context.Background(), out.Values), agentName))
+	if !out.AutoModel && !pinAuto || vault.GetAgentRecord(agentName).Effort != "" {
+		return out
+	}
+	if alias == "" {
+		alias, _ = TaskTier(out.Prompt)
+	}
 	out.Effort = TierEffort(cmp.Or(alias, models.Opus))
 	return out
 }

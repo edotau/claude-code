@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// Finding is one failed preflight check on a Databricks target; Check is credential, auth, served or wire.
+// Finding is one failed preflight check on a Databricks target; Check is credential, auth, login, served or wire.
 type Finding struct {
 	Check   string   `json:"check"`
 	Profile string   `json:"profile"`
@@ -225,13 +225,16 @@ const maxAlternatives = 5
 // servedAlternatives is up to maxAlternatives READY ids of model's family in p's fresh listing; nil without one.
 func servedAlternatives(p *providers.Provider, model string, now time.Time) []string {
 	fam := models.FamilyKind(model)
-	s, ok := router.LoadServed(p.Name)
-	if !ok || !s.Fresh(now) || fam != models.FamilyClaude && fam != models.FamilyGPT && fam != models.FamilyGemini {
+	s, ok := router.FreshServed(p.Name, now)
+	if !ok || fam != models.FamilyClaude && fam != models.FamilyGPT && fam != models.FamilyGemini {
 		return nil
 	}
 	var out []string
 	for _, m := range s.Models {
-		if (m.Ready == "" || m.Ready == "READY") && models.FamilyKind(m.ID) == fam && m.ID != model && len(out) < maxAlternatives {
+		if len(out) == maxAlternatives {
+			break
+		}
+		if m.IsReady() && models.FamilyKind(m.ID) == fam && m.ID != model {
 			out = append(out, m.ID)
 		}
 	}

@@ -31,6 +31,26 @@ func TestGatewayResolveUsage(t *testing.T) {
 	}
 }
 
+// --fallback outside router.FallbackModes is a usage error like the sibling verbs' check, never treated as "not none".
+func TestGatewayResolveRejectsUnknownFallback(t *testing.T) {
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdGatewayResolve([]string{"opencode", "--model", "dev:x", "--fallback", "bogus"})
+	})
+	if code != 2 || !strings.Contains(stderr, `--fallback "bogus" unknown (none|pin|agents|all)`) {
+		t.Errorf("exit %d, stderr %q; want exit 2 naming the closed set", code, stderr)
+	}
+}
+
+// An auto reason in the middle of the note leaves the notes around it joined by one "; ", never an empty part.
+func TestPrintRouteAutoReasonMidNote(t *testing.T) {
+	choice := &agent.AutoChoice{Tier: "standard", Criterion: "value", Signal: "standard", Model: "m", Fallback: "no ranking"}
+	r := agent.ModelRoute{Agent: "opencode", Account: "a", Model: "m", Source: "flag", Note: "first; " + choice.Reason() + "; detail"}
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return printRoute(r, choice, "text") })
+	if !strings.Contains(out, "note: first; detail\n") {
+		t.Errorf("printRoute = %q; want note \"first; detail\"", out)
+	}
+}
+
 // An untyped resolve reports the hop RunQuery picks (the label's resolver), its note kept; an error is returned.
 func TestResolveFirstHop(t *testing.T) {
 	base, err := os.ReadFile("../providers/defaults.json")
