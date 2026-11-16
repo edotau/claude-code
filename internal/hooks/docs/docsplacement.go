@@ -19,11 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// rootAnchors are the root-level markdown files that tooling requires at the repo root.
+// rootAnchors are the stems of the markdown files tooling requires at the repo root (README.md, README.markdown).
 var rootAnchors = map[string]bool{
-	"readme.md": true, "claude.md": true, "agents.md": true, "gemini.md": true,
-	"license.md": true, "licence.md": true, "notice.md": true, "changelog.md": true,
-	"contributing.md": true, "code_of_conduct.md": true, "security.md": true,
+	"readme": true, "claude": true, "claude.local": true, "agents": true, "agents.override": true, "gemini": true,
+	"license": true, "licence": true, "notice": true, "changelog": true,
+	"contributing": true, "code_of_conduct": true, "security": true,
 }
 
 // Placement gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
@@ -117,7 +117,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	}
 	rel = filepath.ToSlash(rel)
 	atRoot := dir == root
-	if atRoot && rootAnchors[strings.ToLower(base)] { // anchors are exempt only at the repo root
+	if atRoot && rootAnchors[strings.ToLower(strings.TrimSuffix(base, filepath.Ext(base)))] { // anchors are exempt only at the repo root
 		return core.ExitProceed
 	}
 	inDocs := strings.HasPrefix(paths.FoldCase(rel), "docs/")
@@ -148,7 +148,7 @@ func harnessDocsPlacement(ctx context.Context, stderr io.Writer, config, harness
 	return blockPlacement(stderr, base, harnessDocs+" (retired: handoffs and reports live in the memory store)", config)
 }
 
-// stranded: an untracked root file or ignored docs/ page; an existing ignored file is the owner's local doc.
+// stranded: a new untracked root file or ignored docs/ page; any existing file is the owner's.
 func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 	_, statErr := os.Stat(abs)
 	exists := statErr == nil
@@ -156,15 +156,15 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 		ignored, _ := isIgnored(ctx, root, rel) // true only when git answered cleanly
 		return !exists && ignored && ctx.Err() == nil
 	}
-	// A git error (e.g. a `.git` git itself rejects) fails open: only a clean empty listing blocks.
+	if exists {
+		return false
+	}
+	// A git error (e.g. a `.git` git itself rejects) fails open: only clean git answers block a new file.
 	if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
 		return false
 	}
-	ignored, err := isIgnored(ctx, root, rel)
-	if err != nil || ctx.Err() != nil {
-		return false
-	}
-	return !exists || !ignored
+	_, err := isIgnored(ctx, root, rel)
+	return err == nil && ctx.Err() == nil
 }
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
@@ -173,8 +173,9 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 	reports, handoffs := b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md")
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user asked\n"+
-		"for: `git add -N <file>` first (tracked files pass). Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
+		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user\n"+
+		"asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.\n"+
+		"Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
 		"-> rules/harness/docs-placement.md\n",
 		base, where, plansHome, reports, handoffs)
 	return core.ExitBlock
