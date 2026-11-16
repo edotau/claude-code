@@ -213,39 +213,13 @@ func TestProxyShimForwardsArgs(t *testing.T) {
 	}
 }
 
-// withProcVersion points procVersionPath at a fixture file containing content, restoring on cleanup.
-func withProcVersion(t *testing.T, content string) {
+// withWSL fakes a Linux host that is (or is not) WSL, restoring on cleanup.
+func withWSL(t *testing.T, on bool) {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "version")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := procVersionPath
-	procVersionPath = path
-	oldOS := doctorGOOS
-	doctorGOOS = "linux" // the /proc/version fixture models a Linux host, whatever runs the test
-	t.Cleanup(func() { procVersionPath, doctorGOOS = old, oldOS })
-}
-
-func TestOnWSLKernel(t *testing.T) {
-	withProcVersion(t, "Linux version 5.15.90.1-microsoft-standard-WSL2 (...)\n")
-	if !OnWSLKernel() {
-		t.Error("microsoft kernel string: want WSL detected")
-	}
-	withProcVersion(t, "Linux version 6.8.0-generic (buildd@host) ...\n")
-	if OnWSLKernel() {
-		t.Error("plain Linux kernel string: want WSL NOT detected")
-	}
-}
-
-func TestOnWSLKernelMissingFile(t *testing.T) {
-	old := procVersionPath
-	procVersionPath = filepath.Join(t.TempDir(), "does-not-exist")
-	t.Cleanup(func() { procVersionPath = old })
-	if OnWSLKernel() {
-		t.Error("unreadable /proc/version: want WSL NOT detected")
-	}
+	old, oldOS := onWSL, doctorGOOS
+	onWSL = func() bool { return on }
+	doctorGOOS = "linux" // the fake models a Linux host, whatever runs the test
+	t.Cleanup(func() { onWSL, doctorGOOS = old, oldOS })
 }
 
 // setHome points UserHomeDir (via $HOME) at a scratch dir so proxyPath never touches the real home.
@@ -370,7 +344,7 @@ func TestInstallProxyWSLGate(t *testing.T) {
 	home := setHome(t)
 	dest := filepath.Join(home, ".local", "bin", "wl-paste")
 
-	withProcVersion(t, "Linux version 6.8.0-generic (buildd@host) ...\n")
+	withWSL(t, false)
 	var offWSL bytes.Buffer
 	if err := InstallProxy(&offWSL, false); err != nil {
 		t.Fatal(err)
@@ -382,7 +356,7 @@ func TestInstallProxyWSLGate(t *testing.T) {
 		t.Fatal("off-WSL InstallProxy wrote the proxy file")
 	}
 
-	withProcVersion(t, "Linux version 5.15.90.1-microsoft-standard-WSL2 (...)\n")
+	withWSL(t, true)
 	var onWSL bytes.Buffer
 	if err := InstallProxy(&onWSL, false); err != nil {
 		t.Fatal(err)
@@ -410,7 +384,7 @@ func TestInstallProxyWSLGate(t *testing.T) {
 
 func TestDoctorDetailOffWSL(t *testing.T) {
 	setHome(t)
-	withProcVersion(t, "Linux version 6.8.0-generic (buildd@host) ...\n")
+	withWSL(t, false)
 	ok, detail := DoctorDetail()
 	if !ok {
 		t.Errorf("off-WSL: ok = false, detail %q", detail)
@@ -422,7 +396,7 @@ func TestDoctorDetailOffWSL(t *testing.T) {
 
 func TestDoctorDetailMissingOnWSL(t *testing.T) {
 	setHome(t)
-	withProcVersion(t, "Linux version 5.15.90.1-microsoft-standard-WSL2 (...)\n")
+	withWSL(t, true)
 	ok, detail := DoctorDetail()
 	if ok {
 		t.Errorf("missing proxy on WSL: ok = true, detail %q", detail)
@@ -434,7 +408,7 @@ func TestDoctorDetailMissingOnWSL(t *testing.T) {
 
 func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	home := setHome(t)
-	withProcVersion(t, "Linux version 5.15.90.1-microsoft-standard-WSL2 (...)\n")
+	withWSL(t, true)
 	dest := filepath.Join(home, ".local", "bin", "wl-paste")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatal(err)

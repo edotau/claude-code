@@ -60,20 +60,24 @@ type proxyCall struct {
 // RunProxy is the wl-paste proxy: it answers the agent CLIs' image legs and delegates the rest; returns the exit code.
 func RunProxy(args []string, stdout, stderr io.Writer) int {
 	env := proxyEnv()
-	real := findRealWlPaste()
-	if real == "" {
-		fmt.Fprintln(stderr, "wl-paste: no real wl-paste behind the Claude clipboard proxy (is wl-clipboard installed?)")
-		return 127
-	}
-	c := proxyCall{real: real, args: args, env: env, stdout: stdout, stderr: stderr}
+	c := proxyCall{real: findRealWlPaste(), args: args, env: env, stdout: stdout, stderr: stderr}
 	if code, ok := c.route(os.Getenv("CLAUDE_WL_PASTE_PROXY"), parentCmdline()); ok {
 		return code
 	}
-	if err := proxyExec(real, args, env); err != nil {
+	if c.real == "" {
+		return c.noReal()
+	}
+	if err := proxyExec(c.real, args, env); err != nil {
 		fmt.Fprintf(stderr, "wl-paste: %v\n", err)
 		return 126
 	}
 	return 0
+}
+
+// noReal fails a leg that needs the real wl-paste when none is installed; SSH legs never reach it.
+func (c proxyCall) noReal() int {
+	fmt.Fprintln(c.stderr, "wl-paste: no real wl-paste behind the Claude clipboard proxy (is wl-clipboard installed?)")
+	return 127
 }
 
 func (c proxyCall) route(mode, parent string) (code int, ok bool) {
@@ -142,6 +146,9 @@ func (c proxyCall) sshLeg() bool {
 
 // bmpLeg answers image/bmp with a decodable 24bpp BMP; reject mode fails the leg without reading.
 func (c proxyCall) bmpLeg(reject bool) int {
+	if c.real == "" {
+		return c.noReal()
+	}
 	if reject {
 		return 1
 	}
@@ -158,6 +165,9 @@ func (c proxyCall) bmpLeg(reject bool) int {
 
 // pngLeg answers image/png: the real offer when it has one, else a PNG synthesized from the BMP offer.
 func (c proxyCall) pngLeg() int {
+	if c.real == "" {
+		return c.noReal()
+	}
 	if b, err := captureWlPaste(c.real, c.env, c.args); err == nil && len(b) > 0 {
 		if _, err := c.stdout.Write(b); err != nil {
 			fmt.Fprintf(c.stderr, "wl-paste: %v\n", err)
@@ -226,6 +236,13 @@ func findRealWlPaste() string {
 	return ""
 }
 
+// sameFile compares by inode, so a symlinked or relative PATH entry naming dest still matches.
+func sameFile(a, b string) bool {
+	sa, errA := os.Stat(a)
+	sb, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(sa, sb)
+}
+
 func isSocket(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.Mode()&os.ModeSocket != 0
@@ -239,17 +256,8 @@ var ProxyScript []byte
 // proxyMarker identifies a file as this proxy (any version), so a foreign wl-paste is never overwritten.
 const proxyMarker = "Claude-aware `wl-paste` proxy for WSL2"
 
-// procVersionPath is read to detect a WSL kernel; a var so tests can point it at a fixture.
-var procVersionPath = "/proc/version"
-
 // doctorGOOS is the OS DoctorDetail branches on; tests swap it to exercise the Linux/WSL paths on any host.
 var doctorGOOS = runtime.GOOS
-
-// OnWSLKernel reports whether /proc/version names a Microsoft (WSL) kernel.
-func OnWSLKernel() bool {
-	b, err := os.ReadFile(procVersionPath)
-	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
-}
 
 // proxyPath is where the proxy lives: ~/.local/bin/wl-paste, ahead of /usr/bin on a normal PATH.
 func proxyPath() (string, error) {
@@ -287,7 +295,7 @@ func proxyState(path string) proxyFileState {
 
 // InstallProxy writes the wl-paste proxy to proxyPath on WSL only (else a silent no-op); a foreign file is left alone.
 func InstallProxy(w io.Writer, dryRun bool) error {
-	if !OnWSLKernel() {
+	if !onWSL() {
 		return nil
 	}
 	dest, err := proxyPath()
@@ -323,7 +331,7 @@ func DoctorDetail() (ok bool, detail string) {
 	if doctorGOOS == "darwin" {
 		return launchDoctorDetail()
 	}
-	if !OnWSLKernel() {
+	if !onWSL() {
 		return true, "not WSL (proxy not needed)"
 	}
 	dest, err := proxyPath()
@@ -341,7 +349,7 @@ func DoctorDetail() (ok bool, detail string) {
 	default:
 		base = "proxy at " + dest + "; if paste fails, try claude-code clip"
 	}
-	if got, err := exec.LookPath("wl-paste"); err == nil && got != dest {
+	if got, err := exec.LookPath("wl-paste"); err == nil && !sameFile(got, dest) {
 		return false, base + "; PATH resolves wl-paste to " + got + " first"
 	}
 	return true, base

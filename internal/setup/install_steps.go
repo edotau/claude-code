@@ -347,7 +347,7 @@ func installCompletion(w io.Writer, dryRun bool) {
 	}
 }
 
-// installClipboardProxy ensures the WSL wl-paste proxy
+// installClipboardProxy ensures the WSL wl-paste proxy is installed (a no-op off WSL).
 func installClipboardProxy(w io.Writer, dryRun bool) {
 	if err := clipboard.InstallProxy(w, dryRun); err != nil {
 		fmt.Fprintf(w, "  %-17s %v\n", "skip", "wl-paste proxy: "+err.Error())

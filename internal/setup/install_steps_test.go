@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -210,7 +211,7 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	if err := install(&out, false, true); err != nil {
 		t.Fatal(err)
 	}
-	if !clipboard.OnWSLKernel() {
+	if !proc.OnWSL() {
 		if _, err := os.Lstat(proxyPath); err == nil {
 			t.Fatal("off-WSL: Install wrote the wl-paste proxy")
 		}

@@ -88,8 +88,8 @@ func TestWlPasteReachesWSLgSocketWithoutWaylandDisplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ = os.ReadFile(out)
-	if strings.TrimSpace(string(got)) != "wayland-1" {
-		t.Errorf("set WAYLAND_DISPLAY was overridden: %q", got)
+	if strings.TrimSpace(string(got)) != "wayland-1 0" {
+		t.Errorf("set WAYLAND_DISPLAY overridden or proxy not bypassed: %q", got)
 	}
 }
 

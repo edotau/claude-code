@@ -77,13 +77,13 @@ const wslgSocket = "/mnt/wslg/runtime-dir/wayland-0"
 // errNoImage: the clipboard answered and holds no image, so there is nothing for PowerShell to find either.
 var errNoImage = errors.New("no image in the Windows clipboard — copy or screenshot one first (Win+Shift+S)")
 
-// wlPaste runs wl-paste against WSLg, reaching the socket by path when the shell lacks WAYLAND_DISPLAY.
+// wlPaste runs wl-paste against WSLg, bypassing the proxy and reaching the socket by path when the shell lacks it.
 func wlPaste(args ...string) ([]byte, error) {
-	env := os.Environ()
+	set := proc.Values{"CLAUDE_WL_PASTE_PROXY": "0"}
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
-		env = proc.ValuesFromEnv(env).Merge(proc.Values{"WAYLAND_DISPLAY": wslgSocket, "CLAUDE_WL_PASTE_PROXY": "0"}).Env()
+		set["WAYLAND_DISPLAY"] = wslgSocket
 	}
-	return captureWlPaste("wl-paste", env, args)
+	return captureWlPaste("wl-paste", proc.ValuesFromEnv(os.Environ()).Merge(set).Env(), args)
 }
 
 func captureWlPaste(bin string, env, args []string) ([]byte, error) {

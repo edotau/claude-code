@@ -157,7 +157,7 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(setupOK, false, "setup", setupDetail)
 	check(true, false, "browser", browserDoctorDetail())
 	clipOK, clipDetail := clipboard.DoctorDetail()
-	check(clipOK, false, "wl-paste proxy", clipDetail)
+	check(clipOK, false, "clipboard", clipDetail)
 	check(settingsErr == nil, false, "settings.json", orErr("valid", settingsErr))
 }
 
