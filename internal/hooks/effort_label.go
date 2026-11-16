@@ -114,9 +114,12 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	if explicitModel(in) || task == "" || agentPinsModel(run, effectiveType(updated)) {
 		return "", ""
 	}
-	tier, signal := router.EffortTierSignal(task)
-	model := models.AliasModel(tier)
+	model, signal := agentpkg.TaskTier(task)
+	if model == "" {
+		return "", ""
+	}
 	updated["model"] = model
+	tier := tierEffort[model]
 	effort := ""
 	if set := pinEffort(run, in, updated, tier); set != "" {
 		effort = " effort=" + set
@@ -125,6 +128,9 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 			" (set model explicitly to override).", tier, model, effort),
 		fmt.Sprintf("dispatch-effort: %s → %s%s (%s)", tier, model, effort, signal)
 }
+
+// tierEffort is the reasoning effort each task-tier alias runs at.
+var tierEffort = map[string]string{models.Haiku: models.EffortLow, models.Sonnet: models.EffortMedium, models.Opus: models.EffortHigh}
 
 // pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns what it set, else "".
 func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) string {
@@ -207,11 +213,11 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if m, _ := updated["model"].(string); q.Model == "" && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
-	if q.Model == "" && agent == "" {
-		if q.Profile == "" && q.Provider == "" {
-			return q, false // an in-context leaf: its own model
-		}
-		q.Default = labelTier(run, updated, st) // claude's ask runs the alias; a vendor CLI drops it (its pin, else opus)
+	if q.Model == "" && agent == "" && q.Profile == "" && q.Provider == "" {
+		return q, false // an in-context leaf: its own model
+	}
+	if q.Model == "" {
+		q.Default, _ = agentpkg.TaskTier(cmp.Or(line.prompt, task)) // the ask runs its pin, else the task tier
 	}
 	return q, true
 }
@@ -241,18 +247,6 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 
 // resolveModel and runQuery are seams: tests stub them so a label never reads the live vault or route table.
 var (
-	resolveModel = agentpkg.ResolveModel
+	resolveModel = agentpkg.ResolveRun
 	runQuery     = agentpkg.RunQuery
 )
-
-// labelTier is the alias the pick starts from: the dispatch's model, else the agent file's, else sonnet.
-func labelTier(run *dispatchRun, updated map[string]any, st string) string {
-	tier, _ := updated["model"].(string)
-	if tier == "" || tier == "inherit" {
-		tier = run.rosterModel(st)
-	}
-	if !slices.Contains(models.AliasNames, tier) {
-		return models.Sonnet
-	}
-	return tier
-}

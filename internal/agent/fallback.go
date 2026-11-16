@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -639,7 +640,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Values = req.Values.Merge(nil)
 	}
 	if disp.unroutedDispatch {
-		return out
+		return claudeTier(out, disp)
 	}
 	if !first {
 		out.Provider, out.SessionID = "", ""
@@ -651,6 +652,17 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 		out.Effort = disp.Effort
 	}
 	return armClaudeProfile(leadProfile(out, disp), disp)
+}
+
+// claudeTier gives an untyped, unpinned local claude dispatch its task tier; claude's own launch would run opus.
+func claudeTier(out RunOptions, disp Dispatch) RunOptions {
+	if out.Model != "" || out.Host != "" || disp.Agent == nil || disp.Agent.Name() != agentid.Claude {
+		return out
+	}
+	if agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude) == "" {
+		out.Model, _ = TaskTier(out.Prompt)
+	}
+	return out
 }
 
 // leadProfile runs a hop that a non-Databricks confinement or the typed lead put on its account's row, not the pin.
