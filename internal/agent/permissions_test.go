@@ -212,6 +212,20 @@ func TestPermissionPathGlobs(t *testing.T) {
 	}
 }
 
+// Given a path Deny, Then another letter case of the same path is denied only where the filesystem folds case.
+func TestPermissionPathDenyFoldsCase(t *testing.T) {
+	p := mustPerms(t, "auto", []string{"Edit"}, nil, []string{"Edit(/repo/internal/agent/**)"})
+	for _, fold := range []bool{true, false} {
+		old := foldPathCase
+		foldPathCase = fold
+		want := map[bool]Decision{true: Deny, false: Allow}[fold]
+		if got := p.Decide("Edit", "/repo/Internal/Agent/x.go"); got != want {
+			t.Errorf("fold=%v: got %v, want %v", fold, got, want)
+		}
+		foldPathCase = old
+	}
+}
+
 // Given WebFetch(domain:example.com), Then the host and its subdomains match, case-insensitively, not look-alikes.
 func TestPermissionWebFetchDomain(t *testing.T) {
 	p := mustPerms(t, "auto", []string{"WebFetch(domain:example.com)"}, nil, nil)

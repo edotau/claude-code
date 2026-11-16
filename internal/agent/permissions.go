@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -495,6 +496,9 @@ func domainMatches(domain, target string) bool {
 
 var pathPatterns sync.Map
 
+// foldPathCase matches path rules case-insensitively where the default filesystem is (macOS, Windows), as safety-scan.
+var foldPathCase = runtime.GOOS != "linux"
+
 // pathMatches globs a path as written, then as canonical forms when both are absolute (/tmp equals /private/tmp).
 func pathMatches(pattern, p string) bool {
 	pattern, p = cleanGlobPath(pattern), cleanGlobPath(p)
@@ -506,10 +510,14 @@ func pathMatches(pattern, p string) bool {
 
 // globMatches globs a cleaned path: "*" and "?" stay inside a segment, "**" crosses directories.
 func globMatches(pattern, p string) bool {
-	cached, ok := pathPatterns.Load(pattern)
+	key, flags := pattern, ""
+	if foldPathCase {
+		key, flags = "\x00"+pattern, "(?i)" // NUL never occurs in a cleaned pattern, so keys cannot collide
+	}
+	cached, ok := pathPatterns.Load(key)
 	if !ok {
-		re, _ := regexp.Compile("^" + globRegexp(pattern) + "$")
-		cached, _ = pathPatterns.LoadOrStore(pattern, re)
+		re, _ := regexp.Compile(flags + "^" + globRegexp(pattern) + "$")
+		cached, _ = pathPatterns.LoadOrStore(key, re)
 	}
 	re := cached.(*regexp.Regexp)
 	return re != nil && re.MatchString(p)
