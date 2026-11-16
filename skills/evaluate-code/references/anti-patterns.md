@@ -7,11 +7,11 @@ detectors and this gallery are original. Severity: `../SKILL.md` → Lenses → 
 
 An ambiguous requirement gets one silent interpretation; the damage stays invisible until it ships.
 
-- **A1. Silent interpretation** — `plan assumptions` → `vague-action`, `unscoped-subject`. "I'll just add a
+- **A1. Silent interpretation** — `claude-code plan assumptions` → `vague-action`, `unscoped-subject`. "I'll just add a
   function to export all user data": which users, format, destination are unstated. **Fix:** surface the choices —
   "Export the authenticated user's profile rows to CSV, PII excluded. Confirm scope?"
-- **A2. "Should work" plan step** — `plan assumptions` → `hopeful`; `plan goals` → `vague`. "3. Wire the
-  endpoint — should work with the existing auth middleware." **Fix:** "3. Wire the endpoint. verify:
+- **A2. "Should work" plan step** — `claude-code plan assumptions` → `hopeful`; `claude-code plan goals` → `vague`. "3.
+  Wire the endpoint — should work with the existing auth middleware." **Fix:** "3. Wire the endpoint. verify:
   `curl -H 'Authorization: …' /api/x` returns 200; unauthenticated returns 401."
 
 ## #2 Simplicity First
@@ -36,12 +36,12 @@ Drive-by edits inflate the diff, bury the real change and hurt review and `git b
 
 ## #4 Goal-Driven Execution
 
-- **A10. "Done" with no check** — `plan goals` → `none`. "Implemented the retry logic." **Fix:** "verify: kill
-  the upstream mid-request; client retries 3× then surfaces a 503; `test_retry_exhausted` covers it."
-- **A11. Plan with no final verification** — `plan goals` → missing-final; units pass while the integration is
-  broken. **Fix:** a final step that runs the change on its real surface end-to-end.
-- **A12. Metric claim without a number** — `plan goals` → `vague`. "Optimized the query." **Fix:** "p95 1.8s →
-  0.3s on the 10k-row fixture; `bench_query` asserts < 0.5s."
+- **A10. "Done" with no check** — `claude-code plan goals` → `none`. "Implemented the retry logic." **Fix:** "verify:
+  kill the upstream mid-request; client retries 3× then surfaces a 503; `test_retry_exhausted` covers it."
+- **A11. Plan with no final verification** — `claude-code plan goals` → missing-final; units pass while the
+  integration is broken. **Fix:** a final step that runs the change on its real surface end-to-end.
+- **A12. Metric claim without a number** — `claude-code plan goals` → `vague`. "Optimized the query."
+  **Fix:** "p95 1.8s → 0.3s on the 10k-row fixture; `bench_query` asserts < 0.5s."
 
 ## How the lens fits the review
 

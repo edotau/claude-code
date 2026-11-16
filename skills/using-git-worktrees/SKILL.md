@@ -43,12 +43,11 @@ More verbs and options:
 | `claude-code worktree merge <name> --resolve-agent <agent>` · `--resume` | Agent resolves a predicted conflict; reattach |
 | `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
 
-`clean`/`clean-all` take `--force` (discard uncommitted and unmerged work); every other verb refuses
-with a reason instead. Only pass `--force` with the user's explicit go — it is a data-loss operation.
-`merge` refuses when `main` moved mid-verify (re-run it); `clean` refuses while a process has its cwd
-inside (`cd` out or `ExitWorktree`).
-Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive value
-here is `merge` and `clean-all`.
+`clean` takes `--force` (discard uncommitted and unmerged work); `clean-all` takes only `--dry-run` and `--yes`; every
+other verb refuses with a reason instead. Only pass `--force` with the user's explicit go — it is a data-loss operation.
+`merge` refuses when `main` moved mid-verify (re-run it); `clean` refuses while a process has its cwd inside (`cd` out
+or `ExitWorktree`). Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive
+value here is `merge` and `clean-all`.
 
 `create` makes the worktree under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude Code) via
 `git worktree add`, then seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent

@@ -16,7 +16,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
 | Stage | Agent / model, effort | Input | Output | Gate / check | Recorded |
 | --- | --- | --- | --- | --- | --- |
 | Size | sizer, `haiku` low | task, `git status`, `go list` | `{tier, packages, paths, focus}` | tier enum | decision line |
-| Route | none (code) | tier | `code-workers:paths` · `code-workers:packages` · `plan` | EPIC returns early | route line |
+| Route | none (code) | tier | `code-workers:paths` · `code-workers:packages` · `plan` (prefixed `code-analyzer→` or `code-evaluator→` when they run first) | EPIC returns early | route line |
 | Run | code-workers (composite B) | paths or packages | code-workers result | exit `green\|red\|review` | child decisions |
 | Dedupe | deduper, `sonnet` medium | combined diff of 2+ fixed packages | applied, flagged, Δ lines | only cross-package duplicated helpers; `polish:false` skips | decision |
 | Simplify | simplifier, `sonnet` medium | merged diff of all fixed files | simplify result | simplify gate | decision |

@@ -25,8 +25,8 @@ feeds it (one turn in flight, ≤4 sessions).
 ## Fallback
 
 - **Order**: the requested target (agent, `--profile` or overlay `profile` workspace, `--model`), then the agent's own
-  pin (its vault profile and model; skipped when it has none or the pin is what was requested), then Claude on the
-  current session. Nothing else: no sibling workspace, no login but the pin's, no other agent.
+  pin (its vault profile and model; skipped when it has none or the pin is what was requested), then, by mode,
+  other agents and Claude on the current session. Nothing else: no sibling workspace, no login but the pin's.
   `claude-code gateway --agent <a>` shows the resolved order and skip gates. The overlay `provider` chooses an
   execution arm; `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
 - **Pin hop left out**: inside an overlay `provider: databricks, profile: <p>` when the pin is another workspace
@@ -35,9 +35,10 @@ feeds it (one turn in flight, ≤4 sessions).
 - **Gates**: `off` (`claude-code <agent> profile --off`), no table row, binary/login missing, Copilot's pinned GitHub
   profile only while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota
   error). A gated step is skipped; the order does not change.
-- **`--fallback all|agents|none`** (default `all` when `AGENT_ERROR_FALLBACK` is set in the shell or vault env, else
-  `none`): `all` is the full order, `agents` stops after the pin, `none` runs the requested target only and exits
-  non-zero with the reason; review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
+- **`--fallback none|pin|agents|all`** (default from `AGENT_ERROR_FALLBACK` in the shell or vault env, else `none`):
+  `none` runs the requested target only and exits non-zero with the reason, `pin` stops after the agent's pin,
+  `agents` also walks other agents, `all` is the full order ending on Claude;
+  review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
 - **Announced**: a target the preflight refuses prints `preflight: <requested> failed <check> (<detail>); chose
   <chosen>` (`preflight: note: <text>` for a skipped check) and lands in the dispatch record's `preflight` object.
   A run that ended on another step reads `ask: ran on <agent> · <account> · <model> · fallback from <requested>

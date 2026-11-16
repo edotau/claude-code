@@ -2,7 +2,7 @@
 
 | Symptom | Cause | Next step |
 | --- | --- | --- |
-| "key not set" / auth error / `Unauthorized` | Missing or wrong `TAVILY_API_KEY` | Stop; `claude-code vault set TAVILY_API_KEY`, check with `claude-code doctor`; never answer from memory |
+| "key not set" / auth error / `Unauthorized` | Missing or wrong `TAVILY_API_KEY` | Stop; `claude-code vault set TAVILY_API_KEY`, check with `claude-code doctor` (never print the key); never answer from memory |
 | Network error or timeout | Transient | Retry once; if it fails again, report it |
 | Empty or irrelevant search results | Weak query | Reformulate once (synonym, official name, drop a noisy term); still empty means "not found" |
 | `403`, bot-protection page | Site blocks automated clients | Retry once with `tvly extract --extract-depth advanced`; then Chrome `get_page_text` (Claude); then report |
