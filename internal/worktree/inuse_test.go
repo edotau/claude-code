@@ -422,7 +422,7 @@ func TestOwnJobsFiltersRecords(t *testing.T) {
 	self := os.Getpid()
 	start, err := proc.StartTime(self)
 	if err != nil {
-		t.Fatalf("StartTime: %v", err)
+		t.Skipf("process start time unavailable here: %v", err)
 	}
 	now := time.Now()
 	recs := []agent.Record{

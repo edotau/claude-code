@@ -767,6 +767,22 @@ func TestPlanGateFailsFastAndIgnoresPlanSubstrings(t *testing.T) {
 	}
 }
 
+func checkPlanDenied(t *testing.T, res core.Result, missing string) {
+	t.Helper()
+	if res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "missing "+missing) {
+		t.Errorf("want a deny listing %s, got %+v", missing, res)
+	}
+}
+
+func checkPlanFixed(t *testing.T, res core.Result, draft, wantPrefix string) {
+	t.Helper()
+	got, _ := res.UpdatedInput["content"].(string)
+	if res.Decision == core.Block || !strings.HasPrefix(got, wantPrefix) || res.UpdatedInput["file_path"] != draft ||
+		!strings.HasPrefix(res.SystemMessage, "plan-template: added ") || len(missingTemplate(got)) != 0 {
+		t.Errorf("want content starting %q and a note, got %+v", wantPrefix, res)
+	}
+}
+
 // A Claude first draft missing only the "# Plan:" prefix or ## Tasks is rewritten in one updatedInput; else denied.
 func TestPlanGateFixesTitleAndTasks(t *testing.T) {
 	const body = "## Context\n\nwhy\n\n## Phases\n\n### Phase 1: go\n"
@@ -790,16 +806,10 @@ func TestPlanGateFixesTitleAndTasks(t *testing.T) {
 			cfg, _ := planGroupEnv(t, false)
 			draft := filepath.Join(cfg, "plans", "happy-otter.md")
 			res := Placement(core.ParseInputFor(strings.NewReader(writePayload(t, "Write", cfg, draft, c.content)), c.agent))
-			got, _ := res.UpdatedInput["content"].(string)
-			if !c.fixed {
-				if res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "missing "+c.want) {
-					t.Errorf("want a deny listing %s, got %+v", c.want, res)
-				}
-				return
-			}
-			if res.Decision == core.Block || !strings.HasPrefix(got, c.want) || res.UpdatedInput["file_path"] != draft ||
-				!strings.HasPrefix(res.SystemMessage, "plan-template: added ") || len(missingTemplate(got)) != 0 {
-				t.Errorf("want content starting %q and a note, got %+v", c.want, res)
+			if c.fixed {
+				checkPlanFixed(t, res, draft, c.want)
+			} else {
+				checkPlanDenied(t, res, c.want)
 			}
 		})
 	}

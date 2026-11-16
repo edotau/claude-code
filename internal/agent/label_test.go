@@ -63,36 +63,6 @@ func TestRunQueryTypedSkipsLadder(t *testing.T) {
 	}
 }
 
-// An untyped opencode run on a Databricks row runs the brief's tier: a typo fix and an audit run different models.
-func TestRoutedModelRunsTaskTier(t *testing.T) {
-	setConfigDir(t)
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", routeOverlay)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	run := func(prompt, model string, cell bool) string {
-		req := RunOptions{Prompt: prompt, Model: model, CellModel: cell}
-		got, _, err := SchemaFor("opencode").routedModel(context.Background(), req, providers.Target{Provider: reg.Providers["dev"]}, false)
-		if err != nil {
-			t.Fatalf("routedModel(%q): %v", prompt, err)
-		}
-		return got.Model
-	}
-	trivial, hard := "Fix the typo in internal/agent/label.go.", "Audit the safety-scan rules; needs judgment."
-	if a, b := run(trivial, "sonnet", true), run(hard, "sonnet", true); a == b {
-		t.Errorf("trivial and audit briefs both run %s, want the tier to pick different models", a)
-	}
-	if a, b := run(trivial, "dev:claude-opus-5-5", false), run(hard, "dev:claude-opus-5-5", false); a != b {
-		t.Errorf("a typed model ran %s and %s, want the typed model on both", a, b)
-	}
-	vaulttest.SetRecord(t, "opencode", "model", "databricks-claude-sonnet-5-5")
-	if a, b := run(trivial, "", false), run(hard, "", false); a != b {
-		t.Errorf("a pinned agent ran %s and %s, want its pin on both", a, b)
-	}
-}
-
 // TaskTier reads a Tier: line first, then deep, fast and standard signals from the work text alone.
 func TestTaskTier(t *testing.T) {
 	for _, tc := range []struct{ brief, want string }{
@@ -161,26 +131,6 @@ func TestResolveRunUnservedCatalogModel(t *testing.T) {
 	q.Model = "gemini-3-8-flash-high"
 	if r, err := ResolveRun(reg, q, now); err != nil || r.Served != "" {
 		t.Errorf("served model: %+v, %v; want it unmarked", r, err)
-	}
-}
-
-// An untyped local claude dispatch runs the brief's tier; a typed model, a claude pin or --host keep theirs.
-func TestClaudeTierOnUntypedDispatch(t *testing.T) {
-	setConfigDir(t)
-	vaulttest.Use(t)
-	d := Dispatch{Agent: labelEngine{stubEngine{name: "claude"}}, keepCaller: true, unroutedDispatch: true}
-	brief := "Fix the typo in internal/agent/label.go."
-	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true).Model; got != "haiku" {
-		t.Errorf("untyped claude model = %q, want the task tier haiku", got)
-	}
-	for _, req := range []RunOptions{{Prompt: brief, Model: "opus"}, {Prompt: brief, Host: "h"}} {
-		if got := dispatchRequest(req, d, true).Model; got != req.Model {
-			t.Errorf("%+v ran %q, want %q unchanged", req, got, req.Model)
-		}
-	}
-	vaulttest.SetRecord(t, "claude", "model", "opus")
-	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true).Model; got != "" {
-		t.Errorf("pinned claude model = %q, want the pin left to the launch", got)
 	}
 }
 

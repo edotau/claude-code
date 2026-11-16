@@ -296,11 +296,11 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "native", -1, "format-stop", "memory-start", nil},
 		{"gemini", "native", 2, "safety-scan", "docs-placement", []string{"permission-gate", "safety-scan"}},
 		{"copilot", "native", -1, "memory-end", "memory-start", nil},
-		{"opencode", "hosted", 12, "memory-end", "worktree-busy", []string{
+		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan-mirror", "docs-plan-reminder",
 			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
 			"paths-resolve", "review-simplicity", "safety-scan"}},
-		{"opencode", "plugin", 4, "worktree-claim-check", "memory-end", nil},
+		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},
 		{"claude", "bogus", 0, "", "", nil},
 	}

@@ -166,7 +166,14 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 			t.Errorf("%s: rendered matcher = %q (present %v), want %q", s.Name, got, ok, want)
 		}
 	}
-	if !strings.Contains(string(raw), `"Write|Edit|MultiEdit|Bash|apply_patch"`) { // docs-placement
-		t.Errorf("no file-write gate selects Codex's apply_patch:\n%s", raw)
+	for _, s := range settings.SpecsFor("codex", "native") {
+		if s.Name != "docs-placement" {
+			continue
+		}
+		if m := rendered[settings.AgentCommand("codex", s)]; !strings.Contains(m, "apply_patch") || !strings.Contains(m, "Bash") {
+			t.Errorf("docs-placement matcher = %q; want it to select apply_patch and Bash", m)
+		}
+		return
 	}
+	t.Error("docs-placement is not a Codex spec")
 }
