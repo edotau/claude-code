@@ -22,7 +22,8 @@ five: print the block above and stop. Otherwise:
 
 1. Take the leading `--agent`, `--overlay` and `--model` off `$ARGUMENTS`; the rest is the task. A given overlay is
    passed through unchanged; the default overlay is used only when none is given.
-2. Run `claude-code agents label <type>` (prints `<label>:`).
+2. Run `claude-code agents label <type> [--model <m> from step 1] --task -` with the step 3 prompt on stdin (prints
+   `<label>:`; empty output means no prefix: use the description alone).
 3. Make ONE Agent tool call: `subagent_type: <type>`, description `<label>: <first ~8 words of the task>`, and a
    prompt whose first line is
    `Run: claude-code agents ask --agent <type> --overlay '<overlay JSON or file path>'

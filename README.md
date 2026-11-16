@@ -22,8 +22,9 @@ below). Agent-facing commands and gotchas live per area under `rules/harness/` a
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten), add
-linters (DEV_TOOLS=0 skips) claude-code doctor            # check binaries, providers, credentials, proxy
+make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten)
+                              # and add linters (DEV_TOOLS=0 skips)
+claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
@@ -52,11 +53,12 @@ claude-code --remote <h> databricks # runs here; only Databricks workspace reque
 
 ```bash
 claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings
-(secrets, routing, environment, seed agents); Submit seals keys claude-code configure models          # one page
-(provider|models|agents|github|remote|codex|routing|databricks) claude-code configure codex           # codex effort and
-verbosity (vault) claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent
-configs claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
+                                      # (secrets, routing, environment, seed agents); Submit seals keys
+claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
+claude-code configure codex           # codex effort and verbosity (vault)
+claude-code configure --check         # report only; exit 1 if anything is unset
+claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
+claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 ```
 
 - `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
@@ -191,6 +193,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
 | `CLAUDE_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
+| `HARNESS_MODEL_CACHE_TTL` | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`) |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
 | `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
 
@@ -200,7 +203,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | --- | --- | --- |
 | agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
 | provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` |
-| profile | an account on a provider; carries billing | unique across all providers, `[a-z0-9-]`, opaque to code |
+| profile | an account on a provider; carries billing | unique across all providers, `[A-Za-z0-9_-]`, opaque to code |
 | auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
@@ -239,8 +242,8 @@ opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 `claude` launches **direct** when the provider speaks `anthropic`, every model alias stays on it, and no `fallback` is
 set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, started on demand), which:
 
-1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --proxy` prints it) and a
-   loopback `Host`;
+1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --proxy` prints a scoped session
+   token, never the secret) and a loopback `Host`;
 2. resolves `model` (`id` or `provider:model`) and strips `[1m]`;
 3. passes `anthropic` routes through; translates Messages ⇄ chat-completions for `openai` routes (streaming, tools);
 4. refreshes the credential and replays once on 401/403 (the error names the remedy for the row's auth type);
@@ -271,8 +274,9 @@ claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- fo
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
-claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools
-"<task>"  # per-call config claude-code usage --days 7                             # subagent token usage
+claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"
+                                                       # per-call config
+claude-code usage --days 7                             # subagent token usage
 claude-code usage --context                          # where one session's context went, by source
 ```
 
@@ -309,8 +313,9 @@ Discovery and sanitized probe outcomes are **encrypted vault secrets**, separate
 The `model-discovery/v1/<sha256 JSON scope>` key covers the resolved profile name, CLI profile, normalized workspace
 host, serving spelling rule, resolved Anthropic/chat/Responses route URLs and authenticated subject ID.
 Changed route URLs cannot reuse old discovery/probe snapshots. No token, token fingerprint, raw probe error or secret
-prefix is stored in the snapshot. There is **no TTL**: use `--refresh` when the serving catalog changes. An unlocked
-vault key is required; vault/decryption and authentication errors fail closed, even with `--refresh`. Refresh can
+prefix is stored in the snapshot. `catalog sync` has **no TTL**: use `--refresh` when the serving catalog
+changes. An unlocked vault key is required; vault/decryption and authentication errors fail closed, even with
+`--refresh`. Refresh can
 replace invalid snapshot JSON/schema only after successful decryption. It cannot overwrite inaccessible ciphertext.
 A successful refresh retains readable historical probe results until
 `--verify` replaces them.
@@ -413,9 +418,9 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 ## Layout
 
 `CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/harness/<owner>/` (versioned per the
-`internal/schemas` registry; `doctor` reports `formats`, `make install` runs
-pending migrations), `state/harness/backups/` (every plaintext backup, via `paths.Backup`); `docs/templates/` indexes
-every embedded (`//go:embed`) template.
+`internal/schemas` registry; formats migrate on read, `doctor` reports `formats`),
+`state/harness/backups/` (every plaintext backup, via `paths.Backup`);
+`docs/templates/` indexes every embedded (`//go:embed`) template.
 `container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
 root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
 `mods/slash-usage/` is a TypeScript plugin, built with `tsc -p mods/<name>`. `mods/agents-band/` is kept in the
