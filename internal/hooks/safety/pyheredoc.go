@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -117,10 +118,7 @@ func pyStdinLine(line string) bool {
 // pyArgs is the arguments of a segment that runs python, directly, through a wrapper or `uv run`.
 func pyArgs(seg string) ([]string, bool) {
 	words, _ := shell.Redirects(seg)
-	rest, _ := shell.Unwrap(words, "")
-	if len(rest) > 2 && rest[0] == "uv" && rest[1] == "run" {
-		rest = rest[2:]
-	}
+	rest := runnerUnwrap(words)
 	if len(rest) == 0 || !pyInterp().MatchString(filepath.Base(rest[0])) {
 		return nil, false
 	}
@@ -249,4 +247,336 @@ func pyRunsOther(rest string) bool {
 		}
 	}
 	return false
+}
+
+// pyRunners run a program in a managed environment (`uv run`, `poetry run`, …), with their value-taking options.
+var pyRunners = map[string]map[string]bool{
+	"uv": {"--with": true, "--with-editable": true, "--with-requirements": true, "--python": true, "-p": true,
+		"--project": true, "--directory": true, "--package": true, "--extra": true, "--group": true, "--env-file": true,
+		"--index": true, "--default-index": true, "--index-url": true, "--extra-index-url": true, "-w": true},
+	"poetry": {"-C": true, "--directory": true, "-P": true, "--project": true},
+	"pipx":   {"--spec": true, "--python": true, "--pip-args": true, "--index-url": true},
+	"conda":  {"-n": true, "--name": true, "-p": true, "--prefix": true, "--cwd": true},
+}
+
+// runnerUnwrap is toks past wrappers and `[python -m] uv|poetry|pipx|conda run [opts]`, from the program run.
+func runnerUnwrap(toks []string) []string {
+	rest, _ := shell.Unwrap(toks, "")
+	for len(rest) > 2 {
+		if pyInterp().MatchString(filepath.Base(rest[0])) && rest[1] == "-m" && pyRunners[rest[2]] != nil {
+			rest = rest[2:]
+		}
+		opts := pyRunners[filepath.Base(rest[0])]
+		if opts == nil || len(rest) < 2 || rest[1] != "run" {
+			return rest
+		}
+		rest = rest[2:]
+		for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+			opt := rest[0]
+			rest = rest[1:]
+			if opt == "--" {
+				break
+			}
+			if opts[opt] && len(rest) > 0 {
+				rest = rest[1:]
+			}
+		}
+	}
+	return rest
+}
+
+// withPyLaunches is view with the literal commands each Python script launches, in a subshell chained before it.
+func withPyLaunches(view string) string {
+	if !strings.Contains(view, "python") {
+		return view
+	}
+	outer, bodies, ok := liftBodies(view)
+	if !ok {
+		return view
+	}
+	segs, seps := shell.SegmentsSep(outer)
+	var b strings.Builder
+	added, lineOps := false, 0
+	for i, seg := range segs {
+		if i > 0 && seps[i-1] == "\n" {
+			lineOps = 0
+		}
+		if code, ok := pyCode(segs, i, bodies, lineOps == 0); ok {
+			if cmds := pyLaunches(code); len(cmds) > 0 {
+				b.WriteString("( " + strings.Join(cmds, " && ") + " ) && ") // && keeps a dynamic cd's chain
+				added = true
+			}
+		}
+		lineOps += len(core.HeredocOp().FindAllString(seg, -1))
+		b.WriteString(seg + seps[i])
+	}
+	if !added {
+		return view
+	}
+	return spliceBodies(b.String(), bodies)
+}
+
+// pyCode is the Python segs[i] runs: its -c code, or the stdin heredoc body (the line's only operator) after it.
+func pyCode(segs []string, i int, bodies []string, firstOp bool) (string, bool) {
+	args, ok := pyArgs(segs[i])
+	if !ok {
+		return "", false
+	}
+	if ops := len(core.HeredocOp().FindAllString(segs[i], -1)); ops > 0 {
+		if ops > 1 || !firstOp || !pyStdinArgs(args) {
+			return "", false
+		}
+		for _, s := range segs[i+1:] {
+			if n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(s), bodySlot)); err == nil &&
+				strings.HasPrefix(strings.TrimSpace(s), bodySlot) && n < len(bodies) {
+				return bodies[n], true
+			}
+			if core.HeredocOp().MatchString(s) {
+				return "", false
+			}
+		}
+		return "", false
+	}
+	return pyDashC(args)
+}
+
+// pyCFlag matches python's -c, alone or ending a cluster of value-free flags.
+var pyCFlag = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^-[IEsSuBOqbv]*c$`) })
+
+// pyDashC is the code after python's -c, before any script, module or `-`.
+func pyDashC(args []string) (string, bool) {
+	for i := 0; i < len(args)-1; i++ {
+		switch a := args[i]; {
+		case pyCFlag().MatchString(a):
+			return args[i+1], true
+		case a == "-X" || a == "-W":
+			i++
+		case !strings.HasPrefix(a, "-") || a == "-" || a == "-m":
+			return "", false
+		}
+	}
+	return "", false
+}
+
+// pyLaunchCall matches a call that runs a process: shell strings, argv lists, os.spawn*/exec*, asyncio, pty.
+var pyLaunchCall = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(system|popen|getoutput|getstatusoutput|run|call|check_call|check_output|Popen|` +
+		`spawn|create_subprocess_shell|create_subprocess_exec|(?:exec|spawn)[lv]p?e?|posix_spawnp?)\s*\(`)
+})
+
+// pyLaunches are the commands code launches whose words are all literals, as shell text.
+func pyLaunches(code string) []string {
+	code = pyBlank(code, false)
+	mask := pyBlank(code, true)
+	var out []string
+	for _, m := range pyLaunchCall().FindAllStringSubmatchIndex(mask, -1) {
+		args, end, ok := pyItems(code, m[1]-1)
+		if !ok || end < 0 {
+			continue
+		}
+		if cmd, ok := pyLaunch(mask[m[2]:m[3]], args); ok && shellSafe(cmd) {
+			out = append(out, cmd)
+		}
+	}
+	return out
+}
+
+// pyBlank is src with comments, and string literals when strs, turned to spaces; offsets and newlines stay.
+func pyBlank(src string, strs bool) string {
+	b := []byte(src)
+	for i := 0; i < len(src); i++ {
+		var end int
+		switch src[i] {
+		case '#':
+			if end = strings.IndexByte(src[i:], '\n') + i; end < i {
+				end = len(src)
+			}
+		case '\'', '"':
+			if end = pyStringEnd(src, i); !strs {
+				i = end - 1
+				continue
+			}
+		default:
+			continue
+		}
+		for j := i; j < end; j++ {
+			if b[j] != '\n' {
+				b[j] = ' '
+			}
+		}
+		i = end - 1
+	}
+	return string(b)
+}
+
+// pyItems splits the bracketed text opening at src[open] into trimmed top-level items; end is its closer's index.
+func pyItems(src string, open int) (items []string, end int, ok bool) {
+	depth, from := 0, open+1
+	for i := open; i < len(src); i++ {
+		switch c := src[i]; {
+		case c == '\'' || c == '"':
+			i = pyStringEnd(src, i) - 1
+		case strings.IndexByte("([{", c) >= 0:
+			depth++
+		case strings.IndexByte(")]}", c) >= 0:
+			if depth--; depth == 0 {
+				if last := strings.TrimSpace(src[from:i]); last != "" {
+					items = append(items, last)
+				}
+				return items, i, true
+			}
+		case c == ',' && depth == 1:
+			items = append(items, strings.TrimSpace(src[from:i]))
+			from = i + 1
+		}
+	}
+	return nil, -1, false
+}
+
+// pyKwarg matches a keyword argument `name=value`.
+var pyKwarg = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)^([A-Za-z_]\w*)\s*=([^=].*)$`) })
+
+// pyLaunch is the shell text a launch call named name runs with args, when every word of it is a literal.
+func pyLaunch(name string, args []string) (string, bool) {
+	var pos []string
+	kw := map[string]string{}
+	for _, a := range args {
+		if strings.HasPrefix(a, "*") {
+			return "", false // *argv: the words are not in the source
+		}
+		if m := pyKwarg().FindStringSubmatch(a); m != nil {
+			kw[m[1]] = strings.TrimSpace(m[2])
+		} else {
+			pos = append(pos, a)
+		}
+	}
+	switch {
+	case name == "create_subprocess_exec":
+		return pyArgv(pos)
+	case strings.HasPrefix(name, "posix_spawn"):
+		return pyPathArgv(pos, true)
+	case strings.HasPrefix(name, "spawn") && name != "spawn":
+		if len(pos) == 0 {
+			return "", false
+		}
+		pos = pos[1:] // the P_WAIT/P_NOWAIT mode
+		fallthrough
+	case strings.HasPrefix(name, "exec"):
+		v := strings.Contains(name, "v")
+		if !v && strings.HasSuffix(name, "e") && len(pos) > 0 {
+			pos = pos[:len(pos)-1] // execle/spawnle: the env mapping
+		}
+		return pyPathArgv(pos, v)
+	}
+	first, ok := kw["args"]
+	if !ok && len(pos) > 0 {
+		first, ok = pos[0], true
+	}
+	if !ok {
+		return "", false
+	}
+	if s, ok := pyStr(first); ok {
+		return s, true // a string is shell text, or a program name that runs the same way
+	}
+	argv, ok := pyStrList(first)
+	if !ok || len(argv) == 0 {
+		return "", false
+	}
+	if kw["shell"] == "True" {
+		return argv[0], true
+	}
+	return shellJoin(argv), true
+}
+
+// pyPathArgv is exec/spawn's program path plus argv past argv[0], from an argv list (v) or the remaining args.
+func pyPathArgv(pos []string, v bool) (string, bool) {
+	if len(pos) < 2 {
+		return "", false
+	}
+	path, ok := pyStr(pos[0])
+	argv, okArgs := pyStrList(pos[1])
+	if !v {
+		argv, okArgs = pyStrs(pos[1:])
+	}
+	if !ok || !okArgs || len(argv) == 0 {
+		return "", false
+	}
+	return shellJoin(append([]string{path}, argv[1:]...)), true
+}
+
+// pyArgv is the shell text of literal positional words.
+func pyArgv(pos []string) (string, bool) {
+	argv, ok := pyStrs(pos)
+	return shellJoin(argv), ok && len(argv) > 0
+}
+
+// pyStrList is a list or tuple display whose items are all string literals.
+func pyStrList(t string) ([]string, bool) {
+	if t == "" || t[0] != '[' && t[0] != '(' {
+		return nil, false
+	}
+	items, end, ok := pyItems(t, 0)
+	if !ok || end != len(t)-1 {
+		return nil, false
+	}
+	return pyStrs(items)
+}
+
+func pyStrs(items []string) ([]string, bool) {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		s, ok := pyStr(it)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
+}
+
+// pyEscapes decodes the escapes a command literal uses; others stay as written.
+var pyEscapes = strings.NewReplacer(`\\`, `\`, `\'`, `'`, `\"`, `"`, `\n`, "\n", `\t`, "\t")
+
+// pyStr is the value of t when t is exactly one string literal; an f-string is built at run time, so never.
+func pyStr(t string) (string, bool) {
+	i := 0
+	for i < len(t) && i < 2 && strings.IndexByte("rRbBuU", t[i]) >= 0 {
+		i++
+	}
+	if i >= len(t) || t[i] != '\'' && t[i] != '"' || pyStringEnd(t, i) != len(t) {
+		return "", false
+	}
+	q := 1
+	if len(t)-i >= 6 && strings.HasPrefix(t[i:], strings.Repeat(t[i:i+1], 3)) {
+		q = 3
+	}
+	if len(t)-i < 2*q {
+		return "", false
+	}
+	body := t[i+q : len(t)-q]
+	if strings.ContainsAny(t[:i], "rR") {
+		return body, true
+	}
+	return pyEscapes.Replace(body), true
+}
+
+// shellPlain matches a word the shell reads unchanged without quotes.
+var shellPlain = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`) })
+
+func shellJoin(argv []string) string {
+	words := make([]string, len(argv))
+	for i, a := range argv {
+		words[i] = a
+		if !shellPlain().MatchString(a) {
+			words[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// shellSafe reports launched text that cannot run past its subshell: closed quotes and parens, no heredoc or NUL.
+func shellSafe(cmd string) bool {
+	at := shell.QuoteAt(cmd + " x")
+	return cmd != "" && at[len(at)-1] == 0 && !strings.ContainsAny(cmd, "\x00") && !strings.Contains(cmd, "<<") &&
+		!strings.HasSuffix(cmd, `\`) && strings.Count(cmd, "(") == strings.Count(cmd, ")")
 }

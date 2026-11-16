@@ -27,7 +27,12 @@ runner, `which`/`man`, a commit message for every rule but the footer one). The 
 exfil and SQL shapes) unless it is piped on or holds a `$(…)`, and a hard-block shape only in the words of `claude-code
 agents`, `git commit|log`, `grep`/`rg`/`ag`, `jq`, `test`/`[` or an `echo`/`printf` not piped into a runner passes; any
 `<<` in the command scans the heredoc bodies too and blocks, and interpreter code (`python -c`, `node -e`) stays
-scanned. A Go or other compiled program's own `exec.Command("sudo", …)` is out of the hook's reach. An `apply_patch`
+scanned. A command a Python script (stdin heredoc or `-c`) launches from literal text, a shell string (`os.system`,
+`os.popen`, `subprocess.*(…, shell=True)`) or an argv list (`subprocess.run([…])`, `os.spawn*`, `os.exec*`,
+`posix_spawn*`), gets the verdict the same command gets in the shell; one built at run time (a variable, join,
+f-string, base64) is not judged. `uv run`, `poetry run`, `pipx run`, `conda run` (options included) and `python -m`
+of one count as the interpreter they run, for the write ask and for launched commands. A Go or other compiled
+program's own `exec.Command("sudo", …)` is out of the hook's reach. An `apply_patch`
 call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of the command is.
 Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to
 `head`/`tail`/`wc`/`cut`/`tr`/`grep`/`rg`/`jq`. A `printf`/`echo` piped into a shell is judged on its decoded text, so a

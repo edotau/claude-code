@@ -202,7 +202,7 @@ func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string
 		return d, warn + msg, detail
 	}
 	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
-	asked := intentView(dropPyScripts(cmd), false)
+	asked := intentView(withPyLaunches(dropPyScripts(cmd)), false)
 	if sudoInvoked(asked, in.CWD) {
 		return core.Block, warn + core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
 	}
@@ -248,7 +248,7 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared config git mutation"
 	}
 	// A footer lives in the message body, so commit text stays; other data does not.
-	if shell.AttributionFooterCommit(intentView(dropPyScripts(dropPatchBodies(in.ToolCommand())), true)) {
+	if shell.AttributionFooterCommit(intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true)) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
@@ -1009,7 +1009,7 @@ func interpreterWrite(cmd string) string {
 	cmd = core.DropDataHeredocs(cmd)
 	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
 	for _, seg := range shell.Segments(cmd) {
-		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+		rest := runnerUnwrap(shell.Tokens(seg))
 		if len(rest) == 0 {
 			continue
 		}
