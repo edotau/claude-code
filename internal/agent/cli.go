@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -476,6 +477,9 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if req.Model == "" {
 		return reg, sel.Aliases[models.Opus], nil
 	}
+	if t, ok, err := agyOwnTarget(req, sel.Provider); ok || err != nil {
+		return reg, t, err
+	}
 	if t, ok := sel.Aliases[req.Model]; ok {
 		return reg, t, nil
 	}
@@ -483,6 +487,29 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 		return reg, t, nil
 	}
 	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
+}
+
+// agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.
+func agyOwnTarget(req RunOptions, p *providers.Provider) (t providers.Target, ok bool, err error) {
+	if req.Agent != agentid.Gemini || p.Auth.Login != agentid.Gemini {
+		return t, false, nil
+	}
+	base, effort := strings.ToLower(req.Model), ""
+	if i := strings.LastIndex(base, "-"); i > 0 && slices.Contains(agentid.NativeEfforts(agentid.Gemini), base[i+1:]) {
+		base, effort = base[:i], base[i+1:]
+	}
+	accepted := models.AcceptedEfforts(agentid.Gemini, base)
+	if len(accepted) == 0 || effort == "" && models.FamilyKind(base) == models.FamilyGemini {
+		return t, false, nil
+	}
+	if effort != "" && !slices.Contains(accepted, effort) {
+		return t, false, &UsageError{Msg: fmt.Sprintf("--model %s: %s takes effort %s on agy, not %q", req.Model, base, strings.Join(accepted, ", "), effort)}
+	}
+	t = providers.Target{Provider: p, Model: p.WireModel(base)}
+	if effort != "" {
+		t.Model += "-" + effort
+	}
+	return t, true, nil
 }
 
 // servedTarget is t with its model in preflight's spelling: a bare id the workspace serves runs as databricks-<id>.

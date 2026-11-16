@@ -12,12 +12,13 @@ import (
 var catalogJSON []byte
 
 type entry struct {
-	ID            string            `json:"id"`
-	Version       string            `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
-	ResponsesOnly bool              `json:"responses_only,omitempty"`
-	ChatOnly      bool              `json:"chat_only,omitempty"`
-	WireOverride  map[string]string `json:"wire,omitempty"`  // spelling rule -> exact wire id, for exceptions
-	Limits        TokenLimits       `json:"limits,omitzero"` // documented token limits; a zero field is unknown
+	ID            string              `json:"id"`
+	Version       string              `json:"version,omitempty"` // dash-separated version a dotted spelling turns into dots
+	ResponsesOnly bool                `json:"responses_only,omitempty"`
+	ChatOnly      bool                `json:"chat_only,omitempty"`
+	WireOverride  map[string]string   `json:"wire,omitempty"`    // spelling rule -> exact wire id, for exceptions
+	Limits        TokenLimits         `json:"limits,omitzero"`   // documented token limits; a zero field is unknown
+	Efforts       map[string][]string `json:"efforts,omitempty"` // agent -> efforts its CLI accepts for this model
 }
 
 // TokenLimits are a model's documented context window and max output, in tokens; zero means unknown, never a guess.
@@ -124,6 +125,15 @@ func dotVersion(id, version string) string {
 
 // Wire builds the wire id of canonical for a named spelling rule (anthropic, databricks-serving, ...).
 func Wire(rule, canonical string) string { return load().wire(rule, canonical) }
+
+// AcceptedEfforts is the efforts agent's CLI accepts for the model id names; nil when the catalog lists none.
+func AcceptedEfforts(agent, id string) []string {
+	canonical, _, ok := Resolve(id)
+	if !ok {
+		return nil
+	}
+	return load().byID[canonical].Efforts[agent]
+}
 
 // WireOrOriginal is id's wire spelling under rule when it resolves to a known model, else id unchanged.
 func WireOrOriginal(rule, id string) string {

@@ -270,7 +270,8 @@ func spellTyped(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string
 	bare := models.Strip1M(typed)
 	if i := strings.LastIndex(bare, "-"); i > 0 {
 		base, effort := bare[:i], bare[i+1:]
-		if slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) && models.FamilyKind(base) == models.FamilyGemini {
+		agyOwn := len(models.AcceptedEfforts(q.Agent, base)) > 0 // agy's own Claude and GPT-OSS take an effort suffix too
+		if slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) && (models.FamilyKind(base) == models.FamilyGemini || agyOwn) {
 			if q.Agent != agentid.Gemini {
 				return "", fmt.Errorf("%w: %s: effort suffixes are gemini's; use --effort %s", ErrModelRoute, typed, effort)
 			}
@@ -332,6 +333,9 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 	}
 	if p.Auth.Login == r.Agent {
 		r.Dialect = "own-login"
+		if err := agyEffort(r); err != nil {
+			return err
+		}
 		return agentFamily(r, p)
 	}
 	if r.Agent == agentid.Claude {
@@ -371,13 +375,23 @@ func geminiGatewayServes(r *ModelRoute, p *providers.Provider, wire string) erro
 	return agentFamily(r, p)
 }
 
+// agyEffort refuses an effort agy does not offer for r.Model on its own sign-in, naming the accepted ones.
+func agyEffort(r *ModelRoute) error {
+	accepted := models.AcceptedEfforts(r.Agent, r.Model)
+	if r.Effort == "" || len(accepted) == 0 || slices.Contains(accepted, r.Effort) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s on %s takes effort %s, not %q", ErrModelRoute, r.Model, r.Agent, strings.Join(accepted, ", "), r.Effort)
+}
+
 // agentFamily refuses a model the agent's binary cannot run; gemini runs a named non-Gemini id on Databricks.
 func agentFamily(r *ModelRoute, p *providers.Provider) error {
 	fam := models.FamilyKind(r.Model)
 	bad := false
 	switch r.Agent {
 	case agentid.Gemini:
-		bad = fam != models.FamilyGemini && (r.Alias != "" || !GeminiGatewayRow(p)) // a tier alias keeps agy's Gemini default
+		// a tier alias keeps agy's Gemini default; agy's own Claude and GPT-OSS run on its own sign-in only
+		bad = fam != models.FamilyGemini && (r.Alias != "" || !GeminiGatewayRow(p) && len(models.AcceptedEfforts(r.Agent, r.Model)) == 0)
 	case agentid.Claude:
 		bad = (fam == models.FamilyGPT || fam == models.FamilyGemini) && p.Provider == "anthropic"
 	case agentid.Codex:

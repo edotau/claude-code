@@ -46,6 +46,9 @@ func TestResolveModel(t *testing.T) {
 		{"claude", "databricks:claude-opus-5-5", "qa", "databricks-claude-opus-5-5"},
 		{"codex", "auto:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
 		{"gemini", "dev:claude-sonnet-5-5", "dev", "databricks-claude-sonnet-5-5"},
+		{"gemini", "antigravity:claude-sonnet-5-5-medium", "antigravity", "claude-sonnet-5-5"},
+		{"gemini", "antigravity:gpt-oss-120b", "antigravity", "gpt-oss-120b"},
+		{"gemini", "antigravity:gemini-3-8-flash-high", "antigravity", "gemini-3.8-flash"},
 	}
 	for _, c := range cells {
 		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Model: c.model}, time.Now())
@@ -74,10 +77,28 @@ func TestResolveModelRefuses(t *testing.T) {
 	for _, c := range [][2]string{
 		{"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
 		{"claude", "ultra:databricks-claude-opus-5-5"}, {"gemini", "dev:gpt-6-1-sol"}, {"gemini", "dev:opus"},
+		{"gemini", "antigravity:gpt-oss-120b-high"}, {"gemini", "antigravity:claude-sonnet-5-5-xhigh"},
+		{"gemini", "antigravity:gemini-3-8-flash-xhigh"}, {"gemini", "antigravity:gemini-4-argon-xhigh"},
+		{"gemini", "antigravity:databricks-claude-sonnet-5-5"}, {"gemini", "antigravity:claude-haiku-5-5"},
 	} {
 		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Model: c[1], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s %s: err = %v; want ErrModelRoute", c[0], c[1], err)
 		}
+	}
+}
+
+// agy's four Hydrogen efforts all resolve, and the refusal names the accepted ones.
+func TestResolveModelAgyEfforts(t *testing.T) {
+	reg := routeRegistry(t)
+	for _, e := range []string{"low", "medium", "high", "xhigh"} {
+		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: "antigravity:gemini-4-hydrogen-" + e}, time.Now())
+		if err != nil || r.Effort != e || r.Model != "gemini-4-hydrogen" {
+			t.Errorf("hydrogen-%s = %+v, %v", e, r, err)
+		}
+	}
+	_, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: "antigravity:gpt-oss-120b-high"}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "takes effort medium") {
+		t.Errorf("gpt-oss-120b-high err = %v; want the accepted levels named", err)
 	}
 }
 
@@ -112,5 +133,28 @@ func TestResolveModelInteractiveConflict(t *testing.T) {
 	_, err := ResolveModel(routeRegistry(t), q, time.Now())
 	if !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "--profile dev") || !strings.Contains(err.Error(), "ultra:") {
 		t.Errorf("err = %v; want a route error naming --profile dev and the ultra: prefix", err)
+	}
+}
+
+// agy's own models typed on the Google row keep their id (never the tier alias) and refuse an effort agy lacks.
+func TestAgyOwnTarget(t *testing.T) {
+	g := routeRegistry(t).Providers["antigravity"]
+	for _, c := range []struct{ model, want string }{
+		{"claude-sonnet-5-5-medium", "claude-sonnet-5-5-medium"}, {"claude-sonnet-5-5", "claude-sonnet-5-5"},
+		{"gpt-oss-120b", "gpt-oss-120b"}, {"gemini-3-8-flash-high", "gemini-3.8-flash-high"},
+		{"gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-xhigh"},
+	} {
+		tg, ok, err := agyOwnTarget(RunOptions{Agent: "gemini", Model: c.model}, g)
+		if !ok || err != nil || tg.Model != c.want {
+			t.Errorf("%s = %q, %v, %v; want %q", c.model, tg.Model, ok, err, c.want)
+		}
+	}
+	for _, m := range []string{"gpt-oss-120b-high", "claude-sonnet-5-5-xhigh", "gemini-3-8-flash-xhigh"} {
+		if _, _, err := agyOwnTarget(RunOptions{Agent: "gemini", Model: m}, g); err == nil || !strings.Contains(err.Error(), "takes effort") {
+			t.Errorf("%s: err = %v; want the accepted levels named", m, err)
+		}
+	}
+	if _, ok, _ := agyOwnTarget(RunOptions{Agent: "claude", Model: "claude-sonnet-5-5-low"}, g); ok {
+		t.Error("only the gemini agent takes agy's own models")
 	}
 }
