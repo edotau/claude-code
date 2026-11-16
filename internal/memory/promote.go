@@ -24,10 +24,10 @@ var bottomAppended = map[string]bool{"conventions.md": true}
 
 // archiveOverflow moves the oldest overflow blocks of root's durable files to its archive/ and returns the count.
 func archiveOverflow(root string, now time.Time) (int, error) {
-	dir := Dir(root)
+	b := BankFor(root)
 	total := 0
 	for name, capLines := range archiveCaps {
-		n, err := archiveFile(filepath.Join(dir, name), capLines, now)
+		n, err := archiveFile(b, name, capLines, now)
 		if err != nil {
 			return total, err
 		}
@@ -49,9 +49,9 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 	return budgetSplit(header, blocks, capLines)
 }
 
-// archivePath is the <dir>/archive/<base>-<yyyy-mm>.md destination of archiveFile and rotateSessionHistory.
-func archivePath(dir, base string, now time.Time) string {
-	return filepath.Join(dir, "archive", strings.TrimSuffix(base, ".md")+"-"+now.Format("2006-01")+".md")
+// archivePath is b's archive/<name>-<yyyy-mm>.md destination of archiveFile.
+func archivePath(b Bank, name string, now time.Time) string {
+	return b.Sub("archive", strings.TrimSuffix(name, ".md")+"-"+now.Format("2006-01")+".md")
 }
 
 // splitOverflow reads path and splits off its oldest blocks beyond capLines; an absent or in-cap file has none.
@@ -63,7 +63,7 @@ func splitOverflow(path string, capLines int) (header string, keep, overflow []s
 		}
 		return "", nil, nil, err
 	}
-	header, keep, overflow = overflowSplit(filepath.Base(path), string(data), capLines)
+	header, keep, overflow = overflowSplit(logicalName(path), string(data), capLines)
 	return header, keep, overflow, nil
 }
 
@@ -77,19 +77,20 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 	return header, keep, overflow
 }
 
-// archiveFile prunes path under the bank lock, archiving the oldest overflow first so a failed rewrite loses nothing.
-func archiveFile(path string, capLines int, now time.Time) (moved int, err error) {
+// archiveFile prunes b's typed file name under the bank lock, archiving the oldest overflow first so nothing is lost.
+func archiveFile(b Bank, name string, capLines int, now time.Time) (moved int, err error) {
+	path := b.Path(name)
 	err = WithBankLock(BankLockWait, func() error {
 		header, keep, overflow, err := splitOverflow(path, capLines)
 		if err != nil || len(overflow) == 0 {
 			return err
 		}
-		archive := archivePath(filepath.Dir(path), filepath.Base(path), now)
+		archive := archivePath(b, name, now)
 		existing, err := readFile(archive)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		_, held := entryBlocks(filepath.Base(path), string(existing))
+		_, held := entryBlocks(name, string(existing))
 		heldSet := make(map[string]bool, len(held))
 		for _, b := range held {
 			heldSet[strings.TrimSpace(b)] = true
@@ -136,33 +137,32 @@ var afterPromoteMove = func() {}
 
 // promoteBlockToHome moves one id-marked block from root's local bank to the home file, keeping its id.
 func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
-	dir := Dir(root)
-	if isHomeBank(root) {
+	b, home := BankFor(root), HomeBank()
+	if b.Home() {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
 	var file, block, src string
-	homeDir := HomeBankDir()
 	moveErr := WithBankLock(BankLockWait, func() error {
 		var err error
-		if file, block, src, err = findBlock(dir, id); err != nil {
+		if file, block, src, err = findBlock(b, id); err != nil {
 			return err
 		}
 		if dryRun {
 			return nil
 		}
-		_, _, homeErr := extractBlock(homeDir, id)
+		_, _, homeErr := extractBlock(home, id)
 		if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
 			return homeErr // an unreadable home file is not "absent": appending could duplicate the block
 		}
 		inHome := homeErr == nil // an existing home copy is kept, never appended twice
-		snap, err := snapshotPaths(src, filepath.Join(homeDir, file))
+		snap, err := snapshotPaths(src, home.Path(file))
 		if err != nil {
 			return err
 		}
 		// Any failure restores both files, so the block stays in exactly one bank (the local one).
 		return restoreOnError(func() error {
 			if !inHome {
-				if err := appendBlocks(filepath.Join(homeDir, file), []string{block}); err != nil {
+				if err := appendBlocks(home.Path(file), []string{block}); err != nil {
 					return err
 				}
 			}
@@ -176,7 +176,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 	if moveErr != nil {
 		return "", moveErr
 	}
-	homePath := filepath.Join(homeDir, file)
+	homePath := home.Path(file)
 	if dryRun {
 		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
 	}
@@ -190,10 +190,10 @@ func promoteJudgment(root, id, to, target string) (string, error) {
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
-	dir := Dir(root)
-	_, block, _, err := findBlock(dir, id)
-	if errors.Is(err, errNoBlock) && !isHomeBank(root) { // a real read error is not "absent"
-		_, block, _, err = findBlock(HomeBankDir(), id)
+	own := BankFor(root)
+	_, block, _, err := findBlock(own, id)
+	if errors.Is(err, errNoBlock) && !own.Home() { // a real read error is not "absent"
+		_, block, _, err = findBlock(HomeBank(), id)
 	}
 	if err != nil {
 		return "", err
@@ -223,35 +223,36 @@ func blockIn(path, name, id string) (string, error) {
 	return "", nil
 }
 
-// extractBlock finds the id-marked block in dir's typed files, returning its filename and text.
-func extractBlock(dir, id string) (string, string, error) {
+// extractBlock finds the id-marked block in b's typed files, returning its logical filename and text.
+func extractBlock(b Bank, id string) (string, string, error) {
 	for name := range idFiles {
-		b, err := blockIn(filepath.Join(dir, name), name, id)
+		blk, err := blockIn(b.Path(name), name, id)
 		if err != nil {
 			return "", "", err
 		}
-		if b != "" {
-			return name, b, nil
+		if blk != "" {
+			return name, blk, nil
 		}
 	}
 	return "", "", errNoBlock
 }
 
-// findBlock is extractBlock, then dir/archive/<stem>-*.md (dream overflow); src is the file holding the block.
-func findBlock(dir, id string) (file, block, src string, err error) {
-	if file, block, err = extractBlock(dir, id); err == nil {
-		return file, block, filepath.Join(dir, file), nil
+// findBlock is extractBlock, then b's archive/<stem>-*.md (dream overflow); src is the file holding the block.
+func findBlock(b Bank, id string) (file, block, src string, err error) {
+	if file, block, err = extractBlock(b, id); err == nil {
+		return file, block, b.Path(file), nil
 	} else if !errors.Is(err, errNoBlock) {
 		return "", "", "", err
 	}
 	for name := range idFiles {
-		for _, p := range globIn(archiveDir(dir), strings.TrimSuffix(name, ".md")+"-*.md") {
-			b, rerr := blockIn(p, name, id)
+		ap := b.Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
+		for _, p := range globIn(filepath.Dir(ap), filepath.Base(ap)) {
+			blk, rerr := blockIn(p, name, id)
 			if rerr != nil {
 				return "", "", "", rerr
 			}
-			if b != "" {
-				return name, b, p, nil
+			if blk != "" {
+				return name, blk, p, nil
 			}
 		}
 	}

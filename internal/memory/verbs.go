@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -71,17 +72,45 @@ func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 	return started
 }
 
-// ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
-func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
+// ResolveBank maps --repo (bank key, checkout path or "") to root and bank; a flat key has root "".
+func ResolveBank(repo string) (string, Bank, error) {
+	if repo != "" && storeFlat() && slices.Contains(BankKeys(), repo) {
+		if repo == harnessStoreKey() {
+			return paths.ConfigDir(), Bank{Key: repo}, nil
+		}
+		return "", Bank{Key: repo}, nil
+	}
 	top, err := ResolveRepo(repo)
 	if err != nil {
-		return nil, err
+		return "", Bank{}, err
 	}
-	dir, err := EnsureRepoDir(top)
+	return top, BankFor(top), nil
+}
+
+// ResolveRoot is ResolveBank for verbs that need a checkout: a flat bank key alone cannot name one.
+func ResolveRoot(repo string) (string, error) {
+	top, _, err := ResolveBank(repo)
+	if err == nil && top == "" {
+		err = fmt.Errorf("--repo %q is a bank key and this verb needs a checkout path", repo)
+	}
+	return top, err
+}
+
+// ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
+func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
+	top, b, err := ResolveBank(repo)
 	if err != nil {
 		return nil, err
 	}
-	return appendReport(dir, label, in)
+	if top == "" {
+		err = b.Ensure("")
+	} else {
+		b, err = EnsureBank(top, "")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return appendReport(b, label, in)
 }
 
 // InitBank creates the repo's bank and reports where it landed, with the init procedure on a fresh template.
@@ -90,7 +119,7 @@ func InitBank(w io.Writer, root string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBankDir())
+	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBank().SubDir(""))
 	if isProjectContextTemplate(root) {
 		ref, err := Reference("init")
 		if err != nil {
@@ -111,7 +140,7 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, err := ResolveRepo(o.Repo)
+	root, err := ResolveRoot(o.Repo)
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
@@ -127,19 +156,20 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(ctx, out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	hasStore := statOK(Dir(root))
+	own := BankFor(root)
+	hasStore := scaffolded(own)
 	rotated, err := settleBank(root, time.Now())
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
 	if hasStore {
-		fmt.Fprintf(out, "indexed %s", Dir(root))
+		fmt.Fprintf(out, "indexed %s", own.SubDir(""))
 		if rotated > 0 {
 			fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
 		}
 		fmt.Fprintln(out)
 	} else {
-		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", Dir(root))
+		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", own.SubDir(""))
 	}
 	refreshNotice(errw, "memory index", root)
 	embedIndex(ctx, out, errw, root, profile, o.Reembed)
@@ -223,7 +253,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return nil
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, Dir(root))
+		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, BankFor(root).SubDir(""))
 		return nil
 	}
 	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
@@ -259,11 +289,11 @@ func RunDream(o DreamRunOptions) error {
 
 // DigestRepo writes the repo bank's digest and returns its path.
 func DigestRepo(ctx context.Context, repo, claude string) (string, error) {
-	root, err := ResolveRepo(repo)
+	_, b, err := ResolveBank(repo)
 	if err != nil {
 		return "", err
 	}
-	return digest(ctx, Dir(root), claude)
+	return digest(ctx, b.SubDir(""), claude)
 }
 
 // FormatReport wraps the bank files (or only lists them under check) and reports whether check found changes.
@@ -287,9 +317,13 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	return false, nil
 }
 
-// isOwnBankFile reports whether f sits in this repo's or the home bank.
+// isOwnBankFile reports whether f sits in the harness's or the home bank.
 func isOwnBankFile(f string) bool {
-	return slices.ContainsFunc([]string{harnessStoreDir(), HomeBankDir()},
+	if storeFlat() {
+		k := BankOfFile(f).Key
+		return k == "" || k == harnessStoreKey()
+	}
+	return slices.ContainsFunc([]string{Bank{Key: harnessStoreKey()}.SubDir(""), HomeBank().SubDir("")},
 		func(d string) bool { return strings.HasPrefix(f, d+string(filepath.Separator)) })
 }
 
@@ -365,7 +399,7 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, err := ResolveRepo(o.Repo)
+	root, err := ResolveRoot(o.Repo)
 	if err != nil {
 		return err
 	}
@@ -401,7 +435,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) error {
-	root, err := ResolveRepo(repo)
+	root, err := ResolveRoot(repo)
 	if err != nil {
 		return err
 	}

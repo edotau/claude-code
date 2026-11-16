@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -292,11 +293,11 @@ func logHits(root string, hits []SearchHit, reason string, now time.Time) {
 		if dir == "" {
 			switch h.Bank {
 			case "local":
-				dir = Dir(root)
+				dir = accessDir(BankFor(root))
 			case "home", "native", "archive", "knowledge", "":
-				dir = HomeBankDir()
+				dir = accessDir(HomeBank())
 			default:
-				dir = filepath.Join(StoreDir(), h.Bank)
+				dir = accessDir(Bank{Key: h.Bank})
 			}
 		}
 		grouped[dir] = append(grouped[dir], key)
@@ -311,13 +312,21 @@ func logShown(path, id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
-	dir := HomeBankDir()
-	if rel, ok := insideStore(path); ok {
-		if first, _, _ := strings.Cut(rel, "/"); first != "" && first != "." {
-			dir = filepath.Join(StoreDir(), first)
-		}
+	dir := accessDir(HomeBank())
+	if rel, ok := insideStore(path); ok && storeFlat() {
+		dir = accessDir(BankOfFile(path))
+	} else if first, _, _ := strings.Cut(rel, "/"); ok && first != "" && first != "." {
+		dir = filepath.Join(StoreDir(), first)
 	}
 	logAccess(dir, now, id, reason)
+}
+
+// accessDir is b's access-log key dir: its legacy bank dir, else a store-key stand-in (the log lives in state).
+func accessDir(b Bank) string {
+	if !storeFlat() {
+		return b.SubDir("")
+	}
+	return filepath.Join(StoreDir(), cmp.Or(b.Key, "home"))
 }
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.

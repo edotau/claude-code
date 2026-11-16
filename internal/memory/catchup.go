@@ -72,7 +72,7 @@ const (
 
 // Prompt formats are shared with the builders so classification requires the worker-only continuation.
 const (
-	updatePromptFormat = updatePromptOpen + " The bank directory is %s and the shared home bank is %s; write only there. "
+	updatePromptFormat = updatePromptOpen + " The bank files are %s and the shared home bank files are %s (the steps below name them by bare filename); write only there. "
 	dreamPromptFormat  = dreamPromptOpen + " The local bank is %s; the memory root %s holds the home bank and every repo store. "
 )
 

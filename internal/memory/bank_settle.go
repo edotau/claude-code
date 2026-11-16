@@ -14,18 +14,18 @@ import (
 )
 
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
-func buildBankIndex(dir string) (string, error) {
-	var b strings.Builder
+func buildBankIndex(b Bank) (string, error) {
+	var sb strings.Builder
 	section := func(name, prefix, unit string) error {
-		entries, err := entriesWithPrefix(filepath.Join(dir, name), prefix)
+		entries, err := entriesWithPrefix(b.Path(name), prefix)
 		if err != nil || len(entries) == 0 {
 			return err
 		}
-		fmt.Fprintf(&b, "\n## %s (%d %s)\n\n", name, len(entries), unit)
+		fmt.Fprintf(&sb, "\n## %s (%d %s)\n\n", name, len(entries), unit)
 		for _, e := range entries {
-			b.WriteString("- ")
-			b.WriteString(e)
-			b.WriteString("\n")
+			sb.WriteString("- ")
+			sb.WriteString(e)
+			sb.WriteString("\n")
 		}
 		return nil
 	}
@@ -34,12 +34,12 @@ func buildBankIndex(dir string) (string, error) {
 			return "", err
 		}
 	}
-	return b.String(), nil
+	return sb.String(), nil
 }
 
-// rotateSessionHistory moves entries past the cap to <dir>/archive/sessionHistory-<yyyy-mm>.md, archive first.
-func rotateSessionHistory(dir string, now time.Time) (int, error) {
-	path := filepath.Join(dir, "sessionHistory.md")
+// rotateSessionHistory moves entries past the cap to b's archive/sessionHistory-<yyyy-mm>.md, archive first.
+func rotateSessionHistory(b Bank, now time.Time) (int, error) {
+	path := b.Path("sessionHistory.md")
 	data, err := readFile(path)
 	if os.IsNotExist(err) {
 		return 0, nil
@@ -51,7 +51,7 @@ func rotateSessionHistory(dir string, now time.Time) (int, error) {
 	if len(overflow) == 0 {
 		return 0, nil
 	}
-	archive := archivePath(dir, "sessionHistory.md", now)
+	archive := b.Sub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
@@ -94,7 +94,18 @@ func appendUnarchived(archive string, blocks []string) error {
 }
 
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
-func lockPath(dir string) string { return filepath.Join(storeLockDir(dir), ".postupdate") }
+func lockPathOf(b Bank) string { return filepath.Join(storeLockDir(b), ".postupdate") }
+
+// lockPath is lockPathOf for migrate.go, which still holds a store dir.
+func lockPath(dir string) string { return lockPathOf(bankOfDir(dir)) }
+
+// bankOfDir is the bank of a per-repo store dir ("home" or <key>), for callers still holding dirs.
+func bankOfDir(d string) Bank {
+	if paths.SamePath(d, HomeBankDir()) {
+		return HomeBank()
+	}
+	return Bank{Key: filepath.Base(d)}
+}
 
 // settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
 func settleBank(root string, now time.Time) (rotated int, err error) {
@@ -110,9 +121,9 @@ func settleBankLocked(root string, now time.Time) (rotated int, err error) {
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
-	dirs := bankDirs(root) // an unscaffolded repo gets its store from Init (with its origin), never here
-	for _, d := range dirs {
-		n, err := settleDir(d, now)
+	banks := bankSet(root) // an unscaffolded repo gets its store from Init (with its origin), never here
+	for _, b := range banks {
+		n, err := settleDir(b, now)
 		rotated += n
 		if err != nil {
 			return rotated, err
@@ -121,7 +132,50 @@ func settleBankLocked(root string, now time.Time) (rotated int, err error) {
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
-	return rotated, commitStore("settle: "+filepath.Base(dirs[0]), append(storeRels(dirs), catalogFile)...)
+	var scope []string
+	for _, b := range banks {
+		scope = append(scope, bankRels(b)...)
+	}
+	return rotated, commitStore("settle: "+bankName(banks[0]), append(scope, catalogFile)...)
+}
+
+// bankSet is the banks a settle covers: root's own when scaffolded, then the home bank.
+func bankSet(root string) []Bank {
+	var out []Bank
+	if own := BankFor(root); !own.Home() && scaffolded(own) {
+		out = append(out, own)
+	}
+	return append(out, HomeBank())
+}
+
+// scaffolded reports whether b has a store: its dir, or any typed file when flat.
+func scaffolded(b Bank) bool {
+	if !storeFlat() {
+		return statOK(b.SubDir(""))
+	}
+	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
+}
+
+// bankRels are the store-relative pathspecs of b's files: its dir when legacy, its prefixed files when flat.
+func bankRels(b Bank) []string {
+	if !storeFlat() {
+		return storeRels([]string{b.SubDir("")})
+	}
+	var rels []string
+	if b.Home() {
+		rels = append(rels, bankFiles...)
+	} else {
+		rels = append(rels, b.Prefix()+"*")
+	}
+	rels = append(rels, "MEMORY.md")
+	for _, sub := range []string{"archive", "handoffs", "reports", "knowledge"} {
+		if b.Home() {
+			rels = append(rels, sub, ":(exclude)"+sub+"/*--*") // the home tier is every unprefixed name
+		} else {
+			rels = append(rels, sub+"/"+b.Prefix()+"*")
+		}
+	}
+	return rels
 }
 
 // settleLocked is settleBankLocked for a writer that rolls back on its error, which names the settle.
@@ -188,10 +242,10 @@ func restoreOnError(err error, snaps []fileSnapshot) error {
 }
 
 // newestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
-func newestMtime(dir string) time.Time {
+func newestMtime(b Bank) time.Time {
 	var newest time.Time
 	for _, name := range bankFiles {
-		if fi, err := os.Stat(filepath.Join(dir, name)); err == nil && fi.ModTime().After(newest) {
+		if fi, err := os.Stat(b.Path(name)); err == nil && fi.ModTime().After(newest) {
 			newest = fi.ModTime()
 		}
 	}
@@ -199,36 +253,36 @@ func newestMtime(dir string) time.Time {
 }
 
 // settleDir stamps IDs, strikes revised entries, rotates sessionHistory, writes the MEMORY.md region, wraps files.
-func settleDir(d string, now time.Time) (int, error) {
-	rotated, wrapped, err := settleSteps(d, now)
-	return rotated, errors.Join(err, wrapDir(d, wrapped)) // a failed step still leaves the dir wrapped
+func settleDir(b Bank, now time.Time) (int, error) {
+	rotated, wrapped, err := settleSteps(b, now)
+	return rotated, errors.Join(err, wrapDir(b, wrapped)) // a failed step still leaves the dir wrapped
 }
 
 // settleSteps is settleDir's writing steps; wrapped names the typed files they already left wrapped (nil on error).
-func settleSteps(d string, now time.Time) (rotated int, wrapped map[string]string, err error) {
-	_, texts, err := assignIDTexts(d, now)
+func settleSteps(b Bank, now time.Time) (rotated int, wrapped map[string]string, err error) {
+	_, texts, err := assignIDTexts(b, now)
 	if err != nil {
 		return 0, nil, err
 	}
-	if err := reviseDir(d, texts); err != nil {
+	if err := reviseDir(b, texts); err != nil {
 		return 0, nil, err
 	}
-	if rotated, err = rotateSessionHistory(d, now); err != nil {
+	if rotated, err = rotateSessionHistory(b, now); err != nil {
 		return rotated, nil, err
 	}
-	_, err = writeBankRegion(d, now)
+	_, err = writeBankRegion(b, now)
 	return rotated, texts, err
 }
 
-// wrapDir wraps d's markdown, skipping the typed files in held: settle wrapped their text before writing it.
-func wrapDir(d string, held map[string]string) error {
-	targets, err := dirFmtTargets(d)
+// wrapDir wraps b's markdown, skipping the typed files in held: settle wrapped their text before writing it.
+func wrapDir(b Bank, held map[string]string) error {
+	targets, err := dirFmtTargets(b)
 	if err != nil {
 		return err
 	}
 	targets = slices.DeleteFunc(targets, func(p string) bool {
 		_, ok := held[filepath.Base(p)]
-		return ok && filepath.Dir(p) == d
+		return ok && p == b.Path(filepath.Base(p)) // only the typed files at b's top level
 	})
 	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
 	return err

@@ -60,7 +60,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		res = p.result(opt)
 		return p.apply(opt)
 	})
-	if root, rerr := ResolveRepo(opt.Repo); err == nil && rerr == nil {
+	if root, rerr := ResolveRoot(opt.Repo); err == nil && rerr == nil {
 		refreshNotice(os.Stderr, "memory import", root)
 	}
 	return res, err
@@ -81,6 +81,9 @@ type importPlan struct {
 // planImport reads both sides and builds the changes without writing.
 func planImport(opt ImportOptions) (*importPlan, error) {
 	p := &importPlan{topics: opt.Topics}
+	if err := checkImportLayout(opt.From); err != nil {
+		return p, err
+	}
 	pairs, err := selectPairs(opt, p)
 	if err != nil {
 		return p, err
@@ -119,7 +122,7 @@ func (p *importPlan) apply(opt ImportOptions) error {
 		return err
 	}
 	for _, d := range p.touched {
-		if _, err := settleDir(d, opt.Now); err != nil {
+		if _, err := settleDir(bankOfDir(d), opt.Now); err != nil {
 			return err
 		}
 	}
@@ -157,18 +160,34 @@ func hasTypedFile(dir string) bool {
 	})
 }
 
-// localStores maps every local store key (plus home) to its dir.
+// checkImportLayout refuses a source whose .layout stamp differs from the local one, and flat-to-flat for now.
+func checkImportLayout(from string) error {
+	stamp, _ := os.ReadFile(filepath.Join(from, layoutFile))
+	srcFlat := strings.TrimSpace(string(stamp)) == layoutFlat
+	if srcFlat != storeFlat() {
+		return importInput("--from %s has a %s layout and this host's store is %s: run `claude-code memory migrate` on the older host first",
+			from, layoutName(srcFlat), layoutName(storeFlat()))
+	}
+	if srcFlat {
+		return importInput("--from %s: importing between flat stores is not supported yet", from)
+	}
+	return nil
+}
+
+func layoutName(flat bool) string {
+	if flat {
+		return "flat"
+	}
+	return "per-repo"
+}
+
+// localStores maps every local store key (plus home) to its dir; legacy layout only.
 func localStores() (map[string]string, error) {
-	ents, err := RepoDirs()
-	if err != nil {
-		return nil, err
-	}
 	out := map[string]string{}
-	for _, e := range ents {
-		out[e.Key] = e.Dir
-	}
-	if fi, err := os.Stat(HomeBankDir()); err == nil && fi.IsDir() {
-		out["home"] = HomeBankDir()
+	for _, b := range Banks() {
+		if d := b.SubDir(""); statOK(d) {
+			out[stateKey(b)] = d
+		}
 	}
 	return out, nil
 }
@@ -190,12 +209,12 @@ func selectPairs(opt ImportOptions, p *importPlan) ([]importPair, error) {
 		}
 		return allPairs(stores, p)
 	}
-	root, err := ResolveRepo(opt.Repo)
+	root, err := ResolveRoot(opt.Repo)
 	if err != nil {
 		return nil, importInput("%v", err)
 	}
-	tgt := Dir(root)
-	key := filepath.Base(tgt)
+	own := BankFor(root)
+	tgt, key := own.SubDir(""), stateKey(own)
 	if _, ok := insideStore(tgt); !ok {
 		return nil, importInput("no local store for %s (run `claude-code memory init` there)", root)
 	}

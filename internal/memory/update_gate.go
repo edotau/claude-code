@@ -115,7 +115,7 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		}
 		return false, 0, false
 	}
-	if newestMtime(Dir(r.CWD)).After(st.at) {
+	if newestMtime(BankFor(r.CWD)).After(st.at) {
 		_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
 		return false, 0, false
 	}

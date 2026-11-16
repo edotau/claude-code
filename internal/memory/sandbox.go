@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -121,6 +122,10 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 		return res, err
 	}
 	res.Env = map[string]string{"CLAUDE_CONFIG_DIR": res.Dir}
+	if storeFlat() {
+		res.Stores, err = sandboxFlat(res.Dir, opt)
+		return res, err
+	}
 	var files []string
 	for _, key := range slices.Sorted(maps.Keys(stores)) {
 		names, copyErr := sandboxStore(res.Dir, key, stores[key], opt.Empty)
@@ -138,7 +143,10 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 }
 
 func sandboxSources(opt SandboxOptions) (map[string]string, []Origin, error) {
-	root, err := ResolveRepo(opt.Repo)
+	if storeFlat() { // the flat copy needs no origin rows or store dirs
+		return nil, nil, nil
+	}
+	root, err := ResolveRoot(opt.Repo)
 	if err != nil {
 		return nil, nil, importInput("%v", err)
 	}
@@ -146,11 +154,8 @@ func sandboxSources(opt SandboxOptions) (map[string]string, []Origin, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	selected, err := RepoDir(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	stores := map[string]string{"home": HomeBankDir(), filepath.Base(selected): selected}
+	selected := BankFor(root)
+	stores := map[string]string{"home": HomeBank().SubDir(""), selected.Key: selected.SubDir("")}
 	if opt.All {
 		for _, e := range entries {
 			stores[e.Key] = e.Dir
@@ -172,6 +177,80 @@ func sandboxSources(opt SandboxOptions) (map[string]string, []Origin, error) {
 	}
 	return stores, origins, nil
 }
+
+// sandboxFlat copies the selected banks' files (by prefix) into config's flat store, stamped, with no origin rows.
+func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
+	_, sel, err := ResolveBank(opt.Repo)
+	if err != nil {
+		return nil, importInput("%v", err)
+	}
+	banks := []Bank{HomeBank(), sel}
+	if opt.All {
+		banks = Banks()
+	}
+	dst := filepath.Join(config, "memory")
+	var files []string
+	var out []SandboxStore
+	for _, b := range slices.CompactFunc(banks, func(x, y Bank) bool { return x.Key == y.Key }) {
+		names, err := sandboxFlatBank(dst, b, opt.Empty)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, names...)
+		out = append(out, SandboxStore{stateKey(b), len(names)})
+	}
+	if err := os.WriteFile(filepath.Join(dst, layoutFile), []byte(layoutFlat+"\n"), 0o600); err != nil {
+		return nil, err
+	}
+	return out, sandboxSnapshot(dst, append(files, layoutFile))
+}
+
+// sandboxFlatBank places b's files in the flat store at dst: its templates when empty, else every file it owns.
+func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
+	var rels []string
+	if empty {
+		for name := range templates() {
+			rels = append(rels, filepath.Base(b.Path(name)))
+		}
+	} else {
+		rels = ownedStoreRels(b)
+	}
+	for _, rel := range rels {
+		target := filepath.Join(dst, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return nil, err
+		}
+		data := []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
+		if !empty {
+			var err error
+			if data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel))); err != nil {
+				return nil, err
+			}
+		}
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	return rels, nil
+}
+
+// ownedStoreRels lists the store-relative regular files a flat bank owns: top-level and in the shared subdirs.
+func ownedStoreRels(b Bank) []string {
+	var rels []string
+	for _, dir := range append([]string{""}, flatSubs...) {
+		ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
+		for _, e := range ents {
+			rel := path.Join(dir, e.Name())
+			if e.Type().IsRegular() && !strings.HasPrefix(e.Name(), ".") && !storeLevelFile(rel) && BankOfFile(rel).Key == b.Key {
+				rels = append(rels, rel)
+			}
+		}
+	}
+	return rels
+}
+
+// storeLevelFile is a top-level file shared by every bank: the index, the catalog.
+func storeLevelFile(rel string) bool { return rel == nativeIndexFile || rel == catalogFile }
 
 func sandboxStore(config, key, src string, empty bool) ([]string, error) {
 	dst := filepath.Join(config, "memory", key)

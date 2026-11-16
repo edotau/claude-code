@@ -30,19 +30,19 @@ const historicalRule = "\n\nThis is an OLDER session, not the current one: write
 // currentStateFiles are the bank files an older session must never touch.
 var currentStateFiles = []string{"activeContext.md", "progress.md", "conventions.md", "projectContext.md"}
 
-// snapshotFiles reads each of names under dir; a missing file maps to nil.
-func snapshotFiles(dir string, names []string) map[string][]byte {
+// snapshotFiles reads each of names in b; a missing file maps to nil.
+func snapshotFiles(b Bank, names []string) map[string][]byte {
 	snap := make(map[string][]byte, len(names))
 	for _, n := range names {
-		snap[n], _ = os.ReadFile(filepath.Join(dir, n))
+		snap[n], _ = os.ReadFile(b.Path(n))
 	}
 	return snap
 }
 
 // warnChanged names every file whose bytes differ from snap; it never restores (a live session may own the write).
-func warnChanged(out io.Writer, dir string, snap map[string][]byte) {
+func warnChanged(out io.Writer, b Bank, snap map[string][]byte) {
 	for _, n := range slices.Sorted(maps.Keys(snap)) {
-		if now, _ := os.ReadFile(filepath.Join(dir, n)); !bytes.Equal(now, snap[n]) {
+		if now, _ := os.ReadFile(b.Path(n)); !bytes.Equal(now, snap[n]) {
 			fmt.Fprintf(out, "memory update: WARNING: historical run changed %s (not restored)\n", n)
 		}
 	}
@@ -141,11 +141,20 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return fmt.Sprintf(updatePromptFormat, Dir(cwd), HomeBankDir()) +
+	return fmt.Sprintf(updatePromptFormat, bankPaths(BankFor(cwd)), bankPaths(HomeBank())) +
 		"Follow this procedure, the COMPLETE pass:\n\n" + ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
 		historicalBlock(historical) + digestBlock(transcript) + gitSinceBlock(transcript, cwd) + tagBlock(transcript, historical), nil
+}
+
+// bankPaths lists b's six typed file paths, comma-separated on one line.
+func bankPaths(b Bank) string {
+	ps := make([]string, len(bankFiles))
+	for i, n := range bankFiles {
+		ps[i] = b.Path(n)
+	}
+	return strings.Join(ps, ", ")
 }
 
 // dropCurrentStateSteps removes the Step sections for activeContext, progress and conventions from ref.
@@ -326,10 +335,10 @@ func update(o updateOptions) error {
 	record := func(status string, updated bool) error {
 		return recordUpdateResult(o.Session, prior.Log, status, updated)
 	}
-	dir := Dir(o.CWD)
+	b := BankFor(o.CWD)
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
-	ran, lockErr := paths.TryFileLock(lockPath(dir)+".lock", lockWait(), func() error { return run.lockedWithHome(o, dir) })
+	ran, lockErr := paths.TryFileLock(lockPathOf(b)+".lock", lockWait(), func() error { return run.lockedWithHome(o, b) })
 	if !ran || run.homeBusy { // lock never taken: nothing ran, and settling unlocked would race the holder
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
@@ -392,9 +401,9 @@ type updateRun struct {
 }
 
 // finish settles under the writer lock and reports whether the update wrote either bank tier.
-func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error) {
+func (r *updateRun) finish(o updateOptions, b Bank) (updated bool, err error) {
 	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
-	updated = r.touched(dir)
+	updated = r.touched(b)
 	if _, err := settleBank(o.CWD, time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
@@ -404,47 +413,47 @@ func (r *updateRun) finish(o updateOptions, dir string) (updated bool, err error
 }
 
 // touched reports whether either bank tier changed since the run began.
-func (r *updateRun) touched(dir string) bool {
-	return newestMtime(dir).After(r.before) || newestMtime(HomeBankDir()).After(r.beforeHome)
+func (r *updateRun) touched(b Bank) bool {
+	return newestMtime(b).After(r.before) || newestMtime(HomeBank()).After(r.beforeHome)
 }
 
 // runAgent runs the agent, once more when the gate refused calls and no bank file changed.
-func (r *updateRun) runAgent(ctx context.Context, o updateOptions, dir string) {
+func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
 	for range 2 {
 		r.blocks = 0
 		r.runErr = runAgentUpdate(context.WithValue(ctx, gateBlocksKey{}, &r.blocks), o)
-		if r.runErr != nil || r.blocks == 0 || r.touched(dir) {
+		if r.runErr != nil || r.blocks == 0 || r.touched(b) {
 			return
 		}
 	}
 }
 
 // withHomeLock runs fn under the home bank's lock, taken after the repo lock (the fixed order); ran=false = busy.
-func withHomeLock(dir string, fn func() error) (ran bool, err error) {
-	if paths.SamePath(dir, HomeBankDir()) {
-		return true, fn() // dir's own lock is the home lock
+func withHomeLock(b Bank, fn func() error) (ran bool, err error) {
+	if b.Home() {
+		return true, fn() // b's own lock is the home lock
 	}
-	return paths.TryFileLock(lockPath(HomeBankDir())+".lock", homeLockWait, fn)
+	return paths.TryFileLock(lockPathOf(HomeBank())+".lock", homeLockWait, fn)
 }
 
 // lockedWithHome is locked under the home bank's lock too: the agent may edit it, and repos have separate store locks.
-func (r *updateRun) lockedWithHome(o updateOptions, dir string) error {
-	ran, err := withHomeLock(dir, func() error { return r.locked(o, dir) })
+func (r *updateRun) lockedWithHome(o updateOptions, b Bank) error {
+	ran, err := withHomeLock(b, func() error { return r.locked(o, b) })
 	r.homeBusy = !ran
 	return err
 }
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
-func (r *updateRun) locked(o updateOptions, dir string) error {
+func (r *updateRun) locked(o updateOptions, b Bank) error {
 	if o.Historical {
-		snap := snapshotFiles(dir, currentStateFiles)
-		defer warnChanged(o.Out, dir, snap)
+		snap := snapshotFiles(b, currentStateFiles)
+		defer warnChanged(o.Out, b, snap)
 	}
-	r.before, r.beforeHome = newestMtime(dir), newestMtime(HomeBankDir())
+	r.before, r.beforeHome = newestMtime(b), newestMtime(HomeBank())
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
-	r.runAgent(ctx, o, dir)
-	r.updated, r.settleErr = r.finish(o, dir)
+	r.runAgent(ctx, o, b)
+	r.updated, r.settleErr = r.finish(o, b)
 	return nil
 }
 

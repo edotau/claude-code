@@ -26,10 +26,10 @@ type bankStat struct {
 	data        map[string][]byte
 }
 
-func statBank(dir string) bankStat {
-	s := bankStat{Dir: dir, data: map[string][]byte{}}
+func statBank(b Bank) bankStat {
+	s := bankStat{Dir: b.SubDir(""), data: map[string][]byte{}}
 	for _, name := range bankFiles {
-		path := filepath.Join(dir, name)
+		path := b.Path(name)
 		data, err := readFile(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -55,9 +55,17 @@ func statBank(dir string) bankStat {
 // DefaultStaleDays is the doctor's bank-staleness horizon.
 const DefaultStaleDays = 90
 
+// stateKey names b in per-bank state files; the home bank is "home" as it was on the legacy layout.
+func stateKey(b Bank) string {
+	if b.Home() {
+		return "home"
+	}
+	return b.Key
+}
+
 // doctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func doctorNoticePath(root string) string {
-	return filepath.Join(StateDir(), "doctor-notice-"+filepath.Base(Dir(root)))
+	return filepath.Join(StateDir(), "doctor-notice-"+stateKey(BankFor(root)))
 }
 
 // doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
@@ -104,9 +112,9 @@ func refreshNotice(w io.Writer, verb, root string) {
 func doctor(root string, staleDays int, now time.Time) []string {
 	var problems []string
 	if !isHomeBank(root) {
-		problems = append(problems, bankProblems("local", statBank(Dir(root)), staleDays, now)...)
+		problems = append(problems, bankProblems("local", statBank(BankFor(root)), staleDays, now)...)
 	}
-	problems = append(problems, bankProblems("home", statBank(HomeBankDir()), staleDays, now)...)
+	problems = append(problems, bankProblems("home", statBank(HomeBank()), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
 	problems = append(problems, nativeLinkProblems(root)...)
@@ -285,12 +293,12 @@ func timeline(root string, limit int) (entries []timelineEntry, sessions []strin
 // recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
 func recentSessions(root string, limit int) (sessions []string, err error) {
 	seen := map[string]bool{}
-	dirs := []string{HomeBankDir()}
-	if !isHomeBank(root) {
-		dirs = []string{Dir(root), HomeBankDir()}
+	banks := []Bank{HomeBank()}
+	if own := BankFor(root); !own.Home() {
+		banks = []Bank{own, HomeBank()}
 	}
-	for _, dir := range dirs {
-		heads, err := entriesWithPrefix(filepath.Join(dir, "sessionHistory.md"), "## ")
+	for _, b := range banks {
+		heads, err := entriesWithPrefix(b.Path("sessionHistory.md"), "## ")
 		if err != nil {
 			return sessions, err
 		}

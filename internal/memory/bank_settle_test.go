@@ -11,50 +11,68 @@ import (
 	"time"
 )
 
-func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
-	dir := t.TempDir()
-	date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
-	entries := make([]string, sessionHistoryMaxEntries+2)
-	for i := range entries {
-		entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
-	}
-	path := filepath.Join(dir, "sessionHistory.md")
-	archive := filepath.Join(dir, "archive", "sessionHistory-2026-11.md")
-	write(t, path, rejoin("# Session history", entries))
-	// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
-	write(t, archive, rejoin("# Archived sessions", entries[sessionHistoryMaxEntries:sessionHistoryMaxEntries+1]))
-
-	n, err := rotateSessionHistory(dir, date)
-	if err != nil || n != 2 {
-		t.Fatalf("retry rotation = %d, %v; want 2, nil", n, err)
-	}
-	_, archived := splitHeadingBlocks(mustRead(t, archive))
-	if want := entries[sessionHistoryMaxEntries:]; !slices.Equal(archived, want) {
-		t.Fatalf("retry duplicated or lost archived entries:\n got: %q\nwant: %q", archived, want)
-	}
-	if got, want := mustRead(t, path), rejoin("# Session history", entries[:sessionHistoryMaxEntries]); got != want {
-		t.Fatalf("retained history:\n got: %q\nwant: %q", got, want)
+// eachLayout runs fn once per store layout, on a fresh "repo" bank in an isolated config.
+func eachLayout(t *testing.T, fn func(t *testing.T, b Bank)) {
+	t.Helper()
+	for _, flat := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
+			isolatedConfig(t)
+			setStoreFlat(t, flat)
+			b := Bank{Key: "repo"}
+			if err := b.Ensure(""); err != nil {
+				t.Fatal(err)
+			}
+			fn(t, b)
+		})
 	}
 }
 
+func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
+	eachLayout(t, func(t *testing.T, b Bank) {
+		date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+		entries := make([]string, sessionHistoryMaxEntries+2)
+		for i := range entries {
+			entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
+		}
+		path := b.Path("sessionHistory.md")
+		archive := b.Sub("archive", "sessionHistory-2026-11.md")
+		write(t, path, rejoin("# Session history", entries))
+		// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
+		write(t, archive, rejoin("# Archived sessions", entries[sessionHistoryMaxEntries:sessionHistoryMaxEntries+1]))
+
+		n, err := rotateSessionHistory(b, date)
+		if err != nil || n != 2 {
+			t.Fatalf("retry rotation = %d, %v; want 2, nil", n, err)
+		}
+		_, archived := splitHeadingBlocks(mustRead(t, archive))
+		if want := entries[sessionHistoryMaxEntries:]; !slices.Equal(archived, want) {
+			t.Fatalf("retry duplicated or lost archived entries:\n got: %q\nwant: %q", archived, want)
+		}
+		if got, want := mustRead(t, path), rejoin("# Session history", entries[:sessionHistoryMaxEntries]); got != want {
+			t.Fatalf("retained history:\n got: %q\nwant: %q", got, want)
+		}
+	})
+}
+
 func TestRotateSessionHistoryReportsReadError(t *testing.T) {
-	dir := t.TempDir()
-	if n, err := rotateSessionHistory(dir, time.Now()); n != 0 || err != nil {
-		t.Fatalf("missing history: got %d, %v", n, err)
-	}
-	path := filepath.Join(dir, "sessionHistory.md")
-	if err := os.Mkdir(path, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	_, readErr := os.ReadFile(path)
-	var want *os.PathError
-	if !errors.As(readErr, &want) {
-		t.Fatalf("fixture did not produce a read error: %v", readErr)
-	}
-	n, err := rotateSessionHistory(dir, time.Now())
-	if n != 0 || !errors.Is(err, want.Err) {
-		t.Fatalf("unreadable history: got %d, %v; want wrapped %v", n, err, want.Err)
-	}
+	eachLayout(t, func(t *testing.T, b Bank) {
+		if n, err := rotateSessionHistory(b, time.Now()); n != 0 || err != nil {
+			t.Fatalf("missing history: got %d, %v", n, err)
+		}
+		path := b.Path("sessionHistory.md")
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, readErr := os.ReadFile(path)
+		var want *os.PathError
+		if !errors.As(readErr, &want) {
+			t.Fatalf("fixture did not produce a read error: %v", readErr)
+		}
+		n, err := rotateSessionHistory(b, time.Now())
+		if n != 0 || !errors.Is(err, want.Err) {
+			t.Fatalf("unreadable history: got %d, %v; want wrapped %v", n, err, want.Err)
+		}
+	})
 }
 
 // TestSettleBankLockLivesUnderStateNotStore: settleBank locks BankLockPath() under state, not a dotfile in the store.
@@ -116,28 +134,56 @@ func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
 
 // TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
 func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
-	dir := t.TempDir()
-	long := "- " + strings.Repeat("word ", 40) + "\n"
-	write(t, filepath.Join(dir, "activeContext.md"), "# Active\n\n"+long)
-	write(t, filepath.Join(dir, "decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
-	entries := make([]string, sessionHistoryMaxEntries+1)
-	for i := range entries {
-		entries[i] = fmt.Sprintf("## Session %02d\n\n%s", i, long)
-	}
-	write(t, filepath.Join(dir, "sessionHistory.md"), rejoin("# Session history", entries))
-	now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
-	if err := os.MkdirAll(archivePath(dir, "sessionHistory.md", now), 0o700); err != nil { // the rotation cannot append
-		t.Fatal(err)
-	}
+	eachLayout(t, func(t *testing.T, b Bank) {
+		long := "- " + strings.Repeat("word ", 40) + "\n"
+		write(t, b.Path("activeContext.md"), "# Active\n\n"+long)
+		write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
+		entries := make([]string, sessionHistoryMaxEntries+1)
+		for i := range entries {
+			entries[i] = fmt.Sprintf("## Session %02d\n\n%s", i, long)
+		}
+		write(t, b.Path("sessionHistory.md"), rejoin("# Session history", entries))
+		now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
+		if err := os.MkdirAll(b.Sub("archive", "sessionHistory-2026-11.md"), 0o700); err != nil { // the rotation cannot append
+			t.Fatal(err)
+		}
 
-	if _, err := settleDir(dir, now); err == nil {
-		t.Fatal("settle succeeded with an unwritable archive")
+		if _, err := settleDir(b, now); err == nil {
+			t.Fatal("settle succeeded with an unwritable archive")
+		}
+		files := []string{b.Path("activeContext.md"), b.Path("decisionLog.md"), b.Path("sessionHistory.md")}
+		if changed, err := formatFiles(files, true); err != nil || len(changed) != 0 {
+			t.Fatalf("settle left unwrapped files %v (err %v)", changed, err)
+		}
+	})
+}
+
+func TestLockPathsKeyOnTheBank(t *testing.T) {
+	isolatedConfig(t)
+	locks := filepath.Join(StateDir(), "locks")
+	if got, want := lockPathOf(HomeBank()), filepath.Join(locks, "home", ".postupdate"); got != want {
+		t.Errorf("home lock = %s, want %s", got, want)
 	}
-	files, err := dirFmtTargets(dir)
-	if err != nil {
-		t.Fatal(err)
+	if got, want := lockPathOf(Bank{Key: "repo"}), filepath.Join(locks, "repo", ".postupdate"); got != want {
+		t.Errorf("repo lock = %s, want %s", got, want)
 	}
-	if changed, err := formatFiles(files, true); err != nil || len(changed) != 0 {
-		t.Fatalf("settle left unwrapped files %v (err %v)", changed, err)
+	if lockPath(HomeBankDir()) != lockPathOf(HomeBank()) || lockPath(filepath.Join(StoreDir(), "repo")) != lockPathOf(Bank{Key: "repo"}) {
+		t.Error("lockPath(dir) must resolve to the same lock as its bank")
+	}
+}
+
+func TestBankRelsScopeTheSettleCommit(t *testing.T) {
+	isolatedConfig(t)
+	repo := Bank{Key: "repo"}
+	setStoreFlat(t, false)
+	if got := bankRels(repo); !slices.Equal(got, []string{"repo"}) {
+		t.Errorf("legacy rels = %v, want [repo]", got)
+	}
+	setStoreFlat(t, true)
+	if got := bankRels(repo); !slices.Contains(got, "repo--*") || !slices.Contains(got, "archive/repo--*") || slices.Contains(got, "archive") {
+		t.Errorf("flat repo rels = %v, want only its own prefixed files", got)
+	}
+	if got := bankRels(HomeBank()); !slices.Contains(got, "decisionLog.md") || !slices.Contains(got, ":(exclude)archive/*--*") {
+		t.Errorf("flat home rels = %v, want unprefixed files with other banks excluded", got)
 	}
 }

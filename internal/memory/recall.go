@@ -48,7 +48,7 @@ func recallPicks(ctx context.Context, root, session, query string, semantic, exp
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts([]string{Dir(root), HomeBankDir()}, time.Now())
+	counts := returnCounts([]string{accessDir(BankFor(root)), accessDir(HomeBank())}, time.Now())
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
@@ -174,11 +174,9 @@ func searchAll(query string, k int) []SearchHit {
 
 func allCorpusFiles() []corpusFile {
 	files := corpusFiles(paths.ConfigDir())
-	if entries, err := RepoDirs(); err == nil {
-		for _, e := range entries {
-			if e.Key != harnessStoreKey() {
-				files = append(files, storeFiles(e)...)
-			}
+	for _, k := range BankKeys() {
+		if k != harnessStoreKey() {
+			files = append(files, storeFiles(Bank{Key: k})...)
 		}
 	}
 	return files
@@ -190,7 +188,7 @@ func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string, er
 		root := root(repo)
 		return searchAll(q, k), root, nil
 	}
-	top, err := ResolveRepo(repo)
+	top, err := ResolveRoot(repo)
 	if err != nil {
 		return nil, "", err
 	}

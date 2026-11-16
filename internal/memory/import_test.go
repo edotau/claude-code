@@ -3,6 +3,7 @@ package memory
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,5 +123,16 @@ func TestImportBankSkipsEntriesAlreadyArchived(t *testing.T) {
 	res, err := ImportBank(ImportOptions{From: src, Repo: e.a, DryRun: true})
 	if err != nil || !strings.HasPrefix(res.Summary, "nothing to import") {
 		t.Fatalf("an archived entry was planned again: %v %v", err, res)
+	}
+}
+
+func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
+	tempConfig(t)
+	from := t.TempDir()
+	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
+	_, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true})
+	var in *ImportInputError
+	if !errors.As(err, &in) || !strings.Contains(err.Error(), "memory migrate") {
+		t.Errorf("import of a flat source into a per-repo store err = %v, want the migrate hint", err)
 	}
 }

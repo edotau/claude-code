@@ -90,7 +90,7 @@ func TestHasBankResolvesDirOnce(t *testing.T) {
 	if reads != 1 {
 		t.Errorf("bankExists read origins %d times, want 1 (one Dir resolution)", reads)
 	}
-	write(t, filepath.Join(Dir(repo), "progress.md"), "# Progress\n")
+	write(t, BankFor(repo).Path("progress.md"), "# Progress\n")
 	if !bankExists(repo) {
 		t.Error("bankExists = false with a typed file in the bank")
 	}

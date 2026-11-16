@@ -121,7 +121,21 @@ func BankKeys() []string {
 
 // BankOfFile is the bank a store file belongs to by its name prefix; unknown or none is home.
 func BankOfFile(path string) Bank {
-	k, _, ok := strings.Cut(filepath.Base(path), "--")
+	name := filepath.ToSlash(path)
+	if filepath.IsAbs(path) {
+		rel, err := filepath.Rel(StoreDir(), path)
+		if err != nil || !filepath.IsLocal(rel) {
+			return HomeBank()
+		}
+		name = filepath.ToSlash(rel)
+	}
+	parts := strings.Split(name, "/")
+	if len(parts) > 1 && slices.Contains(flatSubs, parts[0]) {
+		name = parts[1]
+	} else {
+		name = parts[0]
+	}
+	k, _, ok := strings.Cut(name, "--")
 	if ok && slices.Contains(BankKeys(), k) {
 		return Bank{Key: k}
 	}

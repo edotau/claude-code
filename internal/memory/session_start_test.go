@@ -593,3 +593,45 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 		t.Fatalf("surface duplicated the index despite a valid relative native link: %q", got)
 	}
 }
+
+func TestNewestHandoffKeepsOnlyTheBanksOwn(t *testing.T) {
+	eachLayout(t, func(t *testing.T, b Bank) {
+		other := Bank{Key: "other"}
+		write(t, b.Path("projectContext.md"), "# x\n")
+		write(t, other.Path("projectContext.md"), "# x\n")
+		now := time.Now()
+		mine, theirs, home := b.Sub("handoffs", "mine.md"), other.Sub("handoffs", "theirs.md"), HomeBank().Sub("handoffs", "home.md")
+		for p, age := range map[string]time.Duration{mine: 3 * time.Hour, theirs: time.Hour, home: 2 * time.Hour} {
+			write(t, p, "x")
+			if err := os.Chtimes(p, now.Add(-age), now.Add(-age)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if storeFlat() {
+			if got := newestHandoff(b, now, 24*time.Hour); got != mine {
+				t.Errorf("flat newestHandoff(%s) = %s, want %s", b.Key, got, mine)
+			}
+			if got := newestHandoff(HomeBank(), now, 24*time.Hour); got != home {
+				t.Errorf("flat home newestHandoff = %s, want %s", got, home)
+			}
+			return
+		}
+		if got := newestHandoff(b, now, 24*time.Hour); got != mine {
+			t.Errorf("legacy newestHandoff = %s, want %s", got, mine)
+		}
+	})
+}
+
+func TestRepoFocusReadsTheBanksTypedFiles(t *testing.T) {
+	eachLayout(t, func(t *testing.T, b Bank) {
+		write(t, b.Path("activeContext.md"), "# A\n\n## Current Focus\nship it\n")
+		write(t, b.Path("progress.md"), "# P\n\n## In Progress\nthe thing\n")
+		got := strings.Join(repoFocus(b), "\n")
+		if !strings.Contains(got, "ship it") || !strings.Contains(got, "the thing") {
+			t.Errorf("repoFocus = %q", got)
+		}
+		if len(repoFocus(HomeBank())) != 0 {
+			t.Error("home focus picked up the repo's files")
+		}
+	})
+}

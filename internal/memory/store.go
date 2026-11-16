@@ -32,23 +32,23 @@ var fileCaps = map[string]int{
 
 // bankExists reports whether any typed file exists in root's local bank.
 func bankExists(root string) bool {
-	dir := Dir(root)
+	b := BankFor(root)
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
+		if _, err := os.Stat(b.Path(name)); err == nil {
 			return true
 		}
 	}
 	return false
 }
 
-// Init ensures root's bank exists and seeds missing files (never overwrites); returns the bank dir.
+// Init ensures root's bank exists and seeds missing files (never overwrites); returns the dir holding them.
 func Init(root string) (string, error) {
-	dir, err := EnsureRepoDir(root) // a new repo store needs its origin record before any file lands in it
+	b, err := EnsureBank(root, "") // a new repo store needs its origin record before any file lands in it
 	if err != nil {
 		return "", err
 	}
 	for name, body := range templates() {
-		p := filepath.Join(dir, name)
+		p := b.Path(name)
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
@@ -56,7 +56,7 @@ func Init(root string) (string, error) {
 			return "", err
 		}
 	}
-	return dir, nil
+	return b.SubDir(""), nil
 }
 
 // writeBody writes a new file's body (seedFile, createExcl); tests swap it to fail mid-write.
@@ -98,7 +98,7 @@ func createExcl(p, body string) error {
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
 func isProjectContextTemplate(root string) bool {
-	data, err := os.ReadFile(filepath.Join(Dir(root), "projectContext.md"))
+	data, err := os.ReadFile(BankFor(root).Path("projectContext.md"))
 	if err != nil {
 		return false
 	}
@@ -182,7 +182,7 @@ func Dir(root string) string {
 }
 
 // isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
-func isHomeBank(root string) bool { return paths.SamePath(Dir(root), HomeBankDir()) }
+func isHomeBank(root string) bool { return BankFor(root).Home() }
 
 // root resolves --repo → $CLAUDE_PROJECT_DIR (only a repo or config dir: launchers may stamp $HOME) → toplevel → cwd.
 func root(repo string) string {
@@ -235,15 +235,19 @@ var ErrBankBusy = errors.New("memory store busy: another harness worker holds th
 // BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (no .lock.lock variants).
 func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
 
-// storeLockDir is state's lock dir for dir's bank (its base name, "home" for the home bank), created 0700.
-func storeLockDir(dir string) string {
-	key := filepath.Base(dir)
-	if paths.SamePath(dir, HomeBankDir()) {
-		key = "home"
-	}
-	d := filepath.Join(StateDir(), "locks", key)
+// storeLockDir is state's lock dir for b (its key, "home" for the home bank), created 0700.
+func storeLockDir(b Bank) string {
+	d := filepath.Join(StateDir(), "locks", bankName(b))
 	_ = os.MkdirAll(d, 0o700)
 	return d
+}
+
+// bankName is b's key, "home" for the home bank.
+func bankName(b Bank) string {
+	if b.Home() {
+		return "home"
+	}
+	return b.Key
 }
 
 // WithBankLock runs fn under the bank lock (wait<=0 = BankLockWait); not reentrant, so *Locked helpers never take it.
@@ -306,7 +310,7 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 		root = paths.CanonDeep(top)
 	}
 	nativeRoots.Store(filepath.Clean(cwd), root)
-	target, err := repoDirWith(cwd, func(string) (string, bool) { return top, definitive }) // RepoDir, no second git probe
+	target, err := nativeTarget(cwd, func(string) (string, bool) { return top, definitive }) // no second git probe
 	if err != nil {
 		return linkResult{}, false
 	}
@@ -315,6 +319,14 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 	}
 	repairNativeLinks(cwd)
 	return ensureLink(projectsMemory(paths.ProjectSlug(root)), target), true
+}
+
+// nativeTarget is the dir every native link to cwd's project points at: the store root when flat.
+func nativeTarget(cwd string, main func(string) (string, bool)) (string, error) {
+	if storeFlat() {
+		return StoreDir(), nil
+	}
+	return repoDirWith(cwd, main)
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.
@@ -402,13 +414,16 @@ func nativeLinkTargets(root string) map[string]string {
 		}
 		targets[slug] = target
 	}
-	if target, err := RepoDir(root); root != "" && err == nil {
+	if target, err := nativeTarget(root, gitMain); root != "" && err == nil {
 		add(root, target)
 	}
-	add(paths.ConfigDir(), harnessStoreDir())
-	add(StoreDir(), HomeBankDir())
+	add(paths.ConfigDir(), Bank{Key: harnessStoreKey()}.SubDir(""))
+	add(StoreDir(), HomeBank().SubDir(""))
 	if home, err := os.UserHomeDir(); err == nil {
-		add(home, HomeBankDir())
+		add(home, HomeBank().SubDir(""))
+	}
+	if storeFlat() {
+		return targets // every slug shares the store root: no per-repo entries to enumerate
 	}
 	entries, _ := RepoDirs()
 	for _, e := range entries {
@@ -431,7 +446,7 @@ func brokenNativeLinks(root string) []linkResult {
 			continue
 		}
 		_, err := os.Stat(link)
-		if !errors.Is(err, fs.ErrNotExist) && !paths.SamePath(target, StoreDir()) {
+		if !errors.Is(err, fs.ErrNotExist) && (storeFlat() || !paths.SamePath(target, StoreDir())) {
 			continue
 		}
 		if targets == nil {

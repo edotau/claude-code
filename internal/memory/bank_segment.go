@@ -31,26 +31,27 @@ type corpusFile struct {
 // corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
 func corpusFiles(root string) []corpusFile {
 	var out []corpusFile
-	banks := func(bank, dir string) {
+	banks := func(label string, b Bank) {
 		for _, name := range bankFiles {
-			out = append(out, corpusFile{bank, filepath.Join(dir, name), segEntries})
+			out = append(out, corpusFile{label, b.Path(name), segEntries})
 		}
 	}
-	if !isHomeBank(root) {
-		banks("local", Dir(root))
+	own, home := BankFor(root), HomeBank()
+	if !own.Home() {
+		banks("local", own)
 	}
-	banks("home", HomeBankDir())
-	archiveOwners := []string{Dir(root)}
-	if !isHomeBank(root) {
-		archiveOwners = append(archiveOwners, HomeBankDir())
+	banks("home", home)
+	archiveOwners := []Bank{own}
+	if !own.Home() {
+		archiveOwners = append(archiveOwners, home)
 	}
 	for _, owner := range archiveOwners {
-		for _, path := range globIn(archiveDir(owner), "*.md") {
+		for _, path := range ownedFiles(owner, "archive") {
 			out = append(out, corpusFile{"archive", path, segEntries})
 		}
 	}
-	for _, dir := range nativeDirs(root) {
-		for _, path := range searchTopicFiles(dir) {
+	for _, b := range nativeBanks(root) {
+		for _, path := range topicFiles(b) {
 			out = append(out, corpusFile{"native", path, segNative})
 		}
 	}
@@ -60,12 +61,51 @@ func corpusFiles(root string) []corpusFile {
 	return out
 }
 
-// ownerDir maps a corpus file back to the bank directory that owns its access log.
+// ownerDir maps a corpus file to the dir whose access log it feeds (a store-key stand-in when flat).
 func ownerDir(bank, path string) string {
+	if storeFlat() {
+		return accessDir(BankOfFile(path))
+	}
 	if bank == "archive" || bank == "knowledge" {
 		return filepath.Dir(filepath.Dir(path))
 	}
 	return filepath.Dir(path)
+}
+
+// ownerKey is the known bank key prefixing name, else "" (the home tier).
+func ownerKey(name string, keys []string) string {
+	if k, _, ok := strings.Cut(name, "--"); ok && slices.Contains(keys, k) {
+		return k
+	}
+	return ""
+}
+
+// ownedFiles lists b's *.md in sub: a legacy dir whole, else the flat dir's names carrying b's prefix.
+func ownedFiles(b Bank, sub string) []string {
+	files := globIn(b.SubDir(sub), "*.md")
+	if !storeFlat() {
+		return files
+	}
+	keys := BankKeys()
+	return slices.DeleteFunc(files, func(p string) bool { return ownerKey(filepath.Base(p), keys) != b.Key })
+}
+
+// topicFiles are b's native topics: its dir's searchable *.md legacy, else its prefixed top-level non-typed files.
+func topicFiles(b Bank) []string {
+	if !storeFlat() {
+		return searchTopicFiles(b.SubDir(""))
+	}
+	keys := BankKeys()
+	var out []string
+	for _, p := range searchTopicFiles(StoreDir()) {
+		name := filepath.Base(p)
+		local := strings.TrimPrefix(name, b.Prefix())
+		if ownerKey(name, keys) != b.Key || reservedNames[local] || reservedKindFold(local) && !hasExactEntry(StoreDir(), name) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func searchTopicFiles(dir string) []string {
@@ -468,24 +508,42 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 
 // routedFiles are the bank and topic files of every named repo, other than root's own store.
 func routedFiles(root, query string) []corpusFile {
-	own := Dir(root)
+	own := BankFor(root)
 	var out []corpusFile
-	for _, e := range routedRepos(query) {
-		if e.Dir != own {
-			out = append(out, storeFiles(e)...)
+	for _, b := range routedBanks(query) {
+		if b != own {
+			out = append(out, storeFiles(b)...)
+		}
+	}
+	return out
+}
+
+// routedBanks are the repo banks query names; legacy also matches a store's origin basename.
+func routedBanks(query string) []Bank {
+	var out []Bank
+	if !storeFlat() {
+		for _, e := range routedRepos(query) {
+			out = append(out, Bank{Key: e.Key})
+		}
+		return out
+	}
+	q := strings.ToLower(query)
+	for _, k := range BankKeys() {
+		if routeMatch(q, k) {
+			out = append(out, Bank{Key: k})
 		}
 	}
 	return out
 }
 
 // storeFiles labels a repo's typed bank files and native topics with its store key.
-func storeFiles(e repoEntry) []corpusFile {
+func storeFiles(b Bank) []corpusFile {
 	var out []corpusFile
 	for _, name := range BankFiles() {
-		out = append(out, corpusFile{Bank: e.Key, Path: filepath.Join(e.Dir, name), Mode: segEntries})
+		out = append(out, corpusFile{Bank: b.Key, Path: b.Path(name), Mode: segEntries})
 	}
-	for _, path := range searchTopicFiles(e.Dir) {
-		out = append(out, corpusFile{Bank: e.Key, Path: path, Mode: segNative})
+	for _, path := range topicFiles(b) {
+		out = append(out, corpusFile{Bank: b.Key, Path: path, Mode: segNative})
 	}
 	return out
 }
@@ -554,11 +612,11 @@ var readIfExists = func(path string) ([]byte, error) {
 	return data, err
 }
 
-// nativeDirs lists Claude Code's auto-memory dirs recall searches: the harness's own (user-wide facts), then root's.
-func nativeDirs(root string) []string {
-	out := []string{HomeBankDir()} // native shares the repo's store dir; the home tier holds the user-wide notes
-	if d := Dir(root); !slices.Contains(out, d) {
-		out = append(out, d)
+// nativeBanks lists the banks recall searches natively: the home tier (user-wide facts), then root's.
+func nativeBanks(root string) []Bank {
+	out := []Bank{HomeBank()}
+	if b := BankFor(root); !slices.Contains(out, b) {
+		out = append(out, b)
 	}
 	return out
 }

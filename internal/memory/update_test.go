@@ -157,35 +157,46 @@ func TestSearchBanksRanking(t *testing.T) {
 }
 
 func TestRotateAndSettle(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	var b strings.Builder
-	b.WriteString("# Session History\n\n> newest first\n")
-	for i := 35; i >= 1; i-- {
-		fmt.Fprintf(&b, "\n## entry %02d\n\n- did %d\n", i, i)
-	}
-	write(t, filepath.Join(dir, "sessionHistory.md"), b.String())
-	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-	rotated, err := settleBank(root, now)
-	if err != nil || rotated != 5 {
-		t.Fatalf("rotated %d err %v", rotated, err)
-	}
-	assertRotated(t, dir)
-	if n, _ := rotateSessionHistory(dir, now); n != 0 {
-		t.Error("rotation under cap must be a no-op")
+	for _, flat := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
+			tempConfig(t)
+			setStoreFlat(t, flat)
+			root := repoRoot(t, "proj")
+			if _, err := Init(root); err != nil {
+				t.Fatal(err)
+			}
+			bank := BankFor(root)
+			var sb strings.Builder
+			sb.WriteString("# Session History\n\n> newest first\n")
+			for i := 35; i >= 1; i-- {
+				fmt.Fprintf(&sb, "\n## entry %02d\n\n- did %d\n", i, i)
+			}
+			write(t, bank.Path("sessionHistory.md"), sb.String())
+			now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+			rotated, err := settleBank(root, now)
+			if err != nil || rotated != 5 {
+				t.Fatalf("rotated %d err %v", rotated, err)
+			}
+			assertRotated(t, bank)
+			if n, _ := rotateSessionHistory(bank, now); n != 0 {
+				t.Error("rotation under cap must be a no-op")
+			}
+		})
 	}
 }
 
-// assertRotated checks the history kept its newest entries, the oldest went to the archive, and the index follows.
-func assertRotated(t *testing.T, dir string) {
+// assertRotated checks the history kept its newest entries and the oldest went to the archive; legacy checks the index.
+func assertRotated(t *testing.T, b Bank) {
 	t.Helper()
-	_, kept := splitHeadingBlocks(mustRead(t, filepath.Join(dir, "sessionHistory.md")))
-	arch := mustRead(t, filepath.Join(dir, "archive", "sessionHistory-2026-09.md"))
+	_, kept := splitHeadingBlocks(mustRead(t, b.Path("sessionHistory.md")))
+	arch := mustRead(t, b.Sub("archive", "sessionHistory-2026-09.md"))
 	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
-	idx := mustRead(t, filepath.Join(dir, nativeIndexFile))
+	if storeFlat() { // the shared index is rebuilt from per-dir files until Phase 5.1 converts writeBankRegion
+		return
+	}
+	idx := mustRead(t, b.NativeIndex())
 	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
 		t.Errorf("index %q", idx)
 	}
@@ -703,11 +714,14 @@ func TestExtractTags_EmptyTranscript(t *testing.T) {
 
 // warnChanged lists every changed file in sorted order, every run, so map iteration order never leaks out.
 func TestWarnChangedSortedOrder(t *testing.T) {
-	dir := t.TempDir()
+	eachLayout(t, func(t *testing.T, b Bank) { testWarnChangedSortedOrder(t, b) })
+}
+
+func testWarnChangedSortedOrder(t *testing.T, b Bank) {
 	names := []string{"progress.md", "activeContext.md", "projectContext.md", "conventions.md", "b.md", "a.md"}
-	snap := snapshotFiles(dir, names)
+	snap := snapshotFiles(b, names)
 	for _, n := range names {
-		write(t, filepath.Join(dir, n), "changed\n")
+		write(t, b.Path(n), "changed\n")
 	}
 	var want strings.Builder
 	for _, n := range []string{"a.md", "activeContext.md", "b.md", "conventions.md", "progress.md", "projectContext.md"} {
@@ -715,7 +729,7 @@ func TestWarnChangedSortedOrder(t *testing.T) {
 	}
 	for range 20 {
 		var out bytes.Buffer
-		warnChanged(&out, dir, snap)
+		warnChanged(&out, b, snap)
 		if out.String() != want.String() {
 			t.Fatalf("warnChanged order:\n%s\nwant:\n%s", out.String(), want.String())
 		}
@@ -781,4 +795,40 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 			t.Logf("runs=%d status=%s bank_updated=%v note=%q", runs, r.Status, r.BankUpdated, note)
 		})
 	}
+}
+
+func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		p, err := agentUpdatePrompt("", root, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range []Bank{BankFor(root), HomeBank()} {
+			for _, name := range bankFiles {
+				if !strings.Contains(p, b.Path(name)) {
+					t.Errorf("prompt lacks %s", b.Path(name))
+				}
+			}
+		}
+	})
+}
+
+func TestUpdateJobScopeFollowsTheLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		s := JobScope(JobUpdate, root)
+		store := StoreDir()
+		want := []string{filepath.Join(store, "proj") + "/**", filepath.Join(store, "home") + "/**"}
+		if storeFlat() {
+			want = []string{store + "/*.md", store + "/archive/**"}
+			if !slices.Contains(s.CdDirs, store) {
+				t.Errorf("flat CdDirs = %v, want the store root", s.CdDirs)
+			}
+		}
+		if !slices.Equal(s.Write, want) {
+			t.Errorf("Write = %v, want %v", s.Write, want)
+		}
+	})
 }

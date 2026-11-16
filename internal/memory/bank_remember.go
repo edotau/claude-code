@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -37,20 +36,20 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	dir, err := EnsureRepoDir(root)
+	b, err := EnsureBank(root, "")
 	if err != nil {
 		return "", err
 	}
 	var id string
 	err = WithBankLock(BankLockWait, func() error {
-		snap, werr := snapshotPaths(filepath.Join(dir, file))
+		snap, werr := snapshotPaths(b.Path(file))
 		if werr != nil {
 			return werr
 		}
-		if id, werr = writeRememberFact(dir, file, kind, fact, now); werr != nil {
+		if id, werr = writeRememberFact(b, file, kind, fact, now); werr != nil {
 			return werr
 		}
-		return restoreOnError(stampAndSettle(root, dir, file, now), snap)
+		return restoreOnError(stampAndSettle(root, b, file, now), snap)
 	})
 	if err != nil {
 		return "", err
@@ -59,13 +58,13 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 }
 
 // stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
-func stampAndSettle(root, dir, file string, now time.Time) error {
+func stampAndSettle(root string, b Bank, file string, now time.Time) error {
 	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
 	for name, prefix := range idFiles {
 		if name == file { // already stamped in memory before its one write
 			continue
 		}
-		if _, _, err := assignFileIDs(dir, name, prefix, now); err != nil {
+		if _, _, err := assignFileIDs(b, name, prefix, now); err != nil {
 			return err
 		}
 	}
@@ -73,15 +72,15 @@ func stampAndSettle(root, dir, file string, now time.Time) error {
 	return settleLocked(root, now)
 }
 
-// writeRememberFact adds fact to dir's file, stamps its id in memory, writes the file once, and returns the id.
-func writeRememberFact(dir, file, kind, fact string, now time.Time) (string, error) {
-	path := filepath.Join(dir, file)
+// writeRememberFact adds fact to b's file, stamps its id in memory, writes the file once, and returns the id.
+func writeRememberFact(b Bank, file, kind, fact string, now time.Time) (string, error) {
+	path := b.Path(file)
 	data, err := readFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err // never rewrite the file from an unread one
 	}
 	line, text := rememberedText(path, file, kind, fact, string(data), now)
-	text, _ = stampIDs(dir, file, idFiles[file], text, now)
+	text, _ = stampIDs(b, file, idFiles[file], text, now)
 	id, err := lastStampedID(text, line, file == "decisionLog.md")
 	if err != nil { // an unclosed fence above it or an id marker inside the fact: refuse before writing
 		return "", fmt.Errorf("%s: the fact would get no id of its own: %w", file, err)
@@ -134,7 +133,7 @@ var now = time.Now
 var labelUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
 
 // appendReport appends in's report to reports/<date>-<label>.md and its decisions to <date>-decisions.md; returns both.
-func appendReport(dir, label string, in ReportInput) ([]string, error) {
+func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")
 	}
@@ -148,21 +147,20 @@ func appendReport(dir, label string, in ReportInput) ([]string, error) {
 	var out []string
 	err := WithBankLock(BankLockWait, func() error {
 		var err error
-		out, err = appendReportLocked(dir, label, in)
+		out, err = appendReportLocked(b, label, in)
 		return err
 	})
 	return out, err
 }
 
 // appendReportLocked is appendReport's body; the caller holds the bank lock.
-func appendReportLocked(dir, label string, in ReportInput) ([]string, error) {
-	reports := filepath.Join(dir, "reports")
-	if err := os.MkdirAll(reports, 0o700); err != nil {
+func appendReportLocked(b Bank, label string, in ReportInput) ([]string, error) {
+	if err := os.MkdirAll(b.SubDir("reports"), 0o700); err != nil {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath := filepath.Join(reports, day+"-"+label+".md")
-	decisionsPath := filepath.Join(reports, day+"-decisions.md")
+	reportPath := b.Sub("reports", day+"-"+label+".md")
+	decisionsPath := b.Sub("reports", day+"-decisions.md")
 	report, err := snapshotFile(reportPath)
 	if err != nil {
 		return nil, err

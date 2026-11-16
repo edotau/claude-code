@@ -150,7 +150,7 @@ func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 				}
 				arg, want = filepath.Base(repo), dir
 			} else {
-				arg, want = repo, memory.Dir(repo)
+				arg, want = repo, memory.BankFor(repo).SubDir("")
 			}
 			code, out, stderr := memCLI(t, "path", "--repo", arg)
 			if code != 0 || strings.TrimSpace(out) != want {
@@ -261,16 +261,36 @@ func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 	}
 }
 
-func TestMemoryReview(t *testing.T) {
-	// decisionLog entries make `memory review` report a cap problem.
-	overCap := func(t *testing.T, repo string) {
-		var b strings.Builder
-		b.WriteString("# Decision Log\n")
-		for i := 80; i >= 1; i-- {
-			fmt.Fprintf(&b, "\n## decision %02d\n\nrationale topic%d choice%d\n", i, i, i)
-		}
-		hosttest.WriteRel(t, memory.Dir(repo), "decisionLog.md", b.String())
+// overCapDecisions makes `memory review` report a cap problem: decisionLog entries past the cap.
+func overCapDecisions(t *testing.T, repo string) {
+	var b strings.Builder
+	b.WriteString("# Decision Log\n")
+	for i := 80; i >= 1; i-- {
+		fmt.Fprintf(&b, "\n## decision %02d\n\nrationale topic%d choice%d\n", i, i, i)
 	}
+	hosttest.WriteRel(t, memory.BankFor(repo).SubDir(""), "decisionLog.md", b.String())
+}
+
+// checkReviewCandidates requires the review procedure to print after the stats block.
+func checkReviewCandidates(t *testing.T, out string) {
+	statsIdx := strings.Index(out, memStatsHeader)
+	if statsIdx < 0 {
+		t.Fatalf("output missing the stats block: %q", out)
+	}
+	ref, err := memory.Reference("review")
+	if err != nil {
+		t.Fatalf("memory.Reference(\"review\"): %v", err)
+	}
+	refIdx := strings.Index(out, ref)
+	if refIdx < 0 {
+		t.Errorf("output missing the embedded review procedure: %q", out)
+	}
+	if refIdx < statsIdx {
+		t.Errorf("review procedure (at %d) printed before the stats block (at %d)", refIdx, statsIdx)
+	}
+}
+
+func TestMemoryReview(t *testing.T) {
 	cases := []struct {
 		name  string
 		flag  string
@@ -285,7 +305,7 @@ func TestMemoryReview(t *testing.T) {
 				t.Errorf("review output missing the stats block: %q", out)
 			}
 		}},
-		{"brief prints only the count", "--brief", overCap, func(t *testing.T, out string) {
+		{"brief prints only the count", "--brief", overCapDecisions, func(t *testing.T, out string) {
 			if !strings.Contains(out, "problem(s) found") {
 				t.Errorf("--brief output missing the count line: %q", out)
 			}
@@ -293,23 +313,7 @@ func TestMemoryReview(t *testing.T) {
 				t.Errorf("--brief printed a per-line problem, want only the count: %q", out)
 			}
 		}},
-		{"candidates procedure after stats", "--candidates", nil, func(t *testing.T, out string) {
-			statsIdx := strings.Index(out, memStatsHeader)
-			if statsIdx < 0 {
-				t.Fatalf("output missing the stats block: %q", out)
-			}
-			ref, err := memory.Reference("review")
-			if err != nil {
-				t.Fatalf("memory.Reference(\"review\"): %v", err)
-			}
-			refIdx := strings.Index(out, ref)
-			if refIdx < 0 {
-				t.Errorf("output missing the embedded review procedure: %q", out)
-			}
-			if refIdx < statsIdx {
-				t.Errorf("review procedure (at %d) printed before the stats block (at %d)", refIdx, statsIdx)
-			}
-		}},
+		{"candidates procedure after stats", "--candidates", nil, checkReviewCandidates},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -346,12 +350,12 @@ func dirChecksum(dir string) string {
 func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	memCfg(t)
 	repo := memoryBankRepo(t)
-	before := dirChecksum(memory.Dir(repo))
+	before := dirChecksum(memory.BankFor(repo).SubDir(""))
 	out := memCLIOK(t, "dream", "--cwd", repo, "--dry-run")
-	if !strings.Contains(out, "bank: "+memory.Dir(repo)) {
+	if !strings.Contains(out, "bank: "+memory.BankFor(repo).SubDir("")) {
 		t.Errorf("output missing the preview's bank line: %q", out)
 	}
-	if after := dirChecksum(memory.Dir(repo)); before != after {
+	if after := dirChecksum(memory.BankFor(repo).SubDir("")); before != after {
 		t.Errorf("--dry-run changed the bank directory: before=%s after=%s", before, after)
 	}
 }
@@ -363,7 +367,7 @@ func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	memInit(t, repo)
 	t.Chdir(repo)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryDream([]string{"--dry-run"}) })
-	if code != 0 || !strings.Contains(out, "bank: "+memory.Dir(repo)) {
+	if code != 0 || !strings.Contains(out, "bank: "+memory.BankFor(repo).SubDir("")) {
 		t.Errorf("memory dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
 	}
 }
@@ -626,9 +630,9 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	memCfg(t)
 	memMust(t, memory.StoreRepo().Ensure())
 	repo := memoryBankRepo(t)
-	hosttest.WriteRel(t, memory.Dir(repo), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
+	hosttest.WriteRel(t, memory.BankFor(repo).SubDir(""), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
 	// activeContext.md is never id-assigned, so this line stays unstamped (SearchBanks still indexes it).
-	hosttest.WriteRel(t, memory.Dir(repo), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
+	hosttest.WriteRel(t, memory.BankFor(repo).SubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
 
 	out := memCLIOK(t, "recall", "--repo", repo, "stamped", "id-marked", "rule")
 	if !strings.Contains(out, "deadbeef — ") {
@@ -656,7 +660,7 @@ func TestMemoryRecallLoad(t *testing.T) {
 		memCfg(t)
 		memMust(t, memory.StoreRepo().Ensure())
 		repo := memoryBankRepo(t)
-		hosttest.WriteRel(t, memory.Dir(repo), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
+		hosttest.WriteRel(t, memory.BankFor(repo).SubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
 		out := memCLIOK(t, "recall", "--repo", repo, "--load", "1", "never", "settled", "widget", "rollout")
 		if !strings.Contains(out, "never settled widget rollout detail") {
 			t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
@@ -764,7 +768,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 	memCfg(t)
 	repo := hosttest.Repo(t)
-	dir := memory.Dir(repo)
+	dir := memory.BankFor(repo).SubDir("")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("fresh repo store must not exist: %v", err)
 	}
@@ -789,7 +793,7 @@ func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 				t.Fatalf("reported file %q: %v", path, err)
 			}
 		}
-		if got := memory.Dir(repo); got != dir {
+		if got := memory.BankFor(repo).SubDir(""); got != dir {
 			t.Fatalf("report split repo store: got %q, want %q", got, dir)
 		}
 	}
@@ -895,15 +899,15 @@ func TestMemoryReviewRepoStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	a, b := memTwoStores(t, "activeContext.md", "# %s context\n")
 	stale := time.Now().AddDate(0, 0, -memory.DefaultStaleDays-1)
-	memMust(t, os.Chtimes(filepath.Join(memory.Dir(a), "activeContext.md"), stale, stale))
+	memMust(t, os.Chtimes(filepath.Join(memory.BankFor(a).SubDir(""), "activeContext.md"), stale, stale))
 	t.Chdir(b)
-	name := filepath.Base(memory.Dir(a))
+	name := filepath.Base(memory.BankFor(a).SubDir(""))
 	code, out, stderr := memCLI(t, "review", "--repo", name)
 	if want := "local bank untouched since " + stale.Format("2006-01-02"); code != 0 || !strings.Contains(out, want) {
 		t.Fatalf("memory review --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
 	for _, args := range [][]string{{"review", "--repo", "nosuch"}, {"review", "--repo", "nosuch", "--notice"}} {
-		checkMemoryUnknownRepo(t, cfg, args, name, filepath.Base(memory.Dir(b)))
+		checkMemoryUnknownRepo(t, cfg, args, name, filepath.Base(memory.BankFor(b).SubDir("")))
 	}
 }
 
@@ -912,13 +916,13 @@ func TestMemoryTimelineRepoStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n\n## %s session\n")
 	t.Chdir(b)
-	name := filepath.Base(memory.Dir(a))
+	name := filepath.Base(memory.BankFor(a).SubDir(""))
 	code, out, stderr := memCLI(t, "timeline", "--repo", name)
 	want := "-- sessionHistory --\n- " + filepath.Base(a) + " session\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("memory timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
-	checkMemoryUnknownRepo(t, cfg, []string{"timeline", "--repo", "nosuch"}, name, filepath.Base(memory.Dir(b)))
+	checkMemoryUnknownRepo(t, cfg, []string{"timeline", "--repo", "nosuch"}, name, filepath.Base(memory.BankFor(b).SubDir("")))
 }
 
 func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores ...string) {
@@ -977,5 +981,25 @@ func checkSandboxUnknownRepo(t *testing.T) {
 	code, out, stderr := memCLI(t, "sandbox", "--repo", "unknown-sandbox-store")
 	if code != 2 || out != "" || !strings.Contains(stderr, "known stores:") {
 		t.Fatalf("unknown repo: %d %q %q", code, out, stderr)
+	}
+}
+
+func TestMemoryPathSubNameAndBareDir(t *testing.T) {
+	memCfg(t)
+	repo := hosttest.Repo(t)
+	bank := memory.BankFor(repo)
+	for args, want := range map[string]string{
+		"":               bank.SubDir(""),
+		"reports":        bank.SubDir("reports"),
+		"reports x.md":   bank.Sub("reports", "x.md"),
+		"knowledge a.md": bank.Sub("knowledge", "a.md"),
+	} {
+		argv := append([]string{"path", "--repo", repo}, strings.Fields(args)...)
+		if code, out, errs := memCLI(t, argv...); code != 0 || strings.TrimSpace(out) != want {
+			t.Errorf("memory path %s = %d %q %q, want %q", args, code, out, errs, want)
+		}
+	}
+	if code, _, _ := memCLI(t, "path", "--repo", repo, "bogus"); code != 2 {
+		t.Errorf("memory path bogus code = %d, want 2", code)
 	}
 }

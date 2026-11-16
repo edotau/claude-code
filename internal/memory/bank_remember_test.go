@@ -120,18 +120,18 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 
 // TestPrependBlockUnreadableLogIsNotRewritten: a read error other than not-exist leaves decisionLog.md alone.
 func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	p := filepath.Join(dir, "decisionLog.md") // a directory: ReadFile fails with EISDIR
-	if err := os.Mkdir(p, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writeRememberFact(dir, "decisionLog.md", "project", "x", time.Now()); err == nil {
-		t.Fatal("writeRememberFact on an unreadable log = nil error, want the read error")
-	}
-	if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
-		t.Fatalf("unreadable log was replaced: %v", err)
-	}
+	eachLayout(t, func(t *testing.T, b Bank) {
+		p := b.Path("decisionLog.md") // a directory: ReadFile fails with EISDIR
+		if err := os.Mkdir(p, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeRememberFact(b, "decisionLog.md", "project", "x", time.Now()); err == nil {
+			t.Fatal("writeRememberFact on an unreadable log = nil error, want the read error")
+		}
+		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
+			t.Fatalf("unreadable log was replaced: %v", err)
+		}
+	})
 }
 
 func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
@@ -263,29 +263,30 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	t.Cleanup(func() { now = previousNow })
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
-			dir := t.TempDir()
-			report := filepath.Join(dir, "reports", "2026-11-08-review.md")
-			decisions := filepath.Join(dir, "reports", "2026-11-08-decisions.md")
-			if previous != "" {
-				write(t, report, previous)
-			}
-			if err := os.MkdirAll(decisions, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			in := ReportInput{Report: "# Review\n\nUnique report body.", Decisions: []string{"Keep it."}}
-			paths, err := appendReport(dir, "review", in)
-			if err == nil || len(paths) != 0 {
-				t.Fatalf("failed decisions write = %v, %v; want no paths and an error", paths, err)
-			}
-			assertReportRolledBack(t, report, previous)
-			if err := os.Remove(decisions); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := appendReport(dir, "review", in); err != nil {
-				t.Fatalf("retry report: %v", err)
-			}
-			assertReportTextOccursOnce(t, report, "Unique report body.")
-			assertReportTextOccursOnce(t, decisions, "Keep it.")
+			eachLayout(t, func(t *testing.T, b Bank) {
+				report := b.Sub("reports", "2026-11-08-review.md")
+				decisions := b.Sub("reports", "2026-11-08-decisions.md")
+				if previous != "" {
+					write(t, report, previous)
+				}
+				if err := os.MkdirAll(decisions, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				in := ReportInput{Report: "# Review\n\nUnique report body.", Decisions: []string{"Keep it."}}
+				paths, err := appendReport(b, "review", in)
+				if err == nil || len(paths) != 0 {
+					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", paths, err)
+				}
+				assertReportRolledBack(t, report, previous)
+				if err := os.Remove(decisions); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := appendReport(b, "review", in); err != nil {
+					t.Fatalf("retry report: %v", err)
+				}
+				assertReportTextOccursOnce(t, report, "Unique report body.")
+				assertReportTextOccursOnce(t, decisions, "Keep it.")
+			})
 		})
 	}
 }
@@ -346,8 +347,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 	tempConfig(t)
 	for _, label := range []string{"decisions", "DECISIONS", "Decisions"} {
 		t.Run(label, func(t *testing.T) {
-			dir := t.TempDir()
-			paths, err := appendReport(dir, label, ReportInput{
+			paths, err := appendReport(Bank{Key: "repo"}, label, ReportInput{
 				Report:    "# Review\n\nReport body.\n",
 				Decisions: []string{"Keep reports separate from decisions."},
 			})
@@ -357,7 +357,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 			if len(paths) != 0 {
 				t.Fatalf("rejected report returned paths: %v", paths)
 			}
-			if _, err := os.Stat(filepath.Join(dir, "reports")); !os.IsNotExist(err) {
+			if _, err := os.Stat(Bank{Key: "repo"}.SubDir("reports")); !os.IsNotExist(err) {
 				t.Fatalf("rejected label created reports directory: %v", err)
 			}
 		})
@@ -367,3 +367,19 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 // A failed store commit rolls back both appends, so a retry never duplicates the report or its decisions.
 
 // not a repo: commitStore fails
+
+func TestRememberWritesTheBanksFileInEachLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		id, err := Remember(root, "user", "prefer small diffs", time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := mustRead(t, BankFor(root).Path("conventions.md"))
+		if !strings.Contains(body, "prefer small diffs") || !strings.Contains(body, "id:"+id) {
+			t.Errorf("conventions.md missing the fact or its id %s: %q", id, body)
+		}
+	})
+}

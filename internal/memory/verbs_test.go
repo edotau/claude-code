@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -102,4 +103,45 @@ func TestIndexSaysWhenThereIsNoStore(t *testing.T) {
 	if got := out.String(); strings.Contains(got, "indexed ") || !strings.Contains(got, "no store") || !strings.Contains(got, "memory init") {
 		t.Fatalf("index output = %q; want a no-store line naming `memory init`", got)
 	}
+}
+
+func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
+	prev := now
+	now = func() time.Time { return time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { now = prev })
+	eachLayout(t, func(t *testing.T, b Bank) {
+		got, err := appendReport(b, "rev", ReportInput{Report: "# R\n", Decisions: []string{"d"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{b.Sub("reports", "2026-11-08-rev.md"), b.Sub("reports", "2026-11-08-decisions.md")}
+		if !slices.Equal(got, want) {
+			t.Fatalf("appendReport = %v, want %v", got, want)
+		}
+		if storeFlat() && !strings.HasPrefix(filepath.Base(got[0]), "repo--") {
+			t.Errorf("flat report %s is not key-prefixed", got[0])
+		}
+	})
+}
+
+func TestResolveBankKeyAndPathInEachLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		top, b, err := ResolveBank(root)
+		if err != nil || top != root || b.Key != "proj" {
+			t.Fatalf("ResolveBank(path) = %q %+v %v", top, b, err)
+		}
+		top, b, err = ResolveBank("proj")
+		if err != nil || b.Key != "proj" || (top == "") != storeFlat() {
+			t.Errorf("ResolveBank(key) = %q %+v %v; flat keys carry no checkout", top, b, err)
+		}
+		if _, err := ResolveRoot("proj"); (err != nil) != storeFlat() {
+			t.Errorf("ResolveRoot(key) err = %v, want one only when flat", err)
+		}
+		if _, _, err := ResolveBank("nosuch-bank"); err == nil {
+			t.Error("an unknown key that is not a path must err")
+		}
+	})
 }
