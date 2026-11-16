@@ -1,5 +1,4 @@
 // Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
-// Hooks fail OPEN — an infra glitch never blocks, except a Blocks gate's panic, overrun, or empty/unparseable payload.
 package hooks
 
 import (
@@ -154,9 +153,7 @@ func (m *dispatchMerge) addWorktree(b Bound, r core.Result) {
 	m.merged.Stdout = r.Stdout
 }
 
-// Dispatch runs, in order, every bound handler on event whose matcher hits and merges the results. A handler
-// that panics or overruns is logged and skipped (a Blocks gate blocks, failClosedModules exit 1); a second
-// updatedInput or raw stdout errors.
+// Dispatch runs every bound handler whose matcher hits and merges results; panics and overruns are skipped.
 func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
@@ -266,8 +263,7 @@ var native = map[string]core.Runner{
 	"permission-gate":      safety.PermissionGate,
 }
 
-// gateDeadline is how long a Blocks module may run in its own process: the host's timeout less half HookMargin, so a
-// handler's HookContext fail-open (a full margin early) still wins and the host's timer never lets the call through.
+// gateDeadline is the host timeout less half HookMargin, so HookContext's fail-open wins before the host's timer.
 var gateDeadline = func(s settings.EventSpec) time.Duration {
 	host := time.Duration(s.Seconds()) * time.Second
 	if d := host - core.HookMargin/2; d > 0 {
@@ -276,9 +272,7 @@ var gateDeadline = func(s settings.EventSpec) time.Duration {
 	return host / 2
 }
 
-// runDirect is `hook <Event> --<module>`: one Runner rendered for its own process. A module that blocks exits 2 with
-// its reason on stderr, which is how a guard run by an agent or by safety-scan's own entry blocks. A Blocks module
-// that overruns gateDeadline (stdin read included) blocks with a retry reason; any other module has no deadline.
+// runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr; only Blocks has a deadline.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
 	if !ok {
@@ -373,8 +367,7 @@ func payloadProblem(in *core.Input) string {
 	return ""
 }
 
-// runGated runs one module, except a Blocks gate on a payload that was empty or did not parse: that blocks unrun.
-// A panic is logged to stderr: a Blocks module blocks, any other proceeds (Go's own exit 2 would read as a block).
+// runGated runs one module; an empty or unparseable payload blocks a Blocks gate unrun, a panic only a Blocks module.
 func runGated(name string, run core.Runner, in *core.Input, stderr io.Writer) (res core.Result) {
 	blocks := specOf(name).Blocks
 	if problem := payloadProblem(in); problem != "" && blocks {

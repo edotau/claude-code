@@ -22,8 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// Create replaces Claude Code's `.claude/worktrees/<name>` with <root>/<repo>/<name>; stdout is the path.
-// Unlike other hooks it fails CLOSED: a non-zero exit is the only way to report a worktree that was not made.
+// Create replaces `.claude/worktrees/<name>` with <root>/<repo>/<name>, printing the path; it fails CLOSED.
 func Create(in *core.Input) core.Result {
 	var stderr bytes.Buffer
 	// The live payload carries only `name`; the documented worktree_path/branch are honored if they ever appear.

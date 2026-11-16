@@ -1,6 +1,4 @@
-// `docs-placement` — PreToolUse(Write|Edit|Bash): BLOCKS a markdown write targeting a repo ROOT, or a
-// <repo>/docs page git REFUSES to keep (ignored -> gone on a fresh clone), naming the canonical
-// docs/ path instead. Root anchors, tracked files, and this harness's docs/images + docs/templates pass.
+// `docs-placement` blocks a markdown write to a repo ROOT or an untracked <repo>/docs page, naming the docs/ path.
 package docs
 
 import (
@@ -24,8 +22,7 @@ import (
 // docsPlacementDisableEnv disables placement checks.
 const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
 
-// rootAnchors are the root-level markdown files tooling requires THERE: GitHub/OSS conventions plus the
-// cross-tool instruction files a repo may keep (Codex/Gemini/Copilot read AGENTS.md/GEMINI.md from a project root).
+// rootAnchors are the root-level markdown files tooling requires there: GitHub/OSS conventions and agent instruction files.
 var rootAnchors = map[string]bool{
 	"readme.md": true, "claude.md": true, "agents.md": true, "gemini.md": true,
 	"license.md": true, "licence.md": true, "notice.md": true, "changelog.md": true,
@@ -97,8 +94,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 		return core.ExitProceed
 	}
 	path = core.AnchorPath(path, in.CWD)
-	// Canonicalize, don't just absolutize: a write spelled through a symlink would never compare
-	// equal to the realpath git reports, and would walk straight past the gate.
+	// Canonicalize: a write spelled through a symlink would never equal git's realpath and would pass the gate.
 	abs := core.CanonPath(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
@@ -193,8 +189,7 @@ func isMarkdownPath(path string) bool {
 
 // isTracked reports whether git lists rel (repo-RELATIVE, slash-separated) at root; err is git's failure.
 func isTracked(ctx context.Context, root, rel string) (bool, error) {
-	// :(literal) disables pathspec magic — a glob-shaped name ("*.md") would otherwise match some
-	// OTHER tracked file and wave the untracked write straight through the gate.
+	// :(literal) stops a glob-shaped name ("*.md") from matching another tracked file and passing the untracked write.
 	out, err := proc.RunGit(ctx, root, "ls-files", "--", ":(literal)"+rel)
 	return err == nil && strings.TrimSpace(out) != "", err
 }

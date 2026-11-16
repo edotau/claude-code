@@ -584,8 +584,7 @@ func compactStr(raw json.RawMessage) (string, error) {
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
 
-// SeedSettings writes Render (through transform when non-nil) to file only when file does not exist yet;
-// an existing file is never read or written.
+// SeedSettings writes Render (via transform when non-nil) only when file does not exist; an existing file is never touched.
 func SeedSettings(file string, transform func([]byte) ([]byte, error)) (seeded bool, err error) {
 	err = paths.WithFileLock(file, func() error {
 		if _, serr := os.Stat(file); !errors.Is(serr, fs.ErrNotExist) {

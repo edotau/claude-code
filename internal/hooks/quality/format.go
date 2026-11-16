@@ -1,6 +1,4 @@
-// The formatter chain stop-format drives: format ONE file the way its own project formats it — the
-// repo's `make format`/`fmt` target when it honors a per-file variable, else the project's declared
-// python chain, else the per-extension tool. Best-effort; every step reports whether it ran cleanly.
+// The formatter chain stop-format drives: one file via the repo's make target, else the python chain, else the per-extension tool.
 package quality
 
 import (
@@ -57,9 +55,7 @@ var makeProvisioning = sync.OnceValue(func() *regexp.Regexp {
 // makeProbeTimeout bounds the dry run; the real run gets toolTimeout.
 const makeProbeTimeout = 2 * time.Second
 
-// makeFormat formats ONE file through the repo's own format target. A target is used only when it
-// demonstrably honors a per-file variable AND a dry run shows it naming this file and provisioning
-// nothing: a whole-tree target is skipped, since one edit must never rewrite unrelated files.
+// makeFormat formats ONE file via the repo's format target, used only if a dry run shows it naming just this file.
 func makeFormat(path string) bool {
 	root := nearestDirWith(path, "Makefile")
 	if root == "" {
@@ -145,8 +141,7 @@ func recipeReads(recipe, name string) bool {
 	return strings.Contains(recipe, "$("+name+")") || strings.Contains(recipe, "${"+name+"}")
 }
 
-// runMakeTarget dry-runs the target and, only if every planned command names this file and provisions
-// nothing, runs it for real. A line naming other paths (e.g. `gofmt -w .`) would rewrite the whole tree.
+// runMakeTarget dry-runs the target and runs it only if every planned command names this file.
 func runMakeTarget(root, target, assignment, abs string) bool {
 	plan, ok := runMake(root, makeProbeTimeout, "-n", "-s", target, assignment)
 	if !ok || makeProvisioning().MatchString(plan) || !everyLineNames(root, plan, abs) {
@@ -237,8 +232,7 @@ func formatPython(path string) bool {
 	return run(root, "ruff", "format", "--quiet", path)
 }
 
-// classicPythonChain runs ruff check --fix, autoflake, isort, black — each only when the project declares
-// it and it is installed, each from the project dir. ran: any step ran; ok: every step that ran exited 0.
+// classicPythonChain runs ruff --fix, autoflake, isort, black where declared and installed; ok: every step that ran exited 0.
 func classicPythonChain(root, path string, tools map[string]bool) (ran, ok bool) {
 	ok = true
 	step := func(name string, args ...string) {
