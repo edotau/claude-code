@@ -30,6 +30,9 @@ reports never ride a project's commits.
 - Any git-tracked file, any other subdirectory, non-repo paths, and an existing git-ignored file (the owner's local
   doc; a new file under an ignored name still blocks).
 
+One exception inside a repo: a new plan-named `.md` (`plan`/`plans` as a whole word) at the root or in `docs/`,
+tracked or ignored, is redirected to the dated plans home (`docs-plan-gate`).
+
 ## When the gate blocks
 
 It names the canonical home; re-issue the write there. For a genuine repo doc the user asked for: `git add -N <file>`

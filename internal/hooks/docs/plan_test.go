@@ -717,6 +717,12 @@ func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 			t.Errorf("%s = %+v, want untouched", p, r)
 		}
 	}
+	bare := t.TempDir() // a cwd in no git repo passes, as docs-placement says
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": bare,
+		"tool_input": map[string]string{"file_path": filepath.Join(bare, "my-plan.md"), "content": "x"}})
+	if r := PlanGate(core.ParseInput(bytes.NewReader(b))); r.UpdatedInput != nil || r.Decision == core.Block {
+		t.Errorf("non-repo cwd = %+v, want untouched", r)
+	}
 }
 
 // A blocked plans home denies at once naming the path; a name merely containing "plan" is not a plan.
