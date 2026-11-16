@@ -38,7 +38,6 @@ type UpdateRequest struct {
 // GateResult is the gate's verdict: Blocked = Stop gets a not-saved note (work units uncovered); FailedOpen = unsaved.
 type GateResult struct {
 	Blocked    bool
-	Work       int
 	FailedOpen bool
 }
 
@@ -46,7 +45,7 @@ type GateResult struct {
 func UpdateIfNew(r UpdateRequest, trigger string, now time.Time) GateResult {
 	var res GateResult
 	withStampLock(r.SessionID, func() { // hooks of one session are separate processes
-		res.Blocked, res.Work, res.FailedOpen = updateIfNewLocked(r, trigger, now)
+		res.Blocked, res.FailedOpen = updateIfNewLocked(r, trigger, now)
 	})
 	return res
 }
@@ -73,7 +72,7 @@ func globIn(dir, pattern string) []string {
 	return m
 }
 
-func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked bool, work int, failedOpen bool) {
+func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked, failedOpen bool) {
 	stamp := stampPath(r.SessionID)
 	st, ok := readStamp(stamp)
 	covered := 0
@@ -87,50 +86,49 @@ func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked 
 	if trigger == TriggerPreCompact {
 		floor = 1
 	}
-	work = countSessionEdits(r.SessionID, r.Transcript)
+	work := countSessionEdits(r.SessionID, r.Transcript)
 	if work > covered && work >= floor {
 		if dispatchUpdate(r, trigger, work, now) {
-			return false, 0, false
+			return false, false
 		}
 		if trigger == TriggerStop {
 			// Stamp the old covered count: this work was never dispatched, so SessionEnd/PreCompact must still see it.
 			if writeStamp(stamp, now, "1", covered) != nil {
-				return false, 0, true // fail open: the block count cannot persist
+				return false, true // fail open: the block count cannot persist
 			}
-			return true, work, false
+			return true, false
 		}
 	}
-	return false, 0, false
+	return false, false
 }
 
 // stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
-func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (blocked bool, work int, failedOpen bool) {
+func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (blocked, failedOpen bool) {
 	if st.state == "bg" || st.state == "catchup" {
 		if now.Sub(st.at) < updateRearmCooldown {
-			return false, 0, false // cheap gate before the whole-transcript count
+			return false, false // cheap gate before the whole-transcript count
 		}
-		work = countSessionEdits(r.SessionID, r.Transcript)
+		work := countSessionEdits(r.SessionID, r.Transcript)
 		if work >= st.edits+updateRearmEdits {
 			dispatchUpdate(r, TriggerStop, work, now)
 		}
-		return false, 0, false
+		return false, false
 	}
 	if newestMtime(BankFor(r.CWD)).After(st.at) {
 		_ = writeStamp(stamp, now, "bg", st.edits) // ran by hand: released, re-arms; a lost stamp re-dispatches
-		return false, 0, false
+		return false, false
 	}
 	if st.blocks >= updateMaxBlocks {
 		if st.blocks == updateMaxBlocks { // say so once, at the cap; later Stops stay quiet
 			persisted := writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) == nil
-			return false, 0, persisted // the notice shows once, only when its stamp persisted
+			return false, persisted // the notice shows once, only when its stamp persisted
 		}
-		return false, 0, false // fail open
+		return false, false // fail open
 	}
 	if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
-		return false, 0, true // fail open: the block count cannot persist
+		return false, true // fail open: the block count cannot persist
 	}
-	// The stamp holds the covered count, not the uncovered work, so the message counts live.
-	return true, countSessionEdits(r.SessionID, r.Transcript), false
+	return true, false
 }
 
 // Updatable reports whether a session can be updated: ids present, not an update child, the transcript a file.
