@@ -114,10 +114,13 @@ func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) 
 	if at.FinalText != "" {
 		_ = enc.Encode(synthLine("text", map[string]any{"text": at.FinalText}))
 	}
-	dest := filepath.Join(StateDir(), "agent-transcripts", filepath.Base(sessionID)+".jsonl")
+	dest := filepath.Join(agentTranscriptDir(), filepath.Base(sessionID)+".jsonl")
 	_, err := paths.WriteIfChanged(dest, buf.Bytes(), 0o600)
 	return dest, err
 }
+
+// agentTranscriptDir holds synthesized transcripts; pruneSeen ages them out.
+func agentTranscriptDir() string { return filepath.Join(StateDir(), "agent-transcripts") }
 
 func synthLine(kind string, block map[string]any) map[string]any {
 	block["type"] = kind
