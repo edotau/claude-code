@@ -190,6 +190,14 @@ func AttributionFooterCommit(cmd string) bool {
 		return true
 	}
 	raw := cmd
+	for _, s := range subs {
+		if strings.Contains(s, "<<") && !strings.ContainsAny(s, "$`") { // a literal heredoc: only a line-start footer counts
+			if footerLine(s) && gitCommitInvocation(cmd) {
+				return true
+			}
+			raw = strings.ReplaceAll(raw, s, "")
+		}
+	}
 	for _, s := range subjects {
 		raw = strings.ReplaceAll(raw, s, "")
 	}

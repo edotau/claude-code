@@ -456,6 +456,7 @@ func TestPermissionShellComments(t *testing.T) {
 		"go test $(# c\nrm x)":                Deny,
 		"go test ./x # c\nrm y":               Deny,
 		"go test ./x \\# c; rm y":             Deny,
+		"go test ./x\\\n#b; rm y":             Deny, // the continuation joins `#` to the word
 		"go test $#; rm y":                    Deny,
 		"go test ./x > o # c":                 Deny,
 		// a quote or backslash inside a comment hides nothing: bash runs the next line

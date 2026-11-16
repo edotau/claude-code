@@ -988,14 +988,16 @@ func protectedPath(p string) bool {
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
-var interpreterWrites = map[string]*regexp.Regexp{
-	"python": regexp.MustCompile(`open\s*\([^\n]*?(,\s*|mode\s*=\s*)['"][rbt]*[wax+][rwxabt+]*['"]|` +
-		`\b(write_text|write_bytes|unlink|copy\w*|move|replace|rename|remove|rmtree)\s*\(`),
-	"js": regexp.MustCompile(`\b(writeFile|appendFile|createWriteStream|rename|unlink|rm|copyFile|truncate|writeTextFile|remove)` +
-		`(Sync)?\s*\(|Bun\.write\b`),
-	"script": regexp.MustCompile(`open\b[^\n]*(['"]\+?>>?|['"]\+?[wa]\+?['"])|` +
-		`\b(File|IO)\.(binwrite|write|delete|unlink|rename)\b|\b(unlink|rename)\s*[(\s]|FileUtils\.`),
-}
+var interpreterWrites = sync.OnceValue(func() map[string]*regexp.Regexp {
+	return map[string]*regexp.Regexp{
+		"python": regexp.MustCompile(`open\s*\([^\n]*?(,\s*|mode\s*=\s*)['"][rbt]*[wax+][rwxabt+]*['"]|` +
+			`\b(write_text|write_bytes|unlink|copy\w*|move|replace|rename|remove|rmtree)\s*\(`),
+		"js": regexp.MustCompile(`\b(writeFile|appendFile|createWriteStream|rename|unlink|rm|copyFile|truncate|writeTextFile|remove)` +
+			`(Sync)?\s*\(|Bun\.write\b`),
+		"script": regexp.MustCompile(`open\b[^\n]*(['"]\+?>>?|['"]\+?[wa]\+?['"])|` +
+			`\b(File|IO)\.(binwrite|write|delete|unlink|rename)\b|\b(unlink|rename)\s*[(\s]|FileUtils\.`),
+	}
+})
 
 // interpreterLang maps an interpreter's basename to its interpreterWrites key ("" when not an interpreter).
 func interpreterLang(base string) string {
@@ -1019,7 +1021,7 @@ func interpreterWrite(cmd string) string {
 			continue
 		}
 		lang := interpreterLang(filepath.Base(rest[0]))
-		if re := interpreterWrites[lang]; re == nil || !scriptWrites(lang, re, cmd) {
+		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, cmd) {
 			continue
 		}
 		for _, g := range protectedGlobs() {

@@ -325,8 +325,14 @@ func readOnlyGo(args []string) bool {
 	return false
 }
 
+// opDir is the dir a segment's relative operands name; "" is the process cwd unless lost (a cd moved it, unknown).
+type opDir struct {
+	dir  string
+	lost bool
+}
+
 // readOnlyReadDenied: a Read deny exists and the segment's operand matches it or its operands cannot be listed.
-func readOnlyReadDenied(p Permissions, seg string) bool {
+func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 	if !slices.Contains(p.Allow, ReadOnlyAllow) {
 		return false
 	}
@@ -352,11 +358,13 @@ func readOnlyReadDenied(p Permissions, seg string) bool {
 	}
 	deny := Permissions{Deny: reads}
 	return slices.ContainsFunc(ops, func(o string) bool {
-		// after an allowed cd the cwd join below is wrong, so a climbing operand cannot be placed
-		return slices.Contains(strings.Split(filepath.ToSlash(o), "/"), "..") ||
-			slices.ContainsFunc(operandForms(o), func(f string) bool { return deny.Decide("Read", f) == Deny })
+		// after a cd to an unknown dir a climbing operand cannot be placed; a cd to a denied path's parent is refused
+		return at.lost && climbs(o) && !path.IsAbs(filepath.ToSlash(o)) ||
+			slices.ContainsFunc(operandForms(o, at.dir), func(f string) bool { return deny.Decide("Read", f) == Deny })
 	})
 }
+
+func climbs(o string) bool { return slices.Contains(strings.Split(filepath.ToSlash(o), "/"), "..") }
 
 // noFileCommands read no file: builtins whose arguments are printed, never opened (a redirect never reaches here).
 var noFileCommands = []string{"echo", "printf", "true", ":", "pwd"}
@@ -392,14 +400,20 @@ func denyParentDirs(pattern string) []string {
 	return dirs
 }
 
-// operandForms is an operand as typed, cleaned, absolute from the cwd, and every trailing sub-path of it.
-func operandForms(o string) []string {
+// operandForms: o as typed, cleaned, joined to dir (else cwd), symlink-resolved if it climbs, and its sub-paths.
+func operandForms(o, dir string) []string {
 	c := path.Clean(o)
 	forms := []string{o, c}
-	if !path.IsAbs(c) {
-		if wd, err := os.Getwd(); err == nil {
-			forms = append(forms, path.Join(filepath.ToSlash(wd), c))
-		}
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	abs := o
+	if !path.IsAbs(c) && dir != "" {
+		abs = filepath.ToSlash(dir) + "/" + o
+		forms = append(forms, path.Clean(abs))
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil && climbs(o) {
+		forms = append(forms, filepath.ToSlash(real))
 	}
 	parts := strings.Split(c, "/")
 	for i := 1; i < len(parts); i++ {

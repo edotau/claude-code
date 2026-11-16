@@ -60,19 +60,20 @@ func TestAttributionFooterCommit(t *testing.T) {
 
 func TestAttributionFooterHidden(t *testing.T) {
 	for cmd, want := range map[string]bool{
-		`git commit -m x -m "Co-Authored-By: Cl""aude"`:                     true,
-		`git commit -m "x Co-Authored-By: Cl""aude"`:                        false,
-		`git commit -m $'Co-Authored-By:\x20Claude'`:                        true,
-		`git commit -m "Generated with [Claude](https://c.ai)"`:             true,
-		`git commit -m "Co-Authored-By: Anthropic <a@b>"`:                   true,
-		`git -c alias.ci=commit ci -m "Co-Authored-By: Claude"`:             true,
-		`git $(echo commit) -m "Co-Authored-By: Claude"`:                    true,
-		`setsid sh -c 'git commit -m "Co-Authored-By: Claude"'`:             true,
-		`git commit -m "$(printf 'Co-Authored-By: %s' Claude)"`:             true,
-		`git commit -m "mention co-authored-by docs"`:                       false,
-		"git commit -m \"$(cat <<'EOF'\nfix: co-authored-by docs\nEOF\n)\"": false,
-		`echo $(date); git commit -m "mention co-authored-by docs"`:         false,
-		`git commit -m "fix: x"`:                                            false,
+		`git commit -m x -m "Co-Authored-By: Cl""aude"`:                                                  true,
+		`git commit -m "x Co-Authored-By: Cl""aude"`:                                                     false,
+		`git commit -m $'Co-Authored-By:\x20Claude'`:                                                     true,
+		`git commit -m "Generated with [Claude](https://c.ai)"`:                                          true,
+		`git commit -m "Co-Authored-By: Anthropic <a@b>"`:                                                true,
+		`git -c alias.ci=commit ci -m "Co-Authored-By: Claude"`:                                          true,
+		`git $(echo commit) -m "Co-Authored-By: Claude"`:                                                 true,
+		`setsid sh -c 'git commit -m "Co-Authored-By: Claude"'`:                                          true,
+		`git commit -m "$(printf 'Co-Authored-By: %s' Claude)"`:                                          true,
+		`git commit -m "mention co-authored-by docs"`:                                                    false,
+		"git commit -m \"$(cat <<'EOF'\nfix: co-authored-by docs\nEOF\n)\"":                              false,
+		"git commit -m \"$(cat <<'EOF'\nfix: handle Co-Authored-By: Claude in subject\n\nbody\nEOF\n)\"": false,
+		`echo $(date); git commit -m "mention co-authored-by docs"`:                                      false,
+		`git commit -m "fix: x"`:                                                                         false,
 	} {
 		if got := AttributionFooterCommit(cmd); got != want {
 			t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, want)

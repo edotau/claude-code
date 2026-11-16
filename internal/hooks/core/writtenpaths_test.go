@@ -26,6 +26,9 @@ func TestWrittenPaths(t *testing.T) {
 		{"home and $HOME", `echo x > ~/a && echo y > $HOME/b`, []string{"/h/a", "/h/b"}},
 		{"cd moves the anchor", `cd sub && echo x > f`, []string{"/w/sub/f"}},
 		{"bash -c body", `bash -c "sed -i s/a/b/ x.go"`, []string{"/w/x.go"}},
+		{"redirect after the destination", `cp a docs/b.md 2>&1`, []string{"/w/docs/b.md"}},
+		{"redirect glued to a word", `echo hi>x.md && echo y >|z.md`, []string{"/w/x.md", "/w/z.md"}},
+		{"subshell cd does not leak", `(cd /tmp); echo x > a.md`, []string{"/w/a.md"}},
 		{"read-only and interpreter bodies", `cat x.go; python3 -c "open('y','w').write('z')"`, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -56,6 +59,9 @@ func TestWrittenPathsPrecise(t *testing.T) {
 		{"real redirect beside a quoted >", `grep '>' a > R.md # c`, []string{"/w/a", "/w/R.md"}},
 		{"shell-fed heredoc body", "bash <<'EOF'\necho x > B.md\nEOF", []string{"/w/B.md"}},
 		{"absolute target after a dynamic cd", `cd "$X" && echo x > /r/A.md`, []string{"/r/A.md"}},
+		{"# after a line continuation is no comment", "echo a\\\n#b > C.md", []string{"/w/C.md"}},
+		{"# after a blank and a line continuation is one", "echo a \\\n#b > C.md", nil},
+		{"dynamic cd in a subshell does not leak", `(cd "$X"); echo x > S.md`, []string{"/w/S.md"}},
 		{"# after an escaped space is no comment", `echo a\ #b; echo x > E.md`, []string{"/w/E.md"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -63,5 +69,16 @@ func TestWrittenPathsPrecise(t *testing.T) {
 				t.Errorf("WrittenPathsPrecise(%q) = %q, want %q", c.cmd, got, c.want)
 			}
 		})
+	}
+}
+
+func TestRemovedPaths(t *testing.T) {
+	for cmd, want := range map[string][]string{
+		`rm a b`: {"/w/a", "/w/b"}, `mv a b c`: {"/w/a", "/w/b"}, `mv -t /out a b`: {"/w/a", "/w/b"},
+		`mv --target-directory=/out a`: {"/w/a"},
+	} {
+		if got := RemovedPaths(cmd, "/w"); !slices.Equal(got, want) {
+			t.Errorf("RemovedPaths(%q) = %q, want %q", cmd, got, want)
+		}
 	}
 }

@@ -186,6 +186,7 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 		"grep '^$' '" + secret + "'":                   {Deny, Allow},
 		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Allow},
 		"grep \"$X\" f":                                {Deny, Allow},
+		"cat ../x && head -5 memory/../memory/a.md":    {Allow, Allow},
 	}
 	for name, deny := range map[string]Rule{"absolute": {Tool: "Read", Arg: secret}, "glob": {Tool: "Read", Arg: "**/state/vault.db"}} {
 		for cmd, want := range rows {
@@ -196,6 +197,9 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 			if got := (Permissions{Mode: "plan", Allow: base}).Decide("Bash", cmd); got != want[1] {
 				t.Errorf("no deny: %q = %v, want %v", cmd, got, want[1])
 			}
+		}
+		if got := (Permissions{Mode: "plan", Allow: base, Deny: []Rule{deny}}).DecideAt(root, "Bash", "cat state/vault.db"); got != Deny {
+			t.Errorf("%s deny: DecideAt(root, cat state/vault.db) = %v, want Deny", name, got)
 		}
 	}
 }
