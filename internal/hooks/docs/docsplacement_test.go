@@ -377,7 +377,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	if want := "Plans belong in " + filepath.Join(cfg, "plans") + ","; !strings.Contains(stderr.String(), want) {
 		t.Errorf("plan line missing %q:\n%s", want, stderr.String())
 	}
-	if want := "handoffs in " + filepath.Join(repo, "handoffs") + ";"; !strings.Contains(stderr.String(), want) {
+	if want := "handoffs in " + filepath.Join(repo, "handoffs", "YYYY-MM-DD-<topic>.md") + ";"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("handoff line must name the store itself, not memory/home; missing %q:\n%s", want, stderr.String())
 	}
 	for _, sub := range []string{"handoffs", "reports"} {

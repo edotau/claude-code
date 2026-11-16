@@ -150,3 +150,14 @@ func storeFlat() bool {
 
 // forgetLayout drops the memoized stamp for the current store (after migrate or revert writes it).
 func forgetLayout() { layoutCache.Delete(StoreDir()) }
+
+// EnsureBank is root's bank with sub created; on the legacy layout it also records root's origin so the key is stable.
+func EnsureBank(root, sub string) (Bank, error) {
+	if !storeFlat() {
+		if _, err := EnsureRepoDir(root); err != nil {
+			return Bank{}, err
+		}
+	}
+	b := BankFor(root)
+	return b, b.Ensure(sub)
+}

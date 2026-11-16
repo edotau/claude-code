@@ -225,8 +225,9 @@ func workspaceHasIgnore(path string) (bool, error) {
 
 // workspaceMemoryAction seeds root's memory bank (~/.claude/memory/<repo>), or reports it kept.
 func workspaceMemoryAction(root string) workspaceAction {
-	dir := memory.Dir(root)
-	present, err := workspaceExists(filepath.Join(dir, memory.BankFiles()[0]))
+	bank := memory.BankFor(root).Path(memory.BankFiles()[0])
+	dir := filepath.Dir(bank)
+	present, err := workspaceExists(bank)
 	if err != nil {
 		return workspaceErrorAction(dir, err)
 	}
@@ -303,12 +304,13 @@ func workspaceStatus(root string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bankState, err := workspacePresent(filepath.Join(memory.Dir(root), memory.BankFiles()[0]))
+	bank := memory.BankFor(root).Path(memory.BankFiles()[0])
+	bankState, err := workspacePresent(bank)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "settings  %s\n", settings)
-	fmt.Fprintf(out, "memory    %s  %s\n", bankState, memory.Dir(root))
+	fmt.Fprintf(out, "memory    %s  %s\n", bankState, filepath.Dir(bank))
 	has, err := workspaceHasIgnore(filepath.Join(root, ".gitignore"))
 	if err != nil {
 		return err

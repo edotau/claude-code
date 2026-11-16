@@ -15,13 +15,13 @@ Task:
 - Tests: one fast regression test per bug, one end-to-end test per feature, teeth proven by breaking the fix in a copy;
   no value-pinning. A copilot test leaf writes it after the implementer returns (refactor packages get none).
 - Report gross added and deleted production lines separately; a package with net growth names what it clarified.
-- Write the full report to `/Users/edotau/.claude/memory/claude-code/reports/`; return at most 8 lines.
+- Write the full report to `{{.ReportsDir}}/{{.Prefix}}YYYY-MM-DD-<name>.md`; return at most 8 lines.
 - Code leaves run on the Databricks arm (`/coworker` overlay `{"provider":"databricks","profile":"auto"}`), spread
   over dev/qa/prod; docs leaves on claude sonnet.
 
 ## Reporting contract
 
-Write the full report under /Users/edotau/.claude/memory/claude-code/reports/ (the memory store's reports/).
+Write the full report to {{.ReportsDir}}/{{.Prefix}}YYYY-MM-DD-<name>.md (the memory store's reports/).
 {{if .Report}}Use the Report path above.
 {{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.

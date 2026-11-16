@@ -92,9 +92,9 @@ func TestMarkToolRanMarksProgressOnSuccess(t *testing.T) {
 func TestHandoffNeverWritesCredentials(t *testing.T) {
 	const sdkToken, envSecret = "gho_SDKTOKEN12345", "dbx_pat_ENVSECRET9"
 	dir := t.TempDir()
-	orig := handoffDir
-	handoffDir = func(string) string { return dir }
-	t.Cleanup(func() { handoffDir = orig })
+	orig := handoffPath
+	handoffPath = func(_, name string) string { return filepath.Join(dir, name) }
+	t.Cleanup(func() { handoffPath = orig })
 	env := []string{providers.CopilotTokenEnv + "=" + sdkToken, "DBX_TOKEN=" + envSecret, "PLAIN=visible"}
 	creds := credentialValues(env)
 	req := agent.RunOptions{WorkDir: t.TempDir(), Prompt: "use " + sdkToken + " and " + envSecret}
@@ -147,12 +147,12 @@ func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []st
 		`"base_url":"https://api.githubcopilot.com","login":"work","auth":{"type":"cli","login":"copilot"},`+
 		`"models":{"opus":"auto","sonnet":"auto","haiku":"auto"}}}}}`)
 	pathstest.FakeVendor(t, "copilot", "exit 0")
-	origPct, origAsk, origDir := CopilotUsedPct, copilotAsk, handoffDir
+	origPct, origAsk, origPath := CopilotUsedPct, copilotAsk, handoffPath
 	dir := t.TempDir()
 	CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	copilotAsk = ask
-	handoffDir = func(string) string { return dir }
-	t.Cleanup(func() { CopilotUsedPct, copilotAsk, handoffDir = origPct, origAsk, origDir })
+	handoffPath = func(_, name string) string { return filepath.Join(dir, name) }
+	t.Cleanup(func() { CopilotUsedPct, copilotAsk, handoffPath = origPct, origAsk, origPath })
 	return dir
 }
 
@@ -272,9 +272,9 @@ func TestQuotaHandoffWriteFailureKeepsPartialAnswer(t *testing.T) {
 	hosttest.PinScratch(t)
 	blocked := filepath.Join(t.TempDir(), "not-a-directory")
 	regressionWrite(t, blocked, "blocked")
-	old := handoffDir
-	handoffDir = func(string) string { return filepath.Join(blocked, "handoffs") }
-	t.Cleanup(func() { handoffDir = old })
+	old := handoffPath
+	handoffPath = func(_, name string) string { return filepath.Join(blocked, "handoffs", name) }
+	t.Cleanup(func() { handoffPath = old })
 	cause := errors.New("402 payment required")
 	res, err := copilotQuotaHandoff(agent.RunOptions{WorkDir: t.TempDir()}, wire.Result{}, "partial-session", "partial answer", cause, nil)
 	if res.Answer != "partial answer" || res.SessionID != "partial-session" || res.Handoff != "" {

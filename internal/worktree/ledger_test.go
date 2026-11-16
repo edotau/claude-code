@@ -15,7 +15,7 @@ import (
 
 func ledgerFile(t *testing.T, main, name string) string {
 	t.Helper()
-	path := ledgerPath(memory.Dir(main), name)
+	path := ledgerPath(main, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read ledger %s: %v", path, err)
@@ -161,7 +161,7 @@ func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 	if err != nil || ok {
 		t.Fatalf("AppendLedger(unmanaged repo) = %v, %v; want false, nil", ok, err)
 	}
-	if _, err := os.Stat(ledgerPath(memory.Dir(main), "anything")); !os.IsNotExist(err) {
+	if _, err := os.Stat(ledgerPath(main, "anything")); !os.IsNotExist(err) {
 		t.Fatalf("a ledger file appeared for an unmanaged append: %v", err)
 	}
 }
@@ -252,7 +252,7 @@ func TestLedgerMergeThenCleanBranchState(t *testing.T) {
 // Finding 4: a ledger failure during clean is written to the supplied writer.
 func TestLedgerCleanWarningsUseWriter(t *testing.T) {
 	repo, main, _ := ledgerSetup(t, "fc")
-	path := ledgerPath(memory.Dir(main), "fc")
+	path := ledgerPath(main, "fc")
 	data, _ := os.ReadFile(path)
 	if err := os.WriteFile(path, []byte(strings.Replace(string(data), "- Base: ", "- Basis: ", 1)), 0o600); err != nil {
 		t.Fatal(err)
@@ -287,7 +287,7 @@ func TestLedgerTakesBankLock(t *testing.T) {
 
 func TestSetLedgerTaskFillsUnclaimed(t *testing.T) {
 	_, main, dest := ledgerSetup(t, "wt-task")
-	path := memory.Dir(main) + "/worktrees/wt-task.md"
+	path := ledgerPath(main, "wt-task")
 	if ok, err := SetLedgerTask(dest, "1.2 in plan-x", time.Now()); !ok || err != nil {
 		t.Fatalf("SetLedgerTask = %v, %v", ok, err)
 	}

@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"text/template"
+
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 // BriefInput supplies the authored task and the leaf's execution contract.
@@ -23,8 +25,13 @@ type BriefInput struct {
 //go:embed brief.tmpl
 var briefTemplate string
 
-// RenderBrief renders a deterministic brief without reading files or changing its input.
+// RenderBrief resolves report paths against the current working directory's bank.
 func RenderBrief(input BriefInput) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve brief working directory: %w", err)
+	}
+	b := memory.BankFor(cwd)
 	owned, err := json.Marshal(input.Owned)
 	if err != nil {
 		return "", fmt.Errorf("encode brief ownership: %w", err)
@@ -36,8 +43,8 @@ func RenderBrief(input BriefInput) (string, error) {
 	var out bytes.Buffer
 	data := struct {
 		BriefInput
-		OwnedLine string
-	}{input, string(owned)}
+		OwnedLine, ReportsDir, Prefix string
+	}{input, string(owned), b.SubDir("reports"), b.Prefix()}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}

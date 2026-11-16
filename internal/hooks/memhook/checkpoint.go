@@ -62,10 +62,10 @@ func inFlight(in *core.Input, now time.Time) bool {
 
 // handoffPrompt asks the model to write the handoff, then the owner to compact.
 func handoffPrompt(in *core.Input, pct int) core.Result {
-	dir := memory.HandoffsDir(memory.Dir(cwdOf(in)))
+	path := memory.BankFor(cwdOf(in)).Sub("handoffs", "YYYY-MM-DD-<slug>.md")
 	return core.Result{
-		Context: fmt.Sprintf("Context at %d%% with nothing in flight: write a handoff to %s/YYYY-MM-DD-<slug>.md "+
-			"(State, In flight, Next), then ask the owner to run /compact.", pct, dir),
+		Context: fmt.Sprintf("Context at %d%% with nothing in flight: write a handoff to %s "+
+			"(State, In flight, Next), then ask the owner to run /compact.", pct, path),
 		SystemMessage: fmt.Sprintf("context %d%%: writing handoff; run /compact after", pct),
 	}
 }
