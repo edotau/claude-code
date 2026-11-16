@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"text/template"
 )
@@ -60,4 +62,17 @@ func ParseOwned(brief string) []string {
 		return strings.Fields(value)
 	}
 	return nil
+}
+
+// ReadBrief returns the brief file's text; "" is an empty brief and "-" reads stdin.
+func ReadBrief(path string) (string, error) {
+	switch path {
+	case "":
+		return "", nil
+	case "-":
+		b, err := io.ReadAll(os.Stdin)
+		return string(b), err
+	}
+	b, err := os.ReadFile(path)
+	return string(b), err
 }

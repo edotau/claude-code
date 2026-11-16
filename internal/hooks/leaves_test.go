@@ -1,4 +1,4 @@
-package agents
+package hooks
 
 import (
 	"bytes"
@@ -9,22 +9,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/wthook"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // writeMeta lays down <transcript dir>/<session>/subagents/agent-<agent>.meta.json mapping agent → toolUseId.
@@ -75,12 +76,12 @@ func hasMarker(t *testing.T, id string) bool {
 func TestDispatchBackgroundSpawnRetiredByStop(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
-	runEvent(t, "PreToolUse", spawnPayload("toolu_bg"))
+	runLeafEvent(t, "PreToolUse", spawnPayload("toolu_bg"))
 	if !hasMarker(t, "toolu_bg") {
 		t.Fatalf("PreToolUse Agent claimed nothing: %v", markerNames(t))
 	}
 	sub := writeMeta(t, tx, "abg", "toolu_bg")
-	runEvent(t, "SubagentStop", stopPayload("abg", "", filepath.Join(sub, "agent-abg.jsonl")))
+	runLeafEvent(t, "SubagentStop", stopPayload("abg", "", filepath.Join(sub, "agent-abg.jsonl")))
 	if hasMarker(t, "toolu_bg") {
 		t.Fatalf("SubagentStop via agent_transcript_path meta.json left the claim: %v", markerNames(t))
 	}
@@ -174,7 +175,7 @@ func TestDispatchFailureReleasesExactAgentID(t *testing.T) {
 	dispatchEnv(t)
 	pre(spawnPayload("keep"))
 	pre(spawnPayload("gone"))
-	runEvent(t, "PostToolUseFailure", `{"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"gone"}`)
+	runLeafEvent(t, "PostToolUseFailure", `{"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"gone"}`)
 	if hasMarker(t, "gone") || !hasMarker(t, "keep") {
 		t.Fatalf("failure release not exact: %v", markerNames(t))
 	}
@@ -741,24 +742,8 @@ func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
 	}
 }
 
-// TestMain stubs the live-process scans and detached spawns so no test reads the machine.
-func TestMain(m *testing.M) {
-	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
-	tb := &hosttest.MainTB{}
-	memory.StubSpawn(tb, true)
-	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
-	code := m.Run()
-	for _, f := range tb.Cleanups {
-		f()
-	}
-	hosttest.Cleanup()
-	cleanup()
-	os.Exit(code)
-}
-
-// runEvent runs the dispatch runner a payload's event is declared on.
-func runEvent(t *testing.T, event, payload string) string {
+// runLeafEvent runs the dispatch runner a payload's event is declared on.
+func runLeafEvent(t *testing.T, event, payload string) string {
 	t.Helper()
 	runners := map[string]core.Runner{settings.EventPreToolUse: Effort, settings.EventPostToolUseFailure: Release,
 		settings.EventSubagentStop: Stop}
@@ -783,5 +768,210 @@ func TestRanOnReadsPersistedToolResult(t *testing.T) {
 		"\n\nPreview (first 2KB):\n" + full[:2048] + "\n...\n</persisted-output>"
 	if _, blocked := leafStopBlock(leafTx(t, "codex", "Objective: x\nAgent: codex\n", persisted), "a1"); blocked {
 		t.Fatal("blocked a leaf whose saved ask output carries the ran-on line past the 2 KB preview")
+	}
+}
+
+// sleeper starts `sh -c 'exec sleep 30'` in its own process group writing to out; done closes once it is reaped.
+func sleeper(t *testing.T, out string) <-chan struct{} {
+	t.Helper()
+	f, err := os.Create(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { f.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "sh", "-c", "exec sleep 30")
+	cmd.Stdout, cmd.Stderr = f, f
+	proc.OwnGroup(cmd) // cancel kills the whole group
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	t.Cleanup(cancel)
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	return done
+}
+
+func stopped(done <-chan struct{}, within time.Duration) bool {
+	select {
+	case <-done:
+		return true
+	case <-time.After(within):
+		return false
+	}
+}
+
+// reapFixture returns a leaf stop payload whose transcript names only task A, and both tasks' sleepers.
+func reapFixture(t *testing.T, extra ...string) (stop string, a, b <-chan struct{}) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the reaper signals POSIX process groups")
+	}
+	if inflight.SessionOwner() == 0 {
+		t.Skip("no session owner to retire against")
+	}
+	dir := filepath.Join(t.TempDir(), "tasks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outA := filepath.Join(dir, "bAAA.output")
+	result := "Command running in background with ID: bAAA. Output is being written to: " + outA + ". You will be notified"
+	tx := leafEnv(t, append([]string{result}, extra...)...)
+	a, b = sleeper(t, outA), sleeper(t, filepath.Join(dir, "bBBB.output"))
+	return fmt.Sprintf(`{"agent_id":"a1","transcript_path":%q,"agent_transcript_path":%q}`, tx, tx), a, b
+}
+
+// Given a leaf transcript naming task A, when the stop passes, A's group dies and unnamed task B's survives.
+func TestSubagentStopReapsOwnBackgroundOnly(t *testing.T) {
+	stop, a, b := reapFixture(t)
+	Stop(core.ParseInput(strings.NewReader(stop)))
+	if !stopped(a, 5*time.Second) {
+		t.Fatal("task A's process survived the stop")
+	}
+	if stopped(b, 200*time.Millisecond) {
+		t.Fatal("task B's process (not in the leaf's transcript) was killed")
+	}
+}
+
+// Given a running dispatch the leaf started, a blocked stop reaps nothing.
+func TestSubagentStopBlockedReapsNothing(t *testing.T) {
+	stop, a, _ := reapFixture(t, startedLine())
+	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
+	if r := Stop(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
+		t.Fatalf("decision = %v, want Block", r.Decision)
+	}
+	if stopped(a, 300*time.Millisecond) {
+		t.Fatal("a blocked stop killed a background process")
+	}
+}
+
+// reapGroups never targets our own group, the parent session's, init's (<=1), our own pid's or a failed probe's,
+// and lists each remaining group once.
+func TestReapGroupsSkipsProtectedAndDuplicates(t *testing.T) {
+	origOwn, origOf := reapOwnGroup, reapGroupOf
+	t.Cleanup(func() { reapOwnGroup, reapGroupOf = origOwn, origOf })
+	groups := map[int]int{os.Getppid(): 200, 11: 100, 12: 200, 13: 1, 14: 300, 15: 300, os.Getpid(): 400, 17: 500}
+	reapOwnGroup = func() int { return 100 }
+	reapGroupOf = func(pid int) (int, error) {
+		if g, ok := groups[pid]; ok {
+			return g, nil
+		}
+		return 0, syscall.ESRCH
+	}
+	got := reapGroups([]int{11, 12, 13, 14, 15, 16, os.Getpid(), 17})
+	if want := []int{300, 500}; !slices.Equal(got, want) {
+		t.Fatalf("reapGroups = %v, want %v", got, want)
+	}
+}
+
+// terminateGroups sends SIGTERM, polls through the grace period, then SIGKILLs only when a group outlived it.
+func TestTerminateGroupsEscalatesToKill(t *testing.T) {
+	origSignal, origSleep := reapSignal, reapSleep
+	t.Cleanup(func() { reapSignal, reapSleep = origSignal, origSleep })
+	reapSleep = func(time.Duration) {}
+	for _, tc := range []struct {
+		name     string
+		stubborn bool
+		want     []string
+	}{
+		{"dies on TERM", false, []string{"7:15", "8:15"}},
+		{"outlives grace", true, []string{"7:15", "8:15", "7:9", "8:9"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent []string
+			reapSignal = func(g int, sig syscall.Signal) error {
+				if sig == 0 {
+					if tc.stubborn {
+						return nil
+					}
+					return syscall.ESRCH
+				}
+				sent = append(sent, fmt.Sprintf("%d:%d", g, sig))
+				return nil
+			}
+			terminateGroups([]int{7, 8})
+			if !slices.Equal(sent, tc.want) {
+				t.Fatalf("signals = %v, want %v", sent, tc.want)
+			}
+		})
+	}
+}
+
+// planRepo makes a git repo with one dated plan holding open owned tasks 1.2 and 1.3; returns repo and plan path.
+func planRepo(t *testing.T) (repo, plan string) {
+	t.Helper()
+	repo, _ = filepath.EvalSymlinks(t.TempDir())
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	dir := plans.Home(memory.GitToplevel(repo))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan = filepath.Join(dir, "2026-10-29-x.md")
+	body := "# P\n\n- [ ] 1.2 wire the claim call point owns: a.go\n- [ ] 1.3 delete dead recall helper owns: b.go\n"
+	if err := os.WriteFile(plan, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return repo, plan
+}
+
+func agentPayload(repo, id, prompt, desc string) string {
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": id, "cwd": repo,
+		"tool_input": map[string]any{"prompt": prompt, "description": desc, "model": "sonnet"}})
+	return string(b)
+}
+
+// A spawn that fails never reaches SubagentStop: PostToolUseFailure must release its plan claim too.
+func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
+	dispatchEnv(t)
+	repo, plan := planRepo(t)
+	pre(agentPayload(repo, "toolu_f1", "Task: 1.2", ""))
+	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "working:") {
+		t.Fatalf("no claim:\n%s", data)
+	}
+	runLeafEvent(t, "PostToolUseFailure", `{"hook_event_name":"PostToolUseFailure","tool_name":"Agent","tool_use_id":"toolu_f1","cwd":"`+repo+`"}`)
+	if data, _ := os.ReadFile(plan); strings.Contains(string(data), "working:") {
+		t.Fatalf("claim survived a failed spawn:\n%s", data)
+	}
+}
+
+// Regression (2026-11-10): a gemini leaf that only read docs or this gate's source handed back ungated; mentions of the
+// ran-on line or the gate text in a successful tool result are not evidence.
+func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
+	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
+	src := "const ranOnGateMark = \"" + ranOnGateMark + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
+	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
+	if r, blocked := leafStopBlock(in, "a1"); !blocked || r.Decision != core.Block {
+		t.Fatalf("got %+v blocked=%v, want a Block: prose mentions are not a ran-on line nor a prior gate block", r, blocked)
+	}
+}
+
+// The reap runs last: a reap that outruns the host timeout must find the slot already retired.
+func TestStopReapsAfterRetiringSlot(t *testing.T) {
+	dispatchEnv(t)
+	pre(spawnPayload("u1"))
+	tx := filepath.Join(t.TempDir(), "session.jsonl")
+	writeMeta(t, tx, "a1", "u1")
+	slotAtReap := true
+	orig := reapLeaf
+	reapLeaf = func(*core.Input, leafRead) { slotAtReap = hasMarker(t, "u1") }
+	t.Cleanup(func() { reapLeaf = orig })
+	Stop(core.ParseInput(strings.NewReader(stopPayload("a1", tx, ""))))
+	if slotAtReap {
+		t.Error("reapLeaf ran while the slot marker was still held")
+	}
+}
+
+// An expired dispatch note and the ran-on fail-open note both reach the user.
+func TestLeafGateKeepsBothNotes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", startedLine())
+	in.StopHookActive = true
+	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
+	r, blocked := leafStopBlock(in, "a1")
+	if blocked || !strings.Contains(r.SystemMessage, "hand-back BLOCKED: no `ask: ran on` receipt") || !strings.Contains(r.SystemMessage, "limit reached") {
+		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
 	}
 }

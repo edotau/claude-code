@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/agents"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
@@ -237,27 +236,27 @@ var native = map[string]core.Runner{
 	"safety-scan":          safety.Scan,
 	"rtk-rewrite":          safety.RTKRewrite,
 	"docs-placement":       viaStderr(docs.Placement),
-	"memory-start":         agents.WithDispatchLabels(memhook.Start),
-	"memory-recall":        agents.WithDispatchLabels(memhook.Recall),
+	"memory-start":         WithDispatchLabels(memhook.Start),
+	"memory-recall":        WithDispatchLabels(memhook.Recall),
 	"paths-resolve":        docs.ResolvePaths,
 	"memory-update":        memhook.Stop,
 	"review-simplicity":    quality.ReviewSimplicity,
 	"format-stop":          quality.StopFormat,
 	"memory-end":           memhook.End,
-	"dispatch-effort":      agents.Effort,
-	"codex-agent-route":    agents.CodexAgentRoute,
-	"codex-routing-start":  agents.CodexRoutingStart,
-	"codex-routing-result": agents.CodexRoutingResult,
-	"codex-subagent-start": agents.CodexSubagentStart,
-	"dispatch-failure":     agents.Release,
-	"dispatch-workflow":    agents.Release,
+	"dispatch-effort":      Effort,
+	"codex-agent-route":    CodexAgentRoute,
+	"codex-routing-start":  CodexRoutingStart,
+	"codex-routing-result": CodexRoutingResult,
+	"codex-subagent-start": CodexSubagentStart,
+	"dispatch-failure":     Release,
+	"dispatch-workflow":    Release,
 	"docs-plan-gate":       viaStderr(docs.Gate),
 	"docs-plan-tick":       docs.Tick,
 	"docs-plan-reminder":   docs.Reminder,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),
 	"docs-plan-save":       viaStderr(docs.Save),
-	"dispatch-stop":        agents.Stop,
-	"dispatch-handback":    agents.Handback,
+	"dispatch-stop":        Stop,
+	"dispatch-handback":    Handback,
 	"memory-compact":       memhook.Compact,
 	"worktree-create":      wthook.Create,
 	"worktree-remove":      viaStderr(wthook.Remove),
