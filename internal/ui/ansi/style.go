@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -63,7 +64,7 @@ func Status(on bool, line string) string {
 	}
 	var out strings.Builder
 	last := 0
-	for _, loc := range spanRE.FindAllStringIndex(line, -1) {
+	for _, loc := range spanRE().FindAllStringIndex(line, -1) {
 		out.WriteString(paintTokens(line[last:loc[0]]))
 		out.WriteString(paintSpan(line[loc[0]:loc[1]]))
 		last = loc[1]
@@ -86,7 +87,7 @@ func paintSpan(sp string) string {
 
 // paintTokens paints the status tokens in text that sits outside any span.
 func paintTokens(text string) string {
-	return statusRE.ReplaceAllStringFunc(text, func(tok string) string { return statusCode[tok] + tok + Reset })
+	return statusRE().ReplaceAllStringFunc(text, func(tok string) string { return statusCode[tok] + tok + Reset })
 }
 
 // Span markers wrap one value in a row: SpanOK..SpanEnd green, SpanWarn yellow, SpanOff dim; Strip removes them.
@@ -97,7 +98,7 @@ const (
 	SpanWarn = "\ue003"
 )
 
-var spanRE = regexp.MustCompile("[\ue000\ue001\ue003][^\ue002]*\ue002")
+var spanRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[\ue000\ue001\ue003][^\ue002]*\ue002") })
 
 var spanStrip = strings.NewReplacer(SpanOK, "", SpanOff, "", SpanWarn, "", SpanEnd, "")
 
@@ -112,7 +113,7 @@ var statusCode = func() map[string]string {
 	return m
 }()
 
-var statusRE = func() *regexp.Regexp {
+var statusRE = sync.OnceValue(func() *regexp.Regexp {
 	toks := make([]string, len(statusTokens))
 	for i, t := range statusTokens {
 		toks[i] = t.token
@@ -122,7 +123,7 @@ var statusRE = func() *regexp.Regexp {
 		toks[i] = wordBounded(t)
 	}
 	return regexp.MustCompile(strings.Join(toks, "|"))
-}()
+})
 
 // wordBounded quotes tok with \b on each word-character edge, so "pinned" never paints inside "unpinned".
 func wordBounded(tok string) string {

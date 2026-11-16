@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // lineSpans are inclusive 1-based line ranges of the added or changed lines of one file.
@@ -25,13 +26,13 @@ func (s lineSpans) touches(lo, hi int) bool {
 	return false
 }
 
-var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
+var hunkHeader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`) })
 
 // parseHunkSpans reads the new-side ranges of `git diff -U0` output; a pure deletion adds none.
 func parseHunkSpans(diff string) lineSpans {
 	var spans lineSpans
 	for l := range strings.SplitSeq(diff, "\n") {
-		m := hunkHeader.FindStringSubmatch(l)
+		m := hunkHeader().FindStringSubmatch(l)
 		if m == nil {
 			continue
 		}

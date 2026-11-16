@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig/project"
@@ -29,13 +30,19 @@ const claudeMDCap = 200
 const probeSession, probePrompt, probeRecallHits = "doctor-prompts-probe", "plan memory recall probe", 8
 
 var (
-	backtickPath = regexp.MustCompile("`((?:rules|skills|agents|commands|workflows|plans|internal|cmd)/[A-Za-z0-9_./-]+)`")
-	symPair      = regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_.]*)` \\(`([A-Za-z0-9_./-]+\\.go)`\\)")
-	nameLine     = regexp.MustCompile(`(?m)^name:[ \t]*(\S+)[ \t]*$`)
-	descLine     = regexp.MustCompile(`(?m)^description:[ \t]*\S`)
-	modelLine    = regexp.MustCompile(`(?m)^model:[ \t]*(\S+)[ \t]*$`)
-	modelOK      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
-	namedPath    = regexp.MustCompile("(?:^|[\\s(\\[\"'`])((?:~|/)[A-Za-z0-9._@+/~-]*[A-Za-z0-9_])")
+	backtickPath = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("`((?:rules|skills|agents|commands|workflows|plans|internal|cmd)/[A-Za-z0-9_./-]+)`")
+	})
+	symPair = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("`([A-Za-z_][A-Za-z0-9_.]*)` \\(`([A-Za-z0-9_./-]+\\.go)`\\)")
+	})
+	nameLine  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^name:[ \t]*(\S+)[ \t]*$`) })
+	descLine  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^description:[ \t]*\S`) })
+	modelLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^model:[ \t]*(\S+)[ \t]*$`) })
+	modelOK   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`) })
+	namedPath = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?:^|[\\s(\\[\"'`])((?:~|/)[A-Za-z0-9._@+/~-]*[A-Za-z0-9_])")
+	})
 )
 
 // Seams for H7: production runs the real hooks and a scratch render; tests swap them for fixtures.
@@ -85,8 +92,9 @@ func claudeMD(root string) []string {
 	if n > claudeMDCap {
 		out = append(out, fmt.Sprintf("CLAUDE.md:%d: %d lines exceeds the %d cap (fix at CLAUDE.md)", n, n, claudeMDCap))
 	}
+	backtick := backtickPath()
 	for i, l := range ls {
-		for _, m := range backtickPath.FindAllStringSubmatch(l, -1) {
+		for _, m := range backtick.FindAllStringSubmatch(l, -1) {
 			if p := strings.TrimRight(m[1], "/"); !strings.ContainsAny(p, "*<>") && !paths.FileExists(filepath.Join(root, p)) && !gitIgnored(root, m[1]) {
 				out = append(out, fmt.Sprintf("CLAUDE.md:%d: `%s` does not exist (fix at CLAUDE.md)", i+1, m[1]))
 			}
@@ -145,8 +153,9 @@ func hasPaths(ls []string) bool {
 // symbolPairs checks every `sym` (`file.go`) pair names an existing file that contains the symbol.
 func symbolPairs(root, rel string, ls []string, idx map[string][]string) []string {
 	var out []string
+	pair := symPair()
 	for i, l := range ls {
-		for _, m := range symPair.FindAllStringSubmatch(l, -1) {
+		for _, m := range pair.FindAllStringSubmatch(l, -1) {
 			if why := symbolMiss(root, m[2], m[1], idx); why != "" {
 				out = append(out, fmt.Sprintf("%s:%d: %s (fix at %s)", rel, i+1, why, rel))
 			}
@@ -234,7 +243,7 @@ func frontMatter(b []byte) string {
 }
 
 func frontName(head, rel, want string) []string {
-	m := nameLine.FindStringSubmatch(head)
+	m := nameLine().FindStringSubmatch(head)
 	if m == nil {
 		return []string{rel + ":1: missing name (fix at " + rel + ")"}
 	}
@@ -257,10 +266,10 @@ func agents(root string) []string {
 		}
 		head := frontMatter(b)
 		out = append(out, frontName(head, rel, stem)...)
-		if !descLine.MatchString(head) {
+		if !descLine().MatchString(head) {
 			out = append(out, rel+":1: no description (fix at "+rel+")")
 		}
-		if m := modelLine.FindStringSubmatch(head); m != nil && !modelOK.MatchString(m[1]) {
+		if m := modelLine().FindStringSubmatch(head); m != nil && !modelOK().MatchString(m[1]) {
 			out = append(out, fmt.Sprintf("%s:1: model %q invalid (fix at %s)", rel, m[1], rel))
 		}
 	}
@@ -338,7 +347,7 @@ func sessionPrompts(root string) []string {
 // missingPaths returns one finding per absolute or ~ path the hook context names that does not exist.
 func missingPaths(hook, ctx string) []string {
 	var out []string
-	for _, ix := range namedPath.FindAllStringSubmatchIndex(ctx, -1) {
+	for _, ix := range namedPath().FindAllStringSubmatchIndex(ctx, -1) {
 		name := ctx[ix[2]:ix[3]]
 		if isPlaceholder(pathToken(ctx[ix[2]:])) {
 			continue // a template like <lens>, a glob or a YYYY-MM-DD name, not a path to stat

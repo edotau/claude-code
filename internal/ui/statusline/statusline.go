@@ -386,11 +386,11 @@ func profileModel(id string) (string, bool) {
 	return id, false
 }
 
-var trailingDate = regexp.MustCompile(`-\d{8}$`)
+var trailingDate = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`-\d{8}$`) })
 
 // shortModelID is the id without a "claude-" prefix or trailing -YYYYMMDD date.
 func shortModelID(id string) string {
-	return trailingDate.ReplaceAllString(strings.TrimPrefix(dropDatabricksClaude(id), "claude-"), "")
+	return trailingDate().ReplaceAllString(strings.TrimPrefix(dropDatabricksClaude(id), "claude-"), "")
 }
 
 // dropDatabricksClaude shortens "databricks-claude-opus-5-5" to "databricks-opus-5-5".

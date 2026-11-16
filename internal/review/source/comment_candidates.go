@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -78,7 +79,7 @@ func goCommentCandidates(path, text string) []commentCandidate {
 	return out
 }
 
-var generatedHeader = regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`)
+var generatedHeader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^// Code generated .* DO NOT EDIT\.$`) })
 
 // isGeneratedGo reports the Go generated-file marker in a comment line before the package clause.
 func isGeneratedGo(file *ast.File) bool {
@@ -87,7 +88,7 @@ func isGeneratedGo(file *ast.File) bool {
 			break
 		}
 		for _, c := range g.List {
-			if generatedHeader.MatchString(c.Text) {
+			if generatedHeader().MatchString(c.Text) {
 				return true
 			}
 		}

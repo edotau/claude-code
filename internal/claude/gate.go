@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -144,24 +145,29 @@ func refuseGateEnv(req agent.RunOptions, env []string) error {
 const noWorkflow = "unsupported capability Workflow in a gated claude child; use the native Agent tool for this task"
 
 var (
-	workflowClause = regexp.MustCompile(`[;\n]|\.\s|,\s`)
-	workflowCall   = regexp.MustCompile(`\bWorkflow\s*\(`)
-	workflowRun    = regexp.MustCompile(`(?i)(?:^\W*|\b(?:and|then|please|now|first|next|also)\s+)` +
-		`(?:run|use|invoke|call|execute|launch|start)\s+(?:the\s+|a\s+|an\s+)?(?:saved\s+)?workflow\b(?:\s+tool)?(?:\s+([\w-]+))?`)
-	workflowNoun = regexp.MustCompile(`(?i)^(?:scripts?|files?|dir|directory|folder|runner|docs?|code)$`)
-	workflowNeg  = regexp.MustCompile(`(?i)\b(?:do not|don't|never|not|without|avoid)\b`)
+	workflowClause = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[;\n]|\.\s|,\s`) })
+	workflowCall   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bWorkflow\s*\(`) })
+	workflowRun    = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)(?:^\W*|\b(?:and|then|please|now|first|next|also)\s+)` +
+			`(?:run|use|invoke|call|execute|launch|start)\s+(?:the\s+|a\s+|an\s+)?(?:saved\s+)?workflow\b(?:\s+tool)?(?:\s+([\w-]+))?`)
+	})
+	workflowNoun = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)^(?:scripts?|files?|dir|directory|folder|runner|docs?|code)$`)
+	})
+	workflowNeg = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\b(?:do not|don't|never|not|without|avoid)\b`) })
 )
 
 // asksToRunWorkflow reports whether a brief tells the child to run a Workflow: the call form or an imperative verb.
 func asksToRunWorkflow(brief string) bool {
-	for _, clause := range workflowClause.Split(brief, -1) {
-		loc := workflowCall.FindStringIndex(clause)
-		if m := workflowRun.FindStringSubmatchIndex(clause); loc == nil && m != nil {
-			if m[2] < 0 || !workflowNoun.MatchString(clause[m[2]:m[3]]) {
+	call, run, noun, neg := workflowCall(), workflowRun(), workflowNoun(), workflowNeg()
+	for _, clause := range workflowClause().Split(brief, -1) {
+		loc := call.FindStringIndex(clause)
+		if m := run.FindStringSubmatchIndex(clause); loc == nil && m != nil {
+			if m[2] < 0 || !noun.MatchString(clause[m[2]:m[3]]) {
 				loc = m[:2]
 			}
 		}
-		if loc != nil && !workflowNeg.MatchString(clause[:loc[0]]) {
+		if loc != nil && !neg.MatchString(clause[:loc[0]]) {
 			return true
 		}
 	}

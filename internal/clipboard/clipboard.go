@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -39,7 +40,7 @@ try { $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png) } catch { Write-O
 Write-Output ('OK ' + $p + ' ' + $img.Width + 'x' + $img.Height)`
 
 // clipOKRE parses the success line; the path is matched lazily up to the trailing WxH so spaces in temp dirs survive.
-var clipOKRE = regexp.MustCompile(`^OK (.+?) (\d+x\d+)$`)
+var clipOKRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^OK (.+?) (\d+x\d+)$`) })
 
 // powershellTimeout bounds the Windows round trip so hung interop fails instead of stalling the verb.
 const powershellTimeout = 30 * time.Second
@@ -212,7 +213,7 @@ func grab(onWSL func() bool, run func(string) (string, error), translate func(st
 	if line == "SAVEFAIL" {
 		return "", "", errors.New("powershell could not save the clipboard image (is the Windows TEMP dir writable and not full?)")
 	}
-	m := clipOKRE.FindStringSubmatch(line)
+	m := clipOKRE().FindStringSubmatch(line)
 	if m == nil {
 		return "", "", fmt.Errorf("unexpected powershell output: %q", line)
 	}

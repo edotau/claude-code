@@ -22,12 +22,12 @@ const (
 	clientTokenSecret = "HARNESS_PROXY_CLIENT_"
 )
 
-var clientTokenName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+var clientTokenName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`) })
 
 // clientSecretName is the vault name holding name's token hash; name is 1-32 of [a-z0-9-], lower-cased.
 func clientSecretName(name string) (string, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	if !clientTokenName.MatchString(name) {
+	if !clientTokenName().MatchString(name) {
 		return "", fmt.Errorf("client token name %q: want 1-32 of a-z, 0-9, - (starting alphanumeric)", name)
 	}
 	return clientTokenSecret + strings.ToUpper(strings.ReplaceAll(name, "-", "_")), nil

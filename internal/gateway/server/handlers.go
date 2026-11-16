@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -160,7 +161,9 @@ func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
 }
 
 // promptTooLong matches the upstream limit text, e.g. "prompt is too long: 1177204 tokens > 1000000 maximum".
-var promptTooLong = regexp.MustCompile(`prompt is too long(: \d+ tokens > \d+ maximum)?`)
+var promptTooLong = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`prompt is too long(: \d+ tokens > \d+ maximum)?`)
+})
 
 // tooLong rewrites a 400 "prompt is too long" into the router's invalid_request_error, quoting only the limit text.
 func tooLong(resp *http.Response) bool {
@@ -168,7 +171,7 @@ func tooLong(resp *http.Response) bool {
 		return false
 	}
 	peek := peekBody(resp, 512)
-	m := promptTooLong.Find(peek)
+	m := promptTooLong().Find(peek)
 	if m == nil {
 		return false
 	}

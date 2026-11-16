@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // AliasNames are Claude Code's model aliases; each maps to ANTHROPIC_DEFAULT_<SLOT>_MODEL.
@@ -41,11 +42,13 @@ const (
 )
 
 // Tolerates vendor prefixes like "anthropic/", "us.anthropic." (Bedrock) or "databricks-" (serving) before "claude-".
-var claudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?(?:-(\d{8}))?`)
+var claudeRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?(?:-(\d{8}))?`)
+})
 
 // ParseClaudeID extracts (family, major, minor) from dashed or dotted ids; a >2-digit trailing group is a date stamp.
 func ParseClaudeID(id string) (family string, major, minor int, ok bool) {
-	m := claudeRE.FindStringSubmatch(Strip1M(id))
+	m := claudeRE().FindStringSubmatch(Strip1M(id))
 	if m == nil {
 		return "", 0, 0, false
 	}
@@ -178,10 +181,10 @@ const (
 )
 
 // legacyClaudeRE matches uncatalogued Claude ids, including claude-3-7-sonnet and Bedrock prefixes.
-var legacyClaudeRE = regexp.MustCompile(`(?:^|[/.:-])claude-`)
+var legacyClaudeRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[/.:-])claude-`) })
 
 // openAIReasoningRE: OpenAI reasoning models (o-series, gpt-5 and newer) reject max_tokens, temperature and top_p.
-var openAIReasoningRE = regexp.MustCompile(`^(?:o\d|gpt-(?:[5-9]|[1-9]\d))(?:\D|$)`)
+var openAIReasoningRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:o\d|gpt-(?:[5-9]|[1-9]\d))(?:\D|$)`) })
 
 // normID resolves catalog ids, else lowers, strips [1m] and removes vendor/wire prefixes.
 func normID(s string) string {
@@ -200,9 +203,9 @@ func normID(s string) string {
 func FamilyKind(id string) Family {
 	n := normID(id)
 	switch {
-	case legacyClaudeRE.MatchString(n):
+	case legacyClaudeRE().MatchString(n):
 		return FamilyClaude
-	case strings.HasPrefix(n, "gpt-") || openAIReasoningRE.MatchString(n):
+	case strings.HasPrefix(n, "gpt-") || openAIReasoningRE().MatchString(n):
 		return FamilyGPT
 	case strings.HasPrefix(n, "gemini-"):
 		return FamilyGemini
@@ -211,7 +214,7 @@ func FamilyKind(id string) Family {
 }
 
 // IsOpenAIReasoning reports an OpenAI reasoning model (o-series, gpt-5 and newer) under any spelling or vendor prefix.
-func IsOpenAIReasoning(id string) bool { return openAIReasoningRE.MatchString(normID(id)) }
+func IsOpenAIReasoning(id string) bool { return openAIReasoningRE().MatchString(normID(id)) }
 
 // ResponsesOnly reports a catalog model served on the Responses API only; false for an unlisted id.
 func ResponsesOnly(id string) bool {

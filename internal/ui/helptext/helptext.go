@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -20,7 +21,7 @@ import (
 )
 
 // row is an indented command line: the left column ends at the first run of 2+ spaces (or the line, for a flag).
-var row = regexp.MustCompile(`^(\s{2,})(\S.*?)(\s{2,}\S.*)?$`)
+var row = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\s{2,})(\S.*?)(\s{2,}\S.*)?$`) })
 
 // Fprint writes text to w, painted when w is a terminal and NO_COLOR is unset; otherwise byte-identical.
 func Fprint(w io.Writer, text string) {
@@ -41,8 +42,9 @@ func Paint(text string) string {
 			rows = append(rows, i)
 		}
 	}
+	rowRE := row()
 	for n, i := range rows {
-		m := row.FindStringSubmatch(lines[i])
+		m := rowRE.FindStringSubmatch(lines[i])
 		frac := float64(n) / float64(max(len(rows)-1, 1))
 		lines[i] = m[1] + ansi.Paint(mode, ansi.GradAt(stops, frac), m[2], true) + m[3]
 	}
@@ -273,7 +275,7 @@ func isRow(l string) bool {
 	if isTableHead(l) {
 		return false
 	}
-	m := row.FindStringSubmatch(l)
+	m := row().FindStringSubmatch(l)
 	if m == nil || len(m[1]) > 4 {
 		return false
 	}
@@ -282,7 +284,7 @@ func isRow(l string) bool {
 
 // isTableHead: an indented column-header line, two or more all-caps columns (PROVIDER  PROTOCOL  AUTH).
 func isTableHead(l string) bool {
-	m := row.FindStringSubmatch(l)
+	m := row().FindStringSubmatch(l)
 	if m == nil || m[3] == "" || len(m[1]) > 4 {
 		return false
 	}

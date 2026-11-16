@@ -121,11 +121,21 @@ func kindForStatus(status int) Kind {
 
 // Bare codes are \b-anchored so "line 4013" never reads as a 401.
 var (
-	rateRE       = regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
-	authRE       = regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
-	transientRE  = regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
-	connectRE    = regexp.MustCompile(`dial tcp|\btls\b|i/o timeout|connection refused|no such host|egress host`)
-	retryAfterRE = regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(h|hrs?|hours?|m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
+	rateRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
+	})
+	authRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
+	})
+	transientRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
+	})
+	connectRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`dial tcp|\btls\b|i/o timeout|connection refused|no such host|egress host`)
+	})
+	retryAfterRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:retry[- ]after|try again in)[:\s]+(\d+)\s*(?:(h|hrs?|hours?|m|min|minutes?|ms|s|seconds?)(?:\b|\d))?`)
+	})
 )
 
 // Classify maps an error (or a failed child's stderr tail) to a Kind; typed status errors win over text.
@@ -169,7 +179,7 @@ func connectFailure(err error) bool {
 	if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() && !errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	return connectRE.MatchString(strings.ToLower(err.Error()))
+	return connectRE().MatchString(strings.ToLower(err.Error()))
 }
 
 func classifyText(err error) (Kind, time.Duration) {
@@ -180,11 +190,11 @@ func classifyText(err error) (Kind, time.Duration) {
 		kind = KindTransient
 	case providers.IsQuota(low):
 		kind = KindQuota
-	case rateRE.MatchString(low):
+	case rateRE().MatchString(low):
 		kind = KindRateLimit
-	case authRE.MatchString(low):
+	case authRE().MatchString(low):
 		kind = KindAuth
-	case transientRE.MatchString(low):
+	case transientRE().MatchString(low):
 		kind = KindTransient
 	}
 	return kind, retryAfterText(low)
@@ -195,7 +205,7 @@ const maxHintUnits = 1_000_000
 
 // retryAfterText reads a "retry after N ms|seconds|minutes" hint out of lower-cased error text.
 func retryAfterText(low string) time.Duration {
-	m := retryAfterRE.FindStringSubmatch(low)
+	m := retryAfterRE().FindStringSubmatch(low)
 	if m == nil {
 		return 0
 	}

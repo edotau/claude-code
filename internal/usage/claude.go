@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
@@ -38,11 +39,11 @@ var claudeKeychainCmd = func(ctx context.Context, args ...string) ([]byte, error
 	return exec.CommandContext(ctx, name, args...).Output()
 }
 
-var claudeAccountRE = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+var claudeAccountRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-zA-Z0-9._-]+$`) })
 
 // claudeAccount is the keychain account for the credential: $USER when it's keychain-safe, else a fallback.
 func claudeAccount() string {
-	if u := os.Getenv("USER"); u != "" && claudeAccountRE.MatchString(u) {
+	if u := os.Getenv("USER"); u != "" && claudeAccountRE().MatchString(u) {
 		return u
 	}
 	return "claude-code-user"

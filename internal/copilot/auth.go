@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -213,7 +214,7 @@ func pinnedHeadroom(ctx context.Context, login string) (detail string, ok bool) 
 }
 
 // commentRE strips the // comment lines copilot writes at the top of config.json.
-var commentRE = regexp.MustCompile(`(?m)^[ \t]*//.*$`)
+var commentRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*//.*$`) })
 
 // copilotStoredLogin is lastLoggedInUser.login from copilot's config ($COPILOT_HOME or ~/.copilot), or "".
 func copilotStoredLogin() string {
@@ -230,14 +231,16 @@ func copilotStoredLogin() string {
 			Login string `json:"login"`
 		} `json:"lastLoggedInUser"`
 	}
-	if json.Unmarshal(commentRE.ReplaceAll(raw, nil), &cfg) != nil {
+	if json.Unmarshal(commentRE().ReplaceAll(raw, nil), &cfg) != nil {
 		return ""
 	}
 	return cfg.Last.Login
 }
 
 // ghUserRE matches the host-level `user: <name>` line (the active account) in gh's hosts.yml.
-var ghUserRE = regexp.MustCompile(`(?m)^github\.com:\n(?:[ \t]+.*\n)*?[ \t]{1,4}user:[ \t]*(\S+)`)
+var ghUserRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^github\.com:\n(?:[ \t]+.*\n)*?[ \t]{1,4}user:[ \t]*(\S+)`)
+})
 
 // ghConfigDir is gh's config directory: $GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else ~/.config/gh.
 func ghConfigDir() string {
@@ -321,7 +324,7 @@ func ghLookup(path string) (ghActive, error) {
 	if err != nil {
 		return ghActive{}, nil
 	}
-	m := ghUserRE.FindSubmatch(raw)
+	m := ghUserRE().FindSubmatch(raw)
 	if m == nil {
 		return ghActive{}, nil
 	}
@@ -405,10 +408,12 @@ func fetchGitHubLogin(token string) string {
 	return u.Login
 }
 
-var ghUsersRE = regexp.MustCompile(`(?m)^[ \t]{8}([A-Za-z0-9_-]+):`)
+var ghUsersRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]{8}([A-Za-z0-9_-]+):`) })
 
 // ghHostBlockRE captures the github.com host block (its indented and blank lines), so other hosts' users stay out.
-var ghHostBlockRE = regexp.MustCompile(`(?m)^github\.com:[ \t]*\r?\n((?:[ \t]+.*(?:\n|$)|\r?\n)*)`)
+var ghHostBlockRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^github\.com:[ \t]*\r?\n((?:[ \t]+.*(?:\n|$)|\r?\n)*)`)
+})
 
 // GHAccounts lists the github.com accounts gh is signed in to, offline.
 func GHAccounts() []string {
@@ -416,12 +421,12 @@ func GHAccounts() []string {
 	if err != nil {
 		return nil
 	}
-	block := ghHostBlockRE.FindSubmatch(raw)
+	block := ghHostBlockRE().FindSubmatch(raw)
 	if block == nil {
 		return nil
 	}
 	var out []string
-	for _, m := range ghUsersRE.FindAllSubmatch(block[1], -1) {
+	for _, m := range ghUsersRE().FindAllSubmatch(block[1], -1) {
 		out = append(out, string(m[1]))
 	}
 	return out

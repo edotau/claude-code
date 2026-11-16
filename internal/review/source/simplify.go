@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -312,7 +313,7 @@ func simplifyExit(r simplifyReport) int {
 	return 0
 }
 
-var lineLoc = regexp.MustCompile(`line \d+`)
+var lineLoc = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`line \d+`) })
 
 // SimplicityFindingsWithBaseline loads before only when after has findings; false suppresses findings.
 func SimplicityFindingsWithBaseline(path, after string, baseline func() (string, bool)) []string {
@@ -378,7 +379,7 @@ func simplicityKeyed(path, content, lang string) []keyedFinding {
 			if s.Location != "" {
 				text = s.Location + ": " + text
 			}
-			key := "q|" + s.Type + "|" + s.Message + "|" + lineLoc.ReplaceAllString(s.Location, "")
+			key := "q|" + s.Type + "|" + s.Message + "|" + lineLoc().ReplaceAllString(s.Location, "")
 			out = append(out, keyedFinding{key, text})
 		}
 	}

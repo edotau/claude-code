@@ -4,18 +4,29 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 var (
-	needNoEdit    = regexp.MustCompile(`(?i)\b(edit|modify|change) nothing\b|read-only|(do not|never) (edit|modify)\b`)
-	needNewFile   = regexp.MustCompile(`(?i)\bNEW file\b|\bmktemp\b|\bwrite (a|the|your) (full )?(new |report|file)`)
-	needTests     = regexp.MustCompile(`(?i)\bgo test\b|\b(scoped|failing|the|new|fast) tests?\b|\btest suite\b`)
-	needGoVet     = regexp.MustCompile(`\bgo vet\b`)
-	needHarnessCL = regexp.MustCompile(`claude-code (\w+)(?: ([a-z][\w-]*))?`)
-	needRunTick   = regexp.MustCompile("(?i)\\brun(?:ning)? (?:exactly |once: )?\\\\?`([^`$\\\\]+)")
-	declStart     = `(?m)^(?:async function|function|const|let|var) %s\b`
-	declEnd       = regexp.MustCompile(`(?m)^(?:async function|function|const|let|var|export|class) `)
-	callOrIndex   = regexp.MustCompile(`\b([A-Za-z_]\w{3,})[(\[]`)
+	needNoEdit = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(edit|modify|change) nothing\b|read-only|(do not|never) (edit|modify)\b`)
+	})
+	needNewFile = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\bNEW file\b|\bmktemp\b|\bwrite (a|the|your) (full )?(new |report|file)`)
+	})
+	needTests = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\bgo test\b|\b(scoped|failing|the|new|fast) tests?\b|\btest suite\b`)
+	})
+	needGoVet     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgo vet\b`) })
+	needHarnessCL = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`claude-code (\w+)(?: ([a-z][\w-]*))?`) })
+	needRunTick   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?i)\\brun(?:ning)? (?:exactly |once: )?\\\\?`([^`$\\\\]+)")
+	})
+	declStart = `(?m)^(?:async function|function|const|let|var) %s\b`
+	declEnd   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?m)^(?:async function|function|const|let|var|export|class) `)
+	})
+	callOrIndex = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z_]\w{3,})[(\[]`) })
 )
 
 // promptText is the argument of every `<x>.<stage>.task(` call in src; ok=false when the stage has no such call.
@@ -35,9 +46,10 @@ func promptText(src, stage string, depth int) (spans []string, full string, ok b
 	direct := text.String()
 	seen := map[string]bool{}
 	frontier := direct
+	calls := callOrIndex()
 	for range depth { // a prompt builder, then the table it indexes
 		var next strings.Builder
-		for _, m := range callOrIndex.FindAllStringSubmatch(frontier, -1) {
+		for _, m := range calls.FindAllStringSubmatch(frontier, -1) {
 			if !seen[m[1]] {
 				seen[m[1]] = true
 				next.WriteString(declBody(src, m[1]))
@@ -56,7 +68,7 @@ func declBody(src, name string) string {
 		return ""
 	}
 	rest := src[loc[1]:]
-	if n := declEnd.FindStringIndex(rest); n != nil {
+	if n := declEnd().FindStringIndex(rest); n != nil {
 		rest = rest[:n[0]]
 	}
 	return rest + "\n"
@@ -65,18 +77,18 @@ func declBody(src, name string) string {
 func stageTextNeeds(spans []string, full string, ok bool, tools string) []string {
 	needs := []string{"read"}
 	direct := strings.Join(spans, "\n")
-	anyEdits := func(s string) bool { return !needNoEdit.MatchString(s) }
+	anyEdits := func(s string) bool { return !needNoEdit().MatchString(s) }
 	editing := tools == "edit" && (!ok || slices.ContainsFunc(spans, anyEdits))
 	if editing {
 		needs = append(needs, "edit")
 	}
-	if needNewFile.MatchString(full) {
+	if needNewFile().MatchString(full) {
 		needs = append(needs, "write")
 	}
-	if editing && (!ok || needTests.MatchString(direct)) {
+	if editing && (!ok || needTests().MatchString(direct)) {
 		needs = append(needs, "tests")
 	}
-	if ok && needGoVet.MatchString(direct) {
+	if ok && needGoVet().MatchString(direct) {
 		needs = append(needs, "vet")
 	}
 	return append(needs, commandNeeds(full)...)
@@ -90,12 +102,12 @@ func commandNeeds(text string) []string {
 			out = append(out, cmd)
 		}
 	}
-	for _, m := range needHarnessCL.FindAllStringSubmatch(text, -1) {
+	for _, m := range needHarnessCL().FindAllStringSubmatch(text, -1) {
 		if m[0] != "claude-code agents ask" {
 			add(m[0])
 		}
 	}
-	for _, m := range needRunTick.FindAllStringSubmatch(text, -1) {
+	for _, m := range needRunTick().FindAllStringSubmatch(text, -1) {
 		if strings.HasPrefix(m[1], "python") {
 			add(m[1])
 		}

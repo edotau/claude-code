@@ -36,18 +36,19 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-var cliChainRE = regexp.MustCompile(`(?s)wl-paste.*image/bmp`)
+var cliChainRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)wl-paste.*image/bmp`) })
 
 // cliLegRE is the second half of the chain match: the xclip or PowerShell leg beside the wl-paste one.
-var cliLegRE = regexp.MustCompile(`(?s)xclip.*clipboard|powershell`)
+var cliLegRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)xclip.*clipboard|powershell`) })
 
 // agentTUIRE matches the allowlisted agent TUIs that spawn wl-paste directly (gemini is a node script).
-var agentTUIRE = regexp.MustCompile(`(?s)node.*gemini|gemini.*node|opencode`)
+var agentTUIRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)node.*gemini|gemini.*node|opencode`) })
 
 var proxyExec = proc.Exec
 
@@ -86,9 +87,9 @@ func (c proxyCall) route(mode, parent string) (code int, ok bool) {
 		return 0, false
 	case mode == "1" || mode == "reject":
 		return c.intercept(mode == "reject")
-	case cliChainRE.MatchString(parent) && cliLegRE.MatchString(parent):
+	case cliChainRE().MatchString(parent) && cliLegRE().MatchString(parent):
 		return c.intercept(false)
-	case agentTUIRE.MatchString(parent):
+	case agentTUIRE().MatchString(parent):
 		if c.sshLeg() {
 			return 0, true
 		}
