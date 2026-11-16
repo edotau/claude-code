@@ -208,8 +208,11 @@ func agyLoginMarkers(home string) []string {
 // agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
 const agyDefaultModel = "gemini-3.8-flash-high"
 
-// agyGatewayArg is model's Databricks name and gateway --model; a non-Gemini id falls back to the pin or default.
+// agyGatewayArg is model's Databricks name and gateway --model; another non-Gemini id falls back to pin or default.
 func agyGatewayArg(model string) (base, arg string, err error) {
+	if id, ok := agyForeign(model); ok {
+		return id, id, nil
+	}
 	base, effort, ok := agyGatewayBase(model)
 	if !ok {
 		if geminiNamed(model) {
@@ -230,6 +233,11 @@ func agyGatewayArg(model string) (base, arg string, err error) {
 		return base, base, nil
 	}
 	return base, base + "-" + effort, nil
+}
+
+// agyForeign reports a non-Gemini Databricks endpoint id, which agy runs over the openai chat/completions wire.
+func agyForeign(id string) (string, bool) {
+	return id, strings.HasPrefix(id, models.DatabricksPrefix) && !geminiNamed(id)
 }
 
 // geminiNamed reports an id that claims to be a Gemini model (a Databricks Claude slot never does).
@@ -263,10 +271,14 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
 	}
-	list, lite := agyGatewayModels(p, base, time.Now())
+	route, wireProto, list, lite := providers.ProtocolOpenAI, "openai", base, base // Gemini ids stay off the openai wire
+	if _, foreign := agyForeign(base); !foreign {
+		route, wireProto = providers.ProtocolGemini, "genai"
+		list, lite = agyGatewayModels(p, base, time.Now())
+	}
 	env := proc.Values{
-		"AGY_LLM_GATEWAY_URL":     gateway.SessionBase(rb, p.Name) + "/" + providers.ProtocolGemini,
-		"AGY_LLM_GATEWAY_API_KEY": tok, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": "genai", "AGY_LLM_GATEWAY_MODELS": list,
+		"AGY_LLM_GATEWAY_URL":     gateway.SessionBase(rb, p.Name) + "/" + route,
+		"AGY_LLM_GATEWAY_API_KEY": tok, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": wireProto, "AGY_LLM_GATEWAY_MODELS": list,
 		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
 		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,
 		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router
@@ -626,6 +638,9 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	gt := t
 	if req.Model == "" {
 		gt = agent.PinnedTarget(ctx, "gemini", t)
+	}
+	if _, foreign := agyForeign(gt.Model); foreign && req.CellModel {
+		gt.Model = "" // a ladder cell's row slot (a Claude id) is not agy's pick: the pin or default runs
 	}
 	if !agent.GeminiGatewayRow(t.Provider) {
 		return gt.Model, ""

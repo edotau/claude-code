@@ -45,6 +45,7 @@ func TestResolveModel(t *testing.T) {
 		{"codex", "openai:opus", "openai", "gpt-5"},
 		{"claude", "databricks:claude-opus-5-5", "qa", "databricks-claude-opus-5-5"},
 		{"codex", "auto:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
+		{"gemini", "dev:claude-sonnet-5-5", "dev", "databricks-claude-sonnet-5-5"},
 	}
 	for _, c := range cells {
 		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Model: c.model}, time.Now())
@@ -72,11 +73,20 @@ func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, c := range [][2]string{
 		{"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
-		{"claude", "ultra:databricks-claude-opus-5-5"},
+		{"claude", "ultra:databricks-claude-opus-5-5"}, {"gemini", "dev:gpt-6-1-sol"}, {"gemini", "dev:opus"},
 	} {
 		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Model: c[1], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s %s: err = %v; want ErrModelRoute", c[0], c[1], err)
 		}
+	}
+}
+
+// gemini's auto candidates: any chat model on a Databricks row, only Gemini on its Google login.
+func TestAgentRunsGemini(t *testing.T) {
+	reg := routeRegistry(t)
+	if !agentRuns("gemini", reg.Providers["dev"], "databricks-claude-sonnet-5-5") ||
+		agentRuns("gemini", reg.Providers["antigravity"], "claude-sonnet-5-5") {
+		t.Error("gemini must run a non-Gemini model on a Databricks row and only Gemini on its Google login")
 	}
 }
 
