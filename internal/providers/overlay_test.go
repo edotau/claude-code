@@ -215,3 +215,16 @@ func TestOverlayDrift(t *testing.T) {
 		}
 	}
 }
+
+func TestAddGithubAccountRefusesNameClash(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := AddGithubAccount("anthropic"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("AddGithubAccount(anthropic) = %v; want a name-clash refusal", err)
+	}
+	if err := AddGithubAccount("octocat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddGithubAccount("octocat"); err != nil {
+		t.Errorf("re-adding the same login: %v", err)
+	}
+}
