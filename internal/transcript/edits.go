@@ -42,6 +42,37 @@ func EditedFiles(path string) ([]string, error) {
 	return slices.Sorted(maps.Keys(seen)), err
 }
 
+// EditedFilesFrom is EditedFiles over the complete lines past offset; a shorter file restarts at 0; next resumes it.
+func EditedFilesFrom(path string, offset int64) (files []string, next int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if path == "" || errors.Is(err, fs.ErrNotExist) {
+			return nil, 0, nil
+		}
+		return nil, offset, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+	if offset < 0 || fi.Size() < offset {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return nil, offset, err
+	}
+	seen := map[string]bool{}
+	read, err := textutil.ScanRawLines(f, true, func(line []byte) {
+		eachEditLine(line, func(p string) {
+			if p != "" {
+				seen[p] = true
+			}
+		})
+	})
+	return slices.Sorted(maps.Keys(seen)), offset + read, err
+}
+
 // CountWorkFrom counts complete lines from offset, returning edits, user turns, and next offset.
 func CountWorkFrom(path string, offset int64) (edits, turns int, next int64) {
 	offset = max(offset, 0)

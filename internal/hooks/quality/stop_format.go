@@ -56,27 +56,39 @@ func StopFormat(in *core.Input) core.Result {
 		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
 		return core.Result{}
 	}
-	allow := map[string]bool{}
-	edited, err := transcript.EditedFiles(in.TranscriptPath)
+	prev := loadStampFile(stampPath)
+	edited, offset, err := scanEdited(prev, in.TranscriptPath)
 	if err != nil { // a partial scan still formats what it found
 		fmt.Fprintf(os.Stderr, "format-stop: transcript scan: %v\n", err)
 	}
+	allow := allowSet(cwd, edited)
+	carry, missing := prev.Stamps, map[skipKey]int(nil)
+	if len(allow) > 0 {
+		var eligible []string
+		eligible, carry = selectForFormat(cwd, changed, prev.Stamps, allow)
+		var stamps map[string]string
+		stamps, missing = formatAll(eligible)
+		maps.Copy(carry, stamps)
+	}
+	if offset > 0 { // persist the scan offset even when nothing was edited, so the next Stop skips the old bytes
+		out := stampFile{Schema: stopFormatSchema, Stamps: carry, Transcript: in.TranscriptPath, Offset: offset, Edited: edited}
+		if data, err := json.Marshal(out); err == nil {
+			_ = paths.AtomicWrite(stampPath, data, 0o600)
+		}
+	}
+	return core.Result{SystemMessage: missingNotes(in.SessionID, missing)}
+}
+
+// allowSet is the edited files as the real absolute paths selectForFormat matches against.
+func allowSet(cwd string, edited []string) map[string]bool {
+	allow := map[string]bool{}
 	for _, f := range edited {
 		if !filepath.IsAbs(f) {
 			f = filepath.Join(cwd, f)
 		}
 		allow[paths.Real(f)] = true // /var vs /private/var spellings of one file must meet in the allow set
 	}
-	if len(allow) == 0 {
-		return core.Result{}
-	}
-	eligible, carry := selectForFormat(cwd, changed, loadStamps(stampPath), allow)
-	stamps, missing := formatAll(eligible)
-	maps.Copy(carry, stamps)
-	if data, err := json.Marshal(stampFile{Schema: stopFormatSchema, Stamps: carry}); err == nil {
-		_ = paths.AtomicWrite(stampPath, data, 0o600)
-	}
-	return core.Result{SystemMessage: missingNotes(in.SessionID, missing)}
+	return allow
 }
 
 // skipKey is one absent formatter and the extension of a file it left unformatted.
@@ -176,18 +188,32 @@ func stampKey(fi os.FileInfo) string {
 type stampFile struct {
 	Schema int               `json:"schema"`
 	Stamps map[string]string `json:"stamps"`
+	// Transcript, Offset and Edited resume the edit scan: the files edited in Transcript before byte Offset.
+	Transcript string   `json:"transcript,omitempty"`
+	Offset     int64    `json:"offset,omitempty"`
+	Edited     []string `json:"edited,omitempty"`
 }
 
-func loadStamps(path string) map[string]string {
+// scanEdited is the files edited in transcript, reading only what prev's offset has not seen; next resumes it.
+func scanEdited(prev stampFile, transcriptPath string) (edited []string, next int64, err error) {
+	offset, known := prev.Offset, prev.Edited
+	if fi, serr := os.Stat(transcriptPath); prev.Transcript != transcriptPath || serr != nil || fi.Size() < offset {
+		offset, known = 0, nil
+	}
+	added, next, err := transcript.EditedFilesFrom(transcriptPath, offset)
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(known, added)))), next, err
+}
+
+func loadStampFile(path string) stampFile {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return map[string]string{}
+		return stampFile{}
 	}
 	var f stampFile
-	if _, err := schemas.Decode(stopFormatFormat, data, &f); err != nil || f.Stamps == nil {
-		return map[string]string{}
+	if _, err := schemas.Decode(stopFormatFormat, data, &f); err != nil {
+		return stampFile{}
 	}
-	return f.Stamps
+	return f
 }
 
 // changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.

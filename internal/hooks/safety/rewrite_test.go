@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -20,7 +21,7 @@ import (
 // rewriteFixture builds a bare origin, a clone with two pushed commits, and a linked worktree on a pushed branch.
 func rewriteFixture(t *testing.T) (work, wt string) {
 	t.Helper()
-	root := core.CanonPath(t.TempDir())
+	root := paths.Real(t.TempDir())
 	work, wt = filepath.Join(root, "work"), filepath.Join(root, "wt")
 	run := func(dir string, args ...string) {
 		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)

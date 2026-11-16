@@ -18,7 +18,7 @@ import (
 func claimFixture(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo := core.CanonPath(hosttest.Repo(t))
+	repo := paths.Real(hosttest.Repo(t))
 	hosttest.WriteRel(t, repo, "a.txt", "a\n")
 	hosttest.WriteRel(t, repo, "b.txt", "b\n")
 	hosttest.In(t, repo, "add", ".")

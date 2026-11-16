@@ -68,9 +68,6 @@ func NestedIn(top string, worktrees []string) []string {
 	return out
 }
 
-// CanonPath is paths.Real, kept for the wthook and quality callers.
-func CanonPath(p string) string { return paths.Real(p) }
-
 // LazyCompile compiles the patterns on first use and caches them.
 func LazyCompile(pats ...string) func() []*regexp.Regexp {
 	return sync.OnceValue(func() []*regexp.Regexp {

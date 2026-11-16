@@ -291,7 +291,7 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 
 // TestCheckoutOfPassesOnlyNestedWorktrees: a nested worktree never skips the main tree, which holds all its peers.
 func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
-	main := core.CanonPath(hosttest.Repo(t))
+	main := paths.Real(hosttest.Repo(t))
 	nested := filepath.Join(main, ".wt", "x")
 	hosttest.In(t, main, "worktree", "add", "-q", "-b", "x", nested)
 	ctx, cancel := core.HookContext("worktree-busy")
@@ -396,7 +396,7 @@ func divergedClone(t *testing.T) string {
 	origin := hosttest.Repo(t)
 	work := filepath.Join(t.TempDir(), "work")
 	hosttest.In(t, origin, "clone", "-q", origin, work)
-	work = core.CanonPath(work)
+	work = paths.Real(work)
 	hosttest.WriteRel(t, origin, "up.txt", "up\n")
 	hosttest.In(t, origin, "add", ".")
 	hosttest.In(t, origin, "commit", "-qm", "upstream")
