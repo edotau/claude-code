@@ -266,6 +266,9 @@ func gatewayRoute(args []string) int {
 	}
 	if !helptext.Explicit(fs, "fallback") {
 		q.Fallback = router.DefaultFallback()
+		if !slices.Contains(router.FallbackModes, q.Fallback) {
+			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(router.FallbackModes, "|"))
+		}
 	}
 	ctx := context.Background()
 	ov, err := gatewayOverlay(ctx, fs, *overlay)
