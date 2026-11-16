@@ -16,7 +16,7 @@ func TestDeadRunningDispatchReadsLost(t *testing.T) {
 	rec := agent.ClaimRecord("codex", agent.RunOptions{}, now.Add(-20*time.Minute))
 	rec.Status, rec.PID = "running", deadPID
 	d := dispatchFromRecord(rec, "", now)
-	if row := formatDispatch(d, now); d.Quiet || d.Status != "lost" || strings.Contains(row, "quiet") || !strings.Contains(row, "lost") {
+	if row := dispatchRow(d, now); d.Quiet || d.Status != "lost" || strings.Contains(row, "quiet") || !strings.Contains(row, "lost") {
 		t.Errorf("dead running dispatch: quiet=%v status=%q row=%q, want lost", d.Quiet, d.Status, row)
 	}
 }
@@ -34,7 +34,7 @@ func TestFutureSignalClampsToZero(t *testing.T) {
 	if err := os.Chtimes(rec.EventsPath(), future, future); err != nil {
 		t.Fatal(err)
 	}
-	if row := formatDispatch(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "last=0s") {
+	if row := dispatchRow(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "last=0s") {
 		t.Errorf("row = %q, want last=0s", row)
 	}
 }
@@ -57,8 +57,11 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 			t.Fatal(err)
 		}
 		d := dispatchFromRecord(rec, "", now)
-		if d.Quiet != c.quiet || d.SignalSource != "events" || !strings.Contains(formatDispatch(d, now), c.want) {
-			t.Errorf("wrote %v ago: quiet=%v source=%q row=%q, want quiet=%v with %q", c.wrote, d.Quiet, d.SignalSource, formatDispatch(d, now), c.quiet, c.want)
+		if d.Quiet != c.quiet || d.SignalSource != "events" || !strings.Contains(dispatchRow(d, now), c.want) {
+			t.Errorf("wrote %v ago: quiet=%v source=%q row=%q, want quiet=%v with %q", c.wrote, d.Quiet, d.SignalSource, dispatchRow(d, now), c.quiet, c.want)
 		}
 	}
 }
+
+// dispatchRow is a dispatch's cells joined, for substring checks.
+func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(dispatchCells(d, now), " ") }

@@ -10,96 +10,61 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// defaultWidth is the render width when stdout is not a terminal and COLUMNS is unset.
-const defaultWidth = 120
+// maxRowWidth is the widest a terminal row may be, indent included; wider rows clip with an ellipsis.
+const maxRowWidth = 80
 
-// terminalWidth is $COLUMNS when set, else the stdout terminal's width, else defaultWidth.
-func terminalWidth() int {
-	if n := ansi.Columns(0); n > 0 {
-		return n
+// rowWidth is the clip width for w: its terminal columns capped at maxRowWidth, 0 when piped (rows stay whole).
+func rowWidth(w io.Writer) int {
+	n := helptext.TermWidth(w)
+	if n <= 0 {
+		return 0
 	}
-	if n, _, err := proc.Size(int(os.Stdout.Fd())); err == nil && n > 0 {
-		return n
-	}
-	return defaultWidth
+	return min(n, maxRowWidth)
 }
 
-// columnWidths sizes the type/status columns to the longest rendered value, not a fixed guess like "general-purpose".
-type columnWidths struct {
-	subType    int
-	subStatus  int
-	sessStatus int
-	sessLabel  int // 0 when no session carries a registry name, keeping the bare treeShortID layout
-}
-
-// computeColumnWidths walks every subagent in the tree (direct and nested inside workflow runs).
-func computeColumnWidths(tree *Tree) columnWidths {
-	c := columnWidths{subType: 4, subStatus: 6, sessStatus: 6} // "type"/"status"-ish floors
-	grow := func(sub Subagent) {
-		c.subType = max(c.subType, textutil.RuneLen(sub.Type))
-		c.subStatus = max(c.subStatus, textutil.RuneLen(sub.Status))
-	}
-	for _, s := range tree.Sessions {
-		c.sessStatus = max(c.sessStatus, textutil.RuneLen(sessionStatusText(s)))
-		if s.Name != "" {
-			c.sessLabel = max(c.sessLabel, 8, min(textutil.RuneLen(s.Name), maxSessionLabel))
-		}
-		for _, sub := range s.Subagents {
-			grow(sub)
-		}
-		for _, run := range s.Workflows {
-			forEachRunAgent(run, grow)
-		}
-	}
-	return c
-}
-
-// renderText groups sessions by repo (newest first), indents subagents by spawnDepth, fits rows to the terminal width.
+// renderText groups sessions by repo (newest first) and prints per-level aligned columns, clipped on a terminal.
 func renderText(w io.Writer, tree *Tree, now time.Time) error {
 	ew := &textutil.ErrWriter{W: w}
-	renderTree(ew, tree, now)
+	renderTree(ew, tree, now, rowWidth(w))
 	return ew.Err
 }
 
-// renderTree writes the grouped listing to w; write errors are collected by the textutil.ErrWriter it is given.
-func renderTree(w io.Writer, tree *Tree, now time.Time) {
+// renderTree writes the grouped listing to w, rows clipped to width (0 = whole); write errors are the ErrWriter's.
+func renderTree(w io.Writer, tree *Tree, now time.Time, width int) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
-	width := terminalWidth()
-	cols := computeColumnWidths(tree)
 	home, _ := os.UserHomeDir()
+	var l layout
 	for _, repo := range groupByRepo(tree.Sessions) {
-		fmt.Fprintf(w, "%s\n", repo.cwd)
+		l.free(0, repo.cwd)
 		for _, s := range repo.sessions {
-			renderSession(w, s, now, cols, width, home)
+			addSession(&l, s, now, home)
 		}
-		fmt.Fprintln(w)
+		l.free(0, "")
 	}
-	renderDispatches(w, tree.Dispatches, now, width)
+	addJobs(&l, tree.Dispatches, now)
+	for _, line := range l.lines(width) {
+		fmt.Fprintln(w, line)
+	}
 }
 
-// renderDispatches prints the machine-wide running dispatch jobs, one row each, under a "dispatches" header.
-func renderDispatches(w io.Writer, dispatches []Dispatch, now time.Time, width int) {
+// addJobs adds the machine-wide running dispatch jobs under a "dispatches" header.
+func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 	if len(dispatches) == 0 {
 		return
 	}
-	fmt.Fprintln(w, "dispatches")
-	for _, l := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
-		where := cmp.Or(l.Route, l.Provider, providers.AgentRecord(l.Agent).Profile, "own login") // no overlay provider: its pinned profile
-		prefix := fmt.Sprintf("  %s  %-15s  %-22s  %-6s", l.ID, where, strings.TrimPrefix(cmp.Or(l.Model, "default"), "databricks-"), l.Duration)
-		if sig := signalText(l, now); sig != "" {
-			prefix += "  " + sig
-		}
-		fmt.Fprintln(w, fitRow(prefix, cmp.Or(l.Task, l.Repo), "", width))
+	l.free(0, "dispatches")
+	for _, d := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
+		where := cmp.Or(d.Route, d.Provider, providers.AgentRecord(d.Agent).Profile, "own login") // no overlay provider: its pinned profile
+		l.add(levelJob, d.ID, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
+			signalText(d, now), oneLine(cmp.Or(d.Task, d.Repo)))
 	}
 }
 
@@ -130,39 +95,19 @@ func groupByRepo(sessions []Session) []repoGroup {
 	return groups
 }
 
-// renderSession prints one session line plus its branch/age, then its subagents and workflow runs.
-func renderSession(w io.Writer, s Session, now time.Time, cols columnWidths, width int, home string) {
-	title := s.Title
+// addSession adds one session row, then its subagents and workflow runs.
+func addSession(l *layout, s Session, now time.Time, home string) {
+	title := oneLine(s.Title)
 	if title == "" {
 		title = "(no prompt yet)"
 	}
-	prefix := fmt.Sprintf("  %s  %-*s  %-6s  %-8s", sessionLabel(s, cols.sessLabel), cols.sessStatus,
-		sessionStatusText(s), age(s.Updated, now), s.Branch)
-	fmt.Fprintln(w, fitRow(prefix, title, "", width))
+	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, title)
 	for _, sub := range s.Subagents {
-		renderSubagent(w, sub, now, cols, width, home, s.Cwd)
+		addSubagent(l, sub, now, home, s.Cwd)
 	}
 	for _, run := range s.Workflows {
-		renderWorkflowRun(w, run, now, cols, width, home, s.Cwd)
+		addWorkflowRun(l, run, now, home, s.Cwd)
 	}
-}
-
-// maxSessionLabel caps the session-name column so a long registry name can't crowd out the title.
-const maxSessionLabel = 24
-
-// sessionLabel is the row's lead column: the registry name when set, else treeShortID, padded to width runes.
-func sessionLabel(s Session, width int) string {
-	label := treeShortID(s.ID)
-	if width == 0 {
-		return label
-	}
-	if s.Name != "" {
-		label = s.Name
-		if textutil.RuneLen(label) > width {
-			label = string([]rune(label)[:width-1]) + "…"
-		}
-	}
-	return label + strings.Repeat(" ", width-textutil.RuneLen(label))
 }
 
 // sessionStatusText shows the CLI's own idle|busy|waiting for a live session, else the transcript status.
@@ -198,44 +143,58 @@ func idleSince(sub Subagent, now time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return now.Sub(t).Round(time.Second).String()
+	return shortDuration(now.Sub(t))
 }
 
-// renderSubagent prints one subagent line indented per spawn depth, then a row per dispatch; fitRow drops tool first.
-func renderSubagent(w io.Writer, sub Subagent, now time.Time, cols columnWidths, width int, home, cwd string) {
-	indent := strings.Repeat("  ", max(sub.Depth, 1)+1)
-	tool := sub.LastTool
-	if tool == "" {
-		tool = "-"
+// shortDuration renders d as "49s", "7m49s" or "1h45m": whole seconds under an hour, whole minutes above.
+func shortDuration(d time.Duration) string {
+	d = max(d, 0).Round(time.Second)
+	h, m, s := int(d/time.Hour), int(d%time.Hour/time.Minute), int(d%time.Minute/time.Second)
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("%dh%dm", h, m)
+	case h > 0:
+		return fmt.Sprintf("%dh", h)
+	case m > 0 && s > 0:
+		return fmt.Sprintf("%dm%ds", m, s)
+	case m > 0:
+		return fmt.Sprintf("%dm", m)
 	}
-	prefix := fmt.Sprintf("%s%s %-*s %-*s depth=%d  %s  %s  idle=%s",
-		indent, statusGlyph(sub.Status), cols.subType, sub.Type, cols.subStatus, sub.Status, sub.Depth,
-		tokenCompact(sub.Tokens), age(sub.Updated, now), idleSince(sub, now))
-	label := stripPaths(sub.Description, home, cwd)
-	fmt.Fprintln(w, fitRow(prefix, truncate(label, 60), tool, width))
-	for _, disp := range sub.Dispatches {
-		fmt.Fprintf(w, "%s  %s\n", indent, fitRow(formatDispatch(disp, now), "", "", width))
+	return fmt.Sprintf("%ds", s)
+}
+
+// durationText shortens a record's Go duration string ("15m30.472s"); text that does not parse is kept as is.
+func durationText(s string) string {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return s
+	}
+	return shortDuration(d)
+}
+
+// addSubagent adds one subagent row, then a row per dispatch; deeper spawns indent inside the marker cell.
+func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
+	nest := strings.Repeat("  ", max(sub.Depth, 1)-1)
+	l.add(levelSubagent, nest+statusGlyph(sub.Status), sub.Type, sub.Status,
+		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
+		age(sub.Updated, now), idleSince(sub, now), "tool="+cmp.Or(sub.LastTool, "-"),
+		oneLine(stripPaths(sub.Description, home, cwd)))
+	for _, d := range sub.Dispatches {
+		l.add(levelDispatch, append([]string{nest + "↳"}, dispatchCells(d, now)...)...)
 	}
 }
 
-// formatDispatch renders one dispatch: "↳ codex gpt-6-astra running 2m14s last=9s", "… ⚠ quiet 7m" or "… ⚠ fallback".
-func formatDispatch(l Dispatch, now time.Time) string {
-	name := l.Agent
-	if l.Fallback != "" {
-		name = l.Fallback + "→" + l.Agent
+// dispatchCells is a dispatch row after its marker: agent, state, duration, signal ("last=9s", "⚠ quiet 7m"), model.
+func dispatchCells(d Dispatch, now time.Time) []string {
+	name := d.Agent
+	if d.Fallback != "" {
+		name = d.Fallback + "→" + d.Agent
 	}
-	status, sig := l.Status, signalText(l, now)
-	if l.Quiet {
-		status, sig = sig, ""
+	signal := signalText(d, now)
+	if d.Fallback != "" {
+		signal = strings.TrimSpace(signal + " ⚠ fallback")
 	}
-	s := fmt.Sprintf("↳ %s %s %s %s", name, l.Model, status, l.Duration)
-	if sig != "" {
-		s += " " + sig
-	}
-	if l.Fallback != "" {
-		s += " ⚠ fallback"
-	}
-	return s
+	return []string{name, d.Status, durationText(d.Duration), signal, d.Model}
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
@@ -249,60 +208,16 @@ func phaseDone(agents []Subagent) (done, total int) {
 	return done, total
 }
 
-// renderWorkflowRun prints a run header then its phases -> agents, each phase showing done/total.
-func renderWorkflowRun(w io.Writer, run WorkflowRun, now time.Time, cols columnWidths, width int, home, cwd string) {
-	indent := strings.Repeat("  ", 2)
-	prefix := fmt.Sprintf("%sworkflow %s  %-9s %-6s", indent, run.Name, run.Status, age(run.Updated, now))
-	fmt.Fprintln(w, fitRow(prefix, run.ID, "", width))
+// addWorkflowRun adds a run header then its phases -> agents, each phase showing done/total.
+func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string) {
+	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), run.ID)
 	for _, phase := range run.Phases {
 		done, total := phaseDone(phase.Agents)
-		fmt.Fprintf(w, "%s  phase %s (%d/%d done)\n", indent, phase.Name, done, total)
+		l.free(6, fmt.Sprintf("phase %s (%d/%d done)", phase.Name, done, total))
 		for _, sub := range phase.Agents {
-			renderSubagent(w, sub, now, cols, width, home, cwd)
+			addSubagent(l, sub, now, home, cwd)
 		}
 	}
-}
-
-// fitRow composes "prefix  tail  tool=X" and fits it to width: the tool segment is dropped first, then tail truncated.
-func fitRow(prefix, tail, tool string, width int) string {
-	toolPart := ""
-	if tool != "" {
-		toolPart = "  tool=" + tool
-	}
-	line := joinNonEmpty(prefix, tail) + toolPart
-	if textutil.RuneLen(line) <= width {
-		return line
-	}
-	// Why: the description outranks the last tool, so the tool segment goes before the description shrinks.
-	line = joinNonEmpty(prefix, tail)
-	if textutil.RuneLen(line) > width && tail != "" {
-		tail = shrink(tail, textutil.RuneLen(line)-width)
-		line = joinNonEmpty(prefix, tail)
-	}
-	return textutil.TruncateRunes(line, width)
-}
-
-// joinNonEmpty joins prefix and tail with two spaces, skipping the separator when tail is empty.
-func joinNonEmpty(prefix, tail string) string {
-	if tail == "" {
-		return prefix
-	}
-	return prefix + "  " + tail
-}
-
-// shrink cuts n runes (plus the ellipsis itself) off the end of s, floored at an empty string.
-func shrink(s string, n int) string {
-	r := []rune(strings.TrimSuffix(s, "…"))
-	keep := len(r) - n - 1 // -1 reserves room for the ellipsis this re-adds
-	if keep <= 0 {
-		return ""
-	}
-	return string(r[:keep]) + "…"
-}
-
-// tokenCompact renders in/out tokens as "in=12.3k out=4.1k".
-func tokenCompact(t Tokens) string {
-	return fmt.Sprintf("in=%s out=%s", textutil.CompactCount(t.In), textutil.CompactCount(t.Out))
 }
 
 // age renders how long ago t was, "-" when t is zero.
