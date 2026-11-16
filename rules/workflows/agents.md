@@ -34,6 +34,9 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
   Overlay keys and precedence: `rules/harness/agent.md`; what `auto` resolves to: `rules/harness/network.md`.
 - `--model auto` (or `<row>:auto`, overlay `model: auto`, a record pin `auto`) ranks the models that row serves by the
   brief's tier from `internal/catalog/ranks.json`, over a pinned model; the label shows the pick.
+  `auto`, typed or pinned, replaces a ladder cell's model on that cell's row; with nothing to rank it runs the
+  agent's untyped default with a note, and it is never refused (`--fallback none` refuses only a typed concrete
+  model).
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - A brief opening `Run: claude-code agents ask …` keeps its prompt byte-identical through `dispatch-effort`; a missing
   or wrong `<model>:` description prefix (the model the run resolves) is rewritten, never denied. Its hand-back is
