@@ -100,17 +100,16 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
 		in.agent = AgentCopilot
 	}
-	if in.SessionID == "" {
-		in.SessionID = in.Nested("sessionId")
-	}
-	if in.ToolName == "" {
-		in.ToolName = in.Nested("toolName")
-	}
-	if in.CWD == "" {
-		in.CWD = in.Nested("workingDirectory")
-	}
-	if in.TranscriptPath == "" {
-		in.TranscriptPath = in.Nested("transcriptPath")
+	for _, f := range []struct {
+		dst *string
+		key string
+	}{
+		{&in.SessionID, "sessionId"}, {&in.ToolName, "toolName"},
+		{&in.CWD, "workingDirectory"}, {&in.TranscriptPath, "transcriptPath"},
+	} {
+		if *f.dst == "" {
+			*f.dst = in.Nested(f.key)
+		}
 	}
 	in.Invalid = in.normalizeTool()
 	return in
