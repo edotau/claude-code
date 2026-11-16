@@ -444,9 +444,12 @@ func WriteState(st State) (func(), error) {
 		return func() {}, nil
 	}
 	return func() {
-		if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
-			_ = os.Remove(stateFile())
-		}
+		_ = paths.WithFileLock(stateFile(), func() error { // a replacement's fresh record must not vanish mid-check
+			if cur, err := ReadState(); err == nil && cur.PID == st.PID && cur.Port == st.Port {
+				_ = os.Remove(stateFile())
+			}
+			return nil
+		})
 	}, nil
 }
 

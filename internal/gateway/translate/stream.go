@@ -144,6 +144,8 @@ const maxSSELine = 32 << 20
 
 var errSSELineTooLong = errors.New("upstream SSE line exceeds limit")
 
+var errSSEFrameTooLong = errors.New("upstream SSE frame exceeds limit")
+
 // readSSELine is br.ReadBytes('\n') that fails with errSSELineTooLong past maxSSELine.
 func readSSELine(br *bufio.Reader) ([]byte, error) {
 	var line []byte
@@ -162,6 +164,7 @@ func readSSELine(br *bufio.Reader) ([]byte, error) {
 type sseFrame struct {
 	event string
 	data  [][]byte
+	size  int // bytes held in data, capped at maxSSELine like one line
 }
 
 // feed adds one SSE line to f, dispatching the frame on a blank line.
@@ -170,7 +173,11 @@ func (s *streamer) feed(f *sseFrame, line []byte) (bool, error) {
 	case len(line) == 0:
 		return s.dispatch(f)
 	case bytes.HasPrefix(line, []byte("data:")):
-		f.data = append(f.data, bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" ")))
+		d := bytes.TrimPrefix(bytes.TrimPrefix(line, []byte("data:")), []byte(" "))
+		if f.size += len(d); f.size > maxSSELine {
+			return false, s.readEnd(f, errSSEFrameTooLong)
+		}
+		f.data = append(f.data, d)
 	case bytes.HasPrefix(line, []byte("event:")):
 		f.event = string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("event:"))))
 	}
@@ -184,7 +191,7 @@ func (s *streamer) dispatch(f *sseFrame) (bool, error) {
 		return false, nil
 	}
 	payload, event := bytes.Join(f.data, []byte("\n")), f.event
-	f.data, f.event = f.data[:0], ""
+	f.data, f.event, f.size = f.data[:0], "", 0
 	return s.handle(event, payload)
 }
 
