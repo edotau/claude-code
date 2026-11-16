@@ -257,7 +257,8 @@ func fakeSSH(t *testing.T, addr string) int {
 	if err != nil {
 		t.Skip("bash not available to fake an ssh process")
 	}
-	cmd := exec.Command(bash, "-c", `exec -a ssh "$0" -c 'read _' ssh -N -D "$1"`, bash, addr)
+	cmd := exec.Command(bash, "-c", "read _", "ssh", "-N", "-D", addr)
+	cmd.Args[0] = "ssh" // set at execve, so argv is final once Start returns; a nested `exec -a` raced Ensure
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
