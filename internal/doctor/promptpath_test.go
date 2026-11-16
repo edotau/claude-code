@@ -124,6 +124,29 @@ func TestH7SessionPromptsNamePathsThatExist(t *testing.T) {
 	wantOne(t, sessionPrompts(root), "memory-recall:1:", gone+" which does not exist")
 }
 
+// H7 skips template paths (<name>, globs, braces, YYYY-MM-DD names) but still reports a real missing path.
+func TestH7MissingPathsSkipsPlaceholders(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name, path string
+		want       int
+	}{
+		{"angle", "/reports/claude-code--2026-11-16-memory-optimize-<lens>.md", 0},
+		{"star", "/gone/*.md", 0},
+		{"question", "/gone/a?.md", 0},
+		{"brace", "/gone/{a,b}.md", 0},
+		{"date", "/plans/YYYY-MM-DD-slug.md", 0},
+		{"real missing", "/plans/2026-11-16-slug.md", 1},
+		{"month word", "/plans/MMDD-slug.md", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := missingPaths("memory-start", "see `"+root+tc.path+"` now"); len(got) != tc.want {
+				t.Fatalf("findings = %q, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 // H7's projection check renders the source in a scratch dir: stale or empty live homes pass, a broken source fails.
 func TestH7ProjectionRendersFromSourceNotLiveHomes(t *testing.T) {
 	root := t.TempDir()
