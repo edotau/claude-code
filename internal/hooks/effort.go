@@ -4,17 +4,15 @@ package hooks
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/workflows"
 )
 
 // agentLineRe matches a brief's `Agent:` line (read from briefHeader only); agentNameRe the words in it.
@@ -62,7 +60,7 @@ func (r *dispatchRun) rosterEffort(name string) string {
 // agentEffortResult is the pin step: a spawn gets one UpdatedInput (pin, recall, label), a Workflow its lint result.
 func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
-		return quality.WorkflowResult(in)
+		return workflows.WorkflowResult(in)
 	}
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
@@ -136,40 +134,25 @@ func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, ta
 
 // freshPointers drops pointer lines already noted this session and records the rest; "" when none are new.
 func freshPointers(session, block string) string {
-	id := filepath.Base(session)
-	if session == "" || id == "." || id == string(filepath.Separator) {
+	if session == "" {
 		return block
 	}
-	path := filepath.Join(memory.StateDir(), "dispatch-recall-seen", id)
-	data, _ := os.ReadFile(path)
-	seen := strings.Fields(string(data))
-	var out, fresh []string
+	var out []string
+	fresh := false
 	for l := range strings.SplitSeq(block, "\n") {
 		if ptr, ok := strings.CutPrefix(l, "- "); ok {
 			key, _, _ := strings.Cut(ptr, " ")
-			if slices.Contains(seen, key) {
+			if first, _ := core.SeenAdd("memory/dispatch-recall-seen", session, key); !first {
 				continue
 			}
-			fresh = append(fresh, key)
+			fresh = true
 		}
 		out = append(out, l)
 	}
-	if len(fresh) == 0 {
+	if !fresh {
 		return ""
 	}
-	_ = os.MkdirAll(filepath.Dir(path), 0o700)
-	_ = appendSeen(path, fresh)
 	return strings.Join(out, "\n")
-}
-
-func appendSeen(path string, ids []string) error {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(strings.Join(ids, "\n") + "\n")
-	return err
 }
 
 // label prefixes the description with the run's model, on every brief: only the description changes.
