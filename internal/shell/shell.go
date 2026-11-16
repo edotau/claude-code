@@ -89,14 +89,47 @@ func openQuote(s string, i int) (next int, quote byte, ok bool) {
 	return i, 0, false
 }
 
-// separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3` and `&>file` redirections are not one.
+// CommentAt: the unquoted `#` at cmd[i] starts a word once `\<newline>` is removed; `$(x)#y` stays one word.
+func CommentAt(cmd string, i int) bool {
+	for i > 0 {
+		c := cmd[i-1]
+		if strings.IndexByte(" \t\n;&|(", c) < 0 {
+			return false
+		}
+		if !escaped(cmd, i-1) {
+			return true
+		}
+		if c != '\n' {
+			return false // an escaped blank or separator is a literal byte of the word
+		}
+		i -= 2 // a line continuation is deleted, joining the `#` to what came before it
+	}
+	return true
+}
+
+// escaped reports an odd run of backslashes right before cmd[i].
+func escaped(cmd string, i int) bool {
+	n := 0
+	for i-n-1 >= 0 && cmd[i-n-1] == '\\' {
+		n++
+	}
+	return n%2 == 1
+}
+
+// separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3`, `&>file` and `>|file` redirections are not one.
 func separatorStarts(cmd string, i int) bool {
-	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && (cmd[i] != '&' || !redirectAmp(cmd, i))
+	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && (cmd[i] != '&' || !redirectAmp(cmd, i)) &&
+		(cmd[i] != '|' || !redirectAfter(cmd, i, ">"))
 }
 
 // redirectAmp reports a `&` that follows `>`/`<` or precedes `>`, a redirection rather than a separator.
 func redirectAmp(cmd string, i int) bool {
-	return i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<') || i+1 < len(cmd) && cmd[i+1] == '>'
+	return redirectAfter(cmd, i, "<>") || i+1 < len(cmd) && cmd[i+1] == '>'
+}
+
+// redirectAfter reports that cmd[i] follows an unescaped byte of ops: `\>&` is a literal `>` and a background `&`.
+func redirectAfter(cmd string, i int, ops string) bool {
+	return i > 0 && strings.IndexByte(ops, cmd[i-1]) >= 0 && !escaped(cmd, i-1)
 }
 
 // separatorAt is the separator starting at cmd[i] (one byte, or two when `|`/`&` follows) and its last index.
@@ -332,8 +365,7 @@ func toggleDoubleQuote(quote byte) byte {
 	return '"'
 }
 
-// substitutionAt reports a complete `$(…)`, backtick or (outside quotes) `<(…)`/`>(…)` substitution at s[i]:
-// its body and closing index.
+// substitutionAt returns the body and close of a `$(…)`, backtick or unquoted `<(…)`/`>(…)` at s[i].
 func substitutionAt(s string, i int, quote byte) (string, int, bool) {
 	switch {
 	case (s[i] == '$' || quote == 0 && (s[i] == '<' || s[i] == '>')) && i+1 < len(s) && s[i+1] == '(':
@@ -413,7 +445,7 @@ func skipEnvAssignments(toks []string) []string {
 	return toks[i:]
 }
 
-// wrapperValueFlags are the option flags of a prefix wrapper that consume the next token (long forms also as --opt=val).
+// wrapperValueFlags are a prefix wrapper's flags that take the next token (long forms also as --opt=val).
 var wrapperValueFlags = map[string]map[string]bool{
 	"sudo": {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-R": true, "-T": true, "-U": true,
 		"-r": true, "-t": true, "--user": true, "--group": true, "--host": true, "--prompt": true, "--close-from": true,
@@ -433,8 +465,7 @@ var wrapperOperands = map[string]bool{"timeout": true, "chrt": true}
 var wrapperNames = map[string]bool{"env": true, "sudo": true, "nice": true, "nohup": true, "command": true,
 	"exec": true, "time": true, "timeout": true, "setsid": true, "stdbuf": true, "ionice": true, "chrt": true}
 
-// Unwrap drops leading NAME=val words and env/sudo/timeout/nohup/nice/command/exec/time wrappers with their options.
-// dir is cwd moved by `env -C/--chdir` and `sudo -D/--chdir`; an `env -S STR` string is split into the command line.
+// Unwrap drops leading NAME=val and wrappers (env -S split); dir is cwd moved by `env -C` or `sudo -D`.
 func Unwrap(toks []string, cwd string) (rest []string, dir string) {
 	dir = cwd
 	for {
@@ -573,7 +604,7 @@ func resolvePath(p, base string) (string, bool) {
 			}
 		}
 	}
-	if strings.ContainsAny(p, "$`*?"+subMask) {
+	if strings.ContainsAny(p, "$`*?"+subMask) || strings.HasPrefix(p, "~") { // ~user, ~+, ~- name other dirs
 		return base, false
 	}
 	if base == unknownDir && !filepath.IsAbs(p) { // a `..` must not climb out of an unknown dir into a real one

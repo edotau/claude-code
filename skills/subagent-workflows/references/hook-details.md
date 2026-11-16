@@ -24,7 +24,16 @@ the command is. Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message bod
 `head`/`tail`/`wc`/`cut`/`tr`/`grep`/`rg`/`jq`. A `printf`/`echo` piped into a shell is judged on its decoded text, so a
 hard-block shape built that way blocks. Passing: a fixture vault or credentials write and a `.git` removal under a temp
 folder (no `cd`, link or `truncate` beside it), `git clean -n`, `go env > /tmp/…`, a credential file only printed, and
-a leaf amending in its own temp-folder repo; warnings skip message text. Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
+a leaf amending in its own temp-folder repo; warnings skip message text. git after a dynamic `cd` is judged in the
+starting directory unless every dynamic cd target is a fresh `$(mktemp …)` dir; `cd ~user`, `~+` and `~-` count as
+dynamic. `echo`/`printf` text whose output runs (`$(echo git stash)`, `eval "$(…)"`, `bash <(…)`, piped to `xargs`
+or a shell's `-c`, written to a file a later segment runs) is a command, not inert text. A `#` after a `\`-newline
+continuation is mid-word (bash joins the lines) unless a blank precedes the `\`. A `"$(cat <<'EOF' …)"` commit message
+asks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
+docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
+`mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a read-only command's relative operand
+(`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
+Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
 
 ## rtk-rewrite
 

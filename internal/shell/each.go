@@ -14,32 +14,31 @@ const maxNest = 4
 // shellKeywords lead a segment without being its command (`if cd x`, `! git`, `then git`).
 var shellKeywords = []string{"if", "then", "else", "elif", "do", "while", "until", "!", "{", "("}
 
-// Uninspectable is the verb EachGit reports, with the cwd as target, for nesting deeper than maxNest: the callee cannot
-// see what runs there, so a guard must fail closed on it.
+// Uninspectable is EachGit's verb (cwd as target) for nesting past maxNest, unseen code a guard must fail closed on.
 const Uninspectable = "<uninspectable>"
 
 // gitFn receives one git invocation: its target tree, verb and the verb's words; true stops the walk.
 type gitFn func(target, verb string, args []string) bool
 
-// EachGit calls fn with each git invocation in cmd and the tree it targets, until fn returns true (reported back).
-// It follows substitutions, nested `bash -c`/`eval`, wrappers, `env -C`/`sudo -D`, and `cd`/`pushd` between segments.
-// Nesting past maxNest reports one Uninspectable call instead of being skipped.
+// EachGit calls fn per git invocation in cmd and its target tree, through nesting, wrappers and cd, until fn is true.
 func EachGit(cmd, cwd string, fn gitFn) bool {
-	return eachGit(cmd, cwd, fn, 0)
+	return eachGit(cmd, cwd, fn, 0, false)
 }
 
-func eachGit(cmd, cwd string, fn gitFn, depth int) bool {
+// eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
+func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if depth > maxNest {
 		return fn(cwd, Uninspectable, nil)
 	}
 	masked, subs := extractSubstitutions(cmd, subMask)
-	for _, sub := range subs { // a substitution runs nested: its cd stays inside it
-		if eachGit(sub, cwd, fn, depth+1) {
+	executed := executedSubs(masked, len(subs))
+	for k, sub := range subs { // a substitution runs nested: its cd stays inside it
+		if eachGit(sub, cwd, fn, depth+1, runs || executed[k]) {
 			return true
 		}
 	}
 	segs, seps := SegmentsSep(masked)
-	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: fn, depth: depth}
+	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: fn, depth: depth, runs: runs}
 	for i, seg := range segs {
 		w.enter(seg)
 		if w.run(i) {
@@ -56,6 +55,7 @@ type segWalk struct {
 	segs, seps []string
 	fn         gitFn
 	depth      int
+	runs       bool
 }
 
 // run visits segment i: a cd moves the tracker, git words and nested text are reported to fn.
@@ -73,13 +73,73 @@ func (w *segWalk) run(i int) bool {
 		return false
 	}
 	rest, dir := Unwrap(toks, at)
-	if segmentGit(rest, dir, w.fn, w.depth) {
+	if segmentGit(rest, dir, w.fn, w.depth, w.runs || w.pipesIntoRunner(i) || w.writesThenRuns(i)) {
 		return true
 	}
 	if w.pipesIntoShell(i) {
-		return pipedIntoShell(rest, dir, w.fn, w.depth)
+		return pipedIntoShell(rest, dir, w.fn, w.depth, w.runs)
 	}
 	return false
+}
+
+// pipesIntoRunner reports that segment i feeds a runner (xargs, eval, a shell with a script) its words to run.
+func (w *segWalk) pipesIntoRunner(i int) bool {
+	if w.seps[i] != "|" && w.seps[i] != "|&" || i+1 >= len(w.segs) {
+		return false
+	}
+	next := commandWords(w.segs[i+1])
+	rest, _ := Unwrap(next, "")
+	return len(rest) > 0 && runner(rest[0]) && !bareShell(next) // a bare shell's input is pipedIntoShell's
+}
+
+// writesThenRuns reports segment i writing a file while a later segment runs a script or a command by path.
+func (w *segWalk) writesThenRuns(i int) bool {
+	return FileRedirect(w.segs[i]) && slices.ContainsFunc(w.segs[i+1:], func(seg string) bool {
+		rest, _ := Unwrap(commandWords(seg), "")
+		return len(rest) > 1 && runner(rest[0]) || len(rest) > 0 && strings.Contains(rest[0], "/")
+	})
+}
+
+// runArgs run an argument as a command line or script; shellWrapperNames do too.
+var runArgs = map[string]bool{"eval": true, "source": true, ".": true, "xargs": true, "watch": true, "su": true,
+	"script": true, "flock": true}
+
+func runner(name string) bool {
+	return runArgs[filepath.Base(name)] || shellWrapperNames[filepath.Base(name)]
+}
+
+// executedSubs marks each substitution whose output runs: a command word, a runner's argument, or a var it expands.
+func executedSubs(masked string, n int) []bool {
+	out := make([]bool, n)
+	var assigned []int
+	varRun, k := false, 0
+	for _, seg := range Segments(masked) {
+		toks := Tokens(seg)
+		kw := 0
+		for kw < len(toks) && slices.Contains(shellKeywords, toks[kw]) {
+			kw++
+		}
+		rest, _ := Unwrap(toks[kw:], "")
+		at := max(kw, len(toks)-len(rest))
+		for j, t := range toks {
+			code := j == at || j > at && len(rest) > 0 && runner(rest[0])
+			varRun = varRun || code && strings.Contains(t, "$")
+			for range strings.Count(t, subMask) {
+				switch {
+				case k >= n:
+				case code:
+					out[k] = true
+				case j < at && envAssignRe().MatchString(t):
+					assigned = append(assigned, k)
+				}
+				k++
+			}
+		}
+	}
+	for _, a := range assigned {
+		out[a] = out[a] || varRun
+	}
+	return out
 }
 
 // pipesIntoShell reports that segment i feeds a bare shell that reads its commands from stdin.
@@ -103,11 +163,18 @@ func UnknownDir(dir string) bool { return dir == unknownDir }
 
 // cwdTracker follows the shell cwd across subshells, pipes, `||` after a cd, missing targets and pushd/popd.
 type cwdTracker struct {
-	cwd, before string // before: the dir the previous segment's cd left, for a following `||`
-	exact       string // after a dynamic or missing cd target, the dir for the rest of its `&&` chain
-	moved       bool
-	subshell    [][2]string // cwd and exact to restore at each open `(`'s close
-	dirs        []string    // pushd stack
+	cwdState
+	before   string // the dir the previous segment's cd left, for a following `||`
+	moved    bool
+	subshell []cwdState // the state to restore at each open `(`'s close
+	dirs     []string   // pushd stack
+}
+
+// cwdState is what a subshell's close restores.
+type cwdState struct {
+	cwd   string
+	exact string // after a dynamic or missing cd target, the dir for the rest of its `&&` chain
+	lost  bool   // a dynamic cd took effect: cwd is only the starting dir's guess
 }
 
 // here is the dir the next segment runs in.
@@ -116,7 +183,7 @@ func (c *cwdTracker) here() string { return cmp.Or(c.exact, c.cwd) }
 func (c *cwdTracker) enter(seg string) {
 	opens, _ := parenCounts(seg)
 	for range opens {
-		c.subshell = append(c.subshell, [2]string{c.cwd, c.exact})
+		c.subshell = append(c.subshell, c.cwdState)
 	}
 }
 
@@ -124,14 +191,38 @@ func (c *cwdTracker) leave(seg string) {
 	_, closes := parenCounts(seg)
 	for range closes {
 		if n := len(c.subshell); n > 0 {
-			c.cwd, c.exact, c.subshell = c.subshell[n-1][0], c.subshell[n-1][1], c.subshell[:n-1]
+			c.cwdState, c.subshell = c.subshell[n-1], c.subshell[:n-1]
 			c.moved = false
 		}
 	}
 }
 
-// step returns the dir a segment runs in (the old one after a cd that `||` makes conditional) and applies a builtin
-// cd/pushd/popd; a pipe side or backgrounded segment is a subshell, so its cd is not applied.
+// EachSegmentDir calls fn per non-cd segment with its dir, tracked as EachGit does; lost: a dynamic cd moved it.
+func EachSegmentDir(cmd, cwd string, fn func(seg string, toks []string, dir string, lost bool)) {
+	segs, seps := SegmentsSep(cmd)
+	c := &cwdTracker{cwd: cwd}
+	for i, seg := range segs {
+		c.enter(seg)
+		toks, prev := Tokens(seg), ""
+		if i > 0 {
+			prev = seps[i-1]
+		}
+		words := toks
+		for len(words) > 0 && slices.Contains(shellKeywords, words[0]) {
+			words = words[1:]
+		}
+		if at, isCd := c.step(words, prev, seps[i]); !isCd && len(toks) > 0 {
+			lost := c.lost || at == unknownDir
+			if at == unknownDir {
+				at = c.cwd
+			}
+			fn(seg, toks, at, lost)
+		}
+		c.leave(seg)
+	}
+}
+
+// step returns a segment's dir and applies a builtin cd/pushd/popd, except on a pipe side or backgrounded segment.
 func (c *cwdTracker) step(toks []string, prev, sep string) (at string, isCd bool) {
 	if prev != "&&" && prev != "|" && prev != "|&" { // a failed cd no longer stops what follows
 		c.exact = ""
@@ -141,7 +232,12 @@ func (c *cwdTracker) step(toks []string, prev, sep string) (at string, isCd bool
 		at = c.before
 	}
 	c.moved = false
-	next, exact, ok := c.cdTarget(builtinPrefixDropped(toks), !subshellSide(prev, sep))
+	cmd := builtinPrefixDropped(toks)
+	next, exact, ok := c.cdTarget(cmd, !subshellSide(prev, sep))
+	if ok && !subshellSide(prev, sep) {
+		abs, dynamic, _ := cdResolve(cmd, "")
+		c.lost = exact == unknownDir || c.lost && (dynamic || !filepath.IsAbs(abs))
+	}
 	if ok {
 		c.apply(next, exact, prev, sep)
 	}
@@ -226,8 +322,7 @@ func parenCounts(seg string) (opens, closes int) {
 	return opens, closes
 }
 
-// builtinPrefixDropped drops what still runs the next word in the current shell (NAME=val, `command`, `builtin`, `time`),
-// unlike env/sudo/nohup/nice/timeout/exec, which start another process: a `cd` behind those cannot move this shell.
+// builtinPrefixDropped drops NAME=val, `command`, `builtin`, `time`: prefixes whose cd still moves this shell.
 func builtinPrefixDropped(toks []string) []string {
 	for {
 		toks = skipEnvAssignments(toks)
@@ -267,17 +362,17 @@ func inertCommand(toks []string) bool {
 }
 
 // segmentGit visits the nested command and each git word of one segment whose wrappers are already dropped.
-func segmentGit(toks []string, dir string, fn gitFn, depth int) bool {
+func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool {
 	if len(toks) == 0 {
 		return false
 	}
 	if nested, ok := nestedOf(toks); ok { // its words are the nested command's, visited once there
-		return eachGit(nested, dir, fn, depth+1)
+		return eachGit(nested, dir, fn, depth+1, runs)
 	}
 	if text, ok := hereString(toks); ok {
-		return eachGit(text, dir, fn, depth+1)
+		return eachGit(text, dir, fn, depth+1, runs)
 	}
-	s := &segScan{dir: dir, fn: fn, depth: depth, inert: inertCommand(toks)}
+	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && inertCommand(toks)}
 	for i := range toks { // any word: xargs/watch/find -exec need no modelling
 		if s.word(toks, i) {
 			return true
@@ -288,14 +383,14 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int) bool {
 
 // segScan is the state of one segmentGit word scan.
 type segScan struct {
-	dir             string
-	fn              gitFn
-	depth           int
-	inert, afterGit bool
-	done            string // a -c string already visited
+	dir                   string
+	fn                    gitFn
+	depth                 int
+	runs, inert, afterGit bool
+	done                  string // a -c string already visited
 }
 
-func (s *segScan) nest(text string) bool { return eachGit(text, s.dir, s.fn, s.depth+1) }
+func (s *segScan) nest(text string) bool { return eachGit(text, s.dir, s.fn, s.depth+1, s.runs) }
 
 // word visits toks[i]: a git word, a shell wrapper's -c string, or a multi-word string that reads as a command line.
 func (s *segScan) word(toks []string, i int) bool {
@@ -375,9 +470,8 @@ func bareShell(toks []string) bool {
 	return true
 }
 
-// pipedIntoShell inspects the output of the command piped to a bare shell: an echo/printf literal is nested text,
-// anything else is not visible, so a guard must fail closed.
-func pipedIntoShell(toks []string, dir string, fn gitFn, depth int) bool {
+// pipedIntoShell nests an echo/printf literal piped to a bare shell; any other source is Uninspectable.
+func pipedIntoShell(toks []string, dir string, fn gitFn, depth int, runs bool) bool {
 	if len(toks) > 0 && (toks[0] == "echo" || toks[0] == "printf") {
 		var words []string
 		for _, t := range toks[1:] {
@@ -388,7 +482,7 @@ func pipedIntoShell(toks []string, dir string, fn gitFn, depth int) bool {
 		if formatUnapplied(toks[0], words) {
 			return fn(dir, Uninspectable, nil)
 		}
-		return eachGit(strings.Join(words, " "), dir, fn, depth+1)
+		return eachGit(strings.Join(words, " "), dir, fn, depth+1, runs)
 	}
 	return fn(dir, Uninspectable, nil)
 }

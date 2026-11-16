@@ -126,6 +126,7 @@ func TestEachGitCwdScoping(t *testing.T) {
 		{"dynamic cd, subshell, then ;", `cd "$R" && (true); git x`, "/w"},
 		{"literal cd after a dynamic one", `cd "$R" && cd /a && git x`, "/a"},
 		{"explicit -C after a dynamic cd", `cd "$R" && git -C /a x`, "/a"},
+		{"~user names another home", "cd ~root && git x", unknownDir},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -156,7 +157,9 @@ func TestEachGitStringArgs(t *testing.T) {
 		}
 	}
 	for _, cmd := range []string{"claude-code doctor git x", "claude-code --host h git x", "claude-code memory update git x",
-		"claude-code memory recall y && git x", "echo git x | sh", "claude-code memory recall $(git x)"} {
+		"claude-code memory recall y && git x", "echo git x | sh", "claude-code memory recall $(git x)",
+		"$(echo git x)", "`echo git x`", `eval "$(echo git x)"`, "bash <(echo git x)", ". <(echo git x)",
+		"echo git x | xargs -I{} sh -c {}", "echo git x > /tmp/s.sh; sh /tmp/s.sh"} { // echo output that runs
 		if got := collectGit(cmd, "/w"); len(got) != 1 || got[0] != (gitCall{"/w", "x"}) {
 			t.Errorf("EachGit(%q) = %v, want one x call", cmd, got)
 		}

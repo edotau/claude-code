@@ -42,60 +42,35 @@ func WrittenPathsPrecise(cmd, cwd string) []string {
 
 // appendPrecise is appendTargets that reads only unquoted redirects and drops relative targets after a dynamic cd.
 func appendPrecise(out []string, cmd, cwd string, depth int) []string {
-	for _, seg := range shell.Segments(cmd) {
-		toks := shell.Tokens(seg)
+	shell.EachSegmentDir(cmd, cwd, func(seg string, toks []string, dir string, lost bool) {
+		if lost {
+			dir = "" // unknown: only absolute targets can still be judged
+		}
 		if nested, ok := shell.NestedCommand(toks); ok && depth < nestedDepth {
-			out = appendPrecise(out, nested, cwd, depth+1)
-			continue
+			out = appendPrecise(out, nested, dir, depth+1)
+			return
 		}
-		if dir, ok := shell.CdTarget(toks, cwd); ok {
-			cwd = dir
-			if dynamicCd(toks) {
-				cwd = "" // unknown: only absolute targets can still be judged
-			}
-			continue
-		}
-		rest, _ := shell.Unwrap(toks, cwd)
+		words, redirects := shell.Redirects(seg)
+		rest, _ := shell.Unwrap(words, dir)
 		targets := commandTargets(rest)
 		if shell.FileRedirect(seg) {
-			targets = append(redirectTargets(toks), targets...)
+			targets = append(append(redirectTargets(toks), redirects...), targets...)
 		}
 		for _, t := range targets {
-			if p := resolveTarget(t, cwd); filepath.IsAbs(p) && !slices.Contains(out, p) {
+			if p := resolveTarget(t, dir); filepath.IsAbs(p) && !slices.Contains(out, p) {
 				out = append(out, p)
 			}
 		}
-	}
+	})
 	return out
 }
 
-// dynamicCd reports a cd/pushd whose target is `-` or still holds an expansion, so the shell's cwd is unknown.
-func dynamicCd(toks []string) bool {
-	args := toks[1:]
-	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "-" {
-		opt := args[0]
-		if args = args[1:]; opt == "--" {
-			break
-		}
-	}
-	if len(args) == 0 {
-		return false
-	}
-	p := args[0]
-	for _, home := range []string{"$HOME", "${HOME}"} {
-		if rest, ok := strings.CutPrefix(p, home); ok && (rest == "" || rest[0] == '/') {
-			p = rest
-		}
-	}
-	return p == "-" || strings.ContainsAny(p, "$`*?\x00")
-}
-
-// dropComments cuts each unquoted `#` that starts a word through the end of its line.
+// dropComments cuts each unquoted `#` that starts a word (shell.CommentAt) through the end of its line.
 func dropComments(cmd string) string {
 	for from := 0; ; {
 		at, i := shell.QuoteAt(cmd), -1
 		for k := from; k < len(cmd) && i < 0; k++ {
-			if cmd[k] == '#' && at[k] == 0 && (k == 0 || at[k-1] == 0 && strings.IndexByte(" \t\n;&|()", cmd[k-1]) >= 0) {
+			if cmd[k] == '#' && at[k] == 0 && shell.CommentAt(cmd, k) {
 				i = k
 			}
 		}
@@ -116,12 +91,12 @@ func RemovedPaths(cmd, cwd string) []string {
 		!strings.Contains(cmd, "mv") {
 		return nil
 	}
-	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, func(_, rest []string) []string { return removalTargets(rest) })
+	return appendTargets(nil, DropDataHeredocs(cmd), cwd, 0, func(_, _, rest []string) []string { return removalTargets(rest) })
 }
 
 // writeTargets are a segment's redirect targets plus the files its command word writes.
-func writeTargets(toks, rest []string) []string {
-	return append(redirectTargets(toks), commandTargets(rest)...)
+func writeTargets(redirects, toks, rest []string) []string {
+	return append(append(redirectTargets(toks), redirects...), commandTargets(rest)...)
 }
 
 // removalTargets are the operands rm, unlink and truncate remove, and the sources mv moves away.
@@ -133,13 +108,29 @@ func removalTargets(toks []string) []string {
 	case "rm", "unlink", "truncate":
 		return operands(toks[1:])
 	case "mv":
-		ops := operands(toks[1:])
-		if len(ops) < 2 {
-			return nil
-		}
-		return ops[:len(ops)-1]
+		return movedSources(toks[1:])
 	}
 	return nil
+}
+
+// movedSources are mv's operands but the destination: the `-t DIR` value, else the last operand.
+func movedSources(args []string) []string {
+	var ops []string
+	target := false
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-t" || a == "--target-directory":
+			target, i = true, i+1
+		case strings.HasPrefix(a, "--target-directory=") || strings.HasPrefix(a, "-t"):
+			target = true
+		case a != "" && a[0] != '-':
+			ops = append(ops, a)
+		}
+	}
+	if !target && len(ops) > 0 {
+		ops = ops[:len(ops)-1]
+	}
+	return ops
 }
 
 // MayWrite reports whether cmd contains anything that could write a file; a cheap gate before WrittenPaths.
@@ -152,25 +143,21 @@ func MayWrite(cmd string) bool {
 	return false
 }
 
-// appendTargets adds pick's targets for each segment of cmd to out, unique, descending into `bash -c` bodies.
-func appendTargets(out []string, cmd, cwd string, depth int, pick func(toks, rest []string) []string) []string {
-	for _, seg := range shell.Segments(cmd) {
-		toks := shell.Tokens(seg)
+// appendTargets adds pick's targets (from redirect files, words, bare command) per segment, into `bash -c` bodies.
+func appendTargets(out []string, cmd, cwd string, depth int, pick func(redirects, toks, rest []string) []string) []string {
+	shell.EachSegmentDir(cmd, cwd, func(seg string, toks []string, dir string, _ bool) {
 		if nested, ok := shell.NestedCommand(toks); ok && depth < nestedDepth {
-			out = appendTargets(out, nested, cwd, depth+1, pick)
-			continue
+			out = appendTargets(out, nested, dir, depth+1, pick)
+			return
 		}
-		if dir, ok := shell.CdTarget(toks, cwd); ok {
-			cwd = dir
-			continue
-		}
-		rest, _ := shell.Unwrap(toks, cwd)
-		for _, t := range pick(toks, rest) {
-			if p := resolveTarget(t, cwd); p != "" && !slices.Contains(out, p) {
+		words, redirects := shell.Redirects(seg)
+		rest, _ := shell.Unwrap(words, dir)
+		for _, t := range pick(redirects, toks, rest) {
+			if p := resolveTarget(t, dir); p != "" && !slices.Contains(out, p) {
 				out = append(out, p)
 			}
 		}
-	}
+	})
 	return out
 }
 

@@ -351,7 +351,7 @@ func (s *codeScan) codeStep(i int) (int, bool) {
 			return i, false
 		}
 		s.pop()
-	case c == '#' && (i == 0 || strings.IndexByte(" \t\n;&|(", s.cmd[i-1]) >= 0):
+	case c == '#' && shell.CommentAt(s.cmd, i):
 		end := strings.IndexByte(rest, '\n')
 		if end < 0 {
 			end = len(rest)
@@ -505,20 +505,26 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 	if len(subs) > 0 && (slices.Contains(p.Deny, ReadOnlyDeny[0]) || p.spliceReadDenied(cmd)) { // read-only never runs one
 		return Deny
 	}
-	worst, seen := Allow, false
+	worst, seen, start := Allow, false, cwd
 	for _, sub := range subs {
 		worst = min(worst, p.decideBash(sub, depth+1, ""), Ask)
 		cwd = "" // a masked substitution may sit in a cd target
 	}
 	segs, seps := shell.SegmentsSep(outer)
+	moved := false // an earlier segment may have changed the cwd
 	for i, seg := range segs {
+		at := cwd
+		if at == "" && !moved {
+			at = start
+		}
 		next, cdTo := cdDir(seg, cwd)
 		if cwd = next; seps[i] != "&&" { // only an `&&` after a static cd carries a known cwd to the next segment
 			cwd = ""
 		}
-		if d, ok := p.decideSeg(seg, cdTo, depth); ok {
+		if d, ok := p.decideSeg(seg, cdTo, opDir{at, moved && at == ""}, depth); ok {
 			seen, worst = true, min(worst, d)
 		}
+		moved = moved || mayMoveCwd(seg)
 	}
 	if !seen { // a bare `$(x)` or backtick command: its substitutions' verdict still counts
 		return min(worst, p.decideOne("Bash", strings.TrimSpace(cmd)))
@@ -531,12 +537,12 @@ var subOpener = regexp.MustCompile("[$<>]\\(|`")
 // spliceReadDenied: under a Read deny, a segment that opens a substitution may read a path no check can see.
 func (p Permissions) spliceReadDenied(cmd string) bool {
 	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
-		return subOpener.MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$")) // `x` is $(x)
+		return subOpener.MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$"), opDir{lost: true}) // `x` is $(x)
 	})
 }
 
 // decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
-func (p Permissions) decideSeg(seg, cdTo string, depth int) (Decision, bool) {
+func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
 	toks, _ := shell.Unwrap(rawToks, "")
 	if len(toks) == 0 {
@@ -554,10 +560,17 @@ func (p Permissions) decideSeg(seg, cdTo string, depth int) (Decision, bool) {
 	if d == Allow && (strings.Contains(seg, "<") || shell.FileRedirect(seg)) {
 		d = Ask
 	}
-	if d == Allow && readOnlyReadDenied(p, judged) {
+	if d == Allow && readOnlyReadDenied(p, judged, at) {
 		d = Deny
 	}
 	return d, true
+}
+
+// mayMoveCwd reports a segment that may change the shell's cwd: any cd, pushd or popd word, or eval and source.
+func mayMoveCwd(seg string) bool {
+	return slices.ContainsFunc(shell.Tokens(seg), func(t string) bool {
+		return slices.Contains([]string{"cd", "pushd", "popd", "eval", "source", "."}, t)
+	})
 }
 
 // cdVerdict joins a relative cd's verdict d with its absolute spelling's: a deny of either wins, then an allow.
