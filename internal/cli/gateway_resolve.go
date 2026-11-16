@@ -42,7 +42,8 @@ func cmdGatewayResolve(args []string) int {
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
 	format := fs.String("format", "text", "text or json")
-	taskFile := fs.String("task", "", "the brief the run gets (- reads stdin): an untyped model resolves to its tier")
+	taskFile := fs.String("task", "", "the brief the run gets (- reads stdin): auto and an untyped model size it")
+	tools := fs.Bool("tools", false, "the run calls tools: auto skips a model whose probe refused them")
 	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -60,9 +61,7 @@ func cmdGatewayResolve(args []string) int {
 	if err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
-	if q.Model == "" {
-		q.Default, _ = agent.TaskTier(task) // an untyped run's pick below its pin
-	}
+	q.Task, q.Tools = task, *tools
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
@@ -70,27 +69,28 @@ func cmdGatewayResolve(args []string) int {
 	if *all {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
-	r, err := resolveFirstHop(ctx, reg, q, task)
+	r, choice, err := resolveFirstHop(ctx, reg, q, task)
 	if errors.Is(err, agent.ErrModelRoute) {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	} else if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
-	return printRoute(r, *format)
+	return printRoute(r, choice, *format)
 }
 
 // resolveRunQuery is a seam: tests stub it so resolve never reads the live route table.
 var resolveRunQuery = agent.RunQuery
 
 // resolveFirstHop resolves q as the run's first hop does: an untyped external agent takes the ladder, like the label.
-func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task string) (agent.ModelRoute, error) {
+func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task string,
+) (agent.ModelRoute, *agent.AutoChoice, error) {
 	hop, note, err := resolveRunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(task))
 	if err != nil {
-		return agent.ModelRoute{}, err
+		return agent.ModelRoute{}, nil, err
 	}
-	r, err := agent.ResolveRun(reg, agent.QueryFor(ctx, hop), time.Now())
+	r, choice, err := agent.ExplainRun(reg, agent.QueryFor(ctx, hop), time.Now())
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
-	return r, err
+	return r, choice, err
 }
 
 // resolveQuery folds the overlay and flags (flags win) into the agent's query.
@@ -113,13 +113,30 @@ func resolveQuery(ctx context.Context, name, model, profile, overlay string) (ag
 	return agent.QueryFor(ctx, q), nil
 }
 
-func printRoute(r agent.ModelRoute, format string) int {
+// autoTop is how many ranked candidates --format json shows for an auto pick.
+const autoTop = 5
+
+// printRoute prints the route line, then auto's reason line; json carries auto's top ranked candidates.
+func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int {
 	if format == helptext.JSON {
-		b, _ := json.MarshalIndent(map[string]any{"overlay": r.Overlay(), "route": r}, "", "  ")
+		doc := map[string]any{"overlay": r.Overlay(), "route": r}
+		if choice != nil {
+			c := *choice
+			c.Ranked = c.Ranked[:min(len(c.Ranked), autoTop)]
+			doc["auto"] = c
+		}
+		b, _ := json.MarshalIndent(doc, "", "  ")
 		fmt.Println(string(b))
 		return 0
 	}
+	if choice == nil {
+		fmt.Println(routeLine(r))
+		return 0
+	}
+	reason := choice.Reason()
+	r.Note = strings.Trim(strings.Replace(r.Note, reason, "", 1), "; ")
 	fmt.Println(routeLine(r))
+	fmt.Println(reason)
 	return 0
 }
 

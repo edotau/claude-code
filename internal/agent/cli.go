@@ -70,10 +70,11 @@ func overlayAccount(ctx context.Context) string {
 	return ov.Account
 }
 
-// routedModel is t with the model ResolveRun spells for t's row: req.Model typed, else the pin, else the task tier.
+// routedModel is t with the model ResolveRun spells for t's row: a typed model, else auto over the pin, else the pin.
 func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Target, applied bool) (providers.Target, string, error) {
-	if t.Provider == nil || applied && req.Model != "" && !req.CellModel {
-		if t.Provider == nil && req.Model != "" && !slices.Contains(models.AliasNames, req.Model) {
+	_, auto := SplitAuto(req.Model)
+	if t.Provider == nil || applied && req.Model != "" && !req.CellModel && !auto {
+		if t.Provider == nil && req.Model != "" && !auto && !slices.Contains(models.AliasNames, req.Model) {
 			t.Model = req.Model
 		}
 		return t, "", nil
@@ -82,20 +83,19 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	if err != nil {
 		return t, "", err
 	}
-	q := ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name}
+	q := ModelQuery{Agent: s.Name, Model: req.Model, Profile: t.Provider.Name, Task: req.Prompt, Tools: req.Tools}
 	if req.CellModel {
 		q.Model = "" // a bare ladder cell is the classifier's alias, not a typed model
 	}
-	typed := q.Model
-	if typed == "" {
-		q.Default, _ = TaskTier(req.Prompt)
+	if req.AutoModel && q.Model == "" {
+		q.Model = AutoModel
 	}
 	r, err := ResolveRun(reg, QueryFor(ctx, q), time.Now())
 	switch {
-	case errors.Is(err, ErrModelRoute) && typed == "":
+	case errors.Is(err, ErrModelRoute) && q.Model == "":
 		return t, "", nil // a record model the row cannot serve keeps the row's own tier model
 	case errors.Is(err, ErrModelRoute):
-		return t, "", &UsageError{Msg: "--model " + req.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
+		return t, "", &UsageError{Msg: "--model " + q.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
 	case err != nil:
 		return t, "", err
 	}

@@ -42,7 +42,9 @@ type ModelQuery struct {
 	Identity, Fallback             string // overlay keys echoed into the route
 	Session, PinProfile, PinModel  string
 	PinAccount                     string
-	Interactive                    bool // a prefix and Profile naming different rows is an error, not an override
+	Interactive                    bool   // a prefix and Profile naming different rows is an error, not an override
+	Task                           string // the brief: ResolveRun sizes its tier when auto picks the model
+	Tools                          bool   // the run calls tools: auto skips a model whose probe refused them
 }
 
 // ErrModelRoute marks a typed model string the agent cannot run as written; callers exit 2.

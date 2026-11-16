@@ -134,6 +134,7 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 	if o.SessionID != "" {
 		o.Fallback = router.FallbackNone
 	}
+	o = foldAuto(o)
 	return o, c.resolve(&o)
 }
 
@@ -493,7 +494,8 @@ type RunOptions struct {
 	Fallback                                            string             `json:"-"`
 	Account                                             string             `json:"-"` // the overlay account key: a GitHub login or profile
 	CellModel                                           bool               `json:"-"`
-	Native                                              bool               `json:"native,omitempty"` // opencode: skip the hub ladder; --retry replays it
+	AutoModel                                           bool               `json:"auto_model,omitempty"` // --model auto: ResolveRun picks per task, over the record's model
+	Native                                              bool               `json:"native,omitempty"`     // opencode: skip the hub ladder; --retry replays it
 	Host                                                string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
