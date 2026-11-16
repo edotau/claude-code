@@ -932,6 +932,25 @@ func TestLabelModelProfileAliasUsesAgentTier(t *testing.T) {
 	}
 }
 
+// A dispatch's exact --model is labeled as a real ask runs it: a typed row is cut, an external agent's preview gets it whole.
+func TestLabelModelExactDispatchModel(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	orig := labelPick
+	t.Cleanup(func() { labelPick = orig })
+	labelPick = func(_ context.Context, agent, model string) string { return "databricks-" + model }
+	for _, c := range []struct{ st, model, want string }{
+		{"claude", "dev:claude-opus-5", "databricks-claude-opus-5"},
+		{"codex", "gpt-6-sol", "databricks-gpt-6-sol"},
+	} {
+		got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{"model": c.model}, c.st, "")
+		if got != c.want {
+			t.Errorf("label for %s --model %s = %q, want %q", c.st, c.model, got, c.want)
+		}
+	}
+}
+
 func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)

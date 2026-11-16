@@ -202,10 +202,11 @@ func flattenPassthroughResponse(resp *http.Response, geminiChat bool) error {
 	return nil
 }
 
-// retryWithoutEffort resends a chat body once with reasoning_effort "none" when the upstream 400s on tools with it.
+// retryWithoutEffort resends a chat body once with reasoning_effort "none" when the upstream 400s on tools with it,
+// even when the client sent none (the endpoint applies its own default).
 func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, target, model string,
 	resp *http.Response, body []byte) (*http.Response, []byte, string) {
-	if resp.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte(`"reasoning_effort"`)) {
+	if resp.StatusCode != http.StatusBadRequest {
 		return resp, body, ""
 	}
 	msg := strings.ToLower(string(peekBody(resp, 64<<10)))

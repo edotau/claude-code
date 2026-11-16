@@ -303,7 +303,7 @@ func CopilotPlanName(raw string) string {
 }
 
 // QualifyPinSpec is spec as "profile:model" unless providerFlag is the profile Select resolves (record, else default).
-func QualifyPinSpec(_ context.Context, reg *Registry, providerFlag, spec string) string {
+func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 	if providerFlag == "" || spec == "" {
 		return spec
 	}
@@ -337,7 +337,7 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return nil, fmt.Errorf("unknown alias %q (opus|sonnet|haiku|fable|all)", alias)
 		}
-		set[alias] = QualifyPinSpec(context.Background(), reg, profile, spec) // ctx-less until configure.ApplyModelPins passes one
+		set[alias] = QualifyPinSpec(reg, profile, spec)
 	}
 	return set, nil
 }
