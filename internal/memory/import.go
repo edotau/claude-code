@@ -300,9 +300,7 @@ func (p *importPlan) planStore(from, key string) error {
 		switch {
 		case err != nil:
 			p.skipFile(key, rel, err.Error())
-		case d.IsDir() && (d.Name() == ".git" || d.Name() == "locks" || d.Name() == ".locks"):
-			return fs.SkipDir
-		case d.IsDir() && rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0]):
+		case d.IsDir() && skipImportDir(rel, d.Name()):
 			return fs.SkipDir
 		case d.IsDir(), foldSkips(rel), rel == layoutFile:
 		case !p.flatImportFile(key, rel):
@@ -315,6 +313,11 @@ func (p *importPlan) planStore(from, key string) error {
 		}
 		return nil
 	})
+}
+
+func skipImportDir(rel, name string) bool {
+	return name == ".git" || name == "locks" || name == ".locks" ||
+		rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0])
 }
 
 func (p *importPlan) skipFile(key, rel, why string) {
