@@ -17,10 +17,9 @@ terminal leaf; the main session owns orchestration. Dispatch and brief fields: `
 
 ### The one rule that defines a leaf: you are terminal
 
-You cannot spawn subagents (no Agent or `Workflow` tool). Do the whole task in-context: read, change, verify, report.
-Too big for that: say so in the report. Exceptions are CLI calls, not subagents: `claude-code agents ask` for an
-`Agent:` your brief names, and a saved Workflow the brief names (`Workflow:`, headless:
-`skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf). Handed a lane
+No Agent or `Workflow` tool: do the whole task in-context (read, change, verify, report); too big, say so in the
+report. Exceptions are CLI calls: `claude-code agents ask` for a brief's `Agent:`, a saved Workflow it names
+(`Workflow:`, headless: `skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf). Handed a lane
 plan: `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 ## Invocation
@@ -101,9 +100,9 @@ is filed.
 Follow the chosen approach with the minimal code that satisfies the requirement; repair the tests your change
 breaks in the same step (`rules/standards/testing-guidelines.md`).
 
-**Verifiable-goal loop.** Before writing code, state the verifiable goal and its exact verification command (from
-the plan's Verification section). Implement → run it → iterate while red → report done only on green, quoting the
-command and output. If you cannot verify, say so — never claim success.
+**Verifiable-goal loop** (`rules/standards/principles.md` → Goal-driven execution): state the goal and its exact
+verification command (plan's Verification section) before coding, iterate while red, report done only on green
+with the command and output quoted; if you cannot verify, say so.
 
 ### Simplify — mandatory quality gate
 

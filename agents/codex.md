@@ -74,14 +74,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 Per `agent-verbs.md` → Procedure skeleton. Delta:
 
-- **Pick the verb** from the request:
-  - "ship or block / second opinion on a diff" → `review`
-  - "challenge this plan / vet this task" → `ask` + `task-review.md`
-  - "run the gates / verify before shipping" → `ask --tools` + `verify.md`
-  - "review this skill/plugin" → `ask` + `codex-skill-plugin-review.md`
-  - "take over / do X" → `ask --tools`
-  - "continue session" → `ask --session <id>`
-  - "hand this session over" → `transfer`
+- **Pick the verb** per `## Owns`: `review` (diff verdict), `ask` + `task-review.md` / `codex-skill-plugin-review.md`,
+  `ask --tools` (+ `verify.md` for gates, or to take over), `ask --session <id>`, `transfer`.
 - **Run it** as the brief's `Run:` line gives it, flags and model unchanged; without one, default model and effort
   and `--fallback none` for a named-agent task (`skills/subagent-workflows/references/cost-routing.md`).
 - **Do not verify**: no reads or tests before or after.

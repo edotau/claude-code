@@ -92,11 +92,9 @@ call can. No nameable verification → ask one question first.
 
 Synthesize **one** recommendation; alternatives you seriously weighed get one line each on why they lost.
 
-**Reversibility test.** Outward-facing = another person or system can observe it before you could undo it (push,
-publish, send, deploy, delete shared data, payment, permission change). Local edits are reversible.
-
-**Authorization gate.** Such an action needs the user's own words (`references/notes.md`, `AUTH:`); no quote in this
-conversation, no action: propose it as a next step.
+**Outward-facing actions** (another person or system can observe them before you could undo: push, publish, send,
+deploy, delete shared data, payment, permission change; local edits are reversible) need the user's own words as an
+`AUTH:` quote (`references/notes.md`); no quote in this conversation, no action: propose it as a next step.
 
 Declare the scope (files or surfaces touched); needing more mid-work is a surprise (Step 2 rule 6).
 
