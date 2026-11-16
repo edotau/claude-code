@@ -77,11 +77,12 @@ export const ClaudeCodeHarness = async ({ directory }) => ({
   "tool.execute.before": async (input, output) => {
     const tool = TOOLS[input.tool]
     if (!tool) return
-    const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: tool,
-      tool_input: claudeInput(output.args), cwd: directory, session_id: input.sessionID })
+    const doc = { hook_event_name: "PreToolUse", tool_name: tool,
+      tool_input: claudeInput(output.args), cwd: directory, session_id: input.sessionID }
+    const payloads = [JSON.stringify(doc), JSON.stringify({ ...doc, harness_agent: "opencode" })]
     for (const m of MODULES) {
       if (!new RegExp("^(?:" + m.matcher + ")$", "i").test(tool)) continue
-      const reason = verdict(m, payload)
+      const reason = verdict(m, payloads[+m.asOpencode])
       if (reason) throw new Error(reason)
     }
   },
@@ -120,12 +121,16 @@ func withHostedMarker(env []string, h *hookHost) []string {
 // pluginFailClosed are the plugin modules whose timeout or crash blocks the call; the rest fail open with a note.
 var pluginFailClosed = []string{"permission-gate", "safety-scan"}
 
+// pluginAsClaude run untagged: tagged, docs-plan-gate denies the plan-path rewrite the plugin drops (owner decision).
+var pluginAsClaude = []string{"docs-plan-gate"}
+
 // pluginModule is one hook the plugin runs before an opencode tool call, as the JS reads it.
 type pluginModule struct {
 	Name       string `json:"name"`
 	Matcher    string `json:"matcher"`
 	BudgetMs   int64  `json:"budgetMs"`
 	FailClosed bool   `json:"failClosed"`
+	AsOpencode bool   `json:"asOpencode"` // payload carries harness_agent, so the gate words an ask as the block it is
 }
 
 // pluginModules are SpecsFor("opencode", "plugin"): the PreToolUse guards the plugin runs in place of the host.
@@ -136,7 +141,7 @@ func pluginModules() []pluginModule {
 			continue
 		}
 		out = append(out, pluginModule{Name: s.Name, Matcher: s.Matcher, BudgetMs: s.Budget.Milliseconds(),
-			FailClosed: slices.Contains(pluginFailClosed, s.Name)})
+			FailClosed: slices.Contains(pluginFailClosed, s.Name), AsOpencode: !slices.Contains(pluginAsClaude, s.Name)})
 	}
 	return out
 }
