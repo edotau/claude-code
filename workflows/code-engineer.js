@@ -211,7 +211,7 @@ async function stLoopCheck(ctx, o, gate, label) {
 }
 // stStamps maps each `changed` entry to its path; the entry (path + content hash) differs when the content does.
 const stStamps = (changed) => new Map(changed.map((s) => [s.replace(/ (?:[0-9a-f]{40,64}|deleted)$/, ''), s]))
-const stFailureKey = (f) => f.file + ':' + f.text.split('\n')[0].replace(/\b\d+(?:\.\d+)?(?:ms|s)\b/g, '').replace(/\/tmp\/[^ :]+/g, '<tmp>').trim()
+const stFailureKey = (f) => f.file + ':' + f.text.split('\n')[0].replace(/\b\d+(?:\.\d+)?(?:ms|s)\b/g, '').replace(/(?:\/private)?\/(?:tmp|var\/folders)\/[^ :]+/g, '<tmp>').trim()
 const stOwned = (o, file) => !!file && !file.split('/').includes('..') && !file.startsWith('/') && (o.files.length ? o.files.includes(file) : o.scope.some((p) => p === '.' || file === p || file.startsWith(p + '/')))
 function stLoopGroups(ctx, o, failures) {
   const groups = new Map()
