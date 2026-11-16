@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 
@@ -11,23 +12,24 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// Restore resets settings.json (backup first) and renders agent configs; --agent/--agents render configs only.
+// Restore resets settings.json (backup first), then renders agent configs; --out skips the render, --agents the reset.
 func Restore(w io.Writer, agents, out string, forceHomes bool) error {
 	if agents != "" || forceHomes {
 		return confirmAndRender(w, agents, forceHomes)
 	}
-	if out == "" {
-		out = settings.SettingsFile()
-	}
-	backup, err := settings.ResetSettings(out)
+	target := cmp.Or(out, settings.SettingsFile())
+	backup, err := settings.ResetSettings(target)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "restored %s", out)
+	fmt.Fprintf(w, "restored %s", target)
 	if backup != "" {
 		fmt.Fprintf(w, " (backup %s)", backup)
 	}
 	fmt.Fprintln(w)
+	if out != "" {
+		return nil // "this file instead": the live agent configs stay untouched
+	}
 	return confirmAndRender(w, "", false)
 }
 

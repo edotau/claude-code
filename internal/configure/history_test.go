@@ -331,3 +331,15 @@ func TestSnapshotHoldsBackMemoryGateShapes(t *testing.T) {
 		}
 	}
 }
+
+// TestAgentConfigsWatchGeminiUnderHome: the renderer writes gemini files under HOME, so GEMINI_CLI_HOME is ignored.
+func TestAgentConfigsWatchGeminiUnderHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GEMINI_CLI_HOME", t.TempDir())
+	for _, f := range agentConfigs() {
+		if strings.HasPrefix(f.Label, "gemini-") && !strings.HasPrefix(f.Path, filepath.Join(home, ".gemini")) {
+			t.Errorf("%s watched at %s, want under %s", f.Label, f.Path, home)
+		}
+	}
+}
