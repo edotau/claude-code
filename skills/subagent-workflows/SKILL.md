@@ -119,7 +119,7 @@ word, else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) ·
 ([Return to owner](#return-to-owner)) · `BLOCKED` (change something; never resend unchanged); then `Ran on:` (the
 `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an `Agent: in-context` brief), outcome per item,
 test or gate results, what needs a decision, and the report path. The full report (root cause, before/after output,
-numstat, teeth proof, commands) goes to `<store>/reports/YYYY-MM-DD-<name>.md` (`claude-code memory path`), wrapped
+numstat, teeth proof, commands) goes to `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`, wrapped
 at 118 columns. Scratch files only under an absolute `/tmp/<job>/` path, removed before reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
@@ -174,7 +174,8 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or
 `sleep`: a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, repeated;
 [agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
-`git status`; never relaunch a leaf the user stopped. Reports go to `$(claude-code memory path)/reports/`.
+`git status`; never relaunch a leaf the user stopped. Reports go to
+`$(claude-code memory path reports YYYY-MM-DD-<name>.md)`.
 
 ## Shared tree
 

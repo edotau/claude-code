@@ -12,12 +12,13 @@ paths:
 | Artifact | Path |
 | --- | --- |
 | Plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (others); gitignored; dated from the first write (`docs-plan-mirror`), filed on approval (`docs-plan-save`); the undated draft is scratch |
-| Session handoff | `<store>/handoffs/YYYY-MM-DD-<topic>.md` — only when `activeContext.md` can't hold it; point to it from there |
-| Report (review, audit, techdebt scan, research brief) | `<store>/reports/YYYY-MM-DD-<name>.md` |
-| Promoted knowledge (local-only) | `<store>/knowledge/<topic>.md` — home bank for cross-repo, the repo's own bank otherwise |
+| Session handoff | `~/.claude/memory/handoffs/<key>--YYYY-MM-DD-<topic>.md` — only when `activeContext.md` can't hold it; point to it from there |
+| Report (review, audit, techdebt scan, research brief) | `~/.claude/memory/reports/<key>--YYYY-MM-DD-<name>.md` |
+| Promoted knowledge (local-only) | `~/.claude/memory/knowledge/<key>--<topic>.md` — unprefixed `<topic>.md` for cross-repo (home), the repo's own key otherwise |
 
-`<store>` is `~/.claude/memory/<repo>/` (`claude-code memory path`; harness `memory/claude-code/`, home `memory/home/`):
-a local-only git repo outside every project, so handoffs and reports never ride a project's commits.
+`<key>` is the repo's git remote basename (harness `claude-code`); an unprefixed name is home. `claude-code memory path
+reports <name>` prints the exact path. The store is a local-only git repo outside every project, so handoffs and
+reports never ride a project's commits.
 
 ## What passes
 

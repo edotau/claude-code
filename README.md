@@ -396,9 +396,10 @@ Per-hook matrix and which agent runs what (block, detect-only or advisory):
 
 ## Memory bank
 
-One store, `~/.claude/memory/`: a local-only git repo, never pushed. A session gets the catalog plus this repo's active
-context; the rest loads on demand, and `memory dream` consolidates daily in the background. Store layout, file
-contracts, caps, precedence, every `memory` verb and the promotion ladder: `rules/workflows/memory-bank.md`.
+One store, `~/.claude/memory/`: a local-only git repo, never pushed. Every repo writes to that one directory as
+`<key>--<name>` files (unprefixed = home); a session gets the catalog plus this repo's active context, the rest loads on
+demand, and `memory dream` consolidates daily in the background. Store layout, file contracts, caps, precedence, every
+`memory` verb and the promotion ladder: `rules/workflows/memory-bank.md`.
 
 ## Status line
 
@@ -431,7 +432,7 @@ tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--finished]` · `agents cancel --lost [--dry-run]` |
 | What an agent changed, in its files, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
-| Merge another machine's memory, mark a replaced entry, try on a copy | `claude-code memory import --host <h>` · `memory revise <old> --with <new>` · `memory sandbox` |
+| Merge another machine's memory, flatten a per-repo store, try on a copy | `claude-code memory import --host <h>` · `memory migrate [--dry-run]` · `memory sandbox` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
