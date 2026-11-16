@@ -36,6 +36,7 @@ tracked or ignored, is redirected to the dated plans home (`docs-plan-gate`).
 
 ## When the gate blocks
 
-It names the canonical home; re-issue the write there. For a genuine repo doc the user asked for:
+It names the canonical home; re-issue the write there. When the file name holds plan, report or handoff, it names the
+one exact dated path to write. For a genuine repo doc the user asked for:
 `touch <file> && git add -N <file>` (`-f` if ignored) first, then re-issue the write, or
 `HARNESS_HOOK_SKIP=docs-placement` for the launch.

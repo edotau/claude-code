@@ -55,6 +55,10 @@ paths:
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
+- **Model precedence** (`agent.ResolveRun`): a typed model (`--model`, overlay `model`, `<profile>:` prefix), then the
+  agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a `Tier: fast|standard|deep` line in
+  the brief wins, else its wording picks (audit, security, parser, design: deep; typo, rename, move: fast). A tier the
+  row does not serve falls back to the untiered pick with a note.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
   list with a note.
@@ -114,7 +118,9 @@ paths:
   limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and `permission-gate` merged into the launch's one
   `--settings` (never `settings.json`; `exit 2` on any failure). Policy: plan mode, Edit/Write under the job's bank
   dirs, Bash only dream's `claude-code memory review|index|promote` plus `cd` into the store; file redirects are
-  refused, `2>&1` is not; no policy, binary or policy env refuses the launch. A dream whose gate refused calls and
+  refused, `2>&1` is not; Read is denied on `state/vault.db`, `.credentials.json`, `.env` and `*.pem`, which also binds
+  read-only Bash: a path spliced in by a substitution is denied, a comment cannot hide a command from the check, and
+  `cd` and `echo` are not caught by it; no policy, binary or policy env refuses the launch. A dream whose gate refused calls and
   edited nothing fails and retries in 6 h instead of stamping success.
 
 ## Codex child routing
