@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // claimFixture is a repo with a.txt and b.txt committed, a config dir, and liveOwner as the only live pid.
@@ -499,5 +500,143 @@ func TestClaimBashWritesAreClaimedAndChecked(t *testing.T) {
 	}
 	if r := claimCheckOn(t, repo, "B", "Bash", bash); r.Context != "" {
 		t.Fatalf("repeat must be silent, got %q", r.Context)
+	}
+}
+
+// TestClaimSkipsPathItsCommandCommitted: a path the same command committed is not claimed; a still-dirty one is.
+func TestClaimSkipsPathItsCommandCommitted(t *testing.T) {
+	repo := claimFixture(t)
+	useClaimOwner(t, liveOwner)
+	hosttest.WriteRel(t, repo, "a.txt", "A's edit\n")
+	hosttest.WriteRel(t, repo, "b.txt", "A's edit\n")
+	hosttest.In(t, repo, "commit", "-qm", "A lands b", "--", "b.txt")
+	Claim(claimInput(t, map[string]any{"session_id": "A", "cwd": repo, "tool_name": "Bash", "tool_input": map[string]any{
+		"command": "printf x > a.txt && printf x > b.txt && git commit -qm x -- b.txt"}}))
+	got := readClaims(t, claimsFile(liveOwner, "A"))
+	if len(got) != 1 || got[0].Path != filepath.Join(repo, "a.txt") {
+		t.Fatalf("claims = %+v; want only the still-dirty a.txt", got)
+	}
+}
+
+// TestClaimCheckHintIsNonInteractive: the note and the ask name a recipe a hook shell can run, not `git add -p`.
+func TestClaimCheckHintIsNonInteractive(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	note := claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": filepath.Join(repo, "a.txt")}).Context
+	ask := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add a.txt"})
+	for name, text := range map[string]string{"note": note, "ask": ask.Reason} {
+		if !strings.Contains(text, "git apply --cached <patch>") || strings.Contains(text, "git add -p") {
+			t.Errorf("%s: %q; want the git apply --cached recipe and no git add -p", name, text)
+		}
+	}
+	if ask.Decision != core.Ask {
+		t.Fatalf("git add a.txt: %v; want ask", ask.Decision)
+	}
+}
+
+// TestClaimCheckCleanRetiresOlderClaims: a claimed file seen clean drops claims made before; a later claim still asks.
+func TestClaimCheckCleanRetiresOlderClaims(t *testing.T) {
+	now := time.Now().Unix()
+	for _, tc := range []struct {
+		name       string
+		peerDirty  bool
+		claimAfter bool
+		want       core.Decision
+	}{
+		{"peer reverted before B's edit", false, false, core.Allow},
+		{"peer still dirty", true, false, core.Ask},
+		{"peer claims again after the clean", false, true, core.Ask},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GIT_COMMITTER_DATE", time.Now().Add(-time.Hour).Format(time.RFC3339))
+			repo := claimFixture(t)
+			b := filepath.Join(repo, "b.txt")
+			appendClaims(claimsFile(liveOwner, "A"), []worktree.Claim{{Path: b, TS: now - 60}})
+			if tc.peerDirty {
+				hosttest.WriteRel(t, repo, "b.txt", "A's edit\n")
+			}
+			claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": b})
+			hosttest.WriteRel(t, repo, "b.txt", "B's edit\n")
+			if tc.claimAfter {
+				appendClaims(claimsFile(liveOwner, "A"), []worktree.Claim{{Path: b, TS: now + 60}})
+			}
+			if r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt"}); r.Decision != tc.want {
+				t.Fatalf("git add b.txt: %v %q; want %v", r.Decision, r.Reason, tc.want)
+			}
+		})
+	}
+}
+
+// TestClaimCheckInterruptedOrCutLeafEnded: an interrupted leaf or one whose last record is a token cut has ended.
+func TestClaimCheckInterruptedOrCutLeafEnded(t *testing.T) {
+	const (
+		work = `{"type":"assistant","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash"}]}}`
+		cut  = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,` +
+			`"content":"[Request interrupted by user for tool use]"}]}}`
+		cutText = `{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`
+		denied  = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,` +
+			`"content":"Permission to use Bash has been denied."}]}}`
+		echoed = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1",` +
+			`"content":[{"type":"text","text":"[Request interrupted by user]"}]}]}}`
+		maxTok = `{"type":"assistant","message":{"stop_reason":"max_tokens","content":[{"type":"text","text":"x"}]}}`
+		resume = `{"type":"user","isMeta":true,"message":{"content":"Output token limit hit. Resume directly"}}`
+	)
+	for _, tc := range []struct {
+		name  string
+		lines []string
+		want  core.Decision
+	}{
+		{"interrupted tool call", []string{work, cut}, core.Allow},
+		{"interrupted turn", []string{work, cutText}, core.Allow},
+		{"max_tokens last", []string{maxTok}, core.Allow},
+		{"working", []string{work}, core.Ask},
+		{"denied tool call", []string{work, denied}, core.Ask},
+		{"marker in a tool's output", []string{work, echoed}, core.Ask},
+		{"max_tokens being resumed", []string{maxTok, resume}, core.Ask},
+		{"resumed after interrupt", []string{work, cut, work}, core.Ask},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			useClaimOwner(t, liveOwner)
+			tr := filepath.Join(t.TempDir(), "S.jsonl")
+			hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", strings.Join(tc.lines, "\n")+"\n")
+			hosttest.WriteRel(t, repo, "a.txt", "leaf one\n")
+			Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
+				"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "cwd": repo, "transcript_path": tr,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": "git add a.txt"}}))
+			if r.Decision != tc.want {
+				t.Fatalf("main stages leaf's a.txt: %v %q; want %v", r.Decision, r.Reason, tc.want)
+			}
+		})
+	}
+}
+
+// TestClaimCheckDryRunAndIntentStageNothing: a dry run or intent-to-add passes; staging or commit -n blocks.
+func TestClaimCheckDryRunAndIntentStageNothing(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		want    core.Decision
+	}{
+		{"git add -n a.txt", core.Allow},
+		{"git add -An", core.Allow},
+		{"git add --dry-run -A", core.Allow},
+		{"git add -N a.txt", core.Allow},
+		{"git add --intent-to-add -A", core.Allow},
+		{"git commit --dry-run -a", core.Allow},
+		{"git commit -n -am x", core.Block},
+		{"git add -n --no-dry-run a.txt", core.Block},
+		{"git add -- -n a.txt", core.Block},
+		{"git add -n a.txt && git add a.txt", core.Block},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			repo := claimFixture(t)
+			claimEdit(t, repo, liveOwner, "A", "a.txt")
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
+				"tool_name": "Bash", "tool_input": map[string]any{"command": tc.command}}))
+			if r.Decision != tc.want {
+				t.Fatalf("%s: %v %q; want %v", tc.command, r.Decision, r.Reason, tc.want)
+			}
+		})
 	}
 }
