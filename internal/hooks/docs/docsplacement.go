@@ -166,16 +166,19 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	store := memory.Dir(root)
+	b := memory.BankFor(root)
+	reports, handoffs := b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md")
 	if paths.Within(core.CanonPath(root), core.CanonPath(memory.StoreDir())) {
-		store = root // a repo inside the memory store is its own bank, not the home one
+		// a repo inside the memory store is its own bank; BankFor resolves an unregistered one to home
+		reports = filepath.Join(memory.ReportsDir(root), "YYYY-MM-DD-<name>.md")
+		handoffs = filepath.Join(memory.HandoffsDir(root), "YYYY-MM-DD-<topic>.md")
 	}
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user asked\n"+
 		"for: `git add -N <file>` first (tracked files pass). Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
 		"-> rules/harness/docs-placement.md\n",
-		base, where, plansHome, memory.ReportsDir(store), memory.HandoffsDir(store))
+		base, where, plansHome, reports, handoffs)
 	return core.ExitBlock
 }
 

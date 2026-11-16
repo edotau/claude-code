@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,8 +27,7 @@ func orphanAccessLog(p string) bool {
 	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
 		return false
 	}
-	_, err := os.Lstat(filepath.Join(memory.StoreDir(), strings.TrimSuffix(name, ".log")))
-	return os.IsNotExist(err)
+	return !slices.Contains(memory.BankKeys(), strings.TrimSuffix(name, ".log"))
 }
 
 // openMemoryFiles is a var so tests can stub the process-table scan (production: scanOpenMemoryFiles).

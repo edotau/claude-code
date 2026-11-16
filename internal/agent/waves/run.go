@@ -131,12 +131,9 @@ func (r *runner) prepare() error {
 		return err
 	}
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
-	store, err := memory.RepoDir(r.o.Dir)
-	if err != nil {
-		return err
-	}
-	r.dir = filepath.Join(store, "waves", r.slug)
-	r.path, r.reports = filepath.Join(r.dir, "state.json"), memory.ReportsDir(store)
+	b := memory.BankFor(r.o.Dir)
+	r.dir = b.Sub("waves", r.slug)
+	r.path, r.reports = filepath.Join(r.dir, "state.json"), b.SubDir("reports")
 	r.state.Plan = r.o.Plan
 	return nil
 }
@@ -172,7 +169,7 @@ func (r *runner) gate(w plans.Wave) string {
 }
 
 func (r *runner) load() error {
-	if _, err := memory.EnsureRepoDir(r.o.Dir); err != nil {
+	if _, err := memory.EnsureBank(r.o.Dir, "waves"); err != nil {
 		return err
 	}
 	if !r.o.Fresh {

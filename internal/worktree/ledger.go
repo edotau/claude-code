@@ -26,18 +26,17 @@ type LedgerClose struct {
 }
 
 // ledgerPath is worktree name's ledger file under the repo's memory dir.
-func ledgerPath(dir, name string) string { return filepath.Join(dir, "worktrees", name+".md") }
+func ledgerPath(main, name string) string { return memory.BankFor(main).Sub("worktrees", name+".md") }
 
 // openLedger creates a ledger, leaves an open ledger unchanged, or reopens a closed ledger.
 func openLedger(main, name string, info ledgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	dir, err := memory.EnsureRepoDir(main)
-	if err != nil {
+	if _, err := memory.EnsureBank(main, "worktrees"); err != nil {
 		return err
 	}
-	path := ledgerPath(dir, name)
+	path := ledgerPath(main, name)
 	return withLedgerLock(path, func() error {
 		data, err := os.ReadFile(path)
 		if err == nil {
@@ -133,7 +132,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 		return nil, "", "", false, nil
 	}
 	name := filepath.Base(top)
-	path = ledgerPath(memory.Dir(repo.Main), name)
+	path = ledgerPath(repo.Main, name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, "", "", false, nil
 	} else if err != nil {
@@ -173,7 +172,7 @@ func CloseLedger(main, name string, c LedgerClose) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	path := ledgerPath(memory.Dir(main), name)
+	path := ledgerPath(main, name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {

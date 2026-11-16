@@ -481,7 +481,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.
-var handoffDir = func(root string) string { return memory.HandoffsDir(memory.Dir(root)) }
+var handoffPath = func(root, name string) string { return memory.BankFor(root).Sub("handoffs", name) }
 
 // copilotQuotaHandoff marks the exhausted account and returns a redacted handoff of the failed run's partial output.
 func copilotQuotaHandoff(
@@ -510,7 +510,7 @@ func resumeAlias(reg *providers.Registry, model string) string {
 	return models.FamilyOf(canon)
 }
 
-// writeCopilotHandoff writes memory/<repo>/handoffs/<date>-copilot-<shortid>[-N].md, redacted, and returns its path.
+// writeCopilotHandoff redacts credentials before saving a quota handoff in the repo's bank.
 func writeCopilotHandoff(
 	req agent.RunOptions, res wire.Result, partial, acct string, cause error, creds []string,
 ) (string, error) {
@@ -529,11 +529,12 @@ func writeCopilotHandoff(
 		cmp.Or(res.Model, "?"), root, session, agent.FallbackReason(cause),
 		strings.TrimSpace(req.Prompt), cmp.Or(strings.TrimSpace(partial), "(none)"))
 	doc = textutil.RedactSecrets(redactValues(doc, creds))
-	dir := handoffDir(root)
+	path := handoffPath(root, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID)+".md")
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	return createExclusive(dir, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID), []byte(doc))
+	return createExclusive(dir, strings.TrimSuffix(filepath.Base(path), ".md"), []byte(doc))
 }
 
 // redactValues masks every resolved credential value (8+ chars) in s, whatever its shape.

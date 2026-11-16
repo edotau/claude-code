@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -184,7 +183,7 @@ func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, b
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
-	path := ledgerPath(memory.Dir(repo.Main), name)
+	path := ledgerPath(repo.Main, name)
 	if data, err := os.ReadFile(path); err == nil {
 		if ledgerField(string(data), "Status") != "closed" {
 			return nil
