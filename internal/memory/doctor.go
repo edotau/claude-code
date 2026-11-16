@@ -83,11 +83,11 @@ func doctorNotice(root string) string {
 
 // writeDoctorNotice runs the doctor and caches its notice for root.
 func writeDoctorNotice(root string, staleDays int, now time.Time) error {
-	return cacheDoctorNotice(root, doctor(root, staleDays, now))
+	return cacheDoctorNotice(BankFor(root), doctor(root, staleDays, now))
 }
 
 // cacheDoctorNotice caches problems' first line and a count (hot hints excluded); empty means checked and healthy.
-func cacheDoctorNotice(root string, problems []string) error {
+func cacheDoctorNotice(b Bank, problems []string) error {
 	problems = slices.DeleteFunc(slices.Clone(problems), func(p string) bool {
 		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
 	})
@@ -98,7 +98,7 @@ func cacheDoctorNotice(root string, problems []string) error {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
 	}
-	return paths.AtomicWrite(doctorNoticePath(root), []byte(line), 0o600)
+	return paths.AtomicWrite(filepath.Join(StateDir(), "doctor-notice-"+stateKey(b)), []byte(line), 0o600)
 }
 
 // refreshNotice re-caches root's session-start notice once its bank is settled; a failure is a note on w, never fatal.
@@ -108,16 +108,28 @@ func refreshNotice(w io.Writer, verb, root string) {
 	}
 }
 
+func refreshBankNotice(w io.Writer, verb, root string, b Bank) {
+	if err := cacheDoctorNotice(b, doctorBank(root, b, DefaultStaleDays, time.Now())); err != nil {
+		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
+	}
+}
+
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
+	return doctorBank(root, BankFor(root), staleDays, now)
+}
+
+func doctorBank(root string, b Bank, staleDays int, now time.Time) []string {
 	var problems []string
-	if !isHomeBank(root) {
-		problems = append(problems, bankProblems("local", statBank(BankFor(root)), staleDays, now)...)
+	if !b.Home() {
+		problems = append(problems, bankProblems("local", statBank(b), staleDays, now)...)
 	}
 	problems = append(problems, bankProblems("home", statBank(HomeBank()), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
-	problems = append(problems, nativeLinkProblems(root)...)
+	if root != "" {
+		problems = append(problems, nativeLinkProblems(root)...)
+	}
 	return append(problems, accessNominations(now)...)
 }
 
@@ -270,7 +282,11 @@ type timelineEntry struct {
 }
 
 // timeline returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings, local then home.
-func timeline(root string, limit int) (entries []timelineEntry, sessions []string, err error) {
+func timeline(root string, limit int) ([]timelineEntry, []string, error) {
+	return timelineBank(BankFor(root), limit)
+}
+
+func timelineBank(b Bank, limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		if r.Time.IsZero() {
@@ -286,15 +302,14 @@ func timeline(root string, limit int) (entries []timelineEntry, sessions []strin
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
-	sessions, err = recentSessions(root, limit)
+	sessions, err = recentSessions(b, limit)
 	return entries, sessions, err
 }
 
-// recentSessions lists the sessionHistory headings of root's bank then the home bank, deduped, up to limit (0 = all).
-func recentSessions(root string, limit int) (sessions []string, err error) {
+func recentSessions(own Bank, limit int) (sessions []string, err error) {
 	seen := map[string]bool{}
 	banks := []Bank{HomeBank()}
-	if own := BankFor(root); !own.Home() {
+	if !own.Home() {
 		banks = []Bank{own, HomeBank()}
 	}
 	for _, b := range banks {

@@ -15,11 +15,6 @@ import (
 // catalogHomeMax bounds the home entry lines the catalog carries; the rest are reachable by search.
 const catalogHomeMax = 10
 
-// buildBankRegion renders dir's generated MEMORY.md region: one pointer line, then the newest entries.
-func buildBankRegion(dir string, now time.Time) (string, error) {
-	return buildRegionFrom(func(name string) string { return filepath.Join(dir, name) }, now)
-}
-
 // regionBank is the bank whose files fill the region: b legacy, the harness's when flat (one shared region).
 func regionBank(b Bank) Bank {
 	if storeFlat() {
@@ -28,7 +23,6 @@ func regionBank(b Bank) Bank {
 	return b
 }
 
-// buildRegionFrom is buildBankRegion over any typed-file locator.
 func buildRegionFrom(path func(name string) string, now time.Time) (string, error) {
 	var names []string
 	for _, name := range bankFiles {
@@ -212,9 +206,11 @@ func newestBankMarkdown(b Bank) (time.Time, error) {
 }
 
 // knowledgeFiles are the home bank's knowledge notes plus root's own bank's.
-func knowledgeFiles(root string) []string {
+func knowledgeFiles(root string) []string { return knowledgeOf(BankFor(root)) }
+
+func knowledgeOf(b Bank) []string {
 	out := knowledgeNotes(HomeBank())
-	if b := BankFor(root); !b.Home() {
+	if !b.Home() {
 		out = append(out, knowledgeNotes(b)...)
 	}
 	return out

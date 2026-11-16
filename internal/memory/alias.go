@@ -388,7 +388,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 	if err := removeEmptyTree(p.source); err != nil {
 		return err
 	}
-	if _, err := settleDir(bankOfDir(p.target), now); err != nil {
+	if _, err := settleDir(Bank{Key: p.origin.Key}, now); err != nil {
 		return err
 	}
 	if err := writeCatalog(now); err != nil {

@@ -136,3 +136,109 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 		t.Errorf("import of a flat source into a per-repo store err = %v, want the migrate hint", err)
 	}
 }
+
+func flatImportFixture(t *testing.T) (string, Bank) {
+	t.Helper()
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	initStore(t)
+	b := Bank{Key: "alpha"}
+	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
+	write(t, b.NativeIndex(), "- [Local](alpha--local.md)\n")
+	write(t, b.Path("topic.md"), "keep local\n")
+	src := t.TempDir()
+	files := map[string]string{
+		layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "# Log\n\n## 2026-11-02 — remote <!-- id:22222222 -->\nRemote body.\n",
+		"alpha--topic.md": "remote conflict\n", "alpha--new.md": "new topic\n", "MEMORY.md": "- [Remote](alpha--new.md)\n- [Orphan](orphan--new.md)\n",
+		"orphan--decisionLog.md": "## 2026-11-02 — orphan <!-- id:33333333 -->\n", "orphan--new.md": "orphan topic\n",
+		catalogFile: "foreign catalog\n", "alpha--writer.lock": "lock\n", ".git/config": "foreign git\n",
+		"archive/alpha--decisionLog-2026-10.md": "## 2026-10-01 — archived <!-- id:44444444 -->\n",
+		"native-only.md":                        "shared topic\n", "reports/alpha--bundle/report.md": "nested report\n", "locks/alpha--writer.md": "lock metadata\n",
+	}
+	for rel, body := range files {
+		write(t, filepath.Join(src, rel), body)
+	}
+	write(t, filepath.Join(src, "alpha--huge.md"), strings.Repeat("x", importMaxFile+1))
+	if err := os.Symlink("alpha--new.md", filepath.Join(src, "alpha--link.md")); err != nil {
+		t.Fatal(err)
+	}
+	return src, b
+}
+
+func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
+	src, b := flatImportFixture(t)
+	o := ImportOptions{From: src, All: true, Topics: true}
+	res, err := ImportBank(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Summary, "1 conflict(s)") || !strings.Contains(strings.Join(res.Lines, "\n"), "skipped orphan: no local store") {
+		t.Fatalf("%+v", res)
+	}
+	log := aliasRead(t, b.Path("decisionLog.md"))
+	if !strings.Contains(log, "11111111") || !strings.Contains(log, "22222222") {
+		t.Fatal(log)
+	}
+	wantFile(t, b.Path("topic.md"), "keep local\n")
+	wantFile(t, b.Path("new.md"), "new topic\n")
+	wantFile(t, filepath.Join(StoreDir(), "native-only.md"), "shared topic\n")
+	wantFile(t, b.Sub("reports", "bundle/report.md"), "nested report\n")
+	if strings.Contains(aliasRead(t, b.NativeIndex()), "orphan--new.md") {
+		t.Fatal("imported pointer for absent bank")
+	}
+	if !strings.Contains(aliasRead(t, b.NativeIndex()), "alpha--new.md") {
+		t.Fatal("missing shared pointer")
+	}
+	for _, rel := range []string{"orphan--decisionLog.md", "orphan--new.md", "alpha--writer.lock", "alpha--huge.md", "alpha--link.md", "locks/alpha--writer.md"} {
+		if pathExists(filepath.Join(StoreDir(), rel)) {
+			t.Errorf("imported excluded file %s", rel)
+		}
+	}
+	if strings.Contains(aliasRead(t, filepath.Join(StoreDir(), catalogFile)), "foreign catalog") {
+		t.Fatal("imported catalog")
+	}
+	res, err = ImportBank(o)
+	if err != nil || res.Summary != "nothing to import" {
+		t.Fatalf("repeat: %+v, %v", res, err)
+	}
+}
+
+func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
+	src, b := flatImportFixture(t)
+	o := ImportOptions{From: src, Repo: b.Key, DryRun: true}
+	res, err := ImportBank(o)
+	if err != nil || !strings.Contains(res.Summary, "would import") {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "22222222") {
+		t.Fatal("dry run wrote")
+	}
+	o.DryRun = false
+	if _, err := ImportBank(o); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "22222222") {
+		t.Fatal("missing remote log")
+	}
+	if pathExists(b.Path("new.md")) || strings.Contains(aliasRead(t, b.NativeIndex()), "alpha--new.md") {
+		t.Fatal("topics imported without flag")
+	}
+}
+
+func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
+	dir := t.TempDir()
+	_, err := ExtractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{layoutFile, "alpha--decisionLog.md", nativeIndexFile} {
+		if !pathExists(filepath.Join(dir, rel)) {
+			t.Errorf("missing %s from host archive", rel)
+		}
+	}
+	for _, rel := range []string{catalogFile, "alpha--writer.lock", ".git/config"} {
+		if pathExists(filepath.Join(dir, rel)) {
+			t.Errorf("extracted excluded %s", rel)
+		}
+	}
+}

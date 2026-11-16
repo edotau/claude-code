@@ -96,7 +96,7 @@ func memoryFlagSet(sub string) *flag.FlagSet {
 // memoryRepoFlagSet adds --repo; only handlers that resolve a bank root take it, so it is never silently ignored.
 func memoryRepoFlagSet(sub string) (*flag.FlagSet, *string) {
 	fs := memoryFlagSet(sub)
-	return fs, fs.String("repo", "", "project root (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
+	return fs, fs.String("repo", "", "bank key or checkout path (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 }
 
 // memoryParseNoArgs parses args and refuses a positional: it stops flag parsing, so later flags would be ignored.
@@ -275,11 +275,11 @@ func cmdMemoryInit(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "init", args); done {
 		return code
 	}
-	root, err := memory.ResolveRoot(*repo)
+	_, _, err := memory.ResolveBank(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory init: %v", err)
 	}
-	if err := memory.InitBank(os.Stdout, root); err != nil {
+	if err := memory.InitBank(os.Stdout, *repo); err != nil {
 		return helptext.Fail("memory init: %v", err)
 	}
 	return 0
@@ -296,15 +296,15 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	root, err := memory.ResolveRoot(*repo)
+	_, b, err := memory.ResolveBank(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory remember: %v", err)
 	}
-	id, err := memory.Remember(root, *kind, strings.Join(terms, " "), time.Now())
+	id, err := memory.Remember(*repo, *kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memory.BankFor(root).SubDir(""))
+	fmt.Printf("remembered [%s] -> %s\n", id, b.SubDir(""))
 	return 0
 }
 
@@ -391,11 +391,11 @@ func cmdMemoryRevise(args []string) int {
 	if len(ids) != 1 || *with == "" {
 		return helptext.FailUsage("memory revise: give <old-id> --with <new-id> (usage: %s)", memorySubPage("revise").Usage)
 	}
-	root, err := memory.ResolveRoot(*repo)
+	_, _, err = memory.ResolveBank(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory revise: %v", err)
 	}
-	out, err := memory.ReviseEntry(root, ids[0], *with, *dryRun)
+	out, err := memory.ReviseEntry(*repo, ids[0], *with, *dryRun)
 	if errors.Is(err, memory.ErrReviseInput) {
 		return helptext.FailUsage("%v", err)
 	}
@@ -605,11 +605,11 @@ func cmdMemoryPromote(args []string) int {
 	if len(pos) != 1 || *to == "" {
 		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
 	}
-	root, err := memory.ResolveRoot(*repo)
+	_, _, err = memory.ResolveBank(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory promote: %v", err)
 	}
-	out, err := memory.Promote(root, pos[0], *to, *dryRun, time.Now())
+	out, err := memory.Promote(*repo, pos[0], *to, *dryRun, time.Now())
 	if err != nil {
 		return helptext.Fail("memory promote: %v", err)
 	}

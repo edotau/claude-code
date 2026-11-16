@@ -524,9 +524,11 @@ func reviseDir(b Bank, texts map[string]string) error {
 }
 
 // reviseProblems lists dangling and cyclic `Supersedes` references in root's banks, for `memory review`.
-func reviseProblems(root string) []string {
+func reviseProblems(root string) []string { return reviseBankProblems(BankFor(root)) }
+
+func reviseBankProblems(own Bank) []string {
 	var out []string
-	for _, b := range bankSet(root) {
+	for _, b := range bankSet(own) {
 		docs, err := reviseDocSet(b, nil)
 		if err != nil {
 			continue
@@ -543,15 +545,19 @@ func reviseProblems(root string) []string {
 
 // ReviseEntry makes newID replace oldID: a `Supersedes` line in the new entry, a strike + pointer on the old one.
 func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
+	_, own, err := ResolveBank(root)
+	if err != nil {
+		return "", err
+	}
 	if oldID == newID {
 		return "", fmt.Errorf("%w: old and new id are both %s", ErrReviseInput, oldID)
 	}
 	var msg string
-	err := withReviseLocks(root, func() error {
+	err = withReviseLocks(own, func() error {
 		if skipped, err := recoverEach(); err != nil || skipped != nil {
 			return errors.Join(err, skipped)
 		}
-		docs, err := loadBankDocs(bankSet(root)...)
+		docs, err := loadBankDocs(bankSet(own)...)
 		if err != nil {
 			return err
 		}
@@ -562,8 +568,8 @@ func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
 }
 
 // withReviseLocks takes store, home and bank locks in the worker order, with the foreground wait.
-func withReviseLocks(root string, fn func() error) error {
-	banks := []Bank{BankFor(root)}
+func withReviseLocks(own Bank, fn func() error) error {
+	banks := []Bank{own}
 	if !banks[0].Home() {
 		banks = append(banks, HomeBank())
 	}
@@ -756,11 +762,11 @@ func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, er
 		}
 		return hits, root(repo), nil
 	}
-	top, err := ResolveRoot(repo)
+	top, b, err := ResolveBank(repo)
 	if err != nil {
 		return nil, "", err
 	}
-	ranked, files, segs := searchBanksTerms(top, q, contentTerms(q), 0)
+	ranked, files, segs := searchBankTerms(b, q, contentTerms(q), 0)
 	hits := followReplaced(ranked, files, segs)
 	if k > 0 && len(hits) > k {
 		hits = hits[:k]

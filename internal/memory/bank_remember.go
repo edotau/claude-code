@@ -36,7 +36,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	b, err := EnsureBank(root, "")
+	b, err := ensureResolvedBank(root)
 	if err != nil {
 		return "", err
 	}
@@ -49,7 +49,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 		if id, werr = writeRememberFact(b, file, kind, fact, now); werr != nil {
 			return werr
 		}
-		return restoreOnError(stampAndSettle(root, b, file, now), snap)
+		return restoreOnError(stampAndSettle(b, file, now), snap)
 	})
 	if err != nil {
 		return "", err
@@ -58,7 +58,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 }
 
 // stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
-func stampAndSettle(root string, b Bank, file string, now time.Time) error {
+func stampAndSettle(b Bank, file string, now time.Time) error {
 	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
 	for name, prefix := range idFiles {
 		if name == file { // already stamped in memory before its one write
@@ -69,7 +69,7 @@ func stampAndSettle(root string, b Bank, file string, now time.Time) error {
 		}
 	}
 	afterRememberWrite()
-	return settleLocked(root, now)
+	return settleLockedBank(b, now)
 }
 
 // writeRememberFact adds fact to b's file, stamps its id in memory, writes the file once, and returns the id.

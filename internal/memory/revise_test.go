@@ -257,11 +257,11 @@ func assertReviseWorkerLock(t *testing.T, root, mode string) {
 	old := updateLockWait
 	updateLockWait = 0
 	t.Cleanup(func() { updateLockWait = old })
-	dir := Dir(root)
+	b := BankFor(root)
 	if mode == "home lock" {
-		dir = HomeBankDir()
+		b = HomeBank()
 	}
-	ran, err := paths.TryFileLock(lockPath(dir)+".lock", 0, func() error {
+	ran, err := paths.TryFileLock(lockPathOf(b)+".lock", 0, func() error {
 		_, err := ReviseEntry(root, "a0000001", "b0000002", true)
 		if err == nil || !strings.Contains(err.Error(), "busy") {
 			t.Errorf("revise under worker lock = %v; want busy", err)

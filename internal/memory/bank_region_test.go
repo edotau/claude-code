@@ -36,7 +36,7 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 	write(t, filepath.Join(dir, "decisionLog.md"), b.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	region, err := buildBankRegion(dir, now)
+	region, err := buildRegionFrom(func(name string) string { return filepath.Join(dir, name) }, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestBuildBankRegionKeepsFiveIDedEntriesAndOnePointer(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "decisionLog.md"), b.String())
 
-	region, err := buildBankRegion(dir, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	region, err := buildRegionFrom(func(name string) string { return filepath.Join(dir, name) }, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
