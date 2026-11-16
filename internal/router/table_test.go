@@ -23,7 +23,7 @@ func TestLoadEveryCellResolves(t *testing.T) {
 	assertEveryCellResolves(t, tb)
 }
 
-// LoadFrom applies a registry's per-cell Route override, replaces Weights whole, and rejects unknown cells.
+// LoadFrom applies a registry's per-cell Route override, replaces Weights whole, and skips unknown cells.
 func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	reg := &providers.Registry{
 		// opencode-go/y keeps the opencode cell's own backend prefix, so the override only replaces the model.
@@ -42,9 +42,15 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 	if tb.Weights["headroom"] != 0.8 {
 		t.Errorf("weights = %v", tb.Weights)
 	}
-	bad := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"ghost": {"opus": {Model: "m"}}}}}
-	if _, err := LoadFrom(bad, "u"); err == nil {
-		t.Error("unknown overlay cell must fail")
+	stale := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
+		"ghost": {"opus": {Model: "m"}}, "opencode": {"sonnet": {Model: "opencode-go/y"}},
+	}}}
+	tb, err = LoadFrom(stale, "u")
+	if err != nil {
+		t.Fatalf("a stale overlay cell must be skipped, not fail the table: %v", err)
+	}
+	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" {
+		t.Errorf("cells beside a stale one must still apply: %+v", c)
 	}
 }
 

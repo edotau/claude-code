@@ -4,8 +4,10 @@ import (
 	"cmp"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -213,6 +215,10 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 	for agent, rows := range reg.Routing.Cells {
 		for key, o := range rows {
 			id, err := t.applyRouteOverlayCell(agent, key, o)
+			if errors.Is(err, errStaleCell) {
+				warnStaleCell(err)
+				continue
+			}
 			if err != nil {
 				return err
 			}
@@ -265,12 +271,24 @@ func opencodeSubAliases(subs map[string]map[string]Cell) map[string]map[string]C
 	return out
 }
 
+// errStaleCell marks an overlay cell the embedded table no longer has; LoadFrom skips it instead of failing.
+var errStaleCell = errors.New("skipped: the route table no longer has it")
+
+// warnedCells holds the stale-cell warnings already printed, so each prints once per process.
+var warnedCells sync.Map
+
+func warnStaleCell(err error) {
+	if _, seen := warnedCells.LoadOrStore(err.Error(), true); !seen {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+	}
+}
+
 // applyRouteOverlayCell merges one overlay cell (o) into ByModel[row][agent] and returns the row id.
 func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteCell) (string, error) {
 	id := rowKey(key)
 	c, ok := t.ByModel[id][agent]
 	if !ok {
-		return "", fmt.Errorf("router: overlay names unknown cell %s/%s", agent, key)
+		return "", fmt.Errorf("router: overlay names unknown cell %s/%s: %w", agent, key, errStaleCell)
 	}
 	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
 		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
