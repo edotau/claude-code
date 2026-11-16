@@ -71,8 +71,9 @@ kills the leaf's leftover background shells (its own task ids only)
 ## worktree-claim-check
 
 Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
-(owner pid alive) or sibling leaf (transcript fresh) and not committed since; asks on a `git add`/`commit` that stages
-one (`-p` passes), blocks in a leaf; an infra error allows with a warning. Dead owners' files are removed; a file
+(owner pid alive) or sibling leaf (transcript fresh) and not committed or seen clean since; asks on a `git add`/`commit`
+that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf; a sibling leaf counts until it ends, is
+interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a file
 under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git` command
 also gets the drained notices and divergence line
 

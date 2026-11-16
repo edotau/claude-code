@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -65,8 +66,29 @@ func Claim(in *core.Input) core.Result {
 	if staged {
 		lines = append(lines, stagedClaims(in, now)...) // external-agent edits are claimed when staged
 	}
-	appendClaims(claimsFile(owner, in.SessionID), lines)
+	appendClaims(claimsFile(owner, in.SessionID), stillDirty(lines))
 	return core.Result{}
+}
+
+// stillDirty drops claims on paths the command left clean (it committed them); outside a repo or on error all stay.
+func stillDirty(lines []worktree.Claim) []worktree.Claim {
+	if len(lines) == 0 {
+		return nil
+	}
+	ctx, cancel := core.HookContext("worktree-claim")
+	defer cancel()
+	byDir := map[string]map[string]bool{} // nil: unknown, keep every claim under that dir
+	return slices.DeleteFunc(lines, func(c worktree.Claim) bool {
+		dir := filepath.Dir(c.Path)
+		dirty, seen := byDir[dir]
+		if !seen {
+			if top, d, err := dirtySet(ctx, dir); top != "" && err == nil {
+				dirty = d
+			}
+			byDir[dir] = dirty
+		}
+		return dirty != nil && !dirty[c.Path]
+	})
 }
 
 // stagedClaims claims, for the stager, each path the command's git add invocations left staged.

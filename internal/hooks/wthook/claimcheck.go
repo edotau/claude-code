@@ -92,22 +92,27 @@ func siblingLeaf(in *core.Input) func(worktree.Claim) string {
 	}
 }
 
-// leafEnded: the leaf's last assistant turn ended its turn, or handed back and the hand-back's result is not a denial.
+// leafEnded: the leaf's last assistant turn ended or handed back undenied, or the user interrupted it after.
 func leafEnded(transcript string) bool {
 	lines, ok := tailLines(transcript)
 	if !ok {
 		return false
 	}
 	failed := map[string]bool{} // tool_use_id → is_error, for results after the last assistant turn
+	later := false              // a record follows the last assistant turn
 	for _, line := range slices.Backward(lines) {
 		var rec leafRecord
-		if json.Unmarshal([]byte(line), &rec) != nil {
+		if json.Unmarshal([]byte(line), &rec) != nil || rec.Type == "" {
 			continue
 		}
 		if rec.Type == "assistant" {
-			return turnEnded(rec, failed)
+			return turnEnded(rec, failed, later)
 		}
-		for _, c := range rec.Message.Content {
+		later = true
+		for _, c := range rec.blocks() {
+			if c.interrupted() {
+				return true
+			}
 			if c.Type == "tool_result" {
 				failed[c.ToolUseID] = c.IsError
 			}
@@ -130,9 +135,17 @@ func tailLines(transcript string) ([]string, bool) {
 	return strings.Split(strings.TrimSpace(string(b)), "\n"), true
 }
 
-// turnEnded: an assistant turn that ended, or a SubagentHandback whose later result is not a denial.
-func turnEnded(rec leafRecord, failed map[string]bool) bool {
-	return rec.Message.StopReason == "end_turn" || slices.ContainsFunc(rec.Message.Content, func(c leafContent) bool {
+// turnEnded: an ended turn (a max_tokens cut only as the last record; recovery appends one), or an undenied hand-back.
+func turnEnded(rec leafRecord, failed map[string]bool, later bool) bool {
+	switch rec.Message.StopReason {
+	case "end_turn":
+		return true
+	case "max_tokens", "stop_sequence":
+		if !later {
+			return true
+		}
+	}
+	return slices.ContainsFunc(rec.blocks(), func(c leafContent) bool {
 		isErr, seen := failed[c.ID]
 		return c.Type == "tool_use" && c.Name == "SubagentHandback" && seen && !isErr
 	})
@@ -142,17 +155,46 @@ func turnEnded(rec leafRecord, failed map[string]bool) bool {
 type leafRecord struct {
 	Type    string `json:"type"`
 	Message struct {
-		StopReason string        `json:"stop_reason"`
-		Content    []leafContent `json:"content"`
+		StopReason string          `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"` // a block list, or a plain string prompt
 	} `json:"message"`
 }
 
+// blocks is the record's content blocks; a plain string prompt has none.
+func (r leafRecord) blocks() []leafContent {
+	var out []leafContent
+	_ = json.Unmarshal(r.Message.Content, &out)
+	return out
+}
+
 type leafContent struct {
-	Type      string `json:"type"`
-	Name      string `json:"name"`
-	ID        string `json:"id"`
-	ToolUseID string `json:"tool_use_id"`
-	IsError   bool   `json:"is_error"`
+	Type      string          `json:"type"`
+	Name      string          `json:"name"`
+	ID        string          `json:"id"`
+	ToolUseID string          `json:"tool_use_id"`
+	IsError   bool            `json:"is_error"`
+	Text      string          `json:"text"`
+	Content   json.RawMessage `json:"content"`
+}
+
+// interruptMark opens the text Claude Code records when the user interrupts a turn or its tool call.
+const interruptMark = "[Request interrupted by user"
+
+// interrupted reports the user's interrupt: its text block, or an errored tool result carrying the mark.
+func (c leafContent) interrupted() bool {
+	if c.Type == "text" {
+		return strings.HasPrefix(c.Text, interruptMark)
+	}
+	if c.Type != "tool_result" || !c.IsError {
+		return false
+	}
+	var s string
+	if json.Unmarshal(c.Content, &s) == nil {
+		return strings.HasPrefix(s, interruptMark)
+	}
+	var parts []leafContent
+	_ = json.Unmarshal(c.Content, &parts)
+	return slices.ContainsFunc(parts, func(p leafContent) bool { return p.interrupted() })
 }
 
 // leafTail bounds how much of a leaf transcript leafEnded reads from its end.
@@ -169,11 +211,12 @@ func flattenClaims(byPath map[string]map[string]int64) map[string][]claimHit {
 	return out
 }
 
-// claimView is one check's inputs: the hook payload, its deadline and the live claims.
+// claimView is one check's inputs: the hook payload, its deadline, the live claims and this session's clean marks.
 type claimView struct {
 	ctx    context.Context
 	in     *core.Input
 	claims map[string][]claimHit
+	clean  func() map[string]int64
 }
 
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
@@ -208,7 +251,8 @@ func claimResult(ctx context.Context, in *core.Input, edits []string) core.Resul
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
 	if len(claims) > 0 {
-		v := claimView{ctx: ctx, in: in, claims: claims}
+		v := claimView{ctx: ctx, in: in, claims: claims,
+			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		if in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand()) {
 			res = v.stageCheck()
 		}
@@ -253,6 +297,9 @@ func (v claimView) editCheck(p string) core.Result {
 	if err != nil {
 		return claimWarn(err)
 	}
+	if top != "" && !dirty[p] {
+		markClean(v.in.SessionID, p) // nobody's hunks are left in p: claims made before now are retired
+	}
 	hits, err := v.freshHits(top, p, dirty)
 	if err != nil {
 		return claimWarn(err)
@@ -261,10 +308,40 @@ func (v claimView) editCheck(p string) core.Result {
 	for _, h := range hits {
 		if firstSighting(v.in.SessionID, p+"\t"+h.Who) {
 			lines = append(lines, fmt.Sprintf("%s has uncommitted edits by %s (since %s); edit only your own hunks "+
-				"and commit them with `git add -p`, or hand the change to its owner.", relTo(top, p), h.Who, clock(h.TS)))
+				"and stage just those (%s), or hand the change to its owner.", relTo(top, p), h.Who, clock(h.TS),
+				ownHunks))
 		}
 	}
 	return core.Result{Context: strings.Join(lines, "\n")}
+}
+
+// ownHunks is the non-interactive way to stage part of a file; `git add -p` waits on a prompt no hook shell answers.
+const ownHunks = "save `git diff <path>` to a patch file outside the repo, delete the hunks that are not yours, " +
+	"then `git apply --cached <patch>`"
+
+// cleanMark prefixes a seen-store line recording that a path was clean (path, then unix time, tab-separated).
+const cleanMark = "clean\t"
+
+// markClean records in session's seen store that p is clean now; a store error drops it (the mark is advisory).
+func markClean(session, p string) {
+	_, _ = seenAdd(session, cleanMark+p+"\t"+strconv.FormatInt(time.Now().Unix(), 10))
+}
+
+// cleanMarks maps each path session saw clean to the latest time it did.
+func cleanMarks(session string) map[string]int64 {
+	b, _ := os.ReadFile(seenFile(session))
+	out := map[string]int64{}
+	for line := range strings.Lines(string(b)) {
+		rest, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), cleanMark)
+		i := strings.LastIndexByte(rest, '\t')
+		if !ok || i < 0 {
+			continue
+		}
+		if ts, err := strconv.ParseInt(rest[i+1:], 10, 64); err == nil {
+			out[rest[:i]] = max(out[rest[:i]], ts)
+		}
+	}
+	return out
 }
 
 // dirtySet is dir's repo toplevel and its dirty paths (absolute, untracked included); "" top outside a repo.
@@ -288,7 +365,7 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 	return top, dirty, nil
 }
 
-// freshHits keeps p's claims when p is dirty and no claim predates p's last commit (an older claim landed).
+// freshHits keeps p's claims when p is dirty, dropping those older than p's last commit or this session's clean mark.
 func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, error) {
 	if top == "" || !dirty[p] {
 		return nil, nil
@@ -300,6 +377,9 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 	var landed int64
 	if len(out) > 0 {
 		landed, _ = strconv.ParseInt(out[0], 10, 64)
+	}
+	if v.clean != nil {
+		landed = max(landed, v.clean()[p])
 	}
 	return slices.DeleteFunc(slices.Clone(v.claims[p]), func(h claimHit) bool { return h.TS < landed }), nil
 }
@@ -454,7 +534,7 @@ func (v claimView) uninspectableVerdict() core.Result {
 // stageVerdict checks one git invocation's staged set against the claims.
 func (v claimView) stageVerdict(target, verb string, args []string) core.Result {
 	w := splitStage(verb, args)
-	if verb != "add" && verb != "commit" || interactive(verb, w.flags) {
+	if verb != "add" && verb != "commit" || interactive(verb, w.flags) || stagesNothing(verb, w.flags) {
 		return core.Result{}
 	}
 	top, dirty, err := dirtySet(v.ctx, target)
@@ -534,7 +614,7 @@ func stageResult(in *core.Input, verb string, taken []string, n stageCount) core
 	}
 	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
 		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
-	hint := "git add -p <path> for your hunks only, or leave the file and tell its owner"
+	hint := "stage only your hunks: " + ownHunks + "; or leave the file and tell its owner"
 	if verb == "commit" {
 		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
 	}
@@ -549,6 +629,24 @@ func interactive(verb string, flags []string) bool {
 		}
 		return verb == "add" && (f == "-i" || f == "--interactive")
 	})
+}
+
+// stagesNothing reports a dry run (add -n, --dry-run) or add -N, which records intent-to-add and stages no content.
+func stagesNothing(verb string, flags []string) bool {
+	dry, intent := false, false
+	for _, f := range flags { // the last of a flag and its --no- form wins, as in git
+		switch {
+		case f == "--dry-run" || verb == "add" && clusterHas(f, 'n'):
+			dry = true
+		case f == "--no-dry-run":
+			dry = false
+		case verb == "add" && (f == "--intent-to-add" || clusterHas(f, 'N')):
+			intent = true
+		case verb == "add" && f == "--no-intent-to-add":
+			intent = false
+		}
+	}
+	return dry || intent
 }
 
 // includesStaged reports commit --include (-i), which commits the index along with the operands.

@@ -71,8 +71,8 @@ Rows marked ¶ have full behavior text in `skills/subagent-workflows/references/
 | `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the detached `memory watch` (`memory-bank.md`) |
 | `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/worktrees/<key>--<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
 | `worktree-busy` ¶ | UserPromptSubmit | Vault env `HARNESS_WORKTREE` (`worktree-git.md` → Worktrees); drains this session's notices (≤5) and adds a divergence line in a diverged shared checkout |
-| `worktree-claim` | PostToolUse (Write\|Edit\|MultiEdit\|Bash) | Appends written, staged and committed paths to `state/harness/hooks/claims/<pid>-<session>.jsonl`; never blocks |
-| `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes before an edit that a dirty file is claimed by another live session or sibling leaf; asks on a staging or commit command that includes one (`-p` passes), blocks in a leaf; infra errors allow with a warning |
+| `worktree-claim` | PostToolUse (Write\|Edit\|MultiEdit\|Bash) | Appends written and staged paths still dirty after the call to `state/harness/hooks/claims/<pid>-<session>.jsonl`; never blocks |
+| `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes before an edit that a dirty file is claimed by another live session or sibling leaf; asks on a staging or commit command that includes one (`-p`, a dry run and `-N` pass), blocks in a leaf; infra errors allow with a warning |
 
 ## Authoring a gate
 
