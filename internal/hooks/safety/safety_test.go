@@ -45,6 +45,7 @@ var stillCaught = []struct {
 	{"psql -c \"DROP TABLE x\"", core.Ask},
 	{"echo $(rm -rf /)", core.Block},
 	{"echo `rm -rf ~`", core.Block},
+	{`printf 'rm -rf /\n' > f.sh && sh f.sh`, core.Block},
 	{"rm -rf ~", core.Block},
 	{"rm -Rf /", core.Block},
 	{"rm -r -f /", core.Block},
@@ -139,6 +140,23 @@ func TestSafetyScanChecksPythonHeredocBodies(t *testing.T) {
 		{"decode name then exec", "python <<'PY'\ncode = b64decode('cGFzcw==')\nexec(code)\nPY", core.Block},
 		{"print only", "python3 <<'PY'\nprint('hello')\nPY", core.Allow},
 		{"decode and print only", "python3 <<'PY'\nimport base64\nprint(base64.b64decode('aGVsbG8='))\nPY", core.Allow},
+		{"sudo in a plain script's string and comment", "python3 - <<'PY'\np = 'n.md'\ns = open(p).read()\n# old sudo advice\n" +
+			"s = s.replace('run sudo make install', 'run make install')\nopen(p, 'w').write(s)\nPY", core.Allow},
+		{"vault path in a prose string", "python3 - <<'PY'\np = 'n.md'\ns = open(p).read()\n" +
+			"s = s.replace('the vault', 'the vault (see state/vault.db)')\nopen(p, 'w').write(s)\nPY", core.Allow},
+		{"shell hand-off", "python3 - <<'PY'\nimport os\nos.system('sudo printf m')\nPY", core.Ask},
+		{"unlisted import", "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['bash', '-c', 'sudo printf m'])\nPY", core.Ask},
+		{"bare delimiter substitution", "python3 - <<PY\nprint('$(sudo printf m)')\nPY", core.Ask},
+		{"opener inside a quote", "echo '\n\"python3\" - <<PY\n'; sudo printf m\nPY", core.Ask},
+		{"inside an expanding heredoc", "cat <<OUT\npython3 - <<'PY'\nprint('$(sudo printf m)')\nPY\nOUT", core.Ask},
+		{"piped onward to a shell", "python3 - <<'PY' | sh\nprint('sudo printf m')\nPY", core.Ask},
+		{"written file runs later", "python3 - <<'PY'\nopen('r.sh', 'w').write('sudo printf m')\nPY\nbash r.sh", core.Ask},
+		{"script file reads stdin", "python3 tool.py <<'PY'\nsudo printf m\nPY", core.Ask},
+		{"node stdin unchanged", "node - <<'JS'\nconsole.log('sudo printf m')\nJS", core.Ask},
+		{"vault path literal written", "python3 - <<'PY'\nopen('state/vault.db', 'w').write('x')\nPY", core.Ask},
+		{"vault path in an f-string call", "python3 - <<'PY'\nimport os\nt = f\"{os.remove('state/vault.db')} done\"\n" +
+			"open('n.md', 'w').write(t)\nPY", core.Ask},
+		{"prose cut down to a path", "python3 - <<'PY'\np = 'see state/vault.db'.split()[1]\nopen(p, 'w').write('x')\nPY", core.Ask},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
