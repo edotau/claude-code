@@ -65,7 +65,7 @@ func StopFormat(in *core.Input) core.Result {
 		if !filepath.IsAbs(f) {
 			f = filepath.Join(cwd, f)
 		}
-		allow[core.CanonPath(f)] = true // /var vs /private/var spellings of one file must meet in the allow set
+		allow[paths.Real(f)] = true // /var vs /private/var spellings of one file must meet in the allow set
 	}
 	if len(allow) == 0 {
 		return core.Result{}
@@ -106,7 +106,7 @@ func selectForFormat(cwd string, changed []string, prev map[string]string, allow
 	carry := map[string]string{}
 	modified := map[string]time.Time{}
 	for _, rel := range changed {
-		full := core.CanonPath(filepath.Join(cwd, rel))
+		full := paths.Real(filepath.Join(cwd, rel))
 		if !allow[full] {
 			continue
 		}
@@ -202,9 +202,6 @@ func changedFiles(ctx context.Context, cwd string) []string {
 	}
 	var out []string
 	for _, e := range proc.StatusEntries(data) {
-		if e.Code == "  " || e.Code == "!!" {
-			continue
-		}
 		if rel, ok := core.RelWithin(cwd, filepath.Join(root, e.Path)); ok {
 			out = append(out, rel)
 		}
