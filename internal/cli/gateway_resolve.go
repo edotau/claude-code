@@ -62,13 +62,27 @@ func cmdGatewayResolve(args []string) int {
 	if *all {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
-	r, err := agent.ResolveModel(reg, q, time.Now())
+	r, err := resolveFirstHop(ctx, reg, q)
 	if errors.Is(err, agent.ErrModelRoute) {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	} else if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
 	return printRoute(r, *format)
+}
+
+// resolveRunQuery is a seam: tests stub it so resolve never reads the live route table.
+var resolveRunQuery = agent.RunQuery
+
+// resolveFirstHop resolves q as the run's first hop does: an untyped external agent takes the ladder, like the label.
+func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery) (agent.ModelRoute, error) {
+	hop, note, err := resolveRunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(""))
+	if err != nil {
+		return agent.ModelRoute{}, err
+	}
+	r, err := agent.ResolveModel(reg, agent.QueryFor(ctx, hop), time.Now())
+	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
+	return r, err
 }
 
 // resolveQuery folds the overlay and flags (flags win) into the agent's query.
