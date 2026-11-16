@@ -242,6 +242,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	session, days, show := o.session, o.days, o.show
 	// Launched now so the live network round-trips overlap the local scan/aggregation below instead of following them
 	quotasCh := startQuotaFetch(o.wantProvider)
+	googleCh := startGoogleFetch(o.wantProvider)
 
 	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
@@ -269,6 +270,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	aggs, ledgerEntries := loadLedger(errw)
 	if show != "total" {
 		printSubscriptionQuotas(w, quotas, show)
+		printGoogleLimits(w, <-googleCh)
 	}
 	printLedgerSection(w, aggs, ledgerSince(ledgerEntries))
 

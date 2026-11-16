@@ -344,6 +344,9 @@ func cmdAgentsLabel(args []string) int {
 	if row.Note != "" {
 		fmt.Fprintln(os.Stderr, row.Note)
 	}
+	if pos[0] == "gemini" {
+		googleLabelWarning(context.Background(), os.Stderr, pos[0], *model, *profile, task)
+	}
 	if row.Label != "" {
 		if _, err := fmt.Println(row.Label + ": "); err != nil {
 			return helptext.Fail("agents label: %v", err)

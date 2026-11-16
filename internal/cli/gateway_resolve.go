@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -80,7 +82,45 @@ func cmdGatewayResolve(args []string) int {
 	} else if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
-	return printRoute(r, choice, *format)
+	return printRoute(withGoogleQuota(ctx, r, os.Stderr), choice, *format)
+}
+
+// googleQuotaCheck is the agy /usage seam; tests assert a non-Google route never calls it.
+var googleQuotaCheck = gemini.Check
+
+// withGoogleQuota notes a Google route's pool percent and hold, warning on warnTo; a failed read never fails resolve.
+func withGoogleQuota(ctx context.Context, r agent.ModelRoute, warnTo io.Writer) agent.ModelRoute {
+	if !router.PerModelQuota(r.Account) {
+		return r
+	}
+	q, err := googleQuotaCheck(ctx, r.Model, time.Now())
+	note := q.Note()
+	switch {
+	case err != nil:
+		note = "usage unavailable"
+	case q.HoldErr != nil:
+		note += "; hold not saved"
+	}
+	r.Note = strings.Join(slices.DeleteFunc([]string{r.Note, note}, func(s string) bool { return s == "" }), "; ")
+	if w := q.Warning(); w != "" {
+		fmt.Fprintln(warnTo, w)
+	}
+	return r
+}
+
+// googleLabelWarning prints a gemini dispatch's low-quota warning to w; a route that cannot resolve prints nothing.
+func googleLabelWarning(ctx context.Context, w io.Writer, name, model, profile, task string) {
+	q, err := resolveQuery(ctx, name, model, profile, "")
+	if err != nil {
+		return
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return
+	}
+	if r, _, err := resolveFirstHop(ctx, reg, q, task); err == nil {
+		withGoogleQuota(ctx, r, w)
+	}
 }
 
 // resolveRunQuery is a seam: tests stub it so resolve never reads the live route table.

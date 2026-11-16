@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
@@ -22,6 +23,7 @@ import (
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	fetchQuotas = func() []quota { return nil }
+	googleLimits = func(context.Context) ([]gemini.QuotaRow, error) { return nil, nil }
 	recordQuotaState = func([]quota) {}
 	code := m.Run()
 	cleanup()
