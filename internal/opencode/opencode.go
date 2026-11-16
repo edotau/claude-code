@@ -92,7 +92,6 @@ func opencodeDisableToolStreaming(menu map[string]any) {
 	}
 }
 
-// opencodeDatabricksLaunch is the databricks split's env, plus the harness config and (headless) the run argv.
 func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string, h *agent.Headless) ([]string, []string, error) {
 	denv, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
 	if err != nil {
@@ -300,10 +299,7 @@ func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 	return main, small, main != "" && small != ""
 }
 
-// aliasModelID is alias's pin-resolved wire model id for p: CLAUDE_<SLOT>_MODEL, else CLAUDE_MODEL, else
-// p's own table. A pin naming a different provider ("other:model") is respelled the way p serves it. A
-// resolved id of "auto" (a router alias opencode's own provider catalog does not list) is swapped for
-// p.OpencodeFallback when the registry sets one — config-driven, no model id hardcoded here.
+// aliasModelID is alias's pin-resolved wire model id for p; "auto" becomes p.OpencodeFallback when set.
 func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) string {
 	rec := vault.GetAgentRecord("claude")
 	spec := cmp.Or(rec.Aliases[strings.ToLower(alias)], rec.Model)
@@ -327,7 +323,6 @@ func opencodeModel(p *providers.Provider, id string) string {
 // OwnLogin is opencode's own-login profile: the free Zen catalog then the paid ladder, as the old unset pin.
 const OwnLogin = "zen-free"
 
-// opencodeConfigEnv is the env var carrying opencode's inline JSON config.
 const opencodeConfigEnv = "OPENCODE_CONFIG_CONTENT"
 
 const opencodePermissionEnv = "OPENCODE_PERMISSION"

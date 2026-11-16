@@ -40,12 +40,10 @@ type loginRequiredError struct {
 func (e *loginRequiredError) Error() string { return e.err.Error() }
 func (e *loginRequiredError) Unwrap() error { return e.err }
 
-// Is makes errors.Is(err, ErrNeedsLogin) true.
 func (e *loginRequiredError) Is(target error) bool { return target == ErrNeedsLogin }
 
 var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
 
-// secretSegment upper-cases s and turns every run of other characters into one underscore.
 func secretSegment(s string) string {
 	return strings.Trim(secretIDRE.ReplaceAllString(strings.ToUpper(s), "_"), "_")
 }
@@ -120,7 +118,6 @@ func writeOAuth(p *Provider, ov oauthValue) error {
 	return vault.Store(AuthSecretName(p), string(b))
 }
 
-// sealedAuth reports whether the auth type keeps its credential in the vault.
 func sealedAuth(t string) bool { return slices.Contains(supportedAuthTypes, t) }
 
 // AuthHost is the https://host a row talks to: the preset host, else BaseURL's origin; "" when neither parses.
@@ -132,7 +129,6 @@ func AuthHost(p *Provider) string {
 	return h
 }
 
-// rawAuthHost is AuthHost before the scheme check.
 func rawAuthHost(p *Provider) string {
 	if h := PresetHost(p.Host); h != "" {
 		return h
@@ -177,7 +173,6 @@ func validateAuthType(n string, p *Provider) []string {
 	return append(errs, validateSPClientID(n, p)...)
 }
 
-// validateAuthIDs checks the account and workspace id shapes.
 func validateAuthIDs(n string, p *Provider) []string {
 	var errs []string
 	if id := p.Auth.AccountID; id != "" && !accountIDRE.MatchString(id) {
@@ -189,7 +184,6 @@ func validateAuthIDs(n string, p *Provider) []string {
 	return errs
 }
 
-// validateClientID checks auth.clientId against the m2m type and its allowed characters.
 func validateClientID(n string, p *Provider) []string {
 	var errs []string
 	k := p.Auth.Type
@@ -205,7 +199,6 @@ func validateClientID(n string, p *Provider) []string {
 	return errs
 }
 
-// validateSPClientID checks auth.spClientId against the oauth type and its allowed characters.
 func validateSPClientID(n string, p *Provider) []string {
 	var errs []string
 	if strings.ContainsAny(p.Auth.SPClientID, "\r\n[=") {
@@ -524,7 +517,6 @@ func staleSPAccess(p *Provider, access, bind string, err error) (string, bool) {
 	return staleServe(p, &spCache, "service principal mint", old, err)
 }
 
-// sealedAccess returns the sealed access token when it stays valid past margin.
 func sealedAccess(p *Provider, margin time.Duration) (string, bool) {
 	ov, err := readOAuth(p)
 	v := strings.TrimSpace(ov.Access)
@@ -740,7 +732,6 @@ func sealUnlessNewer(p *Provider, tok oauth.Token, base int64) error {
 	return nil
 }
 
-// mintSecret is mintSource without the stamp.
 func mintSecret(p *Provider) (string, error) {
 	secret, _, err := mintSource(p)
 	return secret, err
@@ -876,7 +867,6 @@ func (a Auth) HeaderStyle() string {
 	return ""
 }
 
-// Sealed reports whether the credential lives in the vault (oauth, m2m or pat).
 func (a Auth) Sealed() bool { return sealedAuth(a.Type) }
 
 // AuthVerdict is what an auth failure means for routing: only needs_login and rejected condemn the account.
@@ -902,7 +892,6 @@ func Verdict(err error) AuthVerdict {
 	return VerdictTransient
 }
 
-// Condemns reports whether the verdict should mark the account unusable until a login or credential change.
 func (v AuthVerdict) Condemns() bool { return v == VerdictNeedsLogin || v == VerdictRejected }
 
 // IsInvalidTokenResponse reports a 400 "Invalid Token" on a Databricks row (a ≤256-byte body peek).

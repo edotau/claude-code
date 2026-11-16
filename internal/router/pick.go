@@ -77,7 +77,6 @@ type PickOpts struct {
 	dry  bool // refreshStale's collecting pass: must write nothing (no Discovery rotation)
 }
 
-// canServe is CanServe, or true for every pair when unset.
 func (o PickOpts) canServe(agent string, p *providers.Provider) bool {
 	return o.CanServe == nil || o.CanServe(agent, p)
 }
@@ -137,7 +136,6 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 	return t.pick(ctx, alias, want, st, o, now, configured)
 }
 
-// pick is Pick after the stale accounts are refreshed.
 func (t *RouteTable) pick(
 	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
 ) PickResult {
@@ -303,12 +301,10 @@ func AskedWorkspace(ctx context.Context, cand Candidate, want string) bool {
 	return cp != ""
 }
 
-// skipNoRow records that agent has no row at alias.
 func skipNoRow(res *PickResult, agent, alias string) {
 	res.Skipped = append(res.Skipped, Skip{agent, gateRow, "no " + alias + " row"})
 }
 
-// skipNotConfigured records that agent failed its configured check with err.
 func skipNotConfigured(res *PickResult, agent string, err error) {
 	res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
 }
@@ -418,7 +414,6 @@ func (t *RouteTable) gateOpencodeCandidate(
 	return group
 }
 
-// opencodeSub is one opencode ladder entry that cleared every gate.
 type opencodeSub struct {
 	id      string
 	c       Cell
@@ -481,7 +476,6 @@ func (t *RouteTable) gatherCandidates(ctx context.Context, want string, o PickOp
 	return first, rest, last
 }
 
-// gateOthers gates every table agent but want and claude, in table order.
 func gateOthers(want string, gate func(string) []Candidate) (rest [][]Candidate) {
 	for _, r := range TableAgents {
 		if r == want || r == "claude" {
