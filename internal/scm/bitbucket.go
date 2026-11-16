@@ -32,7 +32,18 @@ type BitbucketHost struct {
 // NewBitbucket binds a server root (a trailing /rest/api/... is tolerated) and a repository.
 func NewBitbucket(baseURL, project, repo, token string) *BitbucketHost {
 	root := regexp.MustCompile(`(?i)/rest(/api/[^/]+)?$`).ReplaceAllString(strings.TrimRight(baseURL, "/"), "")
-	return &BitbucketHost{Base: root, Project: project, Repo: repo, Token: token, HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &BitbucketHost{Base: root, Project: project, Repo: repo, Token: token, HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: dropAuthOffHost}}
+}
+
+// dropAuthOffHost keeps the bearer token on the original host only; the 10-redirect cap stays.
+func dropAuthOffHost(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if req.URL.Host != via[0].URL.Host {
+		req.Header.Del("Authorization")
+	}
+	return nil
 }
 
 func (h *BitbucketHost) repoPath() string {

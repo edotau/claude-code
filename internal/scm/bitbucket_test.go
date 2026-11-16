@@ -172,3 +172,43 @@ func TestCreateDetachedHeadIsClearError(t *testing.T) {
 		t.Fatalf("err = %v, want detached HEAD error", err)
 	}
 }
+
+func TestRedirectKeepsTokenOnlyOnSameHost(t *testing.T) {
+	var gotOther string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotOther = r.Header.Get("Authorization")
+		fmt.Fprint(w, "diff --git a/x")
+	}))
+	defer other.Close()
+	var gotSame string
+	var origin *httptest.Server
+	origin = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/local"):
+			http.Redirect(w, r, origin.URL+"/final", http.StatusFound)
+		case r.URL.Path == "/final":
+			gotSame = r.Header.Get("Authorization")
+			fmt.Fprint(w, "diff --git a/x")
+		default:
+			http.Redirect(w, r, other.URL+"/x", http.StatusFound)
+		}
+	}))
+	defer origin.Close()
+	h := NewBitbucket(origin.URL, "P", "r", "TOKEN")
+	if _, err := h.Diff(context.Background(), "1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotOther != "" {
+		t.Errorf("Authorization on the other host = %q; want none", gotOther)
+	}
+	req, _ := http.NewRequest(http.MethodGet, origin.URL+"/local", nil)
+	req.Header.Set("Authorization", "Bearer TOKEN")
+	resp, err := h.HTTP.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotSame != "Bearer TOKEN" {
+		t.Errorf("Authorization after a same-host redirect = %q; want it kept", gotSame)
+	}
+}
