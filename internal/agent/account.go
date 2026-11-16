@@ -51,7 +51,7 @@ func billedAgentTargetContext(ctx context.Context, agentName, model string) prov
 	return t
 }
 
-// SessionProviderContext is the session's profile when it serves the agent, else "" (the vault pin and fallbacks decide).
+// SessionProviderContext is the session's profile when it serves the agent, else "" (the pin and fallbacks decide).
 func SessionProviderContext(ctx context.Context, agentName string) string {
 	reg, err := providers.Load()
 	if err != nil {

@@ -93,7 +93,7 @@ type DiffReport struct {
 	noScope   bool // --verify with neither --path nor an Owned line: the text report is a short verdict
 }
 
-// Diff prints the report for o and returns the exit code: 0 clean, 1 gate failed or MISMATCH, 2 usage, 3 outside --path.
+// Diff prints the report for o; exit code: 0 clean, 1 gate failed or MISMATCH, 2 usage, 3 outside --path.
 func Diff(o DiffOptions) int {
 	ctx, cancel := context.WithTimeout(context.Background(), diffGateTimeout)
 	defer cancel()
@@ -574,7 +574,7 @@ func pkgGate(name string, args ...string) gateFn {
 	}
 }
 
-// testGate runs go test on the touched packages and, once production Go changed, on internal/schemas (it pins file writers).
+// testGate runs go test on the touched packages, plus internal/schemas (it pins file writers) once production Go changed.
 func testGate(ctx context.Context, in gateInput) (string, string, error) {
 	const schemas = "./internal/schemas"
 	prod := slices.ContainsFunc(in.goFiles, func(p string) bool { return !pack.IsTestPath(p) })
@@ -939,7 +939,7 @@ func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
 	return pm
 }
 
-// proxyKind is "tagged" for a dispatch=<rec.ID> line, "window" for an untagged in-range line of rec's workspace, else "".
+// proxyKind is "tagged" for a dispatch=<rec.ID> line, "window" for an untagged in-range line in rec's workspace, else "".
 func proxyKind(pl proxyLine, rec Record, start, end time.Time) string {
 	switch {
 	case pl.dispatch == rec.ID:

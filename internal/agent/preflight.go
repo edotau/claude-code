@@ -284,7 +284,7 @@ func explicitFinding(q RouteReq, p *providers.Provider, pf *Preflight) *Finding 
 	return failed
 }
 
-// routedWire is q.Model as ResolveModel spells it on p, so preflight judges the wire id that runs, not the typed string.
+// routedWire is q.Model as ResolveModel spells it on p, so preflight judges the wire id that runs, not the typed one.
 func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
 	typed := strings.TrimPrefix(q.Model, p.Name+":")
 	reg, err := providers.Load()

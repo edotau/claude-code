@@ -935,7 +935,7 @@ func (s namedEngine) Run(context.Context, RunOptions, wire.Sink) (wire.Result, e
 	return wire.Result{}, nil
 }
 
-// A direct run whose auth fails after output started names the static token and the routed default; a routed run does not.
+// A direct run whose auth fails after output started names the static token and routed default; a routed run does not.
 func TestRunDirectAuthFailureNamesRoutedDefault(t *testing.T) {
 	setConfigDir(t)
 	for _, direct := range []bool{true, false} {

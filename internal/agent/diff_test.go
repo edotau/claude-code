@@ -554,7 +554,7 @@ func TestVerifyMismatchExitsOneAndUnknownIDExitsTwo(t *testing.T) {
 	wantInOutput(t, errOut, `--verify "nope"`)
 }
 
-// With no --path, --verify scopes the diff to the brief's Owned: line (plus each owned source's _test.go) in a short report.
+// With no --path, --verify scopes the diff to the brief's Owned: line (plus each source's _test.go) in a short report.
 func TestVerifyDefaultsPathToBriefOwned(t *testing.T) {
 	brief, err := RenderBrief(BriefInput{Task: "do it", Owned: []string{"pkg/p.go"}})
 	if err != nil {
@@ -612,7 +612,7 @@ func TestVerifyWithoutOwnedPrintsShortVerdict(t *testing.T) {
 	}
 }
 
-// A production Go change adds ./internal/schemas to the test gate, which pins every file writer; a test-only change does not.
+// A production Go change adds ./internal/schemas (it pins file writers) to the test gate; a test-only change does not.
 func TestTestGateAddsSchemasOnProductionChange(t *testing.T) {
 	dir := t.TempDir()
 	writeRepoFile(t, dir, "internal/schemas/s.go", "package schemas\n")
