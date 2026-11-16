@@ -37,7 +37,9 @@ paths:
   records all normalise into one overlay; launch, preflight, labels and `ran on` read only it. Print it:
   (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
   `claude-code gateway resolve <agent> --model m [--profile p] [--overlay '{...}']
-  [--all-profiles [--live]] --format json`.
+  [--all-profiles [--live]] --format json`. A model the workspace's fresh listing lacks is marked `served: no` with
+  the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
+  `unverified`.
 - **Profile order:** explicit `<profile>:` or overlay `profile` > unique provider-type prefix > `databricks:<m>` or
   profile `auto` (first valid workspace in vault order dev, prod, qa; least-busy under `auto`) > the session profile
   (with its model for the agent) > the agent record's profile (the pin); a pin on the agent's own sign-in row
@@ -89,6 +91,10 @@ static menu: routing never touches the network.
   refused): claude `<workspace>/serving-endpoints/anthropic`, codex `/responses`; copilot and opencode pick per model
   (Claude `/anthropic`, Responses-only GPTs `/responses`, the rest `/chat/completions`). Probe a route with a real
   `claude-code agents ask`, not `curl`.
+- gemini (agy) speaks chat/completions through the proxy's `openai` passthrough, so on a Databricks profile it runs
+  any chat model the workspace serves when one is typed with `--model` (or `--model auto`); with no model or a tier
+  alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,
+  `gpt-5-5-pro`) are refused for it; run them with codex, copilot or opencode.
 - VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile into
   `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte. The file holds only
   `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name>` (printed once; the vault keeps its

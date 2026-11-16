@@ -29,17 +29,18 @@ claude-code doctor            # check binaries, providers, credentials, proxy
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
   (`CHECK=1` runs `configure --check` instead).
-- `claude-code install --dry-run` previews; an existing `settings.json` is kept as yours and only checked for validity.
+- `claude-code install --dry-run` previews, listing the host tools it would install; an existing `settings.json` is
+  kept as yours and only checked for validity.
 - `make install` installs any missing agent CLI and Tailscale, never updating one already present
   (`claude-code install --tools --missing`). `TOOLS=1` installs or updates them all and runs `claude-code doctor`
   (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
   installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
   `bin/<agent>`. Confirm with `<agent> --version`, the doctor
   `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
-- The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through brew,
-  `go install`, `npm --prefix ~/.local` or uv/pipx, and runs no root command; git, go, make, curl and the `DEV_TOOLS`
-  linters are report-only. `claude-code doctor` prints a `dep <name>` row per tool with the command that installs it,
-  and a failed install never fails `make install`.
+- The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through `go install`,
+  `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl and the
+  `DEV_TOOLS` linters are report-only. `claude-code doctor` prints a `dep <name>` row per tool with the command that
+  installs it, and a failed install never fails `make install`.
 - `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
 ![claude-code help menu](docs/images/cli-menu.svg)
