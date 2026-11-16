@@ -394,3 +394,100 @@ func TestPermissionHomePaths(t *testing.T) {
 		}
 	}
 }
+
+// gatedPerms is a gate-shaped plan policy: interpreters and go allowed, rm/git push and file redirects denied.
+func gatedPerms(t *testing.T, extraAllow ...string) Permissions {
+	t.Helper()
+	allow := append([]string{"Bash(python3 *)", "Bash(go run *)", "Bash(go test *)", "Bash(cat *)", "Bash(git commit *)"}, extraAllow...)
+	return mustPerms(t, "plan", allow, nil, []string{"Bash(rm:*)", "Bash(git push:*)", "Bash(" + RedirectFileArg + ")"})
+}
+
+// Given a heredoc fed to a data consumer, Then its body is stdin, not commands; a shell-fed or expanded body still is.
+func TestPermissionHeredocBodyIsData(t *testing.T) {
+	commit := "git commit -m \"$(cat <<'EOF'\nfix: x\n\nrm the old cache; git push later\nEOF\n)\""
+	checkBash(t, gatedPerms(t), map[string]Decision{
+		"python3 - <<'EOF'\nimport os\nrm = 1\nEOF":           Ask,
+		"go run ./cmd/x <<'EOF'\nrm -rf build\ngit push\nEOF": Ask,
+		"python3 - <<EOF\nprint(1)\n# rm x\nEOF":              Ask,
+		"python3 - <<-\"EOF\"\n\trm x\n\tEOF":                 Ask,
+		commit:                                                Ask,
+		commit + " && go test ./x":                            Ask,
+		// controls: a body a shell runs, an expanded body, or code outside the body is still judged
+		"bash <<'EOF'\nrm -rf x\nEOF":                Deny,
+		"sh -s <<'EOF'\nrm x\nEOF":                   Deny,
+		"cat <<'EOF' | sh\nrm x\nEOF":                Deny,
+		"python3 - <<EOF\n$(rm x)\nEOF":              Deny,
+		"python3 - <<'EOF'\nprint(1)\nEOF\nrm x":     Deny,
+		"eval \"$(cat <<'EOF'\nrm x\nEOF\n)\"":       Deny,
+		"bash -c \"$(\ncat <<'EOF'\nrm x\nEOF\n)\"":  Deny,
+		"echo \"<<EOF\"\nrm x\nEOF":                  Deny,
+		"python3 - <<'EOF'\nrm x\n":                  Deny,
+		"$SHELL <<'EOF'\nrm x\nEOF":                  Deny,
+		"ssh host <<'EOF'\nrm x\nEOF":                Deny,
+		"cat <<'EOF' | xargs rm\na\nEOF":             Deny,
+		"cat > run.sh <<'EOF'\nrm x\nEOF":            Deny,
+		"cat <<'EOF' >> x.sh\nrm x\nEOF\n. x.sh":     Deny,
+		"python3 - <<'EOF' && ./run\nrm x\nEOF":      Deny,
+		"python3 - <<'EOF' | sh\nprint('rm x')\nEOF": Deny,
+	})
+	// a deny-only policy: the body no longer denies, the heredoc head still asks
+	codex := mustPerms(t, "default", nil, nil, []string{"Bash(rm:*)"})
+	checkBash(t, codex, map[string]Decision{commit: Ask, "cat <<'EOF'\nrm x\nEOF": Ask, "bash <<'EOF'\nrm x\nEOF": Deny,
+		"cat <<'EOF' > f\nrm x\nEOF": Deny, "rm x <<'EOF'\nok\nEOF": Deny})
+}
+
+// Given shell comments, Then the commented text is not a command; quoted, escaped or mid-word `#` is no comment.
+func TestPermissionShellComments(t *testing.T) {
+	checkBash(t, gatedPerms(t), map[string]Decision{
+		"# run the package tests\ngo test ./internal/x": Allow,
+		"go test ./x # then rm the cache; ok":           Allow,
+		"  # indented\ngo test ./x\n# trailing":         Allow,
+		"go test ./x # rm `x` $(rm y)":                  Allow,
+		"go test ./x;# rm y":                            Allow,
+		// controls
+		"# c\nrm x":                           Deny,
+		"go test ./x; rm y # z":               Deny,
+		"go test ./x '#'; rm y":               Deny,
+		"go test ./x \"a #\"; rm y":           Deny,
+		"go test a#b; rm y":                   Deny,
+		"go test ${x:- #}; rm y":              Deny,
+		"go test \"$(echo \"x #y\"); rm z)\"": Deny,
+		"go test $(# c\nrm x)":                Deny,
+		"go test ./x # c\nrm y":               Deny,
+		"go test ./x \\# c; rm y":             Deny,
+		"go test $#; rm y":                    Deny,
+		"go test ./x > o # c":                 Deny,
+	})
+}
+
+// Given a cd rule for a workdir, Then a cd naming it through a symlink (/tmp for /private/tmp) passes either way.
+func TestPermissionCdCanonicalSpelling(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	link := filepath.Join(other, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	slash := filepath.ToSlash
+	for _, c := range []struct{ rule, spelled string }{{link, real}, {real, link}} {
+		p := Permissions{Mode: "plan", Allow: []Rule{CdRule(slash(c.rule)), {"Bash", "go test *"}}}
+		checkBash(t, p, map[string]Decision{
+			"cd " + slash(c.spelled):                         Allow,
+			"cd " + slash(c.spelled) + "/sub && go test ./x": Allow,
+			"cd " + slash(c.rule):                            Allow,
+			// controls
+			"cd " + slash(filepath.Dir(real)):   Deny,
+			"cd " + slash(other):                Deny,
+			"cd " + slash(c.spelled) + "/..":    Deny,
+			"cd " + slash(c.spelled) + "x":      Deny,
+			"cd " + slash(c.spelled) + "/$X":    Deny,
+			"cd " + slash(c.spelled) + "; rm x": Deny,
+			"cd sub":                            Deny,
+			"cd /":                              Deny,
+			"cd " + slash(c.spelled) + " /etc":  Deny,
+		})
+	}
+}

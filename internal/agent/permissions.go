@@ -235,10 +235,265 @@ func union(a, b []Rule) []Rule {
 
 // Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, other modes ask (auto: the agent's judge).
 func (p Permissions) Decide(tool, arg string) Decision {
-	if tool == "Bash" {
-		return p.decideBash(arg, 0)
+	if tool != "Bash" {
+		return p.decideOne(tool, arg)
 	}
-	return p.decideOne(tool, arg)
+	d := p.decideBash(arg, 0)
+	if code := shellCode(arg); code != arg { // today's verdict is the floor: dropping dead text only ever loosens
+		d = max(d, p.decideBash(code, 0))
+	}
+	return d
+}
+
+// shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
+func shellCode(cmd string) string {
+	s := codeScan{cmd: cmd, segs: []int{0}}
+	if !s.scan() {
+		return cmd
+	}
+	cuts := slices.Clone(s.cuts)
+	if all := append(slices.Clone(s.cuts), spansOf(s.docs, false)...); !runsBody(without(cmd, all)) {
+		cuts = append(cuts, spansOf(s.docs, true)...)
+	}
+	return without(cmd, cuts)
+}
+
+type span struct{ from, to int }
+
+// heredoc is one `<<DELIM` operator; span is its body plus closing line, data that a non-shell consumer reads it.
+type heredoc struct {
+	span
+	delim              string
+	dash, quoted, data bool
+}
+
+// codeScan tracks quoting through cmd; stack holds open `(` code, `"` and `{` (${…}) contexts.
+type codeScan struct {
+	cmd     string
+	stack   []byte
+	segs    []int // start of the current segment, one per code context
+	pending []heredoc
+	cuts    []span
+	docs    []heredoc
+}
+
+// scan fills cuts and docs; false is a parse it cannot trust (backtick, unbalanced, unterminated), so nothing is cut.
+func (s *codeScan) scan() bool {
+	for i := 0; i < len(s.cmd); i++ {
+		next, ok := s.step(i)
+		if !ok {
+			return false
+		}
+		i = next
+	}
+	return len(s.stack) == 0
+}
+
+func (s *codeScan) top() byte {
+	if len(s.stack) == 0 {
+		return 0
+	}
+	return s.stack[len(s.stack)-1]
+}
+
+func (s *codeScan) push(ctx byte, i int) {
+	s.stack = append(s.stack, ctx)
+	if ctx == '(' {
+		s.segs = append(s.segs, i+1)
+	}
+}
+
+func (s *codeScan) pop() {
+	if s.top() == '(' {
+		s.segs = s.segs[:len(s.segs)-1]
+	}
+	s.stack = s.stack[:len(s.stack)-1]
+}
+
+// step consumes the token at cmd[i] and returns its last index.
+func (s *codeScan) step(i int) (int, bool) {
+	c, rest := s.cmd[i], s.cmd[i:]
+	switch {
+	case c == '`':
+		return i, false
+	case s.top() == '"':
+		return s.inDouble(i), true
+	case c == '\\':
+		return i + 1, true
+	case c == '\'':
+		end := strings.IndexByte(s.cmd[i+1:], '\'')
+		return i + 1 + end, end >= 0
+	case strings.HasPrefix(rest, "$'"):
+		return ansiEnd(s.cmd, i+2)
+	case c == '"':
+		s.push('"', i)
+	case strings.HasPrefix(rest, "$(") || strings.HasPrefix(rest, "${"):
+		s.push(rest[1], i+1)
+		return i + 1, true
+	case s.top() == '{':
+		if c == '}' {
+			s.pop()
+		}
+	default:
+		return s.codeStep(i)
+	}
+	return i, true
+}
+
+// codeStep is step in a code context: groups, comments, heredoc operators and line or segment ends.
+func (s *codeScan) codeStep(i int) (int, bool) {
+	c, rest := s.cmd[i], s.cmd[i:]
+	switch {
+	case c == '(':
+		s.push('(', i)
+	case c == ')':
+		if s.top() != '(' {
+			return i, false
+		}
+		s.pop()
+	case c == '#' && (i == 0 || strings.IndexByte(" \t\n;&|(", s.cmd[i-1]) >= 0):
+		end := strings.IndexByte(rest, '\n')
+		if end < 0 {
+			end = len(rest)
+		}
+		s.cuts = append(s.cuts, span{i, i + end})
+		return i + end - 1, true
+	case strings.HasPrefix(rest, "<<<"):
+		return i + 2, true
+	case strings.HasPrefix(rest, "<<"):
+		return s.heredocOp(i)
+	case c == '\n':
+		return s.lineEnd(i)
+	case strings.IndexByte(";&|", c) >= 0:
+		s.segs[len(s.segs)-1] = i + 1
+	}
+	return i, true
+}
+
+func (s *codeScan) inDouble(i int) int {
+	switch rest := s.cmd[i:]; {
+	case rest[0] == '\\':
+		return i + 1
+	case rest[0] == '"':
+		s.pop()
+	case strings.HasPrefix(rest, "$(") || strings.HasPrefix(rest, "${"):
+		s.push(rest[1], i+1)
+		return i + 1
+	}
+	return i
+}
+
+// ansiEnd is the closing quote of a $'…' string whose body starts at i.
+func ansiEnd(cmd string, i int) (int, bool) {
+	for ; i < len(cmd); i++ {
+		switch cmd[i] {
+		case '\\':
+			i++
+		case '\'':
+			return i, true
+		}
+	}
+	return i, false
+}
+
+var heredocOpRe = regexp.MustCompile(`^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\\$` + "`" + `\n]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+
+// heredocOp queues the operator at cmd[i] for the next line end; a delimiter it cannot parse fails the scan.
+func (s *codeScan) heredocOp(i int) (int, bool) {
+	m := heredocOpRe.FindStringSubmatchIndex(s.cmd[i:])
+	if m == nil || i+m[1] < len(s.cmd) && strings.IndexByte(" \t\n;&|)<>", s.cmd[i+m[1]]) < 0 {
+		return i, false
+	}
+	g := func(n int) string { return s.cmd[max(i+m[2*n], i):max(i+m[2*n+1], i)] }
+	s.pending = append(s.pending, heredoc{delim: g(2) + g(3) + g(4), dash: g(1) == "-", quoted: m[8] < 0,
+		data: dataConsumer(s.cmd[s.segs[len(s.segs)-1]:i])})
+	return i + m[1] - 1, true
+}
+
+// lineEnd ends a segment and skips the bodies of the line's heredocs; an unclosed body fails the scan.
+func (s *codeScan) lineEnd(i int) (int, bool) {
+	s.segs[len(s.segs)-1] = i + 1
+	if len(s.pending) == 0 {
+		return i, true
+	}
+	pos := i + 1
+	for _, h := range s.pending {
+		start := pos
+		for {
+			if pos > len(s.cmd) {
+				return i, false
+			}
+			end := pos + strings.IndexByte(s.cmd[pos:]+"\n", '\n')
+			line := s.cmd[pos:end]
+			pos = end + 1
+			if line == h.delim || h.dash && strings.TrimLeft(line, "\t") == h.delim {
+				break
+			}
+		}
+		h.span = span{start, pos - 1}
+		body := s.cmd[start:h.to]
+		h.data = h.data && (h.quoted || !strings.Contains(body, "$(") && !strings.Contains(body, "`")) // unquoted: $(…) runs
+		s.docs = append(s.docs, h)
+	}
+	s.pending = nil
+	return pos - 2, true
+}
+
+// dataConsumers read a heredoc as data: interpreters, readers and git/gh; a shell, a writer or a remote run is none.
+var dataConsumers = map[string]bool{"cat": true, "head": true, "tail": true, "wc": true, "grep": true, "rg": true,
+	"jq": true, "go": true, "gofmt": true, "git": true, "gh": true, "node": true, "ruby": true, "perl": true}
+
+var pythonName = regexp.MustCompile(`^python[23]?(\.[0-9]+)?$`)
+
+// dataConsumer reports a segment (text before its `<<`) whose command reads its heredoc as data.
+func dataConsumer(seg string) bool {
+	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
+	return len(toks) > 0 && (dataConsumers[toks[0]] || pythonName.MatchString(toks[0]))
+}
+
+func spansOf(docs []heredoc, dataOnly bool) []span {
+	var out []span
+	for _, d := range docs {
+		if d.data || !dataOnly {
+			out = append(out, d.span)
+		}
+	}
+	return out
+}
+
+// without is s minus the non-overlapping spans.
+func without(s string, cuts []span) string {
+	slices.SortFunc(cuts, func(a, b span) int { return a.from - b.from })
+	var b strings.Builder
+	at := 0
+	for _, c := range cuts {
+		b.WriteString(s[at:c.from])
+		at = c.to
+	}
+	b.WriteString(s[at:])
+	return b.String()
+}
+
+// bodyRunners can run a heredoc's text (or what a consumer prints) as commands, or keep it in a file to run later.
+var bodyRunners = regexp.MustCompile(`(?:^|[\s;&|()<>"'=/{])(?:(?:ba|z|da|k|c|tc|a)?sh|fish|busybox|eval|source|` +
+	`exec|xargs|parallel|ssh|su|sudo|doas|at|batch|crontab|tee|dd|cp|mv|install|chmod)(?:$|[\s;&|()<>"'}])` +
+	`|\$[^(]|\$$|>(?:[^&]|$)|>&[^0-9-]`)
+
+// runsBody reports code outside the bodies that may run them: a bodyRunners hit or a command named by path.
+func runsBody(code string) bool {
+	if bodyRunners.MatchString(code) {
+		return true
+	}
+	outer, subs := shell.ExtractSubstitutions(code)
+	for _, seg := range append(shell.Segments(outer), subs...) {
+		for _, sub := range shell.Segments(seg) {
+			if toks, _ := shell.Unwrap(shell.Tokens(sub), ""); len(toks) > 0 && (toks[0] == "." ||
+				strings.ContainsAny(toks[0], "/~")) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // decideBash is the strictest verdict over every segment, substitution and `bash -c` body; redirects never Allow.
@@ -331,14 +586,17 @@ const cdPrefix = "cd:"
 // CdRule allows a segment that is exactly `cd <absolute path>` naming dir or a directory under it.
 func CdRule(dir string) Rule { return Rule{Tool: "Bash", Arg: cdPrefix + dir} }
 
-// cdMatches is a bare `cd <abs>` whose cleaned, expansion-free target is dir or below it; anything else is no match.
+// cdMatches is a bare `cd <abs>` whose expansion-free target is dir or below it, cleaned or symlink-resolved.
 func cdMatches(dir, cmd string) bool {
 	toks := shell.Tokens(cmd)
 	if len(toks) != 2 || toks[0] != "cd" || !path.IsAbs(toks[1]) || strings.ContainsAny(toks[1], "$`*?[{~\\") {
 		return false
 	}
-	target, dir := path.Clean(toks[1]), path.Clean(dir)
-	return target == dir || strings.HasPrefix(target, strings.TrimSuffix(dir, "/")+"/")
+	target, clean := path.Clean(toks[1]), path.Clean(dir)
+	if target == clean || strings.HasPrefix(target, strings.TrimSuffix(clean, "/")+"/") {
+		return true
+	}
+	return path.IsAbs(dir) && paths.Within(paths.CanonDeep(target), paths.CanonDeep(clean)) // /tmp is /private/tmp
 }
 
 var envAssign = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=`)
