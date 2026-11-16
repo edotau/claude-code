@@ -487,6 +487,10 @@ func falsePositiveCases(harness string) []safetyTierCase {
 		{"git clean -fe n", harness, core.Ask},
 		{"git clean -n -i", harness, core.Ask},
 		{"git clean -f -- -n", harness, core.Ask},
+		{"git clean --dry -d", harness, core.Allow}, // git takes a unique prefix of a long option
+		{"git clean -n --inter", harness, core.Ask},
+		{"git clean -n --no-dry -f", harness, core.Ask},
+		{"git clean -f --ex -n", harness, core.Ask},
 	}
 }
 

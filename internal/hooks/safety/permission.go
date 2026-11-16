@@ -56,7 +56,8 @@ func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result
 			return blindResult(p, tool, r)
 		}
 		j := judge
-		if tool == "Edit" && hasAbs && !filepath.IsAbs(arg) { // the cwd-relative spelling: Deny rules only, its absolute forms meet the allow list
+		// the cwd-relative spelling takes Deny rules only; its absolute forms meet the allow list
+		if tool == "Edit" && hasAbs && !filepath.IsAbs(arg) {
 			j = agent.Permissions{Deny: p.Deny}
 		}
 		if decideCall(j, cwd, tool, arg) == agent.Deny {
