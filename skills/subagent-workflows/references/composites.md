@@ -29,7 +29,7 @@ Cost rule of thumb (R9-R11): about 78k tokens per agent (26 / 2.0M, 60 / 4.8M, 1
   classifier outage blocked one fixer in R11 (reported red, re-dispatched by hand, `07f86477`).
 - **Resume and results**: relaunch with the Workflow tool's `resumeFromRunId` and the same `scriptPath`; unchanged
   `agent()` calls replay from cache (R7's fix round re-ran only 12 new agents; R8's resumed the same way). Results land
-  in `$(claude-code memory path)/reports/DATE-<label>.md` and `DATE-decisions.md`.
+  in `$(claude-code memory path reports DATE-<label>.md)` and `DATE-decisions.md`.
 
 ## B. code-workers: find, rederive, fix, guard test, gate, simplify, review, fix-all
 

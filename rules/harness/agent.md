@@ -113,7 +113,7 @@ paths:
   `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
   limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and `permission-gate` merged into the launch's one
   `--settings` (never `settings.json`; `exit 2` on any failure). Policy: plan mode, Edit/Write under the job's bank
-  dirs, Bash only dream's `claude-code memory timeline|review|index|promote` plus `cd` into a bank; file redirects are
+  dirs, Bash only dream's `claude-code memory review|index|promote` plus `cd` into the store; file redirects are
   refused, `2>&1` is not; no policy, binary or policy env refuses the launch. A dream whose gate refused calls and
   edited nothing fails and retries in 6 h instead of stamping success.
 
