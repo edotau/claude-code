@@ -28,12 +28,27 @@ a leaf amending in its own temp-folder repo; warnings skip message text. git aft
 starting directory unless every dynamic cd target is a fresh `$(mktemp …)` dir; `cd ~user`, `~+` and `~-` count as
 dynamic. `echo`/`printf` text whose output runs (`$(echo git stash)`, `eval "$(…)"`, `bash <(…)`, piped to `xargs`
 or a shell's `-c`, written to a file a later segment runs) is a command, not inert text. A `#` after a `\`-newline
-continuation is mid-word (bash joins the lines) unless a blank precedes the `\`. A `"$(cat <<'EOF' …)"` commit message
+continuation is mid-word (bash joins the lines) unless a blank precedes the `\`.
+A `#` inside `${…}` or `$((…))` is word text (`${l%% #*}`), and one right after a subshell's `)` starts a comment.
+A `>` or `<` inside `${…}` or `$((…))` is no redirect (`$((3>2))`).
+A file the same command line writes from `echo`/`printf` (a redirect or `tee`) and then runs (`sh f`, `bash f`,
+`zsh f`, `. f`, `source f`, `./f`) has its printed text, escapes and formats applied, checked for git verbs and
+write targets as if run directly.
+`cd -` returns to the previous directory, or to the starting directory when that one is unknown. A
+`"$(cat <<'EOF' …)"` commit message
 asks only on a footer at a line start, not one named mid-subject. The write-path checks (this hook and
 docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
 `mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a read-only command's relative operand
 (`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
 Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
+
+A plain Python script fed on stdin (`python3 [-I…] - <<'EOF'`, `uv run python -`; quoted delimiter or a body with no
+`$(…)`, not piped on, outside any other heredoc or quote, no later shell or interpreter run, and no `exec`/`eval`,
+`os.system`/`popen`/`exec*`/`spawn*`, reflection or import outside a fixed stdlib list) skips the ask-level shell
+words (`sudo`, `DROP TABLE`, git verbs, force-push) in its body; the block shapes still scan it, and every other
+script, interpreter or shell keeps today's scan. In such a script a protected path named only in a `#` comment or
+inside a multi-word string no longer triggers the interpreter-write ask, unless the script splits, strips or slices
+strings; a one-word or f-string literal still does.
 
 ## rtk-rewrite
 

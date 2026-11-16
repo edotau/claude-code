@@ -11,7 +11,7 @@ var fdDup = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^>
 
 // FileRedirect reports an unquoted output redirection that may write a file; `2>&1`, `>&2`, `2>&-` are not one.
 func FileRedirect(seg string) bool {
-	at := QuoteAt(seg)
+	at := redirectQuotes(seg)
 	for i := 0; i < len(seg); i++ {
 		if at[i] != 0 || seg[i] != '>' {
 			continue
@@ -35,7 +35,7 @@ var fdNumber = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(
 
 // Redirects splits seg into its words minus unquoted redirections, and the files output ones write (`a>f`, `2>f`).
 func Redirects(seg string) (words, targets []string) {
-	at := QuoteAt(seg)
+	at := redirectQuotes(seg)
 	var b strings.Builder
 	for i := 0; i < len(seg); i++ {
 		start, op, out, ok := redirectAt(seg, at, i)
@@ -58,6 +58,17 @@ func Redirects(seg string) (words, targets []string) {
 		i = end - 1
 	}
 	return Tokens(b.String()), targets
+}
+
+// redirectQuotes is QuoteAt with each `${…}`/`$((…))` byte marked quoted: `$((3>2))` redirects nothing.
+func redirectQuotes(seg string) []byte {
+	at := QuoteAt(seg)
+	for i, in := range exprMask(seg) {
+		if in {
+			at[i] = '\''
+		}
+	}
+	return at
 }
 
 // redirectAt reports an unquoted redirection operator at seg[i] (not `<(`/`>(`), and where it starts with its fd.

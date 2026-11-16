@@ -62,7 +62,21 @@ func appendPrecise(out []string, cmd, cwd string, depth int) []string {
 			}
 		}
 	})
+	for _, s := range scripts(cmd, cwd, depth) {
+		if s.Lost {
+			s.Dir = ""
+		}
+		out = appendPrecise(out, dropComments(s.Text), s.Dir, depth+1)
+	}
 	return out
+}
+
+// scripts are the files cmd writes with echo/printf and then runs, while nesting stays under nestedDepth.
+func scripts(cmd, cwd string, depth int) []shell.Script {
+	if depth >= nestedDepth {
+		return nil
+	}
+	return shell.RunScripts(cmd, cwd)
 }
 
 // dropComments cuts each unquoted `#` that starts a word (shell.CommentAt) through the end of its line.
@@ -158,6 +172,9 @@ func appendTargets(out []string, cmd, cwd string, depth int, pick func(redirects
 			}
 		}
 	})
+	for _, s := range scripts(cmd, cwd, depth) { // `printf 'echo x > f\n' > s && sh s` writes f
+		out = appendTargets(out, s.Text, s.Dir, depth+1, pick)
+	}
 	return out
 }
 

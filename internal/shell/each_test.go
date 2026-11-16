@@ -127,6 +127,8 @@ func TestEachGitCwdScoping(t *testing.T) {
 		{"literal cd after a dynamic one", `cd "$R" && cd /a && git x`, "/a"},
 		{"explicit -C after a dynamic cd", `cd "$R" && git -C /a x`, "/a"},
 		{"~user names another home", "cd ~root && git x", unknownDir},
+		{"cd - goes back to the previous dir", "cd /a; cd - && git x", "/w"},
+		{"cd - with no previous dir is the starting dir", "cd - && git x", "/w"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -191,6 +193,8 @@ func TestEachGitHiddenVerbs(t *testing.T) {
 		"git $'check\\x6fut' .":                   "checkout",
 		"git -c color.ui=always status":           "status",
 		"git --config-env alias.st=V st":          Uninspectable,
+		`printf 'git x\n' > f && sh f`:            "x",
+		"echo 'git x' | tee f && bash f":          "x",
 	}
 	for cmd, want := range cases {
 		got := collectGit(cmd, "/w")
