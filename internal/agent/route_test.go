@@ -351,19 +351,25 @@ func TestLeadFor(t *testing.T) {
 		lead     string
 		explicit bool
 		err      string
+		overlay  string // an overlay account names a row and beats the (here absent) session lead
 	}{
-		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, ""}, // D3: the session leads an untyped ask
-		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, ""},
-		{RouteReq{Agent: "codex", Profile: "dev", Fallback: none}, "", true, ""},
-		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, ""},
-		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, ""},
-		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, ""},
-		{RouteReq{Agent: "codex", Profile: "dev", Lead: "ultra", Pinned: true}, "ultra", false, ""},
-		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, ""},
-		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch"},
-		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch"},
+		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", ""}, // D3: the session leads an untyped ask
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, "", ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: none}, "", true, "", ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all, Pinned: true}, "", true, "", ""},
+		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, "", ""},
+		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, "", ""},
+		{RouteReq{Agent: "codex", Profile: "dev", Lead: "ultra", Pinned: true}, "ultra", false, "", ""},
+		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, "", ""},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch", ""},
+		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch", ""},
+		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", `{"account":"dev"}`},
 	}
 	for _, c := range cases {
+		if c.overlay != "" {
+			t.Setenv(agentconfig.OverlayVar, c.overlay)
+			t.Setenv(providers.EnvSessionProfile, "")
+		}
 		lead, explicit, err := LeadFor(c.q)
 		errOK := (c.err == "") == (err == nil) && (err == nil || strings.Contains(err.Error(), c.err))
 		if lead != c.lead || explicit != c.explicit || !errOK {

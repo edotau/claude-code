@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
@@ -36,7 +37,7 @@ func codexBannerSection(block string) string {
 var errNoBlock = errors.New("codex: no config.toml block")
 
 func codexProviderSection(ctx context.Context, reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
-	target, note, err := codexSchema().ResolveTarget(ctx, reg, sel, false)
+	target, note, err := codexSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil

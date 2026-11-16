@@ -50,7 +50,7 @@ type Driver interface {
 	// PreRoute resolves the target ahead of the session provider; ok reports the CLI decided (err may be ErrOwnLogin).
 	PreRoute(ctx context.Context, reg *providers.Registry, explicit bool) (t providers.Target, note string, ok bool, err error)
 	// Gate vets a target the session or the caller named, returning the target to run and a notice.
-	Gate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
+	Gate(ctx context.Context, req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
 	// GateExplicit is gate for a caller-named provider or model, plus the CLI's own quota and tier handling.
 	GateExplicit(ctx context.Context, req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error)
 	// NoRoute is the error when neither the session nor the CLI's fallback chain resolved a target; nil keeps t.
@@ -182,7 +182,7 @@ func (BaseEngine) PreRoute(context.Context, *providers.Registry, bool) (provider
 	return providers.Target{}, "", false, nil
 }
 
-func (BaseEngine) Gate(_ context.Context, _ *providers.Registry, t providers.Target) (providers.Target, string, error) {
+func (BaseEngine) Gate(_ context.Context, _ RunOptions, _ *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	return t, "", nil
 }
 
@@ -368,7 +368,7 @@ func LoadSelection() (reg *providers.Registry, sel providers.Selection, selErr e
 }
 
 // ResolveTarget is sel's target when it serves the agent, else (explicit false) its own login or a keyed fallback.
-func (s Schema) ResolveTarget(ctx context.Context, reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
+func (s Schema) ResolveTarget(ctx context.Context, req RunOptions, reg *providers.Registry, sel providers.Selection, explicit bool) (target providers.Target, note string, err error) {
 	name, e := s.Name, s.Eng()
 	t, ok := sel.Aliases[models.Opus]
 	if !ok {
@@ -379,7 +379,7 @@ func (s Schema) ResolveTarget(ctx context.Context, reg *providers.Registry, sel 
 		return pt, pnote, perr
 	}
 	if explicit || (CanServe(name, t.Provider) && e.FollowsPin(t.Provider)) {
-		return e.Gate(ctx, reg, t)
+		return e.Gate(ctx, req, reg, t)
 	}
 	if ft, fallbackNote, ok := e.FallbackTarget(ctx, reg); ok {
 		return s.fallbackTarget(t, ft, fallbackNote)

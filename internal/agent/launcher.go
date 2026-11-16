@@ -378,7 +378,7 @@ func finishPlan(spec Schema, o LaunchOptions, args, env, prefix []string) (Plan,
 
 // cliTarget resolves spec's target, then sets the routed model, else the agent's pin, on it.
 func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Registry, sel providers.Selection, explicit bool, flagModel string) (providers.Target, string, error) {
-	target, note, err := spec.ResolveTarget(ctx, reg, sel, explicit)
+	target, note, err := spec.ResolveTarget(ctx, RunOptions{}, reg, sel, explicit)
 	if err != nil {
 		return target, note, err
 	}

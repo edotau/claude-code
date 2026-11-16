@@ -72,7 +72,7 @@ func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel provi
 	if selErr != nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
 	}
-	target, _, err := agent.SchemaFor("opencode").ResolveTarget(ctx, reg, sel, pin != "")
+	target, _, err := agent.SchemaFor("opencode").ResolveTarget(ctx, agent.RunOptions{}, reg, sel, pin != "")
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
 	}
