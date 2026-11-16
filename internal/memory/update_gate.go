@@ -63,15 +63,6 @@ func withStampLock(sessionID string, fn func()) {
 	}
 }
 
-// globLiteral escapes s's glob metacharacters so filepath.Glob matches them literally.
-var globLiteral = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace
-
-// globIn is filepath.Glob(dir/pattern) with dir's own glob metacharacters matched literally.
-func globIn(dir, pattern string) []string {
-	m, _ := filepath.Glob(filepath.Join(globLiteral(dir), pattern))
-	return m
-}
-
 func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked, failedOpen bool) {
 	stamp := stampPath(r.SessionID)
 	st, ok := readStamp(stamp)
@@ -362,7 +353,7 @@ func writeSidecar(path string, m map[string]subFileState) {
 
 // agentTranscripts lists a subagents dir's leaf and Workflow-run (workflows/<run>/) agent transcripts.
 func agentTranscripts(dir string) []string {
-	return append(globIn(dir, "agent-*.jsonl"), globIn(dir, filepath.Join("workflows", "*", "agent-*.jsonl"))...)
+	return append(transcript.GlobIn(dir, "agent-*.jsonl"), transcript.GlobIn(dir, filepath.Join("workflows", "*", "agent-*.jsonl"))...)
 }
 
 // subagentEdits recounts agent-*.jsonl edits past cached offsets when their summed size moved; write=false: no lock.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // archiveCaps are the per-file caps that trigger archiving on a durable file; session-state files never do.
@@ -260,7 +261,7 @@ func findBlock(b Bank, id string) (file, block, src string, err error) {
 	}
 	for name := range idFiles {
 		ap := b.Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
-		for _, p := range globIn(filepath.Dir(ap), filepath.Base(ap)) {
+		for _, p := range transcript.GlobIn(filepath.Dir(ap), filepath.Base(ap)) {
 			blk, rerr := blockIn(p, name, id)
 			if rerr != nil {
 				return "", "", "", rerr

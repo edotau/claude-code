@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // catalogHomeMax bounds the home entry lines the catalog carries; the rest are reachable by search.
@@ -196,7 +197,7 @@ func knowledgeOf(b Bank) []string {
 func knowledgeNotes(b Bank) []string {
 	var out []string
 	keys := BankKeys()
-	for _, f := range globIn(b.SubDir("knowledge"), "*.md") {
+	for _, f := range transcript.GlobIn(b.SubDir("knowledge"), "*.md") {
 		base := filepath.Base(f)
 		if strings.TrimPrefix(base, b.Prefix()) == "README.md" || bankOfFile(f, keys).Key != b.Key || (b.Home() && strings.Contains(base, "--")) {
 			continue

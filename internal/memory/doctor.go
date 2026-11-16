@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 // bankStat is one bank's roll-up from a single read per typed file, so a caller never re-reads the bytes.
@@ -336,7 +337,7 @@ type receipt struct {
 // readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
 func readReceipts() []receipt {
 	var out []receipt
-	for _, p := range globIn(StateDir(), "update-result-*") {
+	for _, p := range transcript.GlobIn(StateDir(), "update-result-*") {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})
