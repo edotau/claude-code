@@ -260,7 +260,7 @@ func runResult(t *testing.T, o ResultOptions) (code int, stdout, stderr string) 
 	return hosttest.CaptureOutput(t, func() int { return Result(o) })
 }
 
-// result -f streams the log as the job writes it, then closes with the ask line and resume hint without repeating the log.
+// result -f streams the log as the job writes it, then closes with the ask line and resume hint, not the log again.
 func TestResultFollowStreamsLogThenTrailer(t *testing.T) {
 	jobsEnv(t)
 	rec := seedJob(t, time.Minute, "running", "first\n", os.Getpid())
@@ -329,7 +329,7 @@ func TestResultEventsStreamsEventFile(t *testing.T) {
 	}
 }
 
-// No id: the agent's newest finished job in this repo; a bare id finds its agent from the record; neither is a usage error.
+// No id: the agent's newest finished job in this repo; a bare id finds its agent from the record; else a usage error.
 func TestResultSelectsJob(t *testing.T) {
 	jobsEnv(t)
 	old := seedJob(t, 3*time.Minute, "ok", "old\n", 0)

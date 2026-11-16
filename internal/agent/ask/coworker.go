@@ -273,7 +273,7 @@ var armPicksFormat = schemas.Register(schemas.Format{
 
 func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
 
-// usableArms is the workspaces outside tried passing the preflight; a model none serves is dropped, one finding per drop.
+// usableArms is the workspaces outside tried passing the preflight; a model none serves is dropped with a finding.
 func usableArms(reg *providers.Registry, agentName, model string, now time.Time, tried []string) ([]*providers.Provider, []agent.Finding) {
 	usable, skipped := armCandidates(reg, agentName, model, now, tried)
 	if len(usable) == 0 && model != "" {
