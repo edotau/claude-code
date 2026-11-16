@@ -1,0 +1,474 @@
+package memory
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
+)
+
+const (
+	migLayoutOld   = "flat 1"
+	migLayoutNew   = "flat 2"
+	migSubject     = "memory: migrate to one bank"
+	migBankBegin   = "<!-- bank:begin"
+	migBankEnd     = "<!-- bank:end -->"
+	migIndexFile   = "MEMORY.md"
+	migOriginsFile = ".origins"
+	migLayoutName  = ".layout"
+)
+
+// migLogTyped merge by dated blocks; migSectionTyped merge by `## ` sections.
+var (
+	migLogTyped     = []string{"decisionLog", "conventions", "sessionHistory"}
+	migSectionTyped = []string{"activeContext", "progress", "projectContext"}
+)
+
+var (
+	// ErrMigrateBlocked is a migration refused before any write (exit 1).
+	ErrMigrateBlocked = errors.New("migrate refused")
+
+	migIDRE      = regexp.MustCompile(`<!-- id:\S+ -->`)
+	migDateRE    = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
+	migTemplate  = regexp.MustCompile(`^\(.*\)$`)
+	migPointerRE = regexp.MustCompile(`^- \[[^\]]*\]\(([^)]+)\)`)
+	migTwoRE     = regexp.MustCompile(`(\S)(- \[[^\]\n]+\]\()`)
+	migKeyHeadRE = regexp.MustCompile(`^## (\S+)\s*$`)
+)
+
+// MigrateOptions is one `memory migrate` (flat 1 → one bank); DryRun lists the plan and blockers and writes nothing.
+type MigrateOptions struct {
+	DryRun bool
+	Out    io.Writer
+}
+
+type migPlan struct {
+	renames  [][2]string       // store-relative from, to
+	writes   map[string]string // merged typed files and MEMORY.md
+	removes  []string
+	links    map[string]string // old rel -> new rel, for MEMORY.md
+	merged   map[string]int
+	kept     []string
+	blockers []string
+	topics   int
+}
+
+// Migrate turns a `flat 1` store into `flat 2`: one folder, no per-repo banks, one store commit.
+func Migrate(o MigrateOptions) error {
+	out := o.Out
+	if out == nil {
+		out = io.Discard
+	}
+	dir := StoreDir()
+	stamp, _ := os.ReadFile(filepath.Join(dir, migLayoutName))
+	if strings.TrimSpace(string(stamp)) == migLayoutNew {
+		_, _ = fmt.Fprintln(out, "already migrated")
+		return nil
+	}
+	p, err := planMigration(dir, strings.TrimSpace(string(stamp)))
+	if err != nil {
+		return err
+	}
+	p.print(out)
+	if len(p.blockers) > 0 {
+		return fmt.Errorf("%w: %d blocker(s)", ErrMigrateBlocked, len(p.blockers))
+	}
+	if o.DryRun {
+		return nil
+	}
+	return p.apply(dir)
+}
+
+func (p *migPlan) print(out io.Writer) {
+	for _, b := range p.blockers {
+		_, _ = fmt.Fprintln(out, "blocker:", b)
+	}
+	for _, k := range p.kept {
+		_, _ = fmt.Fprintln(out, "collision kept:", k)
+	}
+	var line strings.Builder
+	fmt.Fprintf(&line, "topics renamed %d, collisions kept %d", p.topics, len(p.kept))
+	for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
+		fmt.Fprintf(&line, ", %s +%d", t, p.merged[t])
+	}
+	_, _ = fmt.Fprintln(out, line.String())
+}
+
+func planMigration(dir, stamp string) (*migPlan, error) {
+	p := &migPlan{writes: map[string]string{}, links: map[string]string{}, merged: map[string]int{}}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("memory migrate: %w", err)
+	}
+	if stamp != migLayoutOld {
+		p.blockers = append(p.blockers, fmt.Sprintf("layout is %q, want %q", stamp, migLayoutOld))
+	}
+	p.gitBlockers(dir)
+	have := map[string]bool{}
+	var orig []string
+	for _, e := range ents {
+		switch {
+		case !e.IsDir():
+			have[e.Name()] = true
+			orig = append(orig, e.Name())
+		}
+	}
+	keys := p.planMerges(dir, orig, have)
+	p.planTopics(dir, keys, orig, have)
+	p.planIndex(dir, keys)
+	return p, nil
+}
+
+func migGit(dir string, args ...string) (string, error) {
+	out, err := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	return string(out), err
+}
+
+// gitBlockers refuses a dirty tree or a missing commit identity: the final commit must not fail after the moves.
+func (p *migPlan) gitBlockers(dir string) {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return
+	}
+	if out, err := migGit(dir, "status", "--porcelain"); err != nil || strings.TrimSpace(out) != "" {
+		p.blockers = append(p.blockers, "store git tree is dirty (commit or discard first)")
+	}
+	if _, err := migGit(dir, "var", "GIT_COMMITTER_IDENT"); err != nil {
+		p.blockers = append(p.blockers, "git has no committer identity")
+	}
+}
+
+func migKeyOf(name string) (key, typed string, ok bool) {
+	for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
+		if k, found := strings.CutSuffix(name, "--"+t+".md"); found && k != "" {
+			return k, t, true
+		}
+	}
+	return "", "", false
+}
+
+func migRead(path string) string {
+	b, _ := os.ReadFile(path)
+	return string(b)
+}
+
+// planMerges folds each <key>--<typed>.md into <typed>.md and returns the repo keys seen.
+func (p *migPlan) planMerges(dir string, orig []string, have map[string]bool) []string {
+	var keys []string
+	for _, n := range orig {
+		key, typed, ok := migKeyOf(n)
+		if !ok {
+			continue
+		}
+		if !slices.Contains(keys, key) {
+			keys = append(keys, key)
+		}
+		src := migRead(filepath.Join(dir, n))
+		if textutil.CredentialRE().MatchString(src) {
+			p.blockers = append(p.blockers, "credential-shaped content: "+n)
+			continue
+		}
+		target, ok := p.writes[typed+".md"]
+		if !ok {
+			target = migRead(filepath.Join(dir, typed+".md"))
+		}
+		var added int
+		if slices.Contains(migLogTyped, typed) {
+			target, added = migMergeBlocks(target, src)
+		} else {
+			target, added = migMergeSections(target, src)
+		}
+		if added > 0 {
+			p.writes[typed+".md"] = target
+		}
+		p.merged[typed] += added
+		p.removes = append(p.removes, n)
+		delete(have, n)
+	}
+	return keys
+}
+
+// planTopics renames <key>--<name>.md to <name>.md; a differing file already there stays and is reported.
+func (p *migPlan) planTopics(dir string, keys, orig []string, have map[string]bool) {
+	slices.SortFunc(keys, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
+	for _, n := range orig {
+		if !have[n] || !strings.HasSuffix(n, ".md") || n == migIndexFile {
+			continue
+		}
+		for _, k := range keys {
+			to, ok := strings.CutPrefix(n, k+"--")
+			if !ok || to == "" {
+				continue
+			}
+			p.renameTopic(dir, n, to, have)
+			break
+		}
+	}
+}
+
+func (p *migPlan) renameTopic(dir, from, to string, have map[string]bool) {
+	switch {
+	case !have[to]:
+		have[to] = true
+		p.renames = append(p.renames, [2]string{from, to})
+		p.links[from] = to
+		p.topics++
+	case migRead(filepath.Join(dir, from)) == migRead(filepath.Join(dir, to)) && !slices.Contains(p.removes, to):
+		p.removes = append(p.removes, from)
+		p.links[from] = to
+		p.topics++
+	default:
+		p.kept = append(p.kept, from)
+	}
+}
+
+// planIndex rewrites MEMORY.md outside its generated bank region.
+func (p *migPlan) planIndex(dir string, keys []string) {
+	text := migRead(filepath.Join(dir, migIndexFile))
+	if text == "" {
+		return
+	}
+	for _, k := range keys {
+		for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
+			p.links[k+"--"+t+".md"] = t + ".md"
+		}
+	}
+	p.writes[migIndexFile] = migRewriteIndex(text, p.links)
+}
+
+func migRewriteIndex(text string, links map[string]string) string {
+	for from, to := range links {
+		text = strings.ReplaceAll(text, "]("+from+")", "]("+to+")")
+	}
+	var out []string
+	seen := map[string]bool{}
+	inBank := false
+	for l := range strings.SplitSeq(text, "\n") {
+		switch {
+		case strings.Contains(l, migBankBegin):
+			inBank = true
+		case strings.Contains(l, migBankEnd):
+			inBank = false
+			out = append(out, l)
+			continue
+		}
+		if inBank {
+			out = append(out, l)
+			continue
+		}
+		if migKeyHeadRE.MatchString(l) {
+			continue
+		}
+		for part := range strings.SplitSeq(migTwoRE.ReplaceAllString(l, "$1\n$2"), "\n") {
+			if m := migPointerRE.FindStringSubmatch(part); m != nil {
+				if seen[m[1]] {
+					continue
+				}
+				seen[m[1]] = true
+			}
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func (p *migPlan) apply(dir string) error {
+	at := func(rel string) string { return filepath.Join(dir, rel) }
+	var err error
+	step := func(f func() error) {
+		if err == nil {
+			err = f()
+		}
+	}
+	for _, r := range p.renames {
+		step(func() error { return os.Rename(at(r[0]), at(r[1])) })
+	}
+	for name, body := range p.writes {
+		step(func() error { return paths.AtomicWrite(at(name), []byte(body), 0o644) })
+	}
+	for _, rel := range append(p.removes, migOriginsFile) {
+		step(func() error {
+			if e := os.Remove(at(rel)); !errors.Is(e, fs.ErrNotExist) {
+				return e
+			}
+			return nil
+		})
+	}
+	step(func() error { return paths.AtomicWrite(at(migLayoutName), []byte(migLayoutNew+"\n"), 0o644) })
+	step(sweepNotes) // last move: loose notes into feedback/ and notes/, MEMORY.md repointed
+	step(func() error { return migCommit(dir) })
+	if err != nil {
+		return fmt.Errorf("memory migrate: %w", err)
+	}
+	return nil
+}
+
+func migCommit(dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return nil
+	}
+	if out, err := migGit(dir, "add", "-A"); err != nil {
+		return fmt.Errorf("git add: %s", strings.TrimSpace(out))
+	}
+	if out, err := migGit(dir, "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", migSubject); err != nil {
+		return fmt.Errorf("git commit: %s", strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// migSplitBlocks splits text at `## ` headings into the preamble and its blocks, trailing blanks trimmed.
+func migSplitBlocks(text string) (pre string, blocks []string) {
+	var cur []string
+	flush := func() {
+		if cur == nil {
+			return
+		}
+		blocks = append(blocks, strings.TrimRight(strings.Join(cur, "\n"), " \t\n"))
+	}
+	var head []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if strings.HasPrefix(l, "## ") {
+			flush()
+			cur = []string{l}
+			continue
+		}
+		if cur == nil {
+			head = append(head, l)
+		} else {
+			cur = append(cur, l)
+		}
+	}
+	flush()
+	return strings.TrimRight(strings.Join(head, "\n"), " \t\n"), blocks
+}
+
+func migDate(block string) string {
+	head, _, _ := strings.Cut(block, "\n")
+	if m := migDateRE.FindStringSubmatch(head); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// migInsertAt is the index of the first block dated before date, else the end (undated goes last).
+func migInsertAt(blocks []string, date string) int {
+	if date == "" {
+		return len(blocks)
+	}
+	at := slices.IndexFunc(blocks, func(o string) bool { d := migDate(o); return d != "" && d < date })
+	if at < 0 {
+		return len(blocks)
+	}
+	return at
+}
+
+// migMergeBlocks inserts src's blocks into target newest first, skipping ids target already holds.
+func migMergeBlocks(target, src string) (string, int) {
+	pre, blocks := migSplitBlocks(target)
+	spre, sblocks := migSplitBlocks(src)
+	if strings.TrimSpace(target) == "" {
+		pre = spre
+	}
+	known := map[string]bool{}
+	for _, b := range blocks {
+		known[b] = true
+		if id := migIDRE.FindString(b); id != "" {
+			known[id] = true
+		}
+	}
+	added := 0
+	for _, b := range sblocks {
+		id := migIDRE.FindString(b)
+		if known[b] || (id != "" && known[id]) {
+			continue
+		}
+		known[b], known[id] = true, id != ""
+		blocks = slices.Insert(blocks, migInsertAt(blocks, migDate(b)), b)
+		added++
+	}
+	if added == 0 {
+		return target, 0
+	}
+	return pre + "\n\n" + strings.Join(blocks, "\n\n") + "\n", added
+}
+
+// migMergeSections appends src's non-template bullets under the same `## ` section of target.
+func migMergeSections(target, src string) (string, int) {
+	spre, sblocks := migSplitBlocks(src)
+	if strings.TrimSpace(target) == "" {
+		var t strings.Builder
+		t.WriteString(spre)
+		for _, b := range sblocks {
+			h, _, _ := strings.Cut(b, "\n")
+			t.WriteString("\n\n" + h)
+		}
+		target = t.String()
+	}
+	pre, blocks := migSplitBlocks(target)
+	added := 0
+	add := func(name string, body []string) {
+		items := migItems(body)
+		if name == "" {
+			pre = strings.Join(append(strings.Split(pre, "\n"), items...), "\n")
+		} else if i := slices.IndexFunc(blocks, func(b string) bool { return strings.HasPrefix(b, name+"\n") || b == name }); i >= 0 {
+			blocks[i] = strings.Join(append([]string{blocks[i]}, items...), "\n")
+		} else if len(items) > 0 {
+			blocks = append(blocks, strings.Join(append([]string{name}, items...), "\n"))
+		}
+		added += len(items)
+	}
+	body := strings.Split(spre, "\n")
+	add("", migDropHeader(body))
+	for _, b := range sblocks {
+		h, rest, _ := strings.Cut(b, "\n")
+		add(h, strings.Split(rest, "\n"))
+	}
+	if added == 0 {
+		return target, 0
+	}
+	parts := append([]string{pre}, blocks...)
+	return strings.Join(parts, "\n\n") + "\n", added
+}
+
+func migDropHeader(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "# ") && !strings.HasPrefix(l, "> ") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// migItems turns body lines into bullets, dropping blanks and template placeholders.
+func migItems(body []string) []string {
+	var out []string
+	prevBlank := true
+	for _, l := range body {
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "":
+			prevBlank = true
+			continue
+		case migTemplate.MatchString(t):
+		case strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* "):
+			out = append(out, l)
+		case strings.HasPrefix(l, " ") || !prevBlank:
+			out = append(out, "  "+t)
+		default:
+			out = append(out, "- "+t)
+		}
+		prevBlank = false
+	}
+	return out
+}

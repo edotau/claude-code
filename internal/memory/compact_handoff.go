@@ -56,7 +56,7 @@ func compactID(sessionID string) string {
 	return id[:min(8, len(id))]
 }
 
-// WriteCompactHandoff writes h's facts to <key>--<date>-compact-<id8>.md; "" with no session or bank.
+// WriteCompactHandoff writes h's facts to handoffs/<date>-compact-<id8>.md; "" with no session or bank.
 func WriteCompactHandoff(ctx context.Context, h CompactHandoff) (string, error) {
 	if h.SessionID == "" || h.CWD == "" || !hasBank(h.CWD) {
 		return "", nil

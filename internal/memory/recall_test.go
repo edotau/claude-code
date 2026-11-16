@@ -26,63 +26,6 @@ func searchBanks(root, query string, k int) []SearchHit {
 	return ranked
 }
 
-// TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks enter results only when the query names it.
-func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
-	isolatedConfig1(t)
-	initStore(t)
-	a := gitRepo(t, t.TempDir(), "proja")
-	b := gitRepo(t, t.TempDir(), "projb")
-	if _, err := EnsureBank(a, ""); err != nil {
-		t.Fatal(err)
-	}
-	db, err := EnsureBank(b, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, db.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — deploy pipeline retries three times\n\nbecause rate limits\n")
-
-	if hits := searchBanks(a, "deploy pipeline retries", 0); len(hits) != 0 {
-		t.Errorf("unnamed repo leaked into search: %+v", hits)
-	}
-	hits := searchBanks(a, "projb deploy pipeline retries", 0)
-	found := false
-	for _, h := range hits {
-		if h.Bank == "projb" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("naming projb did not surface its blocks: %+v", hits)
-	}
-}
-
-// TestSearchAllCoversEveryRepoStore: searchAll ranks blocks across every repo store, not just one root.
-func TestSearchAllCoversEveryRepoStore(t *testing.T) {
-	isolatedConfig1(t)
-	initStore(t)
-	a := gitRepo(t, t.TempDir(), "proja")
-	b := gitRepo(t, t.TempDir(), "projb")
-	da, err := EnsureBank(a, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := EnsureBank(b, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, da.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — proja retries the deploy pipeline\n\nbody\n")
-	write(t, db.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — projb retries the deploy pipeline\n\nbody\n")
-
-	hits := searchAll("retries the deploy pipeline", 0)
-	banks := map[string]bool{}
-	for _, h := range hits {
-		banks[h.Bank] = true
-	}
-	if !banks["proja"] || !banks["projb"] {
-		t.Errorf("searchAll missed a store, banks seen = %v", banks)
-	}
-}
-
 // TestMemoryRecallHandlesCwdGracefully: an empty cwd falls back to os.Getwd and still recalls the home bank.
 func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -117,11 +60,11 @@ func wantRecallBodies(t *testing.T, got string, lines []string) {
 	t.Helper()
 	bodies := 0
 	for _, l := range lines {
-		if strings.HasPrefix(l, "- [home/") {
+		if strings.HasPrefix(l, "- [") {
 			bodies++
 		}
 	}
-	if bodies != 2 || !strings.HasPrefix(lines[0], "- [home/conventions.md] aaaa0005") || !strings.HasPrefix(lines[1], "- [home/sessionHistory.md] aaaa0004") {
+	if bodies != 2 || !strings.HasPrefix(lines[0], "- [conventions.md] aaaa0005") || !strings.HasPrefix(lines[1], "- [sessionHistory.md] aaaa0004") {
 		t.Errorf("want the 2 strongest matches as bodies regardless of type:\n%s", got)
 	}
 }

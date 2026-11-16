@@ -430,10 +430,7 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
 
 // withHomeLock runs fn under the home bank's lock, taken after the repo lock (the fixed order); ran=false = busy.
 func withHomeLock(b Bank, fn func() error) (ran bool, err error) {
-	if b.Home() {
-		return true, fn() // b's own lock is the home lock
-	}
-	return paths.TryFileLock(lockPathOf(HomeBank())+".lock", homeLockWait, fn)
+	return true, fn() // the one bank's lock is already held
 }
 
 // lockedWithHome is locked under the home bank's lock too: the agent may edit it, and repos have separate store locks.

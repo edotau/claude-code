@@ -118,55 +118,5 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("appendReport = %v, want %v", got, want)
 		}
-		if !strings.HasPrefix(filepath.Base(got[0]), "repo--") {
-			t.Errorf("report %s is not key-prefixed", got[0])
-		}
 	})
-}
-
-func TestResolveBankKeyAndPath(t *testing.T) {
-	runRoot(t, func(t *testing.T, root string) {
-		if _, err := Init(root); err != nil {
-			t.Fatal(err)
-		}
-		top, b, err := ResolveBank(root)
-		if err != nil || top != root || b.Key != "proj" {
-			t.Fatalf("ResolveBank(path) = %q %+v %v", top, b, err)
-		}
-		top, b, err = ResolveBank("proj")
-		if err != nil || b.Key != "proj" || top != "" {
-			t.Errorf("ResolveBank(key) = %q %+v %v; a key carries no checkout", top, b, err)
-		}
-		if _, _, err := ResolveBank("nosuch-bank"); err == nil {
-			t.Error("an unknown key that is not a path must err")
-		}
-	})
-}
-
-func TestIndexFlatKeyEmbedsSelectedBank(t *testing.T) {
-	isolatedConfig(t)
-	b := Bank{Key: "alpha"}
-	write(t, b.Path("decisionLog.md"), "## 2026-11-16 — Quasar alpha <!-- id:11111111 -->\nSelected evidence.\n")
-	write(t, Bank{Key: "beta"}.Path("decisionLog.md"), "## 2026-11-16 — Quasar beta <!-- id:22222222 -->\nUnrelated evidence.\n")
-	previous := openEmbedClient
-	t.Cleanup(func() { openEmbedClient = previous })
-	var embedded []string
-	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
-		return &EmbedClient{Model: "fixture", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
-			embedded = append(embedded, texts...)
-			vectors := make([][]float32, len(texts))
-			for i := range vectors {
-				vectors[i] = []float32{1, 0}
-			}
-			return vectors, nil
-		}}, nil
-	}
-	var out, errw bytes.Buffer
-	if err := Index(&out, &errw, IndexOptions{Repo: b.Key}); err != nil {
-		t.Fatal(err)
-	}
-	text := strings.Join(embedded, "\n")
-	if !strings.Contains(text, "Selected evidence") || strings.Contains(text, "Unrelated evidence") || strings.Contains(errw.String(), "embeddings skipped") {
-		t.Fatalf("embedded=%q stderr=%s", text, errw.String())
-	}
 }

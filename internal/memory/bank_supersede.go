@@ -272,7 +272,7 @@ func reviseFilesOf(banks []Bank, archives bool) []string {
 	}
 	for _, b := range banks {
 		for _, name := range reviseFiles {
-			p := b.Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
+			p := b.Sub("archive", "*"+strings.TrimSuffix(name, ".md")+"-*.md") // * keeps pre-merge <key>-- archives
 			out = append(out, transcript.GlobIn(filepath.Dir(p), filepath.Base(p))...)
 		}
 	}
@@ -350,8 +350,18 @@ func reviseDocSet(b Bank, texts map[string]string) ([]*bankDoc, error) {
 	}
 	own := reviseFilesOf([]Bank{b}, false)
 	rest := slices.DeleteFunc(reviseFilesOf(others, true), func(p string) bool { return slices.Contains(own, p) })
-	extra, err := holderDocs(rest, missing)
-	return append(docs, extra...), err
+	for len(missing) > 0 {
+		extra, err := holderDocs(rest, missing)
+		if err != nil || len(extra) == 0 {
+			return docs, err
+		}
+		docs = append(docs, extra...)
+		rest = slices.DeleteFunc(rest, func(p string) bool {
+			return slices.ContainsFunc(extra, func(d *bankDoc) bool { return d.path == p })
+		})
+		missing = missingRefs(docs)
+	}
+	return docs, nil
 }
 
 // statOK reports whether path exists.
@@ -423,8 +433,6 @@ func (p *revisePlan) pair(newID, oldID, newDate string) (*revision, string) {
 	switch {
 	case !known:
 		return nil, fmt.Sprintf("supersedes: %s names unknown id %s", newID, oldID)
-	case !revisionVisible(p.docs[ol.doc].path, p.docs[p.loc[newID].doc].path):
-		return nil, fmt.Sprintf("supersedes: %s: a home entry may be replaced only by a home entry", newID)
 	case reaches(p.edges, oldID, newID):
 		if newID < oldID { // one line per cycle
 			return nil, fmt.Sprintf("supersedes: %s and %s name each other (neither marked)", newID, oldID)
@@ -538,14 +546,6 @@ func reviseBankProblems(own Bank) []string {
 	}
 	return out
 }
-
-// revisionVisible preserves visibility wherever the old entry can be recalled.
-func revisionVisible(oldPath, newPath string) bool {
-	return !inHomeBank(oldPath) || inHomeBank(newPath)
-}
-
-// inHomeBank reports whether path is an unprefixed home-tier file.
-func inHomeBank(path string) bool { return BankOfFile(path).Home() }
 
 // chainEnd follows h's `Replaced by` pointers to the live entry, within reviseHopCap hops; false when it breaks.
 func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool) {
