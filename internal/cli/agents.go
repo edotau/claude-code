@@ -108,7 +108,8 @@ var agentsSubPages = map[string][3]string{
 		"(plus gemini's and copilot's own skills dirs). Also re-renders each agent's native hook and config files " +
 		"(codex, opencode, gemini, copilot); --check reports a stale one."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
-		"--finished adds idle and finished work in the --days window.",
+		"--finished adds idle and finished work in the --days window. Subagent columns: marker, agent, state, " +
+		"↑tokens in, ↓tokens out, age, idle; piped output is unclipped, a terminal clips rows to 80 columns.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive\n--interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and task.",
