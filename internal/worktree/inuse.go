@@ -218,6 +218,10 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 		return nil, nil
 	}
 	all, err := scan()
+	if err != nil && scanProcs != nil {
+		// the agent-only scan is an optimisation: when it cannot list pids, ask the full scan instead
+		all, err = scanProcs()
+	}
 	if err != nil {
 		return nil, err
 	}

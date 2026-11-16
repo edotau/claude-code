@@ -5,6 +5,8 @@ package proc
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -23,11 +25,14 @@ func Parent(pid int) int {
 	return int(kp.Eproc.Ppid)
 }
 
-// PIDsNamed returns the pids whose kernel process name (p_comm, what lsof prints as c) is in names.
-func PIDsNamed(names map[string]bool) []int {
+// PIDsNamed returns pids whose p_comm is in names; a denied or empty process table is an error, never "none".
+func PIDsNamed(names map[string]bool) ([]int, error) {
 	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("sysctl kern.proc.all: %w", err)
+	}
+	if len(all) == 0 {
+		return nil, errors.New("sysctl kern.proc.all returned no processes")
 	}
 	var pids []int
 	for i := range all {
@@ -35,7 +40,7 @@ func PIDsNamed(names map[string]bool) []int {
 			pids = append(pids, int(all[i].Proc.P_pid))
 		}
 	}
-	return pids
+	return pids, nil
 }
 
 // cString is b up to its first NUL.

@@ -23,11 +23,17 @@ func init() {
 // scanProcsDarwin runs lsof once (no /proc on macOS); -w mutes warnings: only exit 1 + empty stderr = no match.
 func scanProcsDarwin() ([]procCwd, error) { return lsofCwd() }
 
-// scanAgentsDarwin is scanProcsDarwin limited to processes named like an agent: half the lsof time.
+// maxAgentPIDs caps the -p list; a longer one is not an agent list, so the caller falls back to the full scan.
+const maxAgentPIDs = 1000
+
+// scanAgentsDarwin is scanProcsDarwin on agent-named pids only; zero pids is an error (this process is an agent).
 func scanAgentsDarwin() ([]procCwd, error) {
-	pids := proc.PIDsNamed(agentComms)
-	if len(pids) == 0 {
-		return nil, nil
+	pids, err := proc.PIDsNamed(agentComms)
+	if err != nil {
+		return nil, err
+	}
+	if len(pids) == 0 || len(pids) > maxAgentPIDs {
+		return nil, fmt.Errorf("agent pid list unusable (%d pids)", len(pids))
 	}
 	strs := make([]string, len(pids))
 	for i, p := range pids {
