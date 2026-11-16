@@ -53,7 +53,7 @@ func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := providers.QualifyPinSpec(t.Context(), reg, "personal", "anthropic:claude-opus-5.5")
+	got := providers.QualifyPinSpec(reg, "personal", "anthropic:claude-opus-5.5")
 	if got != "anthropic:claude-opus-5.5" {
 		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
 	}

@@ -657,6 +657,10 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 		}
 		return explicitLabel(ctx, run, confine, cmp.Or(agent, agentid.Claude), m)
 	}
+	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
+		line.model = m // an exact dispatch model, spelled as a --model ask runs it
+		return line.exactLabel(ctx, run, agent, m)
+	}
 	switch tier := pickTier(run, updated, st, agent, cmp.Or(line.prompt, task)); {
 	case confine != "":
 		return coworkerPick(ctx, run, confine, cmp.Or(agent, agentid.Claude), tier)
@@ -684,6 +688,16 @@ func (l askLine) rowLabel(ctx context.Context, run *dispatchRun, agent, model st
 		return router.SpellServed(p, p.WireModel(bare), time.Now())
 	}
 	return model
+}
+
+// exactLabel is rowLabel, else for an external agent the exact model its preview serves, else m as typed.
+func (l askLine) exactLabel(ctx context.Context, run *dispatchRun, agent, m string) string {
+	if reg, err := run.registry(); err == nil {
+		if p, _, _ := l.target(reg, func() bool { return false }); p != nil || agent == "" {
+			return l.rowLabel(ctx, run, cmp.Or(agent, agentid.Claude), m)
+		}
+	}
+	return cmp.Or(labelPick(withAskFlags(ctx, l.profile, l.fallback), agent, m), m)
 }
 
 // askFlagsKey carries the ask line's --profile and --fallback to the no-run preview.

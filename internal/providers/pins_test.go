@@ -603,7 +603,7 @@ func TestQualifyPinSpecUsesRecordProfile(t *testing.T) {
 	t.Setenv(EnvSessionProfile, "dev")
 	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	reg := &Registry{Default: "qa", Providers: map[string]*Provider{"dev": {Name: "dev"}, "qa": {Name: "qa"}}}
-	if got := QualifyPinSpec(t.Context(), reg, "dev", "opus-x"); got != "dev:opus-x" {
+	if got := QualifyPinSpec(reg, "dev", "opus-x"); got != "dev:opus-x" {
 		t.Errorf("got %q want dev:opus-x", got)
 	}
 }

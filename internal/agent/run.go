@@ -615,15 +615,15 @@ func (f *packFile) remove() { _ = os.Remove(f.path) }
 func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note string) {
 	s := SchemaFor(d.Agent.Name())
 	model := d.Model
-	if model == "" {
-		if t, _, err := s.Target(req); err == nil {
-			model = t.Model
-		}
+	var prov *providers.Provider
+	if t, _, _, err := s.targetNote(req); err == nil { // quiet: the dispatch already printed its note
+		prov = t.Provider
+		model = cmp.Or(model, t.Model)
 	}
 	if model == "" {
 		note = d.Agent.Name() + ": model unknown; packing to the 200K-token default window"
 	}
-	budget = models.PromptTokens(models.Window(model), packReserveTokens) * packBytesNum / packBytesDen
+	budget = models.PromptTokens(providers.Window(prov, model), packReserveTokens) * packBytesNum / packBytesDen
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && n < budget && !viaFile {
 		budget, note = n, d.Agent.Name()+": "+s.CLI.PromptVia.String()+" prompt cap"
 	}

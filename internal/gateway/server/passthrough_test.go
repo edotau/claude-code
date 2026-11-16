@@ -592,12 +592,16 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 		status, hits  int
 	}{
 		{"capability error", msg, 200, 2},
+		{"capability error, no effort sent", msg, 200, 2},
 		{"other 400", `{"error":{"message":"bad"}}`, 400, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rup, rresp := sendChat(t, reqBody, func(w http.ResponseWriter, r *http.Request, n int) {
-				b, _ := io.ReadAll(r.Body)
-				if n == 1 || bytes.Contains(b, []byte(`"reasoning_effort":"high"`)) {
+			body := reqBody
+			if strings.Contains(tc.name, "no effort") {
+				body = strings.Replace(reqBody, `"reasoning_effort":"high",`, "", 1)
+			}
+			rup, rresp := sendChat(t, body, func(w http.ResponseWriter, r *http.Request, n int) {
+				if n == 1 {
 					w.WriteHeader(400)
 					io.WriteString(w, tc.errBody)
 					return
