@@ -156,6 +156,7 @@ var writers = map[string]string{
 	"internal/hosttest/capture.go:ClosedStdout":                 unversioned("test helper: an empty temp file standing in for a closed stdout"),
 	"internal/hosttest/git.go:WriteRel":                         unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:createFlag":           unversioned("marker: context-checkpoint flag file"),
+	"internal/hooks/leaves_watch.go:writeWatch":                 unversioned("marker: stuck-leaf watchdog tick, seen, resumed and collected files"),
 	"internal/memory/session_start.go:WriteCompactRecord":       unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
 	"internal/gemini/quota.go:diskCached":                       unversioned("cache: agy /usage output, 60 s, state/harness/agy-usage.json"),
 	"internal/memory/compact_handoff.go:WriteCompactHandoff":    unversioned("text: PreCompact's fact-only handoff markdown in memory/handoffs"),
