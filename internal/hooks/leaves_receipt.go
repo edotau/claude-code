@@ -124,6 +124,11 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 		if hookRan && launchedBy(rec.Time, []time.Time{m.Started}) {
 			how = "the hook ran the brief's `Run:` line itself"
 		}
+		rec, err := awaitDispatch(rec, lr.until)
+		if err != nil {
+			return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
+				"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID), jobOut{}), false
+		}
 		return recordReceipt(in, rec, how, m.Output)
 	}
 	if hookRan {
@@ -167,7 +172,7 @@ func launchedBy(start time.Time, calls []time.Time) bool {
 
 // recordReceipt holds while the job runs (up to the cap), then passes with its ran-on line and result attached.
 func recordReceipt(in *core.Input, rec agent.Record, how, output string) (core.Result, bool) {
-	if rec.Alive() && !pidReused(rec) {
+	if jobRunning(rec) {
 		if time.Since(rec.Time) >= leafStopMaxWait {
 			return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
 				"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID), jobOut{}), false
@@ -176,11 +181,16 @@ func recordReceipt(in *core.Input, rec agent.Record, how, output string) (core.R
 			"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
 			"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}, true
 	}
+	return endedReceipt(in, rec, how, output), false
+}
+
+// endedReceipt passes a finished job's hand-back with its ran-on line and result attached.
+func endedReceipt(in *core.Input, rec agent.Record, how, output string) core.Result {
 	body := jobResult(&rec, output)
 	if line := rec.ResultEnvelope(io.Discard).RanOn; line != "" {
-		return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body), false
+		return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) supplied the receipt: ask: %s", rec.ID, how, line), body)
 	}
-	return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body), false
+	return attach(in, fmt.Sprintf("NOTE: dispatch %s (%s) ended %s without running an agent.", rec.ID, how, rec.Status), body)
 }
 
 // relayRunPending is the hook's launch with no dispatch record yet: its output decides, else hold while it starts.

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
@@ -1227,5 +1228,90 @@ func TestRanOnRelayBashWrites(t *testing.T) {
 		if relay := !blocked && len(*spawned) == 0 && strings.HasPrefix(msg, relayNote); relay != wrote {
 			t.Errorf("%q: relay note %v (blocked=%v spawns %v), want %v", cmd, relay, blocked, *spawned, wrote)
 		}
+	}
+}
+
+// shrinkHandbackWait sets Handback's poll and budget to test sizes; the record flips to final on the flip-th re-read.
+func shrinkHandbackWait(t *testing.T, id string, flip int, final string, readErr bool) {
+	t.Helper()
+	poll, wait, load := handbackPoll, handbackWait, loadDispatch
+	t.Cleanup(func() { handbackPoll, handbackWait, loadDispatch = poll, wait, load })
+	handbackPoll, handbackWait = time.Millisecond, 30*time.Millisecond
+	calls := 0
+	loadDispatch = func(got string) (agent.Record, error) {
+		if calls++; got == id && calls > 1 && readErr {
+			return agent.Record{}, fmt.Errorf("record unreadable")
+		}
+		if got == id && calls == flip {
+			writeDispatch(t, id, final)
+		}
+		return load(got)
+	}
+}
+
+// A hand-back waits on its running job: one that ends in the budget passes with the result; else today's paths.
+func TestHandbackWaitsOnJob(t *testing.T) {
+	ranOn := `,"agent":"codex","model":"databricks-gpt-6-1-sol"`
+	for _, tc := range []struct {
+		name, result string
+		flip         int // re-read on which the record turns ok; 0 never
+		readErr      bool
+		wantHold     bool
+		want         string
+	}{
+		{"ends inside the budget", startedLine(), 3, false, false, "NOTE: dispatch " + leafJob + " (ended while the hand-back waited)"},
+		{"still running at the budget", startedLine(), 0, false, true, "claude-code agents result -f " + leafJob},
+		{"no job", "ls output", 0, false, false, ""},
+		{"record unreadable", startedLine(), 0, true, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := handbackOf(leafInput(leafEnv(t, tc.result)), "early report")
+			running := strings.TrimSuffix(record(leafJob, "running", os.Getpid()), "}") + ranOn + "}"
+			writeDispatch(t, leafJob, running)
+			shrinkHandbackWait(t, leafJob, tc.flip, strings.Replace(running, `"running"`, `"ok"`, 1), tc.readErr)
+			r := Handback(in)
+			msg, _ := r.UpdatedInput["message"].(string)
+			if hold := r.Decision == core.Block; hold != tc.wantHold || !strings.Contains(r.Reason+msg, tc.want) ||
+				(!hold && tc.want != "" && !strings.Contains(msg, "early report")) {
+				t.Fatalf("got %+v, want hold=%v with %q and the report kept", r, tc.wantHold, tc.want)
+			}
+		})
+	}
+}
+
+// An external leaf's job found by launch time ends in the budget: the receipt is attached; an unreadable one notes.
+func TestHandbackWaitsOnReceiptJob(t *testing.T) {
+	const id = "20261116T120000.000-codex"
+	for _, tc := range []struct {
+		name    string
+		readErr bool
+		want    string
+	}{
+		{"ends inside the budget", false, "ask: ran on codex"},
+		{"record unreadable", true, "became unreadable while the hand-back waited"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			at := time.Now().Add(-time.Minute).Truncate(time.Second)
+			in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+			body := func(status string) string {
+				return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol"}`,
+					id, at.Add(3*time.Second).Format(time.RFC3339), status, os.Getpid())
+			}
+			writeDispatch(t, id, body("running"))
+			shrinkHandbackWait(t, id, 2, body("ok"), tc.readErr)
+			r := Handback(in)
+			msg, _ := r.UpdatedInput["message"].(string)
+			if r.Decision == core.Block || !strings.Contains(msg, tc.want) || !strings.Contains(msg, "early report") {
+				t.Fatalf("got %+v, want the hand-back through with %q and the report", r, tc.want)
+			}
+		})
+	}
+}
+
+// The hand-back wait is most of dispatch-handback's 15 s budget, ending a HookMargin before the dispatcher cuts it.
+func TestHandbackWaitBudget(t *testing.T) {
+	spec, _ := core.SpecOf("dispatch-handback")
+	if handbackWait < 10*time.Second || handbackWait > spec.Budget-core.HookMargin {
+		t.Fatalf("handbackWait = %s with budget %s, want 10s..budget-%s", handbackWait, spec.Budget, core.HookMargin)
 	}
 }
