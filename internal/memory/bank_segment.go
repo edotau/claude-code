@@ -88,7 +88,7 @@ func topicFiles(b Bank) []string {
 	for _, p := range searchTopicFiles(StoreDir()) {
 		name := filepath.Base(p)
 		local := strings.TrimPrefix(name, b.Prefix())
-		if ownerKey(name, keys) != b.Key || reservedNames[local] || reservedKindFold(local) && !hasExactEntry(StoreDir(), name) {
+		if ownerKey(name, keys) != b.Key || reservedNames[local] {
 			continue
 		}
 		out = append(out, p)
@@ -105,9 +105,6 @@ func searchTopicFiles(dir string) []string {
 			continue
 		}
 		if reservedNames[name] {
-			continue
-		}
-		if reservedKindFold(name) && !hasExactEntry(dir, name) {
 			continue
 		}
 		files = append(files, filepath.Join(dir, name))
@@ -541,27 +538,6 @@ func reservedNameSet() map[string]bool {
 		out[name] = true
 	}
 	return out
-}
-
-// reservedKindFold reports whether name is reserved under case folding ("activecontext.md" opens activeContext.md).
-func reservedKindFold(name string) bool {
-	for reserved := range reservedNames {
-		if strings.EqualFold(reserved, name) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasExactEntry reports whether dir lists name in exactly this spelling; false means Lstat hit a case-folded twin.
-func hasExactEntry(dir, name string) bool {
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if e.Name() == name {
-			return true
-		}
-	}
-	return false
 }
 
 // frontmatterValue is key's value inside a closed leading `---` block; "" when absent, unclosed, or a list/map.
