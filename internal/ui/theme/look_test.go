@@ -97,6 +97,26 @@ func TestThemeMalformedConfigKeepsDefaultLook(t *testing.T) {
 	}
 }
 
+// Bad hex in a ramp or powerline color is dropped at load, as in Semantic, never painted black.
+func TestLoadPalettesDropsUnpaintableHex(t *testing.T) {
+	cfg := writeUserConfig(t, `{}`)
+	body := `{"gradients":{"mix":["#112233","nope","#abc"],"bad":["#zzzzzz"]},` +
+		`"powerline":{"dark":{"model":{"bg":"#5E81AC","fg":"blue"}}}}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(cfg), "palettes.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pal := LoadPalettes()
+	if got := pal.Gradients["mix"]; len(got) != 2 || got[0] != "#112233" || got[1] != "#abc" {
+		t.Errorf("mix = %v, want the two valid stops", got)
+	}
+	if _, ok := pal.Gradients["bad"]; ok {
+		t.Error("an all-invalid ramp must be dropped so Stops falls back")
+	}
+	if m := pal.Powerline["dark"]["model"]; m["bg"] != "#5E81AC" || m["fg"] != "" {
+		t.Errorf("powerline model = %v, want bg kept and fg dropped", m)
+	}
+}
+
 // SetGradient backs up an existing config.json before rewriting it.
 func TestSetGradientBacksUpExistingConfig(t *testing.T) {
 	path := writeUserConfig(t, `{"gradient":"gemini","lift":0.2}`)

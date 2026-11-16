@@ -14,3 +14,18 @@ func TestStatusNotVerifiedStaysGray(t *testing.T) {
 		t.Fatalf("Status(verified) = %q", got)
 	}
 }
+
+// A token inside a longer word stays unpainted; edges that are not word characters ("FIX:") still match.
+func TestStatusTokensMatchWholeWords(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"unpinned", "unpinned"},
+		{"representation", "representation"},
+		{"pinned: x", Green + "pinned" + Reset + ": x"},
+		{"FIX: y", Red + "FIX:" + Reset + " y"},
+		{"(present)", "(" + Green + "present" + Reset + ")"},
+	} {
+		if got := Status(true, c.in); got != c.want {
+			t.Errorf("Status(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
