@@ -55,9 +55,7 @@ func SetReadLockTimeoutForTest(d time.Duration) (restore func()) {
 
 func Path() string { return filepath.Join(paths.ConfigDir(), "state", "vault.db") }
 
-// View and Update are transaction BOUNDARIES: never call View, Update, UpdateSealed or MasterKey (it opens a View)
-// from inside another's callback; bbolt's file lock is not reentrant, so a nested open blocks until bbolt.ErrTimeout.
-// Helpers that must run in an open transaction take the *Tx as a parameter; no runtime guard enforces this.
+// View and Update are transaction boundaries: never nest them (or UpdateSealed, MasterKey); bbolt's lock blocks.
 func View(fn func(*Tx) error) error { return ViewAt(Path(), fn) }
 
 func ViewAt(path string, fn func(*Tx) error) error {

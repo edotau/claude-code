@@ -30,8 +30,7 @@ type RoutingField struct {
 	Values []string // RoutingEnum only
 	Get    func(providers.Routing) string
 	Set    func(*providers.Routing, string) error // "" resets to default (removes the overlay field)
-	// IsSet reports whether the vault overlay's own routing object (providers.RoutingOverlay, never the
-	// merged registry) sets this field — the provenance check: "vault" when true, else "default".
+	// IsSet reports whether the vault overlay's own routing object (never the merged registry) sets this field.
 	IsSet func(providers.Routing) bool
 }
 
@@ -41,8 +40,7 @@ type Module interface {
 	Fields() []RoutingField
 }
 
-// Modules lists every registered module, in display/merge order: the core routing knobs first, then
-// each agent's own.
+// Modules lists every registered module in display/merge order, core routing knobs first.
 func Modules() []Module {
 	return []Module{routingModule{}, opencodeModule{}}
 }
@@ -109,8 +107,7 @@ func boolField(key string, on func(providers.Routing) bool, slot func(*providers
 	}
 }
 
-// opencodeModule is opencode's own sub-pick knobs: the paid-backend ladder, the work-repo markers that
-// block zen-free, which aliases zen-free may serve, and the free dispatch's stall deadline.
+// opencodeModule is opencode's own sub-pick knobs.
 type opencodeModule struct{}
 
 func (opencodeModule) Name() string { return "opencode" }

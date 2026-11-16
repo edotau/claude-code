@@ -503,9 +503,7 @@ func rotatePreflight(force bool) (old *Key, id string, err error) {
 	return old, id, nil
 }
 
-// RotateKey re-seals every secret under a new master key, keeping each key under its own kid account (R1, R2, R4).
-// The new key is stored before the re-seal tx and the pointer moves after it, so a crash strands nothing; force
-// bypasses the env/key_command rotation guard, so update that source with the new key immediately after.
+// RotateKey re-seals every secret under a new master key, stored first; force skips the env/key_command guard.
 func RotateKey(force bool) (oldKid, newKid string, err error) {
 	err = paths.WithFileLock(Path()+".key", func() error {
 		var e error

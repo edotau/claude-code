@@ -53,8 +53,7 @@ var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
 // ErrKeyringUnavailable means the tool ran and failed for a reason other than "not stored".
 var ErrKeyringUnavailable = errors.New("keyring: unavailable")
 
-// errKeyringNoTool means no keyring tool is on PATH or this OS has none; it wraps ErrKeyringUnavailable, so callers
-// telling "no tool ever existed" from "an installed tool failed" (R4) check it first.
+// errKeyringNoTool means no keyring tool exists here (R4); it wraps ErrKeyringUnavailable.
 var errKeyringNoTool = fmt.Errorf("keyring: no tool on PATH for this OS: %w", ErrKeyringUnavailable)
 
 // keyringGOOS picks the keyring plane's OS branch; tests swap it to run every branch on any host.

@@ -94,8 +94,7 @@ func memoryStateSession(p string) string {
 	return ""
 }
 
-// sandboxPrefix and sandboxSeed mirror what internal/memory/sandbox.go writes: the seed commit of <dir>/memory
-// (author + subject) is the provenance; the owner marker only says whether a process still uses the dir.
+// sandboxPrefix and sandboxSeed mirror internal/memory/sandbox.go; the seed commit of <dir>/memory is the provenance.
 const (
 	sandboxPrefix  = "claude-memory-sandbox-"
 	sandboxSeed    = "Memory sandbox\x1fchore(memory): seed sandbox"

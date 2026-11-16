@@ -47,8 +47,7 @@ func ClaudeJSONWired(path string) bool {
 // codexMCPHeader recognizes the web_search table, including quoted keys and trailing comments.
 var codexMCPHeader = regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
 
-// codexMCPRange locates the real table without treating multiline strings or arrays as headers;
-// comment lines directly above the next header belong to that header, not to the table.
+// codexMCPRange locates the real table, ignoring multiline strings and arrays and comments above the next header.
 func codexMCPRange(raw []byte) (start, end int) {
 	start, offset, cut := -1, 0, 0
 	multiline, depth := "", 0
