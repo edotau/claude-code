@@ -525,20 +525,26 @@ func nestedOf(toks []string) (string, bool) {
 
 // CdTarget reports the cwd a `cd`/`pushd` command leaves behind; a dynamic target keeps the cwd we had.
 func CdTarget(toks []string, cwd string) (string, bool) {
+	next, _, ok := cdResolve(toks, cwd)
+	return next, ok
+}
+
+// cdResolve is CdTarget plus whether the target is dynamic (a `$VAR`, `-`, substitution or glob).
+func cdResolve(toks []string, cwd string) (next string, dynamic, ok bool) {
 	if len(toks) == 0 || toks[0] != "cd" && toks[0] != "pushd" {
-		return cwd, false
+		return cwd, false, false
 	}
 	args := skipCdOptions(toks[1:])
 	if len(args) == 0 {
 		if home, err := os.UserHomeDir(); err == nil && toks[0] == "cd" {
-			return home, true
+			return home, false, true
 		}
-		return cwd, true
+		return cwd, false, true
 	}
 	if p, ok := resolvePath(args[0], cwd); ok {
-		return p, true
+		return p, false, true
 	}
-	return cwd, true
+	return cwd, true, true
 }
 
 // skipCdOptions drops cd's leading options (-L -P -e -@) and a `--` terminator.
@@ -569,6 +575,9 @@ func resolvePath(p, base string) (string, bool) {
 	}
 	if strings.ContainsAny(p, "$`*?"+subMask) {
 		return base, false
+	}
+	if base == unknownDir && !filepath.IsAbs(p) { // a `..` must not climb out of an unknown dir into a real one
+		return unknownDir, true
 	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)

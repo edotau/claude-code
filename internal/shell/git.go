@@ -144,21 +144,49 @@ func hasFooter(text string) bool {
 	return slices.ContainsFunc(footerPatterns(), func(re *regexp.Regexp) bool { return re.MatchString(text) })
 }
 
-// AttributionFooterCommit reports a `git commit` carrying a footer in its raw text (heredoc bodies too), in its
-// unquoted arguments (`"Cl""aude"`, `$'\x20'`), or in text a substitution builds that mentions one.
-func AttributionFooterCommit(cmd string) bool {
-	if hasFooter(cmd) && gitCommitInvocation(cmd) {
-		return true
+// footerLinePrefix opens a line (or follows a `\n` escape): no letter or digit but an attached -m/--trailer= option.
+const footerLinePrefix = `(?:^|\\n)[^\p{L}\p{N}\n]*(?:(?:-[a-z]*m|--message=|--trailer=)[^\p{L}\p{N}\n]*)?`
+
+// footerLines are footerPatterns anchored to the start of a line of one argument.
+var footerLines = sync.OnceValue(func() []*regexp.Regexp {
+	var out []*regexp.Regexp
+	for _, re := range footerPatterns() {
+		body := strings.TrimPrefix(re.String(), "(?i)")
+		out = append(out, regexp.MustCompile(`(?im)`+footerLinePrefix+`(?:`+body+`)`))
 	}
+	return out
+})
+
+func footerLine(arg string) bool {
+	return slices.ContainsFunc(footerLines(), func(re *regexp.Regexp) bool { return re.MatchString(arg) })
+}
+
+// AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.
+func AttributionFooterCommit(cmd string) bool {
 	_, subs := ExtractSubstitutions(cmd)
 	dynamic := slices.ContainsFunc(subs, func(s string) bool { return !strings.Contains(s, "<<") })
-	return EachGit(cmd, "", func(_, verb string, args []string) bool {
+	var subjects []string
+	if EachGit(cmd, "", func(_, verb string, args []string) bool {
 		if verb != "commit" {
 			return false
 		}
-		joined := strings.Join(args, " ")
-		return hasFooter(joined) || dynamic && strings.Contains(joined, subMask) && footerMention().MatchString(cmd)
-	})
+		for _, a := range args {
+			if footerLine(a) {
+				return true
+			}
+			if hasFooter(a) {
+				subjects = append(subjects, a)
+			}
+		}
+		return dynamic && strings.Contains(strings.Join(args, " "), subMask) && footerMention().MatchString(cmd)
+	}) {
+		return true
+	}
+	raw := cmd
+	for _, s := range subjects {
+		raw = strings.ReplaceAll(raw, s, "")
+	}
+	return hasFooter(raw) && gitCommitInvocation(cmd)
 }
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.

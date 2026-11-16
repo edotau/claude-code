@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"slices"
@@ -94,18 +95,25 @@ func statDir(p string) bool {
 	return err == nil && st.IsDir()
 }
 
+// unknownDir is the cwd reported after a cd whose target is dynamic: absolute, never a real dir or under one.
+var unknownDir = filepath.Join(string(filepath.Separator), "<unknown cwd>")
+
 // cwdTracker follows the shell cwd across subshells, pipes, `||` after a cd, missing targets and pushd/popd.
 type cwdTracker struct {
 	cwd, before string // before: the dir the previous segment's cd left, for a following `||`
+	exact       string // after a dynamic or missing cd target, the dir for the rest of its `&&` chain
 	moved       bool
-	subshell    []string // cwd to restore at each open `(`'s close
-	dirs        []string // pushd stack
+	subshell    [][2]string // cwd and exact to restore at each open `(`'s close
+	dirs        []string    // pushd stack
 }
+
+// here is the dir the next segment runs in.
+func (c *cwdTracker) here() string { return cmp.Or(c.exact, c.cwd) }
 
 func (c *cwdTracker) enter(seg string) {
 	opens, _ := parenCounts(seg)
 	for range opens {
-		c.subshell = append(c.subshell, c.cwd)
+		c.subshell = append(c.subshell, [2]string{c.cwd, c.exact})
 	}
 }
 
@@ -113,7 +121,7 @@ func (c *cwdTracker) leave(seg string) {
 	_, closes := parenCounts(seg)
 	for range closes {
 		if n := len(c.subshell); n > 0 {
-			c.cwd, c.subshell = c.subshell[n-1], c.subshell[:n-1]
+			c.cwd, c.exact, c.subshell = c.subshell[n-1][0], c.subshell[n-1][1], c.subshell[:n-1]
 			c.moved = false
 		}
 	}
@@ -122,26 +130,34 @@ func (c *cwdTracker) leave(seg string) {
 // step returns the dir a segment runs in (the old one after a cd that `||` makes conditional) and applies a builtin
 // cd/pushd/popd; a pipe side or backgrounded segment is a subshell, so its cd is not applied.
 func (c *cwdTracker) step(toks []string, prev, sep string) (at string, isCd bool) {
-	at = c.cwd
+	if prev != "&&" && prev != "|" && prev != "|&" { // a failed cd no longer stops what follows
+		c.exact = ""
+	}
+	at = c.here()
 	if prev == "||" && c.moved {
 		at = c.before
 	}
 	c.moved = false
-	next, ok := c.cdTarget(builtinPrefixDropped(toks), !subshellSide(prev, sep))
+	next, exact, ok := c.cdTarget(builtinPrefixDropped(toks), !subshellSide(prev, sep))
 	if ok {
-		c.apply(next, prev, sep)
+		c.apply(next, exact, prev, sep)
 	}
 	return at, ok
 }
 
-// cdTarget is the cwd a cd/pushd/popd leaves; a missing directory fails the cd, so cwd stays. live: pushd records cwd.
-func (c *cwdTracker) cdTarget(cmd []string, live bool) (string, bool) {
+// cdTarget is the cwd a cd/pushd/popd leaves (a missing dir: cwd stays) and exact, where it lands when it succeeds.
+func (c *cwdTracker) cdTarget(cmd []string, live bool) (next, exact string, ok bool) {
 	if len(cmd) > 0 && cmd[0] == "popd" {
-		return popDir(&c.dirs, c.cwd), true
+		d := popDir(&c.dirs, c.cwd)
+		return d, d, true
 	}
-	next, ok := CdTarget(cmd, c.cwd)
+	next, ok = CdTarget(cmd, c.cwd)
 	if !ok {
-		return c.cwd, false
+		return c.cwd, c.here(), false
+	}
+	exact, dynamic, _ := cdResolve(cmd, c.here())
+	if dynamic {
+		exact = unknownDir
 	}
 	if missingDir(next, c.cwd) {
 		next = c.cwd
@@ -149,7 +165,7 @@ func (c *cwdTracker) cdTarget(cmd []string, live bool) (string, bool) {
 	if live && next != c.cwd && cmd[0] == "pushd" {
 		c.dirs = append(c.dirs, c.cwd)
 	}
-	return next, true
+	return next, exact, true
 }
 
 // missingDir reports a cd target that is absolute, differs from cwd and does not exist.
@@ -158,9 +174,16 @@ func missingDir(next, cwd string) bool {
 }
 
 // apply moves the cwd unless this segment is a pipe side or backgrounded.
-func (c *cwdTracker) apply(next, prev, sep string) {
-	if next != c.cwd && !subshellSide(prev, sep) {
+func (c *cwdTracker) apply(next, exact, prev, sep string) {
+	if subshellSide(prev, sep) {
+		return
+	}
+	if next != c.cwd {
 		c.before, c.cwd, c.moved = c.cwd, next, true
+	}
+	c.exact = ""
+	if exact != next {
+		c.exact = exact
 	}
 }
 
@@ -228,6 +251,18 @@ func commandWords(seg string) []string {
 var inertCommands = map[string]bool{"echo": true, "printf": true, "grep": true, "egrep": true, "fgrep": true, "rg": true,
 	"ag": true, "cat": true, "tee": true, "head": true, "tail": true, "sed": true, "awk": true, "jq": true, "gh": true}
 
+// inertHarnessVerbs are the claude-code verbs whose arguments are search terms, facts or PR text, never run.
+var inertHarnessVerbs = map[string]bool{"memory recall": true, "memory search": true, "memory remember": true,
+	"network websearch": true, "scm pr": true, "scm comment": true}
+
+// inertCommand reports a command whose arguments are text: an inertCommands name or an inertHarnessVerbs verb.
+func inertCommand(toks []string) bool {
+	if filepath.Base(toks[0]) == "claude-code" {
+		return len(toks) > 2 && inertHarnessVerbs[toks[1]+" "+toks[2]]
+	}
+	return inertCommands[filepath.Base(toks[0])]
+}
+
 // segmentGit visits the nested command and each git word of one segment whose wrappers are already dropped.
 func segmentGit(toks []string, dir string, fn gitFn, depth int) bool {
 	if len(toks) == 0 {
@@ -239,7 +274,7 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int) bool {
 	if text, ok := hereString(toks); ok {
 		return eachGit(text, dir, fn, depth+1)
 	}
-	s := &segScan{dir: dir, fn: fn, depth: depth, inert: inertCommands[filepath.Base(toks[0])]}
+	s := &segScan{dir: dir, fn: fn, depth: depth, inert: inertCommand(toks)}
 	for i := range toks { // any word: xargs/watch/find -exec need no modelling
 		if s.word(toks, i) {
 			return true
@@ -262,7 +297,7 @@ func (s *segScan) nest(text string) bool { return eachGit(text, s.dir, s.fn, s.d
 // word visits toks[i]: a git word, a shell wrapper's -c string, or a multi-word string that reads as a command line.
 func (s *segScan) word(toks []string, i int) bool {
 	t := toks[i]
-	if (t == "git" || strings.HasSuffix(t, "/git")) && filepath.Base(t) == "git" {
+	if !s.inert && (t == "git" || strings.HasSuffix(t, "/git")) && filepath.Base(t) == "git" {
 		s.afterGit = true
 		return s.fn(resolvedGit(toks[i+1:], s.dir))
 	}
