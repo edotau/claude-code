@@ -329,6 +329,18 @@ func TestSwitchDryRunMakesNoRequests(t *testing.T) {
 	}
 }
 
+// --dry-run without a profile exits 2 (a script must not see success); bare switch still prints usage and exits 0.
+func TestSwitchDryRunNeedsProfile(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{{[]string{"--dry-run"}, 2}, {nil, 0}} {
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdSwitch(tc.args) }); code != tc.want {
+			t.Errorf("switch %v exit %d, want %d", tc.args, code, tc.want)
+		}
+	}
+}
+
 // switch off (the default): the pin lands and no request is made.
 func TestSwitchWithSwitchOffMakesNoRequests(t *testing.T) {
 	srv, got := dbxCLIServer(t)
