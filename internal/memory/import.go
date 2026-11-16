@@ -83,6 +83,7 @@ type importStats struct{ merged, copied, kept, conflicts, skipped, left int }
 
 type importPlan struct {
 	changes []Change
+	leaks   []string // planned writes the store commit would refuse as credential-shaped
 	lines   []string
 	touched []Bank
 	native  bool
@@ -104,6 +105,13 @@ func planImport(opt ImportOptions) (*importPlan, error) {
 		if err := p.planStore(pr); err != nil {
 			return p, err
 		}
+	}
+	if len(p.leaks) > 0 { // refuse before apply: the commit gate would fail only after the writes
+		var msg strings.Builder
+		for _, rel := range p.leaks {
+			msg.WriteString("credential-shaped content: " + rel + "\n")
+		}
+		return p, errors.New(msg.String() + "nothing was imported; scrub the source file(s) and re-run")
 	}
 	return p, nil
 }
@@ -418,6 +426,9 @@ func (p *importPlan) record(pr importPair, rel string, a importAction) {
 	}
 	if a.data == nil {
 		return
+	}
+	if textutil.CredentialRE.Match(a.data) {
+		p.leaks = append(p.leaks, rel)
 	}
 	p.changes = append(p.changes, Change{Rel: storeRel(pr.tgt, filepath.FromSlash(rel)), Data: a.data})
 	b := bankOfStateKey(pr.key)

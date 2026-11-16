@@ -153,6 +153,35 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	}
 }
 
+func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
+	key := "sk-" + strings.Repeat("a", 40) // built at runtime so no literal key sits in the source
+	for _, tc := range []struct{ name, rel, body string }{
+		{"copy", "reports/alpha--leak.md", "k=" + key + "\n"},
+		{"merge", "alpha--decisionLog.md", "## 2026-11-03 — leak <!-- id:55555555 -->\nuses " + key + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src, _ := flatImportFixture(t)
+			write(t, filepath.Join(src, tc.rel), tc.body)
+			write(t, filepath.Join(src, "alpha--topic.md"), key+"\n") // a kept-local conflict is not a blocker
+			// Stamp first: a live store already carries .layout, which the first lock would otherwise write.
+			if err := requireFlat(); err != nil {
+				t.Fatal(err)
+			}
+			before := dirHashes(t, StoreDir())
+			for _, dry := range []bool{true, false} {
+				_, err := ImportBank(ImportOptions{From: src, All: true, Topics: true, DryRun: dry})
+				if err == nil || !strings.Contains(err.Error(), "credential-shaped content: "+tc.rel) ||
+					!strings.Contains(err.Error(), "nothing was imported") || strings.Contains(err.Error(), "alpha--topic.md") {
+					t.Fatalf("dry=%v: err = %v, want a refusal naming only %s", dry, err, tc.rel)
+				}
+				if !equalSnap(before, dirHashes(t, StoreDir())) {
+					t.Fatalf("dry=%v: a refused import changed the local store", dry)
+				}
+			}
+		})
+	}
+}
+
 func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
 	dir := t.TempDir()
 	_, err := ExtractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
