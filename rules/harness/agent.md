@@ -122,8 +122,8 @@ paths:
   dirs, Bash only dream's `claude-code memory review|index|promote` plus `cd` into the store; file redirects are
   refused, `2>&1` is not; Read is denied on `state/vault.db`, `.credentials.json`, `.env` and `*.pem`, which also binds
   read-only Bash: a path spliced in by a substitution is denied, a comment cannot hide a command from the check, and
-  `cd` and `echo` are not caught by it; no policy, binary or policy env refuses the launch. A dream whose gate refused calls and
-  edited nothing fails and retries in 6 h instead of stamping success.
+  `cd` and `echo` are not caught by it; no policy, binary or policy env refuses the launch. A dream whose gate refused
+  calls and edited nothing fails and retries in 6 h instead of stamping success.
 
 ## Codex child routing
 

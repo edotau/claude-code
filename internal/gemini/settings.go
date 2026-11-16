@@ -452,8 +452,8 @@ func spliceAgyHook(raw, entry []byte) ([]byte, error) {
 	case len(spans) == 1 && agentconfig.SameJSONObject(last, entry):
 		return raw, nil
 	case len(spans) > 0:
-		for i := len(spans) - 1; i >= 0; i-- {
-			raw = slices.Concat(raw[:spans[i][0]], entry, raw[spans[i][1]:])
+		for _, span := range slices.Backward(spans) {
+			raw = slices.Concat(raw[:span[0]], entry, raw[span[1]:])
 		}
 		return raw, nil
 	case lastEnd < 0: // an empty object

@@ -18,9 +18,10 @@ paths:
 - `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST`. Requests to
   `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5 tunnel per host
   (record in `state/harness/ssh/`; a recorded tunnel is reused only while its pid is still our `ssh -N -D` on that
-  port, any other listener there gets a fresh tunnel); agents reach the proxy at `/via/<host>/…`. A tunnel that cannot start or has died
-  fails the request with `egress host <host>: <cause>`, never a direct connection. `--direct` is refused under
-  `--remote`; a credential minted by a provider's `auth.command` is not tunnelled.
+  port, any other listener there gets a fresh tunnel); agents reach the proxy at `/via/<host>/…`.
+  A tunnel that cannot start or has died fails the request with `egress host <host>: <cause>`, never a direct
+  connection. `--direct` is refused under `--remote`; a credential minted by a provider's `auth.command` is not
+  tunnelled.
 - `--host auto` and `--remote auto` resolve to a host name here, before any ssh call: `CLAUDE_REMOTE_HOST` (process
   env, else the vault's), else the one other online tailnet machine that answers `claude-code version` over ssh within
   5 s (cached 10 minutes in `state/harness/remote/auto-host.json`). None or several is an error listing them.

@@ -99,15 +99,15 @@ func TestStripFrontMatterFences(t *testing.T) {
 		{"---\na: b\nbody only, unterminated\n", nil, "---\na: b\nbody only, unterminated\n"},
 		{"---  \na: b\n---\nbody\n", nil, "---  \na: b\n---\nbody\n"},
 		{"---\na: b\n---  \nbody\n", nil, "---\na: b\n---  \nbody\n"},
-		{"---\n---\nbody\n", ptr("---\n---\n"), "body\n"},
-		{"---\n---\n", ptr("---\n---\n"), ""},
+		{"---\n---\nbody\n", new("---\n---\n"), "body\n"},
+		{"---\n---\n", new("---\n---\n"), ""},
 		{"---\n", nil, "---\n"},
 		{"---", nil, "---"},
 		{"---\na: b\n...\nbody\n", nil, "---\na: b\n...\nbody\n"},
 		{"---\na: b\n---", nil, "---\na: b\n---"},
-		{"---\na: b\n---\nbody\n---\nmore\n", ptr("---\na: b\n---\n"), "body\n---\nmore\n"},
-		{"---\na: |\n  ---\n  x\n---\nb\n", ptr("---\na: |\n  ---\n  x\n---\n"), "b\n"},
-		{"---\n\n---\nbody\n", ptr("---\n\n---\n"), "body\n"},
+		{"---\na: b\n---\nbody\n---\nmore\n", new("---\na: b\n---\n"), "body\n---\nmore\n"},
+		{"---\na: |\n  ---\n  x\n---\nb\n", new("---\na: |\n  ---\n  x\n---\n"), "b\n"},
+		{"---\n\n---\nbody\n", new("---\n\n---\n"), "body\n"},
 		{"---\r\na: b\r\n---\r\n", nil, "---\r\na: b\r\n---\r\n"},
 	}
 	for _, c := range cases {
@@ -117,8 +117,6 @@ func TestStripFrontMatterFences(t *testing.T) {
 		}
 	}
 }
-
-func ptr(s string) *string { return &s }
 
 // An indented "---" inside a description block scalar is not the closing fence, which only matches at line start.
 func TestParseFrontmatterBlockScalarContainingDashes(t *testing.T) {

@@ -425,7 +425,7 @@ func completeTag(s string) bool {
 			return strings.TrimSpace(s[j+1:]) == ""
 		case s[j] == '/':
 			return j+1 < len(s) && s[j+1] == '>' && strings.TrimSpace(s[j+2:]) == ""
-		case j == i || !(isAlpha(s[j]) || s[j] == '_' || s[j] == ':'):
+		case j == i || (!isAlpha(s[j]) && s[j] != '_' && s[j] != ':'):
 			return false
 		}
 		var ok bool
