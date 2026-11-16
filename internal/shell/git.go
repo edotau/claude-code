@@ -10,7 +10,10 @@ import (
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
 var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true, "--exec-path": true}
+	"--namespace": true, "--exec-path": true, "--super-prefix": true, "--config-env": true}
+
+// GitValueOpt reports whether a git global option takes the next token as its value (`git -C /repo status`).
+func GitValueOpt(name string) bool { return gitValueOpts[name] }
 
 // GitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
 func GitInvocation(toks []string, cwd string) (target, verb string, args []string) {
@@ -47,6 +50,10 @@ func parseGit(toks []string, cwd string) (target, verb string, args []string, al
 			workTree = val
 		case "-c":
 			recordAlias(aliases, val)
+		case "--config-env": // an alias read from an env var is unknowable here: treat it as a `!` alias
+			if n, _, found := strings.Cut(val, "="); found {
+				recordAlias(aliases, n+"=!")
+			}
 		}
 	}
 	if i < len(toks) {

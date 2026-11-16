@@ -68,12 +68,13 @@ var stillCaught = []struct {
 func TestSafetyBlockIsAuditedWithoutCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	sql := "DR" + "OP TABLE users_secretmarker" // assembled so the literal never sits in a shell command line
-	payload := `{"tool_name":"Bash","tool_input":{"command":"` + sql + `"}}`
+	payload := `{"session_id":"s-1","tool_name":"Bash","tool_input":{"command":"` + sql + `"}}`
 	if got, _ := safetyScanDecision(t, strings.NewReader(payload)); got != core.Ask {
 		t.Fatalf("Safety = %d, want ask", got)
 	}
 	ev, _ := audit.Read(time.Time{})
-	if len(ev) != 1 || ev[0].Action != audit.HookBlocked || !strings.HasPrefix(ev[0].Detail, "ask: ") || strings.Contains(ev[0].Detail, "secretmarker") {
+	if len(ev) != 1 || ev[0].Action != audit.HookBlocked || !strings.HasPrefix(ev[0].Detail, "ask: ") ||
+		strings.Contains(ev[0].Detail, "secretmarker") || ev[0].Session != "s-1" {
 		t.Fatalf("audit = %+v", ev)
 	}
 }
@@ -707,15 +708,26 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 func TestHarnessGitBlocked(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	outside := t.TempDir()
-	worktree := filepath.Join(cfg, ".claude", "worktrees", "repo", "slug")
+	for _, tt := range harnessGitCases(cfg, t.TempDir()) {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := harnessGitVerb(tt.cmd, tt.cwd) != ""; got != tt.want {
+				t.Errorf("harnessGitVerb(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
+			}
+		})
+	}
+}
 
-	cases := []struct {
-		name string
-		cmd  string
-		cwd  string
-		want bool
-	}{
+type harnessGitCase struct {
+	name string
+	cmd  string
+	cwd  string
+	want bool
+}
+
+// harnessGitCases lists TestHarnessGitBlocked's commands; want is whether harnessGitVerb flags them.
+func harnessGitCases(cfg, outside string) []harnessGitCase {
+	worktree := filepath.Join(cfg, ".claude", "worktrees", "repo", "slug")
+	return append([]harnessGitCase{
 		{"stash inside tree", "git stash", cfg, true},
 		{"checkout inside tree", "git checkout main", cfg, true},
 		{"reset inside tree", "git reset --hard HEAD", cfg, true},
@@ -732,6 +744,12 @@ func TestHarnessGitBlocked(t *testing.T) {
 		{"--work-tree into tree", "git --work-tree=" + cfg + " --git-dir=" + cfg + "/.git reset --hard", outside, true},
 		{"cd into tree then reset", "cd " + cfg + " && git reset --hard", outside, true},
 		{"cd out of tree then reset", "cd " + outside + " && git reset --hard", cfg, false},
+	}, harnessGitNestedCases(cfg, outside)...)
+}
+
+// harnessGitNestedCases are the substitution, nested-shell, cd-tracking and hidden-verb rows.
+func harnessGitNestedCases(cfg, outside string) []harnessGitCase {
+	return []harnessGitCase{
 		{"command substitution into tree", "echo $(cd " + cfg + " && git reset --hard)", outside, true},
 		{"nested bash -c into tree", `bash -c "git reset --hard"`, cfg, true},
 		{"nested bash -c outside tree", `bash -c "git reset --hard"`, outside, false},
@@ -758,19 +776,14 @@ func TestHarnessGitBlocked(t *testing.T) {
 		{"echo piped to bash", "echo 'git restore .' | bash", cfg, true},
 		{"here-string to bash", "bash <<< 'git restore .'", cfg, true},
 		{"alias hides the verb", "git -c alias.zz=restore zz .", cfg, true},
+		{"--super-prefix takes a value", "git --super-prefix x/ restore .", cfg, true},
+		{"--config-env takes a value", "git --config-env core.x=HOME restore .", cfg, true},
 		{"expanded verb", "git $(echo restore) .", cfg, true},
 		{"ANSI-C verb", "git $'restore' .", cfg, true},
 		{"env -C attached", "env -C" + cfg + " git restore .", outside, true},
 		{"echo text is inert", "echo 'git restore .'", cfg, false},
 		{"real cd away is allowed", "cd " + outside + " && git restore .", cfg, false},
 		{"ssh heredoc piped to a local shell", "ssh wks <<'EOF' | bash\ngit reset --hard\nEOF", cfg, true},
-	}
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := harnessGitVerb(tt.cmd, tt.cwd) != ""; got != tt.want {
-				t.Errorf("harnessGitVerb(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
-			}
-		})
 	}
 }
 
