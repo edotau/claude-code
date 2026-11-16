@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -23,7 +24,9 @@ import (
 // replaceFiles keep the target and archive the source verbatim; idFiles merge by block.
 var (
 	replaceFiles = map[string]bool{"activeContext.md": true, "progress.md": true, "projectContext.md": true}
-	headingDate  = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
+	headingDate  = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
+	})
 )
 
 // importMaxFile caps one imported file; importMaxTotal caps a fetched archive.
@@ -218,7 +221,7 @@ func localNativePointers(data []byte) []byte {
 	keys := BankKeys()
 	lines := strings.Split(string(data), "\n")
 	lines = slices.DeleteFunc(lines, func(line string) bool {
-		for _, link := range indexLink.FindAllStringSubmatch(line, -1) {
+		for _, link := range indexLink().FindAllStringSubmatch(line, -1) {
 			parts := strings.Split(strings.TrimPrefix(link[1], "./"), "/")
 			name := parts[0]
 			if len(parts) > 1 && slices.Contains(flatSubs, parts[0]) {
@@ -455,7 +458,7 @@ func decideImport(rel string, cur, data []byte, exists bool) importAction {
 
 // monthlyArchive reports a rotated monthly log (archive/decisionLog-2026-10.md), which merges like its typed file.
 func monthlyArchive(rel string) bool {
-	return path.Dir(rel) == "archive" && archiveName.MatchString(path.Base(rel))
+	return path.Dir(rel) == "archive" && archiveName().MatchString(path.Base(rel))
 }
 
 func mergedAction(rel, format, merged string, n int) importAction {
@@ -607,7 +610,7 @@ func sortNewestFirst(all []string) []string {
 	last := "9999-99-99"
 	dates := make([]string, len(all))
 	for i, b := range all {
-		if m := headingDate.FindStringSubmatch(b); m != nil {
+		if m := headingDate().FindStringSubmatch(b); m != nil {
 			last = m[1]
 		}
 		dates[i] = last
@@ -624,7 +627,9 @@ func sortNewestFirst(all []string) []string {
 	return sorted
 }
 
-var indexLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
+var indexLink = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\]\(([^)\s]+)\)`)
+})
 
 // bankOfStateKey inverts stateKey: "home" is the home bank.
 func bankOfStateKey(key string) Bank {

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -440,10 +441,12 @@ func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *
 const seenMaxAge = 7 * 24 * time.Hour
 
 // sessionIDShape matches a Claude Code session id (UUID), rejecting probe/test payloads like "probe-x".
-var sessionIDShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var sessionIDShape = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+})
 
 // looksLikeSessionID reports whether id has the UUID shape Claude Code assigns real sessions.
-func looksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) }
+func looksLikeSessionID(id string) bool { return sessionIDShape().MatchString(id) }
 
 // blockKey identifies a block by its whitespace-normalized text.
 func blockKey(block string) string {

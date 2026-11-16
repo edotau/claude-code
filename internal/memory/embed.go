@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -47,7 +48,9 @@ var embedFormat = schemas.Register(schemas.Format{
 	Keep: "bbolt metadata and binary float32 rows of one shared cache; a version mismatch is a miss",
 })
 
-var safeProfile = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var safeProfile = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+})
 
 // vectorRecord holds the content vectors of one embedding model, whichever workspace produced them.
 type vectorRecord struct {
@@ -618,7 +621,7 @@ func embedBackoffPath(profile string) string {
 func embedEndpoint(ctx context.Context) (string, error) {
 	var paused error
 	for name := range embedProfiles(ctx) { // lazy: the claude record's profile loads only if the session one is paused
-		if !safeProfile.MatchString(name) || !embedCapable(name) {
+		if !safeProfile().MatchString(name) || !embedCapable(name) {
 			continue
 		}
 		if err := backoffPause(embedBackoffPath(name)); err != nil {

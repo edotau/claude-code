@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,7 +20,9 @@ import (
 )
 
 // idRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed contentRef.
-var idRef = regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
+var idRef = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
+})
 
 // SearchOptions is one `memory search`; Expand lets a lone block reference resolve to its block.
 type SearchOptions struct {
@@ -39,7 +42,7 @@ type searchResult struct {
 // Search ranks blocks for the query and logs the access; a block reference expands in place when allowed.
 func Search(o SearchOptions) (searchResult, error) {
 	now := time.Now()
-	if o.Expand && idRef.MatchString(o.Query) {
+	if o.Expand && idRef().MatchString(o.Query) {
 		if path, block, err := ShowBlock(o.Query); err == nil {
 			logShown(path, o.Query, AccessSearch, now)
 			return searchResult{Path: path, Block: block}, nil

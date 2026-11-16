@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -18,17 +19,31 @@ import (
 
 var (
 	// reviseRef finds declarations at a line or sentence boundary.
-	declarationDelimiters = regexp.MustCompile("`+|[\"“”‘’']")
-	reviseRef             = regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8})\\b`?\\)?)")
+	declarationDelimiters = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("`+|[\"“”‘’']")
+	})
+	reviseRef = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8})\\b`?\\)?)")
+	})
 	// replacedPointer is the line settle writes under an old entry's title.
-	replacedPointer = regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8})(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+	replacedPointer = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8})(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+	})
 	// titlePrefix is what stays outside the strike: the heading or bullet mark and the date prefix.
-	titlePrefix = regexp.MustCompile(`^(?:#+ |- )?(?:\d{4}-\d{2}-\d{2}\s*[—–-]\s*)?`)
+	titlePrefix = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^(?:#+ |- )?(?:\d{4}-\d{2}-\d{2}\s*[—–-]\s*)?`)
+	})
 	// struckSpan and seeNote are what a title may carry beyond live text: the strike itself and a "(see <id>)" pointer.
-	struckSpan = regexp.MustCompile(`~~.*?~~`)
-	seeNote    = regexp.MustCompile(`\(see z?[0-9a-f]{8}\)`)
+	struckSpan = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`~~.*?~~`)
+	})
+	seeNote = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\(see z?[0-9a-f]{8}\)`)
+	})
 	// pointerLine is a whole line holding only the pointer settle writes.
-	pointerLine = regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+	pointerLine = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+	})
 )
 
 // reviseFiles are the typed files whose entries replace one another (archives of them included).
@@ -80,7 +95,7 @@ func revisedIDs(block, self string) []string {
 	}
 	body = strings.Join(lines, "\n")
 	var out []string
-	for _, m := range reviseRef.FindAllStringSubmatchIndex(body, -1) {
+	for _, m := range reviseRef().FindAllStringSubmatchIndex(body, -1) {
 		id := body[m[4]:m[5]]
 		if declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
 			out = append(out, id)
@@ -92,7 +107,7 @@ func revisedIDs(block, self string) []string {
 // declarationOutside rejects declarations inside inline code or quoted examples.
 func declarationOutside(prefix string) bool {
 	quote, ticks := "", ""
-	for _, at := range declarationDelimiters.FindAllStringIndex(prefix, -1) {
+	for _, at := range declarationDelimiters().FindAllStringIndex(prefix, -1) {
 		token := prefix[at[0]:at[1]]
 		if strings.HasPrefix(token, "`") {
 			ticks = toggleDelimiter(ticks, token)
@@ -152,7 +167,7 @@ func replacedBy(block string) string {
 			pointer += " "
 		}
 		pointer += strings.TrimSpace(line)
-		if m := replacedPointer.FindStringSubmatch(pointer); m != nil {
+		if m := replacedPointer().FindStringSubmatch(pointer); m != nil {
 			return m[1]
 		}
 		if !strings.HasPrefix("Replaced by ", pointer) && !strings.HasPrefix(pointer, "Replaced by ") {
@@ -168,7 +183,7 @@ func replacedBy(block string) string {
 // replacementBody skips the wrapped title of a conventions bullet, through its id marker.
 func replacementBody(block string) (title, body string) {
 	title, body, _ = strings.Cut(block, "\n")
-	if !strings.HasPrefix(title, "- ") || idMarker.MatchString(title) {
+	if !strings.HasPrefix(title, "- ") || idMarker().MatchString(title) {
 		return title, body
 	}
 	parts := []string{title}
@@ -179,7 +194,7 @@ func replacementBody(block string) (title, body string) {
 		}
 		parts = append(parts, strings.TrimSpace(line))
 		body = rest
-		if idMarker.MatchString(line) {
+		if idMarker().MatchString(line) {
 			break
 		}
 	}
@@ -192,8 +207,8 @@ func partlyStruck(first string) bool {
 		return false
 	}
 	body := stripID(first)
-	body = body[len(titlePrefix.FindString(body)):]
-	rest := seeNote.ReplaceAllString(struckSpan.ReplaceAllString(body, ""), "")
+	body = body[len(titlePrefix().FindString(body)):]
+	rest := seeNote().ReplaceAllString(struckSpan().ReplaceAllString(body, ""), "")
 	return strings.Trim(rest, " \t;,.:—–-") != ""
 }
 
@@ -205,7 +220,7 @@ func isSupersededBlock(block string) bool {
 // dropPointer is block without the lines that hold only a `Replaced by` pointer.
 func dropPointer(block string) string {
 	lines := strings.Split(block, "\n")
-	return strings.Join(slices.DeleteFunc(lines, pointerLine.MatchString), "\n")
+	return strings.Join(slices.DeleteFunc(lines, pointerLine().MatchString), "\n")
 }
 
 // healPartial removes the pointer settle once wrote under a partly struck entry, so recall serves it again.
@@ -391,7 +406,7 @@ func reaches(edges map[string][]string, from, to string) bool {
 
 // blockDate is the YYYY-MM-DD in block's title line, "" when undated.
 func blockDate(block string) string {
-	return entryDate.FindString(stripID(textutil.FirstLine(block)))
+	return entryDate().FindString(stripID(textutil.FirstLine(block)))
 }
 
 // revisePlan is the lookup state planRevisions classifies each reference against.
@@ -447,10 +462,10 @@ func strikeTitle(line string) string {
 		return line
 	}
 	body, tail := line, ""
-	if at := idMarker.FindStringIndex(line); at != nil {
+	if at := idMarker().FindStringIndex(line); at != nil {
 		body, tail = line[:at[0]], line[at[0]:]
 	}
-	prefix := titlePrefix.FindString(body)
+	prefix := titlePrefix().FindString(body)
 	text := strings.TrimRight(body[len(prefix):], " \t")
 	if text == "" {
 		return line

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -130,7 +131,9 @@ type ReportInput struct {
 // now is the clock seam for the dated report file names.
 var now = time.Now
 
-var labelUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+var labelUnsafe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`[^A-Za-z0-9._-]`)
+})
 
 // appendReport appends in's report to reports/<date>-<label>.md and its decisions to <date>-decisions.md; returns both.
 func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
@@ -140,7 +143,7 @@ func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
 	if strings.TrimSpace(in.Report) == "" {
 		return nil, errors.New("report text is empty")
 	}
-	label = labelUnsafe.ReplaceAllString(label, "-")
+	label = labelUnsafe().ReplaceAllString(label, "-")
 	if strings.EqualFold(label, "decisions") { // would collide with the <date>-decisions.md file
 		return nil, errors.New("--label decisions is reserved")
 	}

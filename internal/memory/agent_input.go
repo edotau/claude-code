@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -127,7 +128,9 @@ func synthLine(kind string, block map[string]any) map[string]any {
 	return map[string]any{"type": "assistant", "message": map[string]any{"content": []any{block}}}
 }
 
-var patchFileRe = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
+var patchFileRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$`)
+})
 
 // codexRec is the part of one codex rollout line the loader reads (observed on codex-cli 0.166.0).
 type codexRec struct {
@@ -221,7 +224,7 @@ func codexCallFailed(raw json.RawMessage) bool {
 // patchPaths are the files an apply_patch body names, made absolute against cwd.
 func patchPaths(text, cwd string) []string {
 	var out []string
-	for _, m := range patchFileRe.FindAllStringSubmatch(text, -1) {
+	for _, m := range patchFileRe().FindAllStringSubmatch(text, -1) {
 		p := strings.TrimSpace(m[1])
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(cwd, p)

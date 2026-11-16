@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -19,11 +20,21 @@ import (
 const BankFmtMaxLine = 120
 
 var (
-	bankFmtHeading = regexp.MustCompile(`^#{1,6}\s`)
-	bankFmtComment = regexp.MustCompile(`^<!--.*-->$`)
-	bankFmtBullet  = regexp.MustCompile(`^(\s*)([-*+] )(.*)$`)
-	bankFmtOrdered = regexp.MustCompile(`^(\s*)(\d+\. )(.*)$`)
-	bankFmtSpan    = regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
+	bankFmtHeading = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^#{1,6}\s`)
+	})
+	bankFmtComment = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^<!--.*-->$`)
+	})
+	bankFmtBullet = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^(\s*)([-*+] )(.*)$`)
+	})
+	bankFmtOrdered = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^(\s*)(\d+\. )(.*)$`)
+	})
+	bankFmtSpan = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
+	})
 )
 
 // bankFmtTargetDirs are the bank subdirs whose *.md files get formatted; top-level files come from bankFiles.
@@ -179,8 +190,8 @@ func (s *bankScan) special(i int, line string) bool {
 
 // passThroughLine reports whether a trimmed line is blank, a table row, a heading or a comment-only line.
 func passThroughLine(trimmed string) bool {
-	return trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading.MatchString(trimmed) ||
-		bankFmtComment.MatchString(trimmed)
+	return trimmed == "" || strings.HasPrefix(trimmed, "|") || bankFmtHeading().MatchString(trimmed) ||
+		bankFmtComment().MatchString(trimmed)
 }
 
 // groupLogicalLines groups physical lines into logical lines, mirroring formatBankMarkdown's state machine exactly.
@@ -240,10 +251,10 @@ func logicalLineCount(text string) int {
 
 // listItem is line's (indent, marker, text) submatches when it is a bullet or ordered list item, else nil.
 func listItem(line string) []string {
-	if m := bankFmtBullet.FindStringSubmatch(line); m != nil {
+	if m := bankFmtBullet().FindStringSubmatch(line); m != nil {
 		return m
 	}
-	return bankFmtOrdered.FindStringSubmatch(line)
+	return bankFmtOrdered().FindStringSubmatch(line)
 }
 
 // wrapBankLine wraps one line at word boundaries, never inside a code span, link or HTML comment.
@@ -277,7 +288,7 @@ func wrapBankLine(line string) []string {
 // bankFmtTokenize splits s on bare spaces; spaces inside a code span, link or HTML comment stay glued.
 func bankFmtTokenize(s string) []string {
 	protected := make([]bool, len(s))
-	for _, sp := range bankFmtSpan.FindAllStringIndex(s, -1) {
+	for _, sp := range bankFmtSpan().FindAllStringIndex(s, -1) {
 		for i := sp[0]; i < sp[1]; i++ {
 			protected[i] = true
 		}

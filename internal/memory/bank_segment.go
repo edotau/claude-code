@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -697,8 +698,12 @@ type Entry struct {
 }
 
 var (
-	entryDate = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	anyIDMark = regexp.MustCompile(`\s*<!-- id:[^>]*-->`) // persisted 8-hex ids and alias ids alike
+	entryDate = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	})
+	anyIDMark = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\s*<!-- id:[^>]*-->`)
+	}) // persisted 8-hex ids and alias ids alike
 	// entryTypes maps a typed bank file to its entry type.
 	entryTypes = map[string]string{
 		"decisionLog.md": "decision", "conventions.md": "convention", "progress.md": "progress",
@@ -728,10 +733,10 @@ func entryFromHit(h SearchHit) Entry {
 	default:
 		typ = "topic"
 	}
-	title := strings.TrimLeft(anyIDMark.ReplaceAllString(textutil.FirstLine(h.Block), ""), "#- ")
+	title := strings.TrimLeft(anyIDMark().ReplaceAllString(textutil.FirstLine(h.Block), ""), "#- ")
 	return Entry{
-		ID: id, Date: entryDate.FindString(title), Type: typ, Title: truncateLine(title),
-		Body: strings.TrimSpace(anyIDMark.ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,
+		ID: id, Date: entryDate().FindString(title), Type: typ, Title: truncateLine(title),
+		Body: strings.TrimSpace(anyIDMark().ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,
 		Archived: h.Bank == "archive", Superseded: isSupersededBlock(h.Block),
 	}
 }

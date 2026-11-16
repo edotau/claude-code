@@ -65,7 +65,7 @@ func BankFor(root string) Bank {
 	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
 		base = rb
 	}
-	key := dashRun.ReplaceAllString(paths.Slug(base, "._-", 0, "repo"), "-")
+	key := dashRun().ReplaceAllString(paths.Slug(base, "._-", 0, "repo"), "-")
 	if o, ok := readOrigins()[key]; ok && o != origin {
 		sum := sha256.Sum256([]byte(origin))
 		key += "-" + hex.EncodeToString(sum[:4])
@@ -74,7 +74,9 @@ func BankFor(root string) Bank {
 }
 
 // dashRun collapses "--" runs so no bank key contains the key/name separator.
-var dashRun = regexp.MustCompile(`-{2,}`)
+var dashRun = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`-{2,}`)
+})
 
 // originsFile maps each flat bank key to the origin that first claimed it, one "<key>\t<origin>" line each.
 const originsFile = ".origins"
