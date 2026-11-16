@@ -184,7 +184,7 @@ func newestActivity(tr string, mainMtime time.Time) time.Time {
 	if dir == "" {
 		return latest
 	}
-	for _, m := range globIn(dir, "agent-*.jsonl") {
+	for _, m := range agentTranscripts(dir) {
 		if fi, err := os.Stat(m); err == nil && fi.ModTime().After(latest) {
 			latest = fi.ModTime()
 		}
