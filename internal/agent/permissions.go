@@ -275,6 +275,7 @@ type codeScan struct {
 	pending []heredoc
 	cuts    []span
 	docs    []heredoc
+	notes   *shell.Comments // built at the first `#`
 }
 
 // scan fills cuts and docs; false is a parse it cannot trust (backtick, unbalanced, unterminated), so nothing is cut.
@@ -351,7 +352,7 @@ func (s *codeScan) codeStep(i int) (int, bool) {
 			return i, false
 		}
 		s.pop()
-	case c == '#' && shell.CommentAt(s.cmd, i):
+	case c == '#' && s.commentAt(i):
 		end := strings.IndexByte(rest, '\n')
 		if end < 0 {
 			end = len(rest)
@@ -368,6 +369,15 @@ func (s *codeScan) codeStep(i int) (int, bool) {
 		s.segs[len(s.segs)-1] = i + 1
 	}
 	return i, true
+}
+
+// commentAt reports a comment-starting `#` at cmd[i], indexing cmd once for every `#` it is asked about.
+func (s *codeScan) commentAt(i int) bool {
+	if s.notes == nil {
+		c := shell.ScanComments(s.cmd)
+		s.notes = &c
+	}
+	return s.notes.At(i)
 }
 
 func (s *codeScan) inDouble(i int) int {

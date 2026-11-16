@@ -42,7 +42,7 @@ func WrittenPathsPrecise(cmd, cwd string) []string {
 	if len(all) == 0 {
 		return nil
 	}
-	precise := appendPrecise(nil, dropComments(DropStdinHeredocs(data)), cwd, 0)
+	precise := appendPrecise(nil, shell.DropComments(DropStdinHeredocs(data)), cwd, 0)
 	// Intersect: never more than WrittenPaths, so a gate moving here can only allow more.
 	return slices.DeleteFunc(all, func(p string) bool { return !slices.Contains(precise, p) })
 }
@@ -73,7 +73,7 @@ func appendPrecise(out []string, cmd, cwd string, depth int) []string {
 		if s.Lost {
 			s.Dir = ""
 		}
-		out = appendPrecise(out, dropComments(s.Text), s.Dir, depth+1)
+		out = appendPrecise(out, shell.DropComments(s.Text), s.Dir, depth+1)
 	}
 	return out
 }
@@ -84,26 +84,6 @@ func scripts(cmd, cwd string, depth int) []shell.Script {
 		return nil
 	}
 	return shell.RunScripts(cmd, cwd)
-}
-
-// dropComments cuts each unquoted `#` that starts a word (shell.CommentAt) through the end of its line.
-func dropComments(cmd string) string {
-	for from := 0; ; {
-		at, i := shell.QuoteAt(cmd), -1
-		for k := from; k < len(cmd) && i < 0; k++ {
-			if cmd[k] == '#' && at[k] == 0 && shell.CommentAt(cmd, k) {
-				i = k
-			}
-		}
-		if i < 0 {
-			return cmd
-		}
-		end := strings.IndexByte(cmd[i:], '\n')
-		if end < 0 {
-			return cmd[:i]
-		}
-		cmd, from = cmd[:i]+cmd[i+end:], i+1
-	}
 }
 
 // RemovedPaths is the best-effort set of files a shell command deletes or moves away (rm, unlink, truncate, mv).
