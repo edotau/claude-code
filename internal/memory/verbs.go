@@ -320,7 +320,11 @@ func FormatOwn(w io.Writer) error {
 		fmt.Fprintf(w, "memory fmt: wrapped %d file(s) in this repo's and the home bank\n", len(changed))
 	}
 	others := slices.DeleteFunc(slices.Clone(targets), isOwnBankFile)
-	if n, _ := formatFiles(others, true); len(n) > 0 {
+	n, err := formatFiles(others, true)
+	if err != nil {
+		return fmt.Errorf("check other repos' banks: %w", err)
+	}
+	if len(n) > 0 {
 		fmt.Fprintf(w, "note: %d file(s) in other repos' banks would wrap (not a failure)\n", len(n))
 	}
 	return nil

@@ -199,6 +199,19 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 }
 
 // --check reports the over-width file without writing it; the default pass wraps it; the hint lists fmt.
+func TestCmdMemoryFmtRejectsCheckWithOwn(t *testing.T) {
+	memCfg(t)
+	target := filepath.Join(memory.HomeBankDir(), "decisionLog.md")
+	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
+	hosttest.WriteRel(t, memory.HomeBankDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check", "--own"}) }); code != 2 {
+		t.Fatalf("--check --own: code=%d, want 2", code)
+	}
+	if data, _ := os.ReadFile(target); !strings.Contains(string(data), longLine) {
+		t.Fatalf("--check --own wrote the bank: %q", data)
+	}
+}
+
 func TestCmdMemoryFmt(t *testing.T) {
 	memCfg(t)
 	target := filepath.Join(memory.HomeBankDir(), "decisionLog.md")

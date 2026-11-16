@@ -251,3 +251,36 @@ func TestRunSimplifyFailIgnoresUntouchedDebt(t *testing.T) {
 		t.Fatalf("edit inside the long function must fail (code %d):\n%s", code, out)
 	}
 }
+
+func TestRunSimplifyFailRenameKeepsExistingDebt(t *testing.T) {
+	dir := gitFixture(t)
+	hosttest.WriteRel(t, dir, "fx.go", longGo())
+	hosttest.In(t, dir, "commit", "-qam", "debt")
+	hosttest.In(t, dir, "mv", "fx.go", "fy.go")
+	if code, out := runSimplifyFail(t); code != 0 {
+		t.Fatalf("a pure rename reported existing debt (code %d):\n%s", code, out)
+	}
+}
+
+func TestRunSimplifyFailStackedBlock(t *testing.T) {
+	dir := gitFixture(t)
+	hosttest.WriteRel(t, dir, "fx.go", cleanGo+"\n// one\n// two\nfunc A() {}\n")
+	hosttest.In(t, dir, "commit", "-qam", "stack")
+	hosttest.WriteRel(t, dir, "fx.go", cleanGo+"\n// one\n// 2nd\nfunc A() {}\n")
+	if code, out := runSimplifyFail(t); code != 0 {
+		t.Fatalf("editing a pre-existing stack failed (code %d):\n%s", code, out)
+	}
+	hosttest.WriteRel(t, dir, "fx.go", cleanGo+"\n// one\n// 2nd\n// three\nfunc A() {}\n")
+	if code, out := runSimplifyFail(t); code != 1 || !strings.Contains(out, "3 lines") {
+		t.Fatalf("growing a stack must fail (code %d):\n%s", code, out)
+	}
+}
+
+func TestRunSimplifyFailRejectsJSONAndThreshold(t *testing.T) {
+	for _, a := range [][]string{{"--fail", "--json"}, {"--fail", "--threshold", "strict"}} {
+		var out, errb bytes.Buffer
+		if code := RunSimplify(a, &out, &errb); code != 2 {
+			t.Errorf("%v: code %d, want 2", a, code)
+		}
+	}
+}

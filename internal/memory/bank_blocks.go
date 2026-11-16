@@ -261,13 +261,7 @@ func isLowerHex(s string) bool {
 // stripID removes the ID marker for display.
 func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
-// assignIDs stamps unmarked blocks and collapses stacked markers to the oldest; blocks are judged whole.
-func assignIDs(dir string, now time.Time) (int, error) {
-	n, _, err := assignIDTexts(dir, now)
-	return n, err
-}
-
-// assignIDTexts is assignIDs that also returns each present id file's settled text, keyed by file name.
+// assignIDTexts stamps unmarked blocks, collapses stacked markers to the oldest and returns each id file's text.
 func assignIDTexts(dir string, now time.Time) (int, map[string]string, error) {
 	n := 0
 	texts := map[string]string{}

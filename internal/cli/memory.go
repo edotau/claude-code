@@ -499,6 +499,9 @@ func cmdMemoryFmt(args []string) int {
 	}
 	var dirty bool
 	var err error
+	if *own && *check {
+		return helptext.FailUsage("memory fmt: --check and --own cannot combine")
+	}
 	if *own {
 		if err = memory.FormatOwn(os.Stdout); err != nil {
 			return helptext.Fail("memory fmt: %v", err)

@@ -89,3 +89,21 @@ func TestRestartFlagsNeedRestart(t *testing.T) {
 		t.Fatal("--if-changed without --restart accepted")
 	}
 }
+
+func TestRestartReportStoppedProxyKeepsTunnels(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := filepath.Join(paths.StateDir(), "ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tunnel := `{"host":"test-host","port":12345,"pid":1073741824}`
+	if err := os.WriteFile(filepath.Join(dir, "egress-test.json"), []byte(tunnel), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := hosttest.CaptureOutput(t, func() int {
+		return cmdGatewayProxy([]string{"--restart", "--if-changed", "--dry-run", "--format", "json"})
+	})
+	if code != 0 || strings.Contains(out, "egress") {
+		t.Fatalf("exit %d: a skipped restart must not stop tunnels: %s", code, out)
+	}
+}
