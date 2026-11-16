@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // symlinkMaker spots a command that could point a temp path into a real directory before the removal runs.
@@ -25,6 +26,25 @@ func removalAllowed(cmd, cwd string) bool {
 		return false
 	}
 	return !slices.ContainsFunc(core.RemovedPaths(cmd, cwd), func(p string) bool { return !tempRemovable(p) })
+}
+
+// movesCwd spots a cd, pushd/popd or chdir option, after which a relative path may no longer mean what it says.
+var movesCwd = regexp.MustCompile(`(^|[^[:alnum:]_.-])(cd|pushd|popd)(\s|$|;)|--chdir|(^|\s)-[a-zA-Z]*[CD]`)
+
+// tempWriteAllowed reports a fixture write: p and its target in a temp folder, no live root, cwd move or link.
+func tempWriteAllowed(cmd, p string) bool {
+	return !movesCwd.MatchString(cmd) && !strings.Contains(cmd, "truncate") && !symlinkMaker.MatchString(cmd) &&
+		tempRemovable(p) && tempRemovable(paths.Real(p))
+}
+
+// tempGitRemoval reports a plain `rm` whose operands and their targets pass tempWriteAllowed's rules (a fixture .git).
+func tempGitRemoval(seg, cmd, cwd string) bool {
+	toks := shell.Tokens(seg)
+	if len(toks) == 0 || toks[0] != "rm" || !removalAllowed(cmd, cwd) {
+		return false
+	}
+	removed := core.RemovedPaths(seg, cwd)
+	return len(removed) > 0 && !slices.ContainsFunc(removed, func(p string) bool { return !tempWriteAllowed(cmd, p) })
 }
 
 // tempRemovable reports whether deleting p (the final element, never what it points at) touches only a temp folder.

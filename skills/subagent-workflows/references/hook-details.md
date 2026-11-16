@@ -20,7 +20,11 @@ shape ignores inert text (commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` 
 bodies for the pipe, exfil and SQL shapes) unless it is piped on or holds a `$(…)`; a hard-block shape found only in
 such text asks instead of blocking, but any `<<` in the command scans the heredoc bodies too and blocks. An
 `apply_patch` call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of
-the command is. Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
+the command is. Also inert: a commit/tag/`gh` `"$(cat <<'EOF' …)"` message body and text piped only to
+`head`/`tail`/`wc`/`cut`/`tr`/`grep`/`rg`/`jq`. A `printf`/`echo` piped into a shell is judged on its decoded text, so a
+hard-block shape built that way blocks. Passing: a fixture vault or credentials write and a `.git` removal under a temp
+folder (no `cd`, link or `truncate` beside it), `git clean -n`, `go env > /tmp/…`, a credential file only printed, and
+a leaf amending in its own temp-folder repo; warnings skip message text. Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
 
 ## rtk-rewrite
 

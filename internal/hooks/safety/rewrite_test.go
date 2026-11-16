@@ -49,7 +49,7 @@ const peerPID = 4242
 
 type rewriteCase struct {
 	name, cmd, cwd, peerIn, agentID, agent string
-	live, leaves, noGit                    bool
+	live, leaves, noGit, homeHolds         bool
 	want                                   core.Decision
 	text                                   string
 }
@@ -77,6 +77,9 @@ func rewriteSetup(t *testing.T, c rewriteCase, dirs map[string]string) {
 	}
 	if c.noGit {
 		t.Setenv("PATH", t.TempDir())
+	}
+	if c.homeHolds { // the fixture then sits under a live root, so no temp-folder allowance applies
+		t.Setenv("HOME", filepath.Dir(dirs["work"]))
 	}
 }
 
@@ -121,7 +124,17 @@ func TestRewriteGuard(t *testing.T) {
 		{name: "own worktree pushed amend", cmd: amend, cwd: "wt", want: core.Allow},
 		{name: "own worktree leaf amend", cmd: amend, cwd: "wt", agentID: "leaf1", want: core.Allow},
 		{name: "worktree with peer", cmd: amend, cwd: "wt", peerIn: "wt", want: core.Block, text: "on feat"},
-		{name: "leaf in main tree", cmd: amend, cwd: "work", agentID: "leaf1", want: core.Block, text: "leaf in the main tree"},
+		{name: "leaf in main tree", cmd: amend, cwd: "work", agentID: "leaf1", homeHolds: true, want: core.Block,
+			text: "leaf in the main tree"},
+		{name: "leaf in its own temp repo", cmd: amend, cwd: "work", agentID: "leaf1", want: core.Allow},
+		{name: "leaf in the live tree", cmd: amend, cwd: "work", agentID: "leaf1", live: true, want: core.Block,
+			text: "live config tree"},
+		{name: "heredoc message names an amend", cmd: heredocMsg("git commit -m", "never git commit --amend here"),
+			cwd: "work", live: true, want: core.Allow},
+		{name: "heredoc message then a real amend", cmd: heredocMsg("git commit -m", "x") + " && " + amend, cwd: "work",
+			live: true, want: core.Block, text: "live config tree"},
+		{name: "unquoted heredoc runs a reset", cmd: "git commit -m \"$(cat <<EOF\n$(git reset --soft HEAD~1)\nEOF\n)\"",
+			cwd: "work", live: true, want: core.Block, text: "live config tree"},
 		{name: "live leaves in main tree", cmd: "git reset --soft HEAD~1", cwd: "work", leaves: true, want: core.Block,
 			text: "1 live leaf"},
 		{name: "path reset", cmd: "git reset -- one.txt", cwd: "work", peerIn: "work", want: core.Allow},

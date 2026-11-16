@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -37,10 +38,10 @@ var protectedGlobs = sync.OnceValue(func() []string {
 })
 
 // protectedWrite is the first path a Bash command writes or removes that Edit's deny rules protect ("" when none);
-// a removal confined to temp folders is allowed (tempremoval.go), a write never is.
+// a write or removal confined to temp folders is allowed (tempremoval.go).
 func protectedWrite(cmd, cwd string) string {
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		if protectedPath(p) {
+		if protectedPath(p) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
@@ -88,8 +89,8 @@ func interpreterWrite(cmd string) string {
 		if len(rest) == 0 {
 			continue
 		}
-		re := interpreterWrites[interpreterLang(filepath.Base(rest[0]))]
-		if re == nil || !re.MatchString(cmd) {
+		lang := interpreterLang(filepath.Base(rest[0]))
+		if re := interpreterWrites[lang]; re == nil || !scriptWrites(lang, re, cmd) {
 			continue
 		}
 		for _, g := range protectedGlobs() {
@@ -100,6 +101,73 @@ func interpreterWrite(cmd string) string {
 		}
 	}
 	return ""
+}
+
+// pyIndirectModule spots os/shutil reached by another name, which would make a module call read as a method call.
+var pyIndirectModule = regexp.MustCompile(`\bimport\s+(os|shutil|posix|nt)\s+as\b|` +
+	`\bfrom\s+(os|shutil|posix|nt)\s+import\b|__import__|import_module|getattr`)
+
+// scriptWrites reports a write indicator for lang in cmd; a Python str/list .replace(a, b)/.remove(x) is none.
+func scriptWrites(lang string, re *regexp.Regexp, cmd string) bool {
+	if lang != "python" || pyIndirectModule.MatchString(cmd) {
+		return re.MatchString(cmd)
+	}
+	for _, m := range re.FindAllStringSubmatchIndex(cmd, -1) {
+		if m[4] < 0 || !pyDataCall(cmd, m[4], m[5], m[1]) { // m[4:6]: the write-call name group
+			return true
+		}
+	}
+	return false
+}
+
+// pyDataCall reports str.replace(a, b) or list.remove(x), not os.replace or one-argument Path.replace(target).
+func pyDataCall(cmd string, start, end, args int) bool {
+	name := cmd[start:end]
+	if name != "replace" && name != "remove" || start == 0 || cmd[start-1] != '.' {
+		return false
+	}
+	qual := cmd[:start-1]
+	notIdent := func(r rune) bool { return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+	qual = qual[strings.LastIndexFunc(qual, notIdent)+1:]
+	if slices.Contains([]string{"os", "shutil", "posix", "nt"}, qual) {
+		return false
+	}
+	n, ok := pyArgCount(cmd, args)
+	if name == "replace" {
+		return ok && n >= 2
+	}
+	return ok && n >= 1
+}
+
+// pyArgCount counts the top-level arguments of the call whose `(` ends at cmd[from-1]; ok=false when unclosed.
+func pyArgCount(cmd string, from int) (n int, ok bool) {
+	depth, quote, empty := 0, byte(0), true
+	for i := from; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case quote != 0 && c == '\\':
+			i++
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote, empty = c, false
+		case strings.IndexByte("([{", c) >= 0:
+			depth, empty = depth+1, false
+		case strings.IndexByte(")]}", c) >= 0 && depth > 0:
+			depth--
+		case strings.IndexByte(")]}", c) >= 0 && empty:
+			return 0, true
+		case strings.IndexByte(")]}", c) >= 0:
+			return n + 1, true
+		case c == ',' && depth == 0:
+			n++
+		case c != ' ' && c != '\t':
+			empty = false
+		}
+	}
+	return 0, false
 }
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.

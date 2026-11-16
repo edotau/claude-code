@@ -97,17 +97,56 @@ func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
 	})
 }
 
-func TestSafetyKeepsTempWritesBlocked(t *testing.T) {
+// A fixture vault or credentials file under a temp root may be seeded; the live ones stay blocked in every spelling.
+func TestSafetyTempFixtureWrites(t *testing.T) {
 	tmp := t.TempDir()
 	temp := vaultIn(t, filepath.Join(tmp, "copy"))
+	creds := filepath.Join(tmp, "h1", ".claude", ".credentials.json")
+	liveCfg := paths.ConfigDir()
+	live := vaultIn(t, liveCfg)
+	link := filepath.Join(tmp, "linkcfg")
+	if err := os.Symlink(liveCfg, link); err != nil {
+		t.Fatal(err)
+	}
 	runTempCases(t, []tempCase{
-		{"redirect into a temp copy", "echo x > " + temp, core.Block},
-		{"cp onto a temp copy", "cp " + filepath.Join(tmp, "new.db") + " " + temp, core.Block},
-		{"tee into a temp copy", "echo x | tee " + temp, core.Block},
-		{"sed -i a temp copy", "sed -i s/a/b/ " + temp, core.Block},
+		{"redirect into a temp copy", "echo x > " + temp, core.Allow},
+		{"cp onto a temp copy", "cp " + filepath.Join(tmp, "new.db") + " " + temp, core.Allow},
+		{"tee a temp credentials file", "printf '{}' | tee " + creds, core.Allow},
+		{"sed -i a temp copy", "sed -i s/a/b/ " + temp, core.Allow},
+		{"mv onto a temp copy", "mv " + filepath.Join(tmp, "new.db") + " " + temp, core.Allow},
+		{"remove a temp copy then write it", "rm " + temp + " && echo x > " + temp, core.Allow},
 		{"truncate a temp copy", "truncate -s0 " + temp, core.Block},
-		{"mv onto a temp copy", "mv " + filepath.Join(tmp, "new.db") + " " + temp, core.Block},
-		{"remove a temp copy then write it", "rm " + temp + " && echo x > " + temp, core.Block},
+		{"cp onto the live vault", "cp x " + live, core.Block},
+		{"cp onto the live vault via ~", "cp x ~/.claude/state/vault.db", core.Block},
+		{"cp through a temp symlink into the config dir", "cp x " + filepath.Join(link, "state", "vault.db"), core.Block},
+		{"ln -s into the config dir, then cp", "ln -s " + liveCfg + " " + filepath.Join(tmp, "l3") + " && cp x " +
+			filepath.Join(tmp, "l3", "state", "vault.db"), core.Block},
+		{"cd into the config dir, then a relative cp", "cd " + liveCfg + " && cp x state/vault.db", core.Block},
+		{"temp write beside a live one", "cp x " + temp + " " + live, core.Block},
+		{"climbing out of temp with ..", "cp x " + filepath.Join(tmp, "copy") + "/../../.." + live, core.Block},
+	})
+}
+
+// A throwaway temp repo's .git may be removed; the live tree's, or one reached by a link, cd or nested shell, asks.
+func TestSafetyTempGitRemoval(t *testing.T) {
+	tmp := t.TempDir()
+	liveCfg := paths.ConfigDir()
+	link := filepath.Join(tmp, "linkcfg")
+	if err := os.Symlink(liveCfg, link); err != nil {
+		t.Fatal(err)
+	}
+	fx := filepath.Join(tmp, "fixture")
+	runTempCases(t, []tempCase{
+		{"rm -rf a temp fixture's .git", "rm -rf " + filepath.Join(fx, ".git"), core.Allow},
+		{"rm -rf the live tree's .git", "rm -rf " + filepath.Join(liveCfg, ".git"), core.Ask},
+		{"rm -rf through a temp symlink, trailing slash", "rm -rf " + filepath.Join(link, ".git") + "/", core.Ask},
+		{"ln -s into the config dir, then rm", "ln -s " + liveCfg + " " + filepath.Join(tmp, "l4") + " && rm -rf " +
+			filepath.Join(tmp, "l4", ".git"), core.Ask},
+		{"cd, then a relative .git", "cd " + fx + " && rm -rf .git", core.Ask},
+		{"a glob", "rm -rf " + filepath.Join(tmp, "*", ".git"), core.Ask},
+		{"inside bash -c", "bash -c 'rm -rf " + filepath.Join(fx, ".git") + "'", core.Ask},
+		{"temp .git beside the live one", "rm -rf " + filepath.Join(fx, ".git") + " " + filepath.Join(liveCfg, ".git"),
+			core.Ask},
 	})
 }
 
