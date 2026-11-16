@@ -34,8 +34,7 @@ func SegmentsSep(cmd string) (out, seps []string) {
 			i, quote = next, q
 			continue
 		}
-		switch {
-		case separatorStarts(cmd, i):
+		if separatorStarts(cmd, i) {
 			sep, end := separatorAt(cmd, i)
 			out, seps = append(out, b.String()), append(seps, sep)
 			b.Reset()
@@ -516,8 +515,7 @@ func nestedOf(toks []string) (string, bool) {
 	}
 	if shellWrapperNames[filepath.Base(toks[0])] {
 		for i := 1; i < len(toks)-1; i++ {
-			t := toks[i]
-			if isCFlag(t) {
+			if isCFlag(toks[i]) {
 				return toks[i+1], true
 			}
 		}

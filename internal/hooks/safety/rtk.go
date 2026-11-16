@@ -53,8 +53,7 @@ func RTKRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 
-	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back;
-	// dropping one (description, timeout, run_in_background) would silently alter the call.
+	// updatedInput REPLACES the whole tool_input, so every original key (description, timeout…) must be echoed back.
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}
@@ -130,7 +129,7 @@ var rtkEnvAltered = sync.OnceValue(func() *regexp.Regexp {
 		`|\benv\s[^;&|\n]*(-i\b|-u\s*(PATH|HOME)\b|--ignore-environment|--unset[=\s](PATH|HOME)\b)`)
 })
 
-// rtkCommandWord matches a bare `rtk` at command position: the start, or after `&&`, `||`, `;`, `|`, `(`, a backtick or a newline.
+// rtkCommandWord matches a bare `rtk` at command position (line start, or after `&&`, `||`, `;`, `|`, `(`, backtick).
 var rtkCommandWord = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|&&|\|\||[;|\n(\x60])(\s*)rtk(\s|$)`)
 })
@@ -210,10 +209,8 @@ func rtkVetoed(cmd, cwd, bin string) bool {
 	if len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd.MatchString(cmd) {
 		return true
 	}
-	if rtkGitInLinkedWorktree(cmd, cwd) {
-		return true // Claude Code's worktree-isolation check cannot verify an rtk-wrapped git
-	}
-	return rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoVet(cmd)
+	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git
+	return rtkGitInLinkedWorktree(cmd, cwd) || rtkGitValueVetoed(cmd) || rtkMachineReadableFlag(cmd) || rtkGoVet(cmd)
 }
 
 // rtkGoVet: rtk 1.1.0 summarizes a failed `go vet` (e.g. a missing package) as "No issues found", so vet stays raw.

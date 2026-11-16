@@ -106,8 +106,9 @@ func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.ToolName, "Bash")) {
+		cmd := in.ToolCommand()
 		for _, re := range softWarn() {
-			if re.MatchString(in.ToolCommand()) {
+			if re.MatchString(cmd) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
 			}
 		}
@@ -167,8 +168,7 @@ func safetyAskVerdict(in *core.Input, scan string) (core.Decision, string, strin
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
-	// Each pattern is matched inside ONE shell segment: `git push origin main; readlink -f x` is not a force-push.
-	// Inert text (a commit message mentioning sudo) is blanked first; heredoc bodies stay, as for the hard blocks.
+	// Rules match inside ONE shell segment of inert-blanked text: `git push origin main; readlink -f x` is no force-push.
 	for _, seg := range shell.Segments(blankInert(cmd)) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
@@ -267,13 +267,13 @@ func foldCase(p string) string {
 	return strings.ToLower(p)
 }
 
-// hardBlockVerdict blocks a write to an Edit-protected file or a hard shape outside inert text, asks on one only in quoted text; `<<` keeps heredoc bodies.
+// hardBlockVerdict blocks a protected write or a hard shape outside inert text and asks on one only in quoted text.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	if p := protectedWrite(cmd, in.CWD); p != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
 			"Edit it by hand, or run it yourself in a terminal."), "protected write"
 	}
-	if strings.Contains(cmd, "<<") {
+	if strings.Contains(cmd, "<<") { // heredoc bodies stay in the scan
 		scan = cmd
 	}
 	if pattern, ok := firstHardBlock(scan); ok {

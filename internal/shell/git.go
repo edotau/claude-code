@@ -308,10 +308,5 @@ func bannedGitFlag(arg string) bool {
 	if !strings.HasPrefix(name, "--") || len(name) < 3 {
 		return false
 	}
-	for _, b := range gitBannedFlags {
-		if strings.HasPrefix(b, name) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(gitBannedFlags, func(b string) bool { return strings.HasPrefix(b, name) })
 }
