@@ -170,11 +170,11 @@ var switchPage = helptext.Page{
 // cmdSwitch is the switch verb: it pins the session profile on every agent that can serve it.
 func cmdSwitch(args []string) int {
 	dryRun, args := helptext.ExtractBool(args, "dry-run")
-	if len(args) == 0 || isHelpVerb(args[0]) {
+	if len(args) == 0 && !dryRun || len(args) > 0 && isHelpVerb(args[0]) {
 		switchUsage()
 		return 0
 	}
-	if len(args) != 1 {
+	if len(args) != 1 { // --dry-run without a profile is a usage error, not success
 		switchUsage()
 		return 2
 	}

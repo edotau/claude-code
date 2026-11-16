@@ -83,7 +83,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (no --restore/--revert)")
 	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
 	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
-	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json")
+	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json; agent configs are not rendered")
 	fs.BoolVar(&o.agents, "agents", false, "with --restore: agent configs only, even off ~/.claude")
 	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
@@ -170,10 +170,12 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 	if err != nil {
 		return helptext.Fail("configure: %v", err)
 	}
-	if o.wantsList() {
+	render := o.restore || o.revert
+	// Off the provider page --format joins --revert and a paged --restore; a page-less --restore fails as at HEAD.
+	if o.wantsList() && (!render || section == "provider" || o.restore && section == "") {
 		return configureList(section, pos, *o.format)
 	}
-	if o.restore || o.revert {
+	if render {
 		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents)
 	}
 	if o.out != "" || o.agents {
