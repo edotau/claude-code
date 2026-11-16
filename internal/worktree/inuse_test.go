@@ -14,14 +14,14 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// stubProcesses swaps processesIn/parentOf for the duration of the test and restores the platform
-// originals on cleanup, so a stub in one test never leaks into the next.
+// stubProcesses swaps processesIn/parentOf and restores the platform originals on cleanup.
 func stubProcesses(t *testing.T, in func(dir string) ([]Proc, error)) {
 	t.Helper()
 	origIn, origParent, origSettle := processesIn, parentOf, inUseSettle
 	processesIn = in
-	parentOf = func(pid int) (int, error) { return 0, nil } // no ancestry beyond the stubbed pid itself
-	inUseSettle = 0                                         // stubbed processes never exit; refuse on the first look
+	parentOf = func(pid int) (int, error) { return 0, nil }
+	// stubbed processes never exit; refuse on the first look
+	inUseSettle = 0
 	t.Cleanup(func() { processesIn, parentOf, inUseSettle = origIn, origParent, origSettle })
 }
 
@@ -91,7 +91,8 @@ func TestInUseBySymlinkedPathMatched(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := filepath.EvalSymlinks(real) // darwin's TempDir is itself under the /var -> /private/var symlink
+	// darwin's TempDir is itself under the /var -> /private/var symlink
+	resolved, err := filepath.EvalSymlinks(real)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,9 +143,7 @@ func TestInUseByCwdOutsideClear(t *testing.T) {
 	}
 }
 
-// TestInUseByRealProcess is the one real-process integration test, Linux/macOS only (CI gates on
-// both per decisionLog): a genuine child process with its cwd inside a worktree must be detected via
-// the platform's own /proc or lsof implementation (no stub), and the refusal must clear once it exits.
+// The one real-process integration test (Linux/macOS): a child with its cwd in a worktree is detected without stubs.
 func TestInUseByRealProcess(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("real-process detection is only implemented for linux and darwin")
@@ -191,10 +190,12 @@ func TestInUseByRealProcess(t *testing.T) {
 func useRealProcessScan(t *testing.T) {
 	t.Helper()
 	stubbedIn, stubbedUp, stubbedScan, origSettle := processesIn, parentOf, scanProcs, inUseSettle
-	if platformScan.procs != nil { // TestMain stubbed the scan; this test needs the OS one
+	// TestMain stubbed the scan; this test needs the OS one
+	if platformScan.procs != nil {
 		processesIn, parentOf, scanProcs = nil, platformScan.up, platformScan.procs
 	}
-	inUseSettle = 0 // the sleep never exits on its own; refuse on the first look
+	// the sleep never exits on its own; refuse on the first look
+	inUseSettle = 0
 	t.Cleanup(func() { processesIn, parentOf, scanProcs, inUseSettle = stubbedIn, stubbedUp, stubbedScan, origSettle })
 }
 
@@ -231,7 +232,8 @@ func TestPeerAgentsIgnoresLinkedAndOwnTree(t *testing.T) {
 	origArgs := argvOf
 	argvOf = func(pid int) ([]string, error) {
 		if pid == 600 {
-			return []string{"/home/u/.gemini/bin/agy", "--hub", "--hub-port=1"}, nil // IDE hub daemon, not a working session
+			// IDE hub daemon, not a working session
+			return []string{"/home/u/.gemini/bin/agy", "--hub", "--hub-port=1"}, nil
 		}
 		return []string{"agent"}, nil
 	}

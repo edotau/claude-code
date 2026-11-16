@@ -11,8 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// originClone builds an origin repo and a clone carrying one commit that is not pushed yet, so
-// refs/remotes/origin/HEAD resolves and local HEAD is ahead of it.
+// originClone builds an origin and a clone with one unpushed commit, so origin/HEAD resolves and HEAD is ahead.
 func originClone(t *testing.T) string {
 	t.Helper()
 	origin := gitRepo(t)
@@ -109,11 +108,7 @@ func TestCreateBaseRefLocalSettingsOverride(t *testing.T) {
 	}
 }
 
-// TestCleanFreshBranchDeletedAfterMerge is the regression test for the --no-track flag in
-// lifecycle.go: a fresh-based worktree branch must have no upstream, so after its work is merged
-// into main locally (nothing pushed), `git branch -d` — which checks mergedness against the
-// branch's UPSTREAM when one is set, and that upstream is the still-behind origin/main — succeeds
-// and Clean reports the branch deleted.
+// Regression for --no-track: a fresh branch has no upstream, so `git branch -d` succeeds after a local merge.
 func TestCleanFreshBranchDeletedAfterMerge(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -235,7 +230,8 @@ func TestSeedSkipsNonIgnoredEnv(t *testing.T) {
 func TestSeedChecksDestIgnoreRules(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	commitIn(t, repo.Main, "branch", "old-branch") // predates the ignore rule
+	// predates the ignore rule
+	commitIn(t, repo.Main, "branch", "old-branch")
 	if err := os.WriteFile(filepath.Join(repo.Main, ".gitignore"), []byte(".env\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

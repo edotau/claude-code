@@ -10,9 +10,7 @@ import (
 	"time"
 )
 
-// TestIntegrateTargetHookFailureStopsBeforePromote installs a pre-merge-commit hook (shared via the
-// repo's common git dir) that always fails, so `git merge` inside the worktree aborts mid-merge; the
-// worktree is left with MERGE_HEAD, and main must never be touched since promote is never reached.
+// A failing pre-merge-commit hook aborts the worktree merge mid-way and promote never touches main.
 func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -83,9 +81,7 @@ func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
 	}
 }
 
-// TestPromoteTargetMovedBetweenIntegrateAndPromote simulates another actor advancing main after
-// integrateTarget ran but before promote reacquires the lock and rechecks: promote must stop with a
-// retry hint, never fabricate a real conflicting merge.
+// Main advancing between integrateTarget and promote must stop promote with a retry hint, never a real merge.
 func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -118,9 +114,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	}
 }
 
-// TestPromoteNotFastForwardAfterIntegration covers ancestry re-verification: if main is advanced with
-// a commit that is not an ancestor of the (re-pinned) worktree HEAD, promote must refuse the ff-only
-// merge rather than fall back to a real merge commit.
+// A main commit that is not an ancestor of the re-pinned worktree HEAD must make promote refuse rather than merge.
 func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -146,10 +140,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	}
 }
 
-// TestPromoteRefusesCommitLandedAfterIntegrate is the regression test for Appendix A codex-review
-// finding #2 (internal/worktree/merge.go:93): a commit landing in the worktree between integrateTarget
-// and promote (e.g. another actor, or the agent continuing to work) must never be silently promoted —
-// promote must only ever fast-forward main onto the OID integrateTarget actually produced and pinned.
+// Regression: a commit landing after integrateTarget must never be promoted; only the pinned OID is fast-forwarded.
 func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -220,8 +211,7 @@ func TestPromoteLockHeldRefusesConcurrentMerge(t *testing.T) {
 	}
 }
 
-// TestIntegrateAndPromoteToleratePostResolutionResidue: a plan from preflightAfterResolution lets untracked tool
-// residue (a plugin cache) through integrate + promote, while a plain Preflight plan still refuses it.
+// A preflightAfterResolution plan tolerates untracked tool residue; a plain Preflight plan refuses it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)

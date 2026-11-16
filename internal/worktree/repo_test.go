@@ -46,7 +46,8 @@ func TestResolveRepoFromMainSubdirAndLinkedWorktree(t *testing.T) {
 	if repo.Main != main {
 		t.Fatalf("Main = %q, want %q", repo.Main, main)
 	}
-	canon, _ := filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
+	// worktreeRoot canonicalizes HOME
+	canon, _ := filepath.EvalSymlinks(home)
 	wantRoot := filepath.Join(canon, "worktrees", filepath.Base(main))
 	if repo.Root != wantRoot {
 		t.Fatalf("Root = %q, want %q", repo.Root, wantRoot)
@@ -201,7 +202,8 @@ func TestRootUsesMainBasename(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	got := Root("/some/path/myrepo")
-	home, _ = filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
+	// worktreeRoot canonicalizes HOME
+	home, _ = filepath.EvalSymlinks(home)
 	want := filepath.Join(home, "worktrees", "myrepo")
 	if got != want {
 		t.Fatalf("Root = %q, want %q", got, want)
@@ -211,14 +213,14 @@ func TestRootUsesMainBasename(t *testing.T) {
 func TestWorktreeRootUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	home, _ = filepath.EvalSymlinks(home) // worktreeRoot canonicalizes HOME
+	// worktreeRoot canonicalizes HOME
+	home, _ = filepath.EvalSymlinks(home)
 	if got, want := worktreeRoot(), filepath.Join(home, "worktrees"); got != want {
 		t.Fatalf("worktreeRoot = %q, want %q", got, want)
 	}
 }
 
-// detachedHead is a minimal repo whose main checkout is in detached-HEAD state, for Phase 1's
-// "detached HEAD" coverage requirement shared by list/lifecycle tests in this package.
+// detachedHead is a minimal repo whose main checkout is in detached-HEAD state.
 func detachedHead(t *testing.T) string {
 	t.Helper()
 	dir := gitRepo(t)
@@ -236,17 +238,11 @@ func detachedHead(t *testing.T) string {
 	return dir
 }
 
-// TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot is the regression test for Appendix A
-// codex-review finding #4 (internal/worktree/repo.go:85): when a worktree root is symlinked straight
-// onto the live main checkout (as `~/worktrees/.claude` -> `~/.claude` would be), a name like "internal"
-// that already exists as a real subdirectory of the live checkout must never be accepted as if it were
-// a worktree of that repo — common-dir equality alone is satisfied (it IS the same repo), but it is the
-// live checkout's own source tree, not a worktree.
+// Regression: under a root symlinked onto the live checkout, an existing subdirectory is not a worktree.
 func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T) {
 	t.Parallel()
 	main := gitRepo(t)
-	// repo.Root pointed directly at the main checkout — the symlinked-root scenario, reproduced
-	// without needing a real symlink: Root(main) == main is exactly what that symlink collapses to.
+	// repo.Root equal to main is what the symlinked-root scenario collapses to, so no real symlink is needed.
 	repo := &Repo{Main: main, Root: main}
 
 	internal := filepath.Join(main, "internal")
@@ -262,16 +258,11 @@ func TestResolveWorktreeRejectsLiveCheckoutSubdirUnderSymlinkedRoot(t *testing.T
 	}
 }
 
-// TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination covers rejectLiveCheckoutRoot's own
-// reason for existing unconditionally (internal/worktree/repo.go:90): a brand-new name that does NOT
-// yet exist on disk under a worktree root symlinked into the live main checkout must still be
-// refused, before Create would otherwise materialize a new directory straight inside the live
-// checkout — ownsWorktree's EXISTING-destination check (the sibling regression test above) cannot
-// catch this, since os.Lstat on a nonexistent path has nothing to compare against.
+// A new name under a root symlinked into the live checkout must be refused before Create makes a directory.
 func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
 	t.Parallel()
 	main := gitRepo(t)
-	repo := &Repo{Main: main, Root: main} // the symlinked-root scenario, collapsed: Root(main) == main
+	repo := &Repo{Main: main, Root: main}
 
 	dest, err := resolveWorktreeBounded(repo, "brand-new-name")
 	if err == nil {
@@ -282,9 +273,7 @@ func TestResolveWorktreeRejectsLiveCheckoutRootForNewDestination(t *testing.T) {
 	}
 }
 
-// TestCreateRefusesWhenWorktreeRootIsLiveCheckout is the Create-level sibling: `worktree create` must
-// refuse outright rather than running `git worktree add` straight into the live checkout, even for a
-// name that has never existed before.
+// `worktree create` must refuse outright when the worktree root is the live checkout, even for a never-used name.
 func TestCreateRefusesWhenWorktreeRootIsLiveCheckout(t *testing.T) {
 	t.Parallel()
 	main := gitRepo(t)
@@ -323,7 +312,8 @@ func TestGitTimeoutCtxHasDeadline(t *testing.T) {
 func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	dest := t.TempDir() // not a git worktree, so `git branch --show-current` fails
+	// not a git worktree, so `git branch --show-current` fails
+	dest := t.TempDir()
 	var log strings.Builder
 	_, _ = cleanAtWith(repo, "nobranch", dest, true, &log, LedgerClose{Via: "clean"})
 	if !strings.Contains(log.String(), "branch not detected") {
@@ -331,7 +321,7 @@ func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 	}
 }
 
-// TestMain pins every state/config path to a temp dir so no test can touch the real ~/.claude, and git startup is trimmed by hosttest.
+// TestMain pins state and config paths to a temp dir so no test touches the real ~/.claude, and trims git startup.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	StubProcessScanForTest()

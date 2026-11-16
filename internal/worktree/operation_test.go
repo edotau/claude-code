@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-// resolveFixtureOpEnv isolates paths.StateDir() (and therefore operationsDir) per test, same pattern
-// as mergeFixtureLockEnv in merge_test.go.
+// resolveFixtureOpEnv isolates paths.StateDir() (and so operationsDir) per test, like mergeFixtureLockEnv.
 func resolveFixtureOpEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -65,9 +64,7 @@ func TestSaveOperationOverwritesPriorStateForSameRepoWorktree(t *testing.T) {
 	}
 }
 
-// TestLoadOperationMissingFileSurfacesNotExist exercises loadOperation's documented contract: a
-// missing file is the plain *os.PathError from os.ReadFile, so a caller can os.IsNotExist(err) it —
-// e.g. --resume reporting "nothing to resume" instead of a generic failure.
+// A missing operation file surfaces the plain os.ReadFile error so callers can use os.IsNotExist.
 func TestLoadOperationMissingFileSurfacesNotExist(t *testing.T) {
 	resolveFixtureOpEnv(t)
 	repo := &Repo{Main: "/repo/main"}
@@ -80,8 +77,7 @@ func TestLoadOperationMissingFileSurfacesNotExist(t *testing.T) {
 	}
 }
 
-// TestLoadOperationCorruptFileReturnsError writes garbage at the exact path SaveOperation would have
-// used, proving loadOperation neither panics nor silently returns a zero-value Operation on bad JSON.
+// Garbage JSON at the operation path must yield an error, never a panic or a zero-value Operation.
 func TestLoadOperationCorruptFileReturnsError(t *testing.T) {
 	resolveFixtureOpEnv(t)
 	repo := &Repo{Main: "/repo/main"}

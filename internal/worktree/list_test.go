@@ -257,8 +257,7 @@ func TestListDetachedHEADMain(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(entries))
 	}
-	// Detached main's target is an OID (currentBranch falls back to rev-parse HEAD); merge-base
-	// against it must still succeed since the worktree's HEAD descends from the same commit.
+	// Detached main's target is an OID, so merge-base against it must still succeed for a worktree descending from it.
 	if !entries[0].Merged {
 		t.Errorf("want Merged = true against a detached-HEAD OID target, Problems=%v", entries[0].Problems)
 	}

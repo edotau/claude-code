@@ -16,22 +16,26 @@ const staleAfter = 14 * 24 * time.Hour
 
 // Entry is one worktree; a failed inspection appends to Problems and leaves the fail-safe default (Dirty, not Merged).
 type Entry struct {
-	Path           string
-	Branch         string // short branch name, "" when detached
-	Head           string // full OID, "" when unknown
-	Registered     bool   // present in `git worktree list --porcelain`
-	Exists         bool   // the directory is actually on disk
-	Locked         bool
-	Dirty          bool
-	Merged         bool
-	Stale          bool
-	Orphaned       bool // registration and filesystem disagree
-	Prunable       bool // git itself reports stale administrative registration
-	ActivityAt     time.Time
-	ActivitySource string // "reflog" | "index" | "filesystem" | "" (no evidence found)
-	Busy           string // live refusal reason from in-use, lock or operation checks ("" = free)
-	Problems       []string
-	gitDir         string // dest's git-dir when the caller already resolved it
+	Path       string
+	Branch     string
+	Head       string
+	Registered bool
+	Exists     bool
+	Locked     bool
+	Dirty      bool
+	Merged     bool
+	Stale      bool
+	Orphaned   bool
+	// git itself reports stale administrative registration
+	Prunable   bool
+	ActivityAt time.Time
+	// "reflog" | "index" | "filesystem" | "" (no evidence found)
+	ActivitySource string
+	// live refusal reason from in-use, lock or operation checks ("" = free)
+	Busy     string
+	Problems []string
+	// dest's git-dir when the caller already resolved it
+	gitDir string
 }
 
 // List returns every worktree under repo.Root (git registration plus directories on disk), each inspected.
@@ -48,7 +52,7 @@ func List(repo *Repo) ([]Entry, error) {
 	now := time.Now()
 	in := firstLook()
 	for i := range entries {
-		entries[i].Orphaned = entries[i].Registered != entries[i].Exists // Prunable/Locked come from git's porcelain
+		entries[i].Orphaned = entries[i].Registered != entries[i].Exists
 		if entries[i].Exists {
 			inspect(repo, &entries[i], target, targetErr, now)
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
@@ -73,10 +77,11 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 		}
 		e.Path = paths.Canon(e.Path)
 		if e.Path == repo.Main {
-			continue // the main checkout itself is not a lifecycle target
+			continue
 		}
 		if rel, err := filepath.Rel(repo.Root, e.Path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue // registered elsewhere on disk, outside the convention this package governs
+			// registered elsewhere on disk, outside the convention this package governs
+			continue
 		}
 		e.Registered = true
 		entries = append(entries, e)
@@ -301,6 +306,6 @@ func Names(cwd string) []string {
 	if err != nil {
 		return nil
 	}
-	names, _ := worktreeDirNames(repo.Root) // Tab completion: any error means no candidates
+	names, _ := worktreeDirNames(repo.Root)
 	return names
 }
