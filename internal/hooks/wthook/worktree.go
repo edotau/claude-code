@@ -388,7 +388,7 @@ func checkoutShared(run *hookRun) (bool, error) {
 	if top == "" {
 		return false, nil
 	}
-	if top == core.CanonPath(paths.ConfigDir()) {
+	if top == paths.Real(paths.ConfigDir()) {
 		return true, nil
 	}
 	peers, err := run.peers()

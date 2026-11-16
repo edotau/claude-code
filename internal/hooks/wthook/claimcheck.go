@@ -1,6 +1,7 @@
 package wthook
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -217,6 +218,25 @@ type claimView struct {
 	in     *core.Input
 	claims map[string][]claimHit
 	clean  func() map[string]int64
+	status map[string]dirtyState // dirtySet per toplevel: the tree is unchanged until the checked command runs
+}
+
+// dirtyState is one dirtySet answer.
+type dirtyState struct {
+	top   string
+	dirty map[string]bool
+	err   error
+}
+
+// dirtyAt is dirtySet(dir), asked of git once per toplevel for this check.
+func (v claimView) dirtyAt(dir string) (string, map[string]bool, error) {
+	top, _ := paths.CheckoutOf(dir)
+	st, ok := v.status[top]
+	if !ok {
+		st.top, st.dirty, st.err = dirtySet(v.ctx, dir)
+		v.status[top] = st
+	}
+	return st.top, st.dirty, st.err
 }
 
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
@@ -251,7 +271,7 @@ func claimResult(ctx context.Context, in *core.Input, edits []string) core.Resul
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
 	if len(claims) > 0 {
-		v := claimView{ctx: ctx, in: in, claims: claims,
+		v := claimView{ctx: ctx, in: in, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		if in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand()) {
 			res = v.stageCheck()
@@ -278,12 +298,12 @@ func editPaths(in *core.Input) []string {
 	if in.ToolName == "Bash" {
 		out := core.WrittenPaths(in.ToolCommand(), in.CWD)
 		for i, p := range out {
-			out[i] = core.CanonPath(p)
+			out[i] = paths.Real(p)
 		}
 		return out
 	}
 	if p := in.Nested("tool_input", "file_path"); p != "" {
-		return []string{core.CanonPath(core.AnchorPath(p, in.CWD))}
+		return []string{paths.Real(core.AnchorPath(p, in.CWD))}
 	}
 	return nil
 }
@@ -293,7 +313,7 @@ func (v claimView) editCheck(p string) core.Result {
 	if len(v.claims[p]) == 0 {
 		return core.Result{}
 	}
-	top, dirty, err := dirtySet(v.ctx, filepath.Dir(p))
+	top, dirty, err := v.dirtyAt(filepath.Dir(p))
 	if err != nil {
 		return claimWarn(err)
 	}
@@ -304,11 +324,12 @@ func (v claimView) editCheck(p string) core.Result {
 	if err != nil {
 		return claimWarn(err)
 	}
+	rel, _ := core.RelWithin(top, p)
 	var lines []string
 	for _, h := range hits {
 		if firstSighting(v.in.SessionID, p+"\t"+h.Who) {
 			lines = append(lines, fmt.Sprintf("%s has uncommitted edits by %s (since %s); edit only your own hunks "+
-				"and stage just those (%s), or hand the change to its owner.", relTo(top, p), h.Who, clock(h.TS),
+				"and stage just those (%s), or hand the change to its owner.", cmp.Or(rel, p), h.Who, clock(h.TS),
 				ownHunks))
 		}
 	}
@@ -350,7 +371,7 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 	if top == "" {
 		return "", nil, nil
 	}
-	top = core.CanonPath(top)
+	top = paths.Real(top)
 	raw, err := proc.RunGit(ctx, top, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
@@ -396,13 +417,6 @@ func firstSighting(session, key string) bool {
 		fmt.Fprintf(os.Stderr, "worktree-claim-check: seen store: %v\n", err)
 	}
 	return first
-}
-
-func relTo(top, p string) string {
-	if rel, err := filepath.Rel(top, p); err == nil {
-		return rel
-	}
-	return p
 }
 
 func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
@@ -482,7 +496,7 @@ func (v claimView) stageVerdict(target, verb string, args []string) core.Result 
 	if verb != "add" && verb != "commit" || interactive(verb, w.flags) || stagesNothing(verb, w.flags) {
 		return core.Result{}
 	}
-	top, dirty, err := dirtySet(v.ctx, target)
+	top, dirty, err := v.dirtyAt(target)
 	if err != nil {
 		return claimWarn(err)
 	}
@@ -534,8 +548,9 @@ func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string
 		if len(hits) > 0 {
 			claimed++
 		}
+		rel, _ := core.RelWithin(top, p)
 		for _, h := range hits {
-			taken = append(taken, fmt.Sprintf("%s takes %s's uncommitted hunks (since %s)", relTo(top, p), h.Who,
+			taken = append(taken, fmt.Sprintf("%s takes %s's uncommitted hunks (since %s)", cmp.Or(rel, p), h.Who,
 				clock(h.TS)))
 		}
 	}

@@ -125,7 +125,7 @@ func addedPaths(ctx context.Context, target string, args []string) []string {
 	if top == "" {
 		return nil
 	}
-	top = core.CanonPath(top)
+	top = paths.Real(top)
 	scopes, err := stageScopes(ctx, top, target, "add", args)
 	if err != nil {
 		return nil
