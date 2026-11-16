@@ -54,8 +54,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `Plan`, `Explore`, `general-purpose`; description starts `<model>:` followed by a space, printed by
    `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned files;
    begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one
-   message; the only limits are overlapping files and dependency order. Leaves also keep this session's context
-   small: send file reads, diff review and gate runs to a leaf and take back a short verdict, with the long report
+   message; the only limits are overlapping files and dependency order. **Keep fanning out:** each time a leaf
+   finishes or a file frees up, dispatch every task that is now unblocked, and repeat until none remain. Leaves
+   also keep this session's context small: send file reads, diff review and gate runs to a leaf and take back a short verdict, with the long report
    saved at `$(claude-code memory path reports <name>)`. Parallel writers own disjoint files.
    **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
    listing it. Verify every returned diff, gate and deletion. Briefs, relay rules and recovery:
