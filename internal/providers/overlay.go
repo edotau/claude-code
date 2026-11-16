@@ -3,8 +3,11 @@ package providers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"reflect"
 	"slices"
 	"sync"
 
@@ -304,6 +307,56 @@ func builtinEntry(name string) (map[string]json.RawMessage, error) {
 		}
 	}
 	return out, nil
+}
+
+// OverlayDrift maps each overlay row that shadows a built-in to the built-in keys it lacks or holds differently.
+func OverlayDrift() (map[string][]string, error) {
+	doc, err := OverlayDoc()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return overlayDrift(defaultsJSON, doc)
+}
+
+// overlayDrift is OverlayDrift over explicit documents; a removed row (null) is a choice, not drift.
+func overlayDrift(base, doc []byte) (map[string][]string, error) {
+	builtin, err := decodeRows(providersField(base), nil)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := decodeRows(providersField(doc), builtinProviders())
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for name, r := range rows {
+		b, ok := builtin[name]
+		if !ok || r.raw == nil || b.raw == nil {
+			continue
+		}
+		if keys := driftKeys(b.raw, r.raw); len(keys) > 0 {
+			out[name] = keys
+		}
+	}
+	return out, nil
+}
+
+// driftKeys lists base's keys that row lacks or whose JSON value differs, sorted.
+func driftKeys(base, row json.RawMessage) []string {
+	var bf, rf map[string]any
+	if json.Unmarshal(base, &bf) != nil || json.Unmarshal(row, &rf) != nil {
+		return nil
+	}
+	var out []string
+	for _, k := range slices.Sorted(maps.Keys(bf)) {
+		if v, ok := rf[k]; !ok || !reflect.DeepEqual(v, bf[k]) {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // overlayAuthTypes maps every overlay row to its sealed auth type (oauth, m2m, pat), or "" when it has none.

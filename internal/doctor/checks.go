@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -108,6 +109,8 @@ func checkBinaryHealth(_ context.Context, check func(bool, bool, string, string)
 func checkProviderHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
+	driftOK, driftDetail := overlayDriftDetail()
+	check(driftOK, false, "provider overlay drift", driftDetail)
 	if reg != nil {
 		sel, serr := providers.Select(reg, "")
 		for _, c := range providerCredentialChecks(ctx, reg, sel, serr, reg.Names()) {
@@ -285,6 +288,22 @@ func opencodeProviderByID(reg *providers.Registry, id string) *providers.Provide
 		}
 	}
 	return nil
+}
+
+// overlayDriftDetail names overlay rows whose snapshot no longer matches the built-in; key names only, no values.
+func overlayDriftDetail() (bool, string) {
+	drift, err := providers.OverlayDrift()
+	if err != nil {
+		return false, "could not compare the overlay with defaults.json: " + err.Error()
+	}
+	if len(drift) == 0 {
+		return true, "overlay rows match the built-ins"
+	}
+	notes := make([]string, 0, len(drift))
+	for _, name := range slices.Sorted(maps.Keys(drift)) {
+		notes = append(notes, fmt.Sprintf("%s differs in %s", name, strings.Join(drift[name], ", ")))
+	}
+	return false, strings.Join(notes, "; ") + " (a row replaces its built-in whole, so new defaults do not reach it)"
 }
 
 func orErr(s string, err error) string {
