@@ -3,6 +3,9 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,11 +50,37 @@ func installClaudeScience(ctx context.Context, w io.Writer, dir string, dryRun b
 		fmt.Fprintln(w, "  (dry-run: would download and install claude-science)")
 		return nil
 	}
-	data, err := httpGet(ctx, url)
+	data, err := fetchScienceBinary(ctx, url, asset)
 	if err != nil {
 		return err
 	}
 	return installBinaryLocked(w, dir, "claude-science", data)
+}
+
+// fetchScienceBinary downloads url and checks it against manifest.json's sha256, as the vendor's install.sh does.
+func fetchScienceBinary(ctx context.Context, url, asset string) ([]byte, error) {
+	raw, err := httpGet(ctx, claudeScienceBaseURL+"/manifest.json")
+	if err != nil {
+		return nil, err
+	}
+	var manifest struct {
+		SHA256 map[string]string `json:"sha256"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("claude-science: manifest.json: %w", err)
+	}
+	want := manifest.SHA256[asset]
+	if len(want) != sha256.Size*2 {
+		return nil, fmt.Errorf("claude-science: manifest.json has no sha256 for %s; nothing written", asset)
+	}
+	data, err := httpGet(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	if sum := sha256.Sum256(data); !strings.EqualFold(want, hex.EncodeToString(sum[:])) {
+		return nil, fmt.Errorf("claude-science: %s sha256 does not match manifest.json; nothing written", url)
+	}
+	return data, nil
 }
 
 // updateClaudeScience runs the installed binary's own updater; a missing binary falls back to a fresh install.
