@@ -59,6 +59,9 @@ func cmdModels(args []string) int {
 	if len(args) > 0 && args[0] == "discover" {
 		return modelsDiscover(args[1:])
 	}
+	if len(args) > 0 && args[0] == "preflight" {
+		return cmdPreflight(args[1:])
+	}
 	fs := helptext.NewFlagSet("models", modelsPage)
 	provider := fs.String("profile", "", "profile to resolve (default: pin, then registry default)")
 	unpin := fs.Bool("unpin", false, "clear every model pin")
@@ -495,7 +498,7 @@ func modelPinAliases() []string {
 func modelsSpec() *helptext.Node {
 	discover := &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("apply"),
 		helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
-	return &helptext.Node{Sub: map[string]*helptext.Node{"discover": discover}, Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames),
+	return &helptext.Node{Sub: map[string]*helptext.Node{"discover": discover, "preflight": preflightSpec()}, Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames),
 		helptext.BoolFlag("unpin"), helptext.BoolFlag("live"), {Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }
 

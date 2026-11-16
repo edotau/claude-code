@@ -56,15 +56,15 @@ func preflightLive(ctx context.Context, reg *providers.Registry, profile string)
 }
 
 var preflightPage = helptext.Page{
-	Usage: "claude-code preflight [--live [--profile <p>|all]] [flags]\nclaude-code preflight --refresh|--discover <profile>",
+	Usage: "claude-code models preflight [--live [--profile <p>|all]]\nclaude-code models preflight --refresh|--discover <profile>",
 	About: "Print each agent's pin check; --live also refreshes stale listings and runs the post-install pong round.\n" +
 		"--refresh only re-lists stale listings, silently.\n" +
 		"--discover re-seals one profile's model snapshot (Databricks or github), silently (a launch spawns it when expired).",
 }
 
-// cmdPreflight is the hidden `preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
+// cmdPreflight is `models preflight [--live|--refresh]`: pin rows, the post-install step, or a silent re-list.
 func cmdPreflight(args []string) int {
-	fs := helptext.NewFlagSet("preflight", preflightPage)
+	fs := helptext.NewFlagSet("models preflight", preflightPage)
 	live := fs.Bool("live", false, "refresh stale listings and ask each pinned agent for pong")
 	profile := fs.String("profile", "", "with --live: pong every agent on this profile, or all Databricks profiles (all)")
 	refresh := fs.Bool("refresh", false, "re-list stale served-endpoint caches, print nothing")
@@ -119,7 +119,7 @@ func preflightReport(ctx context.Context, reg *providers.Registry, refresh, live
 	return 0
 }
 
-// preflightSpec is the `preflight` completion spec.
+// preflightSpec is the `models preflight` completion node.
 func preflightSpec() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{{Name: "discover"}, {Name: "live", IsBool: true}, {Name: "profile"}, {Name: "refresh", IsBool: true}}}
 }

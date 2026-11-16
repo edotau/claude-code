@@ -93,7 +93,7 @@ func servedRefreshDue(reg *providers.Registry, pins []preflight.Pin, now time.Ti
 // loadProviders reads the provider registry (vault included); tests count it.
 var loadProviders = providers.Load
 
-// spawnServed is the detached `preflight --refresh` seam; tests replace it.
+// spawnServed is the detached `models preflight --refresh` seam; tests replace it.
 var spawnServed = func(cwd string) bool {
 	self, err := os.Executable()
 	if err != nil {
@@ -104,7 +104,7 @@ var spawnServed = func(cwd string) bool {
 		return false
 	}
 	defer null.Close()
-	return proc.SpawnDetached(self, []string{"preflight", "--refresh"}, cwd, null)
+	return proc.SpawnDetached(self, []string{"models", "preflight", "--refresh"}, cwd, null)
 }
 
 func Recall(in *core.Input) core.Result {

@@ -208,7 +208,7 @@ func TestProxyShimForwardsArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(out), "wl-paste\n--type\nimage/png\n--help\n"; got != want {
+	if got, want := string(out), "clip\npaste\n--type\nimage/png\n--help\n"; got != want {
 		t.Errorf("shim passed %q, want %q", got, want)
 	}
 }

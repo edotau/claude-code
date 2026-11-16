@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// SpawnDiscover starts `preflight --discover <profile>` detached (a goroutine would die at a launch's exec)
+// SpawnDiscover starts `models preflight --discover <profile>` detached (a goroutine would die at a launch's exec)
 func SpawnDiscover(profile string, force bool) bool {
 	self, err := os.Executable()
 	if err != nil {
@@ -29,7 +29,7 @@ func SpawnDiscover(profile string, force bool) bool {
 	if !ClaimNamed("discover-"+url.PathEscape(profile), time.Now()) && !force {
 		return false
 	}
-	return proc.SpawnDetached(self, []string{"preflight", "--discover", profile}, "", null)
+	return proc.SpawnDetached(self, []string{"models", "preflight", "--discover", profile}, "", null)
 }
 
 // DiscoverTargets is the profiles copilot and opencode point at that have models to discover: Databricks or GitHub rows.

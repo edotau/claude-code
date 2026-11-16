@@ -1,4 +1,4 @@
-// Claude-aware wl-paste proxy (WSL2): the routing behind ~/.local/bin/wl-paste, run as `claude-code wl-paste`.
+// Claude-aware wl-paste proxy (WSL2): the routing behind ~/.local/bin/wl-paste, run as `claude-code clip paste`.
 //
 // WSLg bridges a Windows clipboard image to Wayland as image/bmp ONLY, in 32bpp BI_BITFIELDS, which Claude's
 // BMP decoder rejects (anthropics/claude-code#50552). The CLI's save chain (2.1.241) is:
@@ -231,7 +231,7 @@ func isSocket(path string) bool {
 	return err == nil && st.Mode()&os.ModeSocket != 0
 }
 
-// ProxyScript is the wl-paste shim that forwards every call to `claude-code wl-paste`.
+// ProxyScript is the wl-paste shim that forwards every call to `claude-code clip paste`.
 //
 //go:embed wl-paste-claude.sh
 var ProxyScript []byte

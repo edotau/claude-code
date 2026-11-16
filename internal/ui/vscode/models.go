@@ -97,7 +97,7 @@ func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 		snap, ok := serving.RecallCtx(ctx, p)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "claude-code: vscode models: %s has no cached listing, group skipped "+
-				"(claude-code preflight --discover %s)\n", name, name)
+				"(claude-code models preflight --discover %s)\n", name, name)
 			out.Cold = append(out.Cold, name)
 			continue
 		}
