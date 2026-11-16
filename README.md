@@ -71,7 +71,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 
 - `~/.claude` already exists: clone into `~/.claude.stage`, then `make -C ~/.claude.stage adopt` (backs up
   collisions, then bootstraps). `install --setup nuke [--apply] [--keep-memory]` archives untracked content and
-  removes it, leaving credential-shaped files (`.env`, `*.pem`, `*.key`) in place;
+  removes it, leaving credential-shaped untracked or ignored files (`.env`, `*.pem`, `*.key`) in place;
   `install --setup workspace init|link|status` scopes a project's own `.claude/`.
 
 ## Providers

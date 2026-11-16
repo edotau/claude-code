@@ -65,7 +65,7 @@ type nukePlan struct {
 	Kid          string
 	VaultWarning string   // set when the vault couldn't be read; it is still archived opaquely, never named
 	UserContent  []string // untracked and uncommitted-tracked paths nuke archives before removing dir (+ the keep-memory set when kept)
-	Kept         []string // credential-shaped untracked files: never archived, left in place when dir is removed
+	Kept         []string // credential-shaped untracked or ignored files: never archived, left in place when dir is removed
 	Unpushed     bool     // commits on no remote exist: nuke archives them as a git bundle
 }
 
@@ -239,7 +239,7 @@ func printPlan(w io.Writer, plan nukePlan) {
 		}
 	}
 	if len(plan.Kept) > 0 {
-		fmt.Fprintf(w, "credential-shaped untracked files left in place, not archived (%d files):\n", len(plan.Kept))
+		fmt.Fprintf(w, "credential-shaped untracked or ignored files left in place, not archived (%d files):\n", len(plan.Kept))
 		for _, p := range plan.Kept {
 			fmt.Fprintf(w, "  %s\n", p)
 		}
@@ -257,7 +257,7 @@ func classify(repo, name string) string {
 	return "untracked"
 }
 
-// userContentPaths lists the files nuke archives, and the credential-shaped untracked ones it leaves in place.
+// userContentPaths lists the files nuke archives and the credential-shaped ones it leaves in place.
 func userContentPaths(dir string, hasGit bool) (out, kept []string, err error) {
 	for _, rel := range []string{"state/vault.db", "settings.json", "settings.local.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
@@ -283,19 +283,18 @@ func userContentPaths(dir string, hasGit bool) (out, kept []string, err error) {
 			out = append(out, r)
 		}
 	}
-	ignored, err := ignoredUserContent(dir)
+	ignored, keptIgnored, err := ignoredUserContent(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	return append(out, ignored...), kept, nil
+	return append(out, ignored...), append(kept, keptIgnored...), nil
 }
 
 // userContentDirs are the user-authored trees whose git-ignored files nuke also archives before deleting them.
 var userContentDirs = []string{"agents", "commands", "skills", "rules"}
 
-// ignoredUserContent lists git-ignored files under userContentDirs, skipping credential-shaped ones (named on stderr).
-func ignoredUserContent(repo string) ([]string, error) {
-	var out []string
+// ignoredUserContent lists git-ignored files under userContentDirs; credential-shaped ones go to kept.
+func ignoredUserContent(repo string) (out, kept []string, err error) {
 	for _, sub := range userContentDirs {
 		fi, err := os.Stat(filepath.Join(repo, sub))
 		if err != nil || !fi.IsDir() {
@@ -303,17 +302,18 @@ func ignoredUserContent(repo string) ([]string, error) {
 		}
 		raw, err := gitOutput("-C", repo, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", sub)
 		if err != nil {
-			return nil, fmt.Errorf("list ignored %s: %w", sub, err)
+			return nil, nil, fmt.Errorf("list ignored %s: %w", sub, err)
 		}
 		for _, rel := range splitNUL(raw) {
 			if credentialShaped(filepath.Join(repo, rel)) {
-				fmt.Fprintf(os.Stderr, "nuke: not archiving credential-shaped ignored file %s\n", rel)
+				fmt.Fprintf(os.Stderr, "nuke: leaving credential-shaped ignored file %s in place, not archived\n", rel)
+				kept = append(kept, rel)
 				continue
 			}
 			out = append(out, rel)
 		}
 	}
-	return out, nil
+	return out, kept, nil
 }
 
 // credentialShaped matches the credential-file names and content shapes the memory bank also refuses.

@@ -71,7 +71,7 @@ func cmdSetupNuke(args []string) int {
 	fs := helptext.NewFlagSet("setup nuke", helptext.Page{
 		Usage: "claude-code install --setup nuke [flags]",
 		About: "Remove the harness directory for a fresh start; a dry run unless --apply, " +
-			"which asks you to type the path to confirm. Credential-shaped untracked files are left in place, not archived.",
+			"which asks you to type the path to confirm. Credential-shaped untracked or ignored files are left in place, not archived.",
 	})
 	dir := fs.String("dir", paths.ConfigDir(), "the harness directory to remove")
 	apply := fs.Bool("apply", false, "actually remove it (dry-run without this flag)")
