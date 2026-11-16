@@ -99,3 +99,29 @@ func TestSandboxFlatCopiesOwnFilesAndWritesNoOrigins(t *testing.T) {
 	}
 	_ = cfg
 }
+
+// D6: a sandbox of an unstamped flat store must not write the layout stamp into the source store.
+func TestSandboxLeavesSourceUnstamped(t *testing.T) {
+	tempConfig(t)
+	write(t, HomeBank().Path("progress.md"), "x\n")
+	res, err := Sandbox(SandboxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
+	if statOK(filepath.Join(StoreDir(), layoutFile)) {
+		t.Error("Sandbox stamped the source store")
+	}
+}
+
+// D8: a file listed but deleted before its copy is skipped and dropped from the result.
+func TestSandboxCopySkipsVanishedFile(t *testing.T) {
+	tempConfig(t)
+	write(t, HomeBank().Path("progress.md"), "x\n")
+	dst := t.TempDir()
+	got, err := placeStoreRels(dst, HomeBank(), []string{"gone.md", "progress.md"}, false)
+	if err != nil || !reflect.DeepEqual(got, []string{"progress.md"}) {
+		t.Fatalf("placeStoreRels = %q, %v; want [progress.md], nil", got, err)
+	}
+	wantFile(t, filepath.Join(dst, "progress.md"), "x\n")
+}

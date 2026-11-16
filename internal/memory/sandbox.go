@@ -100,7 +100,7 @@ type SandboxResult struct {
 
 // Sandbox creates a disposable config without writing to the source bank.
 func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
-	if err = requireFlat(); err != nil {
+	if err = checkFlat(); err != nil {
 		return res, err
 	}
 	res.Dir, err = os.MkdirTemp("", "claude-memory-sandbox-")
@@ -160,23 +160,33 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 	} else {
 		rels = ownedStoreRels(b)
 	}
+	return placeStoreRels(dst, b, rels, empty)
+}
+
+// placeStoreRels writes each rel under dst: b's template when empty, else the store's copy.
+func placeStoreRels(dst string, b Bank, rels []string, empty bool) ([]string, error) {
+	placed := make([]string, 0, len(rels))
 	for _, rel := range rels {
+		data := []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
+		if !empty {
+			var err error
+			data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel)))
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // deleted since listing (a detached settle): gone from the source too
+			} else if err != nil {
+				return nil, err
+			}
+		}
 		target := filepath.Join(dst, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return nil, err
 		}
-		data := []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
-		if !empty {
-			var err error
-			if data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel))); err != nil {
-				return nil, err
-			}
-		}
 		if err := os.WriteFile(target, data, 0o600); err != nil {
 			return nil, err
 		}
+		placed = append(placed, rel)
 	}
-	return rels, nil
+	return placed, nil
 }
 
 // ownedStoreRels lists the files a flat bank owns: top-level, in the shared subdirs, and under its bundle dirs.
