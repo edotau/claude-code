@@ -38,7 +38,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, fmt, watch,\n" +
-		"          import, sandbox, migrate (off menu)\n" +
+		"          import, sandbox (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -60,7 +60,6 @@ var memoryPlumbing = map[string][2]string{
 	"report":  {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
-	"migrate": {"", "flatten the store into one directory (--dry-run previews, --revert undoes)"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -180,7 +179,6 @@ func memorySubcommands() map[string]func([]string) int {
 		"watch":   cmdMemoryWatch,
 		"import":  cmdMemoryImport,
 		"sandbox": cmdMemorySandbox,
-		"migrate": cmdMemoryMigrate,
 	}
 }
 
@@ -220,7 +218,6 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
@@ -499,27 +496,6 @@ func cmdMemoryReview(args []string) int {
 		return helptext.Fail("memory review: %v", err)
 	}
 	return 0
-}
-
-func cmdMemoryMigrate(args []string) int {
-	fs := memoryFlagSet("migrate")
-	dryRun := fs.Bool("dry-run", false, "preview moves, rewrites and blockers; write nothing")
-	revert := fs.Bool("revert", false, "restore the per-repo layout from the newest migration record")
-	format := helptext.FormatFlag(fs)
-	if code, done := memoryParseNoArgs(fs, "migrate", args); done {
-		return code
-	}
-	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("memory migrate", err)
-	}
-	err := memory.Migrate(memory.MigrateOptions{DryRun: *dryRun, Revert: *revert, Format: *format, Out: os.Stdout})
-	switch {
-	case err == nil:
-		return 0
-	case errors.Is(err, memory.ErrMigrateRefused):
-		return helptext.FailUsage("memory migrate: %v", err)
-	}
-	return helptext.Fail("memory migrate: %v", err)
 }
 
 // cmdMemoryPromote moves a block to home, or prints a block and target for a human to apply (never writes them).

@@ -150,7 +150,7 @@ func checkImportLayout(from string) error {
 		return err
 	}
 	if stamp, _ := os.ReadFile(filepath.Join(from, layoutFile)); strings.TrimSpace(string(stamp)) != layoutFlat {
-		return importInput("--from %s has a per-repo layout and this host's store is flat: run `claude-code memory migrate` on the older host first", from)
+		return importInput("--from %s uses the retired per-repo layout; migrate it with a pre-removal claude-code binary", from)
 	}
 	return nil
 }
@@ -621,4 +621,13 @@ func sortNewestFirst(all []string) []string {
 		sorted[i] = all[j]
 	}
 	return sorted
+}
+
+var indexLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
+
+func migrationBank(key string) Bank {
+	if key == homeDir {
+		return HomeBank()
+	}
+	return Bank{Key: key}
 }

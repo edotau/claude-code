@@ -28,8 +28,6 @@ const (
 	Secrets         = "secrets"
 	SettingsBackups = "settings_backups"
 	Meta            = "meta"
-	// MemoryOrigins maps a memory store key to its JSON origin record; plaintext, readable without the master key.
-	MemoryOrigins = "memory_origins"
 )
 
 var (
