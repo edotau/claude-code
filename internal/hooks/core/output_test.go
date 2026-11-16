@@ -159,3 +159,35 @@ func TestOutputEmitBlockOutsidePreToolUse(t *testing.T) {
 		t.Errorf("PreToolUse block rides JSON: code=%d out=%q", code, out.String())
 	}
 }
+
+// agy's output per event: deny for a block or an ask, {} after a tool, injected steps at start, continue at Stop.
+func TestOutputGeminiPerEvent(t *testing.T) {
+	cases := []struct {
+		name, event string
+		r           Result
+		want        string
+	}{
+		{"block denies", "PreToolUse", Result{Decision: Block, Reason: "no"}, `{"decision":"deny","reason":"no"}`},
+		{"ask becomes deny", "PreToolUse", Result{Decision: Ask, Reason: "sure?"}, `{"decision":"deny","reason":"sure?"}`},
+		{"allow is silent", "PreToolUse", Result{Context: "c"}, ""},
+		{"post tool", "PostToolUse", Result{Context: "c"}, "{}"},
+		{"start context", "SessionStart", Result{Context: "focus"}, `{"injectSteps":[{"systemMessage":{"systemMessage":"focus"}}]}`},
+		{"start empty", "SessionStart", Result{}, ""},
+		{"stop block continues", "Stop", Result{Decision: Block, Reason: "again"}, `{"decision":"continue","reason":"again"}`},
+		{"stop allows", "Stop", Result{Context: "c"}, ""},
+	}
+	for _, tc := range cases {
+		if got := outputGemini(tc.event, tc.r); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A Stop block reaches agy as the continue document with exit 0; Claude keeps exit 2 with the reason on stderr.
+func TestEmitGeminiStopBlockIsJSON(t *testing.T) {
+	var out, errw bytes.Buffer
+	if code := Emit(AgentGemini, "Stop", Result{Decision: Block, Reason: "keep going"}, &out, &errw); code != ExitProceed ||
+		!strings.Contains(out.String(), `"decision":"continue"`) || errw.Len() != 0 {
+		t.Errorf("code=%d stdout=%q stderr=%q", code, out.String(), errw.String())
+	}
+}

@@ -380,24 +380,44 @@ func agyGroupsRunGate(groups []settings.MatcherGroup, command, tool string) bool
 // agyHookName is the one named hook in agy's hooks.json the harness owns; every render replaces it.
 const agyHookName = "claude-code"
 
-// agyGateMatcher is the agy tool names the permission gate judges (run_command, read_file, write_file, edit_file).
-const agyGateMatcher = "run_command|read_file|write_file|edit_file"
+// agyToolOrder lists agy tools in rendered-matcher order, each beside its hookspec name.
+var agyToolOrder = []struct{ agy, claude string }{
+	{"run_command", "Bash"}, {"read_file", "Read"}, {"write_file", "Write"}, {"edit_file", "Edit"},
+}
 
-const agyShellMatcher = "run_command"
-
-// renderGeminiHooks merges the harness's agy PreToolUse hooks into ~/.gemini/config/hooks.json, keeping others.
-func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	var groups []any
-	for _, s := range settings.SpecsFor("gemini", "native") {
-		matcher := agyGateMatcher
-		if s.Matcher == "Bash" { // a shell-only spec runs on run_command alone
-			matcher = agyShellMatcher
+// AgyMatcher is spec matcher m in agy's tool names; ok is false when no alternative names an agy tool.
+func AgyMatcher(m string) (string, bool) {
+	alts := strings.Split(strings.ReplaceAll(m, "MultiEdit", "Edit"), "|")
+	var out []string
+	for _, t := range agyToolOrder {
+		if slices.Contains(alts, t.claude) {
+			out = append(out, t.agy)
 		}
-		groups = append(groups, map[string]any{"matcher": matcher, "hooks": []any{map[string]any{
-			"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds(),
-		}}})
 	}
-	entry, err := textutil.MarshalIndentNoEscape(map[string]any{"PreToolUse": groups})
+	return strings.Join(out, "|"), len(out) > 0
+}
+
+// agyHookEvents groups the harness's agy hooks by event: tool events as matcher groups, the rest as flat handlers.
+func agyHookEvents() map[string][]any {
+	events := map[string][]any{}
+	for _, s := range settings.SpecsFor("gemini", "native") {
+		handler := map[string]any{"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds()}
+		if s.Event != settings.EventPreToolUse && s.Event != settings.EventPostToolUse {
+			events[s.Event] = append(events[s.Event], handler)
+			continue
+		}
+		matcher, ok := AgyMatcher(s.Matcher)
+		if !ok {
+			continue // no agy tool to run on
+		}
+		events[s.Event] = append(events[s.Event], map[string]any{"matcher": matcher, "hooks": []any{handler}})
+	}
+	return events
+}
+
+// renderGeminiHooks merges the harness's agy hooks into ~/.gemini/config/hooks.json, keeping others.
+func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	entry, err := textutil.MarshalIndentNoEscape(agyHookEvents())
 	if err != nil {
 		return false, fmt.Errorf("gemini-hooks: %w", err)
 	}

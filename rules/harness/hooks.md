@@ -38,7 +38,7 @@ decision, so an ask blocks there.
 | claude · native | every group that isn't agent-only | **block** (`safety` asks only on destructive SQL and script writes); post/prompt hooks inject context |
 | codex · native | `safety-scan`, `permission-gate`, `docs-placement`, `paths-resolve`, `memory-recall`, `codex-*`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block**; `memory-end` advisory |
 | copilot · native | `safety-scan`, `docs-placement`, `paths-resolve`, `memory-recall`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block**; the rest advisory |
-| gemini (agy) · native | `safety-scan`, `permission-gate` | **block** |
+| gemini (agy) · native | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block** (an ask denies); SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
 | opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory** (`--pure` loads no plugin, so it is refused while a PreToolUse gate is bound); Stop and SessionEnd run only after a watched tool call |
 | opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check` | **block** (throws in `tool.execute.before`; the host then skips these) |
 
