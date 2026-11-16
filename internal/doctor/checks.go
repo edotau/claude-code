@@ -132,6 +132,9 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(ctx, s))
 	}
+	for _, s := range tools.DepStatusAll() {
+		check(s.Path != "" || !s.Required, false, "dep "+s.Name, depDoctorDetail(s))
+	}
 	for _, spec := range agent.Roster() {
 		pass, detail := agentVersionDetail(spec)
 		check(pass, false, "agent version "+spec.Name, detail)
@@ -191,13 +194,19 @@ func nestedDetail(n setup.Nested) string {
 	}
 }
 
-// auditSummary counts the last week's audited actions ("2 hook_blocked, 1 provider_switch"); a read error fails the row
+// auditSummary counts the last week's audited actions ("2 blocked · 1 with no session, 1 provider_switch"); a read error fails the row
 func auditSummary() (ok bool, detail string) {
 	ev, err := audit.Read(time.Now().AddDate(0, 0, -7))
 	sum := audit.Summary(ev)
 	var parts []string
+	ns := audit.NoSession(ev)
 	for _, a := range audit.Actions {
-		if n := sum[a]; n > 0 {
+		n := sum[a]
+		switch {
+		case n == 0:
+		case a == audit.HookBlocked && ns > 0:
+			parts = append(parts, fmt.Sprintf("%d blocked · %d with no session", n, ns))
+		default:
 			parts = append(parts, fmt.Sprintf("%d %s", n, a))
 		}
 	}

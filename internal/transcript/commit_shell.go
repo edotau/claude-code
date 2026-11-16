@@ -76,25 +76,11 @@ func noExecShell(toks []string) bool {
 	return false
 }
 
-// joinValueOpts spells `--super-prefix X`/`--config-env X` as `=` forms; internal/shell lacks them as value options.
-func joinValueOpts(toks []string) []string {
-	out := make([]string, 0, len(toks))
-	for i := 0; i < len(toks); i++ {
-		out = append(out, toks[i])
-		if (toks[i] == "--super-prefix" || toks[i] == "--config-env") && i+1 < len(toks) {
-			out[len(out)-1] += "=" + toks[i+1]
-			i++
-		}
-	}
-	return out
-}
-
 // isGitCommit reports whether toks is a `git [global opts] commit` invocation (alias or literal).
 func isGitCommit(toks []string, depth int) bool {
 	if len(toks) == 0 || filepath.Base(toks[0]) != "git" {
 		return false
 	}
-	toks = joinValueOpts(toks)
 	_, verb, args := shell.GitInvocation(toks[1:], "")
 	if verb == "" {
 		return false
@@ -106,12 +92,17 @@ func isGitCommit(toks []string, depth int) bool {
 // scanGitOpts collects the `-c alias.<name>=<val>` pairs among git's global options and flags a short-circuit option.
 func scanGitOpts(opts []string) (aliases map[string]string, shortCircuit bool) {
 	aliases = map[string]string{}
-	for i, o := range opts {
+	for i := 0; i < len(opts); i++ {
+		o := opts[i]
 		if gitShortCircuitOpts[o] {
 			return nil, true
 		}
-		if o == "-c" && i+1 < len(opts) {
-			if name, val, ok := splitAliasAssign(opts[i+1]); ok && !gitBuiltinVerbs[name] {
+		if !shell.GitValueOpt(o) || i+1 == len(opts) {
+			continue
+		}
+		i++ // the next token is this option's value, never an option itself
+		if o == "-c" {
+			if name, val, ok := splitAliasAssign(opts[i]); ok && !gitBuiltinVerbs[name] {
 				aliases[name] = val // last -c alias.<name>=<val> for a given name wins
 			}
 		}

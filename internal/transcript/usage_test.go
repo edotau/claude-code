@@ -234,3 +234,24 @@ func TestWindowDisable1MContext(t *testing.T) {
 		t.Errorf("Window under DISABLE_1M_CONTEXT = %d, want 200000", got)
 	}
 }
+
+func TestGlobInMatchesMetacharacterDirsLiterally(t *testing.T) {
+	name := "a[b]c" // `*` and `?` cannot be file names on Windows, `[` can
+	if filepath.Separator != '\\' {
+		name += `?*\` // elsewhere `\` is an ordinary name character and is escaped too
+	}
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "x.jsonl")
+	if err := os.WriteFile(want, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := GlobIn(dir, "*.jsonl"); !slices.Equal(got, []string{want}) {
+		t.Errorf("GlobIn(%q) = %v, want [%s]", dir, got, want)
+	}
+	if got := GlobLiteral(`\`); (filepath.Separator == '\\') != (got == `\`) {
+		t.Errorf("GlobLiteral(`\\`) = %q on separator %q", got, filepath.Separator)
+	}
+}
