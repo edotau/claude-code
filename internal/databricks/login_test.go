@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -324,6 +325,25 @@ func TestDbxSaveIdentityKeepsConcurrentRotationOnRowFailure(t *testing.T) {
 	}
 	if got, _, _ := vault.ReadSecret(name); got != "sp-secret-ROTATED" {
 		t.Errorf("rollback clobbered the newer secret, stored value length %d", len(got))
+	}
+}
+
+// A rollback that deletes the secret it created writes the secret_delete audit line vault.Delete would.
+func TestDbxSaveIdentityRollbackDeleteIsAudited(t *testing.T) {
+	seedOverlay(t, presetOnly)
+	reg := mustLoad(t)
+	name := providers.SecretName(providers.GroupDatabricks, "aa", providers.AuthM2M)
+	orig := SetRow
+	SetRow = func(string, map[string]any) error { return errors.New("overlay write failed") }
+	t.Cleanup(func() { SetRow = orig })
+	if err := SaveIdentity(reg, "aa", providers.IdentitySP, "sp-client-2", "sp-secret-NEW"); err == nil {
+		t.Fatal("want the row-write error")
+	}
+	if _, found, err := vault.ReadSecret(name); err != nil || found {
+		t.Fatalf("rollback kept the secret: found=%v err=%v", found, err)
+	}
+	if got := auditedDeletes(t); !slices.Equal(got, []string{name}) {
+		t.Fatalf("audited deletes %v, want [%s]", got, name)
 	}
 }
 

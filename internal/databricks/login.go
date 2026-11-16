@@ -541,7 +541,7 @@ func SaveIdentity(reg *providers.Registry, env, mode, spID, secret string) error
 // restoreSecret puts record name back to prev (or deletes it) only while it still holds wrote; a newer value stays.
 func restoreSecret(name, wrote, prev string, hadPrev bool) error {
 	wrote = strings.TrimSpace(wrote)
-	restored := false
+	restored, deleted := false, false
 	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
 		rec, ok, err := tx.Record(name)
 		if err != nil || !ok {
@@ -555,13 +555,17 @@ func restoreSecret(name, wrote, prev string, hadPrev bool) error {
 			return nil
 		}
 		if !hadPrev {
+			deleted = true
 			return tx.Put(vault.Secrets, name, "")
 		}
 		restored = true
 		return tx.PutStored(key, name, prev)
 	})
-	if err == nil && restored {
+	switch {
+	case err == nil && restored:
 		audit.Log(audit.SecretSet, name, "vault") // vault.Store's audit line, which this write bypasses
+	case err == nil && deleted:
+		audit.Log(audit.SecretDelete, name, "") // vault.Delete's audit line, likewise
 	}
 	return err
 }

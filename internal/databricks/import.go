@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -130,8 +131,11 @@ func runImport(path string, cands []cfgCandidate, options importOptions, apply, 
 	if err != nil {
 		return fail("import: %v", err)
 	}
-	if rows, _, _, _, err = planImport(cands, options, fold, true, key); err != nil {
+	if rows, plan, _, _, err = planImport(cands, options, fold, true, key); err != nil {
 		return fail("import: %v", err)
+	}
+	for _, name := range plan.deleted() {
+		audit.Log(audit.SecretDelete, name, "") // vault.Delete's audit line, which the fold's in-tx deletes bypass
 	}
 	fmt.Println("wrote profiles")
 	if seal {
