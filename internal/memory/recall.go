@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -445,8 +446,20 @@ func looksLikeSessionID(id string) bool { return sessionIDShape.MatchString(id) 
 // blockKey identifies a block by its whitespace-normalized text.
 func blockKey(block string) string {
 	h := fnv.New64a()
-	h.Write([]byte(strings.Join(strings.Fields(block), " ")))
+	h.Write(appendFields(nil, block))
 	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+// appendFields appends strings.Join(strings.Fields(s), " ") to dst without building the fields slice.
+func appendFields(dst []byte, s string) []byte {
+	start := len(dst)
+	for f := range strings.FieldsSeq(s) {
+		if len(dst) > start {
+			dst = append(dst, ' ')
+		}
+		dst = append(dst, f...)
+	}
+	return dst
 }
 
 func seenPath(sessionID string) string {
@@ -467,7 +480,8 @@ func resetSeen(sessionID, root, surface string) {
 		return
 	}
 	pruneSeen(filepath.Dir(p))
-	flat := strings.Join(strings.Fields(surface), " ")
+	flat := appendFields(nil, surface)
+	var norm []byte
 	var b strings.Builder
 	for _, seg := range loadSegments(corpusFiles(root), true) {
 		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
@@ -475,7 +489,7 @@ func resetSeen(sessionID, root, surface string) {
 		}
 		for i := range seg.Docs() {
 			block, _ := seg.Doc(i)
-			if norm := strings.Join(strings.Fields(block), " "); strings.Contains(flat, norm) {
+			if norm = appendFields(norm[:0], block); bytes.Contains(flat, norm) {
 				b.WriteString(blockKey(block))
 				b.WriteString("\n")
 			}
