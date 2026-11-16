@@ -70,13 +70,13 @@ func TestRenderCodexAgent(t *testing.T) {
 
 // Gemini's agent schema is strict
 func TestRenderGeminiAgentEmitsOnlyStrictFields(t *testing.T) {
-	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Agent, Bash", "model": "sonnet", "color": "cyan"}, body: "body\n"}
+	agent := Source{dirName: "demo", frontmatter: map[string]any{"name": "demo", "description": "d", "tools": "Read, Edit, Grep, Agent, Bash", "model": "sonnet", "color": "cyan"}, body: "body\n"}
 	fm, body := textutil.ParseFrontmatter(renderGeminiAgent(agent))
 	if len(fm) != 3 || fm["name"] != "demo" || fm["description"] != "d" {
 		t.Errorf("gemini frontmatter = %v, want exactly name + description + tools", fm)
 	}
-	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "read_file,run_shell_command" {
-		t.Errorf("gemini tools = %v, want [read_file run_shell_command] (Agent dropped)", fm["tools"])
+	if tools, _ := fm["tools"].([]string); strings.Join(tools, ",") != "read_file,edit_file,run_command" {
+		t.Errorf("gemini tools = %v, want [read_file edit_file run_command] (Agent, Grep dropped)", fm["tools"])
 	}
 	fm, _ = textutil.ParseFrontmatter(renderGeminiAgent(Source{dirName: "x", frontmatter: map[string]any{"name": "x", "description": "d", "tools": "Agent"}}))
 	if _, has := fm["tools"]; has {

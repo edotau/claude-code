@@ -34,13 +34,12 @@ func renderMarkdownAgent(agent Source, fields []orderedField) string {
 	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+agentBody(agent))
 }
 
-// geminiToolNames maps Claude Code tool names onto Gemini CLI's built-in tool names (bundle *_TOOL_NAME constants).
+// geminiToolNames maps Claude Code tool names onto agy's native tools (it has no grep, glob, ls or fetch tool).
 var geminiToolNames = map[string]string{
-	"Read": "read_file", "Write": "write_file", "Edit": "replace", "Bash": "run_shell_command",
-	"Grep": "grep_search", "Glob": "glob", "LS": "list_directory", "WebFetch": "web_fetch", "WebSearch": "google_web_search",
+	"Read": "read_file", "Write": "write_file", "Edit": "edit_file", "Bash": "run_command", "WebSearch": "search_web",
 }
 
-// geminiTools translates a Claude tool list; names Gemini has no equivalent for (Agent, NotebookEdit, MCP) are dropped.
+// geminiTools translates a Claude tool list; tools agy lacks (Agent, Grep, Glob, LS, WebFetch, MCP) are dropped.
 func geminiTools(claude []string) []string {
 	var out []string
 	for _, name := range claude {
