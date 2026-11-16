@@ -365,6 +365,8 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--json-schema", r.OutputSchema)
 	}
 	if r.Tools {
+		// agy fails every command when an --add-dir is missing
+		_ = os.MkdirAll(paths.PackDir(), 0o700)
 		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
 	}
 	if r.DebugFile != "" {
