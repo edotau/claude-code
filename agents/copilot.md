@@ -33,7 +33,9 @@ commands.
 - Merge + conventional commit after gates are green (LAST-MILE); a file another live leaf has claimed needs that
   leaf's hand-back first.
 - Diff review (`claude-code copilot review [--adversarial]`); continuing a session (`copilot ask --session <id>`).
-- Any delegated mechanical task (`copilot ask --tools [--background]`); tier rule: `internal/router/tier.go`.
+- Any delegated mechanical task (`copilot ask --tools [--background]`); tier rule: `agent.TaskTier` in
+  `internal/agent/label.go`; a `Tier: fast|standard|deep` line in the brief wins (`rules/harness/agent.md` → Model
+  precedence).
 - `ask --read-only` approves file reads, URL fetches and the vetted read-only shell list
   (`skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools); any other shell command is
   rejected, so use its native read and search tools there.
@@ -44,8 +46,9 @@ commands.
 
 - Sign-in: `claude-code configure agents --agent copilot` → Login (`copilot login`); `configure github` picks the
   account.
-- Databricks: `claude-code configure databricks` → Set up signs in, saves the token to the vault and applies the
-  profile to copilot (the copilot agent record's `profile`); `claude-code copilot profile <p>|--clear` sets it by hand.
+- Databricks: `claude-code configure databricks` → Set up signs in (OAuth), verifies a token and applies the
+  profile to the agents you pick, copilot's record `profile` among them; `claude-code copilot profile <p>|--clear`
+  sets it by hand.
 - Copilot reads as off while it has no account to bill (no GitHub login under 95%, no usable Databricks profile, no
   Anthropic key); its agent record's `profile` is untouched, so it comes back on its own.
 - Model, effort and context: the copilot agent record (`claude-code configure agents --agent copilot`).
@@ -61,7 +64,7 @@ Copilot deltas:
 - `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`. A write is judged as both
   `Write(...)` and `Edit(...)`; a deny on either wins, an allow on either grants.
 - `--fleet` (parallel subagents; verify with the diff stat) · `--enable-memory` (session memory) ·
-  `--fallback all|agents|none` · `--format json` envelope adds `ran_on` · `--profile <p>` leads on that profile;
+  `--fallback all|agents|none` · `--profile <p>` leads on that profile;
   `--fallback none` pins that dispatch; `--provider <x>` leads.
 
 ## Verbs
