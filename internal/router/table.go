@@ -101,7 +101,6 @@ type Price struct {
 	Out      float64 `json:"out"`
 }
 
-// Cell is one agent × alias row.
 type Cell struct {
 	Model   string `json:"model"`
 	Effort  string `json:"effort,omitempty"`
@@ -109,7 +108,6 @@ type Cell struct {
 	Price   Price  `json:"price"`
 }
 
-// RouteTable holds alias rows, canonical model rows, and account billing types.
 type RouteTable struct {
 	Billing map[string]string  `json:"billing"`
 	Weights map[string]float64 `json:"weights"`
@@ -159,7 +157,6 @@ func rowAlias(claudeID string) string {
 	return ""
 }
 
-// rowKey resolves an overlay or lookup key (alias, canonical id or any Claude spelling) to a row id.
 func rowKey(key string) string {
 	id, _, ok := models.Resolve(key)
 	if !ok {
@@ -177,7 +174,6 @@ func Load() (*RouteTable, error) {
 	return LoadFrom(reg, copilotUserFrom(reg))
 }
 
-// LoadFrom loads against an explicit registry and Copilot user; Load is the normal entry point.
 func LoadFrom(reg *providers.Registry, ghUser string) (*RouteTable, error) {
 	f, err := parsedTable()
 	if err != nil {
@@ -247,7 +243,6 @@ func (t *RouteTable) indexRows(copilotKey string) {
 	}
 }
 
-// opencodeSubAliases re-keys each opencode sub-candidate's rows by alias.
 func opencodeSubAliases(subs map[string]map[string]Cell) map[string]map[string]Cell {
 	out := map[string]map[string]Cell{}
 	for sub, rows := range subs {
