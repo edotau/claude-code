@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 func TestWrittenPaths(t *testing.T) {
@@ -130,5 +133,28 @@ func TestRemovedPaths(t *testing.T) {
 		if got := RemovedPaths(cmd, "/w"); !slices.Equal(got, want) {
 			t.Errorf("RemovedPaths(%q) = %q, want %q", cmd, got, want)
 		}
+	}
+}
+
+func BenchmarkDropComments(b *testing.B) {
+	var c, h strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&c, "echo step %d > /tmp/out_%d.txt # note %d about the step's output\n", i, i, i)
+	}
+	h.WriteString("cat > /tmp/notes/docs/notes.md <<EOF\n")
+	for i := range 5000 {
+		if i%10 == 0 {
+			fmt.Fprintf(&h, "## Section %d (part %d)\n", i, i/10)
+		} else {
+			fmt.Fprintf(&h, "Line %d of the doc: it's plain text with a #tag and notes.\n", i)
+		}
+	}
+	h.WriteString("EOF\n")
+	for name, cmd := range map[string]string{"comments": c.String(), "heredoc": h.String()} {
+		b.Run(name, func(b *testing.B) {
+			for b.Loop() {
+				shell.DropComments(cmd)
+			}
+		})
 	}
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -585,5 +586,28 @@ func TestPermissionCdRelativeSymlink(t *testing.T) {
 	})
 	if got := p.Decide("Bash", "cd "+slash(real)+"/esc"); got != Deny {
 		t.Errorf("absolute spelling through the link: got %v, want Deny", got)
+	}
+}
+
+func BenchmarkShellCode(b *testing.B) {
+	var c, h strings.Builder
+	for i := range 3000 {
+		fmt.Fprintf(&c, "echo step %d > /tmp/out_%d.txt # note %d about the step's output\n", i, i, i)
+	}
+	h.WriteString("cat > /tmp/notes/docs/notes.md <<EOF\n")
+	for i := range 5000 {
+		if i%10 == 0 {
+			fmt.Fprintf(&h, "## Section %d (part %d)\n", i, i/10)
+		} else {
+			fmt.Fprintf(&h, "Line %d of the doc: it's plain text with a #tag and notes.\n", i)
+		}
+	}
+	h.WriteString("EOF\n")
+	for name, cmd := range map[string]string{"comments": c.String(), "heredoc": h.String()} {
+		b.Run(name, func(b *testing.B) {
+			for b.Loop() {
+				shellCode(cmd)
+			}
+		})
 	}
 }
