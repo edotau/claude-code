@@ -491,3 +491,19 @@ func TestServingDiscoverySidecarExpires(t *testing.T) {
 		t.Fatalf("expired sidecar: hit=%v Me=%d", hit.CacheHit, f.me.Load())
 	}
 }
+
+// A vault that never sealed anything has no key yet: Read is a cache miss; a keyed but locked vault still refuses.
+func TestServingDiscoveryReadEmptyVaultIsMiss(t *testing.T) {
+	_, ring := vaulttest.UseKeyring(t)
+	scope := Scope{Profile: "discovery-test", SubjectID: "subject-one"}
+	if _, found, err := Read(scope, false); err != nil || found {
+		t.Fatalf("empty vault: found=%v err=%v, want a miss", found, err)
+	}
+	if _, err := vault.EnsureKey(); err != nil {
+		t.Fatal(err)
+	}
+	ring.Down = true
+	if _, _, err := Read(scope, false); err == nil {
+		t.Fatal("keyed vault with a locked keyring read as a miss")
+	}
+}

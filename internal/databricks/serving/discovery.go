@@ -187,7 +187,7 @@ func RecallSubjectCtx(ctx context.Context, p *providers.Provider) (subject strin
 }
 
 func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
-	if _, _, err := vault.MasterKey(); err != nil {
+	if _, _, err := vault.MasterKey(); err != nil && (!errors.Is(err, vault.ErrLocked) || vaultKeyed()) {
 		return Snapshot{}, false, errors.New("discovery vault is unavailable or locked")
 	}
 	raw, found, err := vault.ReadSecret(servingDiscoveryKey(scope))
@@ -203,6 +203,13 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	}
 	snapshot.Checks = SanitizeChecks(snapshot.Checks)
 	return snapshot, found, nil
+}
+
+// vaultKeyed reports whether the vault records a key id; before its first seal there is no key and so no cache.
+func vaultKeyed() bool {
+	var kid string
+	err := vault.View(func(tx *vault.Tx) error { kid, _ = tx.Get(vault.Meta, "kid"); return nil })
+	return err != nil || kid != "" // an unreadable vault counts as keyed, so Read keeps refusing it
 }
 
 // validCachedSnapshot decodes raw into snapshot and reports whether it is a complete schema-1 snapshot for scope.
