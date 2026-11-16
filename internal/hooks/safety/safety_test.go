@@ -3,9 +3,14 @@ package safety
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -949,4 +955,73 @@ func TestHarnessGitIgnoresDataHeredocBodies(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGatesMatchUngated runs every test-file string, and the scan's forms of it, through each pattern gated and not.
+func TestGatesMatchUngated(t *testing.T) {
+	files, err := filepath.Glob("*_test.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("test files: %v", err)
+	}
+	var corpus []string
+	fset := token.NewFileSet()
+	for _, f := range files {
+		file, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if s, ok := foldString(n); ok {
+				corpus = append(corpus, s)
+			}
+			return true
+		})
+	}
+	var inputs []string
+	for _, s := range corpus {
+		inputs = append(inputs, s, inertStripped(s), blankInert(s))
+		for _, seg := range shell.Segments(s) {
+			inputs = append(inputs, seg, shellRead(seg))
+		}
+		inputs = append(inputs, shell.Segments(blankInert(s))...)
+	}
+	gated := slices.Concat(hardBlocks, pipeBlocks, exfilPatterns, softWarn, mktempCd, []*core.Gated{toolEnv})
+	for _, r := range askRules {
+		gated = append(gated, r.pats...)
+	}
+	for _, g := range gated {
+		hits := 0
+		for _, s := range inputs {
+			raw := g.Regexp().MatchString(s)
+			if raw && !g.MayMatch(s) {
+				t.Errorf("%s matches %q, which lacks its literal", g, s)
+			}
+			if g.MatchString(s) != raw {
+				t.Errorf("%s: gated and ungated disagree on %q", g, s)
+			}
+			if raw {
+				hits++
+			}
+		}
+		t.Logf("%d/%d inputs match %s", hits, len(inputs), g)
+	}
+}
+
+// foldString is a string literal, or a + chain of them, as its value.
+func foldString(n ast.Node) (string, bool) {
+	switch e := n.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", false
+		}
+		s, err := strconv.Unquote(e.Value)
+		return s, err == nil
+	case *ast.BinaryExpr:
+		l, lok := foldString(e.X)
+		r, rok := foldString(e.Y)
+		return l + r, lok && rok && e.Op == token.ADD
+	case *ast.ParenExpr:
+		return foldString(e.X)
+	}
+	return "", false
 }

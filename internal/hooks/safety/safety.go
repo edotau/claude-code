@@ -24,33 +24,33 @@ import (
 // rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing operands.
 const rmRecursive = `(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+\s+)*`
 
-// hardBlocks are command shapes that are almost never intentional.
-var hardBlocks = core.LazyCompile(
-	rmRecursive+`["']?/(\*|\s|$|[)\x60"'])`,
-	rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|System|Users|home|Applications|Library|Volumes|private)(/?\s|/?$|/?[)\x60"'])`,
-	rmRecursive+`["']?(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`,
-	`mkfs\.`,
-	`dd\s+(.*\s)?of=/dev/r?(sd|disk|nvme|hd)`,
-	`chmod\s+-R\s+0?777\s+/(\s|$)`,
-	`python3?\s+.*-c\s+.*exec\(.*base64`,
-)
+// hardBlocks are command shapes that are almost never intentional; each is gated on a literal every match holds.
+var hardBlocks = []*core.Gated{
+	core.Gate(rmRecursive+`["']?/(\*|\s|$|[)\x60"'])`, "rm"),
+	core.Gate(rmRecursive+`["']?/(etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|System|Users|home|Applications|Library|Volumes|private)(/?\s|/?$|/?[)\x60"'])`, "rm"),
+	core.Gate(rmRecursive+`["']?(\$HOME|\$\{HOME\}|~)/?(\*|\s|$|[)\x60"'])`, "rm"),
+	core.Gate(`mkfs\.`, "mkfs."),
+	core.Gate(`dd\s+(.*\s)?of=/dev/r?(sd|disk|nvme|hd)`, "of=/dev/"),
+	core.Gate(`chmod\s+-R\s+0?777\s+/(\s|$)`, "chmod"),
+	core.Gate(`python3?\s+.*-c\s+.*exec\(.*base64`, "base64"),
+}
 
 // pipeBlocks match the WHOLE command text (minus inert data, see inertStripped): pipes, a fork bomb and encoded Python
 // heredocs span shell segments.
-var pipeBlocks = core.LazyCompile(
-	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
-	`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`,
-	`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`,
-	`:\(\)\s*\{[^}]*\}\s*;\s*:`,
-	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`,
-	`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`,
-	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
-)
+var pipeBlocks = []*core.Gated{
+	core.Gate(`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`, "curl", "wget"),
+	core.Gate(`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`, "eval"),
+	core.Gate(`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`, "base64"),
+	core.Gate(`:\(\)\s*\{[^}]*\}\s*;\s*:`, ":()"),
+	core.Gate(`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh)\s+(-\S*\s+)*-[a-zA-Z]*c[a-zA-Z]*\s+["']?(\$\(\s*|\x60\s*)(\S*/)?(curl|wget)\s`, "curl", "wget"),
+	core.Gate(`(^|[\s;&|({/\x60])(bash|sh|zsh|dash|ksh|source|\.)\s+(-\S*\s+)*(<\s*)?<\(\s*(\S*/)?(curl|wget)\s`, "curl", "wget"),
+	core.Gate(`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`, "python"),
+}
 
 // askRule is an intent-dependent shape matched within one shell segment, its message, alternative and exemption.
 type askRule struct {
 	what, hint string
-	pats       func() []*regexp.Regexp
+	pats       []*core.Gated
 	exempt     func(seg, cmd, cwd string) bool
 }
 
@@ -69,17 +69,17 @@ const (
 
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
-		core.LazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`), nil},
-	{forcePushWhat, forcePushHint, core.LazyCompile(
-		gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch,
-		gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag,
-		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch,
-		gitPushPrefix+protectedBranch+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
-		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`,
-	), nil},
+		[]*core.Gated{core.Gate(`(^|[^[:alnum:]_])sudo(\s|$)`, "sudo")}, nil},
+	{forcePushWhat, forcePushHint, []*core.Gated{
+		core.Gate(gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch, "push"),
+		core.Gate(gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag, "push"),
+		core.Gate(gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch, "push"),
+		core.Gate(gitPushPrefix+protectedBranch+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`, "push"),
+		core.Gate(gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`, "push"),
+	}, nil},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
-		core.LazyCompile(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`),
+		[]*core.Gated{core.Gate(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`, ".git")},
 		tempGitRemoval},
 }
 
@@ -94,31 +94,25 @@ var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
 const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc)`
 
 // exfilPatterns match credential-exfiltration shapes.
-var exfilPatterns = core.LazyCompile(
-	`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`,
-	credRead+`.*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
-	`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`,
-	`(scp|rsync)\s+.*\.ssh/id_`,
-)
+var exfilPatterns = []*core.Gated{
+	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
+	core.Gate(credRead+`.*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
+		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc"),
+	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
+	core.Gate(`(scp|rsync)\s+.*\.ssh/id_`, ".ssh/id_"),
+}
 
 // toolEnv is a tool's own `env` subcommand (`go env`): it prints the tool's settings, not the environment.
-var toolEnv = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|[\s;&|({\x60])(\S*/)?(go|conda|mamba|poetry)[ \t]+env([ \t]*>)`)
-})
+var toolEnv = core.Gate(`(^|[\s;&|({\x60])(\S*/)?(go|conda|mamba|poetry)[ \t]+env([ \t]*>)`, "env")
 
 var credReader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(credRead) })
 
 // exfilMatch is exfilPatterns[i] on scan, minus a tool's `env` subcommand and credentials cmd only prints.
-func exfilMatch(i int, re *regexp.Regexp, scan, cmd string) bool {
-	switch i {
-	case 0:
-		scan = toolEnv().ReplaceAllString(scan, "${1}${3}${4}")
-	case 1:
-		if credsShownOnly(cmd) {
-			return false
-		}
+func exfilMatch(i int, re *core.Gated, scan, cmd string) bool {
+	if i == 0 && toolEnv.MayMatch(scan) {
+		scan = toolEnv.Regexp().ReplaceAllString(scan, "${1}${3}${4}")
 	}
-	return re.MatchString(scan)
+	return re.MatchString(scan) && (i != 1 || !credsShownOnly(cmd))
 }
 
 // credsShownOnly reports every credential read is a cat/head/tail piped only to filters, with nothing to carry it on.
@@ -142,12 +136,12 @@ func credsShownOnly(cmd string) bool {
 }
 
 // softWarn patterns print a warning but never block.
-var softWarn = core.LazyCompile(
-	`kubectl\s+delete(\W|$)`,
-	`docker\s+system\s+prune`,
-	`git\s+reset\s+--hard`,
-	`git\s+clean\s+-[a-z]*f`,
-)
+var softWarn = []*core.Gated{
+	core.Gate(`kubectl\s+delete(\W|$)`, "kubectl"),
+	core.Gate(`docker\s+system\s+prune`, "prune"),
+	core.Gate(`git\s+reset\s+--hard`, "--hard"),
+	core.Gate(`git\s+clean\s+-[a-z]*f`, "clean"),
+}
 
 // Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
@@ -155,7 +149,7 @@ func Scan(in *core.Input) core.Result {
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
 		cmd := blankInert(dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))) // a message only names the shape
-		for _, re := range softWarn() {
+		for _, re := range softWarn {
 			if re.MatchString(cmd) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
 			}
@@ -187,7 +181,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 		return core.Allow, "", ""
 	}
 	scan := inertStripped(cmd)
-	for _, re := range pipeBlocks() {
+	for _, re := range pipeBlocks {
 		if re.MatchString(scan) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
@@ -196,7 +190,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if d == core.Block {
 		return d, msg, detail
 	}
-	for i, re := range exfilPatterns() {
+	for i, re := range exfilPatterns {
 		if exfilMatch(i, re, scan, cmd) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
@@ -218,7 +212,7 @@ func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	// Rules match inside ONE shell segment of inert-blanked text: `git push origin main; readlink -f x` is no force-push.
 	for _, seg := range shell.Segments(blankInert(cmd)) {
 		for _, rule := range askRules {
-			for _, re := range rule.pats() {
+			for _, re := range rule.pats {
 				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, cmd, in.CWD)) {
 					return core.Ask, warn + core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
@@ -304,30 +298,33 @@ func bannedVerb(cmd, cwd string) string {
 }
 
 // mktempCd: a cd/pushd's target word, a shell assignment, and a target that is a fresh `$(mktemp …)` dir or a var.
-var mktempCd = core.LazyCompile(
-	`(?:^|[\s;&|(])(?:cd|pushd)\s+(?:-[LPe@]+\s+)*(?:--\s+)?("[^"]*"|\$\([^)]*\)\S*|\S+)`,
-	`(?:^|[\s;&|(])([A-Za-z_]\w*)=`,
-	`^"?\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)"?(?:[\s;&|)]|$)`,
-	`^(?:\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)|\$\{?([A-Za-z_]\w*)\}?)(?:/[-\w./]*)?$`,
-)
+var mktempCd = []*core.Gated{
+	core.Gate(`(?:^|[\s;&|(])(?:cd|pushd)\s+(?:-[LPe@]+\s+)*(?:--\s+)?("[^"]*"|\$\([^)]*\)\S*|\S+)`, "cd", "pushd"),
+	core.Gate(`(?:^|[\s;&|(])([A-Za-z_]\w*)=`, "="),
+	core.Gate(`^"?\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)"?(?:[\s;&|)]|$)`, "mktemp"),
+	core.Gate(`^(?:\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)|\$\{?([A-Za-z_]\w*)\}?)(?:/[-\w./]*)?$`, "$"),
+}
 
 // mktempCdsOnly reports a command whose every dynamic cd lands in a fresh mktemp dir, never the shared tree.
 func mktempCdsOnly(cmd string) bool {
-	re := mktempCd()
+	re := mktempCd
+	if !re[0].MayMatch(cmd) { // no cd at all, so fresh stays false
+		return false
+	}
 	vars := map[string]bool{} // false once any assignment is not a mktemp dir
-	for _, m := range re[1].FindAllStringSubmatchIndex(cmd, -1) {
+	for _, m := range re[1].Regexp().FindAllStringSubmatchIndex(cmd, -1) {
 		name := cmd[m[2]:m[3]]
 		if prev, seen := vars[name]; !seen || prev {
 			vars[name] = re[2].MatchString(cmd[m[1]:])
 		}
 	}
 	fresh := false
-	for _, m := range re[0].FindAllStringSubmatch(cmd, -1) {
+	for _, m := range re[0].Regexp().FindAllStringSubmatch(cmd, -1) {
 		arg := strings.ReplaceAll(m[1], `"`, "")
 		if !strings.ContainsAny(arg, "$`*?") {
 			continue
 		}
-		t := re[3].FindStringSubmatch(arg)
+		t := re[3].Regexp().FindStringSubmatch(arg)
 		if t == nil || strings.Contains(arg, "..") || t[1] != "" && !vars[t[1]] {
 			return false
 		}
@@ -414,7 +411,7 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 func firstHardBlock(text string) (string, bool) {
 	for _, seg := range shell.Segments(text) {
 		read := shellRead(seg)
-		for _, re := range hardBlocks() {
+		for _, re := range hardBlocks {
 			if re.MatchString(seg) || re.MatchString(read) {
 				return re.String(), true
 			}
@@ -1035,13 +1032,15 @@ func interpreterWrite(cmd string) string {
 }
 
 // pyIndirectModule spots os/shutil reached by another name (`as`, `fs = os`, `(os)`, `modules['os']`) or dynamically.
-var pyIndirectModule = regexp.MustCompile(`\bimport\s[^;\n]*\b(os|shutil|posix|nt)\s+as\b|` +
-	`\bfrom\s+(os|shutil|posix|nt)\s+import\b|__import__|import_module|getattr|` +
-	`[=(\[]\s*(os|shutil|posix|nt)\s*(?:[;\n,)\]]|$)|['"](os|shutil|posix|nt)['"]`)
+var pyIndirectModule = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\bimport\s[^;\n]*\b(os|shutil|posix|nt)\s+as\b|` +
+		`\bfrom\s+(os|shutil|posix|nt)\s+import\b|__import__|import_module|getattr|` +
+		`[=(\[]\s*(os|shutil|posix|nt)\s*(?:[;\n,)\]]|$)|['"](os|shutil|posix|nt)['"]`)
+})
 
 // scriptWrites reports a write indicator for lang in cmd; a Python str/list .replace(a, b)/.remove(x) is none.
 func scriptWrites(lang string, re *regexp.Regexp, cmd string) bool {
-	if lang != "python" || pyIndirectModule.MatchString(cmd) {
+	if lang != "python" || pyIndirectModule().MatchString(cmd) {
 		return re.MatchString(cmd)
 	}
 	for _, m := range re.FindAllStringSubmatchIndex(cmd, -1) {

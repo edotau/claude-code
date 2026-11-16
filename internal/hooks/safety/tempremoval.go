@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -14,26 +15,30 @@ import (
 )
 
 // symlinkMaker spots a command that could point a temp path into a real directory before the removal runs.
-var symlinkMaker = regexp.MustCompile(`(^|[^[:alnum:]_])ln\s|symlink`)
+var symlinkMaker = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(^|[^[:alnum:]_])ln\s|symlink`) })
 
 // darwinUserTemp is the per-user temp folder on macOS (what TMPDIR names), in its resolved /private form.
-var darwinUserTemp = regexp.MustCompile(`^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)`)
+var darwinUserTemp = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^/(private/)?var/folders/[^/]+/[^/]+/T(/|$)`)
+})
 
 // removalAllowed reports whether every path cmd removes is a literal temp path outside the live config dir and home;
 // truncate follows a final symlink and ln can aim a temp path at the real tree, so either one voids the allowance.
 func removalAllowed(cmd, cwd string) bool {
-	if strings.Contains(cmd, "truncate") || symlinkMaker.MatchString(cmd) {
+	if strings.Contains(cmd, "truncate") || symlinkMaker().MatchString(cmd) {
 		return false
 	}
 	return !slices.ContainsFunc(core.RemovedPaths(cmd, cwd), func(p string) bool { return !tempRemovable(p) })
 }
 
 // movesCwd spots a cd, pushd/popd or chdir option, after which a relative path may no longer mean what it says.
-var movesCwd = regexp.MustCompile(`(^|[^[:alnum:]_.-])(cd|pushd|popd)(\s|$|;)|--chdir|(^|\s)-[a-zA-Z]*[CD]`)
+var movesCwd = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|[^[:alnum:]_.-])(cd|pushd|popd)(\s|$|;)|--chdir|(^|\s)-[a-zA-Z]*[CD]`)
+})
 
 // tempWriteAllowed reports a fixture write: p and its target in a temp folder, no live root, cwd move or link.
 func tempWriteAllowed(cmd, p string) bool {
-	return !movesCwd.MatchString(cmd) && !strings.Contains(cmd, "truncate") && !symlinkMaker.MatchString(cmd) &&
+	return !movesCwd().MatchString(cmd) && !strings.Contains(cmd, "truncate") && !symlinkMaker().MatchString(cmd) &&
 		tempRemovable(p) && tempRemovable(paths.Real(p))
 }
 
@@ -73,7 +78,7 @@ func liveRoots() []string {
 
 // underTemp reports whether the resolved target sits under os.TempDir(), /tmp, /private/tmp or the macOS user temp.
 func underTemp(target string) bool {
-	if runtime.GOOS == "darwin" && darwinUserTemp.MatchString(target) {
+	if runtime.GOOS == "darwin" && darwinUserTemp().MatchString(target) {
 		return true
 	}
 	for _, root := range []string{os.TempDir(), "/tmp", "/private/tmp"} {
