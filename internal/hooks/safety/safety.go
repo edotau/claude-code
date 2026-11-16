@@ -35,8 +35,7 @@ var hardBlocks = []*core.Gated{
 	core.Gate(`python3?\s+.*-c\s+.*exec\(.*base64`, "base64"),
 }
 
-// pipeBlocks match the WHOLE command text (minus inert data, see inertStripped): pipes, a fork bomb and encoded Python
-// heredocs span shell segments.
+// pipeBlocks match the whole command minus inert data: pipes, a fork bomb and encoded Python heredocs span segments.
 var pipeBlocks = []*core.Gated{
 	core.Gate(`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`, "curl", "wget"),
 	core.Gate(`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`, "eval"),
@@ -269,8 +268,7 @@ func askPatternVerdict(in *core.Input, cmd, scan string) (core.Decision, string,
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
 var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
 
-// harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) whose target tree
-// (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
+// harnessGitVerb is the first banned verb, or shell.Uninspectable, whose target tree is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	cmd = dropRemoteHeredocs(core.DropDataHeredocs(cmd))
 	hit := bannedVerb(cmd, cwd)
@@ -357,11 +355,13 @@ func cleanDryRun(args []string) bool {
 		switch a := args[i]; {
 		case a == "--":
 			return dry
-		case a == "--dry-run":
+		case len(a) > 2 && strings.HasPrefix("--dry-run", a): // git takes a unique prefix: --inter, --no-d but not --no
 			dry = true
-		case a == "--interactive":
+		case len(a) > 5 && strings.HasPrefix("--no-dry-run", a):
+			dry = false
+		case len(a) > 2 && strings.HasPrefix("--interactive", a):
 			return false
-		case a == "--exclude":
+		case len(a) > 2 && strings.HasPrefix("--exclude", a):
 			i++ // the exclude pattern
 		case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--"):
 			flags, pattern, hasE := strings.Cut(a[1:], "e") // -e takes the rest of the cluster, else the next word
@@ -678,8 +678,7 @@ func impliedRefspec(args []string) bool {
 	return len(words) <= 1 || (len(words) == 2 && words[1] == "HEAD")
 }
 
-// protectedHead is the branch checked out in dir when it is main or master, else "" (detached, no repo);
-// a git that cannot run or times out leaves the branch unknown, reported as protected so the push asks.
+// protectedHead is dir's checked-out main/master, else ""; a failing git reports an unknown branch so the push asks.
 func protectedHead(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
@@ -943,9 +942,7 @@ func dropInertHeredocs(cmd string) string {
 		}
 		end := core.HeredocEnd(lines, i+1, delim, dash)
 		// An unquoted delimiter expands substitutions in the body, so a body holding one is not inert.
-		if end < 0 || !quoted && slices.ContainsFunc(lines[i+1:end], func(l string) bool {
-			return strings.Contains(l, "$(") || strings.Contains(l, "`")
-		}) {
+		if end < 0 || !quoted && slices.ContainsFunc(lines[i+1:end], substitutes) {
 			return -1
 		}
 		return end
@@ -1086,6 +1083,7 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 	depth, quote, empty := 0, byte(0), true
 	for i := from; i < len(cmd); i++ {
 		c := cmd[i]
+		closer := strings.IndexByte(")]}", c) >= 0
 		switch {
 		case quote != 0 && c == '\\':
 			i++
@@ -1097,11 +1095,12 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 			quote, empty = c, false
 		case strings.IndexByte("([{", c) >= 0:
 			depth, empty = depth+1, false
-		case strings.IndexByte(")]}", c) >= 0 && depth > 0:
+		case closer && depth > 0:
 			depth--
-		case strings.IndexByte(")]}", c) >= 0 && empty:
-			return 0, true
-		case strings.IndexByte(")]}", c) >= 0:
+		case closer:
+			if empty {
+				return 0, true
+			}
 			return n + 1, true
 		case c == ',' && depth == 0:
 			n++

@@ -42,9 +42,14 @@ func rewritePyScripts(cmd string, keep func(string) string) string {
 	}
 	lines := strings.Split(cmd, "\n")
 	scripts := pyScripts(lines)
-	if len(scripts) == 0 || pyRunsOther(lines, scripts) {
+	if len(scripts) == 0 || pyRunsOther(spliceScripts(lines, scripts, func(string) string { return "" })) {
 		return cmd
 	}
+	return spliceScripts(lines, scripts, keep)
+}
+
+// spliceScripts is lines rejoined with each script body replaced by keep(body), dropped when that is "".
+func spliceScripts(lines []string, scripts []pyScript, keep func(string) string) string {
 	var out []string
 	last := 0
 	for _, s := range scripts {
@@ -236,15 +241,9 @@ func isIdentByte(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
-// pyRunsOther reports a command that, outside its Python scripts, runs a file or shell a script may have written.
-func pyRunsOther(lines []string, scripts []pyScript) bool {
-	var rest []string
-	last := 0
-	for _, s := range scripts {
-		rest = append(rest, lines[last:s.from]...)
-		last = s.to
-	}
-	for _, seg := range shell.Segments(strings.Join(append(rest, lines[last:]...), "\n")) {
+// pyRunsOther reports command text outside its Python scripts that runs a file or shell a script may have written.
+func pyRunsOther(rest string) bool {
+	for _, seg := range shell.Segments(rest) {
 		if _, py := pyArgs(seg); (!py || !core.HeredocOp().MatchString(seg)) && core.RunsWrittenFile().MatchString(seg) {
 			return true
 		}
