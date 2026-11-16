@@ -217,7 +217,7 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 	return false
 }
 
-// Dispatch runs every bound handler whose matcher hits and merges results; panics and overruns are skipped.
+// Dispatch runs every matching handler concurrently and merges results in declaration order; a failed gate blocks.
 func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
@@ -525,12 +525,12 @@ const staleHookHint = "; blocked: re-render stale hook files with `claude-code a
 
 // unknownHook fails closed when the unknown name reads as a guard; a stale agent hook file must not drop its gate.
 func unknownHook(name, what string, stderr io.Writer) int {
+	hint, code := "", 1
 	for _, w := range []string{"guard", "gate", "safety", "scan", "placement"} {
 		if strings.Contains(name, w) {
-			fmt.Fprintf(stderr, "claude-code hook: %s %q%s\n", what, name, staleHookHint)
-			return core.ExitBlock
+			hint, code = staleHookHint, core.ExitBlock
 		}
 	}
-	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
-	return 1
+	fmt.Fprintf(stderr, "claude-code hook: %s %q%s\n", what, name, hint)
+	return code
 }

@@ -54,7 +54,7 @@ func Claim(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	edits := editPaths(in)
-	staged := in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand())
+	staged := in.ToolName == "Bash" && gitStageCmd.MatchString(in.ToolCommand())
 	if len(edits) == 0 && !staged {
 		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
 	}
@@ -89,17 +89,10 @@ func stillDirty(lines []worktree.Claim) []worktree.Claim {
 	}
 	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
-	byDir := map[string]map[string]bool{} // nil: unknown, keep every claim under that dir
+	v := claimView{ctx: ctx, status: map[string]dirtyState{}} // one git status per toplevel, not per dir
 	return slices.DeleteFunc(lines, func(c worktree.Claim) bool {
-		dir := filepath.Dir(c.Path)
-		dirty, seen := byDir[dir]
-		if !seen {
-			if top, d, err := dirtySet(ctx, dir); top != "" && err == nil {
-				dirty = d
-			}
-			byDir[dir] = dirty
-		}
-		return dirty != nil && !dirty[c.Path]
+		top, dirty, err := v.dirtyAt(filepath.Dir(c.Path))
+		return top != "" && err == nil && !dirty[c.Path] // unknown (outside a repo, or an error) keeps the claim
 	})
 }
 

@@ -1,6 +1,9 @@
 package wthook
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -579,6 +582,23 @@ func TestClaimCheckCleanRetiresOlderClaims(t *testing.T) {
 	}
 }
 
+// Regression (2026-11-16): edits of a clean claimed file add no clean mark once one postdates every claim.
+func TestClaimCheckCleanMarkOncePerClaim(t *testing.T) {
+	now := time.Now().Unix()
+	repo := claimFixture(t)
+	b := filepath.Join(repo, "b.txt")
+	appendClaims(claimsFile(liveOwner, "A"), []worktree.Claim{{Path: b, TS: now - 60}})
+	if _, err := core.SeenAdd(seenKind, "B", cleanMark+b+"\t"+strconv.FormatInt(now-30, 10)); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": b})
+	}
+	if got, _ := os.ReadFile(seenFile("B")); strings.Count(string(got), cleanMark) != 1 {
+		t.Fatalf("seen store:\n%s\nwant the one clean mark, no new line per edit", got)
+	}
+}
+
 // TestClaimCheckInterruptedOrCutLeafEnded: an interrupted leaf or one whose last record is a token cut has ended.
 func TestClaimCheckInterruptedOrCutLeafEnded(t *testing.T) {
 	const (
@@ -651,5 +671,38 @@ func TestClaimCheckDryRunAndIntentStageNothing(t *testing.T) {
 				t.Fatalf("%s: %v %q; want %v", tc.command, r.Decision, r.Reason, tc.want)
 			}
 		})
+	}
+}
+
+// The literal gates on gitStageCmd and core.GitCommitCmd change no verdict over every string in these tests.
+func TestGitGatesMatchUngated(t *testing.T) {
+	files, _ := filepath.Glob("*_test.go")
+	more, _ := filepath.Glob("../docs/*_test.go")
+	n := 0
+	for _, f := range append(files, more...) {
+		file, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			lit, ok := node.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			for _, g := range []*core.Gated{gitStageCmd, core.GitCommitCmd()} {
+				if g.MatchString(s) != g.Regexp().MatchString(s) {
+					t.Errorf("%s: gate changes the verdict on %q", g, s)
+				}
+			}
+			n++
+			return true
+		})
+	}
+	if n < 100 {
+		t.Fatalf("only %d test strings read, want the packages' corpus", n)
 	}
 }

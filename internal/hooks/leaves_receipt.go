@@ -50,8 +50,16 @@ func patchOrFormat(toks []string) bool {
 		return false
 	}
 	args := toks[1:]
-	switch filepath.Base(toks[0]) {
-	case "apply_patch", "patch":
+	tool := filepath.Base(toks[0])
+	if tool == "apply_patch" {
+		return true
+	}
+	flags := slices.Concat(printOnly[""], printOnly[tool])
+	if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(flags, a) }) {
+		return false
+	}
+	switch tool {
+	case "patch":
 		return true
 	case "gofmt", "goimports", "shfmt":
 		return slices.Contains(args, "-w")
@@ -60,12 +68,22 @@ func patchOrFormat(toks []string) bool {
 	case "prettier":
 		return slices.Contains(args, "--write") || slices.Contains(args, "-w")
 	case "ruff":
-		fix := len(args) > 0 && args[0] == "format" && !slices.Contains(args, "--check")
-		return fix || slices.Contains(args, "--fix")
+		return len(args) > 0 && args[0] == "format" || slices.Contains(args, "--fix")
 	case "black", "isort", "rustfmt":
-		return !slices.Contains(args, "--check") && !slices.Contains(args, "--diff")
+		return true
 	}
 	return false
+}
+
+// printOnly are the flags that make a patch tool or formatter print instead of write; "" holds every tool's.
+var printOnly = map[string][]string{
+	"":        {"--dry-run", "--version", "--help", "-h"},
+	"black":   {"--check", "--diff"},
+	"go":      {"-n"},
+	"isort":   {"--check", "--check-only", "-c", "--diff", "-V", "--show-config", "--show-files"},
+	"patch":   {"-v"},
+	"ruff":    {"--check", "--diff"},
+	"rustfmt": {"--check", "-V", "--print-config"},
 }
 
 // scratchPath is a path under /tmp or the OS temp dir: a relay's scratch output, not the work.
@@ -118,7 +136,15 @@ func markHeld(agentID string) {
 	}
 }
 
-func wasHeld(agentID string) bool { _, err := os.Stat(heldPath(agentID)); return err == nil }
+// wasHeld reports agentID's held marker; one older than leafStopMaxWait is stale, removed and ignored.
+func wasHeld(agentID string) bool {
+	fi, err := os.Stat(heldPath(agentID))
+	if err == nil && time.Since(fi.ModTime()) >= leafStopMaxWait {
+		_ = os.Remove(heldPath(agentID))
+		return false
+	}
+	return err == nil
+}
 
 // claimRelayRun writes agentID's launch marker with an exclusive create; false means another hand-back holds it.
 func claimRelayRun(agentID string, m relayRun) (bool, error) {
@@ -162,9 +188,9 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 			} else if len(recs) > 1 {
 				output = "" // the hook's output belongs to its own launch only
 			}
-			r, hold, held := dispatchReceipt(rec, how, output, lr.until)
-			if held {
-				return hold, true
+			r, hold := dispatchReceipt(rec, how, output, lr.until)
+			if hold != nil {
+				return *hold, true
 			}
 			got = append(got, r)
 		}
@@ -182,7 +208,7 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 	return runBriefLine(in, agentID, words, lr.scan.runLine)
 }
 
-// leafDispatch is the jobs this leaf started: its printed ids' records, else the one its ask call launched.
+// leafDispatch is the jobs this leaf started: its printed ids' records, else the ones its ask calls launched.
 func leafDispatch(lr leafRead, st string) (recs []agent.Record, how string, ok bool) {
 	if len(lr.recs) > 0 {
 		return lr.recs, "printed in its tool results", true
@@ -190,17 +216,21 @@ func leafDispatch(lr leafRead, st string) (recs []agent.Record, how string, ok b
 	if len(lr.scan.askTimes) == 0 {
 		return nil, "", false
 	}
-	owner, recs := inflight.SessionOwner(), recentDispatches(50)
-	for _, at := range slices.Backward(lr.scan.askTimes) { // latest call first; its job is the first to start after it
+	owner, all := inflight.SessionOwner(), recentDispatches(50)
+	for _, at := range lr.scan.askTimes { // each call's job is the first to start after it
 		calls := []time.Time{at}
-		for _, rec := range slices.Backward(recs) { // recs are newest first: a sibling's later job must not win
+		for _, rec := range slices.Backward(all) { // all is newest first: a sibling's later job must not win
 			mine := owner == 0 || rec.Owner == 0 || rec.Owner == owner
 			if mine && (rec.Agent == st || rec.Fallback == st) && launchedBy(rec.Time, calls) {
-				return []agent.Record{rec}, "launched by its ask call", true
+				if !slices.ContainsFunc(recs, func(r agent.Record) bool { return r.ID == rec.ID }) {
+					recs = append(recs, rec)
+				}
+				break
 			}
 		}
 	}
-	return nil, "", false
+	slices.SortStableFunc(recs, func(a, b agent.Record) int { return a.Time.Compare(b.Time) }) // dispatch order
+	return recs, "launched by its ask call", len(recs) > 0
 }
 
 // launchedBy is a record start within askLaunchWindow after one of the ask calls (2 s early for clock rounding).
@@ -217,21 +247,21 @@ type receipt struct {
 }
 
 // dispatchReceipt waits for rec; a job still running holds (up to the cap), a finished one gives its receipt.
-func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (receipt, core.Result, bool) {
+func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (receipt, *core.Result) {
 	rec, err := awaitDispatch(rec, until)
 	switch {
 	case err != nil:
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
-			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}, core.Result{}, false
+			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}, nil
 	case !jobRunning(rec):
-		return endedNote(rec, how, output), core.Result{}, false
+		return endedNote(rec, how, output), nil
 	case time.Since(rec.Time) >= leafStopMaxWait:
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
-			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, core.Result{}, false
+			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
-	return receipt{}, core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
+	return receipt{}, &core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
 		"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
-		"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}, true
+		"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}
 }
 
 // endedNote is a finished job's ran-on line and result.

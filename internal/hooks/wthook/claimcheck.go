@@ -32,9 +32,7 @@ var claimAlive = proc.Alive
 const claimShown = 5
 
 // gitStageCmd pre-screens a Bash command for a git add/commit before any claims file is read.
-var gitStageCmd = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`)
-})
+var gitStageCmd = core.Gate(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`, "git")
 
 // claimHit is one live claim on a path by someone other than the caller: who, and their newest edit's time.
 type claimHit struct {
@@ -254,7 +252,7 @@ func ClaimCheck(in *core.Input) core.Result {
 		return claimResult(ctx, in, edits)
 	}
 	res := core.Result{}
-	if gitStageCmd().MatchString(cmd) || len(edits) > 0 {
+	if gitStageCmd.MatchString(cmd) || len(edits) > 0 {
 		res = claimResult(ctx, in, edits)
 	}
 	if !git {
@@ -273,7 +271,7 @@ func claimResult(ctx context.Context, in *core.Input, edits []string) core.Resul
 	if len(claims) > 0 {
 		v := claimView{ctx: ctx, in: in, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
-		if in.ToolName == "Bash" && gitStageCmd().MatchString(in.ToolCommand()) {
+		if in.ToolName == "Bash" && gitStageCmd.MatchString(in.ToolCommand()) {
 			res = v.stageCheck()
 		}
 		for _, p := range edits {
@@ -317,7 +315,8 @@ func (v claimView) editCheck(p string) core.Result {
 	if err != nil {
 		return claimWarn(err)
 	}
-	if top != "" && !dirty[p] {
+	// only a claim the last mark left unretired needs a new one: one line per peer edit, not per own edit
+	if top != "" && !dirty[p] && slices.ContainsFunc(v.claims[p], func(h claimHit) bool { return h.TS >= v.cleanAt(p) }) {
 		markClean(v.in.SessionID, p) // nobody's hunks are left in p: claims made before now are retired
 	}
 	hits, err := v.freshHits(top, p, dirty)
@@ -399,10 +398,16 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 	if len(out) > 0 {
 		landed, _ = strconv.ParseInt(out[0], 10, 64)
 	}
-	if v.clean != nil {
-		landed = max(landed, v.clean()[p])
-	}
+	landed = max(landed, v.cleanAt(p))
 	return slices.DeleteFunc(slices.Clone(v.claims[p]), func(h claimHit) bool { return h.TS < landed }), nil
+}
+
+// cleanAt is this session's latest clean mark on p; 0 when none.
+func (v claimView) cleanAt(p string) int64 {
+	if v.clean == nil {
+		return 0
+	}
+	return v.clean()[p]
 }
 
 // seenKind is the shared seen store's kind for the busy, claim and divergence notices.

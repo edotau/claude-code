@@ -92,7 +92,8 @@ var foreignRTKHook = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCo
 
 // IsHarness reports whether a hook command is this harness's: plain, agent-marked, or the stale foreign rtk hook.
 func IsHarness(command string) bool {
-	return harnessCommand().MatchString(strings.TrimSpace(command)) || foreignRTKHook().MatchString(strings.TrimSpace(command))
+	c := strings.TrimSpace(command)
+	return harnessCommand().MatchString(c) || foreignRTKHook().MatchString(c)
 }
 
 const sec = time.Second
@@ -261,12 +262,12 @@ func asyncSplit(s EventSpec) []EventSpec {
 			keep = append(keep, alt)
 		}
 	}
-	sync, bg := s, s
-	sync.Matcher, sync.Async, bg.Matcher = strings.Join(keep, "|"), "", s.Async
+	fg, bg := s, s
+	fg.Matcher, fg.Async, bg.Matcher = strings.Join(keep, "|"), "", s.Async
 	if len(keep) == 0 {
 		return []EventSpec{bg}
 	}
-	return []EventSpec{sync, bg}
+	return []EventSpec{fg, bg}
 }
 
 // slotKey keys a dispatcher entry: one synchronous and one async (background) entry per event at most.
