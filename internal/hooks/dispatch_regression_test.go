@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -442,9 +443,15 @@ var hookAgents = []string{core.AgentClaude, core.AgentCodex, core.AgentCopilot, 
 
 // stubNatives swaps every module's Runner for one returning verdicts[name] (unset: a silent pass); ran records calls.
 func stubNatives(t *testing.T, verdicts map[string]core.Result) map[string]bool {
+	var mu sync.Mutex
 	ran := map[string]bool{}
 	for name, orig := range native {
-		native[name] = func(*core.Input) core.Result { ran[name] = true; return verdicts[name] }
+		native[name] = func(*core.Input) core.Result {
+			mu.Lock()
+			ran[name] = true
+			mu.Unlock()
+			return verdicts[name]
+		}
 		t.Cleanup(func() { native[name] = orig })
 	}
 	return ran

@@ -65,13 +65,13 @@ func (c matchers) matches(matcher, tool string) bool {
 	return re != nil && tool != "" && re.MatchString(tool)
 }
 
-// runBudgeted runs one Runner under its deadline with panic recovery; a panic or overrun is an error.
-func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, error) {
+// startBudgeted launches one Runner with panic recovery; wait yields its result, or an error on a panic or overrun.
+func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (core.Result, error)) {
 	type outcome struct {
 		r   core.Result
 		err error
 	}
-	done := make(chan outcome, 1)
+	done, res := make(chan outcome, 1), make(chan outcome, 1)
 	wg.Go(func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -87,11 +87,17 @@ func runBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (core.Result, erro
 	if b.Spec.Blocks {
 		budget -= min(core.HookMargin/2, budget/2)
 	}
-	select {
-	case o := <-done:
+	go func() {
+		select {
+		case o := <-done:
+			res <- o
+		case <-time.After(budget):
+			res <- outcome{err: fmt.Errorf("overran its %s budget", budget)}
+		}
+	}()
+	return func() (core.Result, error) {
+		o := <-res
 		return o.r, o.err
-	case <-time.After(budget):
-		return core.Result{}, fmt.Errorf("overran its %s budget", budget)
 	}
 }
 
@@ -153,42 +159,72 @@ func (m *dispatchMerge) addWorktree(b Bound, r core.Result) {
 	m.merged.Stdout = r.Stdout
 }
 
-// Dispatch runs every bound handler whose matcher hits and merges results; panics and overruns are skipped.
-func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
-	m := &dispatchMerge{log: log}
-	var wg sync.WaitGroup
-	var longest time.Duration
-	var gateFailed bool
-	match := matchers{}
+// failed logs a handler that panicked or overran; it reports whether a gate failed closed.
+func (m *dispatchMerge) failed(b Bound, err error) (gateFailed bool) {
+	fmt.Fprintf(m.log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
+	if b.Spec.Blocks { // a gate that could not run fails closed
+		m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+		gateFailed = true
+	}
+	if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree not made or not removed reports failure
+		m.merged.ExitCode = 1
+	}
+	return gateFailed
+}
+
+// step is one matched handler: a skip note, an unreadable-payload block, or a started run to collect.
+type step struct {
+	b           Bound
+	note, block string
+	wait        func() (core.Result, error)
+}
+
+// plan starts every runnable handler for event at once and lists the steps in declaration order.
+func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (steps []step, longest time.Duration) {
+	match, tool, problem := matchers{}, in.CanonicalTool(), payloadProblem(in)
 	for _, b := range bound {
 		if b.Spec.Event != event {
 			continue
 		}
-		if note := skipNote(b.Spec.Name); note != "" && match.matches(b.Spec.Matcher, in.CanonicalTool()) {
-			m.sys = append(m.sys, note)
-			continue
+		hit := match.matches(b.Spec.Matcher, tool)
+		switch note := skipNote(b.Spec.Name); {
+		case note != "" && hit:
+			steps = append(steps, step{b: b, note: note})
+		case problem != "" && b.Spec.Blocks: // tool unknown: every gate fails closed
+			steps = append(steps, step{b: b, block: unreadable(b.Spec.Name, problem)})
+		case hit:
+			longest = max(longest, b.Spec.Budget)
+			steps = append(steps, step{b: b, wait: startBudgeted(b, in, wg)})
 		}
-		if problem := payloadProblem(in); problem != "" && b.Spec.Blocks { // tool unknown: every gate fails closed
-			m.merged.Decision, m.merged.Reason = core.Block, unreadable(b.Spec.Name, problem)
-			continue
-		}
-		if !match.matches(b.Spec.Matcher, in.CanonicalTool()) {
-			continue
-		}
-		longest = max(longest, b.Spec.Budget)
-		r, err := runBudgeted(b, in, &wg)
+	}
+	return steps, longest
+}
+
+// apply folds one step into the merge in declaration order; it reports whether a gate failed closed.
+func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
+	switch {
+	case s.note != "":
+		m.sys = append(m.sys, s.note)
+	case s.block != "":
+		m.merged.Decision, m.merged.Reason = core.Block, s.block
+	default:
+		r, err := s.wait()
 		if err != nil {
-			fmt.Fprintf(log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
-			if b.Spec.Blocks { // a gate that could not run fails closed
-				m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
-				gateFailed = true
-			}
-			if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree not made or not removed reports failure
-				m.merged.ExitCode = 1
-			}
-			continue
+			return m.failed(s.b, err)
 		}
-		m.add(b, event, r)
+		m.add(s.b, event, r)
+	}
+	return false
+}
+
+// Dispatch runs every bound handler whose matcher hits and merges results; panics and overruns are skipped.
+func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
+	m := &dispatchMerge{log: log}
+	var wg sync.WaitGroup
+	steps, longest := plan(bound, event, in, &wg)
+	var gateFailed bool
+	for _, s := range steps {
+		gateFailed = m.apply(s, event) || gateFailed
 	}
 	if !gateFailed {
 		drain(&wg, longest, log)
