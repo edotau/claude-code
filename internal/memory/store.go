@@ -280,7 +280,7 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 	if cwd == "" {
 		return linkResult{}, false
 	}
-	root := filepath.Clean(cwd)
+	root := paths.CanonDeep(filepath.Clean(cwd)) // Claude Code names the project by the resolved path (/tmp → /private/tmp)
 	top, _ := gitMain(root)
 	if top != "" {
 		root = paths.CanonDeep(top)
