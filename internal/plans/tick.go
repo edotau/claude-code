@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-var boxRe = regexp.MustCompile(`^(\s*[-*] \[)[ xX](\])`)
+var boxRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\s*[-*] \[)[ xX](\])`) })
 
 // Commit is one landed commit: the sha recorded on ticks and the files it changed.
 type Commit struct {
@@ -74,7 +75,7 @@ func tickText(root, planPath, text, sha string, files, seen []string) (out strin
 		switch {
 		case all:
 			lines = removeClaims(lines, t)
-			lines[t.Start] = boxRe.ReplaceAllString(lines[t.Start], "${1}x${2}")
+			lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1}x${2}")
 			lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
 			ticked = append(ticked, t.Title)
 		case any && !hasSha(t.Partial, sha):
@@ -134,9 +135,10 @@ func WriteFile(dest string, data []byte) error {
 
 // removeClaims drops every working:/finished: comment across t's line span.
 func removeClaims(lines []string, t Task) []string {
+	re := claimRe()
 	for i := t.Start; i <= t.End; i++ {
-		if claimRe.MatchString(lines[i]) {
-			lines[i] = strings.TrimRight(claimRe.ReplaceAllString(lines[i], ""), " \t")
+		if re.MatchString(lines[i]) {
+			lines[i] = strings.TrimRight(re.ReplaceAllString(lines[i], ""), " \t")
 		}
 	}
 	return lines
@@ -149,12 +151,13 @@ func appendSuffix(line, suffix string) string {
 
 // addPartial records sha on t's existing partly-landed comment, else appends a new one.
 func addPartial(lines []string, t Task, sha string) []string {
+	re := partialRe()
 	for i := t.Start; i <= t.End; i++ {
-		if !partialRe.MatchString(lines[i]) {
+		if !re.MatchString(lines[i]) {
 			continue
 		}
-		lines[i] = partialRe.ReplaceAllStringFunc(lines[i], func(comment string) string {
-			shas := textutil.SplitCSV(partialRe.FindStringSubmatch(comment)[1])
+		lines[i] = re.ReplaceAllStringFunc(lines[i], func(comment string) string {
+			shas := textutil.SplitCSV(re.FindStringSubmatch(comment)[1])
 			if !hasSha(shas, sha) {
 				shas = append(shas, sha)
 			}
