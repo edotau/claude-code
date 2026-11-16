@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -496,8 +495,8 @@ func domainMatches(domain, target string) bool {
 
 var pathPatterns sync.Map
 
-// foldPathCase matches path rules case-insensitively where the default filesystem is (macOS, Windows), as safety-scan.
-var foldPathCase = runtime.GOOS != "linux"
+// foldPathCase matches path rules case-insensitively per paths.FoldsCase; a var so a test can pin either rule.
+var foldPathCase = paths.FoldsCase
 
 // pathMatches globs a path as written, then as canonical forms when both are absolute (/tmp equals /private/tmp).
 func pathMatches(pattern, p string) bool {

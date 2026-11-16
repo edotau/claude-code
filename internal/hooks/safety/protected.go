@@ -54,7 +54,7 @@ func protectedWrite(cmd, cwd string) string {
 
 // protectedPath reports whether p, or its symlink-resolved form, falls under an Edit deny glob.
 func protectedPath(p string) bool {
-	return slices.ContainsFunc([]string{p, core.CanonPath(p)}, matchesProtected)
+	return slices.ContainsFunc([]string{p, paths.Real(p)}, matchesProtected)
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
@@ -94,7 +94,7 @@ func interpreterWrite(cmd string) string {
 		}
 		for _, g := range protectedGlobs() {
 			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
-			if needle != "" && strings.Contains(foldCase(cmd), foldCase(needle)) {
+			if needle != "" && strings.Contains(paths.FoldCase(cmd), paths.FoldCase(needle)) {
 				return needle
 			}
 		}
@@ -104,9 +104,9 @@ func interpreterWrite(cmd string) string {
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.
 func matchesProtected(abs string) bool {
-	abs = foldCase(abs)
+	abs = paths.FoldCase(abs)
 	for _, g := range protectedGlobs() {
-		g = foldCase(paths.ExpandHome(g))
+		g = paths.FoldCase(paths.ExpandHome(g))
 		switch {
 		case strings.HasPrefix(g, "**/"):
 			if strings.HasSuffix(abs, string(filepath.Separator)+g[3:]) {

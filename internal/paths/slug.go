@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -133,6 +134,31 @@ func hasGit(path string) bool {
 	names, _ := d.Readdirnames(1)
 	return len(names) > 0
 }
+
+// FoldsCase holds where the default filesystem is case-insensitive (macOS, Windows); Linux compares byte-exact.
+const FoldsCase = runtime.GOOS != "linux"
+
+// FoldCase lowercases p where FoldsCase holds, for a caller that matches a glob or prefix itself.
+func FoldCase(p string) string {
+	if !FoldsCase {
+		return p
+	}
+	return strings.ToLower(p)
+}
+
+// Real is p made absolute and symlink-resolved through its deepest existing ancestor (see CanonDeep).
+func Real(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		p = a
+	}
+	return CanonDeep(p)
+}
+
+// SameFile reports whether a and b name one file: both Real, then case-folded per FoldsCase.
+func SameFile(a, b string) bool { return FoldCase(Real(a)) == FoldCase(Real(b)) }
+
+// InsideDir reports whether p is dir or under it, compared as SameFile compares.
+func InsideDir(p, dir string) bool { return Within(FoldCase(Real(p)), FoldCase(Real(dir))) }
 
 // SamePath compares two paths after Clean and symlink resolution (unresolvable paths compare cleaned).
 func SamePath(a, b string) bool {
