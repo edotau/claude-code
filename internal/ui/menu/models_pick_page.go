@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -183,7 +184,7 @@ func modelTitle(what, provider, profile string) string {
 // copilotSourceFn is the test seam over copilot.CopilotModelSource.
 var copilotSourceFn = copilot.CopilotModelSource
 
-// pickCopilotModel writes only the MODEL pin on the copilot record, never github-copilot's models table.
+// pickCopilotModel pins copilot's model and clears effort/context pins it cannot honor; never github-copilot's models.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile)
@@ -458,7 +459,9 @@ func opencodeModels(opencodeID string) []string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "models", opencodeID).Output()
+	cmd := exec.CommandContext(ctx, bin, "models", opencodeID)
+	cmd.WaitDelay = proc.ExecWaitDelay
+	out, err := proc.OutputCapped(cmd)
 	if err != nil {
 		// a timeout or crash falls through to the caller's live/static catalog
 		return nil

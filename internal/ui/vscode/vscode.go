@@ -41,6 +41,8 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 		rawTemplate = b
 	}
 	rendered := strings.ReplaceAll(string(rawTemplate), "__CLAUDE_HOME__", jsonEscape(claudeHome))
+	// terminal profiles run "exec __CLAUDE_BIN__/…" through bash -lic, so there the path is shell-quoted
+	rendered = strings.ReplaceAll(rendered, "exec __CLAUDE_BIN__/", "exec "+jsonEscape(textutil.QuoteSH(claudeBin))+"/")
 	rendered = strings.ReplaceAll(rendered, "__CLAUDE_BIN__", jsonEscape(claudeBin))
 	var overlay map[string]any
 	if err := json.Unmarshal(textutil.StripJSONC([]byte(rendered)), &overlay); err != nil {

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -36,11 +37,17 @@ type extensionResult struct {
 	Target  string
 }
 
-// defaultExtensionsDir prefers ~/.vscode-server/extensions when present, else ~/.vscode/extensions.
+// extensionsGOOS gates defaultExtensionsDir's vscode-server branch; tests swap it to run every branch on any host.
+var extensionsGOOS = runtime.GOOS
+
+// defaultExtensionsDir prefers ~/.vscode-server/extensions off darwin/windows, like paths.VSCodeSettings.
 func defaultExtensionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
+	}
+	if extensionsGOOS == "darwin" || extensionsGOOS == "windows" {
+		return filepath.Join(home, ".vscode", "extensions"), nil
 	}
 	if info, statErr := os.Stat(filepath.Join(home, ".vscode-server")); statErr == nil && info.IsDir() {
 		return filepath.Join(home, ".vscode-server", "extensions"), nil

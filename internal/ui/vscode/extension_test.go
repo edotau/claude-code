@@ -117,13 +117,20 @@ func TestDefaultExtensionsDirPrefersVSCodeServer(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".vscode-server"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := defaultExtensionsDir()
-	if err != nil {
-		t.Fatalf("defaultExtensionsDir: %v", err)
-	}
-	want := filepath.Join(home, ".vscode-server", "extensions")
-	if dir != want {
-		t.Errorf("got %q, want %q", dir, want)
+	orig := extensionsGOOS
+	t.Cleanup(func() { extensionsGOOS = orig })
+	for goos, want := range map[string]string{
+		"linux":  filepath.Join(home, ".vscode-server", "extensions"),
+		"darwin": filepath.Join(home, ".vscode", "extensions"),
+	} {
+		extensionsGOOS = goos
+		dir, err := defaultExtensionsDir()
+		if err != nil {
+			t.Fatalf("%s: defaultExtensionsDir: %v", goos, err)
+		}
+		if dir != want {
+			t.Errorf("%s: got %q, want %q", goos, dir, want)
+		}
 	}
 }
 

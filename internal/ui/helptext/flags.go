@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -61,15 +62,24 @@ func Explicit(fs *flag.FlagSet, name string) bool {
 	return explicit
 }
 
-// ExtractBool pulls a `--name` boolean out of args wherever it appears; stdlib flag needs them before positionals.
+// ExtractBool pulls a `--name[=bool]` out of args before any "--"; stdlib flag needs them before positionals.
 func ExtractBool(args []string, name string) (bool, []string) {
 	flag := "--" + name
 	found := false
 	rest := make([]string, 0, len(args))
-	for _, a := range args {
+	for i, a := range args {
+		if a == "--" {
+			return found, append(rest, args[i:]...)
+		}
 		if a == flag {
 			found = true
 			continue
+		}
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
+			if b, err := strconv.ParseBool(v); err == nil {
+				found = b
+				continue
+			}
 		}
 		rest = append(rest, a)
 	}
