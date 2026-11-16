@@ -10,9 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -81,7 +84,7 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("docs/\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"patch", "input", "command"} {
+	for _, key := range []string{"patchText", "patch", "input", "command"} {
 		for _, directive := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
 			for _, path := range []string{"STRAY.md", "docs/STRAY.md"} {
 				t.Run(key+"/"+directive+path, func(t *testing.T) {
@@ -162,7 +165,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md")))), &stderr); code != core.ExitBlock {
+	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "NOTES.md")))), &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
@@ -379,7 +382,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "PLAN.md"))))
+	in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "NOTES.md"))))
 	if code := Placement(in, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
@@ -454,5 +457,45 @@ func TestDocsPlacementYieldsToPlanRewrite(t *testing.T) {
 		if code := Placement(core.ParseInput(bytes.NewReader(b)), io.Discard); code != want {
 			t.Errorf("%s: code = %d, want %d", name, code, want)
 		}
+	}
+}
+
+// A block whose name picks a kind (plan, report, handoff) names the one free dated path instead of three templates.
+func TestDocsPlacementNamesExactDest(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := placementRepo(t)
+	day, bank := time.Now().Format("2006-01-02"), memory.BankFor(repo)
+	planHome := plans.Home(planRepoRoot(repo))
+	if err := errors.Join(os.MkdirAll(planHome, 0o700), os.WriteFile(filepath.Join(planHome, day+"-taken-plan.md"), nil, 0o600)); err != nil {
+		t.Fatal(err)
+	}
+	patch := func(key, path string) map[string]any {
+		return map[string]any{key: "*** Begin Patch\n*** Add File: " + path + "\n+hi\n*** End Patch"}
+	}
+	for _, c := range []struct {
+		name, tool string
+		input      map[string]any
+		want       string
+	}{
+		{"bash plan", "Bash", map[string]any{"command": "echo x > migration-plan.md"}, filepath.Join(planHome, day+"-migration-plan.md")},
+		{"codex patch plan", "apply_patch", patch("command", "rollout-plan.md"), filepath.Join(planHome, day+"-rollout-plan.md")},
+		{"taken plan name", "Bash", map[string]any{"command": "echo x > taken-plan.md"}, filepath.Join(planHome, day+"-taken-plan-2.md")},
+		{"report", "Write", map[string]any{"file_path": filepath.Join(repo, "audit-report.md")}, bank.Sub("reports", day+"-audit-report.md")},
+		{"findings", "Bash", map[string]any{"command": "echo x | tee review-findings.md"}, bank.Sub("reports", day+"-review-findings.md")},
+		{"handoff", "apply_patch", patch("patchText", "session-handoff.md"), bank.Sub("handoffs", day+"-session-handoff.md")},
+		{"no kind word", "Write", map[string]any{"file_path": filepath.Join(repo, "NOTES.md")}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b, _ := json.Marshal(map[string]any{"tool_name": c.tool, "cwd": repo, "tool_input": c.input})
+			var stderr bytes.Buffer
+			if code := Placement(core.ParseInput(bytes.NewReader(b)), &stderr); code != core.ExitBlock {
+				t.Fatalf("code = %d, want block (%s)", code, &stderr)
+			}
+			exact, generic := strings.Contains(stderr.String(), "Re-issue the write to "+c.want+"."), strings.Contains(stderr.String(), "Plans belong in ")
+			if c.want != "" && (!exact || generic) || c.want == "" && !generic {
+				t.Errorf("want exact dest %q (generic homes only when empty), got:\n%s", c.want, &stderr)
+			}
+		})
 	}
 }
