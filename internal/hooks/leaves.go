@@ -232,6 +232,7 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	if block {
 		return preserveReport(in, agentID, lr, res), true
 	}
+	_ = os.Remove(heldPath(agentID)) // the hand-back or stop passes: its hold is over
 	return mergeGate(expired, res), false
 }
 
@@ -531,18 +532,30 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 		return
 	}
 	for _, it := range items {
-		s.edited = s.edited || it.Type == "tool_use" && editTools[it.Name]
+		if it.Type != "tool_use" {
+			continue
+		}
+		if editTools[it.Name] {
+			s.edited = true
+			continue
+		}
+		if it.Name != "Bash" {
+			continue
+		}
 		calls := askCmdRe().FindAllStringSubmatch(it.Input.Command, -1)
-		askCall := len(calls) > 0
-		s.edited = s.edited || it.Type == "tool_use" && it.Name == "Bash" && !askCall && bashWrites(it.Input.Command)
-		if it.Type == "tool_use" && it.Name == "Bash" && it.ID != "" && askCall {
-			if s.askCalls == nil {
-				s.askCalls = map[string]bool{}
-			}
-			s.askCalls[it.ID] = true
-			if !at.IsZero() && slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
-				s.askTimes = append(s.askTimes, at)
-			}
+		if len(calls) == 0 {
+			s.edited = s.edited || bashWrites(it.Input.Command)
+			continue
+		}
+		if it.ID == "" {
+			continue
+		}
+		if s.askCalls == nil {
+			s.askCalls = map[string]bool{}
+		}
+		s.askCalls[it.ID] = true
+		if !at.IsZero() && slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
+			s.askTimes = append(s.askTimes, at)
 		}
 	}
 }

@@ -1230,7 +1230,8 @@ func TestRanOnRelayBashWrites(t *testing.T) {
 		"apply_patch <<'EOF'\n*** Begin Patch\nEOF": true, "gofmt -l -w a.go": true, "timeout 60 go fmt ./...": true,
 		"ls -la": false, "cat a.go | grep x": false, "git status && git diff && git log -3": false,
 		"go build ./... 2>&1": false, "go test ./... >/dev/null 2>&1": false, "git apply --check fix.patch": false,
-		"go test ./... > /tmp/t.out 2>&1": false, "gofmt -l a.go": false,
+		"go test ./... > /tmp/t.out 2>&1": false, "gofmt -l a.go": false, "black a.py": true, "ruff check --fix a.py": true,
+		"black --version": false, "isort --help": false, "ruff format --diff a.py": false, "go fmt -n ./...": false,
 	} {
 		spawned := stubSpawn(t)
 		in := handbackOf(leafTxCmd(t, "codex", cmd, "Run: claude-code agents ask --agent codex 'fix it'\n", "out"), "fixed it")
@@ -1432,8 +1433,8 @@ func TestHandbackHoldKeepsFinishedAnswer(t *testing.T) {
 	*hold = false
 	r, blocked = gate()
 	msg, _ := r.UpdatedInput["message"].(string)
-	if first := strings.Index(msg, "FINAL ANSWER first"); blocked || first < 0 || strings.Index(msg, "FINAL ANSWER second") < first {
-		t.Fatalf("pass = %+v blocked=%v, want both answers in dispatch order", r, blocked)
+	if first := strings.Index(msg, "FINAL ANSWER first"); blocked || first < 0 || strings.Index(msg, "FINAL ANSWER second") < first || wasHeld("a1") {
+		t.Fatalf("pass = %+v blocked=%v held=%v, want both answers in dispatch order and the marker gone", r, blocked, wasHeld("a1"))
 	}
 }
 

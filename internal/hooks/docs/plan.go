@@ -145,20 +145,10 @@ func dropRecord(record string, stderr io.Writer) {
 	}
 }
 
-// planHeading is a heading's level and text; a "#" in a code fence or front matter never yields one.
-type planHeading struct {
-	level int
-	text  string
-}
-
-// planHeadings scans body for every heading, in document order.
-func planHeadings(body []byte) []planHeading {
+// planHeadings is body's headings in document order; a "#" in a code fence or front matter never yields one.
+func planHeadings(body []byte) []textutil.Heading {
 	_, body = textutil.StripFrontMatter(body)
-	var out []planHeading
-	for _, h := range textutil.Headings(body) {
-		out = append(out, planHeading{level: h.Level, text: h.Text})
-	}
-	return out
+	return textutil.Headings(body)
 }
 
 // planSlugLine matches the template's "Suggested slug: `name`" line (backticks optional).
@@ -175,7 +165,7 @@ func planTitle(plan []byte) string {
 	if len(headings) == 0 {
 		return "plan"
 	}
-	h := strings.TrimSpace(headings[0].text)
+	h := strings.TrimSpace(headings[0].Text)
 	if strings.HasPrefix(strings.ToLower(h), "plan:") {
 		h = h[len("plan:"):]
 	}
@@ -209,9 +199,14 @@ func planDestination(cwd, title string, content []byte, adopt bool) (dest string
 // datedNames yields <prefix>.md, <prefix>-2.md, … <prefix>-99.md.
 func datedNames(prefix string) iter.Seq[string] {
 	return func(yield func(string) bool) {
-		name := prefix + ".md"
-		for n := 2; n <= 100 && yield(name); n++ {
-			name = fmt.Sprintf("%s-%d.md", prefix, n)
+		for n := 1; n <= 99; n++ {
+			name := prefix + ".md"
+			if n > 1 {
+				name = fmt.Sprintf("%s-%d.md", prefix, n)
+			}
+			if !yield(name) {
+				return
+			}
 		}
 	}
 }
@@ -269,10 +264,10 @@ func withTasks(plan []byte) []byte {
 		"session, agent or worktree is lost.\n\n")
 	items := 0
 	for _, h := range headings {
-		if h.level < 2 || h.level > 4 || !taskHeadingWord().MatchString(h.text) {
+		if h.Level < 2 || h.Level > 4 || !taskHeadingWord().MatchString(h.Text) {
 			continue
 		}
-		fmt.Fprintf(&b, "- [ ] %s\n", strings.Trim(h.text, "*_ "))
+		fmt.Fprintf(&b, "- [ ] %s\n", strings.Trim(h.Text, "*_ "))
 		items++
 	}
 	if items == 0 {
@@ -331,12 +326,12 @@ var planTemplateHeadings = []templateHeading{
 }
 
 // hasPlanHeading reports whether headings contains one matching want's level and text prefix (any case for the title).
-func hasPlanHeading(headings []planHeading, want templateHeading) bool {
+func hasPlanHeading(headings []textutil.Heading, want templateHeading) bool {
 	for _, h := range headings {
-		if h.level != want.level || len(h.text) < len(want.prefix) {
+		if h.Level != want.level || len(h.Text) < len(want.prefix) {
 			continue
 		}
-		if lead := h.text[:len(want.prefix)]; lead == want.prefix || want.level == 1 && strings.EqualFold(lead, want.prefix) {
+		if lead := h.Text[:len(want.prefix)]; lead == want.prefix || want.level == 1 && strings.EqualFold(lead, want.prefix) {
 			return true
 		}
 	}

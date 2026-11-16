@@ -18,7 +18,7 @@ import (
 // toolTimeout bounds one formatter run.
 const toolTimeout = 10 * time.Second
 
-// formatFile formats one file via the repo's format target, else the extension chain; missing = absent formatter.
+// formatFile formats one file via the repo's format target, else the extension chain; missing names an absent tool.
 func formatFile(path string) (ok bool, missing string) {
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
 		return false, ""

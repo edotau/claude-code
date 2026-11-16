@@ -205,8 +205,7 @@ func checkDispatcherEntries(t *testing.T, block map[string][]MatcherGroup, own m
 	}
 }
 
-// Every non-agent-only registry spec reaches the rendered block: own entries by command, the rest via a dispatcher
-// whose matcher covers the spec's matcher.
+// Every non-agent-only registry spec reaches the rendered block, via its own entry or a covering dispatcher.
 func TestEventsRenderEverySpec(t *testing.T) {
 	block := Events()
 	for _, g := range Registry {

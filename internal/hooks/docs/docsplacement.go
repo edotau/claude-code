@@ -136,7 +136,8 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	}
 	rel = filepath.ToSlash(rel)
 	atRoot := dir == root
-	if atRoot && rootAnchors[strings.ToLower(strings.TrimSuffix(base, filepath.Ext(base)))] { // anchors are exempt only at the repo root
+	// anchors are exempt only at the repo root
+	if atRoot && rootAnchors[strings.ToLower(strings.TrimSuffix(base, filepath.Ext(base)))] {
 		return core.ExitProceed
 	}
 	inDocs := strings.HasPrefix(paths.FoldCase(rel), "docs/")

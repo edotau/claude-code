@@ -18,9 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
+// GitCommitCmd matches a shell segment that runs `git commit`; text without "commit" never compiles it.
+func GitCommitCmd() *Gated { return gitCommitCmd }
+
 var (
-	// GitCommitCmd matches a shell segment that runs `git commit`.
-	GitCommitCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgit\b[^;&|\n]*\bcommit\b`) })
+	gitCommitCmd = Gate(`\bgit\b[^;&|\n]*\bcommit\b`, "commit")
 	// CommitLine matches the `[branch sha] subject` line git prints for a landed commit.
 	CommitLine = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
