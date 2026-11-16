@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -366,8 +368,11 @@ func PlanGate(in *core.Input) core.Result {
 	if err != nil {
 		return core.Result{Decision: core.Block, Reason: "plan-path: cannot choose a dated plans path: " + err.Error()}
 	}
-	if dest != "" {
+	if dest != "" { // a dated dest is never a draft, so this and fixPlanDraft never both rewrite one call
 		return rewritePlanPath(in, dest)
+	}
+	if res, ok := fixPlanDraft(in); ok {
+		return res
 	}
 	var b bytes.Buffer
 	code := Gate(in, &b)
@@ -402,7 +407,7 @@ func planDest(in *core.Input) (string, error) {
 	}
 	abs := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	base := filepath.Base(abs)
-	if !isMarkdownPath(abs) || !hasPlanToken(base) {
+	if !isMarkdownPath(abs) || !hasNameToken(base, "plan", "plans") {
 		return "", nil
 	}
 	if _, err := os.Stat(abs); err == nil {
@@ -417,7 +422,11 @@ func planDest(in *core.Input) (string, error) {
 		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")
-	prefix := filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug)
+	return freeDated(filepath.Join(plans.Home(root), time.Now().Format("2006-01-02")+"-"+slug))
+}
+
+// freeDated is the first absent <prefix>.md, <prefix>-2.md, … <prefix>-99.md; a stat failure is returned.
+func freeDated(prefix string) (string, error) {
 	for n := 1; n <= 99; n++ {
 		cand := prefix + ".md"
 		if n > 1 {
@@ -431,14 +440,14 @@ func planDest(in *core.Input) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("no free name under %s", plans.Home(root))
+	return "", fmt.Errorf("no free name under %s", filepath.Dir(prefix))
 }
 
-// hasPlanToken is true when a file name has "plan" or "plans" as a whole word ("my-plan.md", not "explanation.md").
-func hasPlanToken(base string) bool {
+// hasNameToken is true when a file name has one of words as a whole word ("my-plan.md", not "explanation.md").
+func hasNameToken(base string, words ...string) bool {
 	name := strings.TrimSuffix(strings.ToLower(base), filepath.Ext(base))
 	for _, w := range strings.FieldsFunc(name, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-		if w == "plan" || w == "plans" {
+		if slices.Contains(words, w) {
 			return true
 		}
 	}
@@ -467,29 +476,93 @@ func patchAdds(patch string) iter.Seq2[string, string] {
 	}
 }
 
-// gateDraft blocks the first write of content to an undated draft missing a plan-template heading.
+// firstDraftWrite reports whether path is an undated draft not yet on disk; a later write was already checked.
+func firstDraftWrite(path string) bool {
+	_, err := os.Stat(path)
+	return isUndatedDraft(path) && err != nil
+}
+
+// missingTemplate lists the labels of the template headings content lacks, in template order.
+func missingTemplate(content string) []string {
+	headings := planHeadings([]byte(content))
+	var out []string
+	for _, want := range planTemplateHeadings {
+		if !hasPlanHeading(headings, want) {
+			out = append(out, want.label)
+		}
+	}
+	return out
+}
+
+// gateDraft blocks the first write of content to an undated draft missing plan-template headings, naming them all.
 func gateDraft(path, content string, stderr io.Writer) int {
-	if !isUndatedDraft(path) {
+	if !firstDraftWrite(path) {
 		return core.ExitProceed
 	}
-	if _, err := os.Stat(path); err == nil {
-		return core.ExitProceed // not the first write; the template was already checked
+	missing := missingTemplate(content)
+	if len(missing) == 0 {
+		return core.ExitProceed
 	}
-	headings := planHeadings([]byte(content))
-	for _, want := range planTemplateHeadings {
-		if hasPlanHeading(headings, want) {
-			continue
-		}
-		source := "Use the plan template (`docs/templates/plan.md` in the harness repo)"
-		if tpl := plans.TemplatePath(paths.ConfigDir()); paths.IsFile(tpl) {
-			source = "Write the full template from " + tpl
-		}
-		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
-			"%s before filing a draft; required headings:\n%s",
-			filepath.Base(path), want.label, source, strings.Join(PlanTemplateHeadings(), "\n")+"\n")
-		return core.ExitBlock
+	source := "Use the plan template (`docs/templates/plan.md` in the harness repo)"
+	if tpl := plans.TemplatePath(paths.ConfigDir()); paths.IsFile(tpl) {
+		source = "Write the full template from " + tpl
 	}
-	return core.ExitProceed
+	fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %s from the plan template.\n"+
+		"%s before filing a draft; required headings:\n%s",
+		filepath.Base(path), quoteJoin(missing, ", "), source, strings.Join(PlanTemplateHeadings(), "\n")+"\n")
+	return core.ExitBlock
+}
+
+// quoteJoin joins labels, each Go-quoted, with sep.
+func quoteJoin(labels []string, sep string) string {
+	out := make([]string, len(labels))
+	for i, l := range labels {
+		out[i] = strconv.Quote(l)
+	}
+	return strings.Join(out, sep)
+}
+
+// fixDraft adds a missing "# Plan:" prefix to a top-of-file H1 and a missing ## Tasks list when those are all it lacks.
+func fixDraft(content string) (fixed string, added []string, ok bool) {
+	missing := missingTemplate(content)
+	fixed = content
+	for _, label := range missing {
+		switch label {
+		case "# Plan:":
+			rest := strings.TrimLeft(fixed, "\r\n")
+			if !strings.HasPrefix(rest, "# ") {
+				return "", nil, false
+			}
+			fixed = fixed[:len(fixed)-len(rest)] + "# Plan: " + rest[len("# "):]
+		case "## Tasks":
+			fixed = string(withTasks([]byte(fixed)))
+		default:
+			return "", nil, false
+		}
+	}
+	if len(missing) == 0 || len(missingTemplate(fixed)) != 0 {
+		return "", nil, false
+	}
+	return fixed, missing, true
+}
+
+// fixPlanDraft rewrites a Claude first draft write whose only gaps fixDraft fills; ok is false otherwise.
+func fixPlanDraft(in *core.Input) (core.Result, bool) {
+	if tool := strings.ToLower(in.ToolName); in.Agent() != core.AgentClaude || tool != "" && tool != "write" && tool != "create" {
+		return core.Result{}, false
+	}
+	path := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	if !firstDraftWrite(path) {
+		return core.Result{}, false
+	}
+	fixed, added, ok := fixDraft(in.Nested("tool_input", "content"))
+	updated := in.CloneToolInput()
+	if !ok || updated == nil {
+		return core.Result{}, false
+	}
+	updated["content"] = fixed
+	note := fmt.Sprintf("plan-template: added %s to %s", quoteJoin(added, " and "), filepath.Base(path))
+	return core.Result{UpdatedInput: updated, SystemMessage: note}, true
 }
 
 // hookLockWait bounds how long a hook waits on a held lock; paths.WithFileLock's 2 minutes would stall the tool call.

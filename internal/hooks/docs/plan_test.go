@@ -766,3 +766,54 @@ func TestPlanGateFailsFastAndIgnoresPlanSubstrings(t *testing.T) {
 		t.Errorf("blocked plans home = %+v after %v, want an immediate deny naming %s", r, time.Since(start), filepath.Join(cfg, "plans"))
 	}
 }
+
+// A Claude first draft missing only the "# Plan:" prefix or ## Tasks is rewritten in one updatedInput; else denied.
+func TestPlanGateFixesTitleAndTasks(t *testing.T) {
+	const body = "## Context\n\nwhy\n\n## Phases\n\n### Phase 1: go\n"
+	for _, c := range []struct {
+		name, agent, content string
+		want                 string // updatedInput content prefix, or the deny's missing list
+		fixed                bool
+	}{
+		{"prefix and tasks", core.AgentClaude, "# Migrate X\n\n" + body, "# Plan: Migrate X\n\n" + body + "\n## Tasks\n", true},
+		{"tasks only", core.AgentClaude, "# Plan: X\n\n" + body, "# Plan: X\n\n" + body + "\n## Tasks\n", true},
+		{"prefix only", core.AgentClaude, "# X\n\n" + body + "\n## Tasks\n\n- [ ] a\n", "# Plan: X\n\n" + body + "\n## Tasks\n\n- [ ] a\n", true},
+		{"blank lines then title", core.AgentClaude, "\n\n# X\n" + body, "\n\n# Plan: X\n" + body, true},
+		{"prose before title", core.AgentClaude, "Intro.\n\n# X\n" + body, `"# Plan:", "## Tasks" from`, false},
+		{"no phases", core.AgentClaude, "# X\n\n## Context\n", `"# Plan:", "## Phases", "## Tasks" from`, false},
+		{"no title", core.AgentClaude, body, `"# Plan:", "## Tasks" from`, false},
+		{"checkbox, no Tasks heading", core.AgentClaude, "# Plan: X\n\n" + body + "\n- [ ] a\n", `"## Tasks" from`, false},
+		{"codex keeps the deny", core.AgentCodex, "# X\n\n" + body, `"# Plan:", "## Tasks" from`, false},
+		{"opencode keeps the deny", core.AgentOpencode, "# X\n\n" + body, `"# Plan:", "## Tasks" from`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, _ := planGroupEnv(t, false)
+			draft := filepath.Join(cfg, "plans", "happy-otter.md")
+			res := PlanGate(core.ParseInputFor(strings.NewReader(writePayload(t, "Write", cfg, draft, c.content)), c.agent))
+			got, _ := res.UpdatedInput["content"].(string)
+			if !c.fixed {
+				if res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "missing "+c.want) {
+					t.Errorf("want a deny listing %s, got %+v", c.want, res)
+				}
+				return
+			}
+			if res.Decision == core.Block || !strings.HasPrefix(got, c.want) || res.UpdatedInput["file_path"] != draft ||
+				!strings.HasPrefix(res.SystemMessage, "plan-template: added ") || len(missingTemplate(got)) != 0 {
+				t.Errorf("want content starting %q and a note, got %+v", c.want, res)
+			}
+		})
+	}
+}
+
+// Every apply_patch body key, opencode's patchText included, reaches the draft gate.
+func TestPlanGatePatchKeys(t *testing.T) {
+	cfg, _ := planGroupEnv(t, false)
+	for _, key := range []string{"patchText", "patch", "input", "command"} {
+		b, _ := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": cfg,
+			"tool_input": map[string]string{key: "*** Begin Patch\n" + addHunk("plans/draft.md", "freeform") + "*** End Patch\n"}})
+		var stderr bytes.Buffer
+		if code := Gate(core.ParseInput(bytes.NewReader(b)), &stderr); code != core.ExitBlock {
+			t.Errorf("%s: code = %d, want block (%s)", key, code, &stderr)
+		}
+	}
+}

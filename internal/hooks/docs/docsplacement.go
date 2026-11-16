@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
 
@@ -56,9 +57,9 @@ func docsPlacementBash(ctx context.Context, in *core.Input, stderr io.Writer) in
 	return core.ExitProceed
 }
 
-// applyPatchText returns the first apply_patch payload carrying a patch header ("" when there is none).
+// applyPatchText returns the first apply_patch payload carrying a patch header: opencode's key, then codex's.
 func applyPatchText(in *core.Input) string {
-	for _, key := range []string{"patch", "input", "command"} {
+	for _, key := range []string{"patchText", "patch", "input", "command"} {
 		text := in.Nested("tool_input", key)
 		if key == "command" {
 			text = in.ToolCommand()
@@ -167,18 +168,42 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 	return err == nil && ctx.Err() == nil
 }
 
-// blockPlacement prints the canonical homes for a markdown write that landed somewhere stranded.
+// blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	b := memory.BankFor(root)
-	reports, handoffs := b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md")
-	plansHome := plans.Home(planRepoRoot(root))
+	fix := fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
+		plans.Home(planRepoRoot(root)), b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
+	if dest := exactDest(base, root, b); dest != "" {
+		fix = "Re-issue the write to " + dest + "."
+	}
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
-		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user\n"+
+		"%s A genuine repo doc the user\n"+
 		"asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.\n"+
 		"Or launch with HARNESS_HOOK_SKIP=docs-placement.\n"+
 		"-> rules/harness/docs-placement.md\n",
-		base, where, plansHome, reports, handoffs)
+		base, where, fix)
 	return core.ExitBlock
+}
+
+// exactDest is the free dated plan, report or handoff path a kind word in base picks ("" when it picks none).
+func exactDest(base, root string, b memory.Bank) string {
+	stem, day := strings.TrimSuffix(base, filepath.Ext(base)), time.Now().Format("2006-01-02")
+	var prefix string
+	switch {
+	case hasNameToken(base, "plan", "plans"):
+		prefix = filepath.Join(plans.Home(planRepoRoot(root)), day+"-"+paths.Slug(stem, "-", 60, "plan"))
+	case hasNameToken(base, "report", "reports", "audit", "review", "findings"):
+		prefix = b.Sub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
+	case hasNameToken(base, "handoff", "handoffs"):
+		prefix = b.Sub("handoffs", day+"-"+paths.Slug(stem, "-", 60, "handoff"))
+	default:
+		return ""
+	}
+	dest, err := freeDated(prefix)
+	if err != nil {
+		return ""
+	}
+	return dest
 }
 
 func isMarkdownPath(path string) bool {
