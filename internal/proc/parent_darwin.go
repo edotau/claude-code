@@ -25,7 +25,7 @@ func Parent(pid int) int {
 	return int(kp.Eproc.Ppid)
 }
 
-// PIDsNamed returns pids whose p_comm is in names; a denied or empty process table is an error, never "none".
+// PIDsNamed returns pids AgentName finds in names; a denied or empty process table is an error, never "none".
 func PIDsNamed(names map[string]bool) ([]int, error) {
 	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
@@ -36,8 +36,9 @@ func PIDsNamed(names map[string]bool) ([]int, error) {
 	}
 	var pids []int
 	for i := range all {
-		if names[cString(all[i].Proc.P_comm[:])] {
-			pids = append(pids, int(all[i].Proc.P_pid))
+		pid := int(all[i].Proc.P_pid)
+		if AgentName(cString(all[i].Proc.P_comm[:]), func() string { return Exe(pid) }, names) != "" {
+			pids = append(pids, pid)
 		}
 	}
 	return pids, nil
@@ -71,15 +72,27 @@ func Comm(pid int) string {
 	return psComm(pid)
 }
 
-// argv0 is pid's first argument from procargs2 (argc, exec path, NUL padding, argv); "" when unreadable or empty.
+// Exe is pid's exec path as launched (a symlink stays unresolved) from procargs2; "" when unreadable.
+func Exe(pid int) string {
+	exe, _ := procArgs(pid)
+	return exe
+}
+
+// argv0 is pid's first argument from procargs2; "" when unreadable or empty.
 func argv0(pid int) string {
-	raw, err := unix.SysctlRaw("kern.procargs2", pid)
-	if err != nil || len(raw) <= 4 || binary.NativeEndian.Uint32(raw) == 0 {
-		return ""
-	}
-	_, rest, _ := strings.Cut(string(raw[4:]), "\x00")
+	_, rest := procArgs(pid)
 	first, _, _ := strings.Cut(strings.TrimLeft(rest, "\x00"), "\x00")
 	return strings.TrimSpace(first)
+}
+
+// procArgs splits procargs2 (argc, exec path, NUL padding, argv) into the exec path and the rest; argc 0 is unreadable.
+func procArgs(pid int) (exe, rest string) {
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(raw) <= 4 || binary.NativeEndian.Uint32(raw) == 0 {
+		return "", ""
+	}
+	exe, rest, _ = strings.Cut(string(raw[4:]), "\x00")
+	return exe, rest
 }
 
 // psComm is ps's name for pid; it covers processes procargs2 refuses (other users', the kernel's).

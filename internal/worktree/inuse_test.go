@@ -449,3 +449,48 @@ func TestOwnJobsFiltersRecords(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code's kernel name is its version ("2.1.325"): its exec path makes it a claude peer and an own ancestor.
+func TestPeerAgentsNamesVersionedClaude(t *testing.T) {
+	co := "/co"
+	self := os.Getpid()
+	// self -> 100 (this session, a versioned claude) -> 1; 830 is this session's leaf
+	parents := map[int]int{self: 100, 100: 1, 830: 100}
+	exes := map[int]string{
+		100: "/u/.local/share/claude/versions/2.1.325",
+		810: "/u/.local/bin/claude",
+		820: "/u/.local/share/claude/versions/2.1.325",
+		840: "/opt/tool/2.1.325",
+		850: "/opt/foo/versions/1.2.3",
+	}
+	listing := []procCwd{{100, co, "2.1.325"}, {810, co, "2.1.325"}, {820, "/co/src", "2.1.325"},
+		{830, co, "opencode"}, {840, co, "2.1.325"}, {850, co, "1.2.3"}}
+	for _, fallback := range []bool{false, true} {
+		stubProcesses(t, nil)
+		parentOf = func(pid int) (int, error) { return parents[pid], nil }
+		origScan, origAgents, origArgs, origName := scanProcs, scanAgentProcs, argvOf, commName
+		origExe, origJobs := exeOf, ownJobs
+		t.Cleanup(func() {
+			scanProcs, scanAgentProcs, argvOf, commName = origScan, origAgents, origArgs, origName
+			exeOf, ownJobs = origExe, origJobs
+		})
+		scanProcs = func() ([]procCwd, error) { return listing, nil }
+		if fallback {
+			scanAgentProcs = func() ([]procCwd, error) { return nil, errors.New("sysctl denied") }
+		}
+		argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
+		commName = func(pid int) string {
+			if pid == 100 {
+				return "2.1.325"
+			}
+			return ""
+		}
+		exeOf = func(pid int) string { return exes[pid] }
+		ownJobs = func(map[int]bool) map[int]bool { return nil }
+		got, err := PeerAgents(co, nil)
+		want := []Proc{{810, "claude"}, {820, "claude"}}
+		if err != nil || !slices.Equal(got, want) {
+			t.Errorf("fallback=%v: PeerAgents = %v, %v; want %v", fallback, got, err, want)
+		}
+	}
+}
