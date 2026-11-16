@@ -62,6 +62,14 @@ func TestParseInputForMarksMisshapenToolArgs(t *testing.T) {
 	}
 }
 
+// A gemini payload in the Claude shape (no toolCall) keeps its tool_name and tool_input.
+func TestParseInputGeminiClaudeShape(t *testing.T) {
+	in := ParseInputFor(strings.NewReader(`{"tool_name":"run_command","tool_input":{"command":"ls"}}`), AgentGemini)
+	if in.CanonicalTool() != "Bash" || in.ToolCommand() != "ls" || in.Invalid != "" {
+		t.Errorf("tool %q command %q invalid %q; want Bash, ls, valid", in.CanonicalTool(), in.ToolCommand(), in.Invalid)
+	}
+}
+
 func TestParseInputGeminiNullPopulatesNothing(t *testing.T) {
 	t.Setenv("HARNESS_HOOK_AGENT", AgentGemini)
 	in := ParseInput(strings.NewReader("null"))

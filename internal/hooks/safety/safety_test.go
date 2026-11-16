@@ -428,8 +428,25 @@ func TestSafetyTierDecisions(t *testing.T) {
 			if got, stderr := safetyScanDecision(t, tierPayload(c.cmd, c.cwd)); got != c.want {
 				t.Errorf("got %v want %v (stderr %s)", got, c.want, stderr)
 			}
+			want := c.want
+			if want == core.Ask { // gemini has no ask decision
+				want = core.Block
+			}
+			if got := Scan(core.ParseInputFor(agyPayload(c.cmd, c.cwd), core.AgentGemini)).Decision; got != want {
+				t.Errorf("gemini run_command: got %v want %v", got, want)
+			}
 		})
 	}
+}
+
+// agyPayload is agy's run_command PreToolUse shape for cmd, with cwd as its workspace when set.
+func agyPayload(cmd, cwd string) io.Reader {
+	doc := map[string]any{"toolCall": map[string]any{"name": "run_command", "args": map[string]string{"CommandLine": cmd}}}
+	if cwd != "" {
+		doc["workspacePaths"] = []string{cwd}
+	}
+	b, _ := json.Marshal(doc)
+	return bytes.NewReader(b)
 }
 
 // TestSafetyResetHardWarnsButProceeds: git reset --hard is warn-only, so it proceeds with a WARNING on stderr.
