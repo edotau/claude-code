@@ -151,7 +151,7 @@ func pathCell(pc pathCase, name, wd string) permPathCell {
 	return c
 }
 
-// probeDiffs lists every probe the path's launch judges differently from the ask path's, or fails the mode's expectation.
+// probeDiffs lists each probe the path judges differently from the ask path, or that fails the mode's expectation.
 func probeDiffs(name, wd string, got, want pathLaunch) []string {
 	gj, why := got.judge, ""
 	if gj == nil {

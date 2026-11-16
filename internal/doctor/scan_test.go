@@ -334,7 +334,7 @@ func TestScanFileMetadataExemptions(t *testing.T) {
 	}
 }
 
-// checkScanExemption scans a file holding value at tc.keys and asserts the finding count and that nothing echoes the value.
+// checkScanExemption scans a file holding value at tc.keys; asserts the finding count and that no output echoes it.
 func checkScanExemption(t *testing.T, tc scanCase, value scanValue) {
 	t.Helper()
 	s, out := scanNested(t, tc, value.value)
