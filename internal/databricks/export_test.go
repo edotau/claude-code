@@ -159,7 +159,7 @@ func TestExportImportRoundTripYieldsIdenticalRows(t *testing.T) {
 	if code, _, errs := hosttest.CaptureOutput(t, func() int { return export([]string{"--out", file}) }); code != 0 {
 		t.Fatalf("export: %d %s", code, errs)
 	}
-	vaulttest.UseFreshKey(t) // a fresh vault: the rows must come back from the file alone
+	vaulttest.UseFreshKey(t)
 	if code, out, errs := hosttest.CaptureOutput(t, func() int { return importCfg([]string{"--dbxcfg", file, "--apply"}) }); code != 0 {
 		t.Fatalf("import: %d %s %s", code, out, errs)
 	}

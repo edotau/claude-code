@@ -40,7 +40,7 @@ var clientRouteCases = []clientRouteCase{
 		`{"input":"Reply with OK.","max_output_tokens":128,"tools":[{"type":"function","name":"ping","description":"Return pong.","parameters":{"type":"object","properties":{}}}]}`, true, false},
 }
 
-// probeEnv is a sealed test vault, a client-route token and a TLS workspace served by h, with a serving provider for it.
+// probeEnv is a sealed test vault, a client-route token and a TLS workspace served by h, plus a serving provider.
 func probeEnv(t *testing.T, name string, h http.HandlerFunc) (*providers.Provider, *httptest.Server) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -265,7 +265,7 @@ func TestReadBodyDeadlineReportsTimeout(t *testing.T) {
 	}
 }
 
-// A reasoning model spends a tiny probe budget before its first output token; a healthy endpoint must not read as failed.
+// A reasoning model spends a tiny probe budget before its first output token; a healthy endpoint must not fail.
 func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
 	var calls atomic.Int32
 	p, srv := probeEnv(t, "budget", func(w http.ResponseWriter, r *http.Request) {

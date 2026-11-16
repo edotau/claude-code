@@ -456,7 +456,7 @@ func existingSkipReason(r importRow, c cfgCandidate, ek string, o importOptions)
 // secretNameOf is the vault name of a planned row's sealed credential, derived by providers.
 func secretNameOf(r importRow) string { return sealedName(r.ID, r.Auth, r.SPClientID) }
 
-// sealedName is the vault name of the credential row id seals under auth; a paired oauth row seals its service principal's.
+// sealedName is the vault name row id seals a credential under auth; a paired oauth row seals its service principal's.
 func sealedName(id, auth, spClientID string) string {
 	if auth == providers.AuthOAuth && spClientID != "" {
 		auth = providers.AuthM2M

@@ -395,7 +395,7 @@ func checkAll(args []string) int {
 		fail("check: %v", err)
 		return 2
 	}
-	if len(rest) == 1 { // positional MODEL overrides --model
+	if len(rest) == 1 {
 		*model = rest[0]
 	}
 	reg, err := providers.Load()

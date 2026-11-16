@@ -112,7 +112,7 @@ func writeExport(rows []exportRow, out string, merge, force bool) ([]exportRow, 
 	return written, 0
 }
 
-// mergeInto merges rows into the config at out (the caller holds its lock); it returns the stderr summary and the rows written.
+// mergeInto merges rows into the config at out (caller holds its lock); it returns the stderr summary and rows written.
 func mergeInto(out string, rows []exportRow, force bool) (string, []exportRow, error) {
 	old, err := os.ReadFile(out)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
