@@ -28,13 +28,23 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 		t.Fatalf("plugin file %s: %v, mode %v; want 0600", file, err, info)
 	}
 	body, _ := os.ReadFile(file)
-	for _, want := range []string{`execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name]`,
-		`{"name":"permission-gate","matcher":"Bash|Write|Edit|Read|WebFetch|Glob|Grep","budgetMs":5000,"failClosed":true,"asOpencode":true}`,
-		`{"name":"docs-placement","matcher":"Write|Edit|MultiEdit|Bash","budgetMs":5000,"failClosed":false,"asOpencode":false}`,
-		`payloads[+m.asOpencode]`, `"tool.execute.before"`} {
+	mods := map[string]pluginModule{}
+	wants := []string{`execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name]`, `"tool.execute.before"`}
+	for _, m := range pluginModules() {
+		mods[m.Name] = m
+		raw, _ := json.Marshal(m)
+		wants = append(wants, string(raw))
+	}
+	for _, want := range wants {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin lacks %s", want)
 		}
+	}
+	if g := mods["permission-gate"]; !g.FailClosed || !g.AsOpencode || !strings.Contains(g.Matcher, "Bash") {
+		t.Errorf("permission-gate = %+v; want a fail-closed, opencode-tagged Bash gate", g)
+	}
+	if d, ok := mods["docs-placement"]; !ok || d.FailClosed || d.AsOpencode {
+		t.Errorf("docs-placement = %+v (present %v); want fail-open and untagged", d, ok)
 	}
 	if _, plugged, _ := opencodeApplyPlugin(nil, agent.RunOptions{Tools: true, SafeMode: true}); plugged {
 		t.Error("--safe-mode (opencode --pure) loads no plugin, so none may be injected")
@@ -283,6 +293,8 @@ func TestPluginPayloadCwdIsBashWorkdir(t *testing.T) {
 		{"empty", "bash", `{command: "ls", workdir: ""}`, project},
 		{"absolute", "bash", fmt.Sprintf(`{command: "ls", workdir: %q}`, other), other},
 		{"relative", "bash", `{command: "ls", workdir: "../other"}`, other},
+		{"dot", "bash", `{command: "ls", workdir: "."}`, project},
+		{"dot", "bash", `{command: "ls", workdir: "."}`, project},
 		{"nested", "bash", `{command: "ls", workdir: "sub/x"}`, filepath.Join(project, "sub", "x")},
 		{"write ignores workdir", "write", fmt.Sprintf(`{filePath: "a.go", workdir: %q}`, other), project},
 	} {

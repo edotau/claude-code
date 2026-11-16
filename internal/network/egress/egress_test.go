@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -249,20 +250,14 @@ func TestHostContextPinBeatsRun(t *testing.T) {
 	}
 }
 
-// TestFakeSSHProcess is the child behind fakeSSH: it blocks until its stdin closes.
-func TestFakeSSHProcess(t *testing.T) {
-	if os.Getenv("EGRESS_FAKE_SSH") != "1" {
-		t.Skip("helper process for TestEnsureReusesOnlyOurOwnTunnel")
-	}
-	_, _ = io.Copy(io.Discard, os.Stdin)
-}
-
-// fakeSSH runs this test binary with argv[0] "ssh" and addr in argv, as `ssh -N -D addr` would look.
+// fakeSSH starts a bash whose argv[0] is "ssh" and whose argv holds addr, as `ssh -N -D addr` would look.
 func fakeSSH(t *testing.T, addr string) int {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestFakeSSHProcess$", "--", "-N", "-D", addr)
-	cmd.Args[0] = "ssh"
-	cmd.Env = append(os.Environ(), "EGRESS_FAKE_SSH=1")
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available to fake an ssh process")
+	}
+	cmd := exec.Command(bash, "-c", `exec -a ssh "$0" -c 'read _' ssh -N -D "$1"`, bash, addr)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -276,16 +271,21 @@ func fakeSSH(t *testing.T, addr string) int {
 
 // Ensure reuses a recorded tunnel only when its pid is our live ssh; any other listener gets a fresh tunnel.
 func TestEnsureReusesOnlyOurOwnTunnel(t *testing.T) {
+	if _, err := proc.Argv(os.Getpid()); err != nil || runtime.GOOS == "windows" {
+		t.Skip("process argv is not readable here (no /proc or ps)")
+	}
 	const noPid = 1 << 30 // above every pid_max: its argv cannot be read
 	for _, tc := range []struct {
 		name     string
 		pid      int  // recorded pid; 0 records nothing
 		listener bool // something answers SOCKS5 on the recorded port
+		recycled bool // the pid is a live ssh whose address is not the recorded one
 	}{
-		{"live pid that is not our ssh", os.Getpid(), true},
-		{"argv unreadable", noPid, true},
-		{"dead pid", noPid, false},
-		{"no record, then our own tunnel twice", 0, false},
+		{"recycled pid is an ssh to another address", 0, true, true},
+		{"live pid that is not our ssh", os.Getpid(), true, false},
+		{"argv unreadable", noPid, true, false},
+		{"dead pid", noPid, false, false},
+		{"no record, then our own tunnel twice", 0, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -298,9 +298,12 @@ func TestEnsureReusesOnlyOurOwnTunnel(t *testing.T) {
 				t.Cleanup(func() { _ = s.l.Close() })
 				return fakeSSH(t, s.l.Addr().String()), nil, nil
 			}
-			stale := ""
-			if tc.pid != 0 {
-				stale = recordImpostor(t, tc.pid, tc.listener)
+			stale, pid := "", tc.pid
+			if tc.recycled {
+				pid = fakeSSH(t, "127.0.0.1:1")
+			}
+			if pid != 0 {
+				stale = recordImpostor(t, pid, tc.listener)
 			}
 			addr, err := Ensure(t.Context(), "box")
 			if err != nil || (tc.listener && addr == stale) || spawns != 1 {

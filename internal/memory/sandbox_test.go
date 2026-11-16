@@ -112,6 +112,9 @@ func TestSandboxLeavesSourceUnstamped(t *testing.T) {
 	if statOK(filepath.Join(StoreDir(), layoutFile)) {
 		t.Error("Sandbox stamped the source store")
 	}
+	if !statOK(HomeBank().Path("progress.md")) { // a copy, not a move
+		t.Error("Sandbox removed progress.md from the source store")
+	}
 }
 
 // D8: a file listed but deleted before its copy is skipped and dropped from the result.
@@ -124,4 +127,7 @@ func TestSandboxCopySkipsVanishedFile(t *testing.T) {
 		t.Fatalf("placeStoreRels = %q, %v; want [progress.md], nil", got, err)
 	}
 	wantFile(t, filepath.Join(dst, "progress.md"), "x\n")
+	if statOK(filepath.Join(dst, "gone.md")) || statOK(HomeBank().Path("gone.md")) {
+		t.Error("gone.md exists in the sandbox or the source; it was deleted before its copy")
+	}
 }
