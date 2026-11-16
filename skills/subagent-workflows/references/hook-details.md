@@ -18,8 +18,9 @@ intent-dependent shapes (`sudo`, `DROP TABLE`, `rm -rf .git`, a force-push of ma
 flags, or with no refspec while main/master is checked out) naming the safer alternative; **warn** only prints. Every
 shape ignores inert text (commit/tag/`gh` messages, `echo`/`printf`/`grep`/`rg` arguments; file-only `cat`/`tee` heredoc
 bodies for the pipe, exfil and SQL shapes) unless it is piped on or holds a `$(…)`; a hard-block shape found only in
-such text asks instead of blocking, but any `<<` in the command scans the heredoc bodies too and blocks. Blocks log to
-`claude-code doctor --audit` by reason and pattern, never the command
+such text asks instead of blocking, but any `<<` in the command scans the heredoc bodies too and blocks. An
+`apply_patch` call's patch text (its `*** Begin Patch` heredoc or one literal argument) is not scanned; the rest of
+the command is. Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
 
 ## rtk-rewrite
 
@@ -28,7 +29,8 @@ and runs the pinned `bin/rtk` (else PATH); Claude sessions only. Vetoes: already
 worktree, any `git commit`, machine-readable flags (`--porcelain`, `--json`), value subcommands (`rev-parse`), `go
 vet` (rtk 1.1.0 reports its failures as "No issues found"). Exact bytes: `rtk bypass <cmd>` (or the pinned path when
 PATH resolves another rtk); `HARNESS_RTK_BIN` overrides. A bare `rtk hook claude` entry in settings is stale and
-removed by hand or explicit `configure --restore`
+removed by hand or explicit `configure --restore`. Auto permission mode skips the rewrite: its classifier gives no
+verdict on a hook-changed input, so the call would bounce for a verbatim resend
 
 ## dispatch-effort
 

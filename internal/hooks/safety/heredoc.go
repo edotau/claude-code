@@ -109,6 +109,88 @@ func inertScm(toks []string) bool {
 	return toks[2] == "pr" && toks[3] == "create"
 }
 
+// dropPatchBodies drops each apply_patch call's patch text unless cmd runs a file or names apply_patch elsewhere.
+func dropPatchBodies(cmd string) string {
+	if !strings.Contains(cmd, "apply_patch") {
+		return cmd
+	}
+	n := 0
+	out := core.DropHeredocBodies(cmd, false, func(lines []string, i int) int {
+		end := patchHeredocEnd(lines, i)
+		if end > i {
+			n++
+		}
+		return end
+	})
+	out, args := dropPatchArgs(out)
+	if n += args; n == 0 || strings.Count(out, "apply_patch") != n || core.RunsWrittenFile().MatchString(out) {
+		return cmd
+	}
+	return out
+}
+
+// patchHeredocEnd is the closing line of a `*** Begin Patch` heredoc fed to an unpiped `apply_patch`, else -1.
+func patchHeredocEnd(lines []string, i int) int {
+	line := lines[i]
+	ms := core.HeredocOp().FindAllStringSubmatch(line, -1)
+	if len(ms) != 1 || i+1 >= len(lines) || strings.TrimSpace(lines[i+1]) != "*** Begin Patch" ||
+		strings.Contains(line, "<<<") || strings.Contains(line, ">(") || strings.Contains(line, "<(") {
+		return -1
+	}
+	segs, seps := shell.SegmentsSep(line)
+	for k, seg := range segs {
+		if !core.HeredocOp().MatchString(seg) {
+			continue
+		}
+		if !patchCall(seg, core.HeredocOp().ReplaceAllString(seg, " "), seps[k]) {
+			return -1
+		}
+		m := ms[0]
+		end := core.HeredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-")
+		if end < 0 || m[4] != "" && slices.ContainsFunc(lines[i+1:end], substitutes) { // a bare delimiter expands
+			return -1
+		}
+		return end
+	}
+	return -1
+}
+
+// dropPatchArgs replaces each `apply_patch '<patch>'` segment's literal patch argument with nothing.
+func dropPatchArgs(cmd string) (string, int) {
+	segs, seps := shell.SegmentsSep(cmd)
+	var b strings.Builder
+	n := 0
+	for i, seg := range segs {
+		if toks := shell.Tokens(seg); len(toks) == 2 && strings.HasPrefix(toks[1], "*** Begin Patch") &&
+			literalWord(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(seg), "apply_patch"))) &&
+			patchCall(seg, seg, seps[i]) {
+			seg = seg[:len(seg)-len(strings.TrimLeft(seg, " \t"))] + "apply_patch"
+			n++
+		}
+		b.WriteString(seg)
+		b.WriteString(seps[i])
+	}
+	return b.String(), n
+}
+
+// patchCall reports a segment whose command word is a bare `apply_patch` and whose output is not piped on.
+func patchCall(seg, words, sep string) bool {
+	toks := shell.Tokens(words)
+	return len(toks) > 0 && toks[0] == "apply_patch" && strings.HasPrefix(strings.TrimLeft(seg, " \t"), "apply_patch ") &&
+		sep != "|" && sep != "|&"
+}
+
+// literalWord reports one quoted word the shell passes as written: '…' alone, or "…" with no substitution.
+func literalWord(w string) bool {
+	if len(w) < 2 || w[len(w)-1] != w[0] {
+		return false
+	}
+	return w[0] == '\'' && strings.Count(w, "'") == 2 || w[0] == '"' && !substitutes(w)
+}
+
+// substitutes reports command substitution text, which an unquoted heredoc or a "…" word runs.
+func substitutes(s string) bool { return strings.Contains(s, "$(") || strings.Contains(s, "`") }
+
 // dropInertHeredocs removes file-only heredoc bodies unless the command also runs a file.
 func dropInertHeredocs(cmd string) string {
 	return core.DropHeredocBodies(cmd, true, func(lines []string, i int) int {
