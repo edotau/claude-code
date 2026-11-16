@@ -94,3 +94,24 @@ func TestStopFormatKeepsNewestFiles(t *testing.T) {
 		t.Fatalf("oldest file should be deferred: %q, %v", got, err)
 	}
 }
+
+// scanEdited resumes from a stamp, and a transcript replaced at the same path rescans from 0 with an empty set.
+func TestScanEditedResumeAndReplace(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	write := func(path string) string {
+		return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", path)
+	}
+	_ = os.WriteFile(tr, []byte(write("/r/old.go")), 0o600)
+	edited, scan, err := scanEdited(stampFile{}, tr)
+	if err != nil || strings.Join(edited, ",") != "/r/old.go" {
+		t.Fatalf("first scan = %v, %v", edited, err)
+	}
+	stamp := stampFile{Transcript: tr, Offset: scan.Offset, Sum: scan.Sum, Edited: edited}
+	_ = os.WriteFile(tr, []byte(write("/r/new.go")+strings.Repeat("{}\n", 100)), 0o600)
+	if edited, _, _ = scanEdited(stamp, tr); strings.Join(edited, ",") != "/r/new.go" {
+		t.Fatalf("after replace = %v; want only /r/new.go", edited)
+	}
+	if edited, _, _ = scanEdited(stamp, tr+"-other"); len(edited) != 0 {
+		t.Fatalf("other path = %v; want none", edited)
+	}
+}

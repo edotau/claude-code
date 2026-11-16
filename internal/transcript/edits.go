@@ -42,27 +42,54 @@ func EditedFiles(path string) ([]string, error) {
 	return slices.Sorted(maps.Keys(seen)), err
 }
 
-// EditedFilesFrom is EditedFiles over the complete lines past offset; a shorter file restarts at 0; next resumes it.
-func EditedFilesFrom(path string, offset int64) (files []string, next int64, err error) {
+// EditScan is a resumable EditedFiles pass: the paths edited before byte Offset and Sum, a fingerprint of that prefix.
+type EditScan struct {
+	Offset int64
+	Sum    string
+	Files  []string
+}
+
+const fingerprintSpan = 256
+
+// prefixSum hashes the first and last fingerprintSpan bytes before offset; "" if offset is not just past a newline.
+func prefixSum(f *os.File, offset int64) string {
+	if offset <= 0 {
+		return ""
+	}
+	head, tail := make([]byte, min(offset, fingerprintSpan)), make([]byte, min(offset, fingerprintSpan))
+	if _, err := f.ReadAt(head, 0); err != nil {
+		return ""
+	}
+	if _, err := f.ReadAt(tail, offset-int64(len(tail))); err != nil || tail[len(tail)-1] != '\n' {
+		return ""
+	}
+	return textutil.SHA256Hex(append(head, tail...))
+}
+
+// EditedFilesFrom extends prev with new complete lines, restarting at 0 if the scanned prefix changed or is gone.
+func EditedFilesFrom(path string, prev EditScan) (EditScan, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if path == "" || errors.Is(err, fs.ErrNotExist) {
-			return nil, 0, nil
+			return EditScan{}, nil
 		}
-		return nil, offset, err
+		return prev, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, offset, err
+		return prev, err
 	}
-	if offset < 0 || fi.Size() < offset {
-		offset = 0
+	if prev.Offset <= 0 || fi.Size() < prev.Offset || prev.Sum == "" || prefixSum(f, prev.Offset) != prev.Sum {
+		prev = EditScan{}
 	}
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, err
+	if _, err := f.Seek(prev.Offset, io.SeekStart); err != nil {
+		return prev, err
 	}
 	seen := map[string]bool{}
+	for _, p := range prev.Files {
+		seen[p] = true
+	}
 	read, err := textutil.ScanRawLines(f, true, func(line []byte) {
 		eachEditLine(line, func(p string) {
 			if p != "" {
@@ -70,7 +97,8 @@ func EditedFilesFrom(path string, offset int64) (files []string, next int64, err
 			}
 		})
 	})
-	return slices.Sorted(maps.Keys(seen)), offset + read, err
+	next := prev.Offset + read
+	return EditScan{Offset: next, Sum: prefixSum(f, next), Files: slices.Sorted(maps.Keys(seen))}, err
 }
 
 // CountWorkFrom counts complete lines from offset, returning edits, user turns, and next offset.

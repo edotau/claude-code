@@ -576,43 +576,60 @@ func TestEditedFilesFromMatchesFullScan(t *testing.T) {
 	step1 := editFileLine("/r/b.go") + editFileLine("/r/a.go")
 	partial := editFileLine("/r/c.go")
 	appendTranscript(t, tr, step1+partial[:20])
-	first, next, err := EditedFilesFrom(tr, 0)
-	if err != nil || strings.Join(first, ",") != "/r/a.go,/r/b.go" || next != int64(len(step1)) {
-		t.Fatalf("step 1 = %v, %d, %v; want a,b and next %d (partial line left for later)", first, next, err, len(step1))
+	first, err := EditedFilesFrom(tr, EditScan{})
+	if err != nil || strings.Join(first.Files, ",") != "/r/a.go,/r/b.go" || first.Offset != int64(len(step1)) {
+		t.Fatalf("step 1 = %+v, %v; want a,b and offset %d (partial line left for later)", first, err, len(step1))
 	}
 	appendTranscript(t, tr, partial[20:]+editFileLine("/r/a.go")+editFileLine("/r/d.go"))
-	second, next2, err := EditedFilesFrom(tr, next)
-	if err != nil || strings.Join(second, ",") != "/r/a.go,/r/c.go,/r/d.go" {
-		t.Fatalf("step 2 = %v, %v; want only the lines added since offset %d", second, err, next)
+	second, err := EditedFilesFrom(tr, first)
+	if err != nil || strings.Join(second.Files, ",") != "/r/a.go,/r/b.go,/r/c.go,/r/d.go" {
+		t.Fatalf("step 2 = %+v, %v; want the first set plus the lines added since offset %d", second, err, first.Offset)
 	}
 	full, err := EditedFiles(tr)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !slices.Equal(second.Files, full) {
+		t.Fatalf("incremental %v != full scan %v (%v)", second.Files, full, err)
 	}
-	merged := slices.Compact(slices.Sorted(slices.Values(slices.Concat(first, second))))
-	if !slices.Equal(merged, full) {
-		t.Fatalf("incremental union %v != full scan %v", merged, full)
+	if fi, _ := os.Stat(tr); second.Offset != fi.Size() {
+		t.Fatalf("offset = %d, want file size %d", second.Offset, fi.Size())
 	}
-	if fi, _ := os.Stat(tr); next2 != fi.Size() {
-		t.Fatalf("next = %d, want file size %d", next2, fi.Size())
-	}
-	if again, n, _ := EditedFilesFrom(tr, next2); len(again) != 0 || n != next2 {
-		t.Fatalf("nothing new: got %v, %d; want none, %d", again, n, next2)
+	if again, _ := EditedFilesFrom(tr, second); again.Offset != second.Offset || !slices.Equal(again.Files, second.Files) {
+		t.Fatalf("nothing new: got %+v, want %+v", again, second)
 	}
 }
 
 func TestEditedFilesFromResetsWhenShorter(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	appendTranscript(t, tr, editFileLine("/r/old-one.go")+editFileLine("/r/old-two.go"))
-	_, next, _ := EditedFilesFrom(tr, 0)
+	old, _ := EditedFilesFrom(tr, EditScan{})
 	if err := os.WriteFile(tr, []byte(editFileLine("/r/n.go")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, next2, err := EditedFilesFrom(tr, next)
-	if err != nil || strings.Join(got, ",") != "/r/n.go" || next2 != int64(len(editFileLine("/r/n.go"))) {
-		t.Fatalf("after shrink = %v, %d, %v; want /r/n.go from offset 0", got, next2, err)
+	got, err := EditedFilesFrom(tr, old)
+	if err != nil || strings.Join(got.Files, ",") != "/r/n.go" || got.Offset != int64(len(editFileLine("/r/n.go"))) {
+		t.Fatalf("after shrink = %+v, %v; want /r/n.go from offset 0", got, err)
 	}
-	if got, n, err := EditedFilesFrom(filepath.Join(t.TempDir(), "missing"), 99); got != nil || n != 0 || err != nil {
-		t.Fatalf("missing file = %v, %d, %v; want none, 0, nil", got, n, err)
+	if got, err := EditedFilesFrom(filepath.Join(t.TempDir(), "missing"), old); got.Offset != 0 || got.Files != nil || err != nil {
+		t.Fatalf("missing file = %+v, %v; want the zero scan, nil", got, err)
+	}
+}
+
+// A different file, even a longer one, at the same path restarts the scan; stale paths and lost edits both fail it.
+func TestEditedFilesFromResetsWhenReplaced(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	appendTranscript(t, tr, editFileLine("/r/old.go"))
+	old, _ := EditedFilesFrom(tr, EditScan{})
+	if err := os.WriteFile(tr, []byte(editFileLine("/r/new.go")+strings.Repeat("{}\n", 100)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := EditedFilesFrom(tr, old)
+	if err != nil || strings.Join(got.Files, ",") != "/r/new.go" {
+		t.Fatalf("after replace = %+v, %v; want only /r/new.go", got, err)
+	}
+	if fi, _ := os.Stat(tr); got.Offset != fi.Size() {
+		t.Fatalf("offset = %d, want %d", got.Offset, fi.Size())
+	}
+	mid := EditScan{Offset: old.Offset - 5, Sum: old.Sum, Files: []string{"/r/stale.go"}}
+	if got, _ := EditedFilesFrom(tr, mid); strings.Join(got.Files, ",") != "/r/new.go" {
+		t.Fatalf("mid-line offset = %v; want a restart from 0", got.Files)
 	}
 }
