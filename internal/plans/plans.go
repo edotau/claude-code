@@ -175,9 +175,7 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 		cleaned = strings.TrimSpace(cleaned[:len(cleaned)-len(m[0])])
 	}
 	title = cleaned
-	if idPhase().MatchString(cleaned) {
-		id = idPhase().FindString(cleaned)
-	} else if idLane().MatchString(cleaned) {
+	if id = idPhase().FindString(cleaned); id == "" {
 		id = idLane().FindString(cleaned)
 	}
 	if locs := ownsKey().FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length

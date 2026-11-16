@@ -167,8 +167,10 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 func placeStoreRels(dst string, b Bank, rels []string, empty bool) ([]string, error) {
 	placed := make([]string, 0, len(rels))
 	for _, rel := range rels {
-		data := []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
-		if !empty {
+		var data []byte
+		if empty {
+			data = []byte(templates()[strings.TrimPrefix(rel, b.Prefix())])
+		} else {
 			var err error
 			data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel)))
 			if errors.Is(err, fs.ErrNotExist) {

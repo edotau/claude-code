@@ -18,10 +18,10 @@ import (
 )
 
 var (
-	// reviseRef finds declarations at a line or sentence boundary.
 	declarationDelimiters = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile("`+|[\"“”‘’']")
 	})
+	// reviseRef finds declarations at a line or sentence boundary.
 	reviseRef = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8})\\b`?\\)?)")
 	})

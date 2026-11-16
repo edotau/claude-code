@@ -27,7 +27,7 @@ import (
 const (
 	catchupWindow = 14 * 24 * time.Hour // transcripts older than this are never swept
 	catchupMax    = 3                   // sessions saved per sweep, newest first
-	catchupRetry  = 24 * time.Hour      // gap before a failed catch-up gets its one second retry
+	catchupRetry  = 24 * time.Hour      // gap before a failed catch-up gets its second retry
 )
 
 // sweepCand is one finished session the sweep would save.
@@ -146,19 +146,19 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) strin
 	return ""
 }
 
-// secondRetryDue: the failed receipt is the first retry's (within a day of its stamp) and a day has passed.
+// secondRetryDue: one catch-up ran, its failed receipt is within a day of its stamp, and a day has passed.
 func secondRetryDue(st updateStamp, res UpdateResult, now time.Time) bool {
-	return now.Sub(st.at) > catchupRetry && res.Time.Sub(st.at) < catchupRetry
+	return st.attempts < 2 && now.Sub(st.at) > catchupRetry && res.Time.Sub(st.at) < catchupRetry
 }
 
-// retryStampTime keeps a failed catch-up's stamp time, so the second retry's own receipt ends the retries.
-func retryStampTime(id string, now time.Time) time.Time {
+// retryStamp is a catch-up stamp's time and attempt count; a failed one keeps its time and counts up.
+func retryStamp(id string, now time.Time) (time.Time, int) {
 	st, ok := readStamp(stampPath(id))
 	res, hasResult := readUpdateResult(id)
 	if ok && st.state == "catchup" && hasResult && res.needsAttention(now) {
-		return st.at
+		return st.at, max(st.attempts, 1) + 1
 	}
-	return time.Now()
+	return time.Now(), 1
 }
 
 // sweepCandidates lists finished sessions needing a save, newest first; all=false stops at catchupMax.
@@ -250,7 +250,8 @@ func runSweep(current string, now time.Time, out io.Writer) {
 	saved := 0
 	for _, c := range cands {
 		// Stamped first, so a crash or failure retries at most twice.
-		if err := writeStamp(stampPath(c.id), retryStampTime(c.id, now), "catchup", c.edits); err != nil {
+		at, attempts := retryStamp(c.id, now)
+		if err := writeStampAttempts(stampPath(c.id), at, "catchup", c.edits, attempts); err != nil {
 			fmt.Fprintf(out, "catchup %s: write retry stamp: %v\n", c.id, err)
 			continue
 		}

@@ -168,7 +168,7 @@ var writers = map[string]string{
 	"internal/memory/agent_input.go:writeSynthTranscript":       unversioned("text: Claude-shaped transcript synthesized from an agent session"),
 	"internal/memory/update_gate.go:writeCountState":            unversioned("text: edit count stamp"),
 	"internal/memory/update_gate.go:writeSidecar":               unversioned("text: update sidecar text"),
-	"internal/memory/update_gate.go:writeStamp":                 unversioned("text: update stamp"),
+	"internal/memory/update_gate.go:writeStampAttempts":         unversioned("text: update stamp"),
 	"internal/hooks/docs/plantick.go:recordPartials":            unversioned("text: partly landed plan tasks"),
 	"internal/plans/tick.go:RecordDest":                         unversioned("text: plan draft destination pointer"),
 	"internal/hooks/docs/plan.go:claimPlanFile":                 unversioned("marker: reserved dated plan file, replaced by the plan"),

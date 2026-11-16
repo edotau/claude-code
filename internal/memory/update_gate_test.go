@@ -285,8 +285,12 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	stderr := captureStderr(t) // the expected write failure goes to os.Stderr and must not litter the package output
 	if g := runGate("s1", tr, cwd, TriggerStop); g.Blocked || !g.FailedOpen {
 		t.Errorf("an unwritable stamp cannot count blocks, so Stop must fail open; got %+v", g)
+	}
+	if got := stderr(); !strings.Contains(got, "session-update: write stamp") {
+		t.Errorf("the failed stamp write was not reported on stderr: %q", got)
 	}
 }
 

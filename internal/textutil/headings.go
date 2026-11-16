@@ -187,9 +187,7 @@ func (s *headingScan) block(l mdLine, body string) {
 		}
 		return
 	}
-	if !s.inPara {
-		s.inPara = true
-	}
+	s.inPara = true
 	s.para = append(s.para, l)
 }
 
@@ -354,7 +352,7 @@ func atxHeading(body string) (level int, text string, ok bool) {
 
 // htmlBlockStart reports how an HTML block opening on body ends: a closer (types 1-5) or a blank line (6, 7).
 func htmlBlockStart(body string, inPara bool) (closes func(string) bool, blank bool) {
-	if body[0] != '<' {
+	if len(body) < 2 || body[0] != '<' {
 		return nil, false
 	}
 	low := strings.ToLower(body)
@@ -379,7 +377,7 @@ func htmlBlockStart(body string, inPara bool) (closes func(string) bool, blank b
 	tail := name[n:]
 	spaced := n < len(name) && (name[n] == ' ' || name[n] == '>' || strings.HasPrefix(tail, "/>"))
 	if low[1] != '/' && isRawOpen(name[:n]) && (n == len(name) || spaced || name[n] == '\t') {
-		return func(line string) bool { return rawClose(line) }, false
+		return rawClose, false
 	}
 	if _, found := slices.BinarySearch(htmlBlockNames, name[:n]); found && (n == len(name) || spaced) {
 		return nil, true

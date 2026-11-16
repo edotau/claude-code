@@ -125,7 +125,7 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 	return true, false
 }
 
-// retryFailedStop re-spawns a failed Stop's uncovered work once; success writes the "bg" stamp, so no double spawn.
+// retryFailedStop re-spawns a failed Stop's uncovered work on each blocked Stop; success writes the "bg" stamp.
 func retryFailedStop(r UpdateRequest, st updateStamp, now time.Time) bool {
 	work := countSessionEdits(r.SessionID, r.Transcript)
 	return work > st.edits && work >= updateMinEdits && dispatchUpdate(r, TriggerStop, work, now)
@@ -140,12 +140,13 @@ func Updatable(sessionID, transcriptPath string) bool {
 	return err == nil && !fi.IsDir()
 }
 
-// updateStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>".
+// updateStamp is "<RFC3339>|<bg|block count|catchup>|<edits covered>[|<catch-up runs started>]".
 type updateStamp struct {
-	at     time.Time
-	blocks int
-	edits  int
-	state  string // raw second field: "bg", "catchup", or a block count
+	at       time.Time
+	blocks   int
+	edits    int
+	state    string // raw second field: "bg", "catchup", or a block count
+	attempts int    // optional fourth field; 0 when absent
 }
 
 func stampPath(sessionID string) string {
@@ -158,7 +159,7 @@ func readStamp(path string) (updateStamp, bool) {
 		return updateStamp{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) != 3 {
+	if len(parts) != 3 && len(parts) != 4 {
 		return updateStamp{}, false
 	}
 	at, err := time.Parse(time.RFC3339, parts[0])
@@ -171,11 +172,23 @@ func readStamp(path string) (updateStamp, bool) {
 		st.blocks = n
 	}
 	st.edits, _ = strconv.Atoi(parts[2])
+	if len(parts) == 4 {
+		st.attempts, _ = strconv.Atoi(parts[3])
+	}
 	return st, true
 }
 
 func writeStamp(path string, at time.Time, state string, edits int) error {
-	err := paths.AtomicWrite(path, []byte(at.Format(time.RFC3339)+"|"+state+"|"+strconv.Itoa(edits)), 0o600)
+	return writeStampAttempts(path, at, state, edits, 0)
+}
+
+// writeStampAttempts is writeStamp plus the catch-up attempt count, written only when above zero.
+func writeStampAttempts(path string, at time.Time, state string, edits, attempts int) error {
+	line := at.Format(time.RFC3339) + "|" + state + "|" + strconv.Itoa(edits)
+	if attempts > 0 {
+		line += "|" + strconv.Itoa(attempts)
+	}
+	err := paths.AtomicWrite(path, []byte(line), 0o600)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "session-update: write stamp %s: %v\n", path, err)
 	}
