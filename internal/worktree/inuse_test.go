@@ -19,12 +19,14 @@ import (
 // stubProcesses swaps processesIn/parentOf and restores the platform originals on cleanup.
 func stubProcesses(t *testing.T, in func(dir string) ([]Proc, error)) {
 	t.Helper()
-	origIn, origParent, origSettle := processesIn, parentOf, inUseSettle
-	processesIn = in
+	origIn, origParent, origSettle, origAgents := processesIn, parentOf, inUseSettle, scanAgentProcs
+	processesIn, scanAgentProcs = in, nil
 	parentOf = func(pid int) (int, error) { return 0, nil }
 	// stubbed processes never exit; refuse on the first look
 	inUseSettle = 0
-	t.Cleanup(func() { processesIn, parentOf, inUseSettle = origIn, origParent, origSettle })
+	t.Cleanup(func() {
+		processesIn, parentOf, inUseSettle, scanAgentProcs = origIn, origParent, origSettle, origAgents
+	})
 }
 
 // A process that exits within the settle window (git's background auto-gc) does not block removal.
