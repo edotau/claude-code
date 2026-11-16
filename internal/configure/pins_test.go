@@ -157,3 +157,20 @@ func TestSeedProfilesClaudeListsServableRows(t *testing.T) {
 		t.Fatalf("SeedProfiles(claude) = %v, want [dev]", got)
 	}
 }
+
+// FALLBACK writes the record's fallback profile (not an alias) and refuses an unknown profile before any write.
+func TestSetAgentPinFallback(t *testing.T) {
+	hosttest.PinScratch(t)
+	if changed, err := SetAgentPin("claude", "FALLBACK", "anthropic"); err != nil || !changed {
+		t.Fatalf("SetAgentPin(FALLBACK) = (%v, %v), want applied", changed, err)
+	}
+	if rec := vault.GetAgentRecord("claude"); rec.Fallback != "anthropic" || len(rec.Aliases) != 0 {
+		t.Errorf("record = %+v, want fallback anthropic and no alias", rec)
+	}
+	if _, err := SetAgentPin("claude", "FALLBACK", "nosuch"); err == nil {
+		t.Error("an unknown fallback profile was accepted")
+	}
+	if got := vault.GetAgentRecord("claude").Fallback; got != "anthropic" {
+		t.Errorf("a refused write changed the fallback to %q", got)
+	}
+}

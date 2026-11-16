@@ -48,6 +48,8 @@ type Overlay struct {
 	Fallback string            `json:"fallback,omitempty"`
 	Host     string            `json:"host,omitempty"`
 	Remote   string            `json:"remote,omitempty"`
+	Account  string            `json:"account,omitempty"`
+	Identity string            `json:"identity,omitempty"`
 	Set      map[string]string `json:"set,omitempty"`
 	Unset    []string          `json:"unset,omitempty"`
 	Keep     []string          `json:"keep,omitempty"`
@@ -74,7 +76,13 @@ var routeKeys = []routeKey{
 		"want " + strings.Join(router.FallbackModes, ", ")},
 	{"host", "host", func(o Overlay) string { return o.Host }, sshHost, "not a valid ssh host"},
 	{"remote", "", func(o Overlay) string { return o.Remote }, sshHost, "not a valid ssh host"},
+	{"account", "", func(o Overlay) string { return o.Account }, nil, ""},
+	{"identity", "", func(o Overlay) string { return o.Identity }, in(identityModes),
+		"want " + strings.Join(identityModes, ", ")},
 }
+
+// identityModes are the Databricks identity values: the --as pair plus auto (the profile's own setting).
+var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 
 func in(names []string) func(string) bool {
 	return func(v string) bool { return slices.Contains(names, v) }
@@ -293,7 +301,7 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 // Empty reports an overlay whose env layer (set, unset, keep) changes nothing.
 func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 }
 
-// Routed reports an overlay naming where or how the dispatch runs: any of its seven routing keys.
+// Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
 }

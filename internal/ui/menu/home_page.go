@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -164,23 +165,82 @@ func runCustomEnv(d *dialog) {
 	for {
 		env := stagedCustomEnv(edits)
 		names := slices.Sorted(maps.Keys(env))
-		rows := customEnvRows(env, names)
+		names = slices.DeleteFunc(names, func(n string) bool { return n == fallbackEnv })
+		rows := append([][2]string{fallbackEnvRow(env[fallbackEnv])}, customEnvRows(env, names)...)
 		idx, err := d.shell().pickPlain("environment — injected into every launch", rows)
 		if err != nil || idx < 0 || idx == len(rows)-1 {
 			return
 		}
+		if idx == 0 {
+			if e, ok := pickFallbackMode(d, env[fallbackEnv]); ok {
+				stageEnvEdit(edits, fallbackEnv, e)
+			}
+			continue
+		}
 		name := ""
-		if idx < len(names) {
-			name = names[idx]
+		if idx-1 < len(names) {
+			name = names[idx-1]
 		}
 		if n, e, ok := editCustomEnv(d, name); ok {
-			if sameAsSaved(n, e) {
-				delete(edits, n) // back to what is on disk: nothing left to save
-			} else {
-				edits[n] = e
-			}
+			stageEnvEdit(edits, n, e)
 		}
 	}
+}
+
+// stageEnvEdit stages e for name, or drops the staged edit when e is back to what is on disk.
+func stageEnvEdit(edits map[string]envEdit, name string, e envEdit) {
+	if sameAsSaved(name, e) {
+		delete(edits, name)
+		return
+	}
+	edits[name] = e
+}
+
+// fallbackEnv is the vault env name whose value picks how a failed dispatch falls back.
+const fallbackEnv = router.EnvFallback
+
+// fallbackHelp says what each router.FallbackModes value does.
+var fallbackHelp = map[string]string{
+	router.FallbackNone:   "a failed dispatch exits on its error",
+	router.FallbackPin:    "retry once on the agent's record, then its fallback",
+	router.FallbackAgents: "then the other agents",
+	router.FallbackAll:    "then every agent, ending in claude",
+}
+
+// fallbackModes are the picker's rows in router order, each with its help text.
+var fallbackModes = func() [][2]string {
+	rows := make([][2]string, 0, len(router.FallbackModes))
+	for _, m := range router.FallbackModes {
+		rows = append(rows, [2]string{m, fallbackHelp[m]})
+	}
+	return rows
+}()
+
+// fallbackMode is the shown mode of a stored value, parsed as the router reads it.
+func fallbackMode(raw string) string { return router.ParseFallback(raw) }
+
+// fallbackEnvRow is the environment page's first row: the current mode of AGENT_ERROR_FALLBACK.
+func fallbackEnvRow(raw string) [2]string {
+	return [2]string{fallbackEnv, fallbackMode(raw)}
+}
+
+// pickFallbackMode asks for a mode; ok is false when dismissed or it is already the shown one.
+func pickFallbackMode(d *dialog, raw string) (envEdit, bool) {
+	cur := fallbackMode(raw)
+	rows := make([][2]string, len(fallbackModes))
+	cursor := 0
+	for i, m := range fallbackModes {
+		rows[i] = [2]string{m[0], m[1]}
+		if m[0] == cur {
+			rows[i][1] += mark(true)
+			cursor = i
+		}
+	}
+	idx, err := d.shell().Pick(fallbackEnv+" — on a failed dispatch", rows, cursor)
+	if err != nil || idx < 0 || idx >= len(fallbackModes) || fallbackModes[idx][0] == cur {
+		return envEdit{}, false
+	}
+	return envEdit{raw: fallbackModes[idx][0]}, true
 }
 
 // stagedCustomEnv is the vault env with the page's staged edits applied.

@@ -49,6 +49,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
+		"record": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{boolFlag("dry-run")}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report")}},
 	}}
 }
@@ -90,6 +91,7 @@ var agentsPage = helptext.Page{
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
+		{"record", "set an agent's profile, model or fallback in its record"},
 		{"brief", "render a leaf brief: the task plus the contract footer"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
@@ -141,6 +143,9 @@ var agentsSubPages = map[string][3]string{
 			"--dry-run without --lost; none of <id>, --agent and --lost)."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
 		"Exit 0 all done, 1 any error or lost, 2 usage, 4 timed out, still running."},
+	"record": {"record <agent> <key=value>... [flags]", "Set an agent record's profile, model or fallback profile " +
+		"(an empty value clears it); every value is checked before any write. `models --pin` sets claude's alias pins.",
+		"Exit 0, 1 invalid value or failed write, 2 usage."},
 	"brief": {"brief --task <file|-> [--own <path>]... [flags]", "Print a leaf brief: an Owned: line, the mode, the task, the leaf rules and the " +
 		"reporting contract. Pipe it to agents ask -; agents diff --verify <id> reads the Owned: line back.",
 		"Exit 0, 2 usage (no --task, or an implementation brief with no --own)."},
@@ -174,6 +179,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"diff":   cmdAgentsDiff,
+	"record": cmdAgentsRecord,
 	"find":   cmdAgentsFind,
 	"status": cmdAgentsStatus,
 	"result": cmdAgentsResult,

@@ -303,7 +303,7 @@ func (p Provider) SpellingRule() string {
 	switch {
 	case p.Preset == PresetDatabricks || p.ModelPrefix == models.DatabricksPrefix:
 		return "databricks-serving"
-	case p.Provider == "github":
+	case p.Provider == "github" || p.Auth.Login != "" && (p.Provider == "openai" || p.Provider == "google"):
 		return "dotted"
 	case p.Provider == "anthropic":
 		return "anthropic"

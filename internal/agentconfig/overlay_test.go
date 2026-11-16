@@ -40,6 +40,9 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		big:                 "over 65536 bytes",
 		`{"files":[]}`:      "files: not supported yet",
 		`{"profile":"dev"}`: "profile: needs a provider",
+		`{"bogus":1}`:       "unknown key bogus (schema|provider|profile|model|effort|fallback|host|remote|account|identity|",
+		`{"identity":"x"}`:  "identity: want auto, user, sp",
+		`{"fallback":"x"}`:  "fallback: want none, pin, agents, all",
 		`{"provider":"databricks","profile":"d\u0007ev"}`: "profile: blank or holds a control character",
 	}
 	if runtime.GOOS != "windows" {
@@ -56,6 +59,10 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		} else if strings.Contains(err.Error(), "\a") || strings.Contains(err.Error(), "evil") {
 			t.Errorf("LoadOverlayContext(t.Context(), %.40q): err %q echoes a value", doc, err)
 		}
+	}
+	if o, err := LoadOverlayContext(t.Context(), `{"fallback":"pin","account":"business","identity":"sp"}`, nil); err != nil ||
+		o.Fallback != "pin" || o.Account != "business" || o.Identity != "sp" || !o.Routed() {
+		t.Errorf("account/identity/pin overlay = %+v, %v", o, err)
 	}
 	if o, err := LoadOverlayContext(t.Context(), own, nil); err != nil || o.Confinement() != "databricks:dev" {
 		t.Errorf("own 0600 file: overlay %+v, err %v; want databricks:dev", o, err)

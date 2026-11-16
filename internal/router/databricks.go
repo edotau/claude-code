@@ -205,7 +205,7 @@ func (t *RouteTable) gateArm(
 	} else {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + arm})
 	}
-	if o.Fallback == FallbackNone {
+	if o.oneHop() {
 		return group
 	}
 	if agent == "opencode" {
@@ -256,7 +256,7 @@ func (t *RouteTable) gateWorkspaces(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
-	if pg.reg == nil || len(own) == 0 || agent != res.Want || o.Lead != "" || agent == "gemini" || o.Fallback == FallbackNone ||
+	if pg.reg == nil || len(own) == 0 || agent != res.Want || o.Lead != "" || agent == "gemini" || o.oneHop() ||
 		!slices.Contains(providers.DatabricksProfiles(pg.reg), spec.Profile) {
 		return nil
 	}
@@ -395,7 +395,7 @@ func (t *RouteTable) gateBase(
 
 func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {
 	rows := []string{o.Lead}
-	if agent != "gemini" && o.Fallback != FallbackNone && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
+	if agent != "gemini" && !o.oneHop() && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
 		rows = append(rows, workspaceRows(reg, o.Lead)...)
 	}
 	rows = append(rows, loginProfiles(reg, agent)...)
