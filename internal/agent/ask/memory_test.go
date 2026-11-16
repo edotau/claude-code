@@ -51,3 +51,26 @@ func TestMemoryRunOptionsCdCoversOnlyTheStore(t *testing.T) {
 		}
 	}
 }
+
+// The memory job may run compound read-only inspection in the store; writes and git writes stay refused.
+func TestMemoryRunOptionsReadOnlyBash(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
+	cd := "cd " + memory.StoreDir() + " && "
+	for cmd, want := range map[string]agent.Decision{
+		cd + "wc -l claude-code--progress.md && head -n 20 claude-code--progress.md && echo done":           agent.Allow,
+		cd + "head -30 claude-code--sessionHistory.md && echo ---- && head -30 claude-code--decisionLog.md": agent.Allow,
+		cd + "sed -n 5,9p claude-code--activeContext.md; git log --oneline -5 | grep -v '^$'":               agent.Allow,
+		cd + "tail -5 claude-code--conventions.md":                                                          agent.Allow,
+		"echo x > /tmp/f": agent.Deny,
+		cd + "cat claude-code--progress.md > /tmp/out":             agent.Deny,
+		cd + "git add claude-code--progress.md && git commit -m x": agent.Deny,
+		"git commit -m x":                      agent.Deny,
+		"echo ok; rm -rf " + memory.StoreDir(): agent.Deny,
+		"echo $(git commit -m x)":              agent.Deny,
+	} {
+		if got := p.Decide("Bash", cmd); got != want {
+			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
+		}
+	}
+}
