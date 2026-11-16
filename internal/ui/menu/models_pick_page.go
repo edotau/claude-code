@@ -387,9 +387,7 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) 
 	var err error
 	switch {
 	case claude:
-		if _, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id); err == nil {
-			providers.AuditModelPin(alias, id)
-		}
+		_, err = writeAgentField(d, "claude", strings.ToUpper(alias)+"_MODEL", id)
 	case p.Protocol == "":
 		d.printf("model: %s is opencode's own plan; pin a profile to save a model\n", p.Name)
 		return
@@ -574,7 +572,6 @@ func pinModel(d *dialog, profile, alias, id string) {
 		d.println(err)
 		return
 	}
-	providers.AuditModelPin(alias, spec)
 	d.printf("%-7s pinned %s\n", alias, spec)
 }
 

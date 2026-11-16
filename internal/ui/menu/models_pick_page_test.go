@@ -537,10 +537,11 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
 		t.Fatalf("session-profile opus pin = %q, want m-two", got)
 	}
-	if ev, _ := audit.Read(time.Time{}); !slices.ContainsFunc(ev, func(e audit.Event) bool {
-		return e.Action == audit.ModelPin && e.Resource == "claude.aliases.opus"
-	}) {
-		t.Fatal("no model-pin audit event for the opus pick")
+	ev, _ := audit.Read(time.Time{})
+	if n := len(slices.DeleteFunc(ev, func(e audit.Event) bool {
+		return e.Action != audit.ModelPin || e.Resource != "claude.aliases.opus"
+	})); n != 1 {
+		t.Fatalf("model-pin audit events for the opus pick = %d, want 1", n)
 	}
 	offer(other, "1\n1\n\n")
 	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != other+":m-one" {

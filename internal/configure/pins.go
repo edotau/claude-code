@@ -39,6 +39,7 @@ func SetAgentPin(agent, field, val string) (bool, error) {
 	if err := vault.SetAgentRecord(agent, next); err != nil {
 		return false, err
 	}
+	providers.AuditRecords(map[string]vault.AgentRecord{agent: rec}, map[string]vault.AgentRecord{agent: next})
 	return true, nil
 }
 

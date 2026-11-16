@@ -4,8 +4,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -167,10 +169,34 @@ func TestSetAgentPinFallback(t *testing.T) {
 	if rec := vault.GetAgentRecord("claude"); rec.Fallback != "anthropic" || len(rec.Aliases) != 0 {
 		t.Errorf("record = %+v, want fallback anthropic and no alias", rec)
 	}
+	if ev, _ := audit.Read(time.Time{}); slices.ContainsFunc(ev, func(e audit.Event) bool { return e.Action == audit.ModelPin }) {
+		t.Error("a fallback change is not a model pin, yet it was audited as one")
+	}
 	if _, err := SetAgentPin("claude", "FALLBACK", "nosuch"); err == nil {
 		t.Error("an unknown fallback profile was accepted")
 	}
 	if got := vault.GetAgentRecord("claude").Fallback; got != "anthropic" {
 		t.Errorf("a refused write changed the fallback to %q", got)
+	}
+}
+
+// A model pin written through SetAgentPin leaves one audit.ModelPin line naming the field and the new value.
+func TestSetAgentPinAuditsModelPin(t *testing.T) {
+	hosttest.PinScratch(t)
+	if changed, err := SetAgentPin("claude", "OPUS_MODEL", "claude-opus-5-5"); err != nil || !changed {
+		t.Fatalf("SetAgentPin(OPUS_MODEL) = (%v, %v), want applied", changed, err)
+	}
+	ev, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, e := range ev {
+		if e.Action == audit.ModelPin && e.Resource == "claude.aliases.opus" && e.Detail == "claude-opus-5-5" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("model-pin audit events for claude.aliases.opus = %d, want 1 (all: %+v)", n, ev)
 	}
 }
