@@ -197,3 +197,16 @@ func TestDatabricksLadderParses(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateRoutingNamesUnknownStoredKey(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.Put(vault.Overlay, "providers", `{"routing": {"wieghts": {"price": 1}}}`)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err := UpdateRouting(func(r *Routing) error { r.Weights = map[string]float64{"price": 1}; return nil })
+	if err == nil || !strings.Contains(err.Error(), "wieghts") {
+		t.Fatalf("UpdateRouting = %v; want an error naming the unknown key wieghts", err)
+	}
+}
