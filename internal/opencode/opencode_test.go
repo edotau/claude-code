@@ -413,7 +413,8 @@ func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
 	}
 }
 
-func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
+// An own-login launch never forwards a raw --model: with no profile serving it, the launch is refused with no argv.
+func TestOwnLoginLaunchRefusesUnservedModelFlag(t *testing.T) {
 	const model = "opencode-go/kimi-k3.1-pro"
 	cases := []struct{ name, auth, profile string }{
 		{"pre-route", `{"opencode":{"type":"api"}}`, ""},
@@ -433,11 +434,8 @@ func TestOwnLoginLaunchPreservesModelFlag(t *testing.T) {
 			plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{
 				Model: model, Provider: tc.profile, PrintEnv: true,
 			}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := []string{"--model", model}; !slices.Equal(plan.Argv, want) {
-				t.Errorf("Argv = %v, want %v", plan.Argv, want)
+			if err == nil || !strings.HasPrefix(err.Error(), "--model "+model+": ") || len(plan.Argv) != 0 {
+				t.Errorf("err = %v, argv = %v; want a refusal naming --model %s and no argv", err, plan.Argv, model)
 			}
 		})
 	}

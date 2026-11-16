@@ -205,7 +205,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
 | proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
 | wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
-| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats repo last-used beats agent record beats default; no profile = off, claude always on |
+| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats session profile beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
 bucket" is the exception: an alias's ordered Databricks list in `internal/router/table.json`), leg (→ dispatch),

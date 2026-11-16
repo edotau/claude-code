@@ -541,9 +541,6 @@ func Launch(alias string, args []string) int {
 	}
 	opts.Alias = alias
 	plan, err := claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
-	if err == nil && !opts.PrintEnv && !agent.IsHeadless(rest) {
-		providers.RecordLastProfile("claude", plan.Set[providers.EnvSessionProfile])
-	}
 	return agent.RunPlan("claude", plan, opts, err)
 }
 

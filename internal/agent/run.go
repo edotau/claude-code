@@ -488,6 +488,7 @@ type RunOptions struct {
 	Agent                                               string             `json:"-"`
 	Agents                                              map[string]*Schema `json:"-"`
 	Fallback                                            string             `json:"-"`
+	Account                                             string             `json:"-"`                // the overlay account key: a GitHub login or profile
 	Native                                              bool               `json:"native,omitempty"` // opencode: skip the hub ladder; --retry replays it
 	Host                                                string             `json:"-"`
 	Rubric                                              string             `json:"-"`

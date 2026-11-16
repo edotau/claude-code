@@ -254,7 +254,7 @@ func TestBatchTaskProfileReachesRequest(t *testing.T) {
 	profileFixture(t)
 	build := func(n int, profile string) batchTask {
 		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
-		bt, err := buildTask(t.Context(), line, batchOpts{Agent: "codex", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+		bt, err := buildTask(t.Context(), line, batchOpts{Agent: "opencode", Fallback: router.FallbackAll}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}

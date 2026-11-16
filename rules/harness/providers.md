@@ -15,7 +15,7 @@ paths:
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
 | Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret`; env and overlays: `claude-code configure` |
-| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag, an interactive claude, copilot or opencode launch reuses the profile that agent last launched in this repo (if still valid for it), else its agent record's profile (a default; `state/harness/last-profile.json`; `switch` clears all, `<agent> profile` that agent) |
+| Switch the session profile | `claude-code switch <profile> [--dry-run]` (relaunch) · one launch: `claude-code --profile <p>`; with no flag a launch uses the session profile, then the agent record's profile (`switch` and `<agent> profile` write the record; no last-used profile exists) |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` write claude's agent record (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status` · foreground: `--serve --port N` |
@@ -32,6 +32,28 @@ paths:
   Brief fields: `skills/subagent-workflows/SKILL.md` → Handoff contract. A standing default for every top-level
   dispatch: store the same document as vault env `COWORKER_OVERLAY` (`claude-code configure` → environment, or
   `claude-code vault env set COWORKER_OVERLAY '<json>'`); remove it (`vault env unset`) to turn it off.
+
+## Routing precedence
+
+- **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`), `<profile>:` and
+  `databricks:`/provider-type model prefixes, `COWORKER_OVERLAY`, waves and coworker specs, `Run:` lines, `configure`
+  menus and agent records all normalise into one overlay (keys: `agent.md` → Dispatch behavior); launch, preflight,
+  labels and `ran on` read only it. Print it: `claude-code agents resolve <agent> --model m [--profile p]
+  [--overlay '{...}'] [--all-profiles [--live]] --format json` (`--live` checks credential, listing and READY per row).
+- **Profile order:** an explicit `<profile>:` or overlay `profile` > a unique provider-type prefix > `databricks:<m>` or
+  profile `auto` (shared pool: first valid workspace in vault order dev, prod, qa; least-busy under `auto`) > the
+  session profile (with that profile's model for the agent) > the agent record's profile (the pin). No last-used one.
+- **`--profile` vs a prefix:** an interactive launch errors naming both; `agents ask` and dispatches let the prefix win
+  with a note, but an overlay confinement refuses a prefix outside it.
+- **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);
+  first-party Anthropic bare; GitHub, ChatGPT and agy dotted. Claude 5+ is 1M by default;
+  `[1m]` only for opus/sonnet 4.x.
+- **Fallback** (`AGENT_ERROR_FALLBACK`, `--fallback`, overlay `fallback`): `none` | `pin` | `agents` | `all` (`1`,
+  `true`, `yes` = `all`; unset = `none`). `pin` = requested route > agent pin > agent record `fallback` > stop.
+  Set it in `claude-code configure` (Environment picker; each agent's Fallback and Model rows) or
+  `claude-code agents record <agent> profile=<p> model=<m> fallback=<p> [--dry-run]` (empty value clears).
+- **Labels:** `ran on` names what served, each fallback hop included; dispatch labels and the session-start line's
+  per-type labels come from the same resolver.
 
 ## Model selection
 

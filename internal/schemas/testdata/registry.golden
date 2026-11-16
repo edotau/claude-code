@@ -8,7 +8,6 @@
 # legacy-layout: codex-routing
 # legacy-layout: dispatch-events
 # legacy-layout: dispatch-record
-# legacy-layout: last-profile
 # legacy-layout: login-state
 # legacy-layout: notices
 # legacy-layout: oauth-usage-cache
@@ -40,7 +39,6 @@ codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks/a
 coworker-overlay | wire | 1 | - | internal/agentconfig | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent/wire | clean:dispatch-log
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
-last-profile | cache | 2 | state/harness/last-profile.json | internal/providers | keep
 live-request | wire | 1 | - | internal/agent/wire | keep
 login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/providers | keep
 memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/memory | keep

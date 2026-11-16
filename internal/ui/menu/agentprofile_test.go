@@ -3,8 +3,6 @@ package menu
 import (
 	"bufio"
 	"bytes"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,7 +10,6 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -163,28 +160,17 @@ func TestSeedFirstRunNonInteractivePointsAtRow(t *testing.T) {
 	}
 }
 
-// Given a remembered last-used profile, seeding a registered profile after sign-in forgets it and sets the record.
-func TestSeedFromSignInForgetsLastProfileAndSetsRecord(t *testing.T) {
+// Given a registered profile, seeding after sign-in sets the agent record and marks the dialog changed.
+func TestSeedFromSignInSetsRecord(t *testing.T) {
 	d, out := seedDialog(t, "")
 	profiles := configure.SeedProfiles(d.reg, "copilot")
 	if len(profiles) == 0 {
 		t.Skip("registry serves copilot with no profile")
 	}
-	providers.RecordLastProfile("copilot", "stale-profile")
-	lastProfile := func() string {
-		raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "last-profile.json"))
-		return string(raw)
-	}
-	if !strings.Contains(lastProfile(), "stale-profile") {
-		t.Fatalf("setup: last-profile.json lacks the entry: %s", lastProfile())
-	}
 	if got := signInProfile(d, "copilot"); got != profiles[0] {
 		t.Skipf("copilot sign-in profile = %q, not %q", got, profiles[0])
 	}
 	agentActiveOn(d, "copilot")
-	if strings.Contains(lastProfile(), "stale-profile") {
-		t.Errorf("last-used profile survived sign-in: %s", lastProfile())
-	}
 	if got := vault.AgentRecords(agentpkg.RosterNames())["copilot"].Profile; got != profiles[0] || !d.changed {
 		t.Errorf("copilot profile = %q (changed=%v), want %q; dialog said %q", got, d.changed, profiles[0], out)
 	}

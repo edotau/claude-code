@@ -8,6 +8,7 @@ import (
 )
 
 func init() {
+	agent.SetCodexSwap(codexResponsesModel)
 	agent.Register(agent.Agent{Row: row, Driver: codexEngine{agent.NewBaseEngine("codex")}})
 	agentconfig.RegisterFileOps("codex", agentconfig.FileOps{Write: writeCodexConfig, LoadBaseline: loadCodexBaseline,
 		SaveBaseline: saveCodexBaseline, Revert: restoreCodexConfig})

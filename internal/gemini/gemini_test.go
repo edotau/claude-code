@@ -351,21 +351,21 @@ func resolveGemini(t *testing.T, req agent.RunOptions) (providers.Target, bool, 
 	return agent.SchemaFor("gemini").TargetCtx(context.Background(), req)
 }
 
-// The gemini vault record beats the Databricks session profile: profile picks the row, model the id, flags beat both.
-func TestGeminiRecordBeatsSessionProfile(t *testing.T) {
+// D3: the session profile leads; the gemini record pin is read only when its row is the session row or --provider names it.
+func TestGeminiSessionFirstPinOnlyWhenConsulted(t *testing.T) {
 	for _, c := range []struct {
 		name, session, profile, model string
 		req                           agent.RunOptions
 		wantProv, wantModel, wantErr  string
 	}{
 		{"A model pin on the Google login", "dev", "", "gemini-pinned", agent.RunOptions{}, "antigravity", "gemini-pinned", ""},
-		{"B pinned Databricks row beats the session row", "dev", "gw", "gemini-y", agent.RunOptions{}, "gw", "gemini-y", ""},
-		{"C pin names another row than the gateway session", "gw", "dev", "", agent.RunOptions{}, "dev", "", ""},
+		{"B a session row gemini cannot serve leaves the pin unconsulted", "dev", "gw", "gemini-y", agent.RunOptions{}, "antigravity", "gemini-y", ""},
+		{"C a gateway session with another row pinned stays on the Google login", "gw", "dev", "", agent.RunOptions{}, "antigravity", "", ""},
 		{"C gateway session without a pin stays on the Google login", "gw", "", "", agent.RunOptions{}, "antigravity", "", ""},
-		{"D --model beats the record model", "dev", "gw", "gemini-y", agent.RunOptions{Model: "gemini-flag"}, "gw", "gemini-flag", ""},
+		{"D --model beats the record model", "dev", "gw", "gemini-y", agent.RunOptions{Model: "gemini-flag"}, "antigravity", "gemini-flag", ""},
 		{"D --provider beats the record profile", "dev", "gw", "", agent.RunOptions{Provider: "dev"}, "dev", "", ""},
 		{"E own-login label is a valid pin", "dev", "antigravity", "", agent.RunOptions{}, "antigravity", "", ""},
-		{"E pin naming no registry row is refused", "dev", "nosuch", "", agent.RunOptions{}, "", "", `pinned profile: gemini: unknown profile "nosuch"`},
+		{"E a pin naming no row is refused only when consulted", "dev", "nosuch", "", agent.RunOptions{}, "antigravity", "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			pinFixture(t, c.session)
@@ -379,7 +379,7 @@ func TestGeminiRecordBeatsSessionProfile(t *testing.T) {
 				return
 			}
 			if err != nil || tg.Provider == nil || tg.Provider.Name != c.wantProv {
-				t.Fatalf("target = %+v err = %v, want provider %s", tg, err, c.wantProv)
+				t.Fatalf("target = %v/%s err = %v, want provider %s", tg.Provider.Name, tg.Model, err, c.wantProv)
 			}
 			if c.wantModel != "" && tg.Model != c.wantModel {
 				t.Errorf("model = %q, want %q", tg.Model, c.wantModel)
@@ -430,7 +430,9 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	}
 }
 
-func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
+// An explicit own-login profile with a resolvable --model launches the plain CLI with the resolved model and never
+// offers configure.
+func TestOwnLoginProfileForwardsResolvedModelWithoutOffer(t *testing.T) {
 	agenttest.LaunchHermetic(t)
 	fake := pathstest.FakeVendor(t, "agy", "")
 	const model = "gemini-3.8-flash-high"
@@ -438,13 +440,9 @@ func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	offers := 0
 	original := agent.OfferConfigure
 	agent.OfferConfigure = func(name string, reason error) bool {
-		offers++
-		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
-			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
-		}
+		t.Errorf("configure offered for %s: %v", name, reason)
 		return false
 	}
 	t.Cleanup(func() { agent.OfferConfigure = original })
@@ -453,8 +451,8 @@ func TestConfigureDeclinedPreservesModelFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"--dangerously-skip-permissions", "--model", model, "-p", "hi"}
-	if offers != 1 || plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv, want) {
-		t.Fatalf("offers=%d plan=%+v; want plain CLI with argv %v", offers, plan, want)
+	if plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("plan=%+v; want plain CLI with argv %v", plan, want)
 	}
 }
 

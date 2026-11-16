@@ -291,10 +291,22 @@ func cloneCodexMetadata(value any) any {
 	}
 }
 
-// codexResponsesModel swaps a model Responses cannot serve (opus alias, gpt-oss) for the menu's first Responses model.
+// codexResponsesModel is the default a model Responses cannot serve falls back to: the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
 	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
 		return model
 	}
 	return cmp.Or(providers.FirstResponsesModel(p), model)
+}
+
+// codexRefuse is the usage error for a typed model codex cannot run over Responses, or nil when it can.
+func codexRefuse(p *providers.Provider, model string) error {
+	if p.Preset != providers.PresetDatabricks {
+		return nil
+	}
+	if wire, ok, _ := providers.WireFor(p, model); ok && wire == providers.ProtocolResponses {
+		return nil
+	}
+	hint := cmp.Or(providers.FirstResponsesModel(p), "a Responses model")
+	return &agent.UsageError{Msg: fmt.Sprintf("codex: %s is not served over Responses on profile %s; try %s", model, p.Name, hint)}
 }

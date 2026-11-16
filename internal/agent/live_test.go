@@ -117,14 +117,23 @@ func TestLiveCapOfFour(t *testing.T) {
 func TestLiveSlotLastSlotGoesToExactlyOne(t *testing.T) {
 	liveEnv(t)
 	for range maxLiveSessions - 1 {
-		if _, err := acquireLiveSlot(); err != nil {
+		rel, err := acquireLiveSlot() // kept: a dropped release lets GC close the file and free the lock
+		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(rel)
 	}
 	errs := make(chan error, 2)
 	start := make(chan struct{})
 	for range 2 {
-		go func() { <-start; _, err := acquireLiveSlot(); errs <- err }()
+		go func() {
+			<-start
+			rel, err := acquireLiveSlot()
+			if err == nil {
+				t.Cleanup(rel)
+			}
+			errs <- err
+		}()
 	}
 	close(start)
 	won := 0

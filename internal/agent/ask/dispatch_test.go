@@ -53,6 +53,12 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 	for _, profile := range []string{"acme", "chatgpt"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "p", Fallback: router.FallbackAgents}, nil)
+		if profile == "chatgpt" { // a typed row the agent cannot use is refused before any dispatch
+			if err == nil || !strings.Contains(err.Error(), "cannot use") {
+				t.Fatalf("hub profile Prepare = %v, want a refusal naming the codex login", err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatalf("Prepare(%s) = %v", profile, err)
 		}
@@ -62,9 +68,6 @@ func TestClientPrepareHubNativeFallback(t *testing.T) {
 		}
 		if profile == "acme" && (err != nil || res.Answer != "ok") {
 			t.Fatalf("native profile did not run: %+v, %v", res, err)
-		}
-		if profile == "chatgpt" && (err == nil || !strings.Contains(err.Error(), "opencode has no openai login")) {
-			t.Fatalf("hub profile did not check its login: %+v, %v", res, err)
 		}
 	}
 }
@@ -91,7 +94,7 @@ func TestClientPrepareProfileTakesTierSlot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
 	client := newClient()
-	for _, profile := range []string{"chatgpt", "acme"} {
+	for _, profile := range []string{"acme"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: "opencode", Provider: profile, Prompt: "pong", Fallback: router.FallbackAgents}, nil)
 		if err != nil {
@@ -116,6 +119,12 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	for _, name := range []string{"codex", "claude", "opencode", "copilot", "gemini"} {
 		p, err := client.Prepare(context.Background(), agent.RunOptions{
 			Agent: name, Provider: "acme", Prompt: "p", Fallback: router.FallbackAll}, nil)
+		if name == "codex" || name == "gemini" { // acme has no responses route or custom base URL: refused before dispatch
+			if err == nil {
+				t.Errorf("%s: Prepare on acme succeeded, want a refusal", name)
+			}
+			continue
+		}
 		if err != nil {
 			t.Fatalf("%s: Prepare = %v", name, err)
 		}

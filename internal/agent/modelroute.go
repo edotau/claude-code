@@ -86,27 +86,15 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 
 // splitQuery reads the typed prefix; pool is true for databricks:<model> and overlay profile auto.
 func splitQuery(reg *providers.Registry, q ModelQuery) (providers.ModelSpec, bool, error) {
-	if name, rest, ok := strings.Cut(strings.TrimSpace(q.Model), ":"); ok && rest != "" && reg.Providers[name] == nil &&
-		(name == poolPrefix(reg) || name == poolName) {
-		return providers.ModelSpec{Model: rest}, true, nil
-	}
 	spec, err := providers.SplitModelSpec(reg, q.Model)
-	if err != nil {
-		return spec, false, err
+	if err != nil || spec.Pool {
+		return spec, spec.Pool, err
 	}
 	bare := q.Provider == providers.GroupDatabricks && q.Profile == ""
 	if (q.Profile == poolName || bare) && spec.Row == "" && reg.Providers[poolName] == nil {
 		return spec, true, nil
 	}
 	return spec, false, nil
-}
-
-// poolPrefix is the Databricks provider type, the pool's prefix.
-func poolPrefix(reg *providers.Registry) string {
-	if len(reg.ProfilesOf(providers.GroupDatabricks)) > 0 {
-		return providers.GroupDatabricks
-	}
-	return ""
 }
 
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
@@ -147,6 +135,9 @@ func typedRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (
 		return namedSource{q.Profile, "flag"}, nil
 	case q.Provider != "":
 		rows := reg.ProfilesOf(q.Provider)
+		if p := accountRow(reg, q.Account); q.Account != "" && p != nil && slices.Contains(rows, p.Name) {
+			return namedSource{p.Name, "account"}, nil
+		}
 		if len(rows) != 1 {
 			return namedSource{}, fmt.Errorf("%w: provider %q names %d profiles; name one with profile", ErrModelRoute, q.Provider, len(rows))
 		}
@@ -259,15 +250,33 @@ func spellTyped(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string
 			typed, r.Effort = base, effort
 		}
 	}
+	if w, ok := codexTierPin(r, p, q, typed, now); ok {
+		return w, nil
+	}
 	return spellModel(r, p, q.Agent, typed, now)
 }
 
-// spellModel spells typed on p: alias through the row (Databricks bucket first), catalog id by rule, else as listed.
+// codexTierPin is codex's record model for an opus/sonnet alias when p serves it over Responses, else the tier bucket.
+func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string, now time.Time) (string, bool) {
+	name := strings.ToLower(models.Strip1M(typed))
+	if q.Agent != agentid.Codex || q.PinModel == "" || name != models.Opus && name != models.Sonnet {
+		return "", false
+	}
+	w, err := spellModel(&ModelRoute{}, p, q.Agent, q.PinModel, now)
+	if err != nil || !providers.ServesResponses(p, w) {
+		return "", false
+	}
+	r.Alias = name
+	return w, true
+}
+
+// spellModel spells typed on p: alias through the row (Databricks bucket, Models), then the catalog; catalog id by rule.
 func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now time.Time) (string, error) {
 	name := strings.ToLower(models.Strip1M(typed))
 	if slices.Contains(models.AliasNames, name) {
 		r.Alias = name
-		if m := cmp.Or(router.DatabricksModel(agent, name, p), p.Models[name]); m != "" {
+		canonical, _ := models.Alias(name)
+		if m := cmp.Or(router.DatabricksModel(agent, name, p), p.Models[name], canonical); m != "" {
 			return models.Strip1M(p.WireModel(m)), nil
 		}
 		return "", fmt.Errorf("%w: profile %s has no %s model", ErrModelRoute, p.Name, name)
@@ -304,6 +313,9 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 		}
 	}
 	wire, ok, why := providers.WireFor(p, r.Model)
+	if _, has := p.Route(providers.ProtocolAnthropic); !ok && has && r.Agent == agentid.Claude && !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model)) {
+		wire, ok = providers.ProtocolAnthropic, true // an unlisted id goes out as typed on the anthropic wire
+	}
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrModelRoute, why)
 	}
@@ -325,7 +337,7 @@ func agentFamily(r *ModelRoute, p *providers.Provider) error {
 	case agentid.Gemini:
 		bad = fam != models.FamilyGemini
 	case agentid.Claude:
-		bad = fam != models.FamilyClaude && p.Preset != providers.PresetDatabricks
+		bad = (fam == models.FamilyGPT || fam == models.FamilyGemini) && p.Provider == "anthropic"
 	case agentid.Codex:
 		bad = p.Auth.Login == agentid.Codex && (fam == models.FamilyClaude || fam == models.FamilyGemini)
 	}

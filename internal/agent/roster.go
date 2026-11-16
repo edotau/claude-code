@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -336,17 +335,6 @@ type Headless struct {
 	SafeMode   bool     // codex: --ignore-user-config --ignore-rules; opencode: --pure
 }
 
-// ModelAsk is one agent-model decision, shared by the interactive launch and the headless dispatch.
-type ModelAsk struct {
-	Agent string
-	// Flag is --model as typed: a model alias (opus) or a model id; "" = none.
-	Flag string
-	// Target is the provider and the model the agent runs with no flag and no pin.
-	Target providers.Target
-	// Applied means Target.Model already carries Flag (the session selection spelled it for Target.Provider).
-	Applied bool
-}
-
 // AgentModelPin is the agent's own model: its shell model env (local config) over the vault record's model, or "".
 func AgentModelPin(agent string) string {
 	return agentModelPinContext(context.Background(), agent)
@@ -359,32 +347,8 @@ func agentModelPinContext(ctx context.Context, agent string) string {
 	return vault.GetAgentRecord(agent).Model
 }
 
-// ResolveAgentModel is the one model rule: flag > agent's shell env > vault pin > Target.Model, spelled per provider.
-func ResolveAgentModel(ctx context.Context, a ModelAsk) (providers.Target, string) {
-	t, p := a.Target, a.Target.Provider
-	if a.Flag == "" {
-		return pinnedAgentModelContext(ctx, a.Agent, t), ""
-	}
-	if a.Applied {
-		return t, ""
-	}
-	alias := slices.Contains(models.AliasNames, a.Flag)
-	switch {
-	case p == nil && !alias:
-		t.Model = a.Flag
-	case p == nil:
-	case alias && p.Models[a.Flag] != "":
-		t.Model = p.Models[a.Flag]
-	case alias:
-		return t, fmt.Sprintf("%s has no %s model; keeping %s", p.Name, a.Flag, t.Model)
-	default: // preflight's spelling: a bare id the workspace serves runs as databricks-<id>
-		t.Model = launchWire(a.Agent, p, a.Flag)
-	}
-	return t, ""
-}
-
-// pinnedAgentModelContext is t with the agent's pin as its model, spelled for t's provider, when it has one.
-func pinnedAgentModelContext(ctx context.Context, agent string, t providers.Target) providers.Target {
+// PinnedTarget is t with the agent's pin as its model, spelled for t's provider, when it has one.
+func PinnedTarget(ctx context.Context, agent string, t providers.Target) providers.Target {
 	if pin := agentModelPinContext(ctx, agent); pin != "" {
 		if m := providers.SpellPin(t.Provider, pin); m != "" {
 			t.Model = m
@@ -554,8 +518,7 @@ func rosterPick(ctx context.Context, o router.PickOpts) (router.PickOpts, error)
 	}
 	if o.CodexModel == nil {
 		o.CodexModel = func(t providers.Target) providers.Target {
-			t, _ = ResolveAgentModel(ctx, ModelAsk{Agent: "codex", Target: t})
-			return t
+			return PinnedTarget(ctx, "codex", t)
 		}
 	}
 	return o, nil

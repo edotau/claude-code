@@ -357,13 +357,17 @@ func CheckArm(ctx context.Context, agentName, profile, provider, model string, d
 	if err != nil {
 		return fmt.Errorf("overlay databricks:%s: %w", arm, err)
 	}
-	if prof, _, typed := strings.Cut(model, ":"); typed && reg.Providers[prof] != nil && prof != arm {
-		return fmt.Errorf("--model: its profile is outside overlay databricks:%s", arm) // never echo the value: it may be the overlay's
+	spec, err := providers.SplitModelSpec(reg, model)
+	if err != nil {
+		return err
+	}
+	if spec.Row != "" && spec.Row != arm {
+		return fmt.Errorf("--model: profile %s is outside overlay databricks:%s", spec.Row, arm)
 	}
 	if agentName != "claude" { // claude has no own-cell hop; the chain's preflight validates every other agent
 		return nil
 	}
-	model = strings.TrimPrefix(model, arm+":")
+	model = spec.Model
 	if _, failed := agent.CheckModelNoted(agentName, reg.Providers[arm], model, time.Now(), nil); failed != nil {
 		return fmt.Errorf("--model: not served to %s on databricks:%s", agentName, arm)
 	}
@@ -384,13 +388,16 @@ func checkNative(ctx context.Context, native bool) error {
 	return nil
 }
 
-// isArm reports whether profile names the armed workspace, bare or as databricks:<arm> / databricks·<arm>.
+// isArm reports whether profile names the armed workspace in any spelling (dev, databricks:dev, databricks·dev)
+// or the shared pool (databricks:, auto), which resolves to a workspace inside the confinement.
 func isArm(profile, arm string) bool {
-	rest, found := strings.CutPrefix(profile, router.RouteDatabricks+":")
-	if !found {
-		rest, found = strings.CutPrefix(profile, router.RouteDatabricks+"·")
+	row := profile
+	for _, sep := range []string{":", "·"} {
+		if rest, found := strings.CutPrefix(profile, router.RouteDatabricks+sep); found {
+			row = rest
+		}
 	}
-	return profile == arm || found && rest == arm
+	return row == arm || row == "" || row == "auto"
 }
 
 // armFlags refuses --direct, a --profile other than the workspace and a --provider other than databricks.
@@ -409,7 +416,7 @@ func armFlags(arm, profile, provider string, direct bool) error {
 // confineFlags refuses a typed lead outside a non-Databricks confinement: another provider's or pinned profile's row.
 func confineFlags(ctx context.Context, profile, provider, model string) error {
 	cp, cprof := router.ConfinedContext(ctx)
-	prof, _, typed := strings.Cut(model, ":")
+	typed := strings.Contains(model, ":")
 	label := "overlay " + router.JoinCoworker(cp, cprof)
 	switch {
 	case cp == "":
@@ -426,8 +433,13 @@ func confineFlags(ctx context.Context, profile, provider, model string) error {
 	switch {
 	case outsideRow(ctx, reg, profile, cp, cprof):
 		return fmt.Errorf("--profile %s: outside %s", profile, label)
-	case typed && outsideRow(ctx, reg, prof, cp, cprof):
-		return fmt.Errorf("--model: outside %s", label)
+	}
+	spec, err := providers.SplitModelSpec(reg, model)
+	if err != nil {
+		return err
+	}
+	if outsideRow(ctx, reg, spec.Row, cp, cprof) {
+		return fmt.Errorf("--model: profile %s is outside %s", spec.Row, label)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestResolveModel(t *testing.T) {
 func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, c := range [][2]string{
-		{"claude", "prod:fable"}, {"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
+		{"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
 	} {
 		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Model: c[1], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s %s: err = %v; want ErrModelRoute", c[0], c[1], err)
@@ -64,5 +65,23 @@ func TestModelRouteOverlay(t *testing.T) {
 	r := ModelRoute{Provider: "github", Profile: "business", Model: "gpt-6-astra"}
 	if o := r.Overlay(); o.Account != "business" || o.Model != "gpt-6-astra" || r.Label() != "gpt-6-astra" {
 		t.Errorf("overlay %+v label %s", o, r.Label())
+	}
+}
+
+func TestResolveModelCodexAliasUsesRecordModel(t *testing.T) {
+	reg := routeRegistry(t)
+	for _, alias := range []string{"opus", "sonnet"} {
+		q := ModelQuery{Agent: "codex", Model: "dev:" + alias, PinModel: "databricks-gpt-6-1-sol"}
+		if r, err := ResolveModel(reg, q, time.Now()); err != nil || r.Model != "databricks-gpt-6-1-sol" {
+			t.Errorf("codex %s = %+v, %v; want databricks-gpt-6-1-sol", alias, r, err)
+		}
+	}
+}
+
+func TestResolveModelInteractiveConflict(t *testing.T) {
+	q := ModelQuery{Agent: "claude", Model: "ultra:claude-opus-5-5", Profile: "dev", Interactive: true}
+	_, err := ResolveModel(routeRegistry(t), q, time.Now())
+	if !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "--profile dev") || !strings.Contains(err.Error(), "ultra:") {
+		t.Errorf("err = %v; want a route error naming --profile dev and the ultra: prefix", err)
 	}
 }

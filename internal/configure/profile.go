@@ -33,7 +33,7 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	if err != nil {
 		return nil, err
 	}
-	return changed, providers.ClearLastProfilesFor(agents...)
+	return changed, nil
 }
 
 // ValidProfile rejects a profile some agent cannot run on, before any record is written; "" (off) always passes.
@@ -83,7 +83,7 @@ func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, prof
 	}
 }
 
-// SwitchProfile moves claude and every on agent that serves profile onto it, audits it, and forgets last-used.
+// SwitchProfile moves claude and every on agent that serves profile onto it, and audits it.
 func SwitchProfile(reg *providers.Registry, profile string) error {
 	recs, err := vault.ReadAgentRecords(agentpkg.RosterNames())
 	if err != nil {
@@ -94,7 +94,7 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 		return err
 	}
 	providers.AuditSwitch(profile)
-	return providers.ClearLastProfiles()
+	return nil
 }
 
 // profileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.

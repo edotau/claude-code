@@ -117,7 +117,6 @@ func unversioned(reason string) string { return "unversioned: " + reason }
 var writers = map[string]string{
 	"internal/codex/codex.go:codexSchemaFile":                  unversioned("foreign: codex --output-schema temp file"),
 	"internal/agent/record.go:Save":                            "dispatch-record",
-	"internal/providers/lastprofile.go:writeLastProfiles":      "last-profile",
 	"internal/agentconfig/overlay_debug.go:appendOverlayDebug": unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
 	"internal/agentconfig/overlay_debug.go:linkSalt":           unversioned("debug: the generated fingerprint salt beside the --overlay-debug file"),
 	"internal/agent/run.go:write":                              unversioned("foreign: the packed context file an agy run reads, removed after the run"),

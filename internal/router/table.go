@@ -339,8 +339,8 @@ func (t *RouteTable) AliasOf(model string) string {
 		return model
 	}
 	ids := []string{model}
-	if _, bare, _ := strings.Cut(model, ":"); bare != "" {
-		ids = append(ids, bare)
+	if spec, _ := providers.SplitModelSpec(t.reg, model); spec.Row != "" || spec.Pool {
+		ids = append(ids, spec.Model)
 	}
 	for _, id := range ids {
 		if alias := t.aliasOfCell(id); alias != "" {
@@ -356,11 +356,11 @@ func (t *RouteTable) AliasOf(model string) string {
 	return ""
 }
 
-// aliasOfCell is the alias whose table cell (any agent) runs bare, with or without a provider prefix; "" if none.
+// aliasOfCell is the alias whose table cell (any agent) runs the same model as bare in any spelling; "" if none.
 func (t *RouteTable) aliasOfCell(bare string) string {
 	for _, alias := range Aliases {
 		for _, agent := range TableAgents {
-			if m := t.Rows[agent][alias].Model; m == bare || m[strings.Index(m, "/")+1:] == bare {
+			if m := t.Rows[agent][alias].Model; models.SameModel(m, bare) {
 				return alias
 			}
 		}

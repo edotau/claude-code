@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
@@ -109,20 +108,14 @@ func brokenVault(t *testing.T) {
 	}
 }
 
-// Given persisted profiles and an unwritable cache target, when saving the seed, then regeneration is required.
-func TestSeedCacheFailureStillMarksChanged(t *testing.T) {
+// Given a chosen profile, when saving the seed, then it is persisted, reported saved, and regeneration is required.
+func TestSeedSaveMarksChanged(t *testing.T) {
 	d, out := seedDialog(t, "")
-	if err := os.MkdirAll(filepath.Join(paths.StateDir(), "last-profile.json"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if saveSeed(d, map[string]string{"codex": "chatgpt"}) {
-		t.Fatal("cache cleanup failure reported success")
+	if !saveSeed(d, map[string]string{"codex": "chatgpt"}) {
+		t.Fatalf("saveSeed failed: %s", out)
 	}
 	if vault.GetAgentRecord("codex").Profile != "chatgpt" || !d.changed {
-		t.Fatalf("persisted profile must trigger regeneration despite cache failure: changed=%v, out=%s", d.changed, out)
-	}
-	if !strings.Contains(out.String(), "seed:") {
-		t.Fatal("missing cache failure diagnostic")
+		t.Fatalf("saved seed must persist and set changed: changed=%v, out=%s", d.changed, out)
 	}
 }
 

@@ -280,8 +280,22 @@ func explicitFinding(q RouteReq, p *providers.Provider, pf *Preflight) *Finding 
 	if fs := CheckWorkspace(p, loadState(), now); len(fs) > 0 {
 		return &fs[0]
 	}
-	_, failed := CheckModelNoted(q.Agent, p, strings.TrimPrefix(q.Model, p.Name+":"), now, pf)
+	_, failed := CheckModelNoted(q.Agent, p, routedWire(q, p, now), now, pf)
 	return failed
+}
+
+// routedWire is q.Model as ResolveModel spells it on p, so preflight judges the wire id that runs, not the typed string.
+func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
+	typed := strings.TrimPrefix(q.Model, p.Name+":")
+	reg, err := providers.Load()
+	if q.Model == "" || err != nil {
+		return typed
+	}
+	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: p.Name}, now)
+	if err != nil {
+		return typed
+	}
+	return r.Model
 }
 
 // modelFinding is explicitFinding for a --model <profile>:<model> with no --profile; nil when it names no row.

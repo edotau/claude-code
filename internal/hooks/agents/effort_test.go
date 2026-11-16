@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -258,20 +255,6 @@ func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
-// A pinned agent's label names the pinned model, not the route table's cell (real labelCell, hermetic vault).
-func TestLabelCellPinnedModelBeatsRouteCell(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"probe":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
-	cell := labelCell(context.Background(), newDispatchRun(nil), "codex", "sonnet")
-	pathstest.FakeVendor(t, "codex", "exit 0") // the label is the pick: an uninstalled codex would fall through to claude
-	vaulttest.SetRecord(t, "codex", "profile", "probe")
-	vaulttest.SetRecord(t, "codex", "model", "databricks-gpt-pin")
-	got := labelCell(context.Background(), newDispatchRun(nil), "codex", "sonnet")
-	if got != "databricks-gpt-pin" {
-		t.Errorf("labelCell(codex) = %q with the pin set (unpinned cell %q), want the pinned model", got, cell)
-	}
-}
-
 // TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput: in auto mode a recall-only result must carry no
 // updatedInput (the classifier returns no verdict on a rewritten call); the recall goes to additionalContext.
 func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
@@ -290,7 +273,7 @@ func TestAgentEffortAutoModeRecallRidesContextNotUpdatedInput(t *testing.T) {
 func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 	t.Helper()
 	stubLabelModels(t, "")
-	labelCell = func(_ context.Context, _ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+	stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Agent + "-" + q.Default })
 	payload := fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"model":"sonnet","prompt":%q,"description":%q}}`,
 		subagentType, prompt, desc)
 	r := effortResult(payload)
@@ -304,9 +287,17 @@ func labelOf(t *testing.T, subagentType, prompt, desc string) string {
 // stubLabelModels makes every vendor leaf's planned model cell (route table), never a live lookup.
 func stubLabelModels(t *testing.T, cell string) {
 	t.Helper()
-	oc := labelCell
-	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(context.Context, *dispatchRun, string, string) string { return cell }
+	stubResolve(t, func(agentpkg.ModelQuery) string { return cell })
+}
+
+// stubResolve replaces the resolver with f's model for each query; the registry still loads from the test vault.
+func stubResolve(t *testing.T, f func(agentpkg.ModelQuery) string) {
+	t.Helper()
+	orig := resolveModel
+	t.Cleanup(func() { resolveModel = orig })
+	resolveModel = func(_ *providers.Registry, q agentpkg.ModelQuery, _ time.Time) (agentpkg.ModelRoute, error) {
+		return agentpkg.ModelRoute{Model: f(q)}, nil
+	}
 }
 
 func TestDispatchAgentLabels(t *testing.T) {
@@ -508,68 +499,6 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 
 const armDevOverlay = `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`
 
-// TestArmLabelIsPick: armed or not, the label is the no-run pick's first model sans profile prefix, not the table's.
-func TestArmLabelIsPick(t *testing.T) {
-	for _, armed := range []bool{true, false} {
-		t.Run(fmt.Sprint("armed=", armed), func(t *testing.T) {
-			vaulttest.Use(t)
-			vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-			vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
-			pathstest.FakeVendor(t, "codex", "exit 0")
-			if armed {
-				vaulttest.SetRecord(t, "codex", "profile", "dev")
-				t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
-			}
-			_, res, err := agentpkg.Resolve(context.Background(), agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Fallback: router.FallbackAll, Preview: true})
-			if err != nil || len(res.Candidates) == 0 {
-				t.Fatalf("preview = %+v, %v; want a candidate (skipped %+v)", res.Candidates, err, res.Skipped)
-			}
-			first := res.Candidates[0]
-			want := strings.TrimPrefix(first.Model, first.Profile+":")
-			pins, _ := agentpkg.AgentPinsContext(context.Background())
-			if predicted := tableCellModel(newDispatchRun(nil), "codex", "sonnet", pins["codex"]); armed == (want == first.Model) || !armed && want == predicted {
-				t.Fatalf("fixture: pick %q (profile %q), prediction %q; want a prefixed pick armed, a pick unlike the prediction unarmed", first.Model, first.Profile, predicted)
-			}
-			if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got != want {
-				t.Errorf("label = %q, want the first candidate %s on %s: %q", got, first.Agent, first.Account, want)
-			}
-		})
-	}
-}
-
-// Under a non-Databricks confinement the label is the confined pick, never the pinned databricks row's model.
-func TestLabelCellConfinedProviderLabelsConfinedPick(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay) // openai·chatgpt is a built-in row: codex's own login
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
-	vaulttest.SetRecord(t, "codex", "profile", "dev")
-	pathstest.FakeVendor(t, "codex", "exit 0")
-	t.Setenv(agentconfig.OverlayVar, "")
-	unconfined := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet")
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"openai"}`)
-	q := agentpkg.RouteReq{Agent: "codex", Model: "sonnet", Provider: "openai", Fallback: router.FallbackAll, Preview: true}
-	_, res, err := agentpkg.Resolve(context.Background(), q) // what `ask --provider openai` runs
-	if err != nil || len(res.Candidates) == 0 || !strings.HasPrefix(res.Candidates[0].Account, "openai·") {
-		t.Fatalf("fixture: openai preview = %+v, %v; want an openai candidate first", res.Candidates, err)
-	}
-	want := res.Candidates[0].Model
-	if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got != want || got == unconfined {
-		t.Errorf("label under openai = %q (unconfined %q), want the confined pick %q", got, unconfined, want)
-	}
-}
-
-// A pick with nothing runnable labels with the table prediction, never an empty prefix.
-func TestLabelWithoutPickIsPrediction(t *testing.T) {
-	vaulttest.Use(t)
-	orig := labelPick
-	labelPick = func(context.Context, string, string) string { return "" }
-	t.Cleanup(func() { labelPick = orig })
-	want := tableCellModel(newDispatchRun(nil), "codex", "sonnet", router.PinSpec{})
-	if got := cellModelFor(context.Background(), newDispatchRun(nil), "codex", "sonnet"); got == "" || got != want {
-		t.Errorf("label = %q with no pick, want the table prediction %q", got, want)
-	}
-}
-
 // A label is side-effect free: a discovery pin must not advance the rotation in quota.json.
 func TestLabelWritesNoQuotaState(t *testing.T) {
 	vaulttest.Use(t)
@@ -579,7 +508,7 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value") // with copilot installed, the pick reaches the rotation
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	before, _ := os.ReadFile(router.StatePath())
-	cellModelFor(context.Background(), newDispatchRun(nil), "copilot", "sonnet")
+	labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "copilot", "review the diff")
 	after, _ := os.ReadFile(router.StatePath())
 	if !bytes.Equal(before, after) {
 		t.Errorf("quota.json changed by a label: %q -> %q", before, after)
@@ -632,7 +561,7 @@ func TestDispatchLabelInventory(t *testing.T) {
 		for _, src := range []string{"explicit", "file", "none"} {
 			cfg := useAgentsDir(t, "claude", "codex", "copilot", "gemini", "opencode", "Plan")
 			stubLabelModels(t, "")
-			labelCell = func(_ context.Context, _ *dispatchRun, agent, alias string) string { return agent + "-" + alias }
+			stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Agent + "-" + q.Default })
 			model := map[string]string{"explicit": "opus", "file": "haiku"}[src]
 			if src == "file" {
 				writeAgentFile(t, cfg, st+":haiku")
@@ -768,61 +697,6 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	}
 }
 
-// Concurrent picks under different confinements each see only their own overlay, and the process env never moves.
-func TestCoworkerPickIsolatesConfinementsInContext(t *testing.T) {
-	oc := labelCell
-	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(ctx context.Context, _ *dispatchRun, _, _ string) string {
-		before := proc.Value(ctx, agentconfig.OverlayVar)
-		runtime.Gosched()
-		if proc.Value(ctx, agentconfig.OverlayVar) != before {
-			return "torn"
-		}
-		return before
-	}
-	env := os.Environ()
-	shared := proc.WithValues(context.Background(), proc.Values{"RUN_MARK": "shared"})
-	profiles := []string{"dev", "qa"}
-	got := make([]string, 40)
-	var wg sync.WaitGroup
-	for i := range got {
-		wg.Go(func() {
-			got[i] = coworkerPick(shared, newDispatchRun(nil), "databricks:"+profiles[i%2], "claude", "sonnet")
-		})
-	}
-	wg.Wait()
-	for i, g := range got {
-		if want := agentconfig.InlineOverlay("databricks", profiles[i%2]); g != want {
-			t.Fatalf("pick %d saw overlay %q, want %q", i, g, want)
-		}
-	}
-	if after := os.Environ(); strings.Join(after, "\x00") != strings.Join(env, "\x00") {
-		t.Fatalf("process env changed across the picks: %d entries before, %d after", len(env), len(after))
-	}
-}
-
-// A pick lays its confinement over the caller's run values (else the process env) in the ctx its label reads.
-func TestCoworkerPickLaysConfinementOverRunValues(t *testing.T) {
-	var got proc.Values
-	oc := labelCell
-	t.Cleanup(func() { labelCell = oc })
-	labelCell = func(ctx context.Context, _ *dispatchRun, _, _ string) string {
-		got, _ = proc.ValuesFromContext(ctx)
-		return ""
-	}
-	t.Setenv("RUN_MARK", "ambient")
-	run := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: "outer", "RUN_MARK": "caller"})
-	for name, tc := range map[string]struct {
-		ctx  context.Context
-		mark string
-	}{"caller values": {run, "caller"}, "process env": {context.Background(), "ambient"}} {
-		coworkerPick(tc.ctx, newDispatchRun(nil), "databricks:dev", "claude", "sonnet")
-		if got[agentconfig.OverlayVar] != agentconfig.InlineOverlay("databricks", "dev") || got[providers.EnvSessionProfile] != "dev" || got["RUN_MARK"] != tc.mark {
-			t.Errorf("%s: pick ctx = %v, want the dev confinement over RUN_MARK=%s", name, got, tc.mark)
-		}
-	}
-}
-
 // A second auto-mode dispatch in one session must not repeat pointers the first recall note already gave.
 func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 	effortHome(t)
@@ -841,6 +715,7 @@ func TestAgentEffortRecallNoteSkipsPointersAlreadyGiven(t *testing.T) {
 }
 
 func TestDispatchRunReceiptGrammar(t *testing.T) {
+	stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Model }) // grammar under test, not the route of "pinned"
 	for _, prefix := range []string{"", "FLAG=1 ", "timeout 30 ", "nohup ", "env FLAG=1 ", "time command ", "env FLAG=1 timeout 30 "} {
 		for _, cli := range []string{"claude-code", "/opt/bin/claude-code"} {
 			for _, verb := range []string{"agents ask --agent codex", "codex ask", "copilot ask", "gemini ask", "opencode ask"} {
@@ -910,44 +785,32 @@ func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	}
 }
 
-func TestLabelModelProfileAliasUsesAgentTier(t *testing.T) {
+// A Run: line's flags reach the resolver whole: agent, typed model, --profile and --fallback.
+func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(agentconfig.OverlayVar, "")
-	orig := labelPick
-	t.Cleanup(func() { labelPick = orig })
-	labelPick = func(ctx context.Context, agent, alias string) string {
-		flags, _ := ctx.Value(askFlagsKey{}).(askFlags)
-		if agent != "codex" || alias != "sonnet" || flags.profile != "dev" || flags.fallback != router.FallbackNone {
-			t.Fatalf("preview arguments = %s/%s/%+v", agent, alias, flags)
-		}
-		return "databricks-gpt-6-1-sol"
+	var seen agentpkg.ModelQuery
+	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
+	task := "Run: claude-code agents ask --agent codex --profile dev --model sonnet --fallback none 'do x'"
+	if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "wire-id" {
+		t.Errorf("label = %q, want the resolver's wire id", got)
 	}
-	for _, flags := range []string{"--profile dev --model sonnet", "--model dev:sonnet"} {
-		task := "Run: claude-code agents ask --agent codex " + flags + " --fallback none 'do x'"
-		got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
-		if got != "databricks-gpt-6-1-sol" {
-			t.Errorf("label for %q = %q, want databricks-gpt-6-1-sol", flags, got)
-		}
+	if seen.Agent != "codex" || seen.Model != "sonnet" || seen.Profile != "dev" || seen.Fallback != router.FallbackNone {
+		t.Errorf("query = %+v, want codex/sonnet/dev/none", seen)
 	}
 }
 
-// A dispatch's exact --model is labeled as a real ask runs it: a typed row is cut, an external agent's preview gets it whole.
+// A dispatch's exact --model reaches the resolver as typed, with no default tier.
 func TestLabelModelExactDispatchModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(agentconfig.OverlayVar, "")
-	orig := labelPick
-	t.Cleanup(func() { labelPick = orig })
-	labelPick = func(_ context.Context, agent, model string) string { return "databricks-" + model }
-	for _, c := range []struct{ st, model, want string }{
-		{"claude", "dev:claude-opus-5", "databricks-claude-opus-5"},
-		{"codex", "gpt-6-sol", "databricks-gpt-6-sol"},
-	} {
-		got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{"model": c.model}, c.st, "")
-		if got != c.want {
-			t.Errorf("label for %s --model %s = %q, want %q", c.st, c.model, got, c.want)
-		}
+	var seen agentpkg.ModelQuery
+	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
+	labelModel(context.Background(), newDispatchRun(nil), map[string]any{"model": "gpt-6-sol"}, "codex", "")
+	if seen.Agent != "codex" || seen.Model != "gpt-6-sol" || seen.Default != "" {
+		t.Errorf("query = %+v, want codex/gpt-6-sol with no default", seen)
 	}
 }
 
@@ -965,34 +828,5 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 		if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-"+model {
 			t.Errorf("label for %s = %q, want databricks-%s", model, got, model)
 		}
-	}
-}
-
-// The label's no-run pick honours the line's --profile and --fallback, as ask's own routing does.
-func TestLabelPickFollowsAskLineFlags(t *testing.T) {
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
-	pathstest.FakeVendor(t, "codex", "exit 0")
-	t.Setenv(agentconfig.OverlayVar, "")
-	t.Setenv(router.EnvFallback, "")
-	if free := previewModel(context.Background(), "codex", "sonnet"); free == "" {
-		t.Fatal("fixture: the unflagged codex pick is empty, want a fallback candidate")
-	}
-	pinned := withAskFlags(context.Background(), "dev", router.FallbackNone)
-	if got := previewModel(pinned, "codex", "sonnet"); got != "" {
-		t.Errorf("pick under --profile dev --fallback none = %q, want none (ask would refuse, not fall back)", got)
-	}
-	var seen askFlags
-	orig := labelPick
-	labelPick = func(ctx context.Context, _, _ string) string {
-		seen, _ = ctx.Value(askFlagsKey{}).(askFlags)
-		return "m"
-	}
-	t.Cleanup(func() { labelPick = orig })
-	task := "Run: claude-code agents ask --agent codex --profile dev --fallback none 'do x'"
-	labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
-	if seen != (askFlags{"dev", "none"}) {
-		t.Errorf("labelModel passed flags %+v to the pick, want {dev none}", seen)
 	}
 }
