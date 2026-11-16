@@ -7,8 +7,8 @@ argument-hint: "[focus on <area>] [paths…|--base <ref>]"
 # Simplify
 
 Review what changed, then apply only the fixes you can prove safe. Replaces the built-in `/simplify` (stock
-behavior: [builtin-behavior.md](references/builtin-behavior.md)); the gate is `rules/standards/quality.md` →
-Simplify, the source of truth. Never commit; the caller decides.
+behavior: [builtin-behavior.md](references/builtin-behavior.md)); its apply-gate is the Gate section below
+(`rules/standards/quality.md` → Simplify points here). Never commit; the caller decides.
 
 ## Phase 1 - Scope
 
@@ -31,7 +31,7 @@ that makes it safe`. No stated assumption = a flag, not a fix.
 
 ## Phase 3 - Apply
 
-Merge duplicate findings, then apply the safe ones, gated by `rules/standards/quality.md` → Simplify, items 1–7.
+Merge duplicate findings, then apply the safe ones, gated by the Gate section below.
 Edit in place and minimally: every changed line traces to a finding; no drive-by formatting or renames.
 Re-run lint, scoped tests and the live check; on a regression revert your edit by hand (never
 `git checkout`/`restore`/`stash` in the shared checkout) and downgrade it to a flag.
@@ -42,7 +42,20 @@ Per touched function: Δ lines and Δ complexity (before → after). Then:
 
 - **Applied**: `file:line`, what changed, the assumption.
 - **Flagged**: not applied, and why (no covering test, unprovable assumption, owner decision).
-- **Bugs reported**: `file:line`, symptom, suggested `/code-review` follow-up. Not fixed.
+- **Bugs found**: `file:line`, symptom; fixed right away (CLAUDE.md guideline 3), or a fix leaf dispatched.
 - **Skipped**: reviewed and left alone on purpose (e.g. gotcha comment kept), with why.
 
 State which gate steps ran (lint, scoped tests, live check) and which did not.
+
+## Gate
+
+1. **Name the assumption before each cut** ("unreachable because ___"); can't finish the sentence → flag, don't cut.
+2. **Never cut** semantic or gotcha comments, distinct test scenarios, error context (`%w`, messages), or a guard
+   whose impossible state you can't prove.
+3. **No covering test → flag, don't cut.** The scoped tests and live check pass before AND after.
+4. **Reuse first**: grep the call sequence, sibling files and `git log -S`; compare a near-duplicate with its original
+   for behavior the copy lost (isolation, error handling), then consolidate at the source (say so).
+5. **Altitude**: fix the root cause, not one more special case.
+6. **Thresholds**: `quality.md` checklist (functions < 50 lines, nesting ≤ 4) and `review-simplicity` complexity > 10;
+   input `claude-code review simplify`. Under ~100 changed lines one in-context pass replaces the fan-out.
+7. **Report numbers**: Δ lines and Δ complexity per touched function, plus what was skipped and why.

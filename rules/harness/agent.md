@@ -10,139 +10,118 @@ paths:
 ## Config writes
 
 - Agent CLI configs are merged, never replaced (`~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
-  Codex/Copilot hooks). Keys are referenced by env var and exported only by a routed launch.
+  Codex/Copilot hooks); keys are referenced by env var and exported only by a routed launch. Each overwrite keeps 5
+  timestamped backups; `configure --revert [--agent a]` steps back one.
 - opencode's `~/.config/opencode/` gets only the theme file and `agents sync`'s agent files; model/MCP/theme config
   come from a tracked overlay injected at launch (`OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
   `internal/agentconfig/template/`).
-- Each agent-config overwrite keeps 5 timestamped backups; `configure --revert [--agent a]` steps back one version.
-- Codex pins live in the vault codex agent record (legacy `codex-settings` overlay read until migrated) and apply
-  to `$CODEX_HOME/config.toml`; its snapshots and baseline are vault-encrypted (`settings_backups`, rotated with
-  the key, excluded from exports), last 5 kept. Provider config, hook trust and unknown native keys are preserved;
-  an unavailable vault key aborts changed writes.
-- Hook commands rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix counts as
-  harness-owned on re-render.
+- Codex pins live in the vault codex agent record and apply to `$CODEX_HOME/config.toml`; snapshots and baseline are
+  vault-encrypted (`settings_backups`, last 5, excluded from exports). Provider config, hook trust and unknown native
+  keys are preserved; an unavailable vault key aborts changed writes.
+- Hooks rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix is harness-owned on
+  re-render.
 
 ## Dispatch behavior
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
-  `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation flags: `--no-persist` (claude, codex), `--safe-mode`
-  (claude, codex, opencode), `--debug-file <path>` (claude, gemini). Without `--tools`, claude and opencode launch no
-  tools, copilot's SDK rejects every request, gemini is only instructed not to use them, and codex keeps a read-only
-  sandbox shell. `--no-tools` is claude only: the others exit 2.
-  `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run; every other
-  Bash call and all Write/Edit stay denied; an `--allow` adds but never reopens a deny; codex and gemini refuse
-  `--tools` with `--mode plan`; claude `--tools` off Anthropic is a gated allow list, not approve-all. Per-agent
-  enforcement, the vetted command list and the claude allow list:
+  `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
+  codex, opencode), `--debug-file <path>` (claude, gemini).
+- Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
+  instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
+  `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
+  Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with `--mode plan`;
+  claude `--tools` off Anthropic is a gated allow list. Detail:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
-- `agents ask --agents <json|file>` defines agents inline: `name`, `description`, `prompt`, `tools`, `model`,
-  `max_turns`, `agent`, `profile`, `effort`. `--agent` also takes an `--agents` key, and a definition's `model` applies
-  on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
-  retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
-- `agents ask --overlay <value>` / `gateway --overlay <value>` / `COWORKER_OVERLAY`: ONE keyed JSON document (`schema`
-  1; keys in the table below)
-  given as a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-`; an unknown key
-  or bad value exits 2. A dispatch never writes it to its own env: it rides the run's context. Precedence: typed flag >
-  `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent
-  pin > table default; profile and fallback order: `providers.md` → Routing precedence.
-  Nested dispatches inherit only the
-  confinement (`provider`/`profile`); `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and
-  credential env names are refused (use `--profile`). Provider/agent compatibility, relaunch, `--retry`, interactive
-  and `--env` rules: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay.
+- `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
+  `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
+  takes the same selector; `--host` with `--agents` exits 2.
+- **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
+  (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags and
+  prefixes normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
+  never the dispatch's env. Precedence: typed flag > `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record >
+  process env > vault env > agent definition > agent pin > table default (profile and fallback order:
+  `providers.md` → Routing precedence). Nested dispatches inherit only `provider`/`profile`; `--host` refuses a
+  non-empty env layer; endpoint, proxy, TLS, agent-config and credential env names are refused (use `--profile`).
+  Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md` → Overlay.
 
   | Key | Values | Overrides |
   | --- | --- | --- |
-  | `schema` | `1` | document version |
   | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
-  | `fallback` | `none\|pin\|agents\|all` (`1`/`true`/`yes` = `all`) | `--fallback`, `AGENT_ERROR_FALLBACK` |
+  | `fallback` | `none\|pin\|agents\|all` | `--fallback`, `AGENT_ERROR_FALLBACK` |
   | `host` / `remote` | ssh host (not both) | `--host`, remote run |
-  | `account` | copilot GitHub account (its GitHub username) | the credit gate's account pick |
+  | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
-  Flags and prefixes are normalised into this one document; an unknown key exits 2 naming it and the valid keys.
-- `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
+- `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
-  (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. A model with no openai route is
-  left out of the chat list with a note.
-- **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router — use codex or copilot.
-- **copilot** follows the session profile (then its pin) through the proxy
-  (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
-  credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the copilot record's
-  GitHub profile's verified credits are < 95%, else it falls back to the Databricks profile (never the other GitHub
-  account).
-  Usage rows read `databricks/<model>` vs `github·copilot/<model>`. Prompt cap = window − 32k − 10%
+  (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
+  list with a note.
+- **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router: use codex or copilot.
+- **copilot** follows the session profile (then its pin) through the proxy (`/p/<profile>`, BYOK,
+  `COPILOT_OFFLINE=true`, no credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only
+  while the copilot record's GitHub profile (named by its account login, e.g. `aueric_boehcp`; the built-in no-login
+  row is `copilot`) has verified credits < 95%, else it falls back to the Databricks profile, never the other GitHub
+  account. Usage rows read `databricks/<model>` vs `github·copilot/<model>`; prompt cap = window − 32k − 10%
   (`models.PromptTokens`).
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
-  `COPILOT_HOME` (`state/copilot/registry-home`); the proxy takes a session token, so no secret sits on disk. An
-  unregistered model fails closed; `--direct` keeps the single-model route; macOS skips the registry (Keychain
-  GitHub login still readable).
-  `ask --agent copilot` uses the same registry via the SDK.
-- **gemini** runs on `agy`: its Google sign-in by default, a named Databricks profile (`--profile dev|qa|prod`) through
+  `COPILOT_HOME` (`state/copilot/registry-home`); an unregistered model fails closed, `--direct` keeps the single-model
+  route, macOS skips the registry. `ask --agent copilot` uses the same registry via the SDK.
+- **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
-
-- **Permission check.** `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through
-  each agent's real launch policy per tier (no flag, `--tools`, `--read-only`), with no model call; exit 1 on a missed
-  expectation. Cells only a vendor runtime judges (claude on Anthropic, codex's sandbox) are listed apart, uncounted.
+- `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through each agent's real
+  launch policy per tier (no flag, `--tools`, `--read-only`) with no model call; exit 1 on a missed expectation. Cells
+  only a vendor runtime judges are listed apart, uncounted.
 
 ## Skills and instructions parity
 
-- **Skills.** `agents sync` links `skills/<name>/SKILL.md` (symlinked dirs resolving inside `skills/` included) into
-  `~/.agents/skills`, plus copilot's `~/.copilot/skills` and agy's `~/.gemini/antigravity-cli/skills`, which do not
-  read the shared dir (`internal/agentconfig/project/targets.go`). **`skills/synced/**` (claude.ai account skills)
-  gets no link**, but opencode reads `~/.claude/skills` natively and loads it (duplicate names load once);
-  `discover.go` skips it and `skills.go` never prunes a link into it — a link made before the
-  exclusion (e.g. `~/.copilot/skills/synced`) stays visible to that agent; sync prints it as `EXTRA`.
+- **Skills.** `agents sync` links `skills/<name>/SKILL.md` into `~/.agents/skills`, plus copilot's `~/.copilot/skills`
+  and agy's `~/.gemini/antigravity-cli/skills` (`internal/agentconfig/project/targets.go`). `skills/synced/**` gets no
+  link (opencode reads `~/.claude/skills` natively); sync never prunes a link into it and prints a stale one as `EXTRA`.
 - **Portable core.** `CLAUDE.md` (else `AGENTS.md`, `.copilot/copilot-instructions.md`,
-  `.github/copilot-instructions.md`: first present)
-  plus unscoped `rules/standards/*.md` (no `paths:` frontmatter), listed by
-  `project.PortableCore`; headless and interactive runs load the same core. Where each agent reads it:
+  `.github/copilot-instructions.md`: first present) plus unscoped `rules/standards/*.md`, listed by
+  `project.PortableCore`; headless and interactive runs load the same core.
 
 | Agent | Reads the core from | Probe |
 | --- | --- | --- |
 | codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/targets.go` `docs:` |
 | gemini (agy) | `~/.gemini/GEMINI.md` (rendered by sync) | same |
-| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | `project/targets.go` (copilot `docs:`) |
+| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | `project/targets.go` |
 | copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
-| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` (opencode: no `docs:`) |
+| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` |
 
-- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs through the SDK:
-  per-call `Decide` on the dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK
-  session loads too (live, 1.0.105), so no SDK callbacks are registered (they would run each guard twice).
-- **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`
-  (no fallback to the real install); real vault pins still route.
-- **Deny and D3.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode Ask =
-  `--auto`; claude on Anthropic uses its auto judge). Elsewhere: gemini renders Ask as Allow, copilot's SDK handler
-  approves it, and claude off Anthropic turns it into Deny. A Deny an
-  agent cannot enforce refuses the dispatch with `retry.Error{Kind: retry.KindFatal}` naming the rule. `--tools`
-  approves and `--workdir` is no write boundary (D1-D6): only claude `--tools` off Anthropic denies an Edit outside
-  it (`--allow 'Edit(<path>)'` reopens one); scope the others with `--deny`. opencode
-  `--read-only` keeps read tools and the vetted shell list on, denies other `Bash`, `Write` and `Edit`, and runs
-  without `--auto`; opencode `--safe-mode` refuses any bound tool gate, not only a Bash deny.
+- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` runs per-call `Decide` on the
+  dispatch's permissions; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK
+  callbacks are registered (each guard would run twice).
+- **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
+  real vault pins still route.
+- **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
+  claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
+  it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
+  `--workdir` is no write boundary: only claude `--tools` off Anthropic denies an Edit outside it (`--allow
+  'Edit(<path>)'` reopens one); scope the others with `--deny`. opencode `--read-only` runs without `--auto`;
+  opencode `--safe-mode` refuses any bound tool gate.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
-  runs it from the harness plugin's `tool.execute.before` (headless and TUI; refused only under `--safe-mode`, which
-  loads no plugin), codex and agy as a native PreToolUse hook (agy also runs `safety-scan` on `run_command`, where an
-  ask blocks). Hook modes: `hooks.md` → Applicability. A live codex or
-  agy home picks up the hooks only after the owner runs `configure --restore --agents --agent codex` (or `gemini`),
-  which re-renders only that agent's config; until then those agents keep refusing a Bash deny.
+  runs it from the plugin's `tool.execute.before` (refused under `--safe-mode`, which loads no plugin), codex and agy
+  as a native hook (agy also runs `safety-scan` on `run_command`). Modes: `hooks.md` → Applicability. A live codex or
+  agy home gets the hooks only after the owner runs `configure --restore --agents --agent codex|gemini`; until then
+  those agents refuse a Bash deny.
 - **Memory jobs (claude, gated).** `memory update`/`dream`/catch-up run claude with `RunOptions.Gate`:
   `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
-  limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and the `permission-gate` hook merged into the launch's one
-  `--settings` (`exit 2` on any failure). Policy: plan mode, Edit/Write allowed under the job's bank dirs (dream: the
-  memory root and `CLAUDE.md`), Bash only dream's `claude-code memory timeline|review|index|promote` plus `cd` into a
-  bank directory; file redirects are refused, `2>&1` is not; no policy, binary
-  or policy env refuses the launch. A dream whose gate refused calls and
-  edited no changed bank file fails and retries in 6 h instead of stamping success.
+  limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and `permission-gate` merged into the launch's one
+  `--settings` (never `settings.json`; `exit 2` on any failure). Policy: plan mode, Edit/Write under the job's bank
+  dirs, Bash only dream's `claude-code memory timeline|review|index|promote` plus `cd` into a bank; file redirects are
+  refused, `2>&1` is not; no policy, binary or policy env refuses the launch. A dream whose gate refused calls and
+  edited nothing fails and retries in 6 h instead of stamping success.
 
 ## Codex child routing
 
-- Native `spawn_agent` children use the Codex routing cells on a Databricks profile with a validated catalog — only
-  explicitly fresh children (`fork_turns="none"` or `fork_context=false`) with no model/effort pin or custom type.
-  The child keeps its provider; the model must support Responses and be in the session catalog.
-- A codex record `model` or `effort` disables child routing for the whole session (clear the effort in
-  `claude-code configure codex`).
-- Codex-only hooks log starts, decisions, spawn results and child models to
-  `state/harness/codex/routing-<session-hash>.jsonl` (0600, no prompts). A decision is verified only when the spawn
-  result's agent ID joins a child-start event; otherwise `matches_router_decision` stays `null`.
+- Native `spawn_agent` children use the Codex routing cells on a Databricks profile with a validated catalog, only when
+  explicitly fresh (`fork_turns="none"` or `fork_context=false`) with no model/effort pin or custom type; the model
+  must support Responses and be in the session catalog. A codex record `model` or `effort` disables child routing for
+  the session (clear it in `claude-code configure codex`).
+- Codex-only hooks log to `state/harness/codex/routing-<session-hash>.jsonl` (0600, no prompts); a decision is verified
+  only when the spawn result's agent ID joins a child-start event, else `matches_router_decision` stays `null`.
 - `doctor` inspects Codex machine and `CODEX_HOME` config by metadata only: policy presence leaves the route unverified.
