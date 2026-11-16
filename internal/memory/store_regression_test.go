@@ -80,14 +80,14 @@ func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 		_, _ = f.WriteString(body[:len(body)/2])
 		return errors.New("file too large")
 	}
-	if err := createExcl(path, "partial scaffold\n"); err == nil {
+	if err := createExcl(path, "partial scaffold\n", 0o600); err == nil {
 		t.Fatal("expected a partial-write error")
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("failed fallback left a partial file: %v", err)
 	}
 	writeBody = orig
-	if err := createExcl(path, "retry\n"); err != nil {
+	if err := createExcl(path, "retry\n", 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := aliasRead(t, path); got != "retry\n" {

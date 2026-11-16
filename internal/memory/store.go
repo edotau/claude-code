@@ -78,12 +78,12 @@ func seedFile(p, body string) error {
 	if err == nil || errors.Is(err, fs.ErrExist) {
 		return nil
 	}
-	return createExcl(p, body) // no hard links here (FUSE, network mounts)
+	return createExcl(p, body, 0o600) // no hard links here (FUSE, network mounts)
 }
 
-// createExcl writes body to a new p, never replacing a racing writer's file.
-func createExcl(p, body string) error {
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+// createExcl writes body to a new p, never replacing an existing or racing writer's file.
+func createExcl(p, body string, mode os.FileMode) error {
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if errors.Is(err, fs.ErrExist) {
 		return nil
 	}
@@ -368,24 +368,11 @@ func nativeLinkTarget(link string) string {
 // nativeLinkTargets uses recorded paths because project slugs cannot be decoded unambiguously.
 func nativeLinkTargets(root string) map[string]string {
 	targets := map[string]string{}
-	add := func(cwd, target string) {
-		if cwd == "" || target == "" {
-			return
+	home, _ := os.UserHomeDir()
+	for _, cwd := range []string{root, paths.ConfigDir(), StoreDir(), home} {
+		if cwd != "" {
+			targets[paths.ProjectSlug(cwd)] = StoreDir()
 		}
-		slug := paths.ProjectSlug(cwd)
-		if prior, ok := targets[slug]; ok && prior != target {
-			targets[slug] = ""
-			return
-		}
-		targets[slug] = target
-	}
-	if root != "" {
-		add(root, StoreDir())
-	}
-	add(paths.ConfigDir(), Bank{Key: harnessStoreKey()}.SubDir(""))
-	add(StoreDir(), HomeBank().SubDir(""))
-	if home, err := os.UserHomeDir(); err == nil {
-		add(home, HomeBank().SubDir(""))
 	}
 	return targets
 }
