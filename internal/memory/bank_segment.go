@@ -494,9 +494,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	return hits
 }
 
-// routedFiles are the bank and topic files of every named repo, other than root's own store.
-func routedFiles(root, query string) []corpusFile { return routedFilesOf(BankFor(root), query) }
-
+// routedFilesOf is the bank and topic files of every repo query names, other than own's store.
 func routedFilesOf(own Bank, query string) []corpusFile {
 	var out []corpusFile
 	for _, b := range routedBanks(query) {

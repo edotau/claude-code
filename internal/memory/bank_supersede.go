@@ -505,9 +505,7 @@ func reviseDir(b Bank, texts map[string]string) error {
 	return writeDirtyDocs(docs)
 }
 
-// reviseProblems lists dangling and cyclic `Supersedes` references in root's banks, for `memory review`.
-func reviseProblems(root string) []string { return reviseBankProblems(BankFor(root)) }
-
+// reviseBankProblems lists dangling and cyclic `Supersedes` references in own's banks, for `memory review`.
 func reviseBankProblems(own Bank) []string {
 	var out []string
 	for _, b := range bankSet(own) {

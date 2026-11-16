@@ -55,14 +55,6 @@ func statBank(b Bank) bankStat {
 // DefaultStaleDays is the doctor's bank-staleness horizon.
 const DefaultStaleDays = 90
 
-// stateKey names b in per-bank state files; the home bank is "home" as it was on the legacy layout.
-func stateKey(b Bank) string {
-	if b.Home() {
-		return "home"
-	}
-	return b.Key
-}
-
 // doctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func doctorNoticePath(root string) string {
 	return filepath.Join(StateDir(), "doctor-notice-"+stateKey(BankFor(root)))
@@ -281,11 +273,7 @@ type timelineEntry struct {
 	Line string
 }
 
-// timeline returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings, local then home.
-func timeline(root string, limit int) ([]timelineEntry, []string, error) {
-	return timelineBank(BankFor(root), limit)
-}
-
+// timelineBank returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings, b then home.
 func timelineBank(b Bank, limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r

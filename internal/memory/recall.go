@@ -156,16 +156,6 @@ func PromptRecall(ctx context.Context, sessionID, cwd, prompt string, warn io.Wr
 	return context
 }
 
-// searchBanks ranks every block of root's local, home and archive banks plus native topics; top k (0 = all).
-func searchBanks(root, query string, k int) []SearchHit {
-	ranked, _, _ := searchBanksTerms(root, query, contentTerms(query), k)
-	return ranked
-}
-
-func searchBanksTerms(root, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
-	return searchBankTerms(BankFor(root), query, terms, k)
-}
-
 func searchBankTerms(b Bank, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
 	corpus := corpusOf(b)
 	files := append(corpus, routedFilesOf(b, query)...)

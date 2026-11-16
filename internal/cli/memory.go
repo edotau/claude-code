@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -445,7 +446,7 @@ func printReportPaths(out []string, format string) int {
 func cmdMemoryFmt(args []string) int {
 	fs := memoryFlagSet("fmt")
 	check := fs.Bool("check", false, "report would-change files; write nothing")
-	own := fs.Bool("own", false, "wrap only this repo's and the home bank")
+	own := fs.Bool("own", false, "wrap only the harness and home banks; run from the live config dir")
 	if code, done := memoryParseNoArgs(fs, "fmt", args); done {
 		return code
 	}
@@ -455,6 +456,9 @@ func cmdMemoryFmt(args []string) int {
 		return helptext.FailUsage("memory fmt: --check and --own cannot combine")
 	}
 	if *own {
+		if cwd, _ := os.Getwd(); !paths.SamePath(cwd, paths.ConfigDir()) {
+			return helptext.Fail("memory fmt --own: %s is not the live config dir (%s)", cwd, paths.ConfigDir())
+		}
 		if err = memory.FormatOwn(os.Stdout); err != nil {
 			return helptext.Fail("memory fmt: %v", err)
 		}

@@ -145,14 +145,15 @@ func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, 
 	if b.Home() {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
-	var file, block, src string
+	if dryRun {
+		return promoteDryRun(b, id)
+	}
+	var file string
 	moveErr := withFlatLock(BankLockWait, func() error {
+		var block, src string
 		var err error
 		if file, block, src, err = findBlock(b, id); err != nil {
 			return err
-		}
-		if dryRun {
-			return nil
 		}
 		_, _, homeErr := extractBlock(home, id)
 		if homeErr != nil && !errors.Is(homeErr, errNoBlock) {
@@ -180,11 +181,19 @@ func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, 
 	if moveErr != nil {
 		return "", moveErr
 	}
-	homePath := home.Path(file)
-	if dryRun {
-		return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, homePath, block), nil
+	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, home.Path(file)), nil
+}
+
+// promoteDryRun previews the move read-only: no bank lock, no layout stamp.
+func promoteDryRun(b Bank, id string) (string, error) {
+	if err := checkFlat(); err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("promoted [%s] local -> home (%s)\n", id, homePath), nil
+	file, block, src, err := findBlock(b, id)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("would move [%s] %s -> %s\n\n%s\n", id, src, HomeBank().Path(file), block), nil
 }
 
 // promoteJudgment prints id with its target and procedure; `claude-md` only prints inside a dream run (isDreamChild).

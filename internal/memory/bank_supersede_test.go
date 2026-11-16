@@ -55,7 +55,7 @@ func assertRecallFollows(t *testing.T, root string) {
 	if len(picks) != 1 || picks[0].Entry.ID != "b0000002" {
 		t.Fatalf("recall = %+v; want only the replacing entry b0000002", picks)
 	}
-	if p := reviseProblems(root); len(p) != 2 || !strings.Contains(strings.Join(p, "\n"), "deadbeef") {
+	if p := reviseBankProblems(BankFor(root)); len(p) != 2 || !strings.Contains(strings.Join(p, "\n"), "deadbeef") {
 		t.Fatalf("review problems = %q; want the dangling id and the cycle", p)
 	}
 }

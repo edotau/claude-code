@@ -289,13 +289,13 @@ func TestKnowledgeNotesAndCatalog(t *testing.T) {
 		write(t, b.Sub("knowledge", "mine.md"), "# T\n\nown note hook\n")
 		write(t, Bank{Key: "other"}.Sub("knowledge", "theirs.md"), "# T\n\nforeign\n")
 		write(t, HomeBank().Sub("knowledge", "shared.md"), "# T\n\nhome hook\n")
-		got := knowledgeFiles(root)
+		got := knowledgeOf(BankFor(root))
 		var names []string
 		for _, f := range got {
 			names = append(names, filepath.Base(f))
 		}
 		if len(got) != 2 || strings.Contains(strings.Join(names, " "), "theirs") {
-			t.Errorf("knowledgeFiles = %v, want the root bank's and home's notes only", names)
+			t.Errorf("knowledgeOf = %v, want the root bank's and home's notes only", names)
 		}
 		cat, err := BuildCatalog(time.Now())
 		if err != nil {

@@ -166,7 +166,12 @@ func TestLockPathsKeyOnTheBank(t *testing.T) {
 	if got, want := lockPathOf(Bank{Key: "repo"}), filepath.Join(locks, "repo", ".postupdate"); got != want {
 		t.Errorf("repo lock = %s, want %s", got, want)
 	}
-
+	if got, want := lockPathOf(Bank{Key: "home"}), filepath.Join(locks, "repo--home", ".postupdate"); got != want {
+		t.Errorf("repo bank keyed home: lock = %s, want %s (never the home bank's)", got, want)
+	}
+	if got := bankOfStateKey(stateKey(Bank{Key: "home"})); got.Key != "home" {
+		t.Errorf("bankOfStateKey(stateKey(repo home)) = %+v, want the repo bank", got)
+	}
 }
 
 func TestSettleBankFlatCommitsBankFiles(t *testing.T) {

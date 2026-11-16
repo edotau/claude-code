@@ -34,7 +34,7 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	}
 }
 
-// routedFiles lists only the named stores other than root's own: never root's, never an unnamed one.
+// routedFilesOf lists only the named stores other than root's own: never root's, never an unnamed one.
 func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
@@ -45,13 +45,13 @@ func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	files := routedFiles(roots["proja"], "proja projb")
+	files := routedFilesOf(BankFor(roots["proja"]), "proja projb")
 	if len(files) == 0 {
-		t.Fatal("routedFiles listed nothing for the named projb")
+		t.Fatal("routedFilesOf listed nothing for the named projb")
 	}
 	for _, f := range files {
 		if f.Bank != "projb" || BankOfFile(f.Path).Key != "projb" {
-			t.Errorf("routedFiles listed %+v, want only projb's files", f)
+			t.Errorf("routedFilesOf listed %+v, want only projb's files", f)
 		}
 	}
 }
@@ -196,9 +196,9 @@ func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
 		}
 		_, other := otherBank(t)
 		write(t, other.Path("foreign-topic.md"), "---\nname: x\n---\nzebra\n")
-		files := routedFiles(root, "about other things")
+		files := routedFilesOf(BankFor(root), "about other things")
 		if len(files) == 0 {
-			t.Fatal("routedFiles listed nothing for the named bank")
+			t.Fatal("routedFilesOf listed nothing for the named bank")
 		}
 		for _, f := range files {
 			if f.Bank != "other" || ownerKey(filepath.Base(f.Path), BankKeys()) != "other" {
@@ -208,8 +208,8 @@ func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
 				t.Errorf("typed file %s routed as native", f.Path)
 			}
 		}
-		if len(routedFiles(root, "proj other")) != len(files) {
-			t.Error("routedFiles listed root's own bank")
+		if len(routedFilesOf(BankFor(root), "proj other")) != len(files) {
+			t.Error("routedFilesOf listed root's own bank")
 		}
 	})
 }
