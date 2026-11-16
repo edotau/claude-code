@@ -900,7 +900,22 @@ func TestDispatchLabelsLineRefreshesOnModelChange(t *testing.T) {
 	if again := dispatchLabelsLine(in("databricks-claude-sonnet-5-5")); again != "" {
 		t.Fatalf("unchanged model re-emitted %q", again)
 	}
-	if changed := dispatchLabelsLine(in("databricks-claude-opus-5-5")); changed == "" || changed == first {
+	if changed := dispatchLabelsLine(in("databricks-claude-opus-5-5")); changed == "" {
 		t.Fatalf("model change line = %q", changed)
+	}
+}
+
+// A type the hook pins by task class lists every tier's label, so the one the hook demands is always advertised.
+func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
+	useAgentsDir(t, "Explore")
+	stubResolve(t, func(q agentpkg.ModelQuery) string { return "wire-" + q.Model })
+	line := dispatchLabelsLine(core.ParseInputFor(strings.NewReader(`{"session_id":"s2","model":"sess-m"}`), core.AgentClaude))
+	entry := line[strings.Index(line, "Explore="):]
+	entry, _, _ = strings.Cut(entry, " ")
+	for _, tier := range []string{"haiku", "sonnet", "opus"} {
+		label, _, _ := dispatchLabel(context.Background(), LabelInput{Type: "Explore", Model: tier, SessionModel: "sess-m"})
+		if label == "" || !strings.Contains(entry, label+":") {
+			t.Errorf("tier %s: hook label %q missing from %q", tier, label, entry)
+		}
 	}
 }
