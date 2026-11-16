@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -29,17 +30,17 @@ type fileFinding struct {
 func (f fileFinding) id() string { return f.file + "|" + f.kind + "|" + f.name }
 
 var (
-	quotedName = regexp.MustCompile(`'([^']*)'`)
-	firstInt   = regexp.MustCompile(`\d+`)
+	quotedName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`'([^']*)'`) })
+	firstInt   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\d+`) })
 )
 
 // newFinding reads the function name (quoted in the message, else location) and the first number of msg.
 func newFinding(file, kind, location, msg, line string) fileFinding {
 	name := location
-	if m := quotedName.FindStringSubmatch(msg); m != nil {
+	if m := quotedName().FindStringSubmatch(msg); m != nil {
 		name = m[1]
 	}
-	value, _ := strconv.Atoi(firstInt.FindString(quotedName.ReplaceAllString(msg, "")))
+	value, _ := strconv.Atoi(firstInt().FindString(quotedName().ReplaceAllString(msg, "")))
 	return fileFinding{file: file, kind: kind, name: name, value: value, line: line}
 }
 

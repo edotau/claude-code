@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
@@ -45,7 +46,7 @@ func ReadOnlyBashHeads() []string {
 	return heads
 }
 
-var helpWord = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+var helpWord = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`) })
 
 // readOnlySegment judges one segment; raw is the as-typed spelling (quotes intact), else the quote-stripped one.
 func readOnlySegment(seg string, raw bool) bool {
@@ -54,7 +55,7 @@ func readOnlySegment(seg string, raw bool) bool {
 	if len(toks) == 0 || raw && !rawSegmentOK(seg, rawToks, toks) {
 		return false
 	}
-	if len(toks) == 2 && helpWord.MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) {
+	if len(toks) == 2 && helpWord().MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) {
 		return true
 	}
 	return readOnlyCommand(toks)
@@ -78,7 +79,7 @@ func rawSegmentOK(seg string, rawToks, toks []string) bool {
 // envPrefixRisk is a prefix assignment that could steer git or a pager, or any `$` a prefix assignment could feed.
 func envPrefixRisk(prefix []string, seg string) bool {
 	for _, t := range prefix {
-		m := envAssign.FindStringSubmatch(t)
+		m := envAssign().FindStringSubmatch(t)
 		if m == nil {
 			continue
 		}

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/transcript"
@@ -68,11 +69,11 @@ func (m *workflowManifest) resultStatus() string {
 }
 
 // manifestNamePattern pulls the name out of the script's `meta = { name: '...' }`, never another object's name.
-var manifestNamePattern = regexp.MustCompile(`\bmeta\s*=\s*\{[^}]*?\bname:\s*'([^']+)'`)
+var manifestNamePattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bmeta\s*=\s*\{[^}]*?\bname:\s*'([^']+)'`) })
 
 // name resolves the manifest's display name from its script's meta.name.
 func (m *workflowManifest) name() string {
-	if match := manifestNamePattern.FindStringSubmatch(m.Script); len(match) == 2 {
+	if match := manifestNamePattern().FindStringSubmatch(m.Script); len(match) == 2 {
 		return match[1]
 	}
 	return ""

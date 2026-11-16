@@ -51,11 +51,11 @@ var (
 )
 
 // versionRe picks the first dotted version in a --version line, never digits glued to a name ("gpt-5.1" stays a name).
-var versionRe = regexp.MustCompile(`(?:^|[^0-9A-Za-z.\-])v?(\d+(?:\.\d+)+)`)
+var versionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[^0-9A-Za-z.\-])v?(\d+(?:\.\d+)+)`) })
 
 // parseVersion returns the first dotted version in --version output ("codex-cli 0.155.0" -> "0.155.0"), else "".
 func parseVersion(line string) string {
-	if m := versionRe.FindStringSubmatch(line); m != nil {
+	if m := versionRe().FindStringSubmatch(line); m != nil {
 		return m[1]
 	}
 	return ""

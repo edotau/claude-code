@@ -557,11 +557,11 @@ func (p Plan) execFailed() {
 }
 
 // quotedRE is one double-quoted string; codex -c TOML and opencode JSON carry static provider headers in them.
-var quotedRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+var quotedRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"(?:[^"\\]|\\.)*"`) })
 
 // redactQuoted masks every credential-shaped quoted string in s.
 func redactQuoted(s string) string {
-	return quotedRE.ReplaceAllStringFunc(s, func(q string) string {
+	return quotedRE().ReplaceAllStringFunc(s, func(q string) string {
 		inner := q[1 : len(q)-1]
 		if textutil.LooksSecret(inner) || textutil.RedactSecrets(inner) != inner {
 			return `"<redacted>"`

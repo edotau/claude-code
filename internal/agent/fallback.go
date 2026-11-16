@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -612,7 +613,9 @@ func noteAuth(disp Dispatch, err error) {
 }
 
 // capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
-var capabilityErr = regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
+var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
+})
 
 // retryModel is the next model after a model-capability (discovery) or endpoint-gone (served) failure, else "".
 func retryModel(disp Dispatch, lreq RunOptions, err error) string {
@@ -623,7 +626,7 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
 	switch msg := err.Error(); {
-	case disp.repick != nil && capabilityErr.MatchString(msg):
+	case disp.repick != nil && capabilityErr().MatchString(msg):
 		return disp.repick(lreq.Model)
 	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
 		return disp.servedRepick(lreq.Model)

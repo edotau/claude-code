@@ -396,11 +396,13 @@ func ansiEnd(cmd string, i int) (int, bool) {
 	return i, false
 }
 
-var heredocOpRe = regexp.MustCompile(`^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\\$` + "`" + `\n]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+var heredocOpRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\\$` + "`" + `\n]*)"|([A-Za-z_][A-Za-z0-9_]*))`)
+})
 
 // heredocOp queues the operator at cmd[i] for the next line end; a delimiter it cannot parse fails the scan.
 func (s *codeScan) heredocOp(i int) (int, bool) {
-	m := heredocOpRe.FindStringSubmatchIndex(s.cmd[i:])
+	m := heredocOpRe().FindStringSubmatchIndex(s.cmd[i:])
 	if m == nil || i+m[1] < len(s.cmd) && strings.IndexByte(" \t\n;&|)<>", s.cmd[i+m[1]]) < 0 {
 		return i, false
 	}
@@ -443,12 +445,12 @@ func (s *codeScan) lineEnd(i int) (int, bool) {
 var dataConsumers = map[string]bool{"cat": true, "head": true, "tail": true, "wc": true, "grep": true, "rg": true,
 	"jq": true, "go": true, "gofmt": true, "git": true, "gh": true, "node": true, "ruby": true, "perl": true}
 
-var pythonName = regexp.MustCompile(`^python[23]?(\.[0-9]+)?$`)
+var pythonName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^python[23]?(\.[0-9]+)?$`) })
 
 // dataConsumer reports a segment (text before its `<<`) whose command reads its heredoc as data.
 func dataConsumer(seg string) bool {
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
-	return len(toks) > 0 && (dataConsumers[toks[0]] || pythonName.MatchString(toks[0]))
+	return len(toks) > 0 && (dataConsumers[toks[0]] || pythonName().MatchString(toks[0]))
 }
 
 func spansOf(docs []heredoc, dataOnly bool) []span {
@@ -475,13 +477,15 @@ func without(s string, cuts []span) string {
 }
 
 // bodyRunners can run a heredoc's text (or what a consumer prints) as commands, or keep it in a file to run later.
-var bodyRunners = regexp.MustCompile(`(?:^|[\s;&|()<>"'=/{])(?:(?:ba|z|da|k|c|tc|a)?sh|fish|busybox|eval|source|` +
-	`exec|xargs|parallel|ssh|su|sudo|doas|at|batch|crontab|tee|dd|cp|mv|install|chmod)(?:$|[\s;&|()<>"'}])` +
-	`|\$[^(]|\$$|>(?:[^&]|$)|>&[^0-9-]`)
+var bodyRunners = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[\s;&|()<>"'=/{])(?:(?:ba|z|da|k|c|tc|a)?sh|fish|busybox|eval|source|` +
+		`exec|xargs|parallel|ssh|su|sudo|doas|at|batch|crontab|tee|dd|cp|mv|install|chmod)(?:$|[\s;&|()<>"'}])` +
+		`|\$[^(]|\$$|>(?:[^&]|$)|>&[^0-9-]`)
+})
 
 // runsBody reports code outside the bodies that may run them: a bodyRunners hit or a command named by path.
 func runsBody(code string) bool {
-	if bodyRunners.MatchString(code) {
+	if bodyRunners().MatchString(code) {
 		return true
 	}
 	outer, subs := shell.ExtractSubstitutions(code)
@@ -532,12 +536,12 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 	return worst
 }
 
-var subOpener = regexp.MustCompile("[$<>]\\(|`")
+var subOpener = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[$<>]\\(|`") })
 
 // spliceReadDenied: under a Read deny, a segment that opens a substitution may read a path no check can see.
 func (p Permissions) spliceReadDenied(cmd string) bool {
 	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
-		return subOpener.MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$"), opDir{lost: true}) // `x` is $(x)
+		return subOpener().MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$"), opDir{lost: true}) // `x` is $(x)
 	})
 }
 
@@ -631,12 +635,12 @@ func (p Permissions) decideSegment(raw string, rawToks, toks []string) Decision 
 // SedPrintArg is the Bash allow argument for read-only `sed -n <range>p FILE...`; any other script or flag is no match.
 const SedPrintArg = "sed -n N,Mp FILE"
 
-var sedRange = regexp.MustCompile(`^(\d+|\$)(,(\d+|\$))?p$`)
+var sedRange = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\d+|\$)(,(\d+|\$))?p$`) })
 
 // sedPrintMatches is `sed -n <range>p` with plain file operands: no -i, -e, -f, w/e/r commands or other option.
 func sedPrintMatches(cmd string) bool {
 	toks := shell.Tokens(cmd)
-	if len(toks) < 4 || toks[0] != "sed" || toks[1] != "-n" || !sedRange.MatchString(toks[2]) {
+	if len(toks) < 4 || toks[0] != "sed" || toks[1] != "-n" || !sedRange().MatchString(toks[2]) {
 		return false
 	}
 	return !slices.ContainsFunc(toks[3:], func(t string) bool { return strings.HasPrefix(t, "-") || strings.ContainsAny(t, "$`") })
@@ -660,7 +664,7 @@ func cdMatches(dir, cmd string) bool {
 	return path.IsAbs(dir) && paths.Within(paths.CanonDeep(target), paths.CanonDeep(clean)) // /tmp is /private/tmp
 }
 
-var envAssign = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=`)
+var envAssign = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)=`) })
 
 // grantsNormalized reports that the stripped prefix is only `[env|time] NAME=value…` with harmless names.
 func grantsNormalized(rawToks, toks []string) bool {
@@ -673,7 +677,7 @@ func grantsNormalized(rawToks, toks []string) bool {
 		prefix = prefix[1:]
 	}
 	for _, t := range prefix {
-		m := envAssign.FindStringSubmatch(t)
+		m := envAssign().FindStringSubmatch(t)
 		if m == nil || unsafeEnvName(m[1]) {
 			return false
 		}

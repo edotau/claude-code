@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -61,8 +62,8 @@ type launchLine struct {
 	PlanTask string `json:"plan_task"`
 }
 
-var launchID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
-var launchPhase = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
+var launchID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
+var launchPhase = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]+\.[0-9]+$`) })
 
 // Launch runs the wave's ask batches; the envelopes are input-ordered, those of a batch that failed whole absent.
 func Launch(ctx context.Context, executable string, specs []Spec, options LaunchOptions) ([]Envelope, error) {
@@ -172,7 +173,7 @@ func launchLines(specs []Spec, options LaunchOptions) ([]byte, error) {
 	seen := make(map[string]bool, len(specs))
 	for i, spec := range specs {
 		id := options.Slug + "-" + spec.ID
-		if !launchID.MatchString(id) || !launchPhase.MatchString(spec.ID) || seen[id] {
+		if !launchID().MatchString(id) || !launchPhase().MatchString(spec.ID) || seen[id] {
 			return nil, fmt.Errorf("invalid or duplicate batch id %q", id)
 		}
 		seen[id] = true
