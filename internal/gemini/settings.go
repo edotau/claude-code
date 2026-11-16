@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -395,9 +397,68 @@ func renderGeminiHooks(home string, o agentconfig.RenderOptions, out io.Writer) 
 			"type": "command", "command": settings.AgentCommand("gemini", s), "timeout": s.Seconds(),
 		}}})
 	}
+	entry, err := textutil.MarshalIndentNoEscape(map[string]any{"PreToolUse": groups})
+	if err != nil {
+		return false, fmt.Errorf("gemini-hooks: %w", err)
+	}
 	path := agyHooksPath(home)
-	return agentconfig.CommitJSONObject(path, o, out, "gemini-hooks", func(obj map[string]any, _ bool) bool {
-		obj[agyHookName] = map[string]any{"PreToolUse": groups}
-		return true
-	})
+	raw, existed, err := agentconfig.ReadExisting(path)
+	if err != nil {
+		return false, fmt.Errorf("gemini-hooks: %w", err)
+	}
+	next, err := spliceAgyHook(raw, bytes.ReplaceAll(entry, []byte("\n"), []byte("\n  ")))
+	if err != nil {
+		return false, fmt.Errorf("gemini-hooks: cannot parse %s, left untouched: %w", path, err)
+	}
+	return agentconfig.CommitFile(path, raw, next, existed, o, out, "gemini-hooks")
+}
+
+// spliceAgyHook returns raw with its top-level agyHookName value set to entry, every other byte kept; raw if equal.
+func spliceAgyHook(raw, entry []byte) ([]byte, error) {
+	member := []byte(strconv.Quote(agyHookName) + ": ")
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return slices.Concat([]byte("{\n  "), member, entry, []byte("\n}\n")), nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil {
+		return nil, err
+	} else if t != json.Delim('{') {
+		return nil, errors.New("not a JSON object")
+	}
+	var spans [][2]int // [start, end) of each existing agyHookName value
+	var last json.RawMessage
+	lastEnd := -1
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, err
+		}
+		lastEnd = int(dec.InputOffset())
+		if key == agyHookName {
+			spans, last = append(spans, [2]int{lastEnd - len(v), lastEnd}), v
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("trailing data after the top-level object")
+	}
+	switch {
+	case len(spans) == 1 && agentconfig.SameJSONObject(last, entry):
+		return raw, nil
+	case len(spans) > 0:
+		for i := len(spans) - 1; i >= 0; i-- {
+			raw = slices.Concat(raw[:spans[i][0]], entry, raw[spans[i][1]:])
+		}
+		return raw, nil
+	case lastEnd < 0: // an empty object
+		open, closing := bytes.IndexByte(raw, '{'), bytes.LastIndexByte(raw, '}')+1
+		return slices.Concat(raw[:open], []byte("{\n  "), member, entry, []byte("\n}"), raw[closing:]), nil
+	}
+	return slices.Concat(raw[:lastEnd], []byte(",\n  "), member, entry, raw[lastEnd:]), nil
 }

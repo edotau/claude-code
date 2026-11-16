@@ -197,7 +197,7 @@ func renderCodex(ctx context.Context, reg *providers.Registry, sel providers.Sel
 // commitCodexFiles writes hooks.json first, so a failed hooks write leaves config.toml without trust hashes for it.
 func commitCodexFiles(hooksPath string, hooksRaw, mergedHooks []byte, hooksExisted bool,
 	path string, raw []byte, next string, existed bool, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	drift, err := agentconfig.CommitFile(hooksPath, hooksRaw, append(mergedHooks, '\n'), hooksExisted, o, out, "codex-hooks")
+	drift, err := agentconfig.CommitFile(hooksPath, hooksRaw, agentconfig.HooksFileBytes(hooksRaw, mergedHooks), hooksExisted, o, out, "codex-hooks")
 	if err != nil {
 		return drift, err
 	}
