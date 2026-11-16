@@ -60,12 +60,10 @@ Report only findings on changed code at >80% confidence; consolidate similar one
 Defined in `rules/standards/principles.md`; apply to changes >20 lines or unfamiliar code. Detectors:
 `references/detectors.md`; examples: `references/anti-patterns.md`.
 
-| Principle | As a review finding | Severity |
-|---|---|---|
-| **1 Clarify Assumptions** | silently picked one reading of an ambiguous requirement — a **question**, not a decision | should-fix |
-| **2 Simplicity First** | would a senior engineer call it overcomplicated? Only **flag**; the fix is the simplify pass's — send it back | should-fix |
-| **3 Surgical Changes** | drive-by reformatting, comment churn, refactors of untouched code | nit — **should-fix** if they hide the real change |
-| **4 Goal-Driven Execution** | success criteria not concrete, or not actually verified | should-fix |
+Flag as should-fix: **1 Clarify** (silently picked one reading of an ambiguous requirement: a question, not a
+decision), **2 Simplicity** (overcomplicated; flag only, the simplify pass fixes it), **4 Goal-Driven** (criteria not
+concrete or not verified). **3 Surgical** (drive-by reformatting, comment churn, refactors of untouched code) is a
+nit, should-fix if it hides the real change.
 
 ### Performance
 

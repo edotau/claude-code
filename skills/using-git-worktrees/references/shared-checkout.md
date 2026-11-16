@@ -51,10 +51,9 @@ must compile against a new entry first gets its own linked worktree (`claude-cod
 
 ## Never rewrite shared history
 
-Every session shares one HEAD: an amend rewrites *their* commit too. `safety-scan` blocks `commit --amend`,
-`rebase` and `reset <commit>` in a shared tree: `~/.claude`, a tree a peer works in, or a main tree where your
-session has live leaves (a leaf there is always blocked). Fix a bad commit with a new commit or `git revert`; to
-rewrite history, use your own linked worktree (`claude-code worktree create <slug>`), pushed or not. Path resets
+Rule: `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md` → Worktrees. `safety-scan` applies it in a shared
+tree: `~/.claude`, a tree a peer works in, or a main tree where your session has live leaves (a leaf there is always
+blocked). Rewrite history only in your own linked worktree (`claude-code worktree create <slug>`). Path resets
 (`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
 
 ## Incident (2026-11-04)

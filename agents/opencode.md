@@ -76,11 +76,10 @@ Do not read, test or verify; report a failed result to the manager, never a seco
 
 ### DOC-UPDATE
 
-1. **Analyze** — map directory structure, entry points, and per-module exports/imports.
-2. **Preserve the established structure** — the current doc layout (`README.md`, `CLAUDE.md`); a new doc
-   hierarchy only when the user requests it.
-3. **Update docs** — from docstrings, environment variables, and CLI commands; never hand-author what code generates.
-4. **Validate** — referenced files exist, links work, examples run, freshness timestamp updated, no obsolete references.
+Map entry points and per-module exports/imports; keep the current doc layout (`README.md`, `CLAUDE.md`), a new
+hierarchy only on request; update from docstrings, env vars and CLI commands, never hand-authoring what code
+generates; validate that referenced files exist, links work, examples run, the freshness timestamp is updated and no
+obsolete references remain.
 
 Update after major features, API route, dependency, architecture or setup changes; optional for cosmetic or
 internal refactors.

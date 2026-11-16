@@ -54,7 +54,7 @@ the agent edits by hand.
 
 | File | Holds | Contract |
 | --- | --- | --- |
-| `projectContext.md` | Orientation + do-not-regress invariants | Replace, sparingly |
+| `projectContext.md` | Orientation + do-not-regress invariants (`internal/memory/prompts/init.md` seeds it) | Replace, sparingly |
 | `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
 | `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |

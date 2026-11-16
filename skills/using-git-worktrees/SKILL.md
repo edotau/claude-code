@@ -5,12 +5,8 @@ description: Isolated git worktrees for parallel feature work, hotfixes, and pla
 
 # Using Git Worktrees
 
-Git worktrees give each branch its own working directory off one shared `.git`, so you can
-run feature work, a hotfix, and a PR-review checkout side by side without stashing or
-switching.
-
-**Core principle:** systematic directory selection + gitignore safety + isolated ports =
-reliable parallel sessions that never step on each other or pollute git status.
+Isolated working directories off one shared `.git` for parallel branches (feature, hotfix, PR review) without
+stashing or switching.
 
 ## When to use a worktree (vs. staying put)
 
@@ -71,6 +67,5 @@ cleanup — in [references/manual-worktrees.md](references/manual-worktrees.md).
 
 ## Scoping a subagent below the root breaks git and the venv
 
-A subagent or sandbox grant on a subdirectory instead of the repo root hides `.git` and
-`.venv`, producing import errors that look like regressions. Grant the repo (or worktree) root, never a
-subdirectory.
+Grant a subagent or sandbox the repo (or worktree) root, never a subdirectory: that hides `.git` and `.venv` and
+causes import errors that look like regressions.
