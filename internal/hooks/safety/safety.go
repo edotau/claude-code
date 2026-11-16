@@ -209,26 +209,31 @@ func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
+	// A plain Python stdin script's body is Python, not shell words; interpreterWrite still judges its paths.
+	asked := dropPyScripts(cmd)
+	if asked != cmd {
+		scan = inertStripped(asked)
+	}
 	// Rules match inside ONE shell segment of inert-blanked text: `git push origin main; readlink -f x` is no force-push.
-	for _, seg := range shell.Segments(blankInert(cmd)) {
+	for _, seg := range shell.Segments(blankInert(asked)) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats {
-				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, cmd, in.CWD)) {
+				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
 					return core.Ask, warn + core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
 	}
-	if d, msg, detail = pushOrScriptVerdict(in, cmd); d != core.Allow {
+	if d, msg, detail = pushOrScriptVerdict(in, cmd, asked); d != core.Allow {
 		return d, warn + msg, detail
 	}
-	d, msg, detail = askPatternVerdict(in, cmd, scan)
+	d, msg, detail = askPatternVerdict(in, asked, scan)
 	return d, warn + msg, detail
 }
 
 // pushOrScriptVerdict asks on a force-push with no refspec and on an interpreter that may write a protected file.
-func pushOrScriptVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
-	if branch := bareForcePush(cmd, in.CWD); branch != "" {
+func pushOrScriptVerdict(in *core.Input, cmd, asked string) (core.Decision, string, string) {
+	if branch := bareForcePush(asked, in.CWD); branch != "" {
 		return core.Ask, core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
 	if p := interpreterWrite(cmd); p != "" {
@@ -396,6 +401,11 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	}
 	if pattern, ok := feedHardBlock(cmd); ok { // `printf 'rm -rf /\n' | sh` runs what printf prints
 		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
+	}
+	for _, s := range shell.RunScripts(cmd, in.CWD) { // `printf 'rm -rf /\n' > f && sh f` runs the file
+		if pattern, ok := firstHardBlock(s.Text); ok {
+			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
+		}
 	}
 	if scan == cmd {
 		return core.Allow, "", "" // nothing was stripped, so the raw pass would find nothing new
@@ -1012,6 +1022,7 @@ func interpreterLang(base string) string {
 // interpreterWrite is the protected file an interpreter command's text mentions beside a write indicator, else "".
 func interpreterWrite(cmd string) string {
 	cmd = core.DropDataHeredocs(cmd)
+	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
 	for _, seg := range shell.Segments(cmd) {
 		rest, _ := shell.Unwrap(shell.Tokens(seg), "")
 		if len(rest) == 0 {
@@ -1023,7 +1034,7 @@ func interpreterWrite(cmd string) string {
 		}
 		for _, g := range protectedGlobs() {
 			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
-			if needle != "" && strings.Contains(paths.FoldCase(cmd), paths.FoldCase(needle)) {
+			if needle != "" && strings.Contains(used, paths.FoldCase(needle)) {
 				return needle
 			}
 		}
