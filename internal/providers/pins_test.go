@@ -208,8 +208,9 @@ func TestCopilotModelPinBeatsFallback(t *testing.T) {
 	}
 }
 
-// Codex model/effort and gemini model resolve from the vault record only: the pin, else "" and "default".
-func TestAgentPinResolversIgnoreEnv(t *testing.T) {
+// Codex and gemini models resolve the shell env first (source "env VAR"), then the record pin, else ""/"default";
+// codex effort reads the record only.
+func TestAgentPinResolversEnvOverPin(t *testing.T) {
 	load(t)
 	for _, c := range []struct {
 		agent, field, env, pin string
@@ -219,7 +220,7 @@ func TestAgentPinResolversIgnoreEnv(t *testing.T) {
 		{"codex", "effort", "CODEX_EFFORT", "high", CodexEffort},
 		{"gemini", "model", "GEMINI_MODEL", "gemini-3.8-flash-high", GeminiModel},
 	} {
-		t.Setenv(c.env, "from-env")
+		t.Setenv(c.env, "")
 		vaulttest.SetRecord(t, c.agent, c.field, "")
 		if got, src := c.get(); got != "" || src != "default" {
 			t.Errorf("%s %s unset = (%q, %q), want (\"\", default)", c.agent, c.field, got, src)
@@ -227,6 +228,24 @@ func TestAgentPinResolversIgnoreEnv(t *testing.T) {
 		vaulttest.SetRecord(t, c.agent, c.field, c.pin)
 		if got, src := c.get(); got != c.pin || src != "pin" {
 			t.Errorf("%s %s pinned = (%q, %q), want (%q, pin)", c.agent, c.field, got, src, c.pin)
+		}
+		t.Setenv(c.env, "from-env")
+		want, wsrc := c.pin, "pin"
+		if c.field == "model" {
+			want, wsrc = "from-env", "env "+c.env
+		}
+		if got, src := c.get(); got != want || src != wsrc {
+			t.Errorf("%s %s with env = (%q, %q), want (%q, %q)", c.agent, c.field, got, src, want, wsrc)
+		}
+	}
+}
+
+// AgentModelEnv names each external agent's model knob; claude has none.
+func TestAgentModelEnvNamesTheExternalAgents(t *testing.T) {
+	want := map[string]string{"codex": "CODEX_MODEL", "copilot": "COPILOT_MODEL", "gemini": "GEMINI_MODEL", "opencode": "OPENCODE_MODEL", "claude": ""}
+	for a, env := range want {
+		if got := AgentModelEnv(a); got != env {
+			t.Errorf("AgentModelEnv(%q) = %q, want %q", a, got, env)
 		}
 	}
 }

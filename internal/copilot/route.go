@@ -124,6 +124,9 @@ func copilotRouteDetail(ctx context.Context, reg *providers.Registry, selErr err
 	detail := fmt.Sprintf("dispatch=%s provider=%s model=%s (%s)", ri.Route, ri.Provider, ri.Model, ri.Reason)
 	if ri.Route == agent.RouteCopilotLogin {
 		_, source := providers.CopilotModel(reg)
+		if m, v := providers.EnvModel(ctx, "copilot"); m != "" {
+			source = "env " + v
+		}
 		rec := vault.GetAgentRecord("copilot")
 		effort, context := cmp.Or(rec.Effort, "default"), cmp.Or(rec.Context, "default")
 		detail += fmt.Sprintf(" source=%s effort=%s context=%s", source, effort, context)
