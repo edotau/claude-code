@@ -287,8 +287,7 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	return false, nil
 }
 
-// FormatCheck is the lint-facing `memory fmt --check`: it writes nothing and fails only for this repo's bank and
-// the home bank; files other repos' banks would wrap get a one-line note.
+// FormatCheck writes nothing and fails only for this repo's and the home bank.
 func FormatCheck(w io.Writer) (dirty bool, err error) {
 	changed, err := formatBank(true)
 	if err != nil {

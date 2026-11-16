@@ -398,7 +398,6 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 	return cfg.Profile, false, err
 }
 
-// accountOrSessionLead is the overlay account's row when it names one (a typed route), else the session lead.
 func accountOrSessionLead(ctx context.Context, agent string) string {
 	if account := overlayAccount(ctx); account != "" {
 		if reg, err := providers.Load(); err == nil {
@@ -410,7 +409,6 @@ func accountOrSessionLead(ctx context.Context, agent string) string {
 	return sessionLead(ctx, agent)
 }
 
-// sessionLead is the session profile when it serves agent (D3: it leads before the pin); "" lets the pin lead.
 func sessionLead(ctx context.Context, agent string) string {
 	reg, err := providers.Load()
 	if err != nil || agent == agentid.Gemini {

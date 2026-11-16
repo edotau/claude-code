@@ -187,7 +187,7 @@ func implicitRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, st
 	return nil, "", fmt.Errorf("%w: no profile serves %s", ErrModelRoute, q.Agent)
 }
 
-// sessionRow is the session profile's row; gemini has no session lead, its pin decides.
+// sessionRow: gemini has no session lead.
 func sessionRow(reg *providers.Registry, q ModelQuery) *providers.Provider {
 	if q.Agent == agentid.Gemini {
 		return nil

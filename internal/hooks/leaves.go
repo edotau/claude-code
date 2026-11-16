@@ -294,9 +294,9 @@ type leafScan struct {
 	seenBrief         bool
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask or result
 	ranOn, handedBack bool
-	askFailed         bool     // an ask call's result says no agent ran
-	resumed           bool     // a plain user turn followed the delivered hand-back
-	bgAsks            []string // task output files of asks run in the background
+	askFailed         bool // an ask call's result says no agent ran
+	resumed           bool
+	bgAsks            []string
 	gates             int
 }
 
@@ -340,7 +340,6 @@ func (s *leafScan) addLine(b []byte) {
 	}
 }
 
-// addBgAsk records the task output files an ask result's background notice names.
 func (s *leafScan) addBgAsk(text string) {
 	for _, m := range bgOutputPattern().FindAllStringSubmatch(text, -1) {
 		if !slices.Contains(s.bgAsks, m[1]) {
@@ -349,7 +348,7 @@ func (s *leafScan) addBgAsk(text string) {
 	}
 }
 
-// askOutputRan reads the ends of each background ask's output file: whether one shows a receipt, and whether one did not run.
+// askOutputRan reads each background ask's output for a receipt or a did-not-run line.
 func askOutputRan(paths []string) (ran, failed bool) {
 	for _, p := range paths {
 		text := readEnds(p, savedResultCap)
@@ -489,7 +488,7 @@ func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, boo
 	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
 	}
-	ran, failed := askOutputRan(lr.scan.bgAsks) // a backgrounded ask's receipt is in its output file, not the transcript
+	ran, failed := askOutputRan(lr.scan.bgAsks)
 	if ran {
 		return core.Result{}, false
 	}
@@ -533,7 +532,7 @@ func Handback(in *core.Input) core.Result {
 
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
 
-// bgOutputPattern matches the Bash run_in_background and moved-to-background notices; Monitor results name no output path, so they are not reaped.
+// bgOutputPattern matches both background notices; Monitor results name no output path.
 var bgOutputPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`Command (?:running in background with ID: [A-Za-z0-9]+\.|was moved to the background \(ID: [A-Za-z0-9]+\)[^"]*?\.) Output is being written to: (/[^\s"]+?/tasks/[A-Za-z0-9]+\.output)\.`)
 })

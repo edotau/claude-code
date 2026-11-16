@@ -976,13 +976,11 @@ func TestLeafGateKeepsBothNotes(t *testing.T) {
 	}
 }
 
-// bgNotice is the notice Claude Code gives an ask auto-moved to the background by an arriving message.
 func bgNotice(out string) string {
 	return "Command was moved to the background (ID: bX1) so that a message that arrived while it was running can reach you; " +
 		"it was not interrupted. Output is being written to: " + out + ". You will be notified when it completes."
 }
 
-// bgOutputFile writes a task output file and returns its path.
 func bgOutputFile(t *testing.T, body string) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "tasks", "bX1.output")
@@ -995,7 +993,6 @@ func bgOutputFile(t *testing.T, body string) string {
 	return out
 }
 
-// Both background notices name the task output file the reaper collects.
 func TestAppendOutputFilesMovedToBackground(t *testing.T) {
 	out := "/tmp/c/tasks/bX1.output"
 	for _, text := range []string{bgNotice(out), "Command running in background with ID: bX1. Output is being written to: " + out + ". You"} {
@@ -1007,7 +1004,7 @@ func TestAppendOutputFilesMovedToBackground(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-16): a backgrounded ask's receipt lives in its output file, so the gate must read it.
+// Regression (2026-11-16): a backgrounded ask's receipt is in its output file.
 func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 	brief := "Objective: x\nAgent: codex\n"
 	ran := bgOutputFile(t, "ask: ran on codex · gpt-5\nresult\n")
@@ -1025,7 +1022,6 @@ func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 	}
 }
 
-// A leaf resumed by a plain user turn after its hand-back gets the resumed wording, not the never-called one.
 func TestRanOnResumedLeafWording(t *testing.T) {
 	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls", handedBackMark)
 	appendLines(t, in.AgentTranscriptPath, `{"type":"user","message":{"content":"one more thing"}}`)

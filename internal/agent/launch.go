@@ -335,7 +335,7 @@ type ClaudeLaunch struct {
 type ClaudeOptions struct {
 	Provider, Model string
 	KeepEnv         []string
-	Dispatch        bool // an ask or dispatch launch: a --model prefix overrides Provider instead of erroring
+	Dispatch        bool
 }
 
 // Launcher resolves a Claude launch; the claude package registers the default and tests fake it.
@@ -357,7 +357,7 @@ type LaunchOptions struct {
 	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
 	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
-	Dispatch bool     // an ask or dispatch launch: a --model prefix overrides Provider instead of erroring
+	Dispatch bool
 }
 
 func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
