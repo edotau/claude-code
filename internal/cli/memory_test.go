@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1001,5 +1003,77 @@ func TestMemoryPathSubNameAndBareDir(t *testing.T) {
 	}
 	if code, _, _ := memCLI(t, "path", "--repo", repo, "bogus"); code != 2 {
 		t.Errorf("memory path bogus code = %d, want 2", code)
+	}
+}
+
+func TestMemoryFlatKeyVerbs(t *testing.T) {
+	cfg := memCfg(t)
+	store := filepath.Join(cfg, "memory")
+	hosttest.WriteRel(t, store, ".layout", "flat 1\n")
+	hosttest.WriteRel(t, store, "alpha--decisionLog.md", "# Log\n\n## 2026-11-16 — Quasar routing <!-- id:11111111 -->\nAlpha evidence.\n\n## 2026-11-15 — Quasar successor <!-- id:22222222 -->\nNew evidence.\n")
+	hosttest.WriteRel(t, store, "alpha--sessionHistory.md", "# Sessions\n\n## 2026-11-16 — Quasar session\n")
+	hosttest.WriteRel(t, store, "beta--decisionLog.md", "## 2026-11-16 — Quasar unrelated <!-- id:33333333 -->\n")
+	for _, verb := range []string{"search", "recall"} {
+		t.Run(verb, func(t *testing.T) {
+			out := memCLIOK(t, verb, "--repo", "alpha", "--format", "json", "quasar")
+			if !strings.Contains(out, "11111111") || strings.Contains(out, "33333333") {
+				t.Fatal(out)
+			}
+		})
+	}
+	for _, args := range [][]string{
+		{"review", "--repo", "alpha"}, {"review", "--repo", "alpha", "--notice"},
+		{"timeline", "--repo", "alpha"}, {"init", "--repo", "alpha"},
+		{"index", "--repo", "alpha"}, {"remember", "--repo", "alpha", "quasar durable fact"},
+		{"revise", "--repo", "alpha", "11111111", "--with", "22222222", "--dry-run"},
+		{"promote", "--repo", "alpha", "11111111", "--to", "home", "--dry-run"},
+		{"recall", "--repo", "alpha", "--explain", "quasar routing uses durable evidence"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) { memCLIOK(t, args...) })
+	}
+	if _, err := os.Stat(filepath.Join(store, "alpha--conventions.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(memory.StateDir(), "doctor-notice-alpha")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMemoryFlatImportHost(t *testing.T) {
+	cfg := memCfg(t)
+	store := filepath.Join(cfg, "memory")
+	hosttest.WriteRel(t, store, ".layout", "flat 1\n")
+	hosttest.WriteRel(t, store, "alpha--decisionLog.md", "## 2026-11-01 — local <!-- id:11111111 -->\n")
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	for name, body := range map[string]string{
+		".layout": "flat 1\n", "alpha--decisionLog.md": "## 2026-11-02 — host entry <!-- id:22222222 -->\n",
+		"MEMORY.md": "- [Host topic](alpha--topic.md)\n", "alpha--topic.md": "host topic\n",
+	} {
+		memMust(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(body))}))
+		_, err := tw.Write([]byte(body))
+		memMust(t, err)
+	}
+	memMust(t, tw.Close())
+	bin := t.TempDir()
+	hosttest.WriteRel(t, bin, "source.tar", archive.String())
+	hosttest.WriteRel(t, bin, "ssh", "#!/bin/sh\ncat \"$MEMFLAT_TEST_ARCHIVE\"\n")
+	memMust(t, os.Chmod(filepath.Join(bin, "ssh"), 0o700))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MEMFLAT_TEST_ARCHIVE", filepath.Join(bin, "source.tar"))
+	args := []string{"import", "--host", "fixture-host", "--repo", "alpha", "--topics"}
+	memCLIOK(t, args...)
+	data, err := os.ReadFile(filepath.Join(store, "alpha--decisionLog.md"))
+	memMust(t, err)
+	if !strings.Contains(string(data), "11111111") || !strings.Contains(string(data), "22222222") {
+		t.Fatal(string(data))
+	}
+	if got := memCLIOK(t, args...); !strings.Contains(got, "nothing to import") {
+		t.Fatal(got)
+	}
+	data, err = os.ReadFile(filepath.Join(store, "MEMORY.md"))
+	memMust(t, err)
+	if !strings.Contains(string(data), "alpha--topic.md") {
+		t.Fatal(string(data))
 	}
 }

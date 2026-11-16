@@ -306,7 +306,7 @@ func mergeIndexes(p *flatPlan, read func(string) ([]byte, error), now time.Time)
 	}
 	var sb strings.Builder
 	if slices.Contains(p.dirs, p.harness) {
-		region, err := buildBankRegion(filepath.Join(StoreDir(), p.harness), now)
+		region, err := buildRegionFrom(Bank{Key: p.harness}.Path, now)
 		if err != nil {
 			return "", err
 		}
@@ -440,6 +440,13 @@ func migrateStoreBlockers() []string {
 	return b
 }
 
+func migrationBank(key string) Bank {
+	if key == homeDir {
+		return HomeBank()
+	}
+	return Bank{Key: key}
+}
+
 // withMigrateLocks takes every per-bank lock in order, then the store lock, around fn.
 func withMigrateLocks(dirs []string, fn func() error) error {
 	var lock func(int) error
@@ -447,7 +454,7 @@ func withMigrateLocks(dirs []string, fn func() error) error {
 		if i == len(dirs) {
 			return WithBankLock(BankLockWait, fn)
 		}
-		ran, err := paths.TryFileLock(lockPath(filepath.Join(StoreDir(), dirs[i]))+".lock", updateLockWait, func() error { return lock(i + 1) })
+		ran, err := paths.TryFileLock(lockPathOf(migrationBank(dirs[i]))+".lock", updateLockWait, func() error { return lock(i + 1) })
 		if err == nil && !ran {
 			return fmt.Errorf("%w: bank %s is busy", ErrMigrateRefused, dirs[i])
 		}
@@ -504,8 +511,7 @@ func commitFlat(o MigrateOptions, p *flatPlan) error {
 		return err
 	}
 	fmt.Fprintf(o.Out, "flattened %d files into one directory (layout %s)\n", len(p.Moves), layoutFlat)
-	fmt.Fprintln(o.Out, "note: run claude-code memory index after the binary is updated (index.md and embeddings are stale)")
-	return nil
+	return Index(o.Out, os.Stderr, IndexOptions{Repo: paths.ConfigDir()})
 }
 
 func commitFlatPlan(p *flatPlan) error {
@@ -559,6 +565,11 @@ func resumeFlat(o MigrateOptions) error {
 			if err := withMigrateLocks(rec.Dirs, func() error { return finishFlat(rec, path) }); err != nil {
 				return err
 			}
+		}
+	}
+	if !o.DryRun {
+		if err := Index(o.Out, os.Stderr, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
+			return err
 		}
 	}
 	return report(o, &migReport{AlreadyFlat: true}, "already flat")
@@ -721,8 +732,7 @@ func revertFlat(o MigrateOptions) error {
 		return err
 	}
 	fmt.Fprintln(o.Out, "reverted to the per-repo layout")
-	fmt.Fprintln(o.Out, "note: run claude-code memory index to refresh index.md")
-	return nil
+	return Index(o.Out, os.Stderr, IndexOptions{Repo: paths.ConfigDir()})
 }
 
 func revertStore(rec migRecord, path string, o MigrateOptions) error {

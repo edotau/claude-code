@@ -68,8 +68,12 @@ func contentQueryTerms(tokens []string) []string {
 
 // corpusBlocks loads every searchable block; a vanished file is skipped, any other read error fails the corpus.
 func corpusBlocks(root string) ([]SearchHit, error) {
+	_, b, err := ResolveBank(root)
+	if err != nil {
+		return nil, err
+	}
 	var out []SearchHit
-	for _, f := range corpusFiles(root) {
+	for _, f := range corpusOf(b) {
 		data, err := os.ReadFile(f.Path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue

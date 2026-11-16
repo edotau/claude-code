@@ -96,17 +96,6 @@ func appendUnarchived(archive string, blocks []string) error {
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
 func lockPathOf(b Bank) string { return filepath.Join(storeLockDir(b), ".postupdate") }
 
-// lockPath is lockPathOf for migrate.go, which still holds a store dir.
-func lockPath(dir string) string { return lockPathOf(bankOfDir(dir)) }
-
-// bankOfDir is the bank of a per-repo store dir ("home" or <key>), for callers still holding dirs.
-func bankOfDir(d string) Bank {
-	if paths.SamePath(d, HomeBankDir()) {
-		return HomeBank()
-	}
-	return Bank{Key: filepath.Base(d)}
-}
-
 // settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
 func settleBank(root string, now time.Time) (rotated int, err error) {
 	err = WithBankLock(BankLockWait, func() error {
@@ -117,11 +106,15 @@ func settleBank(root string, now time.Time) (rotated int, err error) {
 }
 
 // settleBankLocked is settleBank for a caller already holding the bank lock.
-func settleBankLocked(root string, now time.Time) (rotated int, err error) {
+func settleBankLocked(root string, now time.Time) (int, error) {
+	return settleOwnLocked(BankFor(root), now)
+}
+
+func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
-	banks := bankSet(root) // an unscaffolded repo gets its store from Init (with its origin), never here
+	banks := bankSet(own) // an unscaffolded repo gets its store from Init (with its origin), never here
 	for _, b := range banks {
 		n, err := settleDir(b, now)
 		rotated += n
@@ -132,17 +125,44 @@ func settleBankLocked(root string, now time.Time) (rotated int, err error) {
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
+	return rotated, commitBanks("settle: "+bankName(banks[0]), banks)
+}
+
+// Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
+func commitBanks(subject string, banks []Bank) error {
 	var scope []string
-	for _, b := range banks {
-		scope = append(scope, bankRels(b)...)
+	if !storeFlat() {
+		for _, b := range banks {
+			scope = append(scope, storeRels([]string{b.SubDir("")})...)
+		}
+	} else {
+		if !StoreRepo().Exists() {
+			if err := StoreRepo().Ensure(); err != nil {
+				return err
+			}
+			scope = append(scope, ".gitignore")
+		}
+		dirty, err := StoreRepo().Status()
+		if err != nil {
+			return err
+		}
+		for _, e := range dirty {
+			owner := BankOfFile(e.Path)
+			if owner.Home() && strings.Contains(e.Path, "--") {
+				continue
+			}
+			if e.Path == nativeIndexFile || slices.Contains(banks, owner) && !strings.HasPrefix(e.Path, ".") {
+				scope = append(scope, e.Path)
+			}
+		}
 	}
-	return rotated, commitStore("settle: "+bankName(banks[0]), append(scope, catalogFile)...)
+	return commitStore(subject, append(scope, catalogFile)...)
 }
 
 // bankSet is the banks a settle covers: root's own when scaffolded, then the home bank.
-func bankSet(root string) []Bank {
+func bankSet(own Bank) []Bank {
 	var out []Bank
-	if own := BankFor(root); !own.Home() && scaffolded(own) {
+	if !own.Home() && scaffolded(own) {
 		out = append(out, own)
 	}
 	return append(out, HomeBank())
@@ -156,31 +176,11 @@ func scaffolded(b Bank) bool {
 	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
 }
 
-// bankRels are the store-relative pathspecs of b's files: its dir when legacy, its prefixed files when flat.
-func bankRels(b Bank) []string {
-	if !storeFlat() {
-		return storeRels([]string{b.SubDir("")})
-	}
-	var rels []string
-	if b.Home() {
-		rels = append(rels, bankFiles...)
-	} else {
-		rels = append(rels, b.Prefix()+"*")
-	}
-	rels = append(rels, "MEMORY.md")
-	for _, sub := range []string{"archive", "handoffs", "reports", "knowledge"} {
-		if b.Home() {
-			rels = append(rels, sub, ":(exclude)"+sub+"/*--*") // the home tier is every unprefixed name
-		} else {
-			rels = append(rels, sub+"/"+b.Prefix()+"*")
-		}
-	}
-	return rels
-}
-
 // settleLocked is settleBankLocked for a writer that rolls back on its error, which names the settle.
-func settleLocked(root string, now time.Time) error {
-	if _, err := settleBankLocked(root, now); err != nil {
+func settleLocked(root string, now time.Time) error { return settleLockedBank(BankFor(root), now) }
+
+func settleLockedBank(b Bank, now time.Time) error {
+	if _, err := settleOwnLocked(b, now); err != nil {
 		return fmt.Errorf("settle: %w", err)
 	}
 	return nil

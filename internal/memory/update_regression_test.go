@@ -64,7 +64,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}()
 	defer finishSettlement(t, release, done)
 	waitSettlementBarrier(t, ready, done)
-	lock := lockPath(Dir(root)) + ".lock"
+	lock := lockPathOf(BankFor(root)) + ".lock"
 	ran, err := paths.TryFileLock(lock, 0, func() error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	var updateErr error
-	ran, err := paths.TryFileLock(lockPath(Dir(root))+".lock", 0, func() error {
+	ran, err := paths.TryFileLock(lockPathOf(BankFor(root))+".lock", 0, func() error {
 		updateErr = update(updateOptions{CWD: root, Session: "busy", Run: func(context.Context, string, string) (string, error) {
 			t.Error("agent ran while a peer held the store lock")
 			return "fixture", nil
@@ -195,7 +195,7 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 	ranAgent := false
 	run := func(context.Context, string, string) (string, error) {
 		ranAgent = true
-		got, err := paths.TryFileLock(lockPath(HomeBankDir())+".lock", 0, func() error { return nil })
+		got, err := paths.TryFileLock(lockPathOf(HomeBank())+".lock", 0, func() error { return nil })
 		if err != nil {
 			t.Error(err)
 		}
@@ -226,7 +226,7 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	t.Setenv(DetachedEnv, "1")
 	held, release := make(chan struct{}), make(chan struct{})
 	go func() {
-		_, _ = paths.TryFileLock(lockPath(Dir(root))+".lock", 0, func() error { close(held); <-release; return nil })
+		_, _ = paths.TryFileLock(lockPathOf(BankFor(root))+".lock", 0, func() error { close(held); <-release; return nil })
 	}()
 	<-held
 	time.AfterFunc(100*time.Millisecond, func() { close(release) }) // longer than updateLockWait, far inside detachedLockWait

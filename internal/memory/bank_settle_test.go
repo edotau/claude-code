@@ -167,23 +167,32 @@ func TestLockPathsKeyOnTheBank(t *testing.T) {
 	if got, want := lockPathOf(Bank{Key: "repo"}), filepath.Join(locks, "repo", ".postupdate"); got != want {
 		t.Errorf("repo lock = %s, want %s", got, want)
 	}
-	if lockPath(HomeBankDir()) != lockPathOf(HomeBank()) || lockPath(filepath.Join(StoreDir(), "repo")) != lockPathOf(Bank{Key: "repo"}) {
-		t.Error("lockPath(dir) must resolve to the same lock as its bank")
-	}
+
 }
 
-func TestBankRelsScopeTheSettleCommit(t *testing.T) {
+func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 	isolatedConfig(t)
-	repo := Bank{Key: "repo"}
-	setStoreFlat(t, false)
-	if got := bankRels(repo); !slices.Equal(got, []string{"repo"}) {
-		t.Errorf("legacy rels = %v, want [repo]", got)
-	}
 	setStoreFlat(t, true)
-	if got := bankRels(repo); !slices.Contains(got, "repo--*") || !slices.Contains(got, "archive/repo--*") || slices.Contains(got, "archive") {
-		t.Errorf("flat repo rels = %v, want only its own prefixed files", got)
+	initStore(t)
+	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
 	}
-	if got := bankRels(HomeBank()); !slices.Contains(got, "decisionLog.md") || !slices.Contains(got, ":(exclude)archive/*--*") {
-		t.Errorf("flat home rels = %v, want unprefixed files with other banks excluded", got)
+	b := BankFor(root)
+	write(t, filepath.Join(StoreDir(), "orphan--topic.md"), "unrelated topic\n")
+	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
+	if _, err := settleBank(root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "<!-- id:") {
+		t.Fatal("entry not indexed")
+	}
+	dirty, err := StoreRepo().Status(b.Prefix() + "decisionLog.md")
+	if err != nil || len(dirty) != 0 {
+		t.Fatalf("settled bank remains dirty: %v, %v", dirty, err)
+	}
+	dirty, err = StoreRepo().Status("orphan--topic.md")
+	if err != nil || len(dirty) != 1 {
+		t.Fatalf("settle captured unrelated file: %v, %v", dirty, err)
 	}
 }

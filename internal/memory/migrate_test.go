@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -155,6 +156,9 @@ func TestMigrateIdempotent(t *testing.T) {
 
 func TestMigrateRevertRestoresTree(t *testing.T) {
 	_, _ = migrateFixture(t)
+	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
+		t.Fatal(err)
+	}
 	want := snapshot(t)
 	slug := filepath.Join(paths.ConfigDir(), "projects", "p1", "memory")
 	if err := os.MkdirAll(filepath.Dir(slug), 0o755); err != nil {
@@ -320,6 +324,9 @@ func TestMigrateCatalogRoundTrip(t *testing.T) {
 	migrateFixture(t)
 	migrateWrite(t, catalogFile, "catalog\n")
 	commitFixture(t, "catalog")
+	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
+		t.Fatal(err)
+	}
 	want := snapshot(t)
 	mustMigrate(t, MigrateOptions{})
 	mustMigrate(t, MigrateOptions{Revert: true})
@@ -398,8 +405,14 @@ func TestMigrateNoIndexesRoundTrip(t *testing.T) {
 	want := snapshot(t)
 	mustMigrate(t, MigrateOptions{})
 	mustMigrate(t, MigrateOptions{Revert: true})
-	if !maps.Equal(snapshot(t), want) {
-		t.Fatal("no-index round trip changed tree")
+	got := snapshot(t)
+	for rel, body := range want {
+		if got[rel] != body {
+			t.Fatalf("changed %s", rel)
+		}
+	}
+	if !strings.Contains(got[catalogFile], "# Memory catalog") || !strings.Contains(got["home/MEMORY.md"], bankRegionBegin) {
+		t.Fatal("missing refreshed indexes")
 	}
 	t.Cleanup(func() { flatForced.Store(0); forgetLayout() })
 }
@@ -554,5 +567,19 @@ func TestMigrateRevertRefusesIndexProseLoss(t *testing.T) {
 	}
 	if !maps.Equal(snapshot(t), want) {
 		t.Fatal("index prose refusal changed tree")
+	}
+}
+
+func TestMigrateRefreshesCatalogAfterFlip(t *testing.T) {
+	h, _ := migrateFixture(t)
+	mustMigrate(t, MigrateOptions{})
+	catalog := aliasRead(t, filepath.Join(StoreDir(), catalogFile))
+	if !strings.Contains(catalog, "alpha--projectContext.md") {
+		t.Fatalf("stale flat catalog: %s", catalog)
+	}
+	mustMigrate(t, MigrateOptions{Revert: true})
+	catalog = aliasRead(t, filepath.Join(StoreDir(), catalogFile))
+	if !strings.Contains(catalog, h+"/MEMORY.md") || strings.Contains(catalog, "alpha--projectContext.md") {
+		t.Fatalf("stale legacy catalog: %s", catalog)
 	}
 }

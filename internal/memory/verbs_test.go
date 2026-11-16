@@ -145,3 +145,32 @@ func TestResolveBankKeyAndPathInEachLayout(t *testing.T) {
 		}
 	})
 }
+
+func TestIndexFlatKeyEmbedsSelectedBank(t *testing.T) {
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	b := Bank{Key: "alpha"}
+	write(t, b.Path("decisionLog.md"), "## 2026-11-16 — Quasar alpha <!-- id:11111111 -->\nSelected evidence.\n")
+	write(t, Bank{Key: "beta"}.Path("decisionLog.md"), "## 2026-11-16 — Quasar beta <!-- id:22222222 -->\nUnrelated evidence.\n")
+	previous := openEmbedClient
+	t.Cleanup(func() { openEmbedClient = previous })
+	var embedded []string
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
+		return &EmbedClient{Model: "fixture", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
+			embedded = append(embedded, texts...)
+			vectors := make([][]float32, len(texts))
+			for i := range vectors {
+				vectors[i] = []float32{1, 0}
+			}
+			return vectors, nil
+		}}, nil
+	}
+	var out, errw bytes.Buffer
+	if err := Index(&out, &errw, IndexOptions{Repo: b.Key}); err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(embedded, "\n")
+	if !strings.Contains(text, "Selected evidence") || strings.Contains(text, "Unrelated evidence") || strings.Contains(errw.String(), "embeddings skipped") {
+		t.Fatalf("embedded=%q stderr=%s", text, errw.String())
+	}
+}

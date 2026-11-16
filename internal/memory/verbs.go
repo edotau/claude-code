@@ -80,6 +80,11 @@ func ResolveBank(repo string) (string, Bank, error) {
 		}
 		return "", Bank{Key: repo}, nil
 	}
+	if filepath.IsAbs(repo) {
+		if _, err := os.Stat(repo); err != nil { // an absolute path is never a key: a not-yet-created checkout is still a path
+			return repo, BankFor(repo), nil
+		}
+	}
 	top, err := ResolveRepo(repo)
 	if err != nil {
 		return "", Bank{}, err
@@ -96,17 +101,22 @@ func ResolveRoot(repo string) (string, error) {
 	return top, err
 }
 
+func ensureResolvedBank(repo string) (Bank, error) {
+	root, b, err := ResolveBank(repo)
+	if err != nil {
+		return b, err
+	}
+	if root != "" {
+		b, err = EnsureBank(root, "")
+	} else {
+		err = b.Ensure("")
+	}
+	return b, err
+}
+
 // ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
 func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
-	top, b, err := ResolveBank(repo)
-	if err != nil {
-		return nil, err
-	}
-	if top == "" {
-		err = b.Ensure("")
-	} else {
-		b, err = EnsureBank(top, "")
-	}
+	b, err := ensureResolvedBank(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +150,7 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, err := ResolveRoot(o.Repo)
+	root, own, err := ResolveBank(o.Repo)
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
@@ -153,12 +163,16 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		}
 	}
 	if o.MintOnly {
-		embedIndex(ctx, out, errw, root, profile, o.Reembed)
+		embedIndex(ctx, out, errw, o.Repo, profile, o.Reembed)
 		return nil
 	}
-	own := BankFor(root)
 	hasStore := scaffolded(own)
-	rotated, err := settleBank(root, time.Now())
+	var rotated int
+	err = WithBankLock(BankLockWait, func() error {
+		var serr error
+		rotated, serr = settleOwnLocked(own, time.Now())
+		return serr
+	})
 	if err != nil {
 		return fmt.Errorf("memory index: %w", err)
 	}
@@ -171,8 +185,8 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	} else {
 		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", own.SubDir(""))
 	}
-	refreshNotice(errw, "memory index", root)
-	embedIndex(ctx, out, errw, root, profile, o.Reembed)
+	refreshBankNotice(errw, "memory index", root, own)
+	embedIndex(ctx, out, errw, o.Repo, profile, o.Reembed)
 	return nil
 }
 
@@ -399,18 +413,18 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, err := ResolveRoot(o.Repo)
+	root, own, err := ResolveBank(o.Repo)
 	if err != nil {
 		return err
 	}
 	if o.Notice {
-		return writeDoctorNotice(root, o.StaleDays, time.Now())
+		return cacheDoctorNotice(own, doctorBank(root, own, o.StaleDays, time.Now()))
 	}
-	problems := doctor(root, o.StaleDays, time.Now())
-	if err := cacheDoctorNotice(root, problems); err != nil {
+	problems := doctorBank(root, own, o.StaleDays, time.Now())
+	if err := cacheDoctorNotice(own, problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}
-	problems = append(problems, reviseProblems(root)...)
+	problems = append(problems, reviseBankProblems(own)...)
 	switch {
 	case len(problems) == 0:
 		fmt.Fprintln(w, "memory doctor: no problems found")
@@ -435,11 +449,11 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, repo string, n int) error {
-	root, err := ResolveRoot(repo)
+	_, b, err := ResolveBank(repo)
 	if err != nil {
 		return err
 	}
-	entries, sessions, err := timeline(root, n)
+	entries, sessions, err := timelineBank(b, n)
 	if err != nil {
 		return fmt.Errorf("sessionHistory: %w", err)
 	}

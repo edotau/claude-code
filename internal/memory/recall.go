@@ -19,6 +19,10 @@ import (
 
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
 func recallPicks(ctx context.Context, root, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
+	return recallBankPicks(ctx, BankFor(recallRoot(root)), session, query, semantic, explain)
+}
+
+func recallBankPicks(ctx context.Context, b Bank, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
 	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
 	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
@@ -33,10 +37,9 @@ func recallPicks(ctx context.Context, root, session, query string, semantic, exp
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
-	root = recallRoot(root)
 	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
-	ranked, files, segs := searchBanksTerms(root, q, terms, 0)
+	ranked, files, segs := searchBankTerms(b, q, terms, 0)
 	ranked = followReplaced(ranked, files, segs)
 	var sem *Semantic
 	semSeen := false
@@ -48,7 +51,7 @@ func recallPicks(ctx context.Context, root, session, query string, semantic, exp
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts([]string{accessDir(BankFor(root)), accessDir(HomeBank())}, time.Now())
+	counts := returnCounts([]string{accessDir(b), accessDir(HomeBank())}, time.Now())
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
@@ -160,8 +163,12 @@ func searchBanks(root, query string, k int) []SearchHit {
 }
 
 func searchBanksTerms(root, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
-	corpus := corpusFiles(root)
-	files := append(corpus, routedFiles(root, query)...)
+	return searchBankTerms(BankFor(root), query, terms, k)
+}
+
+func searchBankTerms(b Bank, query string, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
+	corpus := corpusOf(b)
+	files := append(corpus, routedFilesOf(b, query)...)
 	segs := loadSegments(files, true)
 	return rankFiles(terms, k, files, segs), files, segs
 }
@@ -188,11 +195,12 @@ func SearchRepo(repo string, all bool, q string, k int) ([]SearchHit, string, er
 		root := root(repo)
 		return searchAll(q, k), root, nil
 	}
-	top, err := ResolveRoot(repo)
+	top, b, err := ResolveBank(repo)
 	if err != nil {
 		return nil, "", err
 	}
-	return searchBanks(top, q, k), top, nil
+	hits, _, _ := searchBankTerms(b, q, contentTerms(q), k)
+	return hits, top, nil
 }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.

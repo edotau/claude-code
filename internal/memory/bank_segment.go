@@ -29,14 +29,16 @@ type corpusFile struct {
 }
 
 // corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
-func corpusFiles(root string) []corpusFile {
+func corpusFiles(root string) []corpusFile { return corpusOf(BankFor(root)) }
+
+func corpusOf(own Bank) []corpusFile {
 	var out []corpusFile
 	banks := func(label string, b Bank) {
 		for _, name := range bankFiles {
 			out = append(out, corpusFile{label, b.Path(name), segEntries})
 		}
 	}
-	own, home := BankFor(root), HomeBank()
+	home := HomeBank()
 	if !own.Home() {
 		banks("local", own)
 	}
@@ -50,12 +52,12 @@ func corpusFiles(root string) []corpusFile {
 			out = append(out, corpusFile{"archive", path, segEntries})
 		}
 	}
-	for _, b := range nativeBanks(root) {
+	for _, b := range nativeBanks(own) {
 		for _, path := range topicFiles(b) {
 			out = append(out, corpusFile{"native", path, segNative})
 		}
 	}
-	for _, path := range knowledgeFiles(root) {
+	for _, path := range knowledgeOf(own) {
 		out = append(out, corpusFile{"knowledge", path, segKnowledge})
 	}
 	return out
@@ -507,8 +509,9 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 }
 
 // routedFiles are the bank and topic files of every named repo, other than root's own store.
-func routedFiles(root, query string) []corpusFile {
-	own := BankFor(root)
+func routedFiles(root, query string) []corpusFile { return routedFilesOf(BankFor(root), query) }
+
+func routedFilesOf(own Bank, query string) []corpusFile {
 	var out []corpusFile
 	for _, b := range routedBanks(query) {
 		if b != own {
@@ -613,9 +616,9 @@ var readIfExists = func(path string) ([]byte, error) {
 }
 
 // nativeBanks lists the banks recall searches natively: the home tier (user-wide facts), then root's.
-func nativeBanks(root string) []Bank {
+func nativeBanks(b Bank) []Bank {
 	out := []Bank{HomeBank()}
-	if b := BankFor(root); !slices.Contains(out, b) {
+	if !slices.Contains(out, b) {
 		out = append(out, b)
 	}
 	return out

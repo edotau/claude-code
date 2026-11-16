@@ -43,7 +43,7 @@ func bankExists(root string) bool {
 
 // Init ensures root's bank exists and seeds missing files (never overwrites); returns the dir holding them.
 func Init(root string) (string, error) {
-	b, err := EnsureBank(root, "") // a new repo store needs its origin record before any file lands in it
+	b, err := ensureResolvedBank(root)
 	if err != nil {
 		return "", err
 	}
@@ -98,7 +98,11 @@ func createExcl(p, body string) error {
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
 func isProjectContextTemplate(root string) bool {
-	data, err := os.ReadFile(BankFor(root).Path("projectContext.md"))
+	_, b, err := ResolveBank(root)
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(b.Path("projectContext.md"))
 	if err != nil {
 		return false
 	}

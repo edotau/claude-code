@@ -123,21 +123,25 @@ var promoteJudgmentTarget = map[string]string{
 
 // Promote moves block id to home (settled both sides) or prints it with its target for a human to apply by hand.
 func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
+	_, b, err := ResolveBank(root)
+	if err != nil {
+		return "", err
+	}
 	if target, ok := promoteJudgmentTarget[to]; ok {
-		return promoteJudgment(root, id, to, target)
+		return promoteJudgment(b, id, to, target)
 	}
 	if to != "home" {
 		return "", fmt.Errorf("--to %q: want %s", to, strings.Join(PromoteTargets, ", "))
 	}
-	return promoteBlockToHome(root, id, dryRun, now)
+	return promoteBlockToHome(b, id, dryRun, now)
 }
 
 // afterPromoteMove runs between promote's move and its settle; tests race a rival bank-lock taker there.
 var afterPromoteMove = func() {}
 
 // promoteBlockToHome moves one id-marked block from root's local bank to the home file, keeping its id.
-func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, error) {
-	b, home := BankFor(root), HomeBank()
+func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, error) {
+	home := HomeBank()
 	if b.Home() {
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
@@ -170,7 +174,7 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 				return err
 			}
 			afterPromoteMove()
-			return settleLocked(root, now) // same critical section: no writer slips in
+			return settleLockedBank(b, now)
 		}(), snap)
 	})
 	if moveErr != nil {
@@ -184,13 +188,12 @@ func promoteBlockToHome(root, id string, dryRun bool, now time.Time) (string, er
 }
 
 // promoteJudgment prints id with its target and procedure; `claude-md` only prints inside a dream run (isDreamChild).
-func promoteJudgment(root, id, to, target string) (string, error) {
+func promoteJudgment(own Bank, id, to, target string) (string, error) {
 	if to == "claude-md" && !isDreamChild() {
 		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
 			"`memory promote %s --to rules`", id, id)
 	}
-	own := BankFor(root)
 	_, block, _, err := findBlock(own, id)
 	if errors.Is(err, errNoBlock) && !own.Home() { // a real read error is not "absent"
 		_, block, _, err = findBlock(HomeBank(), id)
