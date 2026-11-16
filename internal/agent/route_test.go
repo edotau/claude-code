@@ -550,26 +550,28 @@ func isCopilotDevSkip(s string) bool { return strings.HasPrefix(s, "copilot (dat
 
 func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	setConfigDir(t)
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "discovery-models", `["m-a","m-b"]`) }); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.Put(vault.Overlay, "discovery-models", `["databricks-kimi-k3","databricks-grok-4-6"]`)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	p := &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
 	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.DiscoveryModel)
-	if first != "m-a" || note != "" {
-		t.Fatalf("first pick = %q (%q), want m-a", first, note)
+	if first != "databricks-kimi-k3" || note != "" {
+		t.Fatalf("first pick = %q (%q), want databricks-kimi-k3", first, note)
 	}
 	disp := Dispatch{repick: router.DiscoveryRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
 	capErr := errors.New("400: max_new_tokens exceeds the model limit")
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, errors.New("connection reset")); got != "" {
+	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-kimi-k3"}, errors.New("connection reset")); got != "" {
 		t.Errorf("non-capability error retried on %q", got)
 	}
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, capErr); got != "dbx:m-b" {
-		t.Errorf("capability retry = %q, want dbx:m-b", got)
+	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-kimi-k3"}, capErr); got != "dbx:databricks-grok-4-6" {
+		t.Errorf("capability retry = %q, want dbx:databricks-grok-4-6", got)
 	}
 	schemaErr := errors.New(`Bad Request: Invalid JSON payload received. Unknown name "$schema" at 'tools[0].function_declarations[0].parameters'`)
 	tier := "dbx:" + router.DatabricksModel("opencode", router.Aliases[1], p) // an exhausted pool falls back to the tier
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-b"}, schemaErr); got != tier {
+	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-grok-4-6"}, schemaErr); got != tier {
 		t.Errorf("tool-schema retry with the pool exhausted = %q, want the tier model %q", got, tier)
 	}
 	assertDiscoverySkippedModels(t, p.Name)
@@ -580,12 +582,12 @@ func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 
 func assertDiscoverySkippedModels(t *testing.T, provider string) {
 	t.Helper()
-	if router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|m-b"].IsZero() {
-		t.Error("tool-schema rejection did not mark m-b skipped for opencode")
+	if router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|databricks-grok-4-6"].IsZero() {
+		t.Error("tool-schema rejection did not mark databricks-grok-4-6 skipped for opencode")
 	}
-	at := router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|m-a"]
+	at := router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|databricks-kimi-k3"]
 	if time.Since(at) > time.Minute || at.IsZero() {
-		t.Errorf("m-a not marked skipped for opencode: %v", at)
+		t.Errorf("databricks-kimi-k3 not marked skipped for opencode: %v", at)
 	}
 }
 
