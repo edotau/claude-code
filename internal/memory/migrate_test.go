@@ -401,6 +401,7 @@ func TestMigrateNoIndexesRoundTrip(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	migrateWrite(t, "alpha/a.md", "a\n")
+	migrateWrite(t, "alpha/progress.md", "p\n")
 	commitFixture(t, "without indexes")
 	want := snapshot(t)
 	mustMigrate(t, MigrateOptions{})
@@ -581,5 +582,12 @@ func TestMigrateRefreshesCatalogAfterFlip(t *testing.T) {
 	catalog = aliasRead(t, filepath.Join(StoreDir(), catalogFile))
 	if !strings.Contains(catalog, h+"/MEMORY.md") || strings.Contains(catalog, "alpha--projectContext.md") {
 		t.Fatalf("stale legacy catalog: %s", catalog)
+	}
+}
+
+func TestPlanMigrateBlocksBankWithoutTypedFile(t *testing.T) {
+	p := planMigrate([]string{"alpha/a.md", "beta/progress.md", "beta/b.md"}, "claude-code")
+	if len(p.Blockers) != 1 || !strings.HasPrefix(p.Blockers[0], "alpha has no typed file") {
+		t.Fatalf("Blockers = %v, want only alpha", p.Blockers)
 	}
 }

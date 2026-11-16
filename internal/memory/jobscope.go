@@ -42,23 +42,30 @@ func JobScope(kind, workdir string) Scope {
 	s.Tools = true
 	s.NoWrite = []string{StoreDir() + "/.git/**"}
 	for _, w := range s.Write {
-		dir, ok := strings.CutSuffix(w, "/**")
-		if !ok {
-			dir, ok = strings.CutSuffix(w, "/*.md") // the flat store root
-		}
-		if ok {
+		if dir, ok := strings.CutSuffix(w, "/**"); ok {
 			s.CdDirs = append(s.CdDirs, dir)
 		}
+	}
+	if kind == JobUpdate && storeFlat() {
+		s.CdDirs = append(s.CdDirs, StoreDir(), filepath.Join(StoreDir(), "archive"))
 	}
 	return s
 }
 
-// updateWriteScope is where an update may write: both bank dirs, or the store's files and archive/ when flat.
+// updateWriteScope is where an update may write: both banks' files, never another repo's when flat.
 func updateWriteScope(workdir string) []string {
-	if storeFlat() {
-		return []string{StoreDir() + "/*.md", StoreDir() + "/archive/**"}
+	if !storeFlat() {
+		return []string{BankFor(workdir).SubDir("") + "/**", HomeBank().SubDir("") + "/**"}
 	}
-	return []string{BankFor(workdir).SubDir("") + "/**", HomeBank().SubDir("") + "/**"}
+	b := BankFor(workdir)
+	var w []string
+	for _, name := range bankFiles {
+		w = append(w, HomeBank().Path(name))
+	}
+	if !b.Home() { // the prefix glob covers b's typed files too; "--" in a key can still match a longer-keyed bank
+		w = append(w, filepath.Join(StoreDir(), b.Prefix()+"*.md"), filepath.Join(StoreDir(), "archive", b.Prefix()+"*"))
+	}
+	return w
 }
 
 // JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.

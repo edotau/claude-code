@@ -175,6 +175,13 @@ func planMigrate(files []string, harness string) *flatPlan {
 		}
 		p.place(targets, f, top, rel)
 	}
+	for _, d := range p.dirs {
+		if d != homeDir && !slices.ContainsFunc(bankFiles, func(n string) bool {
+			return slices.ContainsFunc(p.Moves, func(m migMove) bool { return m.From == d+"/"+n })
+		}) {
+			p.Blockers = append(p.Blockers, d+" has no typed file, so the flat store would not see it as a bank; add one first")
+		}
+	}
 	if _, dup := targets[nativeIndexFile]; dup && len(p.indexDirs) > 0 {
 		p.Collisions = append(p.Collisions, nativeIndexFile+" exists beside the per-bank indexes")
 	}

@@ -196,3 +196,25 @@ func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 		t.Fatalf("settle captured unrelated file: %v, %v", dirty, err)
 	}
 }
+
+// Unprefixed files in shared subdirs belong to home and ride along with every settle; prefixed strangers do not.
+func TestCommitBanksFlatCountsUnprefixedSharedFilesAsHome(t *testing.T) {
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	initStore(t)
+	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(StoreDir(), "reports", "plain.md"), "home report\n")
+	write(t, filepath.Join(StoreDir(), "reports", "ghost--r.md"), "stranger\n")
+	if err := commitBanks("test", bankSet(BankFor(root))); err != nil {
+		t.Fatal(err)
+	}
+	for rel, wantDirty := range map[string]bool{"reports/plain.md": false, "reports/ghost--r.md": true} {
+		dirty, err := StoreRepo().Status(rel)
+		if err != nil || (len(dirty) != 0) != wantDirty {
+			t.Errorf("%s dirty = %v (err %v), want %v", rel, dirty, err, wantDirty)
+		}
+	}
+}

@@ -141,13 +141,12 @@ type dreamOptions struct {
 
 // dreamChanged lists the top-level .md files in the home, local and repo stores modified after since (all when zero).
 func dreamChanged(cwd string, since time.Time) []string {
-	dirs := []string{HomeBank().SubDir(""), BankFor(cwd).SubDir("")}
-	for _, b := range Banks() {
-		dirs = append(dirs, b.SubDir(""))
-	}
 	var out []string
-	for _, d := range dirs {
-		for _, f := range globIn(d, "*.md") {
+	for _, b := range append([]Bank{HomeBank(), BankFor(cwd)}, Banks()...) {
+		for _, f := range globIn(b.SubDir(""), "*.md") {
+			if storeFlat() && BankOfFile(f).Key != b.Key {
+				continue
+			}
 			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
 				out = append(out, f)
 			}
