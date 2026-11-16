@@ -198,22 +198,15 @@ type DecideLeaf struct {
 	Why    string
 }
 
-// DecideResult is the resume decision of one wave; Fresh tells the caller to discard the state (StateStart).
+// DecideResult is the resume decision of one wave.
 type DecideResult struct {
 	Wave   DecideAction
 	Leaves []DecideLeaf
-	Fresh  bool
 }
 
-// Decide applies the resume table to wave n and the planned leaf ids; fresh discards the state, so every leaf launches.
-func Decide(s State, n int, ids []string, fresh bool, fp FingerprintFunc) (DecideResult, error) {
-	res := DecideResult{Wave: DecideRun, Fresh: fresh}
-	if fresh {
-		for _, id := range ids {
-			res.Leaves = append(res.Leaves, DecideLeaf{id, DecideLaunch, "fresh"})
-		}
-		return res, nil
-	}
+// Decide applies the resume table to wave n and the planned leaf ids.
+func Decide(s State, n int, ids []string, fp FingerprintFunc) (DecideResult, error) {
+	res := DecideResult{Wave: DecideRun}
 	w, ok := s.Wave(n)
 	if ok && w.Status == WaveStatePassed {
 		res.Wave = DecideSkip

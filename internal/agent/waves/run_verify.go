@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -24,6 +25,10 @@ type stepResult struct {
 func (r *runner) fingerprint(path string) (string, error) {
 	var paths []string
 	for _, pattern := range checkScope([]string{path}) {
+		if _, err := os.Lstat(pattern); err == nil { // a literal path holding [, * or ? is not a pattern
+			paths = append(paths, pattern)
+			continue
+		}
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
 			return "", err
