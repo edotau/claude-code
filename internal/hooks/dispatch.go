@@ -460,17 +460,22 @@ func unknownModule(event, name string, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 		return 1
 	}
-	fmt.Fprintf(stderr, "claude-code hook: %s %q; it runs on %s\n", what, name, spec.Event)
+	fmt.Fprintf(stderr, "claude-code hook: %s %q; it runs on %s%s\n", what, name, spec.Event, staleHookHint)
 	return core.ExitBlock
 }
 
+// staleHookHint names the re-render verbs on a fail-closed unknown module, which a stale hook file causes.
+const staleHookHint = "; blocked: re-render stale hook files with `claude-code agents sync` " +
+	"(Claude Code's settings.json: `claude-code configure --restore` or a hand edit)"
+
 // unknownHook fails closed when the unknown name reads as a guard; a stale agent hook file must not drop its gate.
 func unknownHook(name, what string, stderr io.Writer) int {
-	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 	for _, w := range []string{"guard", "gate", "safety", "scan", "placement"} {
 		if strings.Contains(name, w) {
+			fmt.Fprintf(stderr, "claude-code hook: %s %q%s\n", what, name, staleHookHint)
 			return core.ExitBlock
 		}
 	}
+	fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 	return 1
 }

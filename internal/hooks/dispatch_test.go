@@ -396,6 +396,10 @@ func TestHookFlagWrongEventErrors(t *testing.T) {
 	if code, _, _ := runFlags("docs-placement", strings.NewReader(`{}`)); code != core.ExitBlock {
 		t.Errorf("stale bare `hook docs-placement` = %d, want ExitBlock", code)
 	}
+	if code, _, errb := runFlags("PreToolUse", strings.NewReader(`{}`), "--docs-gate"); code != core.ExitBlock ||
+		!strings.Contains(errb, "claude-code agents sync") {
+		t.Errorf("renamed --docs-gate = %d %q, want ExitBlock naming the re-render verb", code, errb)
+	}
 	if code, _, _ := runFlags("PreToolUse", strings.NewReader(`{}`), "--no-own"); code != 1 {
 		t.Errorf("removed --no-own = %d, want exit 1", code)
 	}
