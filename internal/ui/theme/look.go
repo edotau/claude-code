@@ -242,7 +242,8 @@ func setGradientLocked(path, name string) error {
 
 // ResetConfig deletes state/statusline/config.json so the embedded default renders; false when there was none.
 func ResetConfig() (bool, error) {
-	err := os.Remove(filepath.Join(StatuslineDir(), "config.json"))
+	path := filepath.Join(StatuslineDir(), "config.json")
+	err := paths.WithFileLock(path, func() error { return os.Remove(path) }) // SetGradient's lock: no resurrect
 	if os.IsNotExist(err) {
 		return false, nil
 	}

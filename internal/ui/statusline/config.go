@@ -18,11 +18,11 @@ type config struct {
 	UserColor      string            `json:"userColor"`    // "ansi" → literal PS1 bold-green; else palette user
 	Order          []string          `json:"order"`
 	ProfileMax     int               `json:"profileMax"` // profile-name cap in the provider label, in runes; 0 → no cap
-	Width          int               `json:"width"`      // clip each line to N cells; 0 → $COLUMNS, else no clip
+	Width          int               `json:"width"`      // clip to N cells; 0 → terminal width - ccMargin, else no clip
 	Segments       map[string]bool   `json:"segments"`
 	Bar            barConfig         `json:"bar"`
 	Separators     map[string]string `json:"separators"`
-	PowerlineTheme string            `json:"powerlineTheme"` // dark|nord|tokyo-night|rose-pine|light
+	PowerlineTheme string            `json:"powerlineTheme"` // minimal|dark|nord|tokyo-night|rose-pine|light
 	Charset        string            `json:"charset"`        // nerd → Nerd Font glyphs; text → ASCII fallback
 	VelocityMode   string            `json:"velocityMode"`   // code = uncommitted git diff; raw = Claude Code's ledger
 	Dashboard      dashboardConfig   `json:"dashboard"`

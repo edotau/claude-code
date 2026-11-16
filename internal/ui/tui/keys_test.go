@@ -35,6 +35,9 @@ func TestDecodeBasicKeys(t *testing.T) {
 		{"rune-j", []byte("j"), Key{Kind: KeyRune, Rune: 'j'}, 1},
 		{"rune-q", []byte("q"), Key{Kind: KeyRune, Rune: 'q'}, 1},
 		{"rune-utf8", []byte("é"), Key{Kind: KeyRune, Rune: 'é'}, 2},
+		{"alt-x", []byte("\x1bx"), dropped, 2},
+		{"alt-utf8", []byte("\x1bé"), dropped, 3},
+		{"esc-then-ctrl-c", []byte{0x1b, 0x03}, dropped, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
