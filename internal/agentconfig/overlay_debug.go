@@ -3,18 +3,14 @@ package agentconfig
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
@@ -38,61 +34,6 @@ type overlayDebugRecord struct {
 	PID   int               `json:"pid"`
 	Names []string          `json:"names"`
 	FP    map[string]string `json:"fp"`
-}
-
-// EnableOverlayDebug turns recording on for this process and its children; the salt sits beside the log (.salt).
-func EnableOverlayDebug(path string) error {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if os.Getenv(overlayDebugSaltVar) == "" {
-		salt, err := overlayDebugSalt(abs + ".salt")
-		if err != nil {
-			return err
-		}
-		if err := proc.Setenv(overlayDebugSaltVar, salt); err != nil {
-			return err
-		}
-	}
-	return proc.Setenv(overlayDebugVar, abs)
-}
-
-// overlayDebugSalt reads the salt beside the log, or links a full one into place (a racing loser reads the winner's).
-func overlayDebugSalt(path string) (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	salt := hex.EncodeToString(b)
-	switch err := linkSalt(path, salt); {
-	case err == nil:
-		return salt, nil
-	case !errors.Is(err, os.ErrExist):
-		return "", err
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return "", err
-	}
-	got, err := os.ReadFile(path)
-	if err != nil || len(got) == 0 {
-		return "", errors.Join(err, errors.New("empty salt file "+path))
-	}
-	return strings.TrimSpace(string(got)), nil
-}
-
-// linkSalt writes salt to a temp file and links it to path: atomic, and ErrExist if path exists (never half-written).
-func linkSalt(path, salt string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // the temp name only; path keeps the hard link
-	_, werr := tmp.WriteString(salt)
-	if err := errors.Join(werr, tmp.Chmod(0o600), tmp.Close()); err != nil {
-		return err
-	}
-	return os.Link(tmp.Name(), path)
 }
 
 // RecordOverlayDebug appends env's names and HMAC-SHA256 fingerprints (last duplicate wins, as exec does).

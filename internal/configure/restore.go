@@ -11,9 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// Restore is `configure --restore`. With agents named or forceHomes (--agent/--agents) it renders only the agent
-// configs and never touches settings.json; otherwise it resets settings.json (backup first), then renders the agent
-// configs. out replaces the settings.json path.
+// Restore resets settings.json (backup first) and renders agent configs; --agent/--agents render configs only.
 func Restore(w io.Writer, agents, out string, forceHomes bool) error {
 	if agents != "" || forceHomes {
 		return confirmAndRender(w, agents, forceHomes)

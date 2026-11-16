@@ -115,7 +115,7 @@ func isSymlink(path string) bool {
 }
 
 // Collect inlines up to maxFiles files (0 none, <0 default) of dirs and patterns, each cut at maxFileBytes, in budget.
-func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes, budget int, withTests bool) (Context, error) {
+func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles, maxFileBytes, budget int) (Context, error) {
 	if err := ctx.Err(); err != nil {
 		return Context{}, err
 	}
@@ -126,7 +126,7 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 		maxFileBytes = DefaultMaxFileBytes
 	}
 
-	matches, skipped, err := matchPaths(ctx, cwd, dirs, patterns, withTests)
+	matches, skipped, err := matchPaths(ctx, cwd, dirs, patterns)
 	if err != nil {
 		return Context{}, err
 	}
@@ -145,7 +145,7 @@ func Collect(ctx context.Context, cwd string, dirs, patterns []string, maxFiles,
 }
 
 // matchPaths walks dirs and globs patterns into the deduped match set, plus what the walk and globs skipped.
-func matchPaths(ctx context.Context, cwd string, dirs, patterns []string, withTests bool) (map[string]bool, []SkippedFile, error) {
+func matchPaths(ctx context.Context, cwd string, dirs, patterns []string) (map[string]bool, []SkippedFile, error) {
 	tracked, repoRoots, err := gitTrackedFiles(ctx, cwd, gitRoots(cwd, dirs, patterns))
 	if err != nil {
 		return nil, nil, err
@@ -154,7 +154,7 @@ func matchPaths(ctx context.Context, cwd string, dirs, patterns []string, withTe
 	matches := map[string]bool{}
 	var skipped []SkippedFile
 	for _, dir := range dirs {
-		dirMatches, dirSkipped, err := walkDir(ctx, cwd, dir, tracked, repoRoots[absIn(cwd, dir)], withTests)
+		dirMatches, dirSkipped, err := walkDir(ctx, cwd, dir, tracked, repoRoots[absIn(cwd, dir)])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -254,7 +254,7 @@ func groupRank(rel string) int {
 }
 
 // walkDir collects files under dir, pruning ignored dirs and, inside a git work tree, anything gitignored.
-func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRepo, withTests bool) (map[string]bool, []SkippedFile, error) {
+func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRepo bool) (map[string]bool, []SkippedFile, error) {
 	matches := map[string]bool{}
 	var skipped []SkippedFile
 	root := dir
@@ -277,7 +277,7 @@ func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRe
 			return nil
 		}
 		rel := relSlash(cwd, p)
-		if reason := walkSkipReason(d, rel, relSlash(root, p), tracked, inRepo, withTests); reason != "" {
+		if reason := walkSkipReason(d, rel, relSlash(root, p), tracked, inRepo); reason != "" {
 			skipped = append(skipped, SkippedFile{rel, reason})
 			return nil
 		}
@@ -291,13 +291,13 @@ func walkDir(ctx context.Context, cwd, dir string, tracked map[string]bool, inRe
 }
 
 // walkSkipReason is why a walked file is not inlined ("" keeps it); inRoot is its path inside the walked dir.
-func walkSkipReason(d fs.DirEntry, rel, inRoot string, tracked map[string]bool, inRepo, withTests bool) string {
+func walkSkipReason(d fs.DirEntry, rel, inRoot string, tracked map[string]bool, inRepo bool) string {
 	switch {
 	case !d.Type().IsRegular():
 		return "non-regular-file"
 	case inRepo && !tracked[rel]:
 		return "gitignored"
-	case !withTests && IsTestPath(inRoot):
+	case IsTestPath(inRoot):
 		return "tests-excluded"
 	}
 	return ""
