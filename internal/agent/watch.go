@@ -43,7 +43,8 @@ const (
 	defaultWatchAge     = 10 * time.Minute
 	defaultWatchSilence = 5 * time.Minute
 	uncollectedAfter    = 5 * time.Minute
-	collectHorizon      = 2 * time.Hour // older finished jobs predate any collect marker: never flagged
+	collectHorizon      = 2 * time.Hour    // older finished jobs predate any collect marker: never flagged
+	quickFailure        = 10 * time.Second // an error this soon after start was shown to its caller
 )
 
 // WatchLimits are the standard-tier age limit and the log-silence limit.
@@ -186,6 +187,9 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 		return classifyRunning(r, now, lim, rel)
 	}
 	end := r.Time.Add(time.Duration(r.DurationMs) * time.Millisecond)
+	if r.PID <= 0 || r.Status == "error" && end.Sub(r.Time) < quickFailure { // PID is set only by `ask --background`
+		return StaleJob{}, false
+	}
 	if now.Sub(end) > collectHorizon || collected(r.ID) || rel.finished && !rel.at.Before(end) {
 		return StaleJob{}, false
 	}

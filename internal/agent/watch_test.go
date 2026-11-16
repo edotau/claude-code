@@ -103,6 +103,8 @@ func TestClassifyFinishedJobs(t *testing.T) {
 		r.DurationMs = time.Minute.Milliseconds()
 		return r
 	}
+	foreground := func(r Record) Record { r.PID = 0; return r }
+	quickError := func(r Record) Record { r.Status, r.DurationMs = "error", 2000; return r }
 	cases := []struct {
 		name    string
 		ago     time.Duration
@@ -110,19 +112,26 @@ func TestClassifyFinishedJobs(t *testing.T) {
 		rel     relayState
 		want    string
 		pending bool
+		edit    func(Record) Record
 	}{
-		{"uncollected past 5m", 10 * time.Minute, false, relayState{}, WatchUncollected, false},
-		{"just ended", 3 * time.Minute, false, relayState{}, "", true},
-		{"collected", 10 * time.Minute, true, relayState{}, "", false},
-		{"relay handed back after it ended", 10 * time.Minute, false, relayState{finished: true, at: watchT0}, "", false},
+		{"uncollected past 5m", 10 * time.Minute, false, relayState{}, WatchUncollected, false, nil},
+		{"just ended", 3 * time.Minute, false, relayState{}, "", true, nil},
+		{"collected", 10 * time.Minute, true, relayState{}, "", false, nil},
+		{"relay handed back after it ended", 10 * time.Minute, false, relayState{finished: true, at: watchT0}, "", false, nil},
 		{"relay finished before it ended", 10 * time.Minute, false,
-			relayState{finished: true, at: watchT0.Add(-time.Hour)}, WatchUncollected, false},
-		{"past the horizon", 3 * time.Hour, false, relayState{}, "", false},
+			relayState{finished: true, at: watchT0.Add(-time.Hour)}, WatchUncollected, false, nil},
+		{"past the horizon", 3 * time.Hour, false, relayState{}, "", false, nil},
+		{"background ask 6m old", 6 * time.Minute, false, relayState{}, WatchUncollected, false, nil},
+		{"foreground ask 30m old", 30 * time.Minute, false, relayState{}, "", false, foreground},
+		{"quick error", 30 * time.Minute, false, relayState{}, "", false, quickError},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			r := ended(t, c.ago)
+			if c.edit != nil {
+				r = c.edit(r)
+			}
 			if c.collect {
 				marker(t, "collected", r.ID, "")
 			}
