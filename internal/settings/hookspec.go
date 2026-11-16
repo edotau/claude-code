@@ -106,7 +106,7 @@ var Registry = []Group{
 	{Name: "docs", Events: []EventSpec{
 		// Markdown writes at a repo root or into an ignored docs/ page are blocked, naming the canonical home.
 		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, StatusMessage: "Checking doc placement", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
-		// The first write to a native plan draft must carry the plan template; the denial pastes it.
+		// A new plan-named root or docs/ markdown goes to the dated plans home; a first draft must carry the template.
 		{Name: "docs-plan-gate", Event: EventPreToolUse, Matcher: "Write|Edit", Budget: 5 * sec, StatusMessage: "Checking plan template", Blocks: true, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Hosted: []string{"opencode"}},
@@ -129,7 +129,7 @@ var Registry = []Group{
 		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback", Budget: 15 * sec},
 	}},
 	{Name: "paths", Events: []EventSpec{
-		// A pasted or dragged Windows path (C:\…) resolves to its /mnt form for the model; a no-op off WSL.
+		// A pasted path (Windows, POSIX or client-only) resolves for the model, naming images and large files.
 		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "memory", Events: []EventSpec{
