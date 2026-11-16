@@ -13,8 +13,8 @@ Code's native auto-memory topics plus six typed bank files; one shared `MEMORY.m
 STATE; durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
 
 `claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the exact path (bare = store root);
-`--repo` takes a bank key or a checkout path (`update` and `dream --cwd` need a path). The per-repo layout is retired; the
-binary writes only the flat store.
+`--repo` takes a bank key or a checkout path (`update` and `dream --cwd` need a path). The per-repo layout is retired;
+the binary writes only the flat store.
 
 Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) get no bank: they use
 the launching workspace's (`HARNESS_MEMORY_ORIGIN`, else the home tier; `throwawayRoots` in `internal/memory`).
