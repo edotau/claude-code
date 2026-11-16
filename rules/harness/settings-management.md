@@ -22,6 +22,10 @@ paths:
 
 - A fresh install (file missing) seeds it from `internal/settings/template.json` plus the hook chain in
   `internal/settings/hookspec.go`. `make install` never writes an existing file; its only audit is validity.
+- Host tools live in `internal/agent/tools/deps.go`; `install --tools --missing` (run by `make install`) installs
+  only absent ones through brew, `go install`, npm or uv/pipx and prints ok / installed / skipped per tool. A skip or
+  failed install never fails `make install`, no root command runs (apt is a printed hint), and `doctor` shows a
+  `dep <name>` row.
 - `configure --restore` is the one reset (backup, then the clean render); `--check` and `--dry-run` are refused. A hook
   change in `hookspec.go` reaches an existing file only through it or a hand edit.
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.
