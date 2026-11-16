@@ -41,7 +41,7 @@ var memoryPage = helptext.Page{
 		"update writes them. Recall and save facts, then promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: search, show, index, path, report, digest, fmt, watch,\n" +
-		"          catchup, timeline, alias, import, revise, sandbox (off menu)\n" +
+		"          catchup, timeline, alias, import, revise, sandbox, migrate (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -66,6 +66,7 @@ var memoryPlumbing = map[string][2]string{
 	"timeline": {"", "recent bank entries and sessionHistory"},
 	"sandbox":  {"", "create a disposable memory config"},
 	"revise":   {"<old-id> --with <new-id>", "mark an entry replaced by a newer one"},
+	"migrate":  {"", "flatten the store into one directory (--dry-run previews, --revert undoes)"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -215,6 +216,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"import":   cmdMemoryImport,
 		"revise":   cmdMemoryRevise,
 		"sandbox":  cmdMemorySandbox,
+		"migrate":  cmdMemoryMigrate,
 	}
 }
 
@@ -257,6 +259,7 @@ func memorySpec() *helptext.Node {
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
 		"sandbox":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
+		"migrate":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
 		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
 		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.RepoKeys),
@@ -538,6 +541,27 @@ func cmdMemoryReview(args []string) int {
 		return helptext.Fail("memory review: %v", err)
 	}
 	return 0
+}
+
+func cmdMemoryMigrate(args []string) int {
+	fs := memoryFlagSet("migrate")
+	dryRun := fs.Bool("dry-run", false, "preview moves, rewrites and blockers; write nothing")
+	revert := fs.Bool("revert", false, "restore the per-repo layout from the newest migration record")
+	format := helptext.FormatFlag(fs)
+	if code, done := memoryParseNoArgs(fs, "migrate", args); done {
+		return code
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("memory migrate", err)
+	}
+	err := memory.Migrate(memory.MigrateOptions{DryRun: *dryRun, Revert: *revert, Format: *format, Out: os.Stdout})
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, memory.ErrMigrateRefused):
+		return helptext.FailUsage("memory migrate: %v", err)
+	}
+	return helptext.Fail("memory migrate: %v", err)
 }
 
 func cmdMemoryTimeline(args []string) int {
