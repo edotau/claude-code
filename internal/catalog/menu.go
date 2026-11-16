@@ -129,7 +129,7 @@ func MenuRemove(menu []providers.OpencodeModel, id string) (out []providers.Open
 	return out, len(out) != len(menu)
 }
 
-// parseMenuImport reads an opencode.json (its databricks provider "models" maps) or plain `id[,Label][,responses]` lines.
+// parseMenuImport reads an opencode.json (databricks provider "models") or plain `id[,Label][,responses]` lines.
 func parseMenuImport(data []byte) ([]providers.OpencodeModel, error) {
 	if t := strings.TrimSpace(string(data)); strings.HasPrefix(t, "{") {
 		return parseOpencodeJSON([]byte(t))
@@ -217,7 +217,7 @@ func parseOpencodeJSON(data []byte) ([]providers.OpencodeModel, error) {
 	return dedupeMenu(out), nil
 }
 
-// providerResponses reads the route from the provider's npm package (@ai-sdk/openai is Responses), else the "-gpt" suffix.
+// providerResponses reads the route from the npm package (@ai-sdk/openai is Responses), else the "-gpt" suffix.
 func providerResponses(pid, npm string) bool {
 	if npm != "" {
 		return npm == "@ai-sdk/openai"

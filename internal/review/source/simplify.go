@@ -169,7 +169,7 @@ func changedNames(top, base string) ([]string, error) {
 	return append(names, untracked...), nil
 }
 
-// simplifyTargets expands paths to supported-language files, deduped and sorted; an unreadable source file or directory must never read clean.
+// simplifyTargets expands paths to supported-language files, deduped and sorted; an unreadable path never reads clean.
 func simplifyTargets(paths []string, warn io.Writer) (files, unreadable []string) {
 	var exts []string
 	for _, list := range Extensions {

@@ -458,8 +458,8 @@ func writeBMP24(w io.Writer, width, height, stride int, rows []byte, topDown boo
 	binary.LittleEndian.PutUint32(dib[0:4], 40)
 	binary.LittleEndian.PutUint32(dib[4:8], uint32(width))
 	binary.LittleEndian.PutUint32(dib[8:12], uint32(height)) // positive: bottom-up
-	binary.LittleEndian.PutUint16(dib[12:14], 1)             // planes
-	binary.LittleEndian.PutUint16(dib[14:16], 24)            // bitcount
+	binary.LittleEndian.PutUint16(dib[12:14], 1)
+	binary.LittleEndian.PutUint16(dib[14:16], 24)
 	binary.LittleEndian.PutUint32(dib[16:20], biRGB)
 	binary.LittleEndian.PutUint32(dib[20:24], uint32(dataSize))
 	if _, err := w.Write(dib[:]); err != nil {
@@ -491,10 +491,10 @@ func writePNG(w io.Writer, img raster) error {
 		row := img.rows[src*img.stride : src*img.stride+img.stride]
 		dst := out.Pix[y*out.Stride : (y+1)*out.Stride]
 		for x := 0; x < img.width; x++ {
-			dst[x*4+0] = row[x*3+2] // R
-			dst[x*4+1] = row[x*3+1] // G
-			dst[x*4+2] = row[x*3+0] // B
-			dst[x*4+3] = 0xFF       // BMP alpha is discarded, so the PNG is fully opaque
+			dst[x*4+0] = row[x*3+2]
+			dst[x*4+1] = row[x*3+1]
+			dst[x*4+2] = row[x*3+0]
+			dst[x*4+3] = 0xFF // BMP alpha is discarded, so the PNG is fully opaque
 		}
 	}
 	if err := png.Encode(w, out); err != nil {

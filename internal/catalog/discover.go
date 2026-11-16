@@ -32,7 +32,7 @@ func SpawnDiscover(profile string, force bool) bool {
 	return proc.SpawnDetached(self, []string{"models", "preflight", "--discover", profile}, "", null)
 }
 
-// DiscoverTargets is the profiles copilot and opencode point at that have models to discover: Databricks or GitHub rows.
+// DiscoverTargets is the profiles copilot and opencode point at that have models to discover (Databricks, GitHub).
 func DiscoverTargets(reg *providers.Registry) []string {
 	var out []string
 	for _, agent := range []string{agentid.Copilot, agentid.OpenCode} {
@@ -60,7 +60,7 @@ func GithubProfile(reg *providers.Registry) string {
 	return ""
 }
 
-// RecallOrSpawn is p's sealed models, no network, if usable accepts them; an expired one is served and spawn refreshes it.
+// RecallOrSpawn is p's sealed models with no network if usable accepts them; an expired set is served and refreshed.
 func RecallOrSpawn(ctx context.Context, p *providers.Provider, usable func([]providers.ModelInfo) bool,
 	spawn func(profile string) bool) ([]providers.ModelInfo, bool) {
 	snap, ok := recallSnapshot(ctx, p, usable, spawn)

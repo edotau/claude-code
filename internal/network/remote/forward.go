@@ -28,7 +28,7 @@ func PinLogin(host string, rest []string) error {
 	return proc.Setenv(LoginRemoteEnv, host)
 }
 
-// CheckLogin refuses a `databricks login` that combines --remote with --host or --host-browser; flags are the global ones.
+// CheckLogin refuses a `databricks login` that combines --remote with the global --host or --host-browser.
 func CheckLogin(args []string, egressFlag string) error {
 	seen := map[string]bool{}
 	for len(args) > 0 {

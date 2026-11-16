@@ -47,7 +47,7 @@ func (h *BitbucketHost) redact(s string) string {
 	return strings.ReplaceAll(s, h.Token, "***")
 }
 
-// do sends one request and returns the body; a 401 names the vault fix and a 403 the missing permission, never the token.
+// do sends one request and returns the body; a 401 names the vault fix, a 403 the missing permission, never the token.
 func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Values, body any, accept string) ([]byte, error) {
 	var rd io.Reader
 	if body != nil {

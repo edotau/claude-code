@@ -42,7 +42,7 @@ var (
 	autoAnswers = answersVersion
 )
 
-// ResolveAuto turns `--host auto` or `--remote auto` into CLAUDE_REMOTE_HOST, else the one other tailnet machine that answers ssh.
+// ResolveAuto turns `--host auto` or `--remote auto` into CLAUDE_REMOTE_HOST, else the one tailnet peer answering ssh.
 func ResolveAuto(host string) (string, error) {
 	if host != Auto {
 		return host, nil

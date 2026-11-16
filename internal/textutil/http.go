@@ -47,7 +47,7 @@ var nonPublicRanges = []netip.Prefix{
 
 var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
-// IsNonPublicIP reports nil or an address that is not global unicast, private, or in a reserved range; blockCGNAT adds 100.64/10.
+// IsNonPublicIP reports nil, a non-global-unicast, private or reserved address; blockCGNAT adds 100.64/10.
 func IsNonPublicIP(ip net.IP, blockCGNAT bool) bool {
 	addr, ok := netip.AddrFromSlice(ip)
 	if !ok {
