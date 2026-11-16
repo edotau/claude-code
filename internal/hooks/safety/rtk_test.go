@@ -44,6 +44,9 @@ func TestRTKSkipsCodex(t *testing.T) {
 		t.Fatalf("Codex command rewritten to %q", got)
 	}
 	t.Setenv("HARNESS_HOOK_AGENT", "")
+	if got, ok := rtkOut(t, strings.Replace(payload, "{", `{"permission_mode":"auto",`, 1)); ok {
+		t.Fatalf("auto-mode command rewritten to %q", got)
+	}
 	if got, ok := rtkOut(t, payload); !ok || got != bin+" git log --oneline -20" {
 		t.Fatalf("Claude command = %q (emitted=%v), want the wrapped form", got, ok)
 	}

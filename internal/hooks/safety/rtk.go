@@ -37,7 +37,8 @@ var rtkValueSubcommands = map[string]bool{
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
 func RTKRewrite(in *core.Input) core.Result {
-	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" {
+	// auto mode's classifier gives no verdict on a hook-changed input, forcing a verbatim resend
+	if in.Agent() != core.AgentClaude || in.ToolName != "" && in.ToolName != "Bash" || in.Nested("permission_mode") == "auto" {
 		return core.Result{}
 	}
 	bin := paths.RTKBinary()
