@@ -177,12 +177,9 @@ func taskFromStdin(task []string) bool {
 	return len(task) == 0 || (len(task) == 1 && task[0] == "-")
 }
 
-// prelude turns on --overlay-debug and validates the flags.
+// prelude validates the flags.
 func (r *askRun) prelude() (int, bool) {
 	f := r.f
-	if code := askEnableOverlayDebug(f.overlayDebug); code != 0 {
-		return code, true
-	}
 	var err error
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)

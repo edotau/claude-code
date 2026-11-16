@@ -28,20 +28,20 @@ import (
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay, overlayDebug string
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                                     bool
-	timeout                                                                                                                                                                                     time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                                int
-	dirs, files                                                                                                                                                                                 string
-	diff, index, withTests                                                                                                                                                                      bool
-	pack                                                                                                                                                                                        *pack.Spec
-	agents                                                                                                                                                                                      agentsFlag
-	attach                                                                                                                                                                                      attachFlag
-	keepEnv                                                                                                                                                                                     []string
-	permAllow, permAsk, permDeny                                                                                                                                                                []string
-	permMode                                                                                                                                                                                    string
-	leadProvider                                                                                                                                                                                string
-	env                                                                                                                                                                                         []string
+	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                       bool
+	timeout                                                                                                                                                                       time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                  int
+	dirs, files                                                                                                                                                                   string
+	diff, index                                                                                                                                                                   bool
+	pack                                                                                                                                                                          *pack.Spec
+	agents                                                                                                                                                                        agentsFlag
+	attach                                                                                                                                                                        attachFlag
+	keepEnv                                                                                                                                                                       []string
+	permAllow, permAsk, permDeny                                                                                                                                                  []string
+	permMode                                                                                                                                                                      string
+	leadProvider                                                                                                                                                                  string
+	env                                                                                                                                                                           []string
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
@@ -123,7 +123,6 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.index, "index", false, "prepend an index of every matched path")
 	fs.IntVar(&f.maxFiles, "max-files", pack.DefaultMaxFiles, "max files to inline (0 = index only)")
 	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
-	fs.BoolVar(&f.withTests, "with-tests", false, "inline test files and testdata under --dirs (skipped by default)")
 	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
 	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see agents status")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
@@ -133,7 +132,6 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
 	registerOverlayFlag(fs, f)
-	fs.StringVar(&f.overlayDebug, "overlay-debug", "", "log child env names + salted hashes, never values")
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; every failure is a usage error (exit 2).
@@ -147,21 +145,6 @@ func askCheckFlags(env, keepEnv []string, format, fallback string, background bo
 	return askExclusive(background, job, tools, noTools)
 }
 
-// askEnableOverlayDebug turns on --overlay-debug; it returns the exit code of a failure, else 0.
-func askEnableOverlayDebug(debugPath string) int {
-	if debugPath != "" {
-		if strings.HasPrefix(debugPath, "-") {
-			fmt.Fprintf(os.Stderr, "claude-code agents ask: --overlay-debug: %q looks like a flag; give a file path\n", debugPath)
-			return 2
-		}
-		if err := agentconfig.EnableOverlayDebug(debugPath); err != nil {
-			fmt.Fprintln(os.Stderr, "claude-code agents ask: --overlay-debug:", err)
-			return 2
-		}
-	}
-	return 0
-}
-
 // askPack builds the pack spec from --dirs/--files/--diff; nil when none is set. The tuning flags need one.
 func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 	if f.dirs == "" && f.files == "" && !f.diff {
@@ -171,7 +154,7 @@ func askPack(fs *flag.FlagSet, f *askFlags) (*pack.Spec, error) {
 		return nil, err
 	}
 	return &pack.Spec{Dirs: textutil.SplitCSV(f.dirs), Files: textutil.SplitCSV(f.files), Diff: f.diff, Index: f.index,
-		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, WithTests: f.withTests, IndexOnly: f.maxFiles == 0}, nil
+		MaxFiles: f.maxFiles, MaxFileBytes: f.maxFileBytes, IndexOnly: f.maxFiles == 0}, nil
 }
 
 // packCombos refuses negative pack limits and a pack with --batch, --live or --host.
@@ -187,7 +170,7 @@ func packCombos(f *askFlags) error {
 
 // packTuningUnset refuses a pack tuning flag typed without --dirs, --files or --diff.
 func packTuningUnset(fs *flag.FlagSet) error {
-	for _, n := range []string{"index", "max-files", "max-file-bytes", "with-tests"} {
+	for _, n := range []string{"index", "max-files", "max-file-bytes"} {
 		if helptext.Explicit(fs, n) {
 			return fmt.Errorf("--%s needs --dirs, --files or --diff", n)
 		}

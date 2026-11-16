@@ -67,6 +67,29 @@ func TestReadOnlyTools(t *testing.T) {
 	})
 }
 
+func TestReadOnlyRenamedVerbs(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{"claude-code plan status --all", true},
+		{"claude-code plan assumptions plan.md", true},
+		{"claude-code plan goals --json", true},
+		{"claude-code plan tick --range a..b", false},
+		{"claude-code review assumptions", false},
+		{"claude-code review goals", false},
+		{"claude-code models preflight", true},
+		{"claude-code models preflight --refresh", false},
+		{"claude-code models preflight --discover p", false},
+		{"claude-code models preflight --live", false},
+		{"claude-code review quality --comments --format tsv internal", true},
+		{"claude-code review quality --comments --output x", false},
+		{"claude-code review simplify --fail", true},
+		{"claude-code agents resolve codex", true},
+		{"claude-code agents record x", false},
+		{"claude-code memory fmt --own", false},
+		{"claude-code gateway proxy --restart", false},
+		{"claude-code clip --clear", false},
+	})
+}
+
 func TestReadOnlyReviewScope(t *testing.T) {
 	checkReadOnly(t, []roCase{
 		{"claude-code review scope --range HEAD~1..HEAD --caps", true},
