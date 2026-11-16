@@ -46,7 +46,7 @@ func statBank(b Bank) bankStat {
 			s.Updated = fi.ModTime()
 		}
 		// The visible surface for commitStore's refusal to stage credential-shaped values.
-		if textutil.CredentialRE.Match(data) {
+		if textutil.CredentialRE().Match(data) {
 			s.Credentials = append(s.Credentials, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}

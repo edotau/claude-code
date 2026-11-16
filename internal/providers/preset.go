@@ -22,7 +22,7 @@ const PresetDatabricks = "databricks"
 
 var (
 	cliProfileRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$`) })
-	EnvNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	EnvNameRE    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`) })
 	secretNameRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
 	})
@@ -235,7 +235,7 @@ func validateEnv(n string, env map[string]string) []string {
 	var errs []string
 	for k := range env {
 		switch {
-		case !EnvNameRE.MatchString(k):
+		case !EnvNameRE().MatchString(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q must match [A-Z_][A-Z0-9_]*", n, k))
 		case IsSecretName(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q looks like a credential; secrets belong in auth", n, k))

@@ -64,7 +64,7 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	if dir == "" || len(entries) == 0 {
 		return
 	}
-	if textutil.CredentialRE.MatchString(reason) {
+	if textutil.CredentialRE().MatchString(reason) {
 		reason = "(reason redacted — credential-shaped)"
 	}
 	path := AccessLogPath(dir)
