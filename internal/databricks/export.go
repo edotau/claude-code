@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -241,7 +242,7 @@ func freeSPSection(reg *providers.Registry, rows []exportRow, id string) string 
 	}
 }
 
-var sectionRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var sectionRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_.-]+$`) })
 
 // renameRows applies id=section renames and drops rows whose section is reserved, malformed or taken.
 func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, skipped []string) {
@@ -257,7 +258,7 @@ func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, sk
 		switch {
 		case isReserved(r.Section):
 			skipped = append(skipped, r.ID+": section ["+r.Section+"] is reserved; never written")
-		case !sectionRE.MatchString(r.Section):
+		case !sectionRE().MatchString(r.Section):
 			skipped = append(skipped, r.ID+": section name "+r.Section+" must match [A-Za-z0-9_.-]+")
 		case seen[r.Section]:
 			skipped = append(skipped, r.ID+": section ["+r.Section+"] is already taken by another row")

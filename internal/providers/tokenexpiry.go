@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -16,11 +17,11 @@ import (
 )
 
 // tokenNameRE admits only a provider name that is a safe single path segment.
-var tokenNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var tokenNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
 
 // cacheRecordPath is the record file of a provider name in the state cache dir; "" when the name is not a safe segment.
 func cacheRecordPath(dir, name string) string {
-	if !tokenNameRE.MatchString(name) || name == "." || name == ".." {
+	if !tokenNameRE().MatchString(name) || name == "." || name == ".." {
 		return ""
 	}
 	return filepath.Join(paths.StateDir(), "cache", dir, name+".json")

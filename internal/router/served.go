@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -172,10 +173,10 @@ func (s Served) Fresh(now time.Time) bool {
 	return !paths.Stale(s.FetchedAt, servedTTL, clockSkew, now)
 }
 
-var nameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var nameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
 
 func servedPath(profile string) string {
-	if !nameRE.MatchString(profile) || profile == "." || profile == ".." {
+	if !nameRE().MatchString(profile) || profile == "." || profile == ".." {
 		return ""
 	}
 	return filepath.Join(paths.StateDir(), "preflight", "served-"+profile+".json")

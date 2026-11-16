@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -39,11 +40,11 @@ type Subscription struct {
 	Account string
 }
 
-var maxTierRE = regexp.MustCompile(`max_(\d+x)`)
+var maxTierRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`max_(\d+x)`) })
 
 // MaxTierName names a rate-limit tier ("default_claude_max_20x"): 20x is "Ultra", 5x "Max 5x"; "" when not a Max tier.
 func MaxTierName(tier string) string {
-	m := maxTierRE.FindStringSubmatch(tier)
+	m := maxTierRE().FindStringSubmatch(tier)
 	switch {
 	case m == nil:
 		return ""

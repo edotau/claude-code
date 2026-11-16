@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -377,9 +378,15 @@ func (e Entry) Until(now time.Time) time.Time {
 }
 
 var (
-	clockRE = regexp.MustCompile(`try again (?:at|after) (\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?`)
-	inRE    = regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
-	dateRE  = regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
+	clockRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`try again (?:at|after) (\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?`)
+	})
+	inRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
+	})
+	dateRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
+	})
 )
 
 // ParseReset reads when an exhausted account frees up from the failure text; ok is false when the text names none.
@@ -398,7 +405,7 @@ func ParseReset(text string, now time.Time) (time.Time, bool) {
 
 // parseClockReset reads "try again at|after H:MM [am|pm]" as the next such wall-clock time.
 func parseClockReset(low string, now time.Time) (time.Time, bool) {
-	m := clockRE.FindStringSubmatch(low)
+	m := clockRE().FindStringSubmatch(low)
 	if m == nil {
 		return time.Time{}, false
 	}
@@ -426,7 +433,7 @@ func validClock(h, mi int, ampm string) bool {
 
 // parseInReset reads "try again in N unit" as now plus that duration.
 func parseInReset(low string, now time.Time) (time.Time, bool) {
-	m := inRE.FindStringSubmatch(low)
+	m := inRE().FindStringSubmatch(low)
 	if m == nil {
 		return time.Time{}, false
 	}
@@ -442,7 +449,7 @@ func parseInReset(low string, now time.Time) (time.Time, bool) {
 
 // parseDateReset reads an ISO date, with optional time and zone, that lies in the future.
 func parseDateReset(low string, now time.Time) (time.Time, bool) {
-	m := dateRE.FindStringSubmatch(low)
+	m := dateRE().FindStringSubmatch(low)
 	if m == nil {
 		return time.Time{}, false
 	}

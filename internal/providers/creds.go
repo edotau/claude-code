@@ -403,7 +403,9 @@ func authCommandError(ctx context.Context, p *Provider, err error) error {
 }
 
 // upstreamStatusRE in a failed auth command's stderr is the issuer's own 429 or 5xx, which a login cannot fix.
-var upstreamStatusRE = regexp.MustCompile(`(?i)\b(?:429|5\d\d)\b|internal server error|bad gateway|too many requests`)
+var upstreamStatusRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(?:429|5\d\d)\b|internal server error|bad gateway|too many requests`)
+})
 
 // commandFailureKind is authCommandError's class: cli, network, upstream, else auth.
 func commandFailureKind(ee *exec.ExitError, detail string) string {
@@ -413,19 +415,21 @@ func commandFailureKind(ee *exec.ExitError, detail string) string {
 		return "cli: command not found"
 	case slices.ContainsFunc(networkMarkers, func(m string) bool { return strings.Contains(low, m) }):
 		return "network: check the connection or VPN"
-	case upstreamStatusRE.MatchString(detail):
+	case upstreamStatusRE().MatchString(detail):
 		return "upstream: the issuer failed; retry later"
 	}
 	return "auth: log in again for this provider"
 }
 
 // keyedSecretRE is a credential key, its separator (JSON, key=value, header, space) and its value of any length.
-var keyedSecretRE = regexp.MustCompile("(?i)(\\b(?:access_token|refresh_token|id_token|client_secret|api_key|" +
-	"password|secret|token|authorization|bearer)\\b[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?(?:(?:bearer|basic)\\s+)?)" +
-	"[^\\s\"'`,;{}\\[\\]()&]+")
+var keyedSecretRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("(?i)(\\b(?:access_token|refresh_token|id_token|client_secret|api_key|" +
+		"password|secret|token|authorization|bearer)\\b[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?(?:(?:bearer|basic)\\s+)?)" +
+		"[^\\s\"'`,;{}\\[\\]()&]+")
+})
 
 // jwtRE is a JWT of any length; textutil.RedactSecrets covers the prefixed key families.
-var jwtRE = regexp.MustCompile(`\beyJ[^\s"'` + "`" + `,;{}\[\]()&]*`)
+var jwtRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\beyJ[^\s"'` + "`" + `,;{}\[\]()&]*`) })
 
 // redactDetail is stderr's last non-empty line, ≤160 chars, with credential-shaped words masked.
 func redactDetail(stderr string) string {
@@ -433,8 +437,8 @@ func redactDetail(stderr string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	line := keyedSecretRE.ReplaceAllString(textutil.RedactSecrets(lines[len(lines)-1]), "${1}REDACTED")
-	line = jwtRE.ReplaceAllString(line, "REDACTED")
+	line := keyedSecretRE().ReplaceAllString(textutil.RedactSecrets(lines[len(lines)-1]), "${1}REDACTED")
+	line = jwtRE().ReplaceAllString(line, "REDACTED")
 	return textutil.CapRunes(strings.Join(strings.Fields(line), " "), 160, "…")
 }
 

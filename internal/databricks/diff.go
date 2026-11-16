@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -24,11 +25,11 @@ var credWords = map[string]bool{
 	"BEARER": true, "PAT": true, "AUTHORIZATION": true,
 }
 
-var camelGap = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+var camelGap = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([a-z0-9])([A-Z])`) })
 
 // credLeaf reports a key whose name segment marks its string value as a credential (api_key, clientSecret).
 func credLeaf(k string) bool {
-	k = camelGap.ReplaceAllString(k, "${1}_${2}")
+	k = camelGap().ReplaceAllString(k, "${1}_${2}")
 	for _, seg := range strings.FieldsFunc(strings.ToUpper(k), func(r rune) bool { return r == '_' || r == '-' || r == '.' }) {
 		if credWords[seg] {
 			return true
@@ -38,11 +39,13 @@ func credLeaf(k string) bool {
 }
 
 // credValueRE matches a credential-bearing header line or bearer scheme inside a value.
-var credValueRE = regexp.MustCompile(`(?i)\b(?:bearer\s+\S|(?:proxy-)?authorization\s*:|cookie\s*:)`)
+var credValueRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(?:bearer\s+\S|(?:proxy-)?authorization\s*:|cookie\s*:)`)
+})
 
 // credValue reports a string value that holds a credential whatever its key is called.
 func credValue(v string) bool {
-	return credValueRE.MatchString(v) || textutil.RedactSecrets(v) != v
+	return credValueRE().MatchString(v) || textutil.RedactSecrets(v) != v
 }
 
 // maskPair returns copies of o and n with credential strings masked; a differing value is marked changed.

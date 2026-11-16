@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
@@ -53,8 +54,8 @@ func renderConfig(o renderOptions) (renderResult, error) {
 }
 
 var (
-	hostRe   = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:\d+)?$`)
-	setKeyRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	hostRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:\d+)?$`) })
+	setKeyRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_.-]+$`) })
 )
 
 func (o renderOptions) validate() error {
@@ -85,7 +86,7 @@ func (o renderOptions) checkAuthHost() error {
 	if o.Auth != authHarness && o.Auth != authCLI {
 		return fmt.Errorf("--auth must be harness or cli (got %q)", o.Auth)
 	}
-	if !hostRe.MatchString(o.Host) {
+	if !hostRe().MatchString(o.Host) {
 		return fmt.Errorf("host must be https://host with no path (got %q)", o.Host)
 	}
 	if o.Auth == authHarness && (o.P.Name == "" || o.Self == "") {
@@ -100,7 +101,7 @@ func checkSetPair(kv string) error {
 	if !ok || k == "" {
 		return fmt.Errorf("--set wants K=V (got %q)", kv)
 	}
-	if !setKeyRE.MatchString(k) {
+	if !setKeyRE().MatchString(k) {
 		return fmt.Errorf("--set %q: keys must match [A-Za-z0-9_.-]+ (a bare TOML/env key)", k)
 	}
 	if credLeaf(k) && !strings.HasSuffix(k, "_TTL_MS") {
@@ -268,10 +269,12 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 }
 
 // tomlNumberRE is a TOML decimal integer or float; Go's ParseFloat also takes Infinity and hex floats, TOML does not.
-var tomlNumberRE = regexp.MustCompile(`^[+-]?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+var tomlNumberRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[+-]?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+})
 
 func tomlValue(v string) string {
-	if tomlNumberRE.MatchString(v) || v == "true" || v == "false" {
+	if tomlNumberRE().MatchString(v) || v == "true" || v == "false" {
 		return v
 	}
 	return agentconfig.TOMLQuoteRaw(v)
