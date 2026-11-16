@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -49,6 +50,29 @@ func TestMemoryRunOptionsCdCoversOnlyTheStore(t *testing.T) {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
 		}
+	}
+}
+
+// The memory job's Read denies are the settings template's spellings and refuse secret files through Bash.
+func TestMemoryRunOptionsDenySecretReads(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
+	for _, s := range []string{"Read(**/state/vault.db)", "Read(**/.credentials.json)", "Read(**/.env)", "Read(**/*.pem)"} {
+		if r, err := agent.ParseRule(s); err != nil || !slices.Contains(p.Deny, r) {
+			t.Errorf("deny %s: parsed %+v, %v; not in %v", s, r, err, p.Deny)
+		}
+	}
+	cd := "cd " + memory.StoreDir() + " && "
+	for _, f := range []string{cfg + "/state/vault.db", cfg + "/.credentials.json", cfg + "/.env", cfg + "/k.pem"} {
+		for _, cmd := range []string{"cat " + f, cd + "head -1 " + f, "grep x " + f + " | wc -l", cd + "cat $(echo " + f + ")"} {
+			if got := p.Decide("Bash", cmd); got != agent.Deny {
+				t.Errorf("Decide(Bash, %q) = %v, want deny", cmd, got)
+			}
+		}
+	}
+	if got := p.Decide("Bash", cd+"cat ../state/vault.db"); got != agent.Deny {
+		t.Errorf("climbing read = %v, want deny", got)
 	}
 }
 

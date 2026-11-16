@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -339,14 +340,56 @@ func readOnlyReadDenied(p Permissions, seg string) bool {
 		return false
 	}
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
-	ops, ok := readOperands(toks)
+	if len(toks) > 0 && slices.Contains(noFileCommands, toks[0]) {
+		return false
+	}
+	if len(toks) > 0 && toks[0] == "cd" {
+		return cdReadDenied(reads, toks)
+	}
+	ops, ok := readOperands(toks, expansionsQuoted(seg))
 	if !ok || slices.ContainsFunc(reads, func(r Rule) bool { return r.Arg == "" }) {
 		return true
 	}
 	deny := Permissions{Deny: reads}
 	return slices.ContainsFunc(ops, func(o string) bool {
-		return slices.ContainsFunc(operandForms(o), func(f string) bool { return deny.Decide("Read", f) == Deny })
+		// after an allowed cd the cwd join below is wrong, so a climbing operand cannot be placed
+		return slices.Contains(strings.Split(filepath.ToSlash(o), "/"), "..") ||
+			slices.ContainsFunc(operandForms(o), func(f string) bool { return deny.Decide("Read", f) == Deny })
 	})
+}
+
+// noFileCommands read no file: builtins whose arguments are printed, never opened (a redirect never reaches here).
+var noFileCommands = []string{"echo", "printf", "true", ":", "pwd"}
+
+// cdReadDenied refuses a cd that is not one literal absolute path, or whose target a Read deny covers or sits above.
+func cdReadDenied(reads []Rule, toks []string) bool {
+	if len(toks) != 2 || !path.IsAbs(filepath.ToSlash(toks[1])) || strings.ContainsAny(toks[1], "$`*?[{~\\") {
+		return true
+	}
+	target := path.Clean(toks[1])
+	targets := []string{target, paths.CanonDeep(target)}
+	return slices.ContainsFunc(reads, func(r Rule) bool {
+		dirs := append(denyParentDirs(r.Arg), denyParentDirs(expandHome("Read", r.Arg))...)
+		return slices.ContainsFunc(targets, func(t string) bool {
+			return r.matches("Read", t) || slices.ContainsFunc(dirs, func(d string) bool { return pathMatches(d, t) })
+		})
+	})
+}
+
+// denyParentDirs are the directory globs a cd may not reach, since a relative operand there would name the denied path.
+func denyParentDirs(pattern string) []string {
+	p := cleanGlobPath(pattern)
+	if !path.IsAbs(p) && !strings.HasPrefix(p, "**/") {
+		p = "**/" + p // a relative rule may match under any cwd
+	}
+	var dirs []string
+	for d := path.Dir(p); d != "**" && d != "."; d = path.Dir(d) {
+		dirs = append(dirs, d)
+		if d == "/" {
+			break
+		}
+	}
+	return dirs
 }
 
 // operandForms is an operand as typed, cleaned, absolute from the cwd, and every trailing sub-path of it.
@@ -368,14 +411,41 @@ func operandForms(o string) []string {
 // patchFlags make git log print file contents.
 var patchFlags = []string{"-p", "-u", "-L", "--patch", "--cc", "--dd", "--patch-with-stat", "--patch-with-raw"}
 
+const expansionChars = "*?[{$~"
+
+// expansionsQuoted: every expansion char in seg sits in plain '…' or after a backslash, so bash reads it literally.
+func expansionsQuoted(seg string) bool {
+	var quote byte
+	for i := 0; i < len(seg); i++ {
+		c := seg[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			}
+		case c == '\\':
+			i++
+		case strings.IndexByte(expansionChars, c) >= 0: // "…" still expands $; $'…' may spell any byte
+			return false
+		case quote == '"':
+			if c == '"' {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		}
+	}
+	return true
+}
+
 // readOperands are the file operands of a read-only command; ok is false when they cannot be listed reliably.
-func readOperands(toks []string) (ops []string, ok bool) {
+func readOperands(toks []string, literal bool) (ops []string, ok bool) {
 	if len(toks) == 0 {
 		return nil, false
 	}
 	args := toks[1:]
 	files := slices.DeleteFunc(slices.Clone(args), func(a string) bool { return strings.HasPrefix(a, "-") })
-	if slices.ContainsFunc(files, func(f string) bool { return strings.ContainsAny(f, "*?[{$~") }) {
+	if !literal && slices.ContainsFunc(files, func(f string) bool { return strings.ContainsAny(f, expansionChars) }) {
 		return nil, false // a glob or expansion names files this check cannot see
 	}
 	return commandOperands(toks[0], args, files)

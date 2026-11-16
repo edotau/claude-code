@@ -457,7 +457,17 @@ func TestPermissionShellComments(t *testing.T) {
 		"go test ./x \\# c; rm y":             Deny,
 		"go test $#; rm y":                    Deny,
 		"go test ./x > o # c":                 Deny,
+		// a quote or backslash inside a comment hides nothing: bash runs the next line
+		"go test ./x # it's\nrm -rf y #'": Deny,
+		"go test ./x #c\\\nrm y":          Deny,
+		"go test ./x # \"q\nrm y #\"":     Deny,
 	})
+	// the same shapes hiding an allowed command stay allowed
+	rmOK := mustPerms(t, "plan", []string{"Bash(go test *)", "Bash(rm *)"}, nil, nil)
+	checkBash(t, rmOK, map[string]Decision{"go test ./x # it's\nrm -rf y #'": Allow, "go test ./x #c\\\nrm y": Allow})
+	codex := mustPerms(t, "default", nil, nil, []string{"Bash(rm:*)"})
+	checkBash(t, codex, map[string]Decision{"go test ./x # it's\nrm -rf y #'": Deny, "go test ./x #c\\\nrm y": Deny,
+		"cat <<EOF\n# it's\nEOF\nrm y #'": Deny})
 }
 
 // Given a cd rule for a workdir, Then a cd naming it through a symlink (/tmp for /private/tmp) passes either way.

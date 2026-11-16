@@ -15,6 +15,9 @@ import (
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	s := memory.JobScope(memory.JobKind(ctx), workdir)
 	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
+	for _, secret := range []string{"**/state/vault.db", "**/.credentials.json", "**/.env", "**/*.pem"} {
+		p.Deny = append(p.Deny, agent.Rule{Tool: "Read", Arg: secret}) // also binds read-only Bash
+	}
 	for _, tool := range []string{"Edit", "Write"} {
 		for _, d := range s.NoWrite {
 			p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: d})
