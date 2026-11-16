@@ -34,7 +34,7 @@ func tempRemovable(p string) bool {
 	}
 	target := filepath.Join(paths.CanonDeep(filepath.Dir(p)), filepath.Base(p))
 	for _, live := range liveRoots() {
-		if paths.Within(foldCase(target), foldCase(live)) {
+		if paths.Within(paths.FoldCase(target), paths.FoldCase(live)) {
 			return false
 		}
 	}
@@ -44,9 +44,9 @@ func tempRemovable(p string) bool {
 // liveRoots are the trees a removal must never reach even when they sit under a temp root: the config dir, ~/.claude
 // and the home directory, each symlink-resolved.
 func liveRoots() []string {
-	roots := []string{core.CanonPath(paths.ConfigDir())}
+	roots := []string{paths.Real(paths.ConfigDir())}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, core.CanonPath(filepath.Join(home, ".claude")), core.CanonPath(home))
+		roots = append(roots, paths.Real(filepath.Join(home, ".claude")), paths.Real(home))
 	}
 	return roots
 }
@@ -57,7 +57,7 @@ func underTemp(target string) bool {
 		return true
 	}
 	for _, root := range []string{os.TempDir(), "/tmp", "/private/tmp"} {
-		for _, r := range []string{filepath.Clean(root), core.CanonPath(root)} {
+		for _, r := range []string{filepath.Clean(root), paths.Real(root)} {
 			if r != "/" && paths.Within(target, r) {
 				return true
 			}

@@ -299,8 +299,8 @@ func isUndatedDraft(abs string) bool {
 		return false
 	}
 	// Canonicalize both sides: a draft spelled through a symlink must still match the real plans dir.
-	plansDir := core.CanonPath(filepath.Join(paths.ConfigDir(), "plans"))
-	if core.CanonPath(filepath.Dir(abs)) != plansDir {
+	plansDir := paths.Real(filepath.Join(paths.ConfigDir(), "plans"))
+	if paths.Real(filepath.Dir(abs)) != plansDir {
 		return false
 	}
 	return !undatedNameRe().MatchString(filepath.Base(abs))
@@ -409,8 +409,7 @@ func planDest(in *core.Input) (string, error) {
 		return "", nil
 	}
 	dir := filepath.Dir(abs)
-	canon := foldCase(core.CanonPath(dir))
-	if canon != foldCase(core.CanonPath(root)) && canon != foldCase(core.CanonPath(filepath.Join(root, "docs"))) {
+	if !paths.SameFile(dir, root) && !paths.SameFile(dir, filepath.Join(root, "docs")) {
 		return "", nil
 	}
 	slug := paths.Slug(strings.TrimSuffix(base, filepath.Ext(base)), "-", 60, "plan")

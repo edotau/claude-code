@@ -164,9 +164,9 @@ func probeRewrite(ctx context.Context, target string, rng []string) (string, boo
 	if err != nil || !ok {
 		return "", false, 0, err
 	}
-	top := core.CanonPath(dirs[0])
+	top := paths.Real(dirs[0])
 	n, err := rewriteCount(ctx, top, rng)
-	return top, core.CanonPath(dirs[1]) != core.CanonPath(dirs[2]), n, err
+	return top, paths.Real(dirs[1]) != paths.Real(dirs[2]), n, err
 }
 
 // rewriteCount is how many commits rng holds in dir; 0 when its base is not a commit (a path, no upstream).
@@ -187,7 +187,7 @@ func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 // shareReasons lists why top is shared: the live config tree, peer sessions in it, or this session's leaves.
 func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, nested []string) ([]string, error) {
 	var reasons []string
-	if top == core.CanonPath(paths.ConfigDir()) {
+	if top == paths.Real(paths.ConfigDir()) {
 		reasons = append(reasons, "it is the live config tree "+top)
 	}
 	procs, err := wthook.PeersOf(ctx, top, nested)

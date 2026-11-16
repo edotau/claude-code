@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // gateTools maps a canonical hook tool name (codex's apply_patch is Edit) to the rule tool Decide judges it as.
@@ -225,9 +226,9 @@ func pathForms(cwd, p string) []string {
 	if filepath.IsAbs(abs) {
 		canonCWD := cwd
 		if cwd != "" {
-			canonCWD = core.CanonPath(cwd)
+			canonCWD = paths.Real(cwd)
 		}
-		canon := core.CanonPath(abs)
+		canon := paths.Real(abs)
 		forms = append(forms, relToCWD(canonCWD, canon), canon)
 	}
 	var out []string

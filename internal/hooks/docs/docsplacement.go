@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -93,14 +92,14 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	}
 	path = core.AnchorPath(path, in.CWD)
 	// Canonicalize: a write spelled through a symlink would never equal git's realpath and would pass the gate.
-	abs := core.CanonPath(path)
+	abs := paths.Real(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
-	config := core.CanonPath(paths.ConfigDir())
-	if harnessDocs := core.CanonPath(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
+	config := paths.Real(paths.ConfigDir())
+	if harnessDocs := paths.Real(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
-	if dir == core.CanonPath(memory.StoreDir()) { // the store is its own git repo; notes at its root are the point
+	if paths.SameFile(dir, memory.StoreDir()) { // the store is its own git repo; notes at its root are the point
 		return core.ExitProceed
 	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
@@ -121,7 +120,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	if atRoot && rootAnchors[strings.ToLower(base)] { // anchors are exempt only at the repo root
 		return core.ExitProceed
 	}
-	inDocs := strings.HasPrefix(foldCase(rel), "docs/")
+	inDocs := strings.HasPrefix(paths.FoldCase(rel), "docs/")
 	if !atRoot && !inDocs {
 		return core.ExitProceed
 	}
@@ -179,14 +178,6 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		"-> rules/harness/docs-placement.md\n",
 		base, where, plansHome, reports, handoffs)
 	return core.ExitBlock
-}
-
-// foldCase lowercases p where the default filesystem is case-insensitive (macOS, Windows); Linux stays byte-exact.
-func foldCase(p string) string {
-	if runtime.GOOS == "linux" {
-		return p
-	}
-	return strings.ToLower(p)
 }
 
 func isMarkdownPath(path string) bool {

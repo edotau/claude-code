@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -226,9 +225,9 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 // harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) whose target tree
 // (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
-	var harness, worktrees, hit string
+	var hit string
 	shell.EachGit(dropRemoteHeredocs(core.DropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
-		if !gitBannedUnder(target, verb, args, &harness, &worktrees) {
+		if !gitBannedUnder(target, verb, args) {
 			return false
 		}
 		hit = verb
@@ -244,27 +243,13 @@ func bannedGit(verb string, args []string) bool {
 }
 
 // gitBannedUnder reports whether one git invocation is a banned verb targeting the harness tree.
-func gitBannedUnder(target, verb string, args []string, harness, worktrees *string) bool {
+func gitBannedUnder(target, verb string, args []string) bool {
 	if !bannedGit(verb, args) {
 		return false
 	}
-	if *harness == "" {
-		*harness = foldCase(core.CanonPath(paths.ConfigDir()))
-		*worktrees = foldCase(core.CanonPath(filepath.Join(paths.ConfigDir(), ".claude", "worktrees")))
-	}
-	tp := foldCase(core.CanonPath(target))
-	if !paths.Within(tp, *harness) {
-		return false
-	}
-	return !strings.HasPrefix(tp, *worktrees+string(filepath.Separator)) // a linked worktree is its own checkout
-}
-
-// foldCase lowercases p where the filesystem is case-insensitive by default (macOS, Windows), so `.CLAUDE` matches.
-func foldCase(p string) string {
-	if runtime.GOOS == "linux" {
-		return p
-	}
-	return strings.ToLower(p)
+	worktrees := filepath.Join(paths.ConfigDir(), ".claude", "worktrees") // a linked worktree is its own checkout
+	return paths.InsideDir(target, paths.ConfigDir()) &&
+		(!paths.InsideDir(target, worktrees) || paths.SameFile(target, worktrees))
 }
 
 // hardBlockVerdict blocks a protected write or a hard shape outside inert text and asks on one only in quoted text.

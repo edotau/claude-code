@@ -2,29 +2,11 @@ package core
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
-
-func TestCanonPathResolvesThroughMissingNestedDirs(t *testing.T) {
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
-	got := CanonPath(filepath.Join(link, "a", "b", "c.txt"))
-	realDir, err := filepath.EvalSymlinks(real)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(realDir, "a", "b", "c.txt"); got != want {
-		t.Fatalf("CanonPath = %q, want %q", got, want)
-	}
-}
 
 // Given an inherited GIT_DIR naming a bogus dir, Git still reads the repo at dir (-C is not overridden).
 func TestGitScrubsInheritedGitDir(t *testing.T) {

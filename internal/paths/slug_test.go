@@ -190,3 +190,38 @@ func ancestorHasGit(dir string) bool {
 		}
 	}
 }
+
+// Given two spellings, Then SameFile/InsideDir resolve symlinks and missing tails, folding case per FoldsCase.
+func TestPathIdentity(t *testing.T) {
+	dir := t.TempDir()
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := Real(filepath.Join(link, "a", "b", "c.txt")), filepath.Join(real, "a", "b", "c.txt"); got != want {
+		t.Errorf("Real(link/a/b/c.txt) = %q, want %q", got, want)
+	}
+	for _, tc := range []struct {
+		name, p, other string
+		same, inside   bool
+	}{
+		{"through a symlink", link, dir, true, true},
+		{"missing tail through a symlink", filepath.Join(link, "x", "y"), filepath.Join(real, "x", "y"), true, true},
+		{"child", filepath.Join(link, "x"), dir, false, true},
+		{"parent is not inside its child", dir, filepath.Join(dir, "x"), false, false},
+		{"sibling sharing a prefix", filepath.Join(dir, "ab"), filepath.Join(dir, "a"), false, false},
+		{"case variant", filepath.Join(dir, "A", "b"), filepath.Join(dir, "a", "b"), FoldsCase, FoldsCase},
+		{"case variant under a dir", filepath.Join(dir, "SUB", "f"), filepath.Join(link, "sub"), false, FoldsCase},
+	} {
+		if got := SameFile(tc.p, tc.other); got != tc.same {
+			t.Errorf("%s: SameFile = %v, want %v", tc.name, got, tc.same)
+		}
+		if got := InsideDir(tc.p, tc.other); got != tc.inside {
+			t.Errorf("%s: InsideDir = %v, want %v", tc.name, got, tc.inside)
+		}
+	}
+}
