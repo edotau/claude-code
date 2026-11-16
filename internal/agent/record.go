@@ -323,7 +323,7 @@ func LoadRecord(id string) (Record, error) {
 	return readRecord(filepath.Join(dir, match[0]))
 }
 
-// SessionModel is the model the newest dispatch of session ran, profile prefix cut; "" when unknown.
+// SessionModel is the newest dispatch's `<profile>:<served model>` (bare model with no profile); "" when unknown.
 func SessionModel(session string) string {
 	if session == "" {
 		return ""
@@ -333,12 +333,21 @@ func SessionModel(session string) string {
 		if r.SessionID != session {
 			continue
 		}
-		if _, model, ok := strings.Cut(r.Invoked, ":"); ok {
-			return model
+		profile, invoked, pinned := strings.Cut(r.Invoked, ":")
+		if !pinned {
+			profile, invoked = "", r.Invoked
 		}
-		if m := cmp.Or(r.Invoked, r.Model); !strings.HasPrefix(m, "<") { // "<synthetic>" is no model
-			return m
+		m := cmp.Or(r.Model, invoked)  // the served model, not the requested alias
+		if strings.HasPrefix(m, "<") { // "<synthetic>" is no model
+			m = invoked
 		}
+		if m == "" || strings.HasPrefix(m, "<") {
+			continue
+		}
+		if profile != "" && r.RanAs == "" {
+			return profile + ":" + m
+		}
+		return m
 	}
 	return ""
 }

@@ -524,3 +524,17 @@ func runCodex(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	return core.Emit(in.Agent(), h.event, h.run(in), stdout, stderr)
 }
+
+// A child reporting the routed model in another spelling still verifies as a match; another model does not.
+func TestCodexRouteMatchesAcrossSpellings(t *testing.T) {
+	for model, want := range map[string]bool{"gpt-6-astra": true, "databricks-gpt-6-sol": false} {
+		rows := codexRouteMatches([]codexRouteRecord{
+			{Event: "decision", ToolUseID: "t", RequestedModel: codexRouteWireModel},
+			{Event: "tool-result", ToolUseID: "t", AgentID: "a"},
+			{Event: "child-start", AgentID: "a", Model: model},
+		})
+		if len(rows) != 1 || rows[0].Matches == nil || *rows[0].Matches != want {
+			t.Errorf("child model %q: rows %+v, want matches=%v", model, rows, want)
+		}
+	}
+}

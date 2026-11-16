@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Status values of a Pin.
@@ -32,6 +35,7 @@ type Pin struct {
 	Status        string
 	Fix           string
 	Detail        string
+	Also          []string // other profiles this row's alias pins use, warmed with Profile
 }
 
 // Line is the one-line row: agent, profile, model, served, status and the fix.
@@ -56,7 +60,11 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed
-		out = append(out, checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now))
+		row, err := checkClaude(reg, session, now)
+		if err != nil {
+			return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
+		}
+		out = append(out, row)
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
 		if a != "claude" && !pins[a].Off {
@@ -64,6 +72,36 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		}
 	}
 	return out
+}
+
+// checkClaude reports the session row, carrying the first failing alias pin's status; every alias profile is warmed.
+func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, error) {
+	row := checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now)
+	recs, err := vault.ReadAgentRecords([]string{"claude"})
+	def := reg.Providers[session]
+	if err != nil || def == nil || row.Status != StatusOK {
+		return row, err
+	}
+	rec := recs["claude"]
+	failed := false
+	for _, alias := range models.AliasNames {
+		spec := cmp.Or(strings.TrimSpace(rec.Aliases[alias]), strings.TrimSpace(rec.Model))
+		if spec == "" {
+			continue
+		}
+		t := providers.ParseTarget(reg, spec, def)
+		row.Also = append(row.Also, t.Provider.Name)
+		pin := checkAgent(reg, "claude", router.PinSpec{Profile: t.Provider.Name, Model: t.Model}, session, now)
+		if cerr := providers.ClaudeCodeError(t.Provider, t.Model); cerr != nil {
+			pin.Status, pin.Served, pin.Detail, pin.Fix = statusUnserved, "no", cerr.Error(), "claude-code models --pin "+alias+"=<id>"
+		}
+		if pin.Status != StatusOK && !failed {
+			failed = true
+			row.Model, row.Served, row.Status, row.Fix = pin.Model, pin.Served, pin.Status, pin.Fix
+			row.Detail = alias + " pin: " + cmp.Or(pin.Detail, pin.Status)
+		}
+	}
+	return row, nil
 }
 
 func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {
@@ -100,7 +138,7 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
-	if prov.Preset == providers.PresetDatabricks && name != "gemini" { // agy's gateway ids are not serving endpoints
+	if prov.Preset == providers.PresetDatabricks {
 		checkServed(&p, prov, name, now)
 	}
 	return p
@@ -120,7 +158,7 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 	case p.Model == "":
 		p.Served = "n/a"
 	default:
-		listed, ready := cat.Has(prov, p.Model)
+		listed, ready := cat.Has(prov, servedName(name, p.Model))
 		p.Served = map[bool]string{true: "yes", false: "no"}[listed && ready]
 		switch {
 		case !cat.Fresh(now):
@@ -134,17 +172,28 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 	}
 }
 
+// servedName is the model's serving-endpoint name: gemini's effort suffix (gemini-3.8-flash-high) is not part of it.
+func servedName(agent, model string) string {
+	if base, effort, ok := strings.CutLast(model, "-"); agent == agentid.Gemini && ok &&
+		slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) {
+		return base
+	}
+	return model
+}
+
 // profiles lists the Databricks profiles any checked pin resolves to, sorted and de-duplicated.
 func profiles(reg *providers.Registry, ps []Pin) []*providers.Provider {
 	var out []*providers.Provider
 	seen := map[string]bool{}
 	for _, p := range ps {
-		prov := reg.Providers[p.Profile]
-		if prov == nil || prov.Preset != providers.PresetDatabricks || seen[p.Profile] || !providers.CredentialPresent(prov) {
-			continue
+		for _, name := range append([]string{p.Profile}, p.Also...) {
+			prov := reg.Providers[name]
+			if prov == nil || prov.Preset != providers.PresetDatabricks || seen[name] || !providers.CredentialPresent(prov) {
+				continue
+			}
+			seen[name] = true
+			out = append(out, prov)
 		}
-		seen[p.Profile] = true
-		out = append(out, prov)
 	}
 	slices.SortFunc(out, func(a, b *providers.Provider) int { return strings.Compare(a.Name, b.Name) })
 	return out

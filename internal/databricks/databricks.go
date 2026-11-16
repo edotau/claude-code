@@ -325,7 +325,7 @@ var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on a Databricks profile. MODEL (optional) picks the model; check runs a smoke reply.",
 	Commands: [][2]string{
-		{"check", "--all: one tiny call per profile (serving; --wire all)"},
+		{"check", "--all: one tiny call per profile (serving wire)"},
 		{"identity", "pin a profile's identity: auto, user or sp"},
 		{"login", "sign in: browser for oauth, a mint for an sp row"},
 		{"open-url", "open an https sign-in URL here (login --remote runs it)"},
@@ -341,9 +341,9 @@ var page = helptext.Page{
 
 // checkPage is `databricks check -h`.
 var checkPage = helptext.Page{
-	Usage: "claude-code databricks check [MODEL] [--all [--wire W]] [--profile NAME]",
+	Usage: "claude-code databricks check [MODEL] [--all] [--profile NAME]",
 	About: "Smoke-test a Databricks profile with one tiny reply; --all tries every profile on the " +
-		"serving wire (--wire ai-gateway|all for AI Gateway).",
+		"serving wire.",
 }
 
 // usage prints the verb's help; the FlagSet only documents flags, plan does the parsing.
@@ -357,7 +357,6 @@ func usage(check bool) {
 	if check {
 		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
-		fs.String("wire", providers.WireServing, "with --all: serving, ai-gateway or all")
 	}
 	fs.Usage()
 }
@@ -371,38 +370,24 @@ const (
 
 var checkAllPage = helptext.Page{
 	Usage: "claude-code databricks check --all [flags]",
-	About: "One tiny Anthropic call per profile on the serving wire (--wire all adds\n" +
-		"ai-gateway); prints a status per cell, never a token. Exit 1 when a cell\n" +
-		"fails for any reason other than a budget denial.",
+	About: "One tiny Anthropic call per profile on the serving wire; prints a status per\n" +
+		"profile, never a token. Exit 1 when a probe fails for any reason other than a\n" +
+		"budget denial.",
 }
 
 // probeClient is the HTTP client for probes; serving.ProbeOnce bounds each request.
 var probeClient = &http.Client{}
 
-// checkWires maps --wire to the wires probed and their column headers.
-func checkWires(wire string) ([]string, []string, error) {
-	switch wire {
-	case providers.WireServing:
-		return []string{providers.WireServing}, []string{"SERVING"}, nil
-	case providers.WireAIGateway:
-		return []string{providers.WireAIGateway}, []string{"AI-GATEWAY"}, nil
-	case "all":
-		return []string{providers.WireServing, providers.WireAIGateway}, []string{"SERVING", "AI-GATEWAY"}, nil
-	}
-	return nil, nil, fmt.Errorf("--wire must be serving, ai-gateway or all (got %q)", wire)
-}
-
 // checkRow is one profile's probe outcome.
 type checkRow struct {
-	cells         []string
+	cell          string
 	reason, notes string
 }
 
-// checkAll is `databricks check --all`: the profile x wire matrix (one profile with --profile).
+// checkAll is `databricks check --all`: one probe per profile (one profile with --profile).
 func checkAll(args []string) int {
 	fs := helptext.NewFlagSet("databricks check --all", checkAllPage)
 	model := fs.String("model", aliasID(models.Haiku), "canonical model id to probe")
-	wire := fs.String("wire", providers.WireServing, "serving, ai-gateway or all")
 	only := new(string)
 	profileFlagVar(fs, only, "probe only this Databricks profile (default: all)")
 	rest, err := helptext.ParseArgs(fs, args)
@@ -420,10 +405,6 @@ func checkAll(args []string) int {
 	if len(rest) == 1 { // positional MODEL overrides --model
 		*model = rest[0]
 	}
-	wires, heads, err := checkWires(*wire)
-	if err != nil {
-		return fail("check: %v", err)
-	}
 	reg, err := providers.Load()
 	if err != nil {
 		return fail("check: %v", err)
@@ -432,7 +413,7 @@ func checkAll(args []string) int {
 	if err != nil {
 		return fail("check: %v", err)
 	}
-	return printCheck(names, heads, checkProfiles(reg, names, *model, wires))
+	return printCheck(names, "SERVING", checkProfiles(reg, names, *model))
 }
 
 // checkNames is every Databricks profile, or just only when it names one (an unknown name probes as a miss).
@@ -448,18 +429,16 @@ func checkNames(reg *providers.Registry, only string) ([]string, error) {
 }
 
 // printCheck prints the table, then reasons and SP notes under it; 1 when a cell failed other than a budget denial.
-func printCheck(names, heads []string, rows []checkRow) int {
-	fmt.Println(checkLine("PROFILE", heads))
+func printCheck(names []string, head string, rows []checkRow) int {
+	fmt.Println(checkLine("PROFILE", head))
 	rc := 0
 	var why []string
 	for i, name := range names {
 		r := rows[i]
-		for _, c := range r.cells {
-			if c != "ok" && c != budgetDenied {
-				rc = 1
-			}
+		if r.cell != "ok" && r.cell != budgetDenied {
+			rc = 1
 		}
-		fmt.Println(checkLine(name, r.cells))
+		fmt.Println(checkLine(name, r.cell))
 		if r.reason != "" {
 			why = append(why, fmt.Sprintf("  %s: %s", name, r.reason))
 		}
@@ -474,17 +453,13 @@ func printCheck(names, heads []string, rows []checkRow) int {
 	return rc
 }
 
-// checkLine is one table row: the label then each cell in a 24-wide column, the last unpadded.
-func checkLine(label string, cells []string) string {
-	cols := append([]string{label}, cells...)
-	for i := range len(cols) - 1 {
-		cols[i] = fmt.Sprintf("%-24s", cols[i])
-	}
-	return strings.Join(cols, " ")
+// checkLine is one table row: the label in a 24-wide column, then the cell.
+func checkLine(label, cell string) string {
+	return fmt.Sprintf("%-24s %s", label, cell)
 }
 
 // checkProfiles probes names concurrently, checkWorkers at a time; rows keep the names' order.
-func checkProfiles(reg *providers.Registry, names []string, model string, wires []string) []checkRow {
+func checkProfiles(reg *providers.Registry, names []string, model string) []checkRow {
 	rows := make([]checkRow, len(names))
 	sem := make(chan struct{}, checkWorkers)
 	var wg sync.WaitGroup
@@ -492,20 +467,18 @@ func checkProfiles(reg *providers.Registry, names []string, model string, wires 
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			rows[i] = checkProfile(reg.Providers[name], name, model, wires)
+			rows[i] = checkProfile(reg.Providers[name], name, model)
 		})
 	}
 	wg.Wait()
 	return rows
 }
 
-// checkProfile mints the row's token once and probes every wire with it; reason is the full cause when no wire ran.
-func checkProfile(row *providers.Provider, name, model string, wires []string) checkRow {
-	r := checkRow{cells: make([]string, len(wires))}
+// checkProfile mints the row's token and probes the serving wire; reason is the full cause when no probe ran.
+func checkProfile(row *providers.Provider, name, model string) checkRow {
+	var r checkRow
 	fill := func(s, why string) checkRow {
-		for i := range r.cells {
-			r.cells[i] = s
-		}
+		r.cell = s
 		r.reason = why
 		return r
 	}
@@ -525,11 +498,7 @@ func checkProfile(row *providers.Provider, name, model string, wires []string) c
 	if err != nil {
 		return fill("no token", strings.TrimPrefix(err.Error(), name+": "))
 	}
-	var wg sync.WaitGroup
-	for i, w := range wires {
-		wg.Go(func() { r.cells[i] = probeWire(ctx, row, name, host, w, tok, model) })
-	}
-	wg.Wait()
+	r.cell = probe(ctx, row, tok, model)
 	return r
 }
 
@@ -550,18 +519,6 @@ func (n *noteBuf) String() string {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.buf.String()
-}
-
-// probeWire probes row on wire w, synthesizing the row for a wire other than its own.
-func probeWire(ctx context.Context, row *providers.Provider, name, host, w, tok, model string) string {
-	p := row
-	if w != row.Options.Wire && (w != providers.WireServing || row.Options.Wire != "") {
-		var err error
-		if p, _, err = synth(name, host, w); err != nil {
-			return clip(err.Error(), 40)
-		}
-	}
-	return probe(ctx, p, tok, model)
 }
 
 // probe sends one max_tokens=1 message on p's Anthropic route, all tries within probeTimeout, and names the reply.
@@ -620,8 +577,7 @@ func Spec() *helptext.Node {
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
-		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model"),
-			valuedFlag("wire", func() []string { return []string{providers.WireServing, providers.WireAIGateway, "all"} })}},
+		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model")}},
 		"identity": {Args: []func() []string{func() []string { return []string{"auto", "user", "sp"} }},
 			Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run")}},
 		"login": {Flags: []helptext.Flag{valuedFlag("profile", profileNames), flag("auth-type"), boolFlag("dry-run"), boolFlag("force"), valuedFlag("as", identities),
@@ -639,7 +595,7 @@ func Spec() *helptext.Node {
 
 // dbxCfgFlags are the flags `databricks config` (withOut) and `databricks rescue` share.
 func dbxCfgFlags(withOut bool) []helptext.Flag {
-	fs := []helptext.Flag{{Name: "profile", Values: providers.ProfileNames}, {Name: "host"}, {Name: "wire"},
+	fs := []helptext.Flag{{Name: "profile", Values: providers.ProfileNames}, {Name: "host"},
 		{Name: "model"}, {Name: "auth"}, {Name: "set"}, {Name: "unset"}}
 	if withOut {
 		fs = append(fs, helptext.Flag{Name: "out"}, helptext.Flag{Name: "force", IsBool: true})

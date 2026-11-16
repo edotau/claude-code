@@ -488,7 +488,7 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 	if !concrete || p == nil || cand.Agent != rc.want {
 		return false
 	}
-	return wireAgent(cand.Agent) || (rc.onWire(cand.Agent) && p.Preset == providers.PresetDatabricks && cand.Agent != "claude")
+	return wireAgent(cand.Agent) || p.Preset == providers.PresetDatabricks && (rc.onWire(cand.Agent) || cand.Agent == "claude")
 }
 
 // onWire reports agent running the caller's id on a Databricks row: any exact id; a Claude id on codex or the hub.
@@ -594,7 +594,7 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 		disp.Agent, disp.Model = watchFreeDispatch(r, cand.Billing), model
 	default:
 		var err error
-		disp, err = lookupDispatch(cand, cell, disp)
+		disp, err = rc.lookupDispatch(cand, cell, disp)
 		return rc.engineModel(cand, cell, disp), "", err
 	}
 	return disp, "", nil
@@ -609,14 +609,14 @@ func (rc routeCtx) engineModel(cand router.Candidate, cell router.Cell, disp Dis
 	return disp
 }
 
-// lookupDispatch sets disp's agent to cand's own engine; a claude dispatch runs the cell's alias.
-func lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dispatch, error) {
+// lookupDispatch sets disp's engine; Claude keeps a concrete Databricks request, else runs the cell's alias.
+func (rc routeCtx) lookupDispatch(cand router.Candidate, cell router.Cell, disp Dispatch) (Dispatch, error) {
 	r, err := Lookup(cand.Agent)
 	if err != nil {
 		return disp, err
 	}
 	disp.Agent = r
-	if cand.Agent == "claude" {
+	if cand.Agent == "claude" && !rc.callerOnProfile(cand) {
 		disp.Model = router.ClaudeCellModel(cell.Model)
 		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
 			disp.Model = cand.Profile + ":" + disp.Model

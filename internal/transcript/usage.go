@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // ModelUsage totals one model's token counts.
@@ -314,30 +315,31 @@ func usageFromLine(line []byte) (Usage, bool) {
 	if json.Unmarshal(bytes.TrimSpace(line), &rec) != nil || rec.Message.Usage == nil || rec.IsSidechain {
 		return Usage{}, false
 	}
+	if m := rec.Message.Model; m == "" || strings.HasPrefix(m, "<") { // "<synthetic>" records carry no real model
+		return Usage{}, false
+	}
 	u := rec.Message.Usage
 	return Usage{Tokens: u.Input + u.CacheRead + u.CacheCreation + u.Output, Model: rec.Message.Model}, true
 }
 
-// Window is the context window for a session model: 1M when usage already exceeds 200K or the launch
-// env pins a [1m] variant of the model (transcripts record the wire id, never the marker).
+// Window is the context window for a session model: 1M once usage exceeds 200K, else providers.Window on the session
+// provider (the env may pin a 4.x [1m] variant; transcripts omit the marker).
 func Window(model string, used int) int {
 	if used > models.ContextWindowStd {
 		return models.ContextWindow1M
 	}
-	if models.Has1M(model) {
-		return models.ContextWindow1M
-	}
+	p := providers.SessionProvider()
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
 		v := os.Getenv(k)
-		// Databricks pins "databricks-<id>" but the transcript records the bare id, hence the prefix strip.
+		// The pin may omit the "databricks-" prefix the transcript's wire id carries, hence the prefix strip.
 		base := models.Strip1M(v)
 		if model != "" && (base == model || strings.HasSuffix(base, ":"+model) ||
 			strings.TrimPrefix(base, models.DatabricksPrefix) == model) {
-			return models.ContextWindow(v)
+			return providers.Window(p, v)
 		}
 	}
-	return models.ContextWindow(model)
+	return providers.Window(p, model)
 }
 
 // windowFile holds the context window Claude Code reported for a session, written by the status line;

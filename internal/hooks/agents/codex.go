@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -249,7 +250,7 @@ func codexRouteMatches(records []codexRouteRecord) []codexRouteRecord {
 		if toolID == "" || agentID == "" || !exists || start.Model == "" || idx.verified[toolID] {
 			continue
 		}
-		match := decision.RequestedModel == start.Model
+		match := models.SameModel(decision.RequestedModel, start.Model)
 		matches = append(matches, codexRouteRecord{Event: "verified", SessionID: decision.SessionID,
 			ToolUseID: toolID, AgentID: agentID, Model: start.Model, RequestedModel: decision.RequestedModel,
 			Matches: &match, At: time.Now().UnixMilli()})

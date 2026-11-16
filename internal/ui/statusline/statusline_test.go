@@ -211,19 +211,19 @@ func TestContextPct(t *testing.T) {
 
 func TestSessionProvider(t *testing.T) {
 	hermetic(t)
-	if name, routed := sessionProvider(); name != registryDefault(t) || routed {
+	if name, routed := providers.SessionName(); name != registryDefault(t) || routed {
 		t.Errorf("registry default: %q %v", name, routed)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "antigravity")
-	if name, _ := sessionProvider(); name != "antigravity" {
+	if name, _ := providers.SessionName(); name != "antigravity" {
 		t.Errorf("vault pins: %q", name)
 	}
 	t.Setenv(providers.EnvSessionProfile, "openai")
-	if name, _ := sessionProvider(); name != "openai" {
+	if name, _ := providers.SessionName(); name != "openai" {
 		t.Errorf("env beats vault pins: %q", name)
 	}
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/openrouter")
-	if name, routed := sessionProvider(); name != "openrouter" || !routed {
+	if name, routed := providers.SessionName(); name != "openrouter" || !routed {
 		t.Errorf("routed base: %q %v", name, routed)
 	}
 }
@@ -233,7 +233,7 @@ func TestModelSegment(t *testing.T) {
 	model := func(id, display string) string {
 		var in input
 		in.Model.ID, in.Model.DisplayName = id, display
-		return modelSegment(in, "anthropic")
+		return modelSegment(in, "anthropic", false)
 	}
 	for _, c := range [][3]string{
 		{"claude-opus-5[1m]", "Opus 5 (1M context)", "opus-5"},
@@ -258,7 +258,7 @@ func TestModelSegment(t *testing.T) {
 		TotalOutput    int      `json:"total_output_tokens"`
 		UsedPercentage *float64 `json:"used_percentage"`
 	}{Size: 1_000_000}
-	if got := modelSegment(in, "anthropic"); got != "custom-model" {
+	if got := modelSegment(in, "anthropic", false); got != "custom-model" {
 		t.Errorf("reported 1M window: %q", got)
 	}
 }

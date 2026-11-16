@@ -48,7 +48,7 @@ func SeedProfiles(reg *providers.Registry, agent string) []string {
 	if reg != nil {
 		for n, p := range reg.Providers {
 			switch {
-			case p == nil || !agentpkg.CanServe(agent, p):
+			case p == nil || !canPick(agent, p):
 			case agent != "claude" && p.Auth.Login == agent:
 				own = append(own, n)
 			default:
@@ -62,6 +62,14 @@ func SeedProfiles(reg *providers.Registry, agent string) []string {
 		own = append([]string{opencode.OwnLogin}, own...)
 	}
 	return append(own, rest...)
+}
+
+// canPick is whether agent's profile picker offers p; claude takes any row without another agent's sign-in.
+func canPick(agent string, p *providers.Provider) bool {
+	if agent == "claude" {
+		return p.Auth.Login == ""
+	}
+	return agentpkg.CanServe(agent, p)
 }
 
 // UnpinModels clears every claude model pin (the --unpin flag's write) and audits each.

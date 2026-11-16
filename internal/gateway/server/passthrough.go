@@ -132,6 +132,15 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 			return model, ""
 		}
 		model = cmp.Or(passthroughModel(body), model)
+		if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
+			(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
+			var err error
+			if body, err = withModel(body, wire); err != nil {
+				writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
+				return model, ""
+			}
+			model = wire
+		}
 		if dbxGemini {
 			body = dropOffThoughts(body)
 		}
@@ -525,9 +534,6 @@ func databricksGemini(p *providers.Provider) (string, bool) {
 	}
 	if p.Host == "" {
 		return "", false
-	}
-	if p.IsAIGateway() {
-		return strings.TrimRight(p.Host, "/") + "/ai-gateway/gemini", true
 	}
 	return strings.TrimRight(p.Host, "/") + "/serving-endpoints/gemini", true
 }

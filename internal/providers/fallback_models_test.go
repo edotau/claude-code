@@ -107,3 +107,13 @@ func TestQuotaClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestDemoteUnlistedIDUsesItsOwnFamily(t *testing.T) {
+	p := &Provider{Name: "p", Models: map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}}
+	if d, ok := Demote(p, "claude-haiku-4-9"); ok {
+		t.Errorf("Demote(unlisted haiku) = %s, want none: haiku has no lower slot", d.Model)
+	}
+	if d, ok := Demote(p, "claude-sonnet-4-9"); !ok || d.Model != "claude-haiku-5-5" {
+		t.Errorf("Demote(unlisted sonnet) = %s %v, want claude-haiku-5-5", d.Model, ok)
+	}
+}

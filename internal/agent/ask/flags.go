@@ -448,6 +448,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 		return nil, failAsk(format, *s.Name, err), true
 	}
 	s.Apply(r, os.Stderr)
+	*s.lead = r.Request.Lead // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
 	return &r, 0, false
 }

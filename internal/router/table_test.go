@@ -346,3 +346,19 @@ func TestClaudeCellModelIsTheAlias(t *testing.T) {
 		t.Errorf("an alias-less row stays canonical, got %q", got)
 	}
 }
+
+// AsksModel matches a databricks- spelling of a non-catalog id, and LowestAliasServing a gemini cell with an effort suffix.
+func TestAsksModelWireSpellingAndGeminiEffortCell(t *testing.T) {
+	if !AsksModel("dev:databricks-foo-9", Candidate{Profile: "dev"}, "foo-9") {
+		t.Error("AsksModel missed the databricks- spelling of a non-catalog id")
+	}
+	if AsksModel("foo-9", Candidate{}, "foo-8") {
+		t.Error("AsksModel matched different models")
+	}
+	tb := testTable(t)
+	if got := tb.LowestAliasServing("gemini", "gemini-3-8-flash"); got != "haiku" {
+		t.Errorf("LowestAliasServing(gemini-3-8-flash) = %q, want haiku (cell gemini-3.8-flash-low)", got)
+	}
+}
+
+// A gemini dispatch at opus on Databricks picks a gemini bucket member, never the Claude opus alias model.

@@ -7,8 +7,14 @@ import (
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+type profileUse struct {
+	at   time.Time
+	host string
+}
 
 const (
 	keepaliveEvery   = 60 * time.Second
@@ -43,13 +49,13 @@ func newKeepalive() keepalive {
 	}
 }
 
-// touch records that a request just used the named profiles.
-func (r *Router) touch(names ...string) {
-	now := r.now()
+// touch records when and through which egress host a request used the named profiles.
+func (r *Router) touch(ctx context.Context, names ...string) {
+	use := profileUse{at: r.now(), host: egress.HostContext(ctx)}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, n := range names {
-		r.used[n] = now
+		r.used[n] = use
 	}
 }
 
@@ -59,8 +65,8 @@ func (r *Router) recentlyUsed() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var names []string
-	for n, at := range r.used {
-		if at.Before(cutoff) {
+	for n, use := range r.used {
+		if use.at.Before(cutoff) {
 			delete(r.used, n)
 			continue
 		}
@@ -107,6 +113,10 @@ func (r *Router) keepaliveOne(ctx context.Context, p *providers.Provider) {
 			fmt.Fprintf(r.log, "proxy: keepalive %s: failed (panic)\n", p.Name)
 		}
 	}()
+	r.mu.Lock()
+	host := r.used[p.Name].host
+	r.mu.Unlock()
+	ctx = egress.WithHost(ctx, host)
 	ctx, cancel := context.WithTimeout(ctx, r.ka.timeout)
 	defer cancel()
 	refreshed, err := r.ka.refresh(ctx, p)

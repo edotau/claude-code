@@ -162,3 +162,24 @@ func TestParseMenuImportLongLine(t *testing.T) {
 		t.Fatalf("parsed ID=%q, label matches=%t, responses=%t", got[0].ID, got[0].Label == label, got[0].Responses)
 	}
 }
+
+// A non-forced add refuses a served endpoint that is not a READY llm/v1/chat one; --force adds it.
+func TestMenuAddServedRequiresReadyChat(t *testing.T) {
+	p := &providers.Provider{Name: "dev"}
+	infos := []providers.ModelInfo{
+		{ID: "chat-ok", Ready: "READY", Task: "llm/v1/chat"},
+		{ID: "emb", Ready: "READY", Task: "llm/v1/embeddings"},
+		{ID: "warming", Ready: "NOT_READY", Task: "llm/v1/chat"},
+	}
+	lookup := func() (*providers.Provider, []providers.ModelInfo, error) { return p, infos, nil }
+	for id, force := range map[string]bool{"chat-ok": false, "emb": true, "warming": true} {
+		if _, _, err := MenuAddServed(id, false, false, force, lookup); err != nil {
+			t.Errorf("%s (force %v): %v", id, force, err)
+		}
+	}
+	for _, id := range []string{"emb", "warming"} {
+		if _, _, err := MenuAddServed(id, false, false, false, lookup); err == nil || !strings.Contains(err.Error(), "READY llm/v1/chat") {
+			t.Errorf("%s: err = %v, want a READY llm/v1/chat refusal", id, err)
+		}
+	}
+}

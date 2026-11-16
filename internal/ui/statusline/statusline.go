@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -216,7 +215,7 @@ func collect(in input, cfg config) values {
 	var provider string
 	var routed bool
 	if cfg.seg("provider") || cfg.seg("model") || cfg.seg("proxy") || cfg.seg("limits") {
-		provider, routed = sessionProvider()
+		provider, routed = providers.SessionName()
 	}
 	v.collectRouting(in, cfg, provider, routed)
 	if git := cfg.seg("git") && cfg.Style != "twoline"; git && worktree != "" { // twoline shows no branch
@@ -227,7 +226,7 @@ func collect(in input, cfg config) values {
 	v.collectUsage(in, cfg, cwd, provider)
 	if cfg.gradientStyle() {
 		v.two.fillContext(in)
-		v.model = rawModelID(in, v.model)
+		v.model = rawModelID(in, v.model, provider, routed)
 	}
 	if cfg.Style == "twoline" {
 		v.path = filepath.Base(cwd) // twoline's head names only the current directory
@@ -236,16 +235,31 @@ func collect(in input, cfg config) values {
 	return v
 }
 
-// rawModelID is the payload's model id as sent, minus a [1m] tag and a profile prefix; a routed "⇄" label stays.
-func rawModelID(in input, model string) string {
+// rawModelID is the payload's model id as a routed session serves it, minus [1m] and a profile prefix; "⇄" stays.
+func rawModelID(in input, model, session string, routed bool) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	if m, ok := profileModel(id); ok {
+		if prov, _, _ := strings.Cut(id, ":"); prov != session {
+			if reg := registry(); reg != nil && reg.Providers[prov] != nil {
+				session, routed = prov, true // a prefix naming another profile is spelled as that profile serves it
+			}
+		}
 		id = m
 	}
 	if id == "" || strings.Contains(model, "⇄") {
 		return model
 	}
-	return dropDatabricksClaude(id)
+	return dropDatabricksClaude(servedModelID(id, session, routed))
+}
+
+// servedModelID respells id as a routed session's provider serves it, as the proxy does (dev: databricks-claude-…).
+func servedModelID(id, session string, routed bool) string {
+	if reg := registry(); reg != nil && routed {
+		if p, err := reg.Get(session); err == nil {
+			return p.WireModel(id)
+		}
+	}
+	return id
 }
 
 // sessionCwd is the session's working dir: the workspace's current dir, then the payload cwd, then the process cwd.
@@ -268,7 +282,7 @@ func (v *values) collectRouting(in input, cfg config, provider string, routed bo
 		_, v.profile, _ = strings.Cut(v.provider, "·")
 	}
 	if cfg.seg("model") {
-		v.model = modelSegment(in, provider)
+		v.model = modelSegment(in, provider, routed)
 	}
 	if showProxy := cfg.seg("proxy"); showProxy || routed { // a routed session restarts a down proxy
 		if seg := proxySegment(routed); showProxy {
@@ -308,24 +322,6 @@ var registry = sync.OnceValue(func() *providers.Registry {
 	return reg
 })
 
-// sessionProvider: a loopback proxy base /p/<name> (a routed launch), else the session profile (CLAUDE_PROFILE env, then
-// the vault pin), else the registry default.
-func sessionProvider() (name string, routed bool) {
-	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil {
-		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
-			name, _, _ = strings.Cut(rest, "/")
-			return name, true
-		}
-	}
-	if p := providers.SessionLeadContext(context.Background(), nil, true); p != "" {
-		return p, false
-	}
-	if reg := registry(); reg != nil {
-		return reg.Default, false
-	}
-	return "", false
-}
-
 // modelFamily guesses the family from a model id when no provider resolves (databricks-claude-… / claude-…).
 func modelFamily(id string) string {
 	switch id = models.Strip1M(strings.TrimSpace(id)); {
@@ -360,20 +356,20 @@ func capProfile(label string, max int) string {
 }
 
 // modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
-func modelSegment(in input, session string) string {
+func modelSegment(in input, session string, routed bool) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
 	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
 	if prov, model, ok := strings.Cut(id, ":"); ok && model != "" {
 		if prov == session {
 			id = model
 		} else if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-			return shortModelID(model) + " ⇄" + prov
+			return shortModelID(servedModelID(model, prov, true)) + " ⇄" + prov // spelled as prov serves it
 		}
 	}
 	if id == "" {
 		return displayModel(in.Model.DisplayName)
 	}
-	return shortModelID(id)
+	return shortModelID(servedModelID(id, session, routed))
 }
 
 // profileModel strips a "<profile>:" prefix only when it names a registered provider or the rest is a Claude id.

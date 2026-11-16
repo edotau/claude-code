@@ -12,12 +12,12 @@ import (
 type Target struct {
 	Provider *Provider
 	Model    string // plain wire id, never [1m]-marked
-	OneM     bool   // the user typed [1m]; ClientModel keeps it as typed
+	OneM     bool   // the user typed [1m]; ClientModel keeps it only where models.Keeps1M honours it
 }
 
 // ClientModel is t's id on its own provider: [1m]-marked only as the user typed it.
 func (t Target) ClientModel() string {
-	if t.OneM {
+	if t.OneM && models.Keeps1M(t.Model+oneMMarker) {
 		return t.Model + oneMMarker
 	}
 	return t.Model
@@ -104,18 +104,20 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 	return len(reg.Fallback) > 0 && s.Provider.Auth.Type != AuthCLI
 }
 
-// FailoverTarget maps a request that failed on from/model to the equivalent model on next: same alias
-// when from's table knows the model, else the Claude family, else next's opus.
+// FailoverTarget maps a request that failed on from/model to the equivalent model on next: same alias when from's
+// table knows the model, else the id's exact Claude version where next spells ids, else its family slot, else opus.
 func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool) {
 	alias := from.AliasOf(model)
 	if alias == "" {
+		if canonical, _, ok := models.Resolve(model); ok && models.FamilyOf(canonical) != "" && next.SpellingRule() != "" {
+			return Target{Provider: next, Model: next.WireModel(canonical)}, true
+		}
 		alias = models.FamilyOf(model)
 	}
-	if id := next.Models[alias]; id != "" {
-		return Target{Provider: next, Model: id}, true
-	}
-	if id := next.Models[models.Opus]; id != "" {
-		return Target{Provider: next, Model: id}, true
+	for _, slot := range []string{alias, models.Opus} {
+		if id := next.Models[slot]; id != "" {
+			return Target{Provider: next, Model: models.Strip1M(id), OneM: models.Keeps1M(id)}, true
+		}
 	}
 	return Target{}, false
 }

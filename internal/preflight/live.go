@@ -361,12 +361,5 @@ var refresh = catalog.Refresh
 
 // fetch lists p's endpoints live and caches them: serving rows in the vault snapshot and the router's copy.
 func fetch(ctx context.Context, p *providers.Provider, now time.Time) error {
-	if !p.IsAIGateway() {
-		return refresh(ctx, p)
-	}
-	infos, err := providers.ListModels(ctx, p)
-	if err != nil {
-		return err
-	}
-	return router.WarmServed(p.Name, infos, now)
+	return refresh(ctx, p)
 }

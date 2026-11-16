@@ -9,13 +9,7 @@ import (
 )
 
 // ModelKey is the canonical model id, so marked ([1m]) and unmarked spellings of one model share a key.
-func ModelKey(model string) string {
-	id := models.Strip1M(model)
-	if c, _, ok := models.Resolve(id); ok {
-		id = c
-	}
-	return id
-}
+func ModelKey(model string) string { return models.ModelKey(model) }
 
 // MarkModelDead remembers account cannot use model until until; the longer hold wins and expired keys are pruned.
 func MarkModelDead(account, model string, until, now time.Time) (bool, error) {

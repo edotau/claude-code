@@ -69,7 +69,7 @@ type Dispatch struct {
 	FallbackReason string `json:"fallbackReason,omitempty"`
 	Matched        string `json:"matched,omitempty"` // "heuristic" when inferred rather than read directly
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
-	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is the agent's own login
+	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is no overlay confinement
 	Task           string `json:"task,omitempty"`    // first line of the prompt
 
 	LastSignal   time.Time `json:"lastSignal,omitzero"`    // running only: newest of the event file, log or start time

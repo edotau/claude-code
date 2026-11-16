@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -276,11 +277,40 @@ func (lp ladderPick) rungCandidates(g providers.Rung, u []Candidate) []Candidate
 				lp.res.Skipped = append(lp.res.Skipped, Skip{skipLabel(c), gateLadder, why})
 				continue
 			}
+			if !rungKeepsCell(model, c.Model) {
+				lp.res.Skipped = append(lp.res.Skipped, Skip{skipLabel(c), gateLadder,
+					"rung model " + model + " would replace priced cell " + c.Model})
+				continue
+			}
 			c.Model = model
 			out = append(out, c)
 		}
 	}
 	return out
+}
+
+// rungKeepsCell reports whether swapping cell for rung keeps its tier (or its family when a tier is unknown).
+func rungKeepsCell(rung, cell string) bool {
+	if cell == "" || models.SameModel(rung, cell) {
+		return true
+	}
+	if r, c := modelTier(rung), modelTier(cell); r != "" && c != "" {
+		return r == c
+	}
+	return models.FamilyKind(rung) == models.FamilyKind(cell)
+}
+
+// modelTier is id's alias tier: its Claude family, else the table.json bucket that lists it; "" when none.
+func modelTier(id string) string {
+	if f := models.FamilyOf(id); f != "" {
+		return f
+	}
+	for alias, ids := range databricksTiers() {
+		if slices.ContainsFunc(ids, func(m string) bool { return models.SameModel(m, id) }) {
+			return alias
+		}
+	}
+	return ""
 }
 
 // rungProvider is c's profile (or the one named by its account) in the registry, nil without a registry.

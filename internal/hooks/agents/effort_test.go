@@ -2,6 +2,7 @@ package agents
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -480,11 +481,12 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 		model    string
 		age      time.Duration
 		wantDeny string
+		label    string // the description prefix: the model as dev serves it
 	}{
-		{"claude-sonnet-5-5", 0, ""},
+		{"claude-sonnet-5-5", 0, "", "databricks-claude-sonnet-5-5"},
 		{"claude-nonexistent-9", 0, "dispatch-effort: preflight: served: dev lists no endpoint claude-nonexistent-9 " +
-			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK)"},
-		{"claude-nonexistent-9", 48 * time.Hour, ""}, // a stale listing proves nothing: ask's own preflight decides
+			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK)", ""},
+		{"claude-nonexistent-9", 48 * time.Hour, "", ""}, // a stale listing proves nothing: ask's own preflight decides
 	}
 	for _, tc := range cases {
 		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []router.ServedModel{
@@ -493,7 +495,7 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 		}
 		brief := "Run: claude-code agents ask --agent claude --profile dev --fallback none --model " + tc.model + " 'do x'"
 		r := effortResult(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose",`+
-			`"prompt":%q,"description":%q}}`, brief, tc.model+": do x"))
+			`"prompt":%q,"description":%q}}`, brief, cmp.Or(tc.label, tc.model)+": do x"))
 		got := ""
 		if r.Decision == core.Block {
 			got = r.Reason
@@ -892,5 +894,86 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 	e := &effortPlan{updated: map[string]any{"subagent_type": "codex", "description": "inspect hook"}, run: newDispatchRun(nil)}
 	if denied := e.label(context.Background(), brief, true); denied == nil || !strings.Contains(denied.Reason, "pinned: inspect hook") {
 		t.Fatalf("missing label enforcement for %q: %+v", brief, denied)
+	}
+}
+
+// A Run: line's --profile row spells the model as it serves it, never as typed (a typed `<row>:` is not stacked).
+func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	for _, flags := range []string{"--profile dev --model claude-opus-5", "--model dev:claude-opus-5"} {
+		task := "Run: claude-code agents ask --agent claude " + flags + " 'do x'"
+		if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
+			t.Errorf("label for %q = %q, want databricks-claude-opus-5", flags, got)
+		}
+	}
+}
+
+func TestLabelModelProfileAliasUsesAgentTier(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	orig := labelPick
+	t.Cleanup(func() { labelPick = orig })
+	labelPick = func(ctx context.Context, agent, alias string) string {
+		flags, _ := ctx.Value(askFlagsKey{}).(askFlags)
+		if agent != "codex" || alias != "sonnet" || flags.profile != "dev" || flags.fallback != router.FallbackNone {
+			t.Fatalf("preview arguments = %s/%s/%+v", agent, alias, flags)
+		}
+		return "databricks-gpt-6-1-sol"
+	}
+	for _, flags := range []string{"--profile dev --model sonnet", "--model dev:sonnet"} {
+		task := "Run: claude-code agents ask --agent codex " + flags + " --fallback none 'do x'"
+		got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
+		if got != "databricks-gpt-6-1-sol" {
+			t.Errorf("label for %q = %q, want databricks-gpt-6-1-sol", flags, got)
+		}
+	}
+}
+
+func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-glm-5-2", Ready: "READY"}, {ID: "databricks-custom-model", Ready: "READY"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"glm-5-2", "custom-model"} {
+		task := "Run: claude-code agents ask --agent claude --profile dev --model " + model + " 'do x'"
+		if got := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-"+model {
+			t.Errorf("label for %s = %q, want databricks-%s", model, got, model)
+		}
+	}
+}
+
+// The label's no-run pick honours the line's --profile and --fallback, as ask's own routing does.
+func TestLabelPickFollowsAskLineFlags(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value")
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(router.EnvFallback, "")
+	if free := previewModel(context.Background(), "codex", "sonnet"); free == "" {
+		t.Fatal("fixture: the unflagged codex pick is empty, want a fallback candidate")
+	}
+	pinned := withAskFlags(context.Background(), "dev", router.FallbackNone)
+	if got := previewModel(pinned, "codex", "sonnet"); got != "" {
+		t.Errorf("pick under --profile dev --fallback none = %q, want none (ask would refuse, not fall back)", got)
+	}
+	var seen askFlags
+	orig := labelPick
+	labelPick = func(ctx context.Context, _, _ string) string {
+		seen, _ = ctx.Value(askFlagsKey{}).(askFlags)
+		return "m"
+	}
+	t.Cleanup(func() { labelPick = orig })
+	task := "Run: claude-code agents ask --agent codex --profile dev --fallback none 'do x'"
+	labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task)
+	if seen != (askFlags{"dev", "none"}) {
+		t.Errorf("labelModel passed flags %+v to the pick, want {dev none}", seen)
 	}
 }

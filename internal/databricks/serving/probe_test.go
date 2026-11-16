@@ -122,9 +122,8 @@ func TestProbeClientRoutesRejectUnsafeDestinations(t *testing.T) {
 		name string
 		edit func(*providers.Provider)
 	}{
-		{"gateway", func(p *providers.Provider) { p.Options.Wire = providers.WireAIGateway }},
 		{"off-workspace", func(p *providers.Provider) { p.BaseURL = "https://127.0.0.1:1/serving-endpoints" }},
-		{"outside-serving", func(p *providers.Provider) { p.BaseURL = srv.URL + "/ai-gateway" }},
+		{"outside-serving", func(p *providers.Provider) { p.BaseURL = srv.URL + "/other" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			other := p

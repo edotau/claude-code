@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -270,6 +271,50 @@ func TestMintExpiryComesFromMintedToken(t *testing.T) {
 	res, _, err := Mint(context.Background(), "mrow")
 	if err != nil || !res.Expiry.Equal(want) {
 		t.Errorf("expiry %v err %v, want %v", res.Expiry, err, want)
+	}
+}
+
+// An opaque SP token's expiry comes from the SP's record, not the user login's.
+func TestStoredExpiryFollowsIdentity(t *testing.T) {
+	seedOverlay(t, "")
+	user, sp := time.Now().Add(20*time.Minute).Truncate(time.Second), time.Now().Add(50*time.Minute).Truncate(time.Second)
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, exp := range map[string]time.Time{"mrow": user, "mrow.sp": sp} {
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), fmt.Appendf(nil, `{"schema":2,"exp":%d}`, exp.Unix()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row := &providers.Provider{Name: "mrow", Identity: providers.IdentityAuto, Auth: providers.Auth{Type: providers.AuthOAuth}}
+	newer := func(name string) { // the record minted last carries the later mtime
+		past := time.Now().Add(-time.Hour)
+		for _, n := range []string{"mrow", "mrow.sp"} {
+			if err := os.Chtimes(filepath.Join(dir, n+".json"), past, past); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chtimes(filepath.Join(dir, name+".json"), time.Now(), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(wantAuto time.Time) {
+		t.Helper()
+		for as, want := range map[string]time.Time{providers.IdentityUser: user, providers.IdentitySP: sp,
+			providers.IdentityHeadless: wantAuto, "": wantAuto} {
+			if got, ok := storedExpiry(providers.WithIdentity(context.Background(), as), row); !ok || !got.Equal(want) {
+				t.Errorf("as %q: expiry %v ok=%v, want %v", as, got, ok, want)
+			}
+		}
+	}
+	newer("mrow.sp") // auto and headless mint the SP first, so its record is the one just written
+	check(sp)
+	newer("mrow") // a login that just minted (or the SP fallback to it) is the latest
+	check(user)
+	row.Identity = providers.IdentitySP // a stored sp identity selects the SP with no --as
+	if got, ok := storedExpiry(context.Background(), row); !ok || !got.Equal(sp) {
+		t.Errorf("stored sp: expiry %v ok=%v, want %v", got, ok, sp)
 	}
 }
 

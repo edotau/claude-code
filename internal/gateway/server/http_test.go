@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
@@ -338,5 +339,53 @@ func TestStalledLargeUploadFailsOverWithinAttemptBound(t *testing.T) {
 	}
 	if !interruptedWrite.Load() {
 		t.Fatal("upload completed before cancellation; regression did not exercise a stalled write")
+	}
+}
+
+func TestTranslatedReplyNamesTheServedModelAfterFailover(t *testing.T) {
+	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	})
+	var up2 *upstream
+	up2 = newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		if (*up2.body.Load())["stream"] != true {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"id":"c","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	})
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("UP2_KEY", "k2")
+	srv := setup(t, `{"default":"up1","fallback":["up2"],"providers":{"openai":{`+
+		`"up1":{"protocol":"openai","base_url":"`+up1.URL+`","auth":{"type":"key","env":"UP1_KEY"},"models":{"opus":"m1"}},`+
+		`"up2":{"protocol":"openai","base_url":"`+up2.URL+`","auth":{"type":"key","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
+	for _, stream := range []string{"false", "true"} {
+		resp := post(t, srv.URL+"/p/up1/v1/messages",
+			`{"model":"m1","stream":`+stream+`,"max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`, nil)
+		b, _ := io.ReadAll(resp.Body)
+		if up2.hits.Load() == 0 || !strings.Contains(string(b), `"model":"m2"`) {
+			t.Errorf("stream=%s: reply %q (up2 hits %d), want the served model m2", stream, b, up2.hits.Load())
+		}
+	}
+}
+
+func TestReportedModel(t *testing.T) {
+	for _, tc := range []struct{ client, served, want string }{
+		{"claude-opus-5[1m]", "databricks-claude-opus-5", "claude-opus-5[1m]"},
+		{"custom-model", "CUSTOM-MODEL", "custom-model"},
+		{"m1", "m2", "m2"},
+	} {
+		if got := reportedModel(tc.client, providers.Target{Model: tc.served}); got != tc.want {
+			t.Errorf("reportedModel(%q, %q)=%q, want %q", tc.client, tc.served, got, tc.want)
+		}
+	}
+}
+
+func TestReportedModelStripsProfilePrefix(t *testing.T) {
+	target := providers.Target{Provider: &providers.Provider{Name: "anth"}, Model: "claude-opus-5-5"}
+	if got := reportedModel("anth:claude-opus-5-5", target); got != target.Model {
+		t.Fatalf("reportedModel = %q, want %q", got, target.Model)
 	}
 }

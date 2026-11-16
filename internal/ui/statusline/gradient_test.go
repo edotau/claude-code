@@ -63,7 +63,7 @@ func TestGradientLine(t *testing.T) {
 	}
 	git("add", "f")
 	git("commit", "-qm", "f")
-	const ctx = " | claude-opus-5-5 ~ ultra ~ ctx ▬▬▬─────── 31% · 309.5k/1M 7d:15%"
+	const ctx = " | claude-opus-5-5 ~ ultra ~ ctx ━━━─────── 31% · 309.5k/1M 7d:15%"
 	if got := plain(renderStatusline([]byte(gradientPayload(repo)), "gradient")); !strings.HasSuffix(got, ctx) {
 		t.Errorf("clean tree: %q must end %q (profile only, id without claude-)", got, ctx)
 	}
@@ -76,6 +76,30 @@ func TestGradientLine(t *testing.T) {
 	}
 }
 
+// A refusal fallback's bare claude-opus-5 reads as the id the session's provider serves, trimmed only for display.
+func TestRawModelIDServedSpelling(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"dbx":  {Name: "dbx", Preset: providers.PresetDatabricks},
+		"anth": {Name: "anth", Provider: "anthropic"},
+	}}
+	prev := registry
+	t.Cleanup(func() { registry = prev })
+	registry = func() *providers.Registry { return reg }
+	for _, c := range []struct{ id, session, want string }{
+		{"claude-opus-5", "dbx", "databricks-opus-5"},
+		{"databricks-claude-opus-5-5", "dbx", "databricks-opus-5-5"},
+		{"databricks-claude-opus-5", "anth", "claude-opus-5"},
+		{"claude-opus-5", "missing", "claude-opus-5"},
+		{"dbx:claude-opus-5", "anth", "databricks-opus-5"}, // the prefix's profile spells it, not the session's
+	} {
+		in := input{}
+		in.Model.ID = c.id
+		if got := rawModelID(in, "short", c.session, true); got != c.want {
+			t.Errorf("rawModelID(%q, %s) = %q, want %q", c.id, c.session, got, c.want)
+		}
+	}
+}
+
 // The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped, a routed label kept.
 func TestRawModelID(t *testing.T) {
 	for id, want := range map[string]string{
@@ -85,11 +109,11 @@ func TestRawModelID(t *testing.T) {
 		if got := rawModelID(input{Model: struct {
 			ID          string `json:"id"`
 			DisplayName string `json:"display_name"`
-		}{ID: id}}, "short"); got != want {
+		}{ID: id}}, "short", "", false); got != want {
 			t.Errorf("rawModelID(%q) = %q, want %q", id, got, want)
 		}
 	}
-	if got := rawModelID(input{}, "opus ⇄acme"); got != "opus ⇄acme" {
+	if got := rawModelID(input{}, "opus ⇄acme", "", false); got != "opus ⇄acme" {
 		t.Errorf("routed label replaced: %q", got)
 	}
 }

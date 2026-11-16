@@ -105,15 +105,10 @@ func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, p
 	return plan, nil
 }
 
-// refuseProvider refuses a vendor sign-in and any AI Gateway-wire row; only the proxy keeps that wire.
+// refuseProvider refuses a vendor sign-in: it cannot back Claude Code.
 func refuseProvider(sel providers.Selection) error {
 	if p := sel.Provider; p.Auth.Login != "" {
 		return fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
-	}
-	for _, p := range sessionProviders(sel) {
-		if p.IsAIGateway() {
-			return fmt.Errorf("profile %s uses the AI Gateway wire; agents run on /serving-endpoints only", p.Name)
-		}
 	}
 	return nil
 }
@@ -300,7 +295,7 @@ func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) 
 		return
 	}
 	for _, t := range sel.Aliases {
-		if t.OneM {
+		if models.Has1M(t.ClientModel()) {
 			return
 		}
 	}

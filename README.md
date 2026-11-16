@@ -211,7 +211,7 @@ Retired words: runner and vendor (→ agent), router for the daemon (→ proxy),
 bucket" is the exception: an alias's ordered Databricks list in `internal/router/table.json`), leg (→ dispatch),
 family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its name),
 first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire is
-`ai-gateway`.
+`serving` (`ai-gateway` is refused).
 
 | Surface | Form | Example |
 | --- | --- | --- |
@@ -250,8 +250,7 @@ set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, starte
 
 Provider hostnames resolving into the local network are refused (a literal IP or `localhost` is allowed). The proxy
 disables Remote Control, so a subscription session stays direct under a `fallback` ladder. Upstream requests carry
-`User-Agent: claude-code/<version> <agent>`; `HARNESS_REQUEST_TAGS` (single-line JSON, ≤ 4 KiB) goes out as
-`Databricks-Ai-Gateway-Request-Tags` on AI Gateway rows only. `HARNESS_HEADERS` (one `Name: value` per line, ≤ 4 KiB)
+`User-Agent: claude-code/<version> <agent>`; `HARNESS_HEADERS` (one `Name: value` per line, ≤ 4 KiB)
 adds upstream headers; invalid lines are dropped, and auth, attribution and framing headers cannot be overridden.
 
 ```bash
@@ -287,7 +286,7 @@ fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in
 ### Sync the Databricks model menu
 
 Menu sync is explicit and repeatable, never a launch-time network call. Select a **serving** profile; sync uses
-its existing authentication and **Serving Endpoints only**, rejecting AI Gateway and non-Databricks profiles
+its existing authentication and **Serving Endpoints only**, rejecting non-serving and non-Databricks profiles
 before requests. `--profile` is required (no pin fallback), and positional arguments are not accepted.
 
 A copilot registry launch does touch the network: it validates identity on every launch, then uses the sealed

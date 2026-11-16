@@ -235,7 +235,7 @@ func TestWindow(t *testing.T) {
 		model string
 		used  int
 		want  int
-	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 1_000_000}, {"x[1m]", 1, 1_000_000}} {
+	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 1_000_000}, {"claude-opus-4-8[1m]", 1, 1_000_000}, {"claude-opus-4-8", 1, 200_000}} {
 		if got := Window(c.model, c.used); got != c.want {
 			t.Errorf("Window(%q,%d)=%d want %d", c.model, c.used, got, c.want)
 		}
@@ -244,10 +244,10 @@ func TestWindow(t *testing.T) {
 
 // A Databricks pin "databricks-<id>[1m]" must cover the bare id the transcript records.
 func TestWindowDatabricksPrefixedPin(t *testing.T) {
-	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-5-5[1m]")
+	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-4-8[1m]")
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
-	if got := Window("claude-opus-5-5", 182_796); got != 1_000_000 {
-		t.Errorf("Window(claude-opus-5-5)=%d want 1000000", got)
+	if got := Window("claude-opus-4-8", 10); got != 1_000_000 {
+		t.Errorf("Window(claude-opus-4-8)=%d want 1000000", got)
 	}
 	if got := Window("claude-haiku-4-5", 10); got != 200_000 {
 		t.Errorf("Window(claude-haiku-4-5)=%d want 200000 (unpinned model)", got)
@@ -256,13 +256,20 @@ func TestWindowDatabricksPrefixedPin(t *testing.T) {
 
 // A pin on another vendor's "vendor-<id>[1m]" must NOT hand the bare id a 1M window (only "databricks-" is stripped).
 func TestWindowNonDatabricksPrefixedPinNotMatched(t *testing.T) {
-	t.Setenv("ANTHROPIC_MODEL", "vendor-gpt-5[1m]")
+	t.Setenv("ANTHROPIC_MODEL", "vendor-claude-opus-4-8[1m]")
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "")
-	if got := Window("gpt-5", 10); got == 1_000_000 {
-		t.Errorf("Window(gpt-5)=%d: a vendor-gpt-5[1m] pin must not match bare gpt-5", got)
+	if got := Window("claude-opus-4-8", 10); got == 1_000_000 {
+		t.Errorf("Window(claude-opus-4-8)=%d: a vendor- pin must not match the bare id", got)
 	}
-	t.Setenv("ANTHROPIC_MODEL", "databricks-gpt-5[1m]")
-	if got := Window("gpt-5", 10); got != 1_000_000 {
+	t.Setenv("ANTHROPIC_MODEL", "databricks-claude-opus-4-8[1m]")
+	if got := Window("claude-opus-4-8", 10); got != 1_000_000 {
 		t.Errorf("databricks- pin must still match: %d", got)
+	}
+}
+
+func TestWindowDisable1MContext(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")
+	if got := Window("claude-opus-5-5", 10); got != 200_000 {
+		t.Errorf("Window under DISABLE_1M_CONTEXT = %d, want 200000", got)
 	}
 }

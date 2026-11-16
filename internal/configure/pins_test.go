@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,5 +144,16 @@ func TestSetAgentPinRefusesInvalidTouchedFieldBeforeStoring(t *testing.T) {
 	}
 	if after := stored(); after != before {
 		t.Errorf("refused edit changed the stored records:\n before %s\n after  %s", before, after)
+	}
+}
+
+// Claude's profile picker lists the registry rows it can run on, never another agent's sign-in.
+func TestSeedProfilesClaudeListsServableRows(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"dev":     {Name: "dev", Preset: providers.PresetDatabricks},
+		"chatgpt": {Name: "chatgpt", Auth: providers.Auth{Type: providers.AuthCLI, Login: "codex"}},
+	}}
+	if got := SeedProfiles(reg, "claude"); !slices.Equal(got, []string{"dev"}) {
+		t.Fatalf("SeedProfiles(claude) = %v, want [dev]", got)
 	}
 }

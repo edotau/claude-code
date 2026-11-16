@@ -23,9 +23,6 @@ func DiscoverySource(p *Provider) (source, skip string) {
 		return "", "vendor CLI login has no supported live catalog adapter"
 	}
 	if p.Preset == PresetDatabricks {
-		if p.IsAIGateway() {
-			return "databricks-ai-gateway", ""
-		}
 		return "databricks-serving-endpoints", ""
 	}
 	for _, r := range discoveryRoutes {
@@ -114,9 +111,6 @@ func discoveryBase(p *Provider, source string) (string, error) {
 	switch source {
 	case "databricks-serving-endpoints":
 		base = PresetHost(p.Host) + "/api/2.0/serving-endpoints"
-	case "databricks-ai-gateway":
-		base, _ = p.Route(ProtocolAnthropic)
-		base += "/v1/models"
 	case "gemini-models":
 		base, _ = p.Route(ProtocolGemini)
 		if !strings.HasSuffix(base, "/v1beta") && !strings.HasSuffix(base, "/v1") {
@@ -250,7 +244,7 @@ func dataCatalogEntries(source string, doc catalogDoc) ([]ModelInfo, error) {
 		if name == "" {
 			name = displayName(m.ID)
 		}
-		out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name), Gateway: source == "databricks-ai-gateway"})
+		out = append(out, ModelInfo{ID: m.ID, Name: name, UseCase: models.UseCase(m.ID, name)})
 	}
 	return out, nil
 }

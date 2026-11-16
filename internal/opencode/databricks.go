@@ -124,7 +124,7 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 		case claudeRoute && models.FamilyKind(m.ID) == models.FamilyClaude:
 			claude[wire] = claudeEntry(entry)
 		default:
-			if _, ok, _ := providers.WireFor(p, wire); !ok { // no openai route (ai-gateway): the chat endpoint would 404
+			if _, ok, _ := providers.WireFor(p, wire); !ok { // no openai route: the chat endpoint would 404
 				dropped = append(dropped, m.Label)
 				continue
 			}

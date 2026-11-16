@@ -15,15 +15,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// TestPickFollowsLadder: the seeded ladders order the agents after want, expand copilot's rung models, place claude
-// into the first rung after the leading one that it beats; a provider confinement keeps that order on its accounts only.
+// TestPickFollowsLadder: incompatible rung models skip copilot; claude is scored after the leading codex rung.
 func TestPickFollowsLadder(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}} // claude outscores copilot (0.75) yet must still follow it
+	st := State{"anthropic·ultra": {UsedPct: 5, Seen: now0}}
 	pickAt := func(route string) PickResult {
 		confine(t, route)
 		return tb.Pick(context.Background(), "sonnet", "", st, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
@@ -36,19 +35,58 @@ func TestPickFollowsLadder(t *testing.T) {
 		}
 		return out
 	}
-	def := []string{"copilot/github·work-user/gpt-6.1-sol", "copilot/github·work-user/gpt-6-astra",
-		"claude/anthropic·ultra/claude-sonnet-5-5", "codex/openai·chatgpt/gpt-6.1-sol",
+	def := []string{"codex/openai·chatgpt/gpt-6.1-sol", "claude/anthropic·ultra/claude-sonnet-5-5",
 		"opencode/opencode·zen-free/opencode/deepseek-v4.1-flash-free", "opencode/opencode·go/opencode-go/kimi-k3.1-pro",
 		"gemini/google·antigravity/gemini-3.8-flash"}
 	if got := order(pickAt("")); !slices.Equal(got, def) {
 		t.Errorf("default ladder order =\n%v\nwant\n%v", got, def)
 	}
 	r := pickAt("github")
-	if got := order(r); !slices.Equal(got, def[:2]) {
-		t.Errorf("order under github =\n%v\nwant\n%v", got, def[:2])
+	if got := order(r); len(got) != 0 {
+		t.Errorf("incompatible copilot rung survived under github: %v", got)
 	}
 	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "outside github"}) {
 		t.Errorf("skips under github = %+v, want opencode·zen-free dropped as outside github", r.Skipped)
+	}
+}
+
+func TestRungKeepsOpusTierGPT(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	confine(t, "github")
+	got := tb.Pick(context.Background(), "opus", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
+	var models []string
+	for _, c := range got.Candidates {
+		models = append(models, c.Agent+"/"+c.Model)
+	}
+	want := []string{"copilot/gpt-6.1-sol", "copilot/gpt-6-astra"}
+	if !slices.Equal(models, want) {
+		t.Errorf("opus candidates under github = %v, want %v (skips %+v)", models, want, got.Skipped)
+	}
+}
+
+func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	confine(t, "")
+	got := tb.Pick(context.Background(), "haiku", "", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
+	for _, c := range got.Candidates {
+		if c.Agent == "copilot" && c.Model != "claude-haiku-5.5" {
+			t.Errorf("haiku-priced copilot candidate swapped to %s: %+v", c.Model, c)
+		}
+	}
+	if !slices.ContainsFunc(got.Skipped, func(s Skip) bool {
+		return s.Gate == gateLadder && strings.Contains(s.Reason, "gpt-6.1-sol") && strings.Contains(s.Reason, "claude-haiku-5.5")
+	}) {
+		t.Errorf("missing skip naming incompatible rung swap: %+v", got.Skipped)
 	}
 }
 

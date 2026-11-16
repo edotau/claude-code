@@ -239,7 +239,7 @@ func discoverProfileModels(ctx context.Context, p *providers.Provider) ([]provid
 func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *providers.Provider,
 ) (infos []providers.ModelInfo, snapshot bool, err error) {
 	spawn := func(profile string) bool { return catalog.SpawnDiscover(profile, false) }
-	if infos, ok := catalog.RecallOrSpawn(p, copilotUsable, spawn); ok {
+	if infos, ok := catalog.RecallOrSpawn(ctx, p, copilotUsable, spawn); ok {
 		return infos, true, nil
 	}
 	return copilotCheckedModelInfos(ctx, reg, p)
@@ -263,7 +263,7 @@ func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *p
 		return infos, false, err
 	}
 	if time.Since(old.DiscoveredAt) < serving.CacheTTL() {
-		copilotRemember(p, old)
+		copilotRemember(ctx, p, old)
 		return old.Models, true, nil
 	}
 	listCtx, cancel := halfRemaining(ctx) // a failed refresh must leave the launch time to use the stale snapshot
@@ -278,8 +278,8 @@ func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *p
 }
 
 // copilotRemember seals old again when p has no remembered subject or another one, so the next launch hits locally.
-func copilotRemember(p *providers.Provider, old serving.Snapshot) {
-	if subject, found, err := serving.RecallSubject(p); err == nil && found && subject == old.Scope.SubjectID {
+func copilotRemember(ctx context.Context, p *providers.Provider, old serving.Snapshot) {
+	if subject, found, err := serving.RecallSubjectCtx(ctx, p); err == nil && found && subject == old.Scope.SubjectID {
 		return
 	}
 	if err := serving.Save(p, old); err != nil {

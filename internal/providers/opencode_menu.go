@@ -85,6 +85,7 @@ var DatabricksOpencodeMenu = []OpencodeModel{
 	{ID: "llama-4-maverick", Label: "Llama 4 Maverick"},
 	{ID: "gpt-oss-120b", Label: "GPT OSS 120B"},
 	{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol", Responses: true},
+	{ID: "gpt-6-sol", Label: "GPT-6 Sol", Responses: true},
 	{ID: "gpt-6-astra", Label: "GPT-6 Astra", Responses: true},
 	{ID: "gpt-5-5", Label: "GPT 5.5", Responses: true},
 }
@@ -197,7 +198,7 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 		if m.ID == "" || seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue
 		}
-		if p.Preset == PresetDatabricks && !m.Gateway && !m.ReadyChat() {
+		if p.Preset == PresetDatabricks && !m.ReadyChat() {
 			continue
 		}
 		seen[p.WireModel(models.Strip1M(m.ID))] = true

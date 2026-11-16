@@ -21,11 +21,12 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // TestDaemonCommandArgs checks the detached daemon re-enters gateway proxy --serve.
 func TestDaemonCommandArgs(t *testing.T) {
-	cmd := daemonCommand("/bin/claude-code")
+	cmd := daemonCommand("/bin/claude-code", 0)
 	if want := []string{"/bin/claude-code", "gateway", "proxy", "--serve"}; !slices.Equal(cmd.Args, want) {
 		t.Fatalf("daemon args = %v, want %v", cmd.Args, want)
 	}
@@ -407,12 +408,12 @@ func TestGatewayRunEgress(t *testing.T) {
 		})
 	}
 	if runtime.GOOS == "windows" {
-		if _, ok := proc.ValuesFromEnv(daemonCommand("claude-code.exe").Env)[egress.EnvHost]; ok {
+		if _, ok := proc.ValuesFromEnv(daemonCommand("claude-code.exe", 0).Env)[egress.EnvHost]; ok {
 			t.Fatal("daemon inherits egress")
 		}
 		return
 	}
-	cmd := daemonCommand("/bin/sh")
+	cmd := daemonCommand("/bin/sh", 0)
 	cmd.Args = []string{"sh", "-c", `if [ "${HARNESS_EGRESS_HOST+x}" = x ]; then exit 9; fi; printf scrubbed`}
 	out, err := cmd.Output()
 	if err != nil || string(out) != "scrubbed" {
@@ -422,4 +423,27 @@ func TestGatewayRunEgress(t *testing.T) {
 		t.Fatalf("parent host changed: %q", got)
 	}
 	t.Log("daemon child: egress absent; parent: launcher-host")
+}
+
+func TestEnsurePreservesRestartPort(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Secret(t, "CLAUDE_CODE_ROUTER_SECRET", "restart-port-secret")
+	const recordedPort = 23456
+	cleanup, err := WriteState(State{PID: 1 << 30, Port: recordedPort})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	oldSpawn := spawnDaemon
+	t.Cleanup(func() { spawnDaemon = oldSpawn })
+	stopped := errors.New("stop before spawning")
+	var args []string
+	spawnDaemon = func(port int) error { args = daemonCommand("/bin/claude-code", port).Args; return stopped }
+	if _, err := ensure(t.Context(), recordedPort); !errors.Is(err, stopped) {
+		t.Fatalf("ensure=%v", err)
+	}
+	want := []string{"/bin/claude-code", "gateway", "proxy", "--serve", "--port", strconv.Itoa(recordedPort)}
+	if !slices.Equal(args, want) {
+		t.Fatalf("restart command=%v, want %v", args, want)
+	}
 }

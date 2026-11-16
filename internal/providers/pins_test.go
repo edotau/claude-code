@@ -596,3 +596,14 @@ func TestHeadlessOAuthToken(t *testing.T) {
 		t.Errorf("HeadlessOAuthToken() (env beats vault) = %q, want from-env", got)
 	}
 }
+
+// An explicit --profile pin is qualified against the claude record (Select's baseline), not the session env.
+func TestQualifyPinSpecUsesRecordProfile(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv(EnvSessionProfile, "dev")
+	vaulttest.SetRecord(t, "claude", "profile", "qa")
+	reg := &Registry{Default: "qa", Providers: map[string]*Provider{"dev": {Name: "dev"}, "qa": {Name: "qa"}}}
+	if got := QualifyPinSpec(t.Context(), reg, "dev", "opus-x"); got != "dev:opus-x" {
+		t.Errorf("got %q want dev:opus-x", got)
+	}
+}

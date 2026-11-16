@@ -99,7 +99,7 @@ func IsQuota(text string) bool {
 func Demote(p *Provider, model string) (Target, bool) {
 	alias := p.AliasOf(model)
 	if alias == "" {
-		alias = models.Opus
+		alias = models.FamilyOf(model)
 	}
 	for next := models.NextAlias(alias); next != ""; next = models.NextAlias(next) {
 		if id := p.Models[next]; id != "" && !sameModel(id, model) {

@@ -58,3 +58,12 @@ func TestScanWorkflowNamesSurvivesHugeLine(t *testing.T) {
 		t.Fatalf("names = %v; want wf_abc123 -> wfname", got)
 	}
 }
+
+// TestShortModelNameJoinsWireSpellings: the wire and plain spellings of one model fold into one workflow row.
+func TestShortModelNameJoinsWireSpellings(t *testing.T) {
+	for _, raw := range []string{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5", "claude-sonnet-5-5[1m]"} {
+		if got := shortModelName(raw); got != "sonnet-5-5" {
+			t.Errorf("shortModelName(%q) = %q, want sonnet-5-5", raw, got)
+		}
+	}
+}

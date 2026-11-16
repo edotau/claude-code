@@ -193,7 +193,7 @@ func TestAuthSegmentShowsADeadLoginInsteadOfTheCountdown(t *testing.T) {
 		return &providers.Provider{Name: name, Provider: "databricks", Identity: identity, Auth: providers.Auth{Type: providers.AuthOAuth}}
 	}
 	useSessions(t, oauth("dbx-dead", ""), oauth("dbx-live", ""), oauth("dbx-sponly", providers.IdentitySP))
-	for _, name := range []string{"dbx-dead", "dbx-live", "dbx-sponly"} {
+	for _, name := range []string{"dbx-dead", "dbx-live", "dbx-sponly.sp"} { // an SP-only row reads only its .sp record
 		writeTokenExpiryMethod(t, name, time.Now().Add(42*time.Minute+30*time.Second), "m2m")
 	}
 	plantDeadLogin(t, "dbx-dead")

@@ -33,7 +33,7 @@ func TestSPMintKeepsUserExpiryRecord(t *testing.T) {
 	if err := os.Chtimes(tokenExpiryPath(p.Name), old, old); err != nil {
 		t.Fatal(err)
 	}
-	if got, method, ok := TokenExpiryMethod(p.Name); !ok || got.Unix() != spExp || method != AuthM2M {
+	if got, method, ok := TokenExpiryMethodFor(p.Name, IdentityAuto); !ok || got.Unix() != spExp || method != AuthM2M {
 		t.Errorf("status line expiry = %d %q (%v), want the latest mint: SP %d m2m", got.Unix(), method, ok, spExp)
 	}
 }
@@ -162,5 +162,32 @@ func TestJWTExpRejectsOutOfRange(t *testing.T) {
 	}
 	if got, ok := JWTExp(hosttest.UnsignedJWT(`{"exp":1893456000}`)); !ok || got != 1893456000 {
 		t.Errorf("valid exp = %d, %v", got, ok)
+	}
+}
+
+// A user-identity session reads the user's expiry even when the SP minted later; sp reads the SP's; auto the latest.
+func TestTokenExpiryMethodForIdentity(t *testing.T) {
+	p, _, _, _ := spHarness(t, "")
+	userExp, spExp := time.Now().Add(2*time.Hour).Unix(), time.Now().Add(time.Hour).Unix()
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, userExp))}, nil
+	}
+	stubMintM2M(t, hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, spExp)))
+	for _, as := range []string{IdentityUser, IdentitySP} {
+		if _, err := Credential(WithIdentity(context.Background(), as), p); err != nil {
+			t.Fatalf("%s mint: %v", as, err)
+		}
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(tokenExpiryPath(p.Name), old, old); err != nil {
+		t.Fatal(err)
+	}
+	for identity, want := range map[string]struct {
+		exp    int64
+		method string
+	}{IdentityUser: {userExp, "u2m"}, IdentitySP: {spExp, AuthM2M}, IdentityAuto: {spExp, AuthM2M}} {
+		if got, method, ok := TokenExpiryMethodFor(p.Name, identity); !ok || got.Unix() != want.exp || method != want.method {
+			t.Errorf("%s: expiry = %d %q (%v), want %d %q", identity, got.Unix(), method, ok, want.exp, want.method)
+		}
 	}
 }

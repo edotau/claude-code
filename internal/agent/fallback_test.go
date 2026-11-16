@@ -460,7 +460,7 @@ func TestRunWithFallbackEmitsOneRetryPerHop(t *testing.T) {
 
 // Inside databricks:dev a quota failure on dev hands the task to codex's own login, announced with both accounts.
 func TestArmHopToFirstParty(t *testing.T) {
-	armRegistry(t, "")
+	armRegistry(t)
 	retry.ResetCooldowns()
 	t.Cleanup(retry.ResetCooldowns)
 	quota := &retry.Error{Kind: retry.KindQuota, Err: errors.New("402 Payment Required: monthly quota exceeded")}

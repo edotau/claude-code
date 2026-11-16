@@ -50,7 +50,7 @@ func (fixtureGemini) FollowsPin(p *providers.Provider) bool {
 	return !GeminiGatewayRow(p) || recs["gemini"].Profile == p.Name
 }
 
-// NoRoute refuses an unpinned Databricks gateway row like geminiEngine.NoRoute (internal/gemini/gemini.go:115).
+// NoRoute refuses an unpinned Databricks row like geminiEngine.NoRoute (internal/gemini/gemini.go:115).
 func (fixtureGemini) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
 	if GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")

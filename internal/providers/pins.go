@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -301,8 +302,8 @@ func CopilotPlanName(raw string) string {
 	return raw
 }
 
-// QualifyPinSpec is spec as "profile:model" when providerFlag names a profile other than the session's own; "" stays "" (unpin).
-func QualifyPinSpec(ctx context.Context, reg *Registry, providerFlag, spec string) string {
+// QualifyPinSpec is spec as "profile:model" unless providerFlag is the profile Select resolves (record, else default).
+func QualifyPinSpec(_ context.Context, reg *Registry, providerFlag, spec string) string {
 	if providerFlag == "" || spec == "" {
 		return spec
 	}
@@ -311,8 +312,7 @@ func QualifyPinSpec(ctx context.Context, reg *Registry, providerFlag, spec strin
 			return spec
 		}
 	}
-	session := cmp.Or(SessionLeadContext(ctx, nil, true), reg.Default)
-	if providerFlag == session {
+	if providerFlag == cmp.Or(strings.TrimSpace(AgentRecord("claude").Profile), reg.Default) { // Select's own baseline
 		return spec
 	}
 	return providerFlag + ":" + spec
@@ -388,4 +388,31 @@ func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) str
 		return ""
 	}
 	return name
+}
+
+// SessionName: a loopback proxy base /p/<name> (a routed launch), else the session profile (CLAUDE_PROFILE env, then
+// the vault pin), else the registry default.
+func SessionName() (name string, routed bool) {
+	if u, err := url.Parse(os.Getenv("ANTHROPIC_BASE_URL")); err == nil {
+		if rest, ok := strings.CutPrefix(u.Path, "/p/"); ok && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost") {
+			name, _, _ = strings.Cut(rest, "/")
+			return name, true
+		}
+	}
+	if p := SessionLeadContext(context.Background(), nil, true); p != "" {
+		return p, false
+	}
+	if reg, _ := Load(); reg != nil {
+		return reg.Default, false
+	}
+	return "", false
+}
+
+// SessionProvider is the provider SessionName resolves, nil when the registry does not know it.
+func SessionProvider() *Provider {
+	name, _ := SessionName()
+	if reg, _ := Load(); reg != nil {
+		return reg.Providers[name]
+	}
+	return nil
 }

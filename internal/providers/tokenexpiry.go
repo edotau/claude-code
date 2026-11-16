@@ -79,10 +79,18 @@ func TokenExpiry(name string) (time.Time, bool) {
 	return exp, ok
 }
 
-// TokenExpiryMethod is the row's latest-minted expiry, user or SP record, plus its method ("" when it names none).
-func TokenExpiryMethod(name string) (time.Time, string, bool) {
+// TokenExpiryMethodFor is the row's expiry plus its method ("" when it names none) for a session identity: user and sp
+// read only their own record, auto the latest minted.
+func TokenExpiryMethodFor(name, identity string) (time.Time, string, bool) {
 	exp, method, at, ok := readTokenExpiry(name)
-	if spExp, spMethod, spAt, spOK := readTokenExpiry(name + spExpirySuffix); spOK && (!ok || spAt.After(at)) {
+	spExp, spMethod, spAt, spOK := readTokenExpiry(name + spExpirySuffix)
+	switch identity {
+	case IdentityUser:
+		return exp, method, ok
+	case IdentitySP:
+		return spExp, spMethod, spOK
+	}
+	if spOK && (!ok || spAt.After(at)) {
 		return spExp, spMethod, true
 	}
 	return exp, method, ok

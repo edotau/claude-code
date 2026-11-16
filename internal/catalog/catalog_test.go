@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"errors"
 	"maps"
 	"slices"
 	"testing"
@@ -56,27 +55,11 @@ func TestUsableFiltersByAgentDialects(t *testing.T) {
 	}
 }
 
-// A profile on the AI Gateway wire is refused before any listing or probe, whichever agent asks.
-func TestProfileRefusesAIGatewayWire(t *testing.T) {
-	vaulttest.Use(t)
-	t.Setenv(providers.EnvSessionProfile, "")
-	err := providers.SetProviderFields("gw", map[string]any{"preset": "databricks", "host": "https://dbc-1.cloud.databricks.com",
-		"auth": map[string]any{"type": "pat"}, "options": map[string]any{"wire": "ai-gateway"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := Profile(context.Background(), "codex", "gw")
-	if p != nil || !errors.Is(err, ErrGateway) ||
-		err.Error() != "profile gw uses the AI Gateway wire; catalog runs on /serving-endpoints only" {
-		t.Fatalf("Profile(gw) = %v, %v; want the AI Gateway refusal", p, err)
-	}
-}
-
 // A run snapshot on ctx picks the catalog profile; an empty snapshot suppresses the ambient session profile.
 func TestProfileFollowsTheRunSnapshot(t *testing.T) {
 	vaulttest.Use(t)
 	err := providers.SetProviderFields("gw", map[string]any{"preset": "databricks", "host": "https://dbc-1.cloud.databricks.com",
-		"auth": map[string]any{"type": "pat"}, "options": map[string]any{"wire": "ai-gateway"}})
+		"auth": map[string]any{"type": "pat"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +69,7 @@ func TestProfileFollowsTheRunSnapshot(t *testing.T) {
 	}
 	t.Setenv(providers.EnvSessionProfile, "")
 	snap := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "gw"})
-	if _, err := Profile(snap, "codex", ""); !errors.Is(err, ErrGateway) {
-		t.Errorf("snapshot gw: err = %v, want the AI Gateway refusal", err)
+	if p, err := Profile(snap, "codex", ""); err != nil || p == nil || p.Name != "gw" {
+		t.Errorf("snapshot gw: Profile = %v, %v; want gw", p, err)
 	}
 }

@@ -154,23 +154,35 @@ func stripWirePrefix(s string) (rest string, ok bool) {
 	return s, false
 }
 
+// SameModel reports whether a and b name one model across spellings: case, [1m], wire prefixes, aliases, short forms.
+func SameModel(a, b string) bool { return ModelKey(a) == ModelKey(b) }
+
+// ModelKey is id's spelling-free comparison key: the canonical id when it resolves, else the lowercased bare id.
+func ModelKey(id string) string {
+	if canonical, _, ok := Resolve(id); ok {
+		return canonical
+	}
+	rest, _ := stripWirePrefix(Strip1M(strings.ToLower(strings.TrimSpace(id))))
+	return rest
+}
+
 // Resolve maps an alias, short Claude form, canonical id or any wire spelling to the canonical id; oneM is true
 // when the input carried the client-only [1m] marker.
 func Resolve(s string) (canonical string, oneM bool, ok bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
-	oneM = Has1M(s)
+	marked := Has1M(s)
 	s = Strip1M(s)
 	c := load()
-	if id, found := c.Aliases[s]; found {
-		return id, oneM, true
+	id, found := c.Aliases[s]
+	if !found {
+		if id = c.lookup(s); id == "" {
+			id = parseClaude(s)
+		}
 	}
-	if id := c.lookup(s); id != "" {
-		return id, oneM, true
+	if id == "" {
+		return "", false, false
 	}
-	if id := parseClaude(s); id != "" {
-		return id, oneM, true
-	}
-	return "", oneM, false
+	return id, marked && Keeps1M(id+marker1M), true
 }
 
 // lookup tries s, then its last "/" segment (opencode, nested ids), then s without a known wire prefix.

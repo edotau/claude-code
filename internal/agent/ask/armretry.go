@@ -218,11 +218,11 @@ func armsLeft(agentName, model string, tried []string) bool {
 	return len(usable) > 0
 }
 
-// armCandidates splits reg's Databricks workspaces (no gateway row, none in tried) by armFindings: usable, skipped.
+// armCandidates splits reg's Databricks workspaces (none in tried) by armFindings: usable, skipped.
 func armCandidates(reg *providers.Registry, agentName, model string, now time.Time, tried []string) (usable []*providers.Provider, skipped []agent.Finding) {
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
 		p := reg.Providers[n]
-		if p.Preset != providers.PresetDatabricks || p.IsAIGateway() || slices.Contains(tried, n) {
+		if p.Preset != providers.PresetDatabricks || slices.Contains(tried, n) {
 			continue
 		}
 		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {

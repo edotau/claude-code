@@ -91,7 +91,7 @@ func TestPresetWithoutCLIProfileLeavesCommandsEmpty(t *testing.T) {
 
 func TestPresetExplicitFieldsWin(t *testing.T) {
 	p := mustParse(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://h.example.com", "cliProfile": "work",
-		"protocol": "openai", "base_url": "https://own/base", "routes": {"openai": "https://own/oa"},
+		"protocol": "openai", "base_url": "https://h.example.com/serving-endpoints/own", "routes": {"openai": "https://h.example.com/serving-endpoints/oa"},
 		"auth": {"type":"key","header":"x-api-key", "ttl": 60, "command": "echo mine", "refreshCommand": "echo fresh"},
 		"models": {"opus": "my-opus"}, "env": {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "0", "OTHER": "x"}}}}}`).Providers["dbx"]
 	t.Run("routes", func(t *testing.T) { checkExplicitRoutes(t, p) })
@@ -99,10 +99,10 @@ func TestPresetExplicitFieldsWin(t *testing.T) {
 }
 
 func checkExplicitRoutes(t *testing.T, p *Provider) {
-	if p.Protocol != "openai" || p.BaseURL != "https://own/base" {
+	if p.Protocol != "openai" || p.BaseURL != "https://h.example.com/serving-endpoints/own" {
 		t.Errorf("kind/base overridden: %q %q", p.Protocol, p.BaseURL)
 	}
-	if got, _ := p.Route(ProtocolOpenAI); got != "https://own/oa" {
+	if got, _ := p.Route(ProtocolOpenAI); got != "https://h.example.com/serving-endpoints/oa" {
 		t.Errorf("openai route = %q", got)
 	}
 	if got, _ := p.Route(ProtocolResponses); got != "https://h.example.com/serving-endpoints" {
@@ -148,6 +148,9 @@ func TestValidatePresetAndEnvRejections(t *testing.T) {
 		{"host with path", `"preset": "databricks", "host": "https://h.example.com/x"`, "absolute https"},
 		{"relative host", `"preset": "databricks", "host": "h.example.com"`, "absolute https"},
 		{"missing host", `"preset": "databricks"`, "absolute https"},
+		{"foreign base_url", ok + `, "base_url": "https://evil.example.com/anthropic"`, "serving-endpoints"},
+		{"foreign route", ok + `, "routes": {"openai": "https://evil.example.com/serving-endpoints"}`, "serving-endpoints"},
+		{"gateway route", ok + `, "base_url": "https://h.example.com/ai-gateway/anthropic"`, "serving-endpoints"},
 		{"bad cliProfile", ok + `, "cliProfile": "a b; rm"`, "cliProfile"},
 		{"host without preset", plain + `, "host": "https://h.example.com"`, "need a preset"},
 		{"cliProfile without preset", plain + `, "cliProfile": "w"`, "need a preset"},
@@ -341,28 +344,6 @@ func wireProvider(t *testing.T, opts string) *Provider {
 	return reg.Providers["dbx"]
 }
 
-func TestWireGatewayDerivation(t *testing.T) {
-	p := wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
-	if p.BaseURL != wireHost+"/ai-gateway/anthropic" {
-		t.Errorf("BaseURL = %q", p.BaseURL)
-	}
-	if got := p.Routes[ProtocolResponses]; got != wireHost+"/ai-gateway/codex/v1" {
-		t.Errorf("responses route = %q", got)
-	}
-	if _, ok := p.Routes[ProtocolOpenAI]; ok {
-		t.Errorf("gateway must have no openai route: %v", p.Routes)
-	}
-	if p.ModelPrefix != "system.ai." {
-		t.Errorf("ModelPrefix = %q", p.ModelPrefix)
-	}
-	if p.Headers["x-databricks-use-coding-agent-mode"] != "true" {
-		t.Errorf("headers = %v", p.Headers)
-	}
-	if got := p.Models["sonnet"]; got != "system.ai.claude-sonnet-5-5" {
-		t.Errorf("sonnet alias = %q", got)
-	}
-}
-
 func TestWireServingDefaultUnchanged(t *testing.T) {
 	for _, opts := range []string{``, `, "options": {"wire": "serving"}`} {
 		p := wireProvider(t, opts)
@@ -376,9 +357,6 @@ func TestWireServingDefaultUnchanged(t *testing.T) {
 		}
 		if p.ModelPrefix != "databricks-" {
 			t.Errorf("%q: prefix = %q", opts, p.ModelPrefix)
-		}
-		if _, ok := p.Headers["x-databricks-use-coding-agent-mode"]; ok {
-			t.Errorf("%q: serving must not set the gateway header", opts)
 		}
 	}
 }
@@ -399,8 +377,6 @@ func dbxProvider(t *testing.T) Provider {
 
 func TestWireModelTable(t *testing.T) {
 	db := dbxProvider(t)
-	gw := *wireProvider(t, `, "options": {"wire": "ai-gateway"}`)
-	gwOpts := Provider{Preset: PresetDatabricks, Options: Options{Wire: WireAIGateway}} // no ModelPrefix
 	plain := Provider{}
 	cases := []struct {
 		name string
@@ -410,8 +386,9 @@ func TestWireModelTable(t *testing.T) {
 	}{
 		{"canonical", db, "claude-opus-5-5", "databricks-claude-opus-5-5"},
 		{"already wire", db, "databricks-claude-opus-5-5", "databricks-claude-opus-5-5"},
-		{"1m kept", db, "claude-opus-5-5[1m]", "databricks-claude-opus-5-5[1m]"},
-		{"wire 1m unchanged", db, "databricks-claude-opus-5-5[1m]", "databricks-claude-opus-5-5[1m]"},
+		{"1m kept on 4.x", db, "claude-opus-4-8[1m]", "databricks-claude-opus-4-8[1m]"},
+		{"wire 1m unchanged on 4.x", db, "databricks-claude-opus-4-8[1m]", "databricks-claude-opus-4-8[1m]"},
+		{"1m dropped on 5+", db, "claude-opus-5-5[1m]", "databricks-claude-opus-5-5"},
 		{"slash qualified", db, "openai/gpt-5", "openai/gpt-5"},
 		{"colon qualified", db, "openai:gpt-5", "openai:gpt-5"},
 		{"empty", db, "", ""},
@@ -424,13 +401,6 @@ func TestWireModelTable(t *testing.T) {
 		{"no prefix provider", plain, "claude-opus-5-5", "claude-opus-5-5"},
 		{"no prefix keeps dots", plain, "gpt-5.5", "gpt-5.5"},
 		{"unknown prefix untouched", Provider{ModelPrefix: "x."}, "gpt-5.5", "gpt-5.5"},
-		{"gateway dots to dashes", gw, "gpt-5.5", "system.ai.gpt-5-5"},
-		{"gateway claude", gw, "claude-sonnet-5-5", "system.ai.claude-sonnet-5-5"},
-		{"gateway already wire", gw, "system.ai.gpt-5-5", "system.ai.gpt-5-5"},
-		{"gateway from serving spelling", gw, "databricks-claude-opus-5-5", "system.ai.claude-opus-5-5"},
-		{"gateway alias", gw, "opus", "system.ai.claude-opus-5-5"},
-		{"gateway dotted", gw, "claude-opus-5.5", "system.ai.claude-opus-5-5"},
-		{"gateway by options alone", gwOpts, "databricks-claude-opus-5-5", "system.ai.claude-opus-5-5"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -445,7 +415,27 @@ func TestWireModelTable(t *testing.T) {
 	}
 }
 
-// The endpoint type alone decides who serves 1M: serving and first-party yes, ai-gateway and others no.
+// Claude Code's refusal fallback asks for non-catalog claude-opus-5: each provider respells it, never as opus-5-5.
+func TestWireModelOpus5BothDirections(t *testing.T) {
+	db, anth := dbxProvider(t), Provider{Provider: "anthropic"}
+	for _, c := range []struct {
+		p        Provider
+		in, want string
+	}{
+		{db, "claude-opus-5", "databricks-claude-opus-5"},
+		{db, "databricks-claude-opus-5", "databricks-claude-opus-5"},
+		{db, "claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{anth, "databricks-claude-opus-5", "claude-opus-5"},
+		{anth, "databricks-claude-opus-5-5", "claude-opus-5-5"},
+		{anth, "claude-opus-5", "claude-opus-5"},
+	} {
+		if got := c.p.WireModel(c.in); got != c.want {
+			t.Errorf("%s WireModel(%q) = %q, want %q", c.p.SpellingRule(), c.in, got, c.want)
+		}
+	}
+}
+
+// The endpoint type alone decides who serves 1M: serving and first-party yes, others no.
 func TestServes1MByEndpointType(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -455,7 +445,6 @@ func TestServes1MByEndpointType(t *testing.T) {
 		{"nil", nil, false},
 		{"databricks serving", &Provider{ModelPrefix: models.DatabricksPrefix}, true},
 		{"first-party anthropic", &Provider{Provider: "anthropic"}, true},
-		{"ai-gateway", &Provider{ModelPrefix: gatewayModelPrefix}, false},
 		{"github copilot", &Provider{Provider: "github"}, false},
 		{"non-Claude endpoint", &Provider{Provider: "ollama"}, false},
 	} {
@@ -467,10 +456,9 @@ func TestServes1MByEndpointType(t *testing.T) {
 	}
 }
 
-// ContextWindow: a typed [1m] is always 1M; a bare catalog id is 1M only on a 1M endpoint; a non-Claude id is 200K.
-func TestContextWindowByEndpoint(t *testing.T) {
+// Window: catalog limit or Claude 5+/typed [1m] 1M, capped to 200K off a 1M endpoint or under DISABLE_1M.
+func TestWindowByEndpoint(t *testing.T) {
 	serving := &Provider{ModelPrefix: models.DatabricksPrefix}
-	gateway := &Provider{ModelPrefix: gatewayModelPrefix}
 	copilot := &Provider{Provider: "github"}
 	for _, tc := range []struct {
 		name string
@@ -479,16 +467,24 @@ func TestContextWindowByEndpoint(t *testing.T) {
 		want int
 	}{
 		{"serving 5.5", serving, "claude-opus-5-5", models.ContextWindow1M},
-		{"gateway 5.5 bare", gateway, "claude-opus-5-5", models.ContextWindowStd},
-		{"gateway typed [1m] kept", gateway, "claude-opus-5-5[1m]", models.ContextWindow1M},
 		{"copilot bare", copilot, "claude-opus-5-5", models.ContextWindowStd},
-		{"copilot typed [1m]", copilot, "claude-opus-5-5[1m]", models.ContextWindow1M},
+		{"copilot typed [1m] on 4.x", copilot, "claude-opus-4-8[1m]", models.ContextWindow1M},
+		{"copilot typed [1m] on 5.5 is a no-op", copilot, "claude-opus-5-5[1m]", models.ContextWindowStd},
 		{"serving non-Claude", serving, "gpt-5", models.ContextWindowStd},
+		{"serving gemini catalog limit", serving, "databricks-gemini-3-8-flash", 1_048_576},
+		{"copilot gemini capped", copilot, "databricks-gemini-3-8-flash", models.ContextWindowStd},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ContextWindow(tc.p, tc.id); got != tc.want {
-				t.Errorf("ContextWindow(%q) = %d, want %d", tc.id, got, tc.want)
+			if got := Window(tc.p, tc.id); got != tc.want {
+				t.Errorf("Window(%q) = %d, want %d", tc.id, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWindowDisable1MCapsServing(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")
+	if got := Window(&Provider{ModelPrefix: models.DatabricksPrefix}, "claude-opus-5-5"); got != models.ContextWindowStd {
+		t.Errorf("Window under DISABLE_1M = %d, want %d", got, models.ContextWindowStd)
 	}
 }

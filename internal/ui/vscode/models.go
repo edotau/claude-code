@@ -94,7 +94,7 @@ func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 			out.Cold = append(out.Cold, name)
 			continue
 		}
-		snap, ok := serving.Recall(p)
+		snap, ok := serving.RecallCtx(ctx, p)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "claude-code: vscode models: %s has no cached listing, group skipped "+
 				"(claude-code preflight --discover %s)\n", name, name)
@@ -129,9 +129,9 @@ func profileGroup(p *providers.Provider, infos []providers.ModelInfo, session st
 // endpointEntry is one model: the full endpoint name as id and label, routed through the proxy session base.
 func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, session string) endpointModel {
 	api := wireAPI[wire]
-	window, output := providers.ContextWindow(p, info.ID), maxOutputCap
-	if l, ok := models.Limits(info.ID); ok { // catalog limits only lower the window and the cap
-		window, output = minPositive(window, l.Context), minPositive(output, l.Output)
+	window, output := providers.Window(p, info.ID), maxOutputCap
+	if l, ok := models.Limits(info.ID); ok { // the catalog output limit only lowers the cap
+		output = minPositive(output, l.Output)
 	}
 	claude := models.FamilyKind(info.ID) == models.FamilyClaude
 	m := endpointModel{ID: info.ID, Name: info.ID, URL: session + api.path, APIType: api.apiType, ToolCalling: true,

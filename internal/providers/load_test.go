@@ -229,10 +229,10 @@ func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
 
 func TestLoadDecoratesPresetModels(t *testing.T) {
 	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
-	  "models":{"opus":"claude-opus-5-5[1m]","sonnet":"gpt-5.5"}}}}}`)
+	  "models":{"opus":"claude-opus-4-8[1m]","sonnet":"gpt-5.5"}}}}}`)
 	m := reg.Providers["dbx"].Models
 	want := map[string]string{
-		"opus": "databricks-claude-opus-5-5[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
+		"opus": "databricks-claude-opus-4-8[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
 	}
 	for k, v := range want {
 		if m[k] != v {

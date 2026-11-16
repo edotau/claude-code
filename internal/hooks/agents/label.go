@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -57,9 +58,9 @@ func Label(in LabelInput, cwd, sid string) LabelRow {
 // labelSource names where the label's model came from: the dispatch's --model, the session, or the pin and route.
 func labelSource(dispatchModel, label, sessionModel string) string {
 	switch {
-	case dispatchModel != "" && dispatchModel != "inherit" && label == dispatchModel:
+	case dispatchModel != "" && dispatchModel != "inherit" && models.SameModel(label, dispatchModel):
 		return "dispatch"
-	case sessionModel != "" && label == sessionModel:
+	case sessionModel != "" && models.SameModel(label, sessionModel):
 		return "session"
 	}
 	return "derived"

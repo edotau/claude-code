@@ -949,9 +949,9 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 	}
 }
 
-// TestAgentsDispatchWaves exercises validation and a real-plan dry run through the CLI handler.
+// TestAgentsDispatchWaves exercises validation and a fixture-plan dry run through the CLI handler.
 func TestAgentsDispatchWaves(t *testing.T) {
-	plan := "/Users/edotau/.claude/plans/2026-11-13-permissions-settings-toolbox.md"
+	plan := filepath.Join("testdata", "plan.md")
 	for _, tc := range []struct {
 		name    string
 		args    []string

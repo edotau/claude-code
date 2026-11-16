@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -59,11 +62,11 @@ func (g *kaRig) called() []string {
 
 func TestKeepaliveTickRefreshesOnlyRecentlyUsedProfiles(t *testing.T) {
 	g := newKARig(t)
-	g.r.touch("stale")
+	g.r.touch(t.Context(), "stale")
 	g.mu.Lock()
 	g.now = g.now.Add(keepaliveWindow + time.Minute) // "stale" is now past the window
 	g.mu.Unlock()
-	g.r.touch("hot")
+	g.r.touch(t.Context(), "hot")
 	g.r.keepaliveTick(t.Context())
 	if got := g.called(); len(got) != 1 || got[0] != "hot" {
 		t.Fatalf("refreshed %v, want only hot (idle never used, stale past %s)", got, keepaliveWindow)
@@ -73,6 +76,48 @@ func TestKeepaliveTickRefreshesOnlyRecentlyUsedProfiles(t *testing.T) {
 	}
 	if got := g.r.recentlyUsed(); len(got) != 1 {
 		t.Errorf("recentlyUsed = %v, want the stale entry pruned", got)
+	}
+}
+
+func TestKeepaliveUsesRequestEgress(t *testing.T) {
+	for _, tc := range []struct {
+		name, host string
+		session    bool
+	}{
+		{"session", "remote-one", true},
+		{"secret", "remote-two", false},
+		{"direct", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newKARig(t)
+			t.Setenv(egress.EnvHost, "")
+			got := "not-called"
+			g.fn = func(ctx context.Context, _ *providers.Provider) (bool, error) {
+				got = egress.HostContext(ctx)
+				return false, nil
+			}
+			path, tok := "/p/hot/v1/messages", secret
+			if tc.host != "" {
+				path = "/via/" + tc.host + path
+			}
+			if tc.session {
+				var err error
+				if tok, err = g.r.sessions.mint([]string{"hot"}, os.Getpid()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1"+path, strings.NewReader(`{"model":"m"}`))
+			req.Header.Set("X-Api-Key", tok)
+			rec := httptest.NewRecorder()
+			g.r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status=%d body=%s, want missing-login 401", rec.Code, rec.Body)
+			}
+			g.r.keepaliveTick(egress.WithHost(t.Context(), "wrong-host"))
+			if got != tc.host {
+				t.Fatalf("refresh egress host=%q, want %q", got, tc.host)
+			}
+		})
 	}
 }
 
@@ -86,7 +131,7 @@ func TestKeepaliveIdleMachineMintsNothing(t *testing.T) {
 
 func TestKeepaliveLogsVerdictNeverErrorText(t *testing.T) {
 	g := newKARig(t)
-	g.r.touch("hot", "idle", "stale")
+	g.r.touch(t.Context(), "hot", "idle", "stale")
 	g.fn = func(_ context.Context, p *providers.Provider) (bool, error) {
 		switch p.Name {
 		case "hot":
@@ -114,7 +159,7 @@ func TestKeepaliveLogsVerdictNeverErrorText(t *testing.T) {
 func TestKeepaliveCallIsBoundedByTimeout(t *testing.T) {
 	g := newKARig(t)
 	g.r.ka.timeout = 20 * time.Millisecond
-	g.r.touch("hot")
+	g.r.touch(t.Context(), "hot")
 	g.fn = func(ctx context.Context, _ *providers.Provider) (bool, error) {
 		<-ctx.Done()
 		return false, ctx.Err()
@@ -140,7 +185,7 @@ func TestKeepaliveJitterStaysInBounds(t *testing.T) {
 // The loop waits interval+jitter between ticks, refreshes on each, and stop returns only once the goroutine is gone.
 func TestKeepaliveLoopTicksAndStopsWithoutLeak(t *testing.T) {
 	g := newKARig(t)
-	g.r.touch("hot")
+	g.r.touch(t.Context(), "hot")
 	var waits []time.Duration
 	tick := make(chan struct{})
 	exited := make(chan struct{})
@@ -203,7 +248,7 @@ func TestRequestAndSessionScopeMarkProfilesUsed(t *testing.T) {
 	if got := g.r.recentlyUsed(); len(got) != 1 || got[0] != "dev" {
 		t.Fatalf("recentlyUsed = %v after a session request, want [dev]", got)
 	}
-	g.r.used = map[string]time.Time{}
+	g.r.used = map[string]profileUse{}
 	g.call(t, "/p/dev/v1/messages", `{}`, secret) // the router secret scopes nothing and routes nothing here
 	if got := g.r.recentlyUsed(); len(got) != 0 {
 		t.Errorf("an unscoped request that sent nothing marked %v", got)

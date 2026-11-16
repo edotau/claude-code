@@ -78,6 +78,11 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 	if err != nil {
 		return nil, providers.Selection{}, err
 	}
+	if prof, rest, perr := splitProfile(reg, o.Model); perr != nil {
+		return nil, providers.Selection{}, &UsageError{Msg: perr.Error()}
+	} else if prof != "" {
+		o.Provider, o.Model = prof, rest
+	}
 	if session && o.Provider == "" { // this workspace beats the global pin, which only seeds new workspaces
 		o.Provider = lastProfile(reg, "claude")
 	}
@@ -87,6 +92,35 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 		err = nil
 	}
 	return reg, sel, err
+}
+
+// splitProfile reads a "<profile>:<model>" --model: a profile name, or a provider type with one row, selects that row.
+// A prefix that is neither is an error only when the rest is a Claude model, so local tags like "qwen3:30b" pass.
+func splitProfile(reg *providers.Registry, spec string) (profile, model string, err error) {
+	name, rest, ok := strings.Cut(strings.TrimSpace(spec), ":")
+	if !ok || rest == "" {
+		return "", spec, nil
+	}
+	if _, found := reg.Providers[name]; found {
+		return name, rest, nil
+	}
+	var rows []string
+	for n, p := range reg.Providers {
+		if p.Provider == name {
+			rows = append(rows, n)
+		}
+	}
+	slices.Sort(rows)
+	switch {
+	case len(rows) == 1:
+		return rows[0], rest, nil
+	case len(rows) > 1:
+		return "", "", fmt.Errorf("--model %s: %q is a provider type with several profiles (%s); name one", spec, name, strings.Join(rows, ", "))
+	}
+	if _, _, known := models.Resolve(rest); known {
+		return "", "", fmt.Errorf("--model %s: unknown profile %q", spec, name)
+	}
+	return "", spec, nil
 }
 
 // lastProfile is the profile this workspace last launched agentName with, "" unless registered and usable by the agent.
@@ -115,7 +149,7 @@ func parseModelFlag(s string) (alias, canonical string, bare bool) {
 	s = strings.TrimSpace(s)
 	name := strings.ToLower(models.Strip1M(s))
 	if c, ok := models.Alias(name); ok && slices.Contains(models.AliasNames, name) {
-		return name, c, !models.Has1M(s)
+		return name, c, !models.Has1M(s) || !models.Keeps1M(c+"[1m]")
 	}
 	canonical, _, ok := models.Resolve(s)
 	if !ok {
@@ -141,7 +175,7 @@ func applyModel(sel *providers.Selection, model string, session bool, verbAlias 
 		return
 	}
 	wire := strings.TrimSpace(model)
-	oneM := models.Has1M(wire)
+	oneM := models.Has1M(wire) && models.Keeps1M(canonical+"[1m]")
 	wire = models.Strip1M(wire)
 	if canonical != "" {
 		wire = sel.Provider.WireModel(canonical)
@@ -307,10 +341,14 @@ func ownLoginNoteShown(o LaunchOptions, args []string) bool {
 
 // ownLoginPlan is the plain launch of an agent that signs in itself, printing note when show.
 func ownLoginPlan(spec Schema, args []string, note string, show bool) (Plan, error) {
+	plan, err := plainPlan(spec, args)
+	if err != nil {
+		return Plan{}, err
+	}
 	if show && note != "" {
 		fmt.Fprintln(NoticeOut, note)
 	}
-	return plainPlan(spec, args)
+	return plan, nil
 }
 
 // configureFailed offers configure once to a human at a terminal, then retries or falls back to a passthrough launch.
@@ -465,15 +503,26 @@ var OfferConfigure func(name string, reason error) bool
 
 // passthrough launches the agent own CLI untouched when the harness cannot route it: its own sign-in stays reachable.
 func passthrough(spec Schema, name string, reason error, args []string) (Plan, error) {
-	if _, err := lookPath(spec.CLI.Binary); err != nil {
+	plan, err := plainPlan(spec, args)
+	if err != nil {
+		if usage, ok := errors.AsType[*UsageError](err); ok {
+			return Plan{}, usage
+		}
 		return Plan{}, reason // no CLI to fall back to: the routing error is the whole story
 	}
 	fmt.Fprintf(NoticeOut, "%v\nlaunching the plain %s CLI on its own login (not routed by claude-code)\n", reason, name)
-	return plainPlan(spec, args)
+	return plan, nil
 }
 
 // plainPlan is the agent's own CLI on its own login: no routing env, but the agent spec's launch env/args still apply.
 func plainPlan(spec Schema, args []string) (Plan, error) {
+	opts, _, err := ParseArgs(args, false)
+	if err != nil {
+		return Plan{}, err
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(opts.Model)), models.DatabricksPrefix) {
+		return Plan{}, &UsageError{Msg: spec.Name + ": a databricks- model needs a Databricks --profile; refused on own login"}
+	}
 	bin, err := lookPath(spec.CLI.Binary)
 	if err != nil {
 		return Plan{}, err

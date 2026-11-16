@@ -195,41 +195,6 @@ func TestListModelsNon200DoesNotLeakBearer(t *testing.T) {
 	}
 }
 
-func TestGatewayModelsPagesAndMarksGatewayRows(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ai-gateway/anthropic/v1/models" {
-			writeJSON(w, 404, `{}`)
-			return
-		}
-		if r.URL.Query().Get("after_id") == "" {
-			writeJSON(w, 200, `{"data":[{"id":"system.ai.claude-opus-5","display_name":"Claude Opus 5"}],"has_more":true,"last_id":"system.ai.claude-opus-5"}`)
-			return
-		}
-		writeJSON(w, 200, `{"data":[{"id":"system.ai.claude-haiku-5-5","display_name":""}],"has_more":false}`)
-	}))
-	t.Cleanup(srv.Close)
-	trustTestTLS(t, srv)
-	got, err := gatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok"))
-	if err != nil || len(got) != 2 {
-		t.Fatalf("gatewayModels = %+v, %v; want 2 rows", got, err)
-	}
-	if got[0].Name != "Claude Opus 5" || !got[0].Gateway || got[1].Name == "" || !got[1].Gateway {
-		t.Errorf("rows = %+v", got)
-	}
-}
-
-func TestGatewayModelsNonDatabricksAndMissingEndpoint(t *testing.T) {
-	if got, err := gatewayModels(context.Background(), &Provider{Name: "x"}); got != nil || err != nil {
-		t.Errorf("non-databricks = %v, %v; want nil, nil", got, err)
-	}
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 404, `{}`) }))
-	t.Cleanup(srv.Close)
-	trustTestTLS(t, srv)
-	if _, err := gatewayModels(context.Background(), liveDbxProvider(t, srv.URL, "tok")); err == nil {
-		t.Error("404 listing returned no error")
-	}
-}
-
 // TestDisplayName: a catalog without names still gets a readable Model column.
 func TestDisplayName(t *testing.T) {
 	for id, want := range map[string]string{"models/gemini-2.5-flash": "Gemini 2.5 Flash", "gpt-6-astra": "Gpt 6 Astra"} {
@@ -328,6 +293,26 @@ func TestReadyChat(t *testing.T) {
 	} {
 		if got := tc.info.ReadyChat(); got != tc.want {
 			t.Errorf("ReadyChat(%+v) = %v, want %v", tc.info, got, tc.want)
+		}
+	}
+}
+
+// The setup-token never reaches a catalog host other than api.anthropic.com, whatever the CLI profile.
+func TestCatalogSetupTokenStaysOnAnthropic(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(OAuthTokenEnv, "fake-setup-token")
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		writeJSON(w, 200, `{"data":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	for _, p := range []*Provider{
+		{Name: "antigravity", Provider: "google", Protocol: ProtocolOpenAI, BaseURL: srv.URL, Auth: Auth{Type: AuthCLI, Login: "gemini"}},
+		{Name: "anthropic-mirror", Provider: "anthropic", Protocol: ProtocolAnthropic, BaseURL: srv.URL, Auth: Auth{Type: AuthCLI}},
+	} {
+		if _, err := liveModelEntries(context.Background(), p); !errors.Is(err, ErrPassthrough) || got != "" {
+			t.Errorf("%s: err=%v, Authorization seen by upstream=%q; want ErrPassthrough and no header", p.Name, err, got)
 		}
 	}
 }

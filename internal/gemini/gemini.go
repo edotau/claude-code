@@ -67,7 +67,7 @@ func (geminiEngine) Login(_ context.Context, _ *providers.Provider, model string
 	return geminiLogin(model, h)
 }
 
-// Wire serves only a gateway row: Serves refuses agy every other non-login row.
+// Wire serves only a Databricks row: Serves refuses agy every other non-login row.
 func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
 	if agent.IsDirect(ctx) { // --direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
@@ -114,7 +114,7 @@ func (geminiEngine) FollowsPin(p *providers.Provider) bool {
 	return rec.Profile == p.Name
 }
 
-// NoRoute refuses a Databricks gateway row that no GEMINI_PROFILE pin selected: never silently.
+// NoRoute refuses a Databricks row that no GEMINI_PROFILE pin selected: never silently.
 func (geminiEngine) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
 	if agent.GeminiGatewayRow(t.Provider) {
 		return errors.New("gemini: agy needs a Google login (agy auth login) or a GEMINI_PROFILE pin")
@@ -358,7 +358,7 @@ func agyArgv(r agyRequest) []string {
 		argv = append(argv, "--json-schema", r.OutputSchema)
 	}
 	if r.Tools {
-		argv = append(argv, "--dangerously-skip-permissions")
+		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
 	}
 	if r.Autonomous {
 		argv = append(argv, "--mode", "auto")
@@ -634,7 +634,7 @@ func geminiRouteDetail() string {
 	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
 }
 
-// agyModelEffort is the --model agy runs for req on t and a gateway row's pinned effort ("" elsewhere).
+// agyModelEffort is the --model agy runs for req on t and a Databricks row's pinned effort ("" elsewhere).
 func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort string) {
 	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
 		t.Model = agyDefaultModel

@@ -30,11 +30,19 @@ func authSegment(session string) string {
 	if loginDead(session) {
 		return "login:" + session
 	}
-	exp, method, ok := providers.TokenExpiryMethod(session)
+	exp, method, ok := providers.TokenExpiryMethodFor(session, sessionIdentity(session))
 	if !ok {
 		return ""
 	}
 	return tokenLeft(tokenLabel(session, method), exp, time.Now())
+}
+
+// sessionIdentity is the session row's stored identity mode ("" reads as auto).
+func sessionIdentity(session string) string {
+	if reg := registry(); reg != nil && reg.Providers[session] != nil {
+		return reg.Providers[session].Identity
+	}
+	return ""
 }
 
 // loginDead is true when the session row's user login is remembered dead and its identity can reach for it.

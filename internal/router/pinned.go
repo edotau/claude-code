@@ -29,7 +29,7 @@ func (t *RouteTable) gatePinned(
 		return t.gateOpencodeCandidate(ctx, alias, pin, st, o, now, configured, res)
 	}
 	if agent == "gemini" && reg != nil && !geminiRow(reg, pin) {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + pin})
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + pin})
 		return nil
 	}
 	return t.gateProfile(ctx, reg, alias, agent, pin, spec.Model, "", st, o, now, configured, res)

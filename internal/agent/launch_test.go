@@ -72,7 +72,7 @@ func TestEnsureRouterErrorSurfaces(t *testing.T) {
 
 // A routed child holds one minted token per scope, never the router secret: armed {dev}, unarmed {dev, fallback qa}.
 func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
-	armRegistry(t, "")
+	armRegistry(t)
 	row := `{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DEV_TOKEN"}}`
 	vaulttest.Put(t, vault.Overlay, "providers",
 		`{"fallback":["qa"],"providers":{"databricks":{"dev":`+row+`,"qa":`+row+`}}}`)
@@ -105,7 +105,7 @@ func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
 
 // A failed mint fails the route: the child is never handed the router secret instead.
 func TestRouterRouteMintFailureAborts(t *testing.T) {
-	armRegistry(t, "")
+	armRegistry(t)
 	t.Setenv(agentconfig.OverlayVar, "")
 	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
 	om := MintSession
@@ -356,28 +356,6 @@ func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 	}
 	if !strings.Contains(out, "DATA_PATH=/visible") {
 		t.Errorf("benign DATA_PATH was redacted:\n%s", out)
-	}
-}
-
-// An AI Gateway-wire row is refused for every shared-path agent before any route is built; a serving row is not.
-func TestConfigureRouteRefusesAIGatewayWire(t *testing.T) {
-	vaulttest.Use(t)
-	stubRouter(t, func(context.Context) (string, error) { return "", errors.New("router stubbed") })
-	t.Setenv("DBX_GW_TEST_TOKEN", "tok")
-	const doc = `{"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://x.example.com",` +
-		`"options":{"wire":"%s"},"auth":{"type":"key","env":"DBX_GW_TEST_TOKEN"}}}}}`
-	const refusal = "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"
-	for _, wire := range []string{providers.WireAIGateway, "serving"} {
-		reg, err := providers.Parse([]byte("{}"), fmt.Appendf(nil, doc, wire))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
-			_, _, err := SchemaFor(name).configureRoute(t.Context(), providers.Target{Provider: reg.Providers["gw"], Model: "m"}, nil)
-			if refused := err != nil && err.Error() == refusal; refused != (wire == providers.WireAIGateway) {
-				t.Errorf("%s on %s: err = %v; refused = %v", name, wire, err, refused)
-			}
-		}
 	}
 }
 

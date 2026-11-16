@@ -366,7 +366,7 @@ func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
 	if _, err := Credential(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	exp, method, ok := TokenExpiryMethod(p.Name)
+	exp, method, ok := TokenExpiryMethodFor(p.Name, IdentityAuto)
 	if !ok || method != AuthM2M || time.Until(exp) < 50*time.Minute {
 		t.Fatalf("record = %v, %q, %v; want ~1h, m2m", exp, method, ok)
 	}

@@ -69,9 +69,10 @@ static menu: routing never touches the network.
 
 ## Databricks routes (key rule)
 
-- Every agent uses the workspace serving endpoints, never AI Gateway (`/ai-gateway/*`): claude
-  `<workspace>/serving-endpoints/anthropic`, codex `/serving-endpoints/responses` (stays on Responses), copilot and
-  opencode `/serving-endpoints/chat/completions`. Probe a route with a real `claude-code agents ask`, not a hand-built
+- Every agent uses the workspace serving endpoints, never a gateway product (an `options.wire` other than `serving` is
+  refused naming the row): claude `<workspace>/serving-endpoints/anthropic`, codex `/serving-endpoints/responses`
+  (stays on Responses); copilot and opencode pick per model — Claude on `/anthropic`, Responses-only GPTs on
+  `/responses`, the rest on `/chat/completions`. Probe a route with a real `claude-code agents ask`, not a hand-built
   `curl`.
 - VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile
   (cached READY chat endpoints, full names) into `chatLanguageModels.json`, routed through `/p/<profile>/`; other

@@ -125,6 +125,9 @@ func interactivePlugin(h *agent.Headless) (string, error) {
 // opencodeHarnessWith builds per-launch instructions, commands, tools-off policy and the guard plugin URL.
 func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 	return func(cfg map[string]any) {
+		if m, _ := cfg["model"].(string); m != "" {
+			cfg["small_model"] = m // else the overlay file's table cell (title calls) leaves this profile
+		}
 		opencodeRulesOn(cfg)
 		opencodeCommandsOn(cfg)
 		if h != nil && !h.Tools {

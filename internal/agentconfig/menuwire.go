@@ -34,7 +34,7 @@ func MenuWire(p *providers.Provider, id string) string {
 	}
 	rule := p.SpellingRule()
 	if _, _, known := models.Resolve(id); known || rule == "" ||
-		strings.HasPrefix(id, models.DatabricksPrefix) || strings.HasPrefix(id, "system.ai.") {
+		strings.HasPrefix(id, models.DatabricksPrefix) {
 		return id
 	}
 	return models.Wire(rule, id)

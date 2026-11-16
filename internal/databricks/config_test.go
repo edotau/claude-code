@@ -25,7 +25,7 @@ func noTokens(t *testing.T, s string) {
 func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return config([]string{"claude", "--host", exHost, "--wire", "serving", "--auth", "cli", "--set", "FOO=1", "--unset", "ENABLE_TOOL_SEARCH"})
+		return config([]string{"claude", "--host", exHost, "--auth", "cli", "--set", "FOO=1", "--unset", "ENABLE_TOOL_SEARCH"})
 	})
 	if code != 0 {
 		t.Fatalf("code %d", code)
@@ -48,29 +48,15 @@ func TestConfigStdoutClaudeAndCodex(t *testing.T) {
 	noTokens(t, out)
 }
 
-func TestConfigGatewayNoteOnStderr(t *testing.T) {
-	_, out, errOut := hosttest.CaptureOutput(t, func() int {
-		return config([]string{"claude", "--host", exHost, "--wire", "ai-gateway", "--auth", "cli"})
-	})
-	if !strings.Contains(errOut, "budget-denied") || strings.Contains(out, "budget-denied") {
-		t.Errorf("note placement: out=%q err=%q", out, errOut)
-	}
-	if !strings.Contains(out, exHost+"/ai-gateway/anthropic") {
-		t.Errorf("gateway url missing:\n%s", out)
-	}
-}
-
 func TestConfigRefusals(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cases := map[string][]string{
 		"bad target":  {"vim", "--host", exHost},
 		"cred --set":  {"claude", "--host", exHost, "--set", "ANTHROPIC_AUTH_TOKEN=x"},
-		"bad wire":    {"claude", "--host", exHost, "--wire", "nope"},
 		"bad auth":    {"claude", "--host", exHost, "--auth", "nope"},
 		"non-claude":  {"claude", "--host", exHost, "--auth", "cli", "--model", "gpt-5.5"},
 		"claude->cdx": {"codex", "--host", exHost, "--auth", "cli", "--model", "claude-opus-5-5"},
 		"old --env":   {"claude", "--env", "dev", "--host", exHost},
-		"old gateway": {"claude", "--wire", "gateway", "--host", exHost},
 		"http host":   {"claude", "--host", "http://example.com", "--auth", "cli"},
 	}
 	for name, a := range cases {
@@ -80,6 +66,31 @@ func TestConfigRefusals(t *testing.T) {
 		}
 		if out != "" {
 			t.Errorf("%s: wrote stdout %q", name, out)
+		}
+	}
+}
+
+// --auth harness renders a helper that mints the named row's token, so --host may not point it at another workspace.
+func TestConfigHarnessRefusesMismatchedHost(t *testing.T) {
+	seedOverlay(t, `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com"}}}}`)
+	other := "https://qa.cloud.databricks.com"
+	for name, a := range map[string][]string{
+		"other host":                {"claude", "--profile", "dev", "--host", other},
+		"unknown row":               {"claude", "--profile", "nope", "--host", other},
+		"no such row":               {"codex", "--profile", "nope", "--host", exHost},
+		"unknown row, a known host": {"claude", "--profile", "nope", "--host", "https://dev.cloud.databricks.com"},
+	} {
+		code, out, _ := hosttest.CaptureOutput(t, func() int { return config(a) })
+		if code != 2 || out != "" {
+			t.Errorf("%s: code %d, stdout %q; want a refusal", name, code, out)
+		}
+	}
+	for name, a := range map[string][]string{
+		"same host": {"claude", "--profile", "dev", "--host", "https://dev.cloud.databricks.com"},
+		"cli other": {"claude", "--profile", "dev", "--host", other, "--auth", "cli"},
+	} {
+		if code, out, _ := hosttest.CaptureOutput(t, func() int { return config(a) }); code != 0 || out == "" {
+			t.Errorf("%s: code %d, want a render", name, code)
 		}
 	}
 }
@@ -233,7 +244,7 @@ func TestRescueDeletesScratchWhenSpawnFails(t *testing.T) {
 }
 
 func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
-	o := base(t, targetClaude, "serving")
+	o := base(t, targetClaude)
 	o.Self = "/opt/my tools/claude-code"
 	r, err := renderConfig(o)
 	if err != nil {
@@ -257,14 +268,14 @@ func TestApiKeyHelperQuotesPathWithSpace(t *testing.T) {
 func TestSetRejectsKeysThatBreakOutOfTOML(t *testing.T) {
 	for _, k := range []string{"a b", `a"b`, "a]b", "a\nb", "[table]", "", "é"} {
 		for _, target := range []string{targetCodex, targetClaude} {
-			o := base(t, target, "serving")
+			o := base(t, target)
 			o.Set = []string{k + "=v"}
 			if _, err := renderConfig(o); err == nil {
 				t.Errorf("%s: --set key %q accepted", target, k)
 			}
 		}
 	}
-	o := base(t, targetCodex, "serving")
+	o := base(t, targetCodex)
 	o.Set = []string{"model_reasoning_effort=high"}
 	if _, err := renderConfig(o); err != nil {
 		t.Errorf("plain key refused: %v", err)

@@ -21,7 +21,7 @@ import (
 func opencodeSyncIDs(infos []providers.ModelInfo) []string {
 	var ids []string
 	for _, info := range infos {
-		if info.Gateway || !info.ReadyChat() ||
+		if !info.ReadyChat() ||
 			!strings.HasPrefix(info.ID, models.DatabricksPrefix) {
 			continue
 		}
@@ -343,8 +343,12 @@ func MenuAddServed(arg string, responses, responsesSet, force bool,
 		if err != nil {
 			return "", nil, fmt.Errorf("cannot check %s against the workspace (--force skips): %v", id, err)
 		}
-		if _, ok := servedInfo(byName(infos), p, id); !ok {
+		info, ok := servedInfo(byName(infos), p, id)
+		if !ok {
 			return "", nil, fmt.Errorf("%s%s is not served by %s (--force skips the check)", p.ModelPrefix, id, p.Name)
+		}
+		if !info.ReadyChat() {
+			return "", nil, fmt.Errorf("%s%s on %s is not a READY llm/v1/chat endpoint (--force skips the check)", p.ModelPrefix, id, p.Name)
 		}
 	}
 	var r *bool

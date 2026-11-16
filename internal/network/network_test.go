@@ -138,3 +138,47 @@ func TestRestartRejectsBadFormat(t *testing.T) {
 		t.Fatal("bad --format accepted")
 	}
 }
+
+func TestRestartUnchangedKeepsTunnels(t *testing.T) {
+	isolateRouterState(t)
+	oldClient := http.DefaultClient
+	t.Cleanup(func() { http.DefaultClient = oldClient })
+	http.DefaultClient = &http.Client{Transport: restartTransport(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{gateway.PIDHeader: {strconv.Itoa(os.Getpid())}, gateway.HeaderInflight: {"1"}},
+			Body:       io.NopCloser(strings.NewReader("ok")),
+		}, nil
+	})}
+	const port = 23456
+	cleanup, err := gateway.WriteState(gateway.State{PID: os.Getpid(), Port: port, Exe: gateway.ExeHash()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	dir := filepath.Join(paths.StateDir(), "ssh")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "egress-test.json"), []byte(`{"host":"test-host","port":12345,"pid":1073741824}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	out := captureStdout(t, func() { code = cmdRestart([]string{"--if-changed", "--dry-run", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("restart exit %d: %s", code, out)
+	}
+	var doc struct {
+		Daemons []gateway.RestartRow `json:"daemons"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Daemons) != 1 || doc.Daemons[0].Status != "unchanged" {
+		t.Fatalf("unchanged proxy schedules tunnel stop: %s", out)
+	}
+}
+
+type restartTransport func(*http.Request) (*http.Response, error)
+
+func (f restartTransport) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

@@ -55,14 +55,14 @@ const (
 	dbxAcct    = "databricks·dev"
 )
 
-// Databricks on + Responses model: candidate right behind ChatGPT; the non-Responses Claude entry is skipped over.
+// Databricks on + Responses model: candidate right behind ChatGPT (the menu GPT or the sonnet bucket's terra), never the Claude.
 func TestCodexDatabricksCandidateResponsesModel(t *testing.T) {
 	accts, r := dbxCandidates(t, "dev", []providers.OpencodeModel{dbxClaudeNoResp, dbxGPT}, nil)
 	if !slices.Equal(accts, []string{dbxChatgpt, dbxAcct}) {
 		t.Fatalf("accounts = %v, want [%s %s]", accts, dbxChatgpt, dbxAcct)
 	}
 	d := r.Candidates[slices.IndexFunc(r.Candidates, func(c Candidate) bool { return c.Account == dbxAcct })]
-	if d.Profile != "dev" || d.Model == "" || d.Model == dbxClaudeNoResp.ID || !slices.Contains([]string{dbxGPT.ID, "databricks-" + dbxGPT.ID}, d.Model) {
+	if d.Profile != "dev" || d.Model == "" || d.Model == dbxClaudeNoResp.ID || !slices.Contains([]string{dbxGPT.ID, "databricks-" + dbxGPT.ID, "databricks-gpt-6-1-terra"}, d.Model) {
 		t.Errorf("databricks candidate = %+v, want profile dev and the GPT wire id, not the non-Responses Claude", d)
 	}
 }
@@ -185,7 +185,7 @@ func TestPickLeadPutsWantedAgentOnLeadProfileFirst(t *testing.T) {
 	}
 }
 
-// A lead naming a Databricks gateway row runs gemini there (the all-Databricks arm, on command).
+// A lead naming a Databricks row runs gemini there (the all-Databricks arm, on command).
 func TestPickLeadGeminiLeadsOnNamedDatabricksRow(t *testing.T) {
 	r := leadPick(t, "gemini", "dev")
 	if len(r.Candidates) == 0 || r.Candidates[0].Agent != "gemini" || r.Candidates[0].Profile != "dev" {
@@ -208,7 +208,7 @@ func TestGeminiRow(t *testing.T) {
 	for name, want := range map[string]bool{"g": true, "dev": true, "chatgpt": false, "missing": false,
 		"dbxlogin": false, "dbxnone": false, "dbxcli": false} {
 		if got := geminiRow(reg, name); got != want {
-			t.Errorf("geminiRow(%q) = %v, want %v: Google rows and credentialed Databricks gateway rows only", name, got, want)
+			t.Errorf("geminiRow(%q) = %v, want %v: Google rows and credentialed Databricks rows only", name, got, want)
 		}
 	}
 }
@@ -351,7 +351,7 @@ func TestPickLeadQuietLoginRowSkips(t *testing.T) {
 	}
 }
 
-// A gemini pin on a Databricks gateway row is the owner's choice and runs there.
+// A gemini pin on a Databricks row is the owner's choice and runs there.
 func TestPickPinnedGeminiOnDatabricksRowRuns(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 type SessionRequest struct {
@@ -168,28 +169,35 @@ func mintWithState(ctx context.Context, st State, profile string) (string, error
 	return out.Token, nil
 }
 
-// proxyTokenMaxAge re-mints inside the router's 12h idle lifetime, as agent.SessionToken does.
+// proxyTokenMaxAge re-mints inside the router's 7-day idle lifetime, as agent.SessionToken does.
 const proxyTokenMaxAge = time.Hour
 
 // mintScoped is the mint seam of ResolveProxyToken.
 var mintScoped = MintScopedToken
 
+var proxyTokenStart = proc.StartTime
+
 type proxyTokenRecord struct {
 	Token    string    `json:"token"`
+	Start    string    `json:"start"`
 	Scope    []string  `json:"scope"`
 	MintedAt time.Time `json:"minted_at"`
 }
 
 func proxyTokenDir() string { return filepath.Join(paths.StateDir(), "proxy-tokens") }
 
-// ResolveProxyToken returns pid's scoped session token: cached (0600) while fresh and same-scope, else minted; never the secret.
+// ResolveProxyToken caches pid's scoped token (0600) while fresh with matching process identity and scope.
 func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
+	start, err := proxyTokenStart(pid)
+	if err != nil {
+		return "", fmt.Errorf("identify token process %d: %w", pid, err)
+	}
 	dir := proxyTokenDir()
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
 	if b, err := os.ReadFile(file); err == nil {
 		var rec proxyTokenRecord
-		if json.Unmarshal(b, &rec) == nil && rec.Token != "" && slices.Equal(rec.Scope, scope) &&
+		if json.Unmarshal(b, &rec) == nil && rec.Token != "" && rec.Start == start && slices.Equal(rec.Scope, scope) &&
 			time.Since(rec.MintedAt) < proxyTokenMaxAge {
 			return rec.Token, nil
 		}
@@ -198,7 +206,7 @@ func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, er
 	if err != nil {
 		return "", fmt.Errorf("mint scoped token for profiles %s: %w", strings.Join(scope, ","), err)
 	}
-	b, err := json.Marshal(proxyTokenRecord{Token: tok, Scope: scope, MintedAt: time.Now()})
+	b, err := json.Marshal(proxyTokenRecord{Token: tok, Start: start, Scope: scope, MintedAt: time.Now()})
 	if err != nil {
 		return "", err
 	}

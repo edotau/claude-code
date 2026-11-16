@@ -81,6 +81,11 @@ func cmdModels(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
+	if *provider != "" {
+		if _, err := reg.Get(*provider); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
 	if code, handled := configure.ApplyModelPins(reg, *provider, *unpin, pins, modelsPreview(*dryRun)); handled {
 		return code
 	}
@@ -141,9 +146,6 @@ func listLive(reg *providers.Registry, p *providers.Provider, format string) int
 	}
 	if cat.Note != "" {
 		fmt.Fprintln(os.Stderr, "claude-code: models:", cat.Note)
-	}
-	if cat.GatewayErr != nil {
-		fmt.Fprintln(os.Stderr, "claude-code: models: ai gateway listing unavailable:", cat.GatewayErr)
 	}
 	if format == helptext.JSON {
 		return helptext.WriteJSONOrFail("models", cat.Rows())
