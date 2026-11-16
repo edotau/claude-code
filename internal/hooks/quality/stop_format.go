@@ -57,7 +57,7 @@ func StopFormat(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	prev := loadStampFile(stampPath)
-	edited, offset, err := scanEdited(prev, in.TranscriptPath)
+	edited, scan, err := scanEdited(prev, in.TranscriptPath)
 	if err != nil { // a partial scan still formats what it found
 		fmt.Fprintf(os.Stderr, "format-stop: transcript scan: %v\n", err)
 	}
@@ -70,8 +70,8 @@ func StopFormat(in *core.Input) core.Result {
 		stamps, missing = formatAll(eligible)
 		maps.Copy(carry, stamps)
 	}
-	if offset > 0 { // persist the scan offset even when nothing was edited, so the next Stop skips the old bytes
-		out := stampFile{Schema: stopFormatSchema, Stamps: carry, Transcript: in.TranscriptPath, Offset: offset, Edited: edited}
+	if scan.Offset > 0 { // persist the scan offset even when nothing was edited, so the next Stop skips the old bytes
+		out := stampFile{Schema: stopFormatSchema, Stamps: carry, Transcript: in.TranscriptPath, Offset: scan.Offset, Sum: scan.Sum, Edited: edited}
 		if data, err := json.Marshal(out); err == nil {
 			_ = paths.AtomicWrite(stampPath, data, 0o600)
 		}
@@ -188,20 +188,21 @@ func stampKey(fi os.FileInfo) string {
 type stampFile struct {
 	Schema int               `json:"schema"`
 	Stamps map[string]string `json:"stamps"`
-	// Transcript, Offset and Edited resume the edit scan: the files edited in Transcript before byte Offset.
+	// Transcript, Offset, Sum and Edited resume the edit scan: files edited in Transcript before byte Offset (hash Sum).
 	Transcript string   `json:"transcript,omitempty"`
 	Offset     int64    `json:"offset,omitempty"`
+	Sum        string   `json:"sum,omitempty"`
 	Edited     []string `json:"edited,omitempty"`
 }
 
-// scanEdited is the files edited in transcript, reading only what prev's offset has not seen; next resumes it.
-func scanEdited(prev stampFile, transcriptPath string) (edited []string, next int64, err error) {
-	offset, known := prev.Offset, prev.Edited
-	if fi, serr := os.Stat(transcriptPath); prev.Transcript != transcriptPath || serr != nil || fi.Size() < offset {
-		offset, known = 0, nil
+// scanEdited is the files edited in transcript, reading only what prev's scan has not seen; next resumes it.
+func scanEdited(prev stampFile, transcriptPath string) (edited []string, next transcript.EditScan, err error) {
+	resume := transcript.EditScan{}
+	if prev.Transcript == transcriptPath {
+		resume = transcript.EditScan{Offset: prev.Offset, Sum: prev.Sum, Files: prev.Edited}
 	}
-	added, next, err := transcript.EditedFilesFrom(transcriptPath, offset)
-	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(known, added)))), next, err
+	next, err = transcript.EditedFilesFrom(transcriptPath, resume)
+	return next.Files, next, err
 }
 
 func loadStampFile(path string) stampFile {
