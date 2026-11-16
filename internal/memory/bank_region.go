@@ -171,8 +171,9 @@ func newestBankMarkdown(b Bank) (time.Time, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return newest, err
 	}
+	keys := BankKeys()
 	for _, e := range ents {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || BankOfFile(e.Name()).Key != b.Key {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") || bankOfFile(e.Name(), keys).Key != b.Key {
 			continue
 		}
 		if fi, err := e.Info(); err == nil && fi.ModTime().After(newest) {
@@ -194,9 +195,10 @@ func knowledgeOf(b Bank) []string {
 // knowledgeNotes lists b's knowledge notes (flat: the <key>--*.md ones), minus the tier's own README.md.
 func knowledgeNotes(b Bank) []string {
 	var out []string
+	keys := BankKeys()
 	for _, f := range globIn(b.SubDir("knowledge"), "*.md") {
 		base := filepath.Base(f)
-		if strings.TrimPrefix(base, b.Prefix()) == "README.md" || BankOfFile(f).Key != b.Key || (b.Home() && strings.Contains(base, "--")) {
+		if strings.TrimPrefix(base, b.Prefix()) == "README.md" || bankOfFile(f, keys).Key != b.Key || (b.Home() && strings.Contains(base, "--")) {
 			continue
 		}
 		out = append(out, f)
