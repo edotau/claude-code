@@ -338,18 +338,46 @@ func sessionPrompts(root string) []string {
 // missingPaths returns one finding per absolute or ~ path the hook context names that does not exist.
 func missingPaths(hook, ctx string) []string {
 	var out []string
-	for _, m := range namedPath.FindAllStringSubmatch(ctx, -1) {
-		p := paths.ExpandHome(m[1])
-		if p == m[1] && (p == "~" || strings.HasPrefix(p, "~/")) {
-			out = append(out, fmt.Sprintf("%s:1: context names %s but the home directory cannot be resolved", hook, m[1]))
+	for _, ix := range namedPath.FindAllStringSubmatchIndex(ctx, -1) {
+		name := ctx[ix[2]:ix[3]]
+		if isPlaceholder(pathToken(ctx[ix[2]:])) {
+			continue // a template like <lens>, a glob or a YYYY-MM-DD name, not a path to stat
+		}
+		p := paths.ExpandHome(name)
+		if p == name && (p == "~" || strings.HasPrefix(p, "~/")) {
+			out = append(out, fmt.Sprintf("%s:1: context names %s but the home directory cannot be resolved", hook, name))
 			continue
 		}
 		if top, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); func() bool { _, err := os.Stat("/" + top); return err != nil }() {
 			continue // a URL route like /serving-endpoints or /chat/completions, not a filesystem path
 		}
 		if _, err := os.Stat(p); err != nil {
-			out = append(out, fmt.Sprintf("%s:1: context names %s which does not exist (fix at the memory entry that names it)", hook, m[1]))
+			out = append(out, fmt.Sprintf("%s:1: context names %s which does not exist (fix at the memory entry that names it)", hook, name))
 		}
 	}
 	return out
+}
+
+// pathToken is the whole path word at the start of s; namedPath stops at the first placeholder character.
+func pathToken(s string) string {
+	if i := strings.IndexAny(s, " \t\r\n`\"')]"); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// isPlaceholder: <...>, {...}, a * or ? glob, or a YYYY/MM/DD segment of the file name.
+func isPlaceholder(tok string) bool {
+	if strings.ContainsAny(tok, "*?") || pairedIn(tok, "<", ">") || pairedIn(tok, "{", "}") {
+		return true
+	}
+	seg := strings.FieldsFunc(filepath.Base(tok), func(r rune) bool {
+		return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+	return slices.ContainsFunc(seg, func(s string) bool { return s == "YYYY" || s == "MM" || s == "DD" })
+}
+
+func pairedIn(s, open, closer string) bool {
+	i := strings.Index(s, open)
+	return i >= 0 && strings.Contains(s[i+1:], closer)
 }
