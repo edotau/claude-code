@@ -1,6 +1,7 @@
 # Security Standards
 
-Language specifics: `rules/software/<lang>/security.md`, where one exists. Harness credentials: CLAUDE.md hard rule 2.
+Language specifics: `rules/software/<lang>/security.md`, where one exists (Go: `rules/harness/go.md`).
+Harness credentials: CLAUDE.md hard rule 2.
 
 1. **No secrets in code** — env vars or a secret manager; `.env`, `credentials.json`, `*.pem` stay out of git
    (`claude-code doctor --scan` checks). A secret in a tracked file is urgent: rotate it at the source, replace it with

@@ -67,11 +67,12 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 - Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
 - From a worktree, reset only that checkout:
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
-  (agent CLI homes are skipped unless `--agents`).
+  (`--out` never renders agent CLI configs, and `--out` with `--agents` is refused).
 
 - `~/.claude` already exists: clone into `~/.claude.stage`, then `make -C ~/.claude.stage adopt` (backs up
   collisions, then bootstraps). `install --setup nuke [--apply] [--keep-memory]` archives untracked content and
-  removes it; `install --setup workspace init|link|status` scopes a project's own `.claude/`.
+  removes it, leaving credential-shaped files (`.env`, `*.pem`, `*.key`) in place;
+  `install --setup workspace init|link|status` scopes a project's own `.claude/`.
 
 ## Providers
 

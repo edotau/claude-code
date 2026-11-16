@@ -38,7 +38,9 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
   more. Every `*_test.go` strips (drop `_test`, then `_regression`) to an existing `.go` in its directory: no
   `export_test.go`, `helpers_test.go` or `<topic>_test.go`; `TestMain` goes in the main source's test file. A source
   file with 0–1 tests and no distinct role merges into the sibling it serves.
-- **Internal tests:** always `package foo`, never `package foo_test` (examples included). Fix an import cycle in
+- **Internal tests:** always `package foo`, never `package foo_test` (examples included); the one exception is
+  `internal/memory/jobscope_test.go` (`package memory_test`: `internal/agent` imports `memory`, a real cycle).
+  Fix an import cycle in
   production code (export a `SwapX`/`StubX` seam, or move what the importer needs into its own package). A package
   whose tests need registry rows from importers registers fixture rows in `TestMain` and fails when one is missing.
 - **Portability:** seams, mocks and speed are in `rules/standards/testing-guidelines.md` → A test must guard. No

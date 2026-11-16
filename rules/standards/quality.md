@@ -1,6 +1,6 @@
 # Quality Standards
 
-Language specifics: `rules/software/<lang>/`.
+Language specifics: `rules/software/<lang>/` (Go: `rules/harness/go.md`).
 
 ## Rules
 
