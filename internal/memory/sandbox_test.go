@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,35 +30,6 @@ func TestUpdateSandboxRegistryTidiesMessyFile(t *testing.T) {
 	if err != nil || string(data) != strings.Join(live, "\n")+"\n" {
 		t.Errorf("registry rewritten as %q (%v), want the live entries one per line, no blanks", data, err)
 	}
-}
-
-func sandboxFiles(t *testing.T, dir string) map[string]string {
-	t.Helper()
-	files := map[string]string{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(p)
-			files[rel] = "symlink:" + target
-			return err
-		}
-		data, err := os.ReadFile(p)
-		files[rel] = string(data)
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return files
 }
 
 func TestSandboxEmptyAndUnknownRepo(t *testing.T) {

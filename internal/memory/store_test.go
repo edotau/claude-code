@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // The harness store is keyed by the config checkout's origin repo name, else by the config dir's basename.
@@ -193,16 +192,6 @@ func TestMain(m *testing.M) {
 	cleanup()
 	hosttest.Cleanup()
 	os.Exit(code)
-}
-
-func vaultGet(t *testing.T, key string) (string, bool) {
-	t.Helper()
-	var raw string
-	var ok bool
-	if err := vault.View(func(tx *vault.Tx) error { raw, ok = tx.Get(vault.MemoryOrigins, key); return nil }); err != nil {
-		t.Fatal(err)
-	}
-	return raw, ok
 }
 
 // isolatedConfig1 is isolatedConfig for tests that never need the home path.
