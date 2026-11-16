@@ -221,7 +221,7 @@ var (
 		return regexp.MustCompile(`(?:[^\s'"\\]+|\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?)+`)
 	})
 	shellPieceRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?`) })
-	shellEscRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\\(.)`) })
+	shellEscRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("\\\\([\"\\\\$`])") })
 )
 
 // shellFields splits a command line into the words a POSIX shell passes: quotes group and are removed, \ escapes.
