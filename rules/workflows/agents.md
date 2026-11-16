@@ -32,6 +32,8 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
   dispatch, run here on the Databricks arm with its requests sent through the other machine (default overlay
   `{"provider":"databricks","profile":"auto","remote":"auto"}`; `--overlay` replaces it). Not a new agent type.
   Overlay keys and precedence: `rules/harness/agent.md`; what `auto` resolves to: `rules/harness/network.md`.
+- `--model auto` (or `<row>:auto`, overlay `model: auto`, a record pin `auto`) ranks the models that row serves by the
+  brief's tier from `internal/catalog/ranks.json`, over a pinned model; the label shows the pick.
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - A brief opening `Run: claude-code agents ask …` keeps its prompt byte-identical through `dispatch-effort`; a missing
   or wrong `<model>:` description prefix (the model the run resolves) is rewritten, never denied. Its hand-back is

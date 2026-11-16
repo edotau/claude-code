@@ -55,10 +55,12 @@ paths:
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
-- **Model precedence** (`agent.ResolveRun`): a typed model (`--model`, overlay `model`, `<profile>:` prefix), then the
-  agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a `Tier: fast|standard|deep` line in
-  the brief wins, else its wording picks (audit, security, parser, design: deep; typo, rename, move: fast). A tier the
-  row does not serve falls back to the untiered pick with a note.
+- **Model precedence** (`agent.ResolveRun`): a typed model (`--model`, overlay `model`, `<profile>:` prefix), then a
+  typed `auto`, then the agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a
+  `Tier: fast|standard|deep` line in the brief wins, else its wording picks (audit, security, parser, design: deep;
+  typo, rename, move: fast), and a brief the effort classifier rates high never takes the fast tier. A tier the row
+  does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
+  `internal/catalog/ranks.json`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
   list with a note.

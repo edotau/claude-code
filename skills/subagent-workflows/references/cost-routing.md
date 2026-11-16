@@ -44,9 +44,10 @@ feeds it (one turn in flight, ≤4 sessions).
   A run that ended on another step reads `ask: ran on <agent> · <account> · <model> · fallback from <requested>
   (<first reason>)`; the envelope carries `requested`. Codex asked for a model its workspace cannot serve over
   Responses fails the `wire` check instead of running another model.
-- **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `<AGENT>_MODEL` > table cell;
-  `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any other
-  explicit `--fallback`.
+- **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `--model auto` >
+  `<AGENT>_MODEL`/record model > ranked default; `gateway resolve <a> --model auto --task F [--tools]` prints the pick
+  and why; `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any
+  other explicit `--fallback`.
 - A `<agent>: session profile … cannot serve …; using <x>` line is the credential route, not a fallback: report
   `fallback: none`. Copilot-on-Databricks: `rules/harness/agent.md` → Dispatch behavior.
 
