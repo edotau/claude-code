@@ -14,8 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// Given codex already on qa and a stale last-used entry for both agents, ApplyProfile moves only claude, keeps the
-// model pin, and forgets last-used for all targeted agents.
+// Given codex already on qa, ApplyProfile moves only claude and keeps its model pin.
 func TestApplyProfileChangesOnlyDifferingAgents(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())

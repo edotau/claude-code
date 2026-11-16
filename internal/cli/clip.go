@@ -63,5 +63,6 @@ func clipClear(after time.Duration) int {
 
 // clipSpec is the completion node for `clip`.
 func clipSpec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{{Name: "serve", IsBool: true}, {Name: "clear", IsBool: true}, helptext.Plain("after")}}
+	return &helptext.Node{Sub: map[string]*helptext.Node{"paste": {}},
+		Flags: []helptext.Flag{{Name: "serve", IsBool: true}, {Name: "clear", IsBool: true}, helptext.Plain("after")}}
 }

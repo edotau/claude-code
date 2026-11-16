@@ -112,7 +112,7 @@ func TestRunAssumptionsHelpAfterPositional(t *testing.T) {
 		t.Errorf("stderr = %q, want empty on -h", stderr.String())
 	}
 	if !strings.HasPrefix(stdout.String(), "usage: claude-code plan assumptions [<input>] [flags]\n") {
-		t.Errorf("want the review assumptions usage page:\n%s", stdout.String())
+		t.Errorf("want the plan assumptions usage page:\n%s", stdout.String())
 	}
 }
 
