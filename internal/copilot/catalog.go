@@ -201,7 +201,6 @@ func discoverySource(p *providers.Provider) (source, skip string) {
 	if isGithubProfile(p) {
 		skip = profileCatalogSupport(p)
 	}
-	// nothing to list live: name where its models are chosen instead
 	if source == "" && skip != "" {
 		skip += "; choose its models in the vendor CLI itself"
 	}

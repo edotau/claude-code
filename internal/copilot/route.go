@@ -50,7 +50,6 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 	if !ok {
 		return providers.Target{}, "", errors.New(ri.Reason)
 	}
-	// a Databricks id moves only to a profile serving it
 	if strings.HasPrefix(t.Model, models.DatabricksPrefix) {
 		if _, why := agent.ProfileServes("copilot", ft.Provider, t.Model); why != "" {
 			return providers.Target{}, "", fmt.Errorf("copilot: %s; databricks profile %s %s", detail, ft.Provider.Name, why)
@@ -130,7 +129,6 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 	if reg == nil {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: no provider registry"}
 	}
-	// a pinned Databricks profile wins
 	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() {
 		p := reg.Providers[pin]
 		t := agent.PinnedTarget(ctx, "copilot", providers.Target{Provider: p, Model: tierModel(p, models.Opus)})

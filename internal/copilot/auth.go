@@ -449,7 +449,6 @@ func GHToken(account string) string {
 func copilotToken(a copilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
 	if a.Source == srcPinned || a.Source == srcActive {
-		// gh's active token came from the plain command
 		how = "gh auth token"
 		if a.Source != srcActive || tok == "" {
 			how, tok = "gh auth token -u "+a.Account, GHToken(a.Account)

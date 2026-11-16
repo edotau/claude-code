@@ -89,8 +89,7 @@ type pickLadder struct {
 	// provider·profile when that confinement pins a profile
 	onlyAccount string
 	// databricks:<arm> admits only that workspace's account and own-login ones
-	arm string
-	// ProviderAccount(arm)
+	arm        string
 	armAccount string
 	// claude scores into the first rung it beats (no rung names claude)
 	anywhere bool

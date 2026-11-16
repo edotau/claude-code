@@ -211,7 +211,6 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
 	}
-	// the dirs the harness renders under the copilot home
 	if home, err := paths.CopilotHome(); err == nil {
 		o.InstructionDirs = existingDirs(home)
 		o.SkillDirs = existingDirs(filepath.Join(home, "skills"))
