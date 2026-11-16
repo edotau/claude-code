@@ -538,8 +538,7 @@ func TestAgentMixSumsToTokens(t *testing.T) {
 	}
 }
 
-// TestOpencodeTotalsQueryFoldsReasoningIntoOutput: opencode's tokens.total includes reasoning tokens, so the mix
-// query must add them to output or sum(mix) falls short of tokens (the real sqlite3 is not on the test PATH).
+// TestOpencodeTotalsQueryFoldsReasoningIntoOutput: tokens.total includes reasoning, so the mix query adds it to output.
 func TestOpencodeTotalsQueryFoldsReasoningIntoOutput(t *testing.T) {
 	writeOpencodeStore(t)
 	stubLookPathSqlite3(t, func() error { return nil })

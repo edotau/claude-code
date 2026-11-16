@@ -82,7 +82,7 @@ func TestParseWham(t *testing.T) {
 	}
 }
 
-// zeroRowUsageFixture stubs two quota rows and writes a transcript with one real model and one zero-token "<synthetic>".
+// zeroRowUsageFixture stubs two quota rows and writes a transcript with one real model and a zero-token "<synthetic>".
 func zeroRowUsageFixture(t *testing.T) string {
 	t.Helper()
 	isolateAgentStores(t)

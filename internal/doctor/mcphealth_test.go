@@ -338,7 +338,7 @@ func TestDoctorFlagsUnparseableConfig(t *testing.T) {
 	}
 }
 
-// TestQueryParamSecretCoversKeyAndTokenSuffixes: api_key=, access_token= and apikey= URL secrets are found and redacted.
+// TestQueryParamSecretCoversKeyAndTokenSuffixes: api_key=, access_token= and apikey= URL secrets are redacted.
 func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 	for _, q := range []string{"api_key", "access_token", "apikey", "api-key"} {
 		defs := []def{{"s", "user", serverDef{URL: "https://h/x?" + q + "=SECRET123"}}}

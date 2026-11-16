@@ -41,7 +41,7 @@ func defaultScanTargets() []string {
 	out := []string{
 		filepath.Join(paths.ConfigDir(), "settings.json"),
 		filepath.Join(paths.ConfigDir(), "settings.local.json"),
-		paths.ClaudeJSON(), // ~/.claude.json
+		paths.ClaudeJSON(),
 	}
 	if home != "" {
 		out = append(out, filepath.Join(home, ".mcp.json"))

@@ -230,7 +230,7 @@ func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
 	}
 }
 
-// aggregateLedger groups per profile: platform in Provider, profile in Profile; legacy lines read Provider as the profile.
+// aggregateLedger groups per profile: platform in Provider, profile in Profile; legacy lines use Provider as profile.
 func TestAggregateLedgerByProfile(t *testing.T) {
 	now := time.Now()
 	got := aggregateLedger([]tokenledger.Entry{

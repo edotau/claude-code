@@ -53,7 +53,7 @@ func keychainMiss(context.Context, ...string) ([]byte, error) {
 	return nil, errors.New("item not found")
 }
 
-// assertClaudeFixtureRows checks each of the fixture's three rows: window, group, used %, UTC and local resets, no note.
+// assertClaudeFixtureRows checks the fixture's three rows: window, group, used %, UTC and local resets, no note.
 func assertClaudeFixtureRows(t *testing.T, got []quota) {
 	t.Helper()
 	fiveHReset, _ := time.Parse(time.RFC3339, "2026-10-24T05:29:59.908556+00:00")
@@ -105,7 +105,7 @@ func TestClaudeQuotasParsesFixture(t *testing.T) {
 	}))
 	defer srv.Close()
 	stubClaudeOAuthURL(t, srv.URL)
-	setClaudeCacheDir(t) // isolate the usage cache from other tests/the real home dir
+	setClaudeCacheDir(t)
 
 	future := time.Now().Add(24 * time.Hour).UnixMilli()
 	cred := claudeCredentialJSON("test-token-123", future, "max")
@@ -186,7 +186,7 @@ func TestClaudeQuotasUsageHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 	stubClaudeOAuthURL(t, srv.URL)
-	setClaudeCacheDir(t) // isolate the usage cache: no prior cache, so no fallback rows
+	setClaudeCacheDir(t) // no prior cache, so no fallback rows
 	future := time.Now().Add(24 * time.Hour).UnixMilli()
 	stubClaudeKeychain(t, func(context.Context, ...string) ([]byte, error) {
 		return claudeCredentialJSON("test-token-123", future, "max"), nil
@@ -253,7 +253,7 @@ func TestClaudeResets(t *testing.T) {
 	}
 }
 
-// On-disk cache contract: <claudeCacheDir>/claude-oauth-usage.json, TTL from HARNESS_USAGE_CACHE_TTL (seconds, default 60).
+// Cache contract: <claudeCacheDir>/claude-oauth-usage.json, TTL from HARNESS_USAGE_CACHE_TTL (seconds, default 60).
 
 // claudeCachePathFor is this test file's own join of dir+name, used only to read/write fixtures
 func claudeCachePathFor(dir string) string {

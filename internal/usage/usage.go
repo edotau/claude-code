@@ -187,7 +187,7 @@ func buildUsageOpts(o usageOpts, format string) (usageOpts, error) {
 	if err := checkSessionID(o.session); err != nil {
 		return usageOpts{}, err
 	}
-	if o.session == "" { // --days is ignored with --session
+	if o.session == "" {
 		if err := checkDays(o.days); err != nil {
 			return usageOpts{}, err
 		}

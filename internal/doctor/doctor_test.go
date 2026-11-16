@@ -101,7 +101,7 @@ func TestDoctorSecretsWorstExitWins(t *testing.T) {
 				if err := vault.Store("AUDIT_FAKE_KEY", value); err != nil {
 					t.Fatal(err)
 				}
-				wrongVaultKey(t) // a master key that cannot open the stored secret is a gating finding
+				wrongVaultKey(t)
 			}
 			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 				return Run([]string{"--secrets", "--since", "1"})

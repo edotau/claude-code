@@ -64,7 +64,7 @@ func permSummary(p agent.Permissions) string {
 	return fmt.Sprintf("%d allow, %d ask, %d deny", len(p.Allow), len(p.Ask), len(p.Deny))
 }
 
-// claudeLive builds claude's live child with a stub launcher and judges the tool set and gate policy it would run under.
+// claudeLive builds claude's live child with a stub launcher and judges its tool set and gate policy.
 func claudeLive(readOnly bool, wd string) pathLaunch {
 	lc, ok := agent.SchemaFor("claude").Live()
 	if !ok {

@@ -319,7 +319,7 @@ func recallProbe(root, prompt string) (string, error) {
 	return strings.Join(blocks, "\n"), err
 }
 
-// sessionPrompts runs memory-start and memory-recall on the probe payload and checks the sources render to a clean projection.
+// sessionPrompts runs memory-start and memory-recall on the probe payload and checks they render cleanly.
 func sessionPrompts(root string) []string {
 	start := &core.Input{SessionID: probeSession, CWD: root, HookEventName: "SessionStart", Source: "startup"}
 	var out []string
