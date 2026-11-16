@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"regexp"
@@ -271,7 +272,8 @@ func waveOverlap(w Wave) error {
 			continue
 		}
 		for _, own := range t.Owns {
-			for prev, id := range owners {
+			for _, prev := range slices.Sorted(maps.Keys(owners)) {
+				id := owners[prev]
 				if id != t.ID && ownsOverlap(prev, own) {
 					return &WaveError{t.ID, "owns: overlaps " + id + " at " + own}
 				}
@@ -413,9 +415,7 @@ func (p *WavePlan) checkRow(n int, packages, verify string) error {
 			delete(expected, t.ID)
 		}
 		if len(expected) > 0 {
-			for id := range expected {
-				return &WaveError{id, "Waves table package has no task"}
-			}
+			return &WaveError{slices.Sorted(maps.Keys(expected))[0], "Waves table package has no task"}
 		}
 		p.Waves[i].Verify = verify
 		return nil
