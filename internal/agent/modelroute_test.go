@@ -51,6 +51,20 @@ func TestResolveModel(t *testing.T) {
 	}
 }
 
+// A pin on the agent's own sign-in row decides over the session lead; any other pin keeps the session.
+func TestResolveModelOwnLoginPinIgnoresSession(t *testing.T) {
+	reg := routeRegistry(t)
+	for _, c := range []struct{ agent, pin, session, profile string }{
+		{"copilot", "aueric_boehcp", "prod", "aueric_boehcp"},
+		{"codex", "dev", "prod", "prod"},
+	} {
+		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, PinProfile: c.pin, Session: c.session}, time.Now())
+		if err != nil || r.Profile != c.profile {
+			t.Errorf("%s pin %s session %s = %+v, %v; want %s", c.agent, c.pin, c.session, r, err, c.profile)
+		}
+	}
+}
+
 func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, c := range [][2]string{

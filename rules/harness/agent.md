@@ -30,7 +30,7 @@ paths:
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with `--mode plan`;
-  claude `--tools` off Anthropic is a gated allow list. Detail:
+  claude `--tools` off Anthropic is a gated allow list. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
@@ -59,7 +59,8 @@ paths:
   (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
   list with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router: use codex or copilot.
-- **copilot** follows the session profile (then its pin) through the proxy (`/p/<profile>`, BYOK,
+- **copilot** follows the session profile (then its pin) through the proxy, except a pin on its own GitHub row, which
+  decides (D3 exception: the row's `Auth.Login` equals the agent, as gemini on Google) (`/p/<profile>`, BYOK,
   `COPILOT_OFFLINE=true`, no credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only
   while the copilot record's GitHub profile (named by its account login, e.g. `aueric_boehcp`; the built-in no-login
   row is `copilot`) has verified credits < 95%, else it falls back to the Databricks profile, never the other GitHub
