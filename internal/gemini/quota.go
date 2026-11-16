@@ -1,10 +1,14 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,13 +39,32 @@ type QuotaRow struct {
 	Reset     time.Time `json:"reset,omitzero"`
 }
 
-// quotaRun runs the harness's agy for /usage (spends no quota); a var so tests never reach the binary.
-var quotaRun = func(ctx context.Context) ([]byte, error) {
+// quotaRun reads agy's /usage (spends no quota) through a per-minute file cache; a var so tests never reach agy.
+var quotaRun = func(ctx context.Context) ([]byte, error) { return diskCached(ctx, runAgyUsage) }
+
+func runAgyUsage(ctx context.Context) ([]byte, error) {
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, err
 	}
-	return exec.CommandContext(ctx, bin, "-p", "/usage", "--print-timeout", "20s").Output()
+	return exec.CommandContext(ctx, bin, "-p", "/usage", "--output-format", "json", "--print-timeout", "20s").Output()
+}
+
+// diskCached shares one /usage read across short-lived processes (each hook run is one) for quotaTTL.
+func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) ([]byte, error) {
+	file := filepath.Join(paths.StateDir(), "agy-usage.json")
+	if st, err := os.Stat(file); err == nil && quotaNow().Sub(st.ModTime()) < quotaTTL {
+		if b, err := os.ReadFile(file); err == nil && len(ParseQuotas(usageText(b))) > 0 {
+			return b, nil
+		}
+	}
+	out, err := run(ctx)
+	if len(ParseQuotas(usageText(out))) > 0 && os.MkdirAll(filepath.Dir(file), 0o700) == nil {
+		if tmp := fmt.Sprintf("%s.%d", file, os.Getpid()); os.WriteFile(tmp, out, 0o600) == nil {
+			_ = os.Rename(tmp, file)
+		}
+	}
+	return out, err
 }
 
 var (
@@ -50,29 +73,56 @@ var (
 	quotaAt    time.Time
 	quotaCache []QuotaRow
 	quotaErr   error
+	quotaOut   []byte // the cached run's raw output and its exit error, for UsageOutput
+	quotaRunE  error
 )
 
 // Quotas reads agy's /usage once per minute (failures included, so a dead binary costs one timeout, not one per call).
 func Quotas(ctx context.Context) ([]QuotaRow, error) {
 	quotaMu.Lock()
 	defer quotaMu.Unlock()
+	readUsage(ctx)
+	return quotaCache, quotaErr
+}
+
+// UsageOutput is agy's raw /usage JSON from the same cached read Quotas uses, so one run serves both.
+func UsageOutput(ctx context.Context) ([]byte, error) {
+	quotaMu.Lock()
+	defer quotaMu.Unlock()
+	readUsage(ctx)
+	return quotaOut, quotaRunE
+}
+
+// readUsage refills the cache when it is older than quotaTTL; the caller holds quotaMu.
+func readUsage(ctx context.Context) {
 	if now := quotaNow(); !quotaAt.IsZero() && now.Sub(quotaAt) < quotaTTL {
-		return quotaCache, quotaErr
+		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, quotaTimeout)
 	defer cancel()
-	out, err := quotaRun(ctx)
-	rows := ParseQuotas(out)
+	out, runErr := quotaRun(ctx)
+	rows := ParseQuotas(usageText(out))
+	err := runErr
 	switch {
 	case len(rows) > 0:
 		err = nil
 	case err != nil:
 		err = fmt.Errorf("agy usage unavailable: %s", textutil.FirstLine(err.Error()))
 	default:
-		err = errors.New("agy usage unavailable: " + textutil.TruncateRunes(textutil.FirstLine(strings.TrimSpace(string(out))), 60))
+		err = errors.New("agy usage unavailable: " + textutil.TruncateRunes(textutil.FirstLine(strings.TrimSpace(string(usageText(out)))), 60))
 	}
-	quotaAt, quotaCache, quotaErr = quotaNow(), rows, err
-	return rows, err
+	quotaAt, quotaCache, quotaErr, quotaOut, quotaRunE = quotaNow(), rows, err, out, runErr
+}
+
+// usageText is the tab-separated text of agy's JSON reply (its "response" field); other output passes through.
+func usageText(out []byte) []byte {
+	var res struct {
+		Response string `json:"response"`
+	}
+	if t := bytes.TrimSpace(out); len(t) > 0 && t[0] == '{' && json.Unmarshal(t, &res) == nil {
+		return []byte(res.Response)
+	}
+	return out
 }
 
 // ParseQuotas reads the tab-separated /usage lines; any line without a "NN%" third field is skipped.
@@ -137,7 +187,7 @@ func poolOf(key string) string {
 	return ""
 }
 
-// rowsFor are the limits model draws on: its own per-model limits, else its pool's.
+// rowsFor are the limits model draws on: its own per-model limits plus its pool's.
 func rowsFor(rows []QuotaRow, model string) []QuotaRow {
 	key := quotaKey(model)
 	var own, pool []QuotaRow
@@ -150,10 +200,7 @@ func rowsFor(rows []QuotaRow, model string) []QuotaRow {
 			pool = append(pool, r)
 		}
 	}
-	if len(own) > 0 {
-		return own
-	}
-	return pool
+	return append(own, pool...)
 }
 
 // ModelQuota is what the limits say about one model: its pool, the lowest percent left, a hold, the closest warning.
@@ -216,9 +263,12 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 	return q, nil
 }
 
-// holdZeroLimits marks quota-dead each model whose limits are at 0% with a reset time ahead.
+// holdZeroLimits marks quota-dead each model whose limits are at 0% with a reset time ahead, a pool's models all.
 func holdZeroLimits(rows []QuotaRow, model string, now time.Time) error {
 	keys := map[string]bool{quotaKey(model): true}
+	for _, id := range models.AgentModels("gemini") {
+		keys[id] = true
+	}
 	for _, r := range rows {
 		if m, ok := r.Model(); ok {
 			keys[m] = true

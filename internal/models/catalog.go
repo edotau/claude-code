@@ -135,6 +135,17 @@ func AcceptedEfforts(agent, id string) []string {
 	return load().byID[canonical].Efforts[agent]
 }
 
+// AgentModels is the canonical id of every model whose catalog entry lists efforts for agent, in catalog order.
+func AgentModels(agent string) []string {
+	var ids []string
+	for _, m := range load().Models {
+		if _, ok := m.Efforts[agent]; ok {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids
+}
+
 // WireOrOriginal is id's wire spelling under rule when it resolves to a known model, else id unchanged.
 func WireOrOriginal(rule, id string) string {
 	if canonical, _, ok := Resolve(id); ok {

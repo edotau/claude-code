@@ -723,13 +723,36 @@ func TestClassifyAgyError(t *testing.T) {
 		{"unauthenticated", `AGY_ERROR: {"short_error":"UNAUTHENTICATED (code 401): token expired","status":"UNAUTHENTICATED"}`, retry.KindAuth, "run `agy` and sign in"},
 		{"expired token", "oauth2: token has expired and refresh failed", retry.KindAuth, "run `agy` and sign in"},
 	} {
-		err := classifyAgyError("gemini-4-argon-medium", errors.New(c.text))
+		err := classifyAgyError(context.Background(), "gemini-4-argon-medium", errors.New(c.text))
 		re, ok := errors.AsType[*retry.Error](err)
 		if !ok || re.Kind != c.kind || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v (kind %v); want kind %v containing %q", c.name, err, re, c.kind, c.want)
 		}
 	}
-	if err := classifyAgyError("m", errors.New("boom")); strings.Contains(err.Error(), "agy:") {
+	if err := classifyAgyError(context.Background(), "m", errors.New("boom")); strings.Contains(err.Error(), "agy:") {
 		t.Errorf("an unclassified error must pass through unchanged: %v", err)
+	}
+}
+
+// A rate limit resetting past the retry budget is Terminal with the reset in the message; a near one retries.
+func TestClassifyAgyErrorBeyondRetryBudget(t *testing.T) {
+	text := `AGY_ERROR: {"short_error":"Individual quota reached for gemini-4-argon"}`
+	stubUsage(t, fixedUsage(usageSample))
+	err := classifyAgyError(context.Background(), "gemini-4-argon-low", errors.New(text))
+	re, ok := errors.AsType[*retry.Error](err)
+	reset := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC).Local().Format("2006-01-02 15:04")
+	if !ok || re.Kind != retry.KindRateLimit || !re.Terminal || !strings.Contains(err.Error(), "held until "+reset) ||
+		!strings.Contains(err.Error(), "try gemini-4-hydrogen-medium") {
+		t.Errorf("far reset: err = %v, terminal %v; want Terminal with %q", err, re != nil && re.Terminal, reset)
+	}
+	stubUsage(t, fixedUsage(strings.Replace(usageSample, "0%\t2026-11-23T03:35:47Z", "0%\t2026-11-16T12:00:20Z", 1)))
+	near, _ := errors.AsType[*retry.Error](classifyAgyError(context.Background(), "gemini-4-argon-low", errors.New(text)))
+	if near == nil || near.Terminal {
+		t.Errorf("a reset 20s away must stay retryable: %+v", near)
+	}
+	stubUsage(t, fixedUsage("error\n"))
+	hint, _ := errors.AsType[*retry.Error](classifyAgyError(context.Background(), "m", errors.New(text+" retry after 3 hours")))
+	if hint == nil || !hint.Terminal {
+		t.Errorf("a 3 hour retry hint must be Terminal: %+v", hint)
 	}
 }
