@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -469,5 +470,24 @@ func TestPickDiscoveryPinDoesNotStampSiblingWorkspaces(t *testing.T) {
 		if c.Agent == "copilot" && c.Account == "databricks·qa" && !IsPoolModel(reg.Providers["qa"], c.Model) {
 			t.Errorf("sibling qa model = %q, want a pool model", c.Model)
 		}
+	}
+}
+
+func TestPickRecordFallbackRunsWithoutPin(t *testing.T) {
+	tb := testTable(t)
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_PROFILE", "")
+	vaulttest.Put(t, vault.Overlay, "providers", routeDbx3Rows)
+	vaulttest.Secret(t, "DATABRICKS_QA_PAT", "dapi-test")
+	noOwnLogin := func(agent string, c Cell) error {
+		if agent == "codex" && c.Account == "openai·chatgpt" {
+			return errors.New("not signed in")
+		}
+		return nil
+	}
+	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Configured: noOwnLogin, Fallback: FallbackAll,
+		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"codex": {Fallback: "qa"}}})
+	if got := accountsOf(r, "codex"); !slices.Contains(got, "databricks·qa") {
+		t.Fatalf("codex accounts = %v, want the record fallback databricks·qa (skipped %+v)", got, r.Skipped)
 	}
 }

@@ -100,10 +100,10 @@ func (o PickOpts) modelPin(model string) string {
 	return model
 }
 
-// PinSpec is one agent's routing pins: its profile, its model pin, and whether it is switched off.
+// PinSpec is one agent's routing pins: its profile, its model pin, its record fallback, and whether it is switched off.
 type PinSpec struct {
-	Profile, Model string
-	Off            bool
+	Profile, Model, Fallback string
+	Off                      bool
 }
 
 // pickScope is what a Dimension may read: the account states and every candidate scored together.

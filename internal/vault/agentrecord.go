@@ -109,8 +109,6 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 	return out, nil
 }
 
-const oldBuiltinGithubRow = "personal"
-
 func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
 	renames := t.githubRowRenames()
 	spec := func(s string) string {
@@ -132,26 +130,48 @@ func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
 }
 
 func (t *Tx) githubRowRenames() map[string]string {
-	out := map[string]string{}
 	var doc struct {
-		Providers struct {
-			Github map[string]struct {
-				Login string `json:"login"`
-			} `json:"github"`
+		Providers map[string]map[string]struct {
+			Login string `json:"login"`
 		} `json:"providers"`
 	}
 	if raw, ok := t.Get(Overlay, "providers"); ok {
 		_ = json.Unmarshal([]byte(raw), &doc)
 	}
-	for key, row := range doc.Providers.Github {
-		if row.Login != "" && row.Login != key {
-			out[key] = row.Login
+	logins, names := map[string]string{}, []string{}
+	for prov, rows := range doc.Providers {
+		for key, row := range rows {
+			names = append(names, key)
+			if prov == "github" && row.Login != "" {
+				logins[key] = row.Login
+			}
 		}
 	}
-	if _, defined := doc.Providers.Github[oldBuiltinGithubRow]; !defined {
-		out[oldBuiltinGithubRow] = "copilot"
+	renames, _ := LoginRenames(logins, names)
+	return renames
+}
+
+// LoginRenames maps github row keys to logins; a login already taken (case-insensitive) keeps its key with a warning.
+func LoginRenames(logins map[string]string, names []string) (map[string]string, []string) {
+	claimed := map[string]bool{}
+	for _, n := range names {
+		claimed[strings.ToLower(n)] = true
 	}
-	return out
+	renames := map[string]string{}
+	var warns []string
+	for _, key := range slices.Sorted(maps.Keys(logins)) {
+		login := logins[key]
+		if strings.EqualFold(login, key) {
+			continue
+		}
+		if k := strings.ToLower(login); claimed[k] {
+			warns = append(warns, fmt.Sprintf("github row %q keeps its name: login %q is already the name or login of another row", key, login))
+		} else {
+			claimed[k] = true
+			renames[key] = login
+		}
+	}
+	return renames, warns
 }
 
 // PutAgentRecords stores recs, dropping zero records; an empty map removes the entry.
