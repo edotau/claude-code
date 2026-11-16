@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -240,7 +241,7 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 		return drift, err
 	}
 	drift = drift || sd
-	target, note, err := copilotSchema().ResolveTarget(ctx, reg, sel, false)
+	target, note, err := copilotSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil

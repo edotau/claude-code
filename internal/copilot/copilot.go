@@ -323,9 +323,8 @@ func (copilotEngine) DescribeRoute(ctx context.Context, reg *providers.Registry)
 	return describeCopilotRoute(ctx, reg)
 }
 
-// Gate reads COWORKER_OVERLAY from ctx because Engine.Gate carries no RunOptions (until an engine-signature cleanup).
-func (copilotEngine) Gate(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	t, err := overlayAccount(ctx, reg, t, "", "")
+func (copilotEngine) Gate(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
+	t, err := overlayAccount(ctx, reg, t, req.Model, req.Account)
 	if err != nil {
 		return t, "", err
 	}

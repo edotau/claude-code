@@ -135,15 +135,15 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 		}
 		return t, false, note, true, err
 	}
-	return s.sessionTargetContext(ctx, reg, t)
+	return s.sessionTargetContext(ctx, req, reg, t)
 }
 
-func (s Schema) sessionTargetContext(ctx context.Context, reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
+func (s Schema) sessionTargetContext(ctx context.Context, req RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, bool, string, bool, error) {
 	sel, err := providers.Select(reg, providers.SessionLeadContext(ctx, reg, false))
 	if err != nil {
 		return t, false, "", true, err
 	}
-	ft, note, err := s.ResolveTarget(ctx, reg, sel, false)
+	ft, note, err := s.ResolveTarget(ctx, req, reg, sel, false)
 	own := errors.Is(err, ErrOwnLogin)
 	if own {
 		err = nil
