@@ -23,7 +23,7 @@ func watchRec(t *testing.T, status, prompt string, age, silence time.Duration) R
 		t.Fatal(err)
 	}
 	id := recordID(watchT0.Add(-age), "codex")
-	return Record{ID: id, Time: watchT0.Add(-age), Agent: "codex", Status: status, Log: log, PID: 4242, Owner: 77,
+	return Record{ID: id, Time: watchT0.Add(-age), Agent: "codex", Status: status, Log: log, PID: 4242, Background: true, Owner: 77,
 		Request: RunOptions{Prompt: prompt, Tools: true, WorkDir: "/w"}}
 }
 
@@ -103,7 +103,7 @@ func TestClassifyFinishedJobs(t *testing.T) {
 		r.DurationMs = time.Minute.Milliseconds()
 		return r
 	}
-	foreground := func(r Record) Record { r.PID = 0; return r }
+	foreground := func(r Record) Record { r.Background = false; return r } // a foreground ask also records its own pid
 	quickError := func(r Record) Record { r.Status, r.DurationMs = "error", 2000; return r }
 	cases := []struct {
 		name    string

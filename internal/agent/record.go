@@ -57,6 +57,7 @@ type Record struct {
 	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
+	Background     bool       `json:"background,omitempty"`      // set only by the `ask --background` spawn
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
 	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
 	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
