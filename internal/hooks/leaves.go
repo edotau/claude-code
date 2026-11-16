@@ -284,8 +284,10 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 		}
 	}
 	lr.recs = recs
-	if ended := endedReceipts(recs, waited); len(ended) > 0 && (len(waited) > 0 || wasHeld(agentID)) {
-		expired = attachAll(in, ended) // a finished job's answer outranks a limit note
+	if len(waited) > 0 || wasHeld(agentID) { // only then are the receipts used: building them reads every job's log
+		if ended := endedReceipts(recs, waited); len(ended) > 0 {
+			expired = attachAll(in, ended) // a finished job's answer outranks a limit note
+		}
 	}
 	return expired, false
 }

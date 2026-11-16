@@ -104,10 +104,13 @@ func missingNotes(session string, missing map[skipKey]int) string {
 	}
 	var notes []string
 	for _, tool := range slices.Sorted(maps.Keys(byTool)) {
-		if first, err := core.SeenAdd("hooks/format-stop", session, tool); session == "" || err != nil || first {
-			notes = append(notes, fmt.Sprintf("format-stop: %s not found; %s left unformatted", tool,
-				strings.Join(byTool[tool], ", ")))
+		if session != "" { // no session: nothing to dedupe against, so no marker is written
+			if first, err := core.SeenAdd("hooks/format-stop", session, tool); err == nil && !first {
+				continue
+			}
 		}
+		notes = append(notes, fmt.Sprintf("format-stop: %s not found; %s left unformatted", tool,
+			strings.Join(byTool[tool], ", ")))
 	}
 	return strings.Join(notes, "\n")
 }

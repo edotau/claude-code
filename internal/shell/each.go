@@ -39,10 +39,10 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 		}
 	}
 	scripts := RunScripts(masked, cwd)
-	walk, seen := fn, map[[2]string]bool{}
+	walk, seen, writing := fn, map[[2]string]bool{}, false
 	if len(scripts) > 0 {
 		walk = func(target, verb string, args []string) bool {
-			seen[[2]string{target, verb}] = true
+			seen[[2]string{target, verb}] = seen[[2]string{target, verb}] || writing
 			return fn(target, verb, args)
 		}
 	}
@@ -50,6 +50,7 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: walk, depth: depth, runs: runs}
 	for i, seg := range segs {
 		w.enter(seg)
+		writing = len(scripts) > 0 && w.writesThenRuns(i) // only the writing segment's text repeats in its script
 		if w.run(i) {
 			return true
 		}

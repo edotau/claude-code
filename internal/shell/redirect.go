@@ -40,12 +40,14 @@ var fdNumber = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(
 func Redirects(seg string) (words, targets []string) {
 	at := redirectQuotes(seg)
 	var b strings.Builder
+	consumed := 0 // end of the last redirection's operand: digits before it are that operand, not an fd
 	for i := 0; i < len(seg); i++ {
 		start, op, out, ok := redirectAt(seg, at, i)
 		if !ok {
 			b.WriteByte(seg[i])
 			continue
 		}
+		start = max(start, consumed)
 		from := i + len(op)
 		for from < len(seg) && (seg[from] == ' ' || seg[from] == '\t') {
 			from++
@@ -58,7 +60,7 @@ func Redirects(seg string) (words, targets []string) {
 		trimmed := b.String()[:b.Len()-(i-start)] // drop the fd digits or `&` already written
 		b.Reset()
 		b.WriteString(trimmed + " ")
-		i = end - 1
+		consumed, i = end, end-1
 	}
 	return Tokens(b.String()), targets
 }
