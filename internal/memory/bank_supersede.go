@@ -59,9 +59,9 @@ type blockLoc struct{ doc, idx int }
 
 // revision is one planned marking: the old block gets struck and points at the new entry.
 type revision struct {
-	old          blockLoc
-	oldID, newID string
-	newDate      string
+	old     blockLoc
+	newID   string
+	newDate string
 }
 
 // revisedIDs lists the ids block says it supersedes, in order, without repeats or its own id.
@@ -416,7 +416,7 @@ func (p *revisePlan) pair(newID, oldID, newDate string) (*revision, string) {
 	case partlyStruck(textutil.FirstLine(p.docs[ol.doc].blocks[ol.idx])): // half of it is still valid: never replaced
 	case replacedBy(p.docs[ol.doc].blocks[ol.idx]) == "" && !p.claimed[oldID]:
 		p.claimed[oldID] = true
-		return &revision{old: ol, oldID: oldID, newID: newID, newDate: newDate}, ""
+		return &revision{old: ol, newID: newID, newDate: newDate}, ""
 	}
 	return nil, ""
 }
@@ -577,13 +577,14 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 	at := map[string]int{} // blockKey -> index in out
 	followed := false
 	add := func(h SearchHit) {
-		if i, dup := at[blockKey(h.Block)]; dup {
+		key := blockKey(h.Block)
+		if i, dup := at[key]; dup {
 			if h.Score > out[i].Score {
 				out[i].Score, out[i].Matched = h.Score, h.Matched
 			}
 			return
 		}
-		at[blockKey(h.Block)] = len(out)
+		at[key] = len(out)
 		out = append(out, h)
 	}
 	for _, h := range ranked {
