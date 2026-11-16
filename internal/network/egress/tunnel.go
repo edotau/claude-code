@@ -45,13 +45,19 @@ func readRecord(path string) (Tunnel, bool) {
 	return t, err == nil && json.Unmarshal(b, &t) == nil && t.Port > 0
 }
 
+// reusable is path's recorded tunnel when its pid still is our ssh and it answers; any other listener is not.
+func reusable(ctx context.Context, path string) (Tunnel, bool) {
+	t, ok := readRecord(path)
+	return t, ok && isTunnel(t) && answers(ctx, t.addr())
+}
+
 // Ensure returns the loopback SOCKS5 address of host's tunnel, starting ssh when none answers.
 func Ensure(ctx context.Context, host string) (string, error) {
 	if err := Valid(host); err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
 	}
 	path := recordPath(host)
-	if t, ok := readRecord(path); ok && answers(ctx, t.addr()) {
+	if t, ok := reusable(ctx, path); ok {
 		return t.addr(), nil
 	}
 	if err := os.MkdirAll(dir(), 0o700); err != nil {
@@ -59,7 +65,7 @@ func Ensure(ctx context.Context, host string) (string, error) {
 	}
 	var addr string
 	err := paths.WithFileLock(path, func() error {
-		if t, ok := readRecord(path); ok && answers(ctx, t.addr()) { // another process started it while we waited
+		if t, ok := reusable(ctx, path); ok { // another process started it while we waited
 			addr = t.addr()
 			return nil
 		}
