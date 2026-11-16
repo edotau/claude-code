@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func okMsg(w http.ResponseWriter, r *http.Request, _ int) {
@@ -354,5 +357,31 @@ func TestParseHeadersWarnsOnce(t *testing.T) {
 	}
 	if strings.Count(log.String(), "\n") != 1 {
 		t.Errorf("want one warning, got %q", log.String())
+	}
+}
+
+func TestFableToOpus(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", clientTokenOverlay("http://127.0.0.1:1"))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, sub := reg.Row("dev"), reg.Row("sub")
+	for _, c := range []struct {
+		name, model string
+		p           *providers.Provider
+		want        string
+	}{
+		{"databricks fable maps to opus", "claude-fable-5-2", dev, "databricks-claude-opus-5-5"},
+		{"databricks opus untouched", "databricks-claude-opus-5-5", dev, "databricks-claude-opus-5-5"},
+		{"other route fable untouched", "claude-fable-5-2", sub, "claude-fable-5-2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := fableToOpus(reg, providers.Target{Provider: c.p, Model: c.model})
+			if got.Provider != c.p || got.Model != c.want {
+				t.Errorf("fableToOpus(%s on %s) = %s on %s, want %s", c.model, c.p.Name, got.Model, got.Provider.Name, c.want)
+			}
+		})
 	}
 }
