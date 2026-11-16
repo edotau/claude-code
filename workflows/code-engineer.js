@@ -1081,7 +1081,7 @@ function recordOnce(res, label) { return agent(
     'and return its paths array. Edit nothing else.\nJSON:\n' + JSON.stringify({ report: res.report, decisions: res.decisions })),
   { phase: 'Record', label: 'record', schema: S.record.schema(RECORDED), model: S.record.model, effort: S.record.effort, ...S.record.type },
 ).catch(() => null) }
-// record appends the run's report and decisions to the repo's memory reports so continuity needs no hand-written notes.
+// record appends the run's report and decisions to the memory reports so continuity needs no hand-written notes.
 async function record(res0) {
   const files = [...new Set([...touchedFiles(res0.fixed), ...strs(res0.files)])].sort()
   const lines = stLines(ST_LINES)

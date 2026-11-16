@@ -317,15 +317,15 @@ func workflows(root string) []string {
 }
 
 // recallProbe is the memory-recall text for the probe prompt, read-only: it would consume the hook's seen-state/log.
-func recallProbe(root, prompt string) (string, error) {
-	hits, _, err := memory.SearchRepo(root, false, prompt, probeRecallHits)
+func recallProbe(prompt string) (string, error) {
+	hits := memory.SearchBank(prompt, probeRecallHits)
 	var blocks []string
 	for _, h := range hits {
 		if h.Bank != "archive" { // rotated history may name paths that are gone, or another machine's
 			blocks = append(blocks, h.Block)
 		}
 	}
-	return strings.Join(blocks, "\n"), err
+	return strings.Join(blocks, "\n"), nil
 }
 
 // sessionPrompts runs memory-start and memory-recall on the probe payload and checks they render cleanly.
@@ -333,7 +333,7 @@ func sessionPrompts(root string) []string {
 	start := &core.Input{SessionID: probeSession, CWD: root, HookEventName: "SessionStart", Source: "startup"}
 	var out []string
 	out = append(out, missingPaths("memory-start", memoryStart(start).Context)...)
-	if recall, err := memoryRecall(root, probePrompt); err != nil {
+	if recall, err := memoryRecall(probePrompt); err != nil {
 		out = append(out, fmt.Sprintf("memory-recall:1: probe failed: %v (fix at the memory store)", err))
 	} else {
 		out = append(out, missingPaths("memory-recall", recall)...)

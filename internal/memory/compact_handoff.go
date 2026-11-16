@@ -58,10 +58,10 @@ func compactID(sessionID string) string {
 
 // WriteCompactHandoff writes h's facts to handoffs/<date>-compact-<id8>.md; "" with no session or bank.
 func WriteCompactHandoff(ctx context.Context, h CompactHandoff) (string, error) {
-	if h.SessionID == "" || h.CWD == "" || !hasBank(h.CWD) {
+	if h.SessionID == "" || h.CWD == "" || !hasBank() {
 		return "", nil
 	}
-	b := BankFor(h.CWD)
+	b := HomeBank()
 	since := lastCompactAt(b, h.SessionID)
 	gctx, cancel := context.WithTimeout(ctx, handoffGitBudget)
 	body := renderCompactHandoff(gctx, b, h, since)

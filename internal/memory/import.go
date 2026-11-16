@@ -36,9 +36,9 @@ const (
 
 // ImportOptions is one `memory import`: From is a memory root or a store dir; Label names the source in the commit.
 type ImportOptions struct {
-	From, Repo, Label   string
-	All, DryRun, Topics bool // Topics also imports non-log files: topic files, backups, MEMORY.md pointers
-	Now                 time.Time
+	From, Label    string
+	DryRun, Topics bool // Topics also imports non-log files: topic files, backups, MEMORY.md pointers
+	Now            time.Time
 }
 
 // ImportResult is the plan (dry run) or the outcome: one line per action, then the summary line.
@@ -72,8 +72,9 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		res = p.result(opt)
 		return p.apply(opt)
 	})
-	if root, b, rerr := ResolveBank(opt.Repo); err == nil && rerr == nil {
-		refreshBankNotice(os.Stderr, "memory import", root, b)
+	if err == nil {
+		top, b, _ := ResolveBank("")
+		refreshBankNotice(os.Stderr, "memory import", top, b)
 	}
 	return res, err
 }
@@ -517,14 +518,3 @@ func sortNewestFirst(all []string) []string {
 var indexLink = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\]\(([^)\s]+)\)`)
 })
-
-// bankOfStateKey inverts stateKey: "home" is the home bank.
-func bankOfStateKey(key string) Bank {
-	switch key {
-	case homeDir:
-		return HomeBank()
-	case repoHomeStateKey:
-		return Bank{Key: homeDir}
-	}
-	return Bank{Key: key}
-}

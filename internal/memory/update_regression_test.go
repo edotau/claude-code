@@ -16,12 +16,12 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "settle-failure")
-	_, err := Init(root)
+	_, err := Init()
 	if err != nil {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) {
-		path := BankFor(root).Path("sessionHistory.md")
+		path := HomeBank().Path("sessionHistory.md")
 		if err := os.Remove(path); err != nil {
 			return "fixture", err
 		}
@@ -49,12 +49,12 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "settle-lock")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	initStore(t)
 	ready, release := installSettlementBarrier(t)
-	history := BankFor(root).Path("sessionHistory.md")
+	history := HomeBank().Path("sessionHistory.md")
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
@@ -64,7 +64,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}()
 	defer finishSettlement(t, release, done)
 	waitSettlementBarrier(t, ready, done)
-	lock := lockPathOf(BankFor(root)) + ".lock"
+	lock := lockPathOf(HomeBank()) + ".lock"
 	ran, err := paths.TryFileLock(lock, 0, func() error { return nil })
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestUpdateReturnsReceiptWriteError(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "receipt-failure")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(resultPath("receipt-failure"), "x"), 0o700); err != nil {
@@ -151,7 +151,7 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "busy-uncover")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	prev := updateLockWait
@@ -162,7 +162,7 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	var updateErr error
-	ran, err := paths.TryFileLock(lockPathOf(BankFor(root))+".lock", 0, func() error {
+	ran, err := paths.TryFileLock(lockPathOf(HomeBank())+".lock", 0, func() error {
 		updateErr = update(updateOptions{CWD: root, Session: "busy", Run: func(context.Context, string, string) (string, error) {
 			t.Error("agent ran while a peer held the store lock")
 			return "fixture", nil
@@ -189,7 +189,7 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "home-lock")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	ranAgent := false
@@ -217,7 +217,7 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "detached-wait")
-	if _, err := Init(root); err != nil {
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	prevFg, prevDetached := updateLockWait, detachedLockWait
@@ -226,7 +226,7 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	t.Setenv(DetachedEnv, "1")
 	held, release := make(chan struct{}), make(chan struct{})
 	go func() {
-		_, _ = paths.TryFileLock(lockPathOf(BankFor(root))+".lock", 0, func() error { close(held); <-release; return nil })
+		_, _ = paths.TryFileLock(lockPathOf(HomeBank())+".lock", 0, func() error { close(held); <-release; return nil })
 	}()
 	<-held
 	time.AfterFunc(100*time.Millisecond, func() { close(release) }) // longer than updateLockWait, far inside detachedLockWait

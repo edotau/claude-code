@@ -728,7 +728,7 @@ func TestNativeMemoryEntriesAreMemhookRunners(t *testing.T) {
 func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()
-	if _, err := memory.Init(cwd); err != nil {
+	if _, err := memory.Init(); err != nil {
 		t.Fatal(err)
 	}
 	spawns := memory.StubSpawn(t, true)

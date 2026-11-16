@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A messy registry (blank, duplicate, trailing slash, CRLF, relative, gone) keeps only the real absolute dirs.
@@ -34,18 +32,14 @@ func TestUpdateSandboxRegistryTidiesMessyFile(t *testing.T) {
 	}
 }
 
-func TestSandboxEmptyAndUnknownRepo(t *testing.T) {
+func TestSandboxEmpty(t *testing.T) {
 	tempConfig(t)
-	repo := gitRepo(t, t.TempDir(), "checkout")
-	b := BankFor(repo)
-	if _, err := Init(repo); err != nil {
+	b := HomeBank()
+	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
 	write(t, b.Path("topic.md"), "do not copy")
-	if _, err := Sandbox(SandboxOptions{Repo: "unknown-sandbox-store"}); err == nil {
-		t.Fatal("unknown repo accepted")
-	}
-	res, err := Sandbox(SandboxOptions{Repo: repo, Empty: true})
+	res, err := Sandbox(SandboxOptions{Empty: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +50,9 @@ func TestSandboxEmptyAndUnknownRepo(t *testing.T) {
 	})
 	mem := filepath.Join(res.Dir, "memory")
 	for name, body := range templates() {
-		wantFile(t, filepath.Join(mem, b.Prefix()+name), body)
+		wantFile(t, filepath.Join(mem, name), body)
 	}
-	wantFile(t, filepath.Join(mem, b.Prefix()+"topic.md"), "")
+	wantFile(t, filepath.Join(mem, "topic.md"), "")
 }
 
 func TestSandboxRefusesUnstampedStore(t *testing.T) {
@@ -71,13 +65,12 @@ func TestSandboxRefusesUnstampedStore(t *testing.T) {
 
 func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 	tempConfig(t)
-	repo := gitRepo(t, t.TempDir(), "checkout")
 	b := HomeBank()
 	rels := []string{"progress.md", "topic.md", "reports--r.md", "reports--bundle--sub--review.md", "waves--plan--state.json"}
 	for _, rel := range rels {
 		write(t, filepath.Join(StoreDir(), rel), "x")
 	}
-	res, err := Sandbox(SandboxOptions{Repo: repo})
+	res, err := Sandbox(SandboxOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,34 +108,12 @@ func TestSandboxCopySkipsVanishedFile(t *testing.T) {
 	tempConfig(t)
 	write(t, HomeBank().Path("progress.md"), "x\n")
 	dst := t.TempDir()
-	got, err := placeStoreRels(dst, HomeBank(), []string{"gone.md", "progress.md"}, false)
+	got, err := placeStoreRels(dst, []string{"gone.md", "progress.md"}, false)
 	if err != nil || !reflect.DeepEqual(got, []string{"progress.md"}) {
 		t.Fatalf("placeStoreRels = %q, %v; want [progress.md], nil", got, err)
 	}
 	wantFile(t, filepath.Join(dst, "progress.md"), "x\n")
 	if statOK(filepath.Join(dst, "gone.md")) || statOK(HomeBank().Path("gone.md")) {
 		t.Error("gone.md exists in the sandbox or the source; it was deleted before its copy")
-	}
-}
-
-func TestSandboxKeepsSuffixedKeyOrigin(t *testing.T) {
-	tempConfig(t)
-	a, b := gitRepo(t, t.TempDir(), "x"), gitRepo(t, t.TempDir(), "y")
-	hosttest.In(t, a, "remote", "add", "origin", "https://github.com/org-a/api.git")
-	hosttest.In(t, b, "remote", "add", "origin", "https://github.com/org-b/api.git")
-	for _, r := range []string{a, b} {
-		if _, err := EnsureBank(r, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want := BankFor(b).Key
-	res, err := Sandbox(SandboxOptions{Repo: b})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
-	t.Setenv("CLAUDE_CONFIG_DIR", res.Dir)
-	if got := BankFor(b).Key; got != want || want == "api" {
-		t.Fatalf("sandbox key = %q, want %q (suffixed)", got, want)
 	}
 }

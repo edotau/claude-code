@@ -23,8 +23,8 @@ var archiveCaps = map[string]int{
 var bottomAppended = map[string]bool{"conventions.md": true}
 
 // archiveOverflow moves the oldest overflow blocks of root's durable files to its archive/ and returns the count.
-func archiveOverflow(root string, now time.Time) (int, error) {
-	b := BankFor(root)
+func archiveOverflow(now time.Time) (int, error) {
+	b := HomeBank()
 	total := 0
 	for name, capLines := range archiveCaps {
 		n, err := archiveFile(b, name, capLines, now)
@@ -122,11 +122,8 @@ var promoteJudgmentTarget = map[string]string{
 }
 
 // Promote moves block id to home (settled both sides) or prints it with its target for a human to apply by hand.
-func Promote(root, id, to string, dryRun bool, now time.Time) (string, error) {
-	_, b, err := ResolveBank(root)
-	if err != nil {
-		return "", err
-	}
+func Promote(id, to string) (string, error) {
+	b := HomeBank()
 	if target, ok := promoteJudgmentTarget[to]; ok {
 		return promoteJudgment(b, id, to, target)
 	}

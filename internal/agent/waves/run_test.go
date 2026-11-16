@@ -271,3 +271,14 @@ func TestRunLeafThatWroteAlonePathsOfAnotherPackageFailsTheWave(t *testing.T) {
 		t.Fatalf("exit %d, want 3 naming 1.1, b.txt and owner 1.2\n%s", code, &f.out)
 	}
 }
+
+func TestPrepareKeepsUndatedSlugAndFixesDay(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_STATE_DIR", t.TempDir())
+	r := &runner{o: Options{Dir: t.TempDir(), Plan: "/x/my-plan.md"}}
+	if err := r.prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if r.slug != "my-plan" || !strings.HasSuffix(r.path, filepath.Join("waves", "my-plan", "state.json")) || r.day.IsZero() {
+		t.Errorf("slug %q path %q day %v", r.slug, r.path, r.day)
+	}
+}

@@ -344,12 +344,8 @@ func reviseDocSet(b Bank, texts map[string]string) ([]*bankDoc, error) {
 	if len(missing) == 0 {
 		return docs, nil
 	}
-	others := []Bank{b}
-	if !b.Home() {
-		others = append(others, HomeBank())
-	}
 	own := reviseFilesOf([]Bank{b}, false)
-	rest := slices.DeleteFunc(reviseFilesOf(others, true), func(p string) bool { return slices.Contains(own, p) })
+	rest := slices.DeleteFunc(reviseFilesOf([]Bank{b}, true), func(p string) bool { return slices.Contains(own, p) })
 	for len(missing) > 0 {
 		extra, err := holderDocs(rest, missing)
 		if err != nil || len(extra) == 0 {
@@ -530,9 +526,9 @@ func reviseDir(b Bank, texts map[string]string) error {
 }
 
 // reviseBankProblems lists dangling and cyclic `Supersedes` references in own's banks, for `memory review`.
-func reviseBankProblems(own Bank) []string {
+func reviseBankProblems() []string {
 	var out []string
-	for _, b := range bankSet(own) {
+	for _, b := range bankSet() {
 		docs, err := reviseDocSet(b, nil)
 		if err != nil {
 			continue
@@ -577,7 +573,7 @@ func findBlockByID(id string, files []corpusFile, segs []segView) (SearchHit, bo
 		for d := range seg.Docs() {
 			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: ownerDir(f.Path)}, true
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir(HomeBank())}, true
 			}
 		}
 	}

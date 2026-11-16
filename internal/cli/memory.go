@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -90,10 +91,10 @@ func memoryFlagSet(sub string) *flag.FlagSet {
 	return helptext.NewFlagSet("memory "+sub, memorySubPage(sub))
 }
 
-// memoryRepoFlagSet adds --repo; only handlers that resolve a bank root take it, so it is never silently ignored.
+// memoryRepoFlagSet adds --repo; only review and index take it, the checkout their link and embedding checks read.
 func memoryRepoFlagSet(sub string) (*flag.FlagSet, *string) {
 	fs := memoryFlagSet(sub)
-	return fs, fs.String("repo", "", "bank key or checkout path (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
+	return fs, fs.String("repo", "", "checkout path (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
 }
 
 // memoryParseNoArgs parses args and refuses a positional: it stops flag parsing, so later flags would be ignored.
@@ -204,28 +205,28 @@ func cmdMemory(args []string) int {
 // memorySpec describes memory subcommands and their completion domains.
 func memorySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"recall": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"),
+		"recall": {Flags: []helptext.Flag{helptext.Plain("k"),
 			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
-		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.ValuedFlag("type", memoryRememberTypes)}},
-		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
-		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
+		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes)}},
+		"init":     {},
+		"review": {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n")}},
-		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys),
-			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets }), helptext.BoolFlag("dry-run")}},
+		"promote": {Flags: []helptext.Flag{
+			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
 		"dream":   {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
-		"search":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
+		"search":  {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":    {},
-		"index":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
-		"path":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
-		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"index":   {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"path":    {},
+		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag()}},
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
-		"sandbox": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
+		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
-		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.BankKeys),
-			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
+		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
 }
 
@@ -233,22 +234,18 @@ func memorySpec() *helptext.Node {
 func memoryRememberTypes() []string { return slices.Sorted(maps.Keys(memory.RememberTypes)) }
 
 func cmdMemoryInit(args []string) int {
-	fs, repo := memoryRepoFlagSet("init")
+	fs := memoryFlagSet("init")
 	if code, done := memoryParseNoArgs(fs, "init", args); done {
 		return code
 	}
-	_, _, err := memory.ResolveBank(*repo)
-	if err != nil {
-		return helptext.FailUsage("memory init: %v", err)
-	}
-	if err := memory.InitBank(os.Stdout, *repo); err != nil {
+	if err := memory.InitBank(os.Stdout); err != nil {
 		return helptext.Fail("memory init: %v", err)
 	}
 	return 0
 }
 
 func cmdMemoryRemember(args []string) int {
-	fs, repo := memoryRepoFlagSet("remember")
+	fs := memoryFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
 		"reads like a rule? use memory promote --to rules instead")
 	terms, err := helptext.ParseArgs(fs, args)
@@ -258,33 +255,26 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	_, b, err := memory.ResolveBank(*repo)
-	if err != nil {
-		return helptext.FailUsage("memory remember: %v", err)
-	}
-	id, err := memory.Remember(*repo, *kind, strings.Join(terms, " "), time.Now())
+	id, err := memory.Remember(*kind, strings.Join(terms, " "), time.Now())
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, b.SubDir(""))
+	fmt.Printf("remembered [%s] -> %s\n", id, memory.HomeBank().SubDir(""))
 	return 0
 }
 
-// memoryQuery is the flags recall and search share: --repo, -k, --all and --format, plus the query terms.
+// memoryQuery is the flags recall and search share: -k and --format, plus the query terms.
 type memoryQuery struct {
 	fs         *flag.FlagSet
-	repo       *string
 	k          *int
-	all        *bool
 	format     *string
 	sub, terms string
 	termCount  int
 }
 
 func newMemoryQuery(sub string, k int) *memoryQuery {
-	fs, repo := memoryRepoFlagSet(sub)
-	return &memoryQuery{fs: fs, repo: repo, sub: sub, k: fs.Int("k", k, "maximum hits"),
-		all: fs.Bool("all", false, "search the home tier and every repo store"), format: helptext.FormatFlag(fs)}
+	fs := memoryFlagSet(sub)
+	return &memoryQuery{fs: fs, sub: sub, k: fs.Int("k", k, "maximum hits"), format: helptext.FormatFlag(fs)}
 }
 
 // parse reads args into q; done means the verb returns code (help, a usage error or no query).
@@ -310,11 +300,7 @@ func cmdMemorySearch(args []string) int {
 	if code, done := q.parse(args); done {
 		return code
 	}
-	res, err := memory.Search(memory.SearchOptions{Repo: *q.repo, All: *q.all, Query: q.terms, K: *q.k,
-		Expand: q.termCount == 1 && !q.json()})
-	if err != nil {
-		return helptext.FailUsage("memory search: %v", err)
-	}
+	res := memory.Search(memory.SearchOptions{Query: q.terms, K: *q.k, Expand: q.termCount == 1 && !q.json()})
 	if res.Block != "" {
 		printMemoryBlock(res.Path, res.Block)
 		return 0
@@ -380,7 +366,7 @@ func cmdMemoryIndex(args []string) int {
 var memoryPathSubs = []string{"handoffs", "reports", "knowledge", "worktrees"}
 
 func cmdMemoryPath(args []string) int {
-	fs, repo := memoryRepoFlagSet("path")
+	fs := memoryFlagSet("path")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -391,24 +377,34 @@ func cmdMemoryPath(args []string) int {
 	if len(pos) > 0 && !slices.Contains(memoryPathSubs, pos[0]) {
 		return helptext.FailUsage("memory path: unexpected argument %q (SUB is one of %s)", pos[0], strings.Join(memoryPathSubs, ", "))
 	}
-	_, b, err := memory.ResolveBank(*repo)
-	if err != nil {
-		return helptext.FailUsage("memory path: %v", err)
-	}
+	b := memory.HomeBank()
 	switch len(pos) {
 	case 0:
 		fmt.Println(b.SubDir(""))
 	case 1:
 		fmt.Println(b.SubDir(pos[0]))
 	default:
-		fmt.Println(b.Sub(pos[0], pos[1]))
+		fmt.Println(b.Sub(pos[0], memoryPathName(pos[0], pos[1])))
 	}
 	return 0
 }
 
-// cmdMemoryReport appends a JSON report and its decisions to the repo's bank reports/ and prints both paths.
+// memoryPathName is the store file name for NAME in sub: date-first for dated subs, prefix-free, .md by default.
+func memoryPathName(sub, name string) string {
+	if sub == "knowledge" {
+		name, _ = memory.StripRepoPrefix(name)
+	} else if sub != "" {
+		name = memory.DatedName(name, time.Now())
+	}
+	if filepath.Ext(name) == "" {
+		name += ".md"
+	}
+	return name
+}
+
+// cmdMemoryReport appends a JSON report and its decisions to the bank's reports/ and prints both paths.
 func cmdMemoryReport(args []string) int {
-	fs, repo := memoryRepoFlagSet("report")
+	fs := memoryFlagSet("report")
 	label := fs.String("label", "", "report name: reports/<date>-<label>.md (sanitized to [A-Za-z0-9._-])")
 	file := fs.String("file", "", "JSON input file: {\"report\": markdown, \"decisions\": [...]}")
 	stdin := fs.Bool("stdin", false, "read the JSON input from stdin")
@@ -426,7 +422,7 @@ func cmdMemoryReport(args []string) int {
 	if err != nil {
 		return helptext.Fail("memory report: %v", err)
 	}
-	out, err := memory.ReportRepo(*repo, *label, in)
+	out, err := memory.Report(*label, in)
 	if err != nil {
 		return helptext.Fail("memory report: %v", err)
 	}
@@ -494,7 +490,7 @@ func cmdMemoryReview(args []string) int {
 		return code
 	}
 	if *timeline {
-		if err := memory.TimelineReport(os.Stdout, *repo, *n); err != nil {
+		if err := memory.TimelineReport(os.Stdout, *n); err != nil {
 			return helptext.Fail("memory review: %v", err)
 		}
 		return 0
@@ -507,11 +503,10 @@ func cmdMemoryReview(args []string) int {
 	return 0
 }
 
-// cmdMemoryPromote moves a block to home, or prints a block and target for a human to apply (never writes them).
+// cmdMemoryPromote prints a block and its target for a human to apply (never writes them).
 func cmdMemoryPromote(args []string) int {
-	fs, repo := memoryRepoFlagSet("promote")
-	to := fs.String("to", "", "promotion target: home, rules or skill (claude-md: dream only)")
-	dryRun := fs.Bool("dry-run", false, "print the move without writing")
+	fs := memoryFlagSet("promote")
+	to := fs.String("to", "", "promotion target: rules or skill (claude-md: dream only)")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -519,11 +514,7 @@ func cmdMemoryPromote(args []string) int {
 	if len(pos) != 1 || *to == "" {
 		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
 	}
-	_, _, err = memory.ResolveBank(*repo)
-	if err != nil {
-		return helptext.FailUsage("memory promote: %v", err)
-	}
-	out, err := memory.Promote(*repo, pos[0], *to, *dryRun, time.Now())
+	out, err := memory.Promote(pos[0], *to)
 	if err != nil {
 		return helptext.Fail("memory promote: %v", err)
 	}
@@ -562,8 +553,6 @@ func cmdMemoryImport(args []string) int {
 	fs := helptext.NewFlagSet("memory import", memoryImportPage)
 	from := fs.String("from", "", "memory root or store dir to merge in")
 	host := fs.String("host", "", "tailnet host whose memory root to fetch over ssh")
-	repo := fs.String("repo", "", "store key or checkout to import into (default: this repo)")
-	all := fs.Bool("all", false, "every store present on both sides, home included")
 	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
 	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
 	if code, done := memoryParseNoArgs(fs, "import", args); done {
@@ -579,7 +568,7 @@ func cmdMemoryImport(args []string) int {
 	if *host != "" {
 		defer func() { _ = os.RemoveAll(dir) }()
 	}
-	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Repo: *repo, Label: label, All: *all, DryRun: *dryRun, Topics: *topics})
+	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics})
 	if err != nil {
 		return memoryImportFail(err)
 	}
@@ -649,31 +638,25 @@ func fetchMemoryRoot(host string) (string, error) {
 }
 
 // memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.
-func memoryRecallExplain(repo, query string, conflict bool) int {
+func memoryRecallExplain(query string, conflict bool) int {
 	if conflict {
-		return helptext.Fail("memory recall: --explain does not support --all, --format json, or --load")
+		return helptext.Fail("memory recall: --explain does not support --format json or --load")
 	}
-	if err := memory.RecallExplain(os.Stdout, repo, query); err != nil {
-		return helptext.FailUsage("memory recall: %v", err)
-	}
+	memory.RecallExplain(os.Stdout, query)
 	return 0
 }
 
 func cmdMemoryRecall(args []string) int {
 	q := newMemoryQuery("recall", 3)
 	load := q.fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
-	explain := q.fs.Bool("explain", false, "explain hook recall (not with --all, --load or json)")
+	explain := q.fs.Bool("explain", false, "explain hook recall (not with --load or json)")
 	if code, done := q.parse(args); done {
 		return code
 	}
 	if *explain {
-		return memoryRecallExplain(*q.repo, q.terms, *q.all || q.json() || *load != 0)
+		return memoryRecallExplain(q.terms, q.json() || *load != 0)
 	}
-	hits, _, err := memory.RecallRepo(*q.repo, *q.all, q.terms, *q.k)
-	if err != nil {
-		return helptext.FailUsage("memory recall: %v", err)
-	}
-	return memoryRecallEmit(hits, *q.format, *load)
+	return memoryRecallEmit(memory.RecallBank(q.terms, *q.k), *q.format, *load)
 }
 
 // memoryRecallEmit writes hits as JSON, or as the text report with an optional body load.
@@ -686,8 +669,7 @@ func memoryRecallEmit(hits []memory.SearchHit, format string, load int) int {
 }
 
 func cmdMemorySandbox(args []string) int {
-	fs, repo := memoryRepoFlagSet("sandbox")
-	all := fs.Bool("all", false, "copy every store")
+	fs := memoryFlagSet("sandbox")
 	empty := fs.Bool("empty", false, "seed empty stores instead of copying content")
 	format := fs.String("format", "text", "output format: text|json")
 	if code, done := memoryParseNoArgs(fs, "sandbox", args); done {
@@ -696,7 +678,7 @@ func cmdMemorySandbox(args []string) int {
 	if *format != "text" && *format != "json" {
 		return helptext.FailUsage("memory sandbox: format must be text or json")
 	}
-	res, err := memory.Sandbox(memory.SandboxOptions{Repo: *repo, All: *all, Empty: *empty})
+	res, err := memory.Sandbox(memory.SandboxOptions{Empty: *empty})
 	if err != nil {
 		if _, ok := errors.AsType[*memory.ImportInputError](err); ok {
 			return helptext.FailUsage("memory sandbox: %v", err)

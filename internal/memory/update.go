@@ -141,7 +141,7 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return fmt.Sprintf(updatePromptFormat, bankPaths(BankFor(cwd)), bankPaths(HomeBank())) +
+	return fmt.Sprintf(updatePromptFormat, bankPaths(HomeBank())) +
 		"Follow this procedure, the COMPLETE pass:\n\n" + ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
@@ -335,11 +335,11 @@ func update(o updateOptions) error {
 	record := func(status string, updated bool) error {
 		return recordUpdateResult(o.Session, prior.Log, status, updated)
 	}
-	b := BankFor(o.CWD)
+	b := HomeBank()
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
-	ran, lockErr := paths.TryFileLock(lockPathOf(b)+".lock", lockWait(), func() error { return run.lockedWithHome(o, b) })
-	if !ran || run.homeBusy { // lock never taken: nothing ran, and settling unlocked would race the holder
+	ran, lockErr := paths.TryFileLock(lockPathOf(b)+".lock", lockWait(), func() error { return run.locked(o, b) })
+	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
 	}
@@ -393,18 +393,16 @@ func updateDefaults(o updateOptions) updateOptions {
 
 // updateRun is what the locked section of Update observed: bank mtimes before the run, the run's error, and settlement.
 type updateRun struct {
-	before, beforeHome time.Time
-	runErr, settleErr  error
-	updated            bool
-	blocks             int  // gate refusals counted on the last agent attempt
-	homeBusy           bool // the home bank's lock was never granted: nothing ran
+	before            time.Time
+	runErr, settleErr error
+	updated           bool
+	blocks            int // gate refusals counted on the last agent attempt
 }
 
-// finish settles under the writer lock and reports whether the update wrote either bank tier.
+// finish settles under the writer lock and reports whether the update wrote the bank.
 func (r *updateRun) finish(o updateOptions, b Bank) (updated bool, err error) {
-	// An update may legitimately write only the shared home bank (cross-repo facts), so watch both tiers.
 	updated = r.touched(b)
-	if _, err := settleBank(o.CWD, time.Now()); err != nil {
+	if _, err := settleBank(time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
@@ -412,9 +410,9 @@ func (r *updateRun) finish(o updateOptions, b Bank) (updated bool, err error) {
 	return updated, nil
 }
 
-// touched reports whether either bank tier changed since the run began.
+// touched reports whether the bank changed since the run began.
 func (r *updateRun) touched(b Bank) bool {
-	return newestMtime(b).After(r.before) || newestMtime(HomeBank()).After(r.beforeHome)
+	return newestMtime(b).After(r.before)
 }
 
 // runAgent runs the agent, once more when the gate refused calls and no bank file changed.
@@ -428,25 +426,13 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
 	}
 }
 
-// withHomeLock runs fn under the home bank's lock, taken after the repo lock (the fixed order); ran=false = busy.
-func withHomeLock(b Bank, fn func() error) (ran bool, err error) {
-	return true, fn() // the one bank's lock is already held
-}
-
-// lockedWithHome is locked under the home bank's lock too: the agent may edit it, and repos have separate store locks.
-func (r *updateRun) lockedWithHome(o updateOptions, b Bank) error {
-	ran, err := withHomeLock(b, func() error { return r.locked(o, b) })
-	r.homeBusy = !ran
-	return err
-}
-
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o updateOptions, b Bank) error {
 	if o.Historical {
 		snap := snapshotFiles(b, currentStateFiles)
 		defer warnChanged(o.Out, b, snap)
 	}
-	r.before, r.beforeHome = newestMtime(b), newestMtime(HomeBank())
+	r.before = newestMtime(b)
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
 	r.runAgent(ctx, o, b)

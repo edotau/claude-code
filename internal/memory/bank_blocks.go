@@ -293,7 +293,7 @@ func assignFileIDs(b Bank, name, prefix string, now time.Time) (int, string, err
 	if err != nil {
 		return 0, "", err
 	}
-	res, n := stampIDs(b, name, prefix, string(data), now)
+	res, n := stampIDs(name, prefix, string(data), now)
 	res = formatBankMarkdown(res) // wrapped here, in memory, so settle never re-reads the file to wrap it
 	if res != string(data) {
 		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
@@ -304,7 +304,7 @@ func assignFileIDs(b Bank, name, prefix string, now time.Time) (int, string, err
 }
 
 // stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.
-func stampIDs(b Bank, name, prefix, text string, now time.Time) (string, int) {
+func stampIDs(name, prefix, text string, now time.Time) (string, int) {
 	n := 0
 	lines := strings.Split(text, "\n")
 	starts := blockStarts(lines, prefix)
@@ -319,9 +319,9 @@ func stampIDs(b Bank, name, prefix, text string, now time.Time) (string, int) {
 		if k+1 < len(starts) {
 			end = starts[k+1]
 		}
-		block, stamped := settleBlockID(b, name, i, lines[i:end], now)
+		block, stamped := settleBlockID(name, i, lines[i:end], now)
 		for salt := len(lines); stamped == 1 && strings.Contains(text, block[0][len(lines[i])+1:]); salt++ {
-			block, _ = settleBlockID(b, name, salt, lines[i:end], now) // an id text already carries: redraw past its end
+			block, _ = settleBlockID(name, salt, lines[i:end], now) // an id text already carries: redraw past its end
 		}
 		n += stamped
 		out = append(out, block...)
@@ -355,11 +355,11 @@ func fencedLines(block []string) []bool {
 }
 
 // settleBlockID leaves one id marker (the oldest, i.e. the last, else a fresh one); fenced lines are never touched.
-func settleBlockID(b Bank, name string, idx int, block []string, now time.Time) ([]string, int) {
+func settleBlockID(name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
 	keepLine, keepSpan, total := lastMarker(block, fenced)
 	if total == 0 {
-		return append([]string{block[0] + freshID(b, name, idx, block[0], now)}, block[1:]...), 1
+		return append([]string{block[0] + freshID(name, idx, block[0], now)}, block[1:]...), 1
 	}
 	if total == 1 {
 		return block, 0
@@ -403,8 +403,8 @@ func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, to
 }
 
 // freshID is the new ` <!-- id:xxxx -->` suffix for a block; idx is in the hash so identical lines never collide.
-func freshID(b Bank, name string, idx int, line string, now time.Time) string {
-	key := b.Key + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
+func freshID(name string, idx int, line string, now time.Time) string {
+	key := "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
 	return " <!-- id:" + textutil.SHA256Hex([]byte(key))[:8] + " -->"
 }
 

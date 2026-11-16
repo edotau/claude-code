@@ -97,24 +97,20 @@ func appendUnarchived(archive string, blocks []string) error {
 func lockPathOf(b Bank) string { return filepath.Join(storeLockDir(b), ".postupdate") }
 
 // settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
-func settleBank(root string, now time.Time) (rotated int, err error) {
+func settleBank(now time.Time) (rotated int, err error) {
 	err = withFlatLock(BankLockWait, func() error {
-		rotated, err = settleBankLocked(root, now)
+		rotated, err = settleBankLocked(now)
 		return err
 	})
 	return rotated, err
 }
 
 // settleBankLocked is settleBank for a caller already holding the bank lock.
-func settleBankLocked(root string, now time.Time) (int, error) {
-	return settleOwnLocked(BankFor(root), now)
-}
-
-func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
+func settleBankLocked(now time.Time) (rotated int, err error) {
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
-	banks := bankSet(own) // an unscaffolded repo gets its store from Init (with its origin), never here
+	banks := bankSet() // an unscaffolded repo gets its store from Init (with its origin), never here
 	for _, b := range banks {
 		n, err := settleDir(b, now)
 		rotated += n
@@ -150,10 +146,9 @@ func commitBanks(subject string, _ []Bank) error {
 	return commitStore(subject, append(scope, catalogFile)...)
 }
 
-// bankSet is the banks a settle covers: root's own when scaffolded, then the home bank.
-func bankSet(own Bank) []Bank {
-	var out []Bank
-	return append(out, HomeBank())
+// bankSet is the banks a settle covers: the one home bank.
+func bankSet() []Bank {
+	return []Bank{HomeBank()}
 }
 
 // scaffolded reports whether b has any typed file.
@@ -161,8 +156,8 @@ func scaffolded(b Bank) bool {
 	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
 }
 
-func settleLockedBank(b Bank, now time.Time) error {
-	if _, err := settleOwnLocked(b, now); err != nil {
+func settleLockedBank(now time.Time) error {
+	if _, err := settleBankLocked(now); err != nil {
 		return fmt.Errorf("settle: %w", err)
 	}
 	return nil

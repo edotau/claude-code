@@ -7,15 +7,20 @@ paths:
 `~/.claude/memory/` is one local-only git repo (never pushed); `claude-code memory path` prints it. There is ONE bank
 for every workspace (any repo, scratch dir, provider or profile): six typed files at the top plus Claude Code's native
 topic files, one flat `MEMORY.md` pointer list and the generated `index.md`. Folders: `archive/`, `handoffs/`,
-`reports/`, `knowledge/`, `worktrees/`, `waves/` (files need no `<key>--`; older files keep their names). `.layout`
-(`flat 2`) stamps the layout, and every `~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at
-SessionStart. The bank holds session STATE; durable facts belong in `rules/` or `CLAUDE.md` —
-point at them, never copy.
+`reports/`, `knowledge/`, `worktrees/`, `waves/`, `feedback/`, `notes/` (no `<key>--` prefix; `handoffs/`, `reports/`
+and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new one). `.layout` (`flat 3`) stamps
+the layout (`flat 2` stores still work until migrated), and every `~/.claude/projects/<slug>/memory` is a symlink to
+the store root, repaired at SessionStart. The bank holds session STATE; durable facts belong in `rules/` or
+`CLAUDE.md` — point at them, never copy.
 
-`claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the path (no NAME = store root).
-`claude-code memory migrate [--dry-run]` merges any per-repo `<key>--<typed>.md` files into the one bank (no repo tags,
-ids kept, a block whose id exists is skipped); it refuses before any write on a dirty store, credential-shaped text or
-an unresolved collision, makes one store commit, and says "already migrated" on `flat 2`.
+`claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the path (no NAME = store root); NAME
+loses any `<key>--`, gains `.md` when it has no extension, and in the dated folders gains today's date when it has none.
+`claude-code memory migrate [--dry-run]` brings any store to `flat 3`: it merges per-repo `<key>--<typed>.md` files
+into the one bank (ids kept, a block whose id exists is skipped), strips every `<key>--` from folder entries (dated
+folders take the name's date, else the first date in the file, else git's first-add date, else mtime), merges archive
+collisions by id (by heading when the legacy file has no ids), and repoints store references. It refuses before
+any write on a dirty store, credential-shaped text or an unresolved collision, makes one store commit, and says
+"already migrated" on a `flat 3` store with nothing to rename.
 
 ## Precedence
 
@@ -72,7 +77,8 @@ per session per day, rewritten in place); after compaction `memory-start` names 
 the generated one second. `memory migrate` and `memory index` file loose top-level notes: `feedback*.md` into
 `feedback/`, any other non-core `.md` into `notes/`, with `MEMORY.md` links repointed.
 Typed files carry no frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…`<!-- bank:end -->` region;
-lines outside it are Claude's own and never rewritten. Never hand-edit generated regions.
+lines outside it are Claude's own and never rewritten. Never hand-edit generated regions. Each pointer is one unwrapped
+line (≤ ~200 chars): the 120-column wrap skips `MEMORY.md` so it stays under the loader's 200-line cap.
 
 ## Replaced entries
 

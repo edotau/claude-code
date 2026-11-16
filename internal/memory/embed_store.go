@@ -447,7 +447,7 @@ func RefreshStaleEmbeddings(cwd string) {
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	if IsUpdateChild() || !bankExists(cwd) {
+	if IsUpdateChild() || !bankExists() {
 		return
 	}
 	if profile, err := embedEndpoint(context.Background()); err == nil {
@@ -531,6 +531,6 @@ func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit,
 	if h.ID == "" || !ok || cos < floor {
 		return h, 0, false
 	}
-	h.Dir = ownerDir(f.Path)
+	h.Dir = accessDir(HomeBank())
 	return h, cos, true
 }

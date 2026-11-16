@@ -10,12 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -26,8 +24,6 @@ var idRef = sync.OnceValue(func() *regexp.Regexp {
 
 // SearchOptions is one `memory search`; Expand lets a lone block reference resolve to its block.
 type SearchOptions struct {
-	Repo   string
-	All    bool
 	Query  string
 	K      int
 	Expand bool
@@ -40,20 +36,17 @@ type searchResult struct {
 }
 
 // Search ranks blocks for the query and logs the access; a block reference expands in place when allowed.
-func Search(o SearchOptions) (searchResult, error) {
+func Search(o SearchOptions) searchResult {
 	now := time.Now()
 	if o.Expand && idRef().MatchString(o.Query) {
 		if path, block, err := ShowBlock(o.Query); err == nil {
-			logShown(path, o.Query, AccessSearch, now)
-			return searchResult{Path: path, Block: block}, nil
+			logShown(o.Query, AccessSearch, now)
+			return searchResult{Path: path, Block: block}
 		}
 	}
-	hits, _, err := SearchRepo(o.Repo, o.All, o.Query, o.K)
-	if err != nil {
-		return searchResult{}, err
-	}
+	hits := SearchBank(o.Query, o.K)
 	logHits(hits, AccessSearch, now)
-	return searchResult{Hits: hits}, nil
+	return searchResult{Hits: hits}
 }
 
 // Show returns one block by id and logs the access.
@@ -62,7 +55,7 @@ func Show(id string) (path, block string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	logShown(path, id, AccessShow, time.Now())
+	logShown(id, AccessShow, time.Now())
 	return path, block, nil
 }
 
@@ -75,58 +68,33 @@ func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 	return started
 }
 
-// ResolveBank maps --repo (bank key, checkout path or "") to root and bank; a flat key has root "".
+// ResolveBank maps --repo (a checkout path or "") to its root and the one bank; a relative path must exist.
 func ResolveBank(repo string) (string, Bank, error) {
-	if repo != "" && slices.Contains(BankKeys(), repo) {
-		if repo == harnessStoreKey() {
-			return paths.ConfigDir(), Bank{Key: repo}, nil
-		}
-		return "", Bank{Key: repo}, nil
-	}
-	if filepath.IsAbs(repo) {
-		if _, err := os.Stat(repo); err != nil { // an absolute path is never a key: a not-yet-created checkout is still a path
-			return repo, BankFor(repo), nil
-		}
-	}
-	if repo != "" {
+	if repo != "" && !filepath.IsAbs(repo) {
 		if _, err := os.Stat(repo); err != nil {
-			return "", Bank{}, fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s); pass a checkout path or a store name", repo, strings.Join(BankKeys(), ", "))
+			return "", Bank{}, fmt.Errorf("--repo %q is not an existing path; pass a checkout path", repo)
 		}
 	}
-	top := root(repo)
-	return top, BankFor(top), nil
+	return root(repo), HomeBank(), nil
 }
 
-func ensureResolvedBank(repo string) (Bank, error) {
-	root, b, err := ResolveBank(repo)
-	if err != nil {
-		return b, err
-	}
-	if root != "" {
-		b, err = EnsureBank(root, "")
-	} else {
-		err = b.Ensure("")
-	}
-	return b, err
-}
-
-// ReportRepo appends a report to repo's store, its origin registered under the bank lock so later calls find it.
-func ReportRepo(repo, label string, in ReportInput) ([]string, error) {
-	b, err := ensureResolvedBank(repo)
+// Report appends a report to the bank's reports/ under the bank lock.
+func Report(label string, in ReportInput) ([]string, error) {
+	b, err := EnsureBank("")
 	if err != nil {
 		return nil, err
 	}
 	return appendReport(b, label, in)
 }
 
-// InitBank creates the repo's bank and reports where it landed, with the init procedure on a fresh template.
-func InitBank(w io.Writer, root string) error {
-	dir, err := Init(root)
+// InitBank creates the bank and reports where it landed, with the init procedure on a fresh template.
+func InitBank(w io.Writer) error {
+	dir, err := Init()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBank().SubDir(""))
-	if isProjectContextTemplate(root) {
+	if isProjectContextTemplate() {
 		ref, err := Reference("init")
 		if err != nil {
 			return err
@@ -166,7 +134,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	var rotated int
 	err = withFlatLock(BankLockWait, func() error {
 		var serr error
-		rotated, serr = settleOwnLocked(own, time.Now())
+		rotated, serr = settleBankLocked(time.Now())
 		return serr
 	})
 	if err != nil {
@@ -263,7 +231,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return nil
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, BankFor(root).SubDir(""))
+		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, HomeBank().SubDir(""))
 		return nil
 	}
 	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
@@ -287,10 +255,10 @@ func RunDream(o DreamRunOptions) error {
 		}
 	}
 	if o.DryRun {
-		fmt.Fprint(o.Out, previewDream(root).Report())
+		fmt.Fprint(o.Out, previewDream().Report())
 		return nil
 	}
-	if !o.Force && !dreamDue(root, time.Now()) {
+	if !o.Force && !dreamDue(time.Now()) {
 		fmt.Fprintln(o.Out, "memory dream: not due")
 		return nil
 	}
@@ -318,23 +286,12 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	return false, nil
 }
 
-// ownBankFile reports whether a file sits in the harness's or the home bank; bank keys are read once per call.
-func ownBankFile() func(f string) bool {
-	keys, own := BankKeys(), harnessStoreKey()
-	return func(f string) bool {
-		k := bankOfFile(f, keys).Key
-		return k == "" || k == own
-	}
-}
-
-// FormatOwn wraps only this repo's and the home bank, listing what it wrapped; other banks keep the check note.
+// FormatOwn wraps the bank under the lock, commits the change and lists what it wrapped.
 func FormatOwn(w io.Writer) error {
-	targets, err := bankFmtTargets()
+	own, err := bankFmtTargets()
 	if err != nil {
 		return err
 	}
-	isOwnBankFile := ownBankFile()
-	own := slices.DeleteFunc(slices.Clone(targets), func(f string) bool { return !isOwnBankFile(f) })
 	var changed []string
 	err = withFlatLock(BankLockWait, func() (ferr error) {
 		changed, ferr = formatFiles(own, false)
@@ -352,40 +309,22 @@ func FormatOwn(w io.Writer) error {
 		return err
 	}
 	if len(changed) > 0 {
-		fmt.Fprintf(w, "memory fmt: wrapped %d file(s) in this repo's and the home bank\n", len(changed))
-	}
-	others := slices.DeleteFunc(slices.Clone(targets), isOwnBankFile)
-	n, err := formatFiles(others, true)
-	if err != nil {
-		return fmt.Errorf("check other repos' banks: %w", err)
-	}
-	if len(n) > 0 {
-		fmt.Fprintf(w, "note: %d file(s) in other repos' banks would wrap (not a failure)\n", len(n))
+		fmt.Fprintf(w, "memory fmt: wrapped %d file(s)\n", len(changed))
 	}
 	return nil
 }
 
-// FormatCheck writes nothing and fails only for this repo's and the home bank.
+// FormatCheck writes nothing and fails when any bank file would wrap.
 func FormatCheck(w io.Writer) (dirty bool, err error) {
 	changed, err := formatBank(true)
 	if err != nil {
 		return false, err
 	}
-	var inScope, other int
-	isOwnBankFile := ownBankFile()
 	for _, f := range changed {
-		if isOwnBankFile(f) {
-			inScope++
-			fmt.Fprintln(w, f)
-		} else {
-			other++
-		}
+		fmt.Fprintln(w, f)
 	}
-	if other > 0 {
-		fmt.Fprintf(w, "note: %d file(s) in other repos' banks would wrap (not a failure)\n", other)
-	}
-	if inScope > 0 {
-		fmt.Fprintf(w, "%d file(s) would change (run `claude-code memory fmt`)\n", inScope)
+	if len(changed) > 0 {
+		fmt.Fprintf(w, "%d file(s) would change (run `claude-code memory fmt`)\n", len(changed))
 		return true, nil
 	}
 	fmt.Fprintln(w, "memory fmt --check: clean")
@@ -412,7 +351,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	if err := cacheDoctorNotice(own, problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}
-	problems = append(problems, reviseBankProblems(own)...)
+	problems = append(problems, reviseBankProblems()...)
 	switch {
 	case len(problems) == 0:
 		fmt.Fprintln(w, "memory doctor: no problems found")
@@ -436,12 +375,8 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 }
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
-func TimelineReport(w io.Writer, repo string, n int) error {
-	_, b, err := ResolveBank(repo)
-	if err != nil {
-		return err
-	}
-	entries, sessions, err := timelineBank(b, n)
+func TimelineReport(w io.Writer, n int) error {
+	entries, sessions, err := timelineBank(HomeBank(), n)
 	if err != nil {
 		return fmt.Errorf("sessionHistory: %w", err)
 	}

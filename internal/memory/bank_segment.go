@@ -32,7 +32,7 @@ type corpusFile struct {
 }
 
 // corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
-func corpusFiles(root string) []corpusFile { return corpusOf(BankFor(root)) }
+func corpusFiles() []corpusFile { return corpusOf(HomeBank()) }
 
 func corpusOf(own Bank) []corpusFile {
 	var out []corpusFile
@@ -55,9 +55,6 @@ func corpusOf(own Bank) []corpusFile {
 	}
 	return out
 }
-
-// ownerDir maps a corpus file to the dir whose access log it feeds (a store-key stand-in).
-func ownerDir(path string) string { return accessDir(BankOfFile(path)) }
 
 // ownedFiles lists the *.md in the store folder sub; sub "" is the top-level files.
 func ownedFiles(b Bank, sub string) []string { return transcript.GlobIn(b.SubDir(sub), "*.md") }

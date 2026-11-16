@@ -839,7 +839,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "history diff": true, "workflow lint": true, "workflow sync": true,
-		"vault delete": true, "test ramdisk": true,
+		"vault delete": true, "test ramdisk": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}

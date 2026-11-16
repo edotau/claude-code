@@ -11,7 +11,8 @@ What it adds to a stock install:
 - **Loopback proxy** — OpenAI-dialect translation, per-model-alias provider mixing, failover on 429/5xx.
 - **Agents** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`ask`), or their interactive CLIs
   (`claude-code <agent>`).
-- **Hooks, memory, status line** — a Bash safety gate, a per-repo memory bank, format-on-stop, context checkpoint.
+- **Hooks, memory, status line** — a Bash safety gate, one memory bank for every workspace, format-on-stop,
+  context checkpoint.
 
 Every verb takes `--help`; `claude-code -h` lists the menu verbs (hidden ones such as `agents` and `models` are
 below). Agent-facing commands and gotchas live per area under `rules/harness/` and `rules/workflows/` (index:
@@ -408,10 +409,10 @@ Per-hook matrix and which agent runs what (block, detect-only or advisory):
 
 ## Memory bank
 
-One store, `~/.claude/memory/`: a local-only git repo, never pushed. Every repo writes to that one directory as
-`<key>--<name>` files (unprefixed = home); a session gets the catalog plus this repo's active context, the rest loads on
-demand, and `memory dream` consolidates daily in the background. Store layout, file contracts, caps, precedence, every
-`memory` verb and the promotion ladder: `rules/workflows/memory-bank.md`.
+One store, `~/.claude/memory/`: a local-only git repo, never pushed. Every workspace shares that one directory (no repo
+keys); a session gets the catalog plus the active context from any cwd, the rest loads on demand, and `memory dream`
+consolidates daily in the background. Store layout, file contracts, caps, precedence, every `memory` verb and the
+promotion ladder: `rules/workflows/memory-bank.md`.
 
 ## Status line
 
