@@ -113,6 +113,7 @@ func stateTargets() []target {
 				}
 			},
 		},
+		{name: "statusline-stamps", doc: "status line memo stamps", globs: func() []string { return []string{s("statusline", "*")} }},
 		{
 			name: "memory-sandboxes", doc: "leftover `memory sandbox` dirs in the temp dir (seed-commit verified)",
 			globs: sandboxGlobs, keep: keepNonSandbox, note: sandboxNote,
