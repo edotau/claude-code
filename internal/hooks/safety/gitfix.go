@@ -10,14 +10,8 @@ import (
 
 const commitUse = `use: git commit -m "fix(<scope>): <summary>"`
 
-// gitFixDisabled holds rewrites off until the 2026-11-16 review's bypass findings are fixed; denies stand.
-var gitFixDisabled = true
-
 // gitFix rewrites a flagged footer commit or `;` push (deny with the command off Claude/Codex); the rewrite must pass.
 func gitFix(in *core.Input, orig core.Decision) (core.Result, bool) {
-	if gitFixDisabled {
-		return core.Result{}, false
-	}
 	if orig == core.Allow || in.ToolName != "" && !strings.EqualFold(in.ToolName, "Bash") {
 		return core.Result{}, false
 	}
