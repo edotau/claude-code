@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -70,7 +71,7 @@ type KeyTarget struct {
 }
 
 // setupTokenRE matches the long-lived token `claude setup-token` prints once the browser flow completes.
-var setupTokenRE = regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`)
+var setupTokenRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`sk-ant-oat\d+-[A-Za-z0-9_-]{20,}`) })
 
 // maxPlanTarget fills the claude row for the Claude Max plan: its /login session plus any stored setup-token.
 func maxPlanTarget(kt KeyTarget) KeyTarget {
@@ -298,7 +299,7 @@ func runMintContext(ctx context.Context, argv []string) (string, error) {
 	if err := runAttached(ctx, "mint token", argv, io.MultiWriter(os.Stdout, &buf)); err != nil {
 		return "", err
 	}
-	return setupTokenRE.FindString(buf.String()), nil
+	return setupTokenRE().FindString(buf.String()), nil
 }
 
 // runAttached runs argv on the real terminal with stdout redirected, then refreshes model lists on success.
@@ -442,7 +443,7 @@ func locateSecret(name string, meta map[string]vault.SecretMeta, metaErr error) 
 func ParseAssignment(raw string) (name, value string) {
 	s := strings.TrimSpace(raw)
 	s = strings.TrimSpace(strings.TrimPrefix(s, "export "))
-	if k, v, ok := strings.Cut(s, "="); ok && strings.Trim(v, "=") != "" && vault.EnvName.MatchString(k) && strings.ToUpper(k) == k {
+	if k, v, ok := strings.Cut(s, "="); ok && strings.Trim(v, "=") != "" && vault.EnvName().MatchString(k) && strings.ToUpper(k) == k {
 		name, s = k, strings.TrimSpace(v)
 	}
 	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {

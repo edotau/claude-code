@@ -31,7 +31,7 @@ var redirectOps = []struct {
 	{"<>", true}, {"<<", false}, {"<&", false}, {">", true}, {"<", false}}
 
 // fdNumber is a `>&`/`<&` operand that names a descriptor, not a file.
-var fdNumber = regexp.MustCompile(`^(-|[0-9]+-?)$`)
+var fdNumber = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(-|[0-9]+-?)$`) })
 
 // Redirects splits seg into its words minus unquoted redirections, and the files output ones write (`a>f`, `2>f`).
 func Redirects(seg string) (words, targets []string) {
@@ -49,7 +49,7 @@ func Redirects(seg string) (words, targets []string) {
 		}
 		end := operandEnd(seg, at, from)
 		word := Tokens(seg[from:end])
-		if out && len(word) == 1 && (op != ">&" || !fdNumber.MatchString(word[0])) {
+		if out && len(word) == 1 && (op != ">&" || !fdNumber().MatchString(word[0])) {
 			targets = append(targets, word[0])
 		}
 		trimmed := b.String()[:b.Len()-(i-start)] // drop the fd digits or `&` already written

@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -45,8 +46,10 @@ func ContentText(content json.RawMessage) string {
 const dispatchIDExpr = `\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+`
 
 // dispatchIDPattern matches the four shapes `ask` prints, raw or JSON-escaped inside a tool_result.
-var dispatchIDPattern = regexp.MustCompile(
-	`ask: dispatch (` + dispatchIDExpr + `)|job (` + dispatchIDExpr + `) started|\\*"(?:id|dispatch_id)\\*":\s*\\*"(` + dispatchIDExpr + `)\\*"`)
+var dispatchIDPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`ask: dispatch (` + dispatchIDExpr + `)|job (` + dispatchIDExpr + `) started|\\*"(?:id|dispatch_id)\\*":\s*\\*"(` + dispatchIDExpr + `)\\*"`)
+})
 
 // mayHaveDispatchID is a literal prefilter: every dispatchIDPattern match contains one of these.
 func mayHaveDispatchID(line []byte) bool {
@@ -62,7 +65,7 @@ func AppendDispatchIDs(ids []string, seen map[string]bool, line []byte) []string
 	if !mayHaveDispatchID(line) {
 		return ids
 	}
-	for _, m := range dispatchIDPattern.FindAllSubmatch(line, -1) {
+	for _, m := range dispatchIDPattern().FindAllSubmatch(line, -1) {
 		id := string(m[1]) + string(m[2]) + string(m[3])
 		if !seen[id] {
 			seen[id] = true

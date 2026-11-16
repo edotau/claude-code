@@ -31,7 +31,7 @@ func SetEnv(name, value string, dryRun bool) (EnvChange, error) {
 
 // checkEnvName is the menu's name check for a new environment variable.
 func checkEnvName(name string) error {
-	if !vault.EnvName.MatchString(name) {
+	if !vault.EnvName().MatchString(name) {
 		return fmt.Errorf("%q is not a valid name (letters, digits, underscore; not starting with a digit)", name)
 	}
 	return nil

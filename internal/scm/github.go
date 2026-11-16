@@ -12,13 +12,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"encoding/json"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-var hexRe = regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`)
+var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]{1,64}$`) })
 
 const maxList = 100000
 
@@ -137,7 +138,7 @@ func (h *gitHubHost) Create(ctx context.Context, o CreateOpts) (PR, error) {
 
 func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error) {
 	if id == "" {
-		if !hexRe.MatchString(sha) {
+		if !hexRe().MatchString(sha) {
 			return nil, fmt.Errorf("invalid sha %q: want hex", sha)
 		}
 	} else { // `gh pr checks --json` needs gh >= 2.51 (Ubuntu ships 2.46): read the PR head's check runs instead
@@ -148,7 +149,7 @@ func (h *gitHubHost) Checks(ctx context.Context, id, sha string) ([]Check, error
 		if err != nil {
 			return nil, err
 		}
-		if sha = pr.HeadSHA; !hexRe.MatchString(sha) {
+		if sha = pr.HeadSHA; !hexRe().MatchString(sha) {
 			return nil, fmt.Errorf("PR %s has no head commit", id)
 		}
 	}

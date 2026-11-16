@@ -328,7 +328,7 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 	}
 	assertMaxPlanOptions(t, AuthOptions(kt))
 	out := "Opening browser...\nPaste the code here:\n\nYour token: sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
-	if got := setupTokenRE.FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
+	if got := setupTokenRE().FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
 		t.Errorf("token capture = %q", got)
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")
