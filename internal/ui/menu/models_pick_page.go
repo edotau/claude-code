@@ -29,7 +29,7 @@ var aliasUse = map[string]string{
 	models.Fable:  "demanding reasoning; long-horizon",
 }
 
-// modelTarget is the account an agent's model pick applies to; claude edits the session's alias pins instead.
+// modelTarget is the account a model pick applies to; claude edits the session's alias pins instead.
 func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 	if name == "claude" {
 		sel, err := providers.Select(d.reg, "")
@@ -59,9 +59,7 @@ func currentModel(d *dialog, p *providers.Provider, claude bool, alias string) s
 	return p.Models[alias]
 }
 
-// modelRow is the agent page's Model row; nil for codex and gemini, or an agent with no account the hub can route to.
-// copilot's launch argv reads only the opus alias (copilot.describeCopilotRoute), so its page picks
-// one model directly instead of the alias list every other agent's page shows.
+// modelRow is the agent page's Model row; copilot reads only the opus alias, so it picks one model directly.
 func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
 		return nil
@@ -91,8 +89,7 @@ func modelDesc(provider, model string, listed bool) string {
 	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(canonical), model), 20)) // AliasOf takes canonical ids; the picker aligns the badge column
 }
 
-// modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
-// account's own table); no network.
+// modelListed reports whether model is in the agent's static catalog, with no network.
 func modelListed(p *providers.Provider, claude bool, model string) bool {
 	if _, _, ok := models.Resolve(model); ok && claude {
 		return true
@@ -141,11 +138,9 @@ func snapshotHas(p *providers.Provider, model string) bool {
 	return slices.ContainsFunc(snap.Models, func(m providers.ModelInfo) bool { return copilotCanonicalID(m.ID) == want })
 }
 
-// copilotCatalogFn is the catalog source (tests stub it so no copilot runtime is spawned).
 var copilotCatalogFn = copilot.Catalog
 
-// copilotCatalog reads the copilot model catalog (sealed snapshot first) once per dialog and caches it; err is cached
-// too, so a prior failure doesn't retry (and re-spawn the runtime) on every row of the same dialog.
+// copilotCatalog reads the model catalog once per dialog and caches the error too, so a failure never re-spawns it.
 func copilotCatalog(d *dialog) ([]copilot.SDKModel, error) {
 	if d.copilotCatalogLoaded {
 		return d.copilotCatalog, d.copilotCatalogErr
@@ -171,7 +166,6 @@ func copilotCatalogModel(d *dialog, id string) (copilot.SDKModel, bool) {
 	return copilot.SDKModel{}, false
 }
 
-// copilotModelDesc is a catalog row's description: name, premium multiplier, and the current-pick marker.
 func copilotModelDesc(m copilot.SDKModel, cur string) string {
 	desc := m.Name
 	if m.Multiplier != nil {
@@ -183,20 +177,14 @@ func copilotModelDesc(m copilot.SDKModel, cur string) string {
 	return desc
 }
 
-// modelTitle is a model picker's title: "<what> (<provider> · <profile>)".
 func modelTitle(what, provider, profile string) string {
 	return what + " (" + provider + " · " + profile + ")"
 }
 
-// copilotSourceFn is the injectable seam over copilot.CopilotModelSource; tests fake the Databricks rows.
+// copilotSourceFn is the test seam over copilot.CopilotModelSource.
 var copilotSourceFn = copilot.CopilotModelSource
 
-// pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
-// current model, defaulting to "default"/"auto" = pin unset), then the model list — a Databricks
-// session profile's serving endpoints, else the SDK catalog (the account copilot runs as), falling
-// back to opencode's github-copilot catalog when the SDK call fails. It writes only the MODEL pin on the copilot
-// record — never github-copilot's models table, which opencode's fallback ladder also reads. Picking
-// Effort/Context re-shows this same picker with the cursor back on that row; picking a model saves it.
+// pickCopilotModel writes only the MODEL pin on the copilot record, never github-copilot's models table (opencode reads it).
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile) // once: Effort/Context re-show the picker without refetching

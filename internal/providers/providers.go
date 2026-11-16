@@ -26,7 +26,6 @@ const (
 	ProtocolGemini    = "gemini"    // Google-native generateContent
 )
 
-// GroupDatabricks is the provider key of every Databricks row.
 const GroupDatabricks = "databricks"
 
 // providerLocal files a row the writers could not place under a known provider.
@@ -68,9 +67,8 @@ type Provider struct {
 	// Host is the one workspace URL a preset derives from (https, no path).
 	Host string `json:"host,omitempty"`
 	// CLIProfile is the ~/.databrickscfg profile a databricks preset's auth commands use.
-	CLIProfile string `json:"cliProfile,omitempty"`
-	// Env is the non-secret launch env for sessions on this provider.
-	Env map[string]string `json:"env,omitempty"`
+	CLIProfile string            `json:"cliProfile,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
 	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it; SpellingRule still does.
 	ModelPrefix string `json:"modelPrefix,omitempty"`
 	// Options are a preset row's non-secret knobs (databricks: options.wire serving).
@@ -141,7 +139,6 @@ func (p Provider) Route(dialect string) (string, bool) {
 	return "", false
 }
 
-// Dialects lists every dialect the provider can serve, sorted.
 func (p Provider) Dialects() []string {
 	seen := map[string]bool{}
 	if p.Protocol != "" && p.BaseURL != "" {
@@ -277,7 +274,6 @@ func (r *Registry) Get(name string) (*Provider, error) {
 	return nil, fmt.Errorf("unknown profile %q (known: %s)", name, strings.Join(r.Names(), ", "))
 }
 
-// Row is the registry row named name, or nil when the registry, the name or the row is absent.
 func (r *Registry) Row(name string) *Provider {
 	if r == nil || name == "" {
 		return nil
@@ -293,7 +289,6 @@ func (p *Provider) Account() string {
 	return p.Provider + "·" + p.Name
 }
 
-// DatabricksUsable is true for a Databricks row whose credential resolves.
 func (p *Provider) DatabricksUsable() bool {
 	if p == nil || p.Preset != PresetDatabricks {
 		return false
@@ -321,7 +316,6 @@ func (r *Registry) ProfilesOf(provider string) []string {
 	return append(out, rest...)
 }
 
-// KeyPresent reports whether provider name has a stored key.
 func (r *Registry) KeyPresent(provider string) (*Provider, bool) {
 	p := r.ProfileBy(provider, AuthKey)
 	return p, p != nil && CredentialPresent(p)
