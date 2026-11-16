@@ -2,9 +2,12 @@ package core
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -58,5 +61,48 @@ func TestAutomatedDelivery(t *testing.T) {
 		if got := AutomatedDelivery(prompt); got != want {
 			t.Errorf("AutomatedDelivery(%.40q) = %v, want %v", prompt, got, want)
 		}
+	}
+}
+
+// A key shows once per (kind, session); another kind or session starts fresh.
+func TestSeenAddOncePerKindAndSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for i, c := range []struct {
+		kind, session, key string
+		want               bool
+	}{
+		{"hooks/a", "s1", "k", true}, {"hooks/a", "s1", "k", false}, {"hooks/a", "s1", "k2", true},
+		{"hooks/b", "s1", "k", true}, {"hooks/a", "s2", "k", true}, {"hooks/a", "s1", "k", false},
+	} {
+		if got, err := SeenAdd(c.kind, c.session, c.key); err != nil || got != c.want {
+			t.Fatalf("step %d SeenAdd(%q, %q, %q) = %v, %v; want %v", i, c.kind, c.session, c.key, got, err, c.want)
+		}
+	}
+}
+
+// A new session's first write prunes its kind's files idle past seven days and keeps recent ones.
+func TestSeenAddPrunesIdleSessions(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stale, recent := SeenFile("hooks/a", "old"), SeenFile("hooks/a", "recent")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{stale, recent} {
+		if err := os.WriteFile(f, []byte("k\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SeenAdd("hooks/a", "new", "k"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale seen file survived the prune (err %v)", err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("recent seen file was pruned: %v", err)
 	}
 }

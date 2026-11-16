@@ -18,26 +18,27 @@ import (
 // toolTimeout bounds one formatter run.
 const toolTimeout = 10 * time.Second
 
-// formatFile formats one file via the repo's own format target if any, else the extension chain; true if clean.
-func formatFile(path string) bool {
+// formatFile formats one file via the repo's format target, else the extension chain; missing = absent formatter.
+func formatFile(path string) (ok bool, missing string) {
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		return false
+		return false, ""
 	}
 	if makeFormat(path) {
-		return true
+		return true, ""
 	}
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case "go":
-		return run("", "gofmt", "-w", path)
+		return runTool("", "gofmt", "-w", path)
 	case "py":
 		return formatPython(path)
 	case "js", "jsx", "mjs", "cjs", "ts", "tsx", "json", "css", "scss", "html", "md", "yaml", "yml":
-		root := prettierRoot(path)
-		return root != "" && run(root, "prettier", "--write", "--log-level", "warn", path)
+		if root := prettierRoot(path); root != "" {
+			return runTool(root, "prettier", "--write", "--log-level", "warn", path)
+		}
 	case "sh", "bash":
-		return run("", "shfmt", "-w", path)
+		return runTool("", "shfmt", "-w", path)
 	}
-	return false
+	return false, ""
 }
 
 // Probe order for the Makefile target name and the per-file variable its recipe may honor.
@@ -220,16 +221,16 @@ var toolSection = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // formatPython formats one .py file: the declared classic chain (black/isort/autoflake) if installed, else ruff.
-func formatPython(path string) bool {
+func formatPython(path string) (bool, string) {
 	root, tools := pythonProject(path)
 	if root != "" && (tools["black"] || tools["isort"] || tools["autoflake"]) {
 		if ran, ok := classicPythonChain(root, path, tools); ran {
-			return ok
+			return ok, ""
 		}
 	}
 	// ruff-only chain: check --fix covers autoflake (F401/F841) + isort (I); format is black-compatible.
 	run(root, "ruff", "check", "--fix", "--quiet", path) // exits 1 on lint it cannot fix, so only format decides clean
-	return run(root, "ruff", "format", "--quiet", path)
+	return runTool(root, "ruff", "format", "--quiet", path)
 }
 
 // classicPythonChain runs ruff --fix, autoflake, isort, black where installed; ok means every step exited 0.
@@ -288,6 +289,14 @@ func resolveTool(root, name string) string {
 		return p
 	}
 	return ""
+}
+
+// runTool is run, plus name when the formatter is not installed.
+func runTool(dir, name string, args ...string) (bool, string) {
+	if resolveTool(dir, name) == "" {
+		return false, name
+	}
+	return run(dir, name, args...), ""
 }
 
 // run executes a formatter from dir under toolTimeout; reports whether it ran AND exited 0.

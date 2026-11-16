@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -115,4 +118,64 @@ func AutomatedDelivery(prompt string) bool {
 	}
 	rest := deliveryRe.ReplaceAllString(p, "")
 	return rest != p && strings.TrimSpace(reminderRe.ReplaceAllString(rest, "")) == ""
+}
+
+// seenWait bounds the seen-store lock wait; hooks must not stall, so a held lock fails open.
+const seenWait = time.Second
+
+// seenMaxAge is how long a session's seen file may sit untouched before a new session's first write prunes it.
+const seenMaxAge = 7 * 24 * time.Hour
+
+// SeenFile is session's once-per-session store of kind (a dir under state/): one line per key already shown.
+func SeenFile(kind, session string) string {
+	return filepath.Join(paths.StateDir(), filepath.FromSlash(kind), paths.Slug(session, "", 80, "session"))
+}
+
+// SeenAdd records key in session's kind store under the file's own lock; false when it was already there.
+func SeenAdd(kind, session, key string) (bool, error) {
+	file := SeenFile(kind, session)
+	dir := filepath.Dir(file)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return true, err
+	}
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		PruneSeen(dir)
+	}
+	first := true
+	ran, err := paths.TryFileLock(file, seenWait, func() error { // the file is its own lock: no .lock sibling
+		var rerr error
+		first, rerr = appendIfNew(file, key)
+		return rerr
+	})
+	if err == nil && !ran {
+		err = errors.New("seen-store lock busy")
+	}
+	return first, err
+}
+
+// PruneSeen removes files in dir untouched for seenMaxAge; their sessions are long gone.
+func PruneSeen(dir string) {
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if st, err := e.Info(); err == nil && st.Mode().IsRegular() && time.Since(st.ModTime()) > seenMaxAge {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// appendIfNew appends key to file unless a line already holds it; false when it was already there.
+func appendIfNew(file, key string) (bool, error) {
+	prev, err := os.ReadFile(file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return true, err
+	}
+	if slices.Contains(strings.Split(string(prev), "\n"), key) {
+		return false, nil
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return true, err
+	}
+	_, werr := f.WriteString(key + "\n")
+	return true, errors.Join(werr, f.Close())
 }

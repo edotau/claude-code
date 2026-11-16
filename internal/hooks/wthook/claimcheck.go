@@ -324,7 +324,7 @@ const cleanMark = "clean\t"
 
 // markClean records in session's seen store that p is clean now; a store error drops it (the mark is advisory).
 func markClean(session, p string) {
-	_, _ = seenAdd(session, cleanMark+p+"\t"+strconv.FormatInt(time.Now().Unix(), 10))
+	_, _ = core.SeenAdd(seenKind, session, cleanMark+p+"\t"+strconv.FormatInt(time.Now().Unix(), 10))
 }
 
 // cleanMarks maps each path session saw clean to the latest time it did.
@@ -384,73 +384,18 @@ func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, 
 	return slices.DeleteFunc(slices.Clone(v.claims[p]), func(h claimHit) bool { return h.TS < landed }), nil
 }
 
-// seenWait bounds the seen-store lock wait; hooks must not stall, so a held lock fails open.
-const seenWait = time.Second
+// seenKind is the shared seen store's kind for the busy, claim and divergence notices.
+const seenKind = "worktree-busy"
 
-// seenMaxAge is how long a session's seen file may sit untouched before a new session's first write prunes it.
-const seenMaxAge = 7 * 24 * time.Hour
-
-// seenFile is the per-session once-only store shared by the busy, claim and divergence notices.
-func seenFile(session string) string {
-	return filepath.Join(paths.StateDir(), "worktree-busy", sessionSlug(session))
-}
-
-// seenAdd records key in session's seen file under its own lock; false when it was already there.
-func seenAdd(session, key string) (bool, error) {
-	file := seenFile(session)
-	dir := filepath.Dir(file)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return true, err
-	}
-	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
-		pruneSeen(dir)
-	}
-	first := true
-	ran, err := paths.TryFileLock(file, seenWait, func() error { // the file is its own lock: no .lock sibling
-		var rerr error
-		first, rerr = appendIfNew(file, key)
-		return rerr
-	})
-	if err == nil && !ran {
-		err = errors.New("seen-store lock busy")
-	}
-	return first, err
-}
-
-// pruneSeen removes seen files untouched for seenMaxAge; their sessions are long gone.
-func pruneSeen(dir string) {
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if st, err := e.Info(); err == nil && st.Mode().IsRegular() && time.Since(st.ModTime()) > seenMaxAge {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
-		}
-	}
-}
+func seenFile(session string) string { return core.SeenFile(seenKind, session) }
 
 // firstSighting reports whether key is new to this session, warning on stderr and failing open on a store error.
 func firstSighting(session, key string) bool {
-	first, err := seenAdd(session, key)
+	first, err := core.SeenAdd(seenKind, session, key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "worktree-claim-check: seen store: %v\n", err)
 	}
 	return first
-}
-
-// appendIfNew appends key to file unless a line already holds it; false when it was already there.
-func appendIfNew(file, key string) (bool, error) {
-	prev, err := os.ReadFile(file)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return true, err
-	}
-	if slices.Contains(strings.Split(string(prev), "\n"), key) {
-		return false, nil
-	}
-	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return true, err
-	}
-	_, werr := f.WriteString(key + "\n")
-	return true, errors.Join(werr, f.Close())
 }
 
 func relTo(top, p string) string {
