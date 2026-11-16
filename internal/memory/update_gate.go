@@ -360,13 +360,18 @@ func writeSidecar(path string, m map[string]subFileState) {
 	}
 }
 
+// agentTranscripts lists a subagents dir's leaf and Workflow-run (workflows/<run>/) agent transcripts.
+func agentTranscripts(dir string) []string {
+	return append(globIn(dir, "agent-*.jsonl"), globIn(dir, filepath.Join("workflows", "*", "agent-*.jsonl"))...)
+}
+
 // subagentEdits recounts agent-*.jsonl edits past cached offsets when their summed size moved; write=false: no lock.
 func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, write bool) (edits int, totalBytes int64) {
 	dir := inflight.SubagentDir(transcriptPath)
 	if dir == "" {
 		return 0, 0
 	}
-	matches := globIn(dir, "agent-*.jsonl")
+	matches := agentTranscripts(dir)
 	sizes := make(map[string]int64, len(matches))
 	for _, m := range matches {
 		if fi, err := os.Stat(m); err == nil {

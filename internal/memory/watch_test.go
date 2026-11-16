@@ -53,6 +53,21 @@ func TestNewestActivityNewerSubagentFileWins(t *testing.T) {
 	}
 }
 
+// A Workflow-run agent's transcript newer than the main one keeps the session live too.
+func TestNewestActivityNewerWorkflowAgentFileWins(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	write(t, tr, "{}\n")
+	runDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents", "workflows", "wf_1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(runDir, "agent-a.jsonl"), "{}\n")
+	mainMtime := time.Now().Add(-time.Hour)
+	if got := newestActivity(tr, mainMtime); !got.After(mainMtime) {
+		t.Fatalf("newestActivity = %v, want the workflow agent's newer mtime (after %v)", got, mainMtime)
+	}
+}
+
 // A quiet transcript with uncovered work dispatches once; covered work stays quiet.
 func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

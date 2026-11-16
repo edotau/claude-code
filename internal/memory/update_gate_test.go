@@ -73,6 +73,21 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	}
 }
 
+// A Workflow-run agent's subagents/workflows/<run>/agent-*.jsonl edits count like any leaf's.
+func TestCountEditsIncludesWorkflowAgentEdits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	hosttest.WriteEdits(t, tr, 1)
+	runDir := filepath.Join(strings.TrimSuffix(tr, ".jsonl"), "subagents", "workflows", "wf_1")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteEdits(t, filepath.Join(runDir, "agent-a.jsonl"), 2)
+	if got := countEdits(tr, countPath("wf-session")); got != 3 {
+		t.Fatalf("countEdits = %d, want 3 (1 main edit + 2 workflow-agent edits)", got)
+	}
+}
+
 // One `git commit` Bash call with zero edits weighs updateMinEdits on its own and arms the Stop gate.
 func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
