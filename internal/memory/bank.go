@@ -103,9 +103,13 @@ func BankKeys() []string {
 	if storeFlat() {
 		ents, _ := os.ReadDir(StoreDir())
 		for _, e := range ents {
-			k, name, ok := strings.Cut(e.Name(), "--")
-			if ok && !e.IsDir() && k != "" && slices.Contains(bankFiles, name) {
-				keys = append(keys, k)
+			if e.IsDir() {
+				continue
+			}
+			for _, name := range bankFiles {
+				if k, ok := strings.CutSuffix(e.Name(), "--"+name); ok && k != "" {
+					keys = append(keys, k)
+				}
 			}
 		}
 	} else {
@@ -119,7 +123,7 @@ func BankKeys() []string {
 	return slices.Compact(keys)
 }
 
-// BankOfFile is the bank a store file belongs to by its name prefix; unknown or none is home.
+// BankOfFile is the bank a store file belongs to by its longest known key prefix; unknown or none is home.
 func BankOfFile(path string) Bank {
 	name := filepath.ToSlash(path)
 	if filepath.IsAbs(path) {
@@ -135,11 +139,7 @@ func BankOfFile(path string) Bank {
 	} else {
 		name = parts[0]
 	}
-	k, _, ok := strings.Cut(name, "--")
-	if ok && slices.Contains(BankKeys(), k) {
-		return Bank{Key: k}
-	}
-	return HomeBank()
+	return Bank{Key: ownerKey(name, BankKeys())}
 }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.

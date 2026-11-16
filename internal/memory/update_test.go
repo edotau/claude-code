@@ -822,13 +822,17 @@ func TestUpdateJobScopeFollowsTheLayout(t *testing.T) {
 		store := StoreDir()
 		want := []string{filepath.Join(store, "proj") + "/**", filepath.Join(store, "home") + "/**"}
 		if storeFlat() {
-			want = []string{store + "/*.md", store + "/archive/**"}
+			want = []string{store + "/proj--*.md", store + "/archive/proj--*"}
+			for _, name := range bankFiles {
+				want = append(want, filepath.Join(store, name))
+			}
 			if !slices.Contains(s.CdDirs, store) {
 				t.Errorf("flat CdDirs = %v, want the store root", s.CdDirs)
 			}
 		}
-		if !slices.Equal(s.Write, want) {
-			t.Errorf("Write = %v, want %v", s.Write, want)
+		slices.Sort(want)
+		if got := slices.Sorted(slices.Values(s.Write)); !slices.Equal(got, want) {
+			t.Errorf("Write = %v, want %v", got, want)
 		}
 	})
 }

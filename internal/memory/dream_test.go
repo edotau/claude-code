@@ -187,3 +187,31 @@ func TestDreamIfDueSkipsUnderLockWhenPeerJustDreamed(t *testing.T) {
 		t.Errorf("output %q lacks the not-due note", out.String())
 	}
 }
+
+// Flat banks share one dir: every changed store file is listed once, none dropped, none repeated per bank.
+func TestDreamChangedFlatListsEachFileOnce(t *testing.T) {
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(StoreDir(), "other--progress.md"), "x\n")
+	write(t, filepath.Join(StoreDir(), "other--topic.md"), "x\n")
+	got := dreamChanged(root, time.Time{})
+	for _, want := range []string{"proj--progress.md", "other--progress.md", "other--topic.md"} {
+		if n := countBase(got, want); n != 1 {
+			t.Errorf("dreamChanged lists %s %d times, want 1: %v", want, n, got)
+		}
+	}
+}
+
+func countBase(paths []string, base string) int {
+	n := 0
+	for _, p := range paths {
+		if filepath.Base(p) == base {
+			n++
+		}
+	}
+	return n
+}

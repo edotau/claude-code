@@ -107,3 +107,23 @@ func TestBankOfFileNestedBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestBankKeysAndOwnerAllowDoubleDashInKey(t *testing.T) {
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	s := StoreDir()
+	for _, n := range []string{"my--progress.md", "my--repo--progress.md"} {
+		write(t, filepath.Join(s, n), "x\n")
+	}
+	if got := BankKeys(); len(got) != 2 || got[0] != "my" || got[1] != "my--repo" {
+		t.Fatalf("BankKeys = %v, want [my my--repo]", got)
+	}
+	for file, want := range map[string]string{"my--repo--topic.md": "my--repo", "my--topic.md": "my", "reports/my--repo--r.md": "my--repo"} {
+		if got := BankOfFile(filepath.Join(s, filepath.FromSlash(file))); got.Key != want {
+			t.Errorf("BankOfFile(%s) = %q, want %q", file, got.Key, want)
+		}
+	}
+	if got := ownerKey("my--repo--topic.md", BankKeys()); got != "my--repo" {
+		t.Errorf("ownerKey = %q, want my--repo", got)
+	}
+}
