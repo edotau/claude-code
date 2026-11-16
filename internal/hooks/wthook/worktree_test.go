@@ -142,7 +142,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "led")
-	ledger := filepath.Join(memory.Dir(repo), "worktrees", "led.md")
+	ledger := memory.BankFor(repo).Sub("worktrees", "led.md")
 	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
 		t.Fatalf("ledger not opened by create: %v\n%s", err, data)
 	}

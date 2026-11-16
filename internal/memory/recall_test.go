@@ -24,14 +24,14 @@ func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
-	if _, err := EnsureRepoDir(a); err != nil {
+	if _, err := EnsureBank(a, ""); err != nil {
 		t.Fatal(err)
 	}
-	db, err := EnsureRepoDir(b)
+	db, err := EnsureBank(b, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — deploy pipeline retries three times\n\nbecause rate limits\n")
+	write(t, db.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — deploy pipeline retries three times\n\nbecause rate limits\n")
 
 	if hits := searchBanks(a, "deploy pipeline retries", 0); len(hits) != 0 {
 		t.Errorf("unnamed repo leaked into search: %+v", hits)
@@ -54,16 +54,16 @@ func TestSearchAllCoversEveryRepoStore(t *testing.T) {
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
 	b := gitRepo(t, t.TempDir(), "projb")
-	da, err := EnsureRepoDir(a)
+	da, err := EnsureBank(a, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := EnsureRepoDir(b)
+	db, err := EnsureBank(b, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(da, "decisionLog.md"), "# D\n\n## 2026-01-01 — proja retries the deploy pipeline\n\nbody\n")
-	write(t, filepath.Join(db, "decisionLog.md"), "# D\n\n## 2026-01-01 — projb retries the deploy pipeline\n\nbody\n")
+	write(t, da.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — proja retries the deploy pipeline\n\nbody\n")
+	write(t, db.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — projb retries the deploy pipeline\n\nbody\n")
 
 	hits := searchAll("retries the deploy pipeline", 0)
 	banks := map[string]bool{}
@@ -90,7 +90,7 @@ func TestMemoryRecallHandlesCwdGracefully(t *testing.T) {
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(HomeBankDir(), rel)
+	p := filepath.Join(StoreDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestResetSeenDropsBlocksFromAnUnreadableFile(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
 	const sid = "41111111-2222-4333-8444-555555555555"
-	bank := filepath.Join(HomeBankDir(), "conventions.md")
+	bank := filepath.Join(StoreDir(), "conventions.md")
 	write(t, bank, "# C\n\n- focus rule shown at start\n")
 	resetSeen(sid, root, "- focus rule shown at start\n")
 	if len(seenBlocks(sid)) != 1 {

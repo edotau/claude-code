@@ -144,7 +144,7 @@ func dreamChanged(cwd string, since time.Time) []string {
 	var out []string
 	for _, b := range append([]Bank{HomeBank(), BankFor(cwd)}, Banks()...) {
 		for _, f := range globIn(b.SubDir(""), "*.md") {
-			if storeFlat() && BankOfFile(f).Key != b.Key {
+			if BankOfFile(f).Key != b.Key {
 				continue
 			}
 			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {

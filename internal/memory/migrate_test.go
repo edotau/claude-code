@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -21,13 +20,13 @@ func migrateFixture(t *testing.T) (harness string, files map[string]string) {
 	t.Helper()
 	isolatedConfig(t)
 	forgetLayout()
-	t.Cleanup(func() { flatForced.Store(0); forgetLayout() })
+	t.Cleanup(forgetLayout)
 	initStore(t)
 	h := harnessStoreKey()
 	files = map[string]string{
 		h + "/MEMORY.md": "- [Topic](topic.md) — harness topic\n- [Handoff](handoffs/h1.md) — a handoff\n",
 		h + "/topic.md":  "topic body\n",
-		h + "/decisionLog.md": "# Log\n\n## 2026-11-16 — old call <!-- id:aaaaaaa1 -->\nbody\n\n" +
+		h + "/decisionLog.md": "# Log\n\n## 2026-11-16 — ~~old call~~ <!-- id:aaaaaaa1 -->\nReplaced by bbbbbbb2 (2026-11-16).\nbody\n\n" +
 			"## 2026-11-16 — new call <!-- id:bbbbbbb2 -->\nSupersedes aaaaaaa1\n",
 		h + "/handoffs/h1.md":                     "handoff\n",
 		h + "/reports/r.md":                       "see memory/" + h + "/handoffs/h1.md and handoffs/h1.md and `reports/r.md`\n",
@@ -71,6 +70,9 @@ func snapshot(t *testing.T) map[string]string {
 	}
 	out := map[string]string{}
 	for _, f := range files {
+		if f == catalogFile {
+			continue
+		}
 		b, err := readStoreFile(f)
 		if err != nil {
 			t.Fatal(err)
@@ -156,9 +158,6 @@ func TestMigrateIdempotent(t *testing.T) {
 
 func TestMigrateRevertRestoresTree(t *testing.T) {
 	_, _ = migrateFixture(t)
-	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
-		t.Fatal(err)
-	}
 	want := snapshot(t)
 	slug := filepath.Join(paths.ConfigDir(), "projects", "p1", "memory")
 	if err := os.MkdirAll(filepath.Dir(slug), 0o755); err != nil {
@@ -336,22 +335,6 @@ func migrateWrite(t *testing.T, rel, text string) {
 	}
 }
 
-func TestMigrateCatalogRoundTrip(t *testing.T) {
-	migrateFixture(t)
-	migrateWrite(t, catalogFile, "catalog\n")
-	commitFixture(t, "catalog")
-	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
-		t.Fatal(err)
-	}
-	want := snapshot(t)
-	mustMigrate(t, MigrateOptions{})
-	mustMigrate(t, MigrateOptions{Revert: true})
-	if !maps.Equal(snapshot(t), want) {
-		t.Fatal("catalog moved or original tree changed")
-	}
-	mustMigrate(t, MigrateOptions{})
-}
-
 func TestMigrateRevertCollisionNoLoss(t *testing.T) {
 	h, _ := migrateFixture(t)
 	mustMigrate(t, MigrateOptions{})
@@ -428,10 +411,7 @@ func TestMigrateNoIndexesRoundTrip(t *testing.T) {
 			t.Fatalf("changed %s", rel)
 		}
 	}
-	if !strings.Contains(got[catalogFile], "# Memory catalog") || !strings.Contains(got["home/MEMORY.md"], bankRegionBegin) {
-		t.Fatal("missing refreshed indexes")
-	}
-	t.Cleanup(func() { flatForced.Store(0); forgetLayout() })
+	t.Cleanup(forgetLayout)
 }
 
 func TestMigrateIndexExactLineMatch(t *testing.T) {
@@ -465,16 +445,6 @@ func TestMigrateDottedWatcher(t *testing.T) {
 	}
 	if err := Migrate(MigrateOptions{}); !errors.Is(err, ErrMigrateRefused) {
 		t.Fatalf("live dotted watcher = %v, want refusal", err)
-	}
-}
-
-func TestMigrateRevertRestoresForce(t *testing.T) {
-	migrateFixture(t)
-	mustMigrate(t, MigrateOptions{})
-	flatForced.Store(0)
-	mustMigrate(t, MigrateOptions{Revert: true, DryRun: true})
-	if got := flatForced.Load(); got != 0 {
-		t.Fatalf("force leaked: %d", got)
 	}
 }
 
@@ -588,16 +558,11 @@ func TestMigrateRevertRefusesIndexProseLoss(t *testing.T) {
 }
 
 func TestMigrateRefreshesCatalogAfterFlip(t *testing.T) {
-	h, _ := migrateFixture(t)
+	_, _ = migrateFixture(t)
 	mustMigrate(t, MigrateOptions{})
 	catalog := aliasRead(t, filepath.Join(StoreDir(), catalogFile))
 	if !strings.Contains(catalog, "alpha--projectContext.md") {
 		t.Fatalf("stale flat catalog: %s", catalog)
-	}
-	mustMigrate(t, MigrateOptions{Revert: true})
-	catalog = aliasRead(t, filepath.Join(StoreDir(), catalogFile))
-	if !strings.Contains(catalog, h+"/MEMORY.md") || strings.Contains(catalog, "alpha--projectContext.md") {
-		t.Fatalf("stale legacy catalog: %s", catalog)
 	}
 }
 
@@ -686,9 +651,6 @@ func TestMigrateLegacyCollisionKey(t *testing.T) {
 		migrateWrite(t, rel, text)
 	}
 	commitFixture(t, "legacy collision key")
-	if err := Index(io.Discard, io.Discard, IndexOptions{Repo: paths.ConfigDir()}); err != nil {
-		t.Fatal(err)
-	}
 	before := snapshot(t)
 	mustMigrate(t, MigrateOptions{})
 	got := snapshot(t)

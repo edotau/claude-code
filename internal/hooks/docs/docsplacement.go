@@ -168,11 +168,6 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 func blockPlacement(stderr io.Writer, base, where, root string) int {
 	b := memory.BankFor(root)
 	reports, handoffs := b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md")
-	if paths.Within(core.CanonPath(root), core.CanonPath(memory.StoreDir())) {
-		// a repo inside the memory store is its own bank; BankFor resolves an unregistered one to home
-		reports = filepath.Join(memory.ReportsDir(root), "YYYY-MM-DD-<name>.md")
-		handoffs = filepath.Join(memory.HandoffsDir(root), "YYYY-MM-DD-<topic>.md")
-	}
 	plansHome := plans.Home(planRepoRoot(root))
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there. A genuine repo doc the user asked\n"+

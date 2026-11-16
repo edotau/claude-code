@@ -14,13 +14,13 @@ func TestPromoteHomeKeepsExistingCopyOnLocalFailure(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	local := filepath.Join(Dir(root), "conventions.md")
+	local := BankFor(root).Path("conventions.md")
 	data, _ := os.ReadFile(local)
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), string(data))
-	if err := os.Chmod(Dir(root), 0o500); err != nil {
+	write(t, filepath.Join(StoreDir(), "conventions.md"), string(data))
+	if err := os.Chmod(StoreDir(), 0o500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(Dir(root), 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(StoreDir(), 0o700) })
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
@@ -28,7 +28,7 @@ func TestPromoteHomeKeepsExistingCopyOnLocalFailure(t *testing.T) {
 	if _, err := Promote(root, id, "home", false, time.Now()); err == nil {
 		t.Fatal("Promote succeeded despite unwritable local bank")
 	}
-	home, _ := os.ReadFile(filepath.Join(HomeBankDir(), "conventions.md"))
+	home, _ := os.ReadFile(filepath.Join(StoreDir(), "conventions.md"))
 	if n := strings.Count(string(home), "<!-- id:"+id+" -->"); n != 1 {
 		t.Errorf("home holds the block %d times, want the original 1", n)
 	}
@@ -38,19 +38,19 @@ func TestPromoteHomeKeepsExistingCopyOnLocalFailure(t *testing.T) {
 func TestPromoteIgnoresQuotedMarker(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	write(t, filepath.Join(dir, "decisionLog.md"), "# Decisions\n\n"+
+	dir := BankFor(root)
+	write(t, dir.Path("decisionLog.md"), "# Decisions\n\n"+
 		"## 2026-11-02 — B <!-- id:bbbb2222 -->\n```\nsupersedes <!-- id:aaaa1111 -->\n```\n\n"+
 		"## 2026-11-01 — A <!-- id:aaaa1111 -->\nold body\n")
 
 	if _, err := Promote(root, "aaaa1111", "home", false, time.Now()); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
-	local, _ := os.ReadFile(filepath.Join(dir, "decisionLog.md"))
+	local, _ := os.ReadFile(dir.Path("decisionLog.md"))
 	if !strings.Contains(string(local), "id:bbbb2222") {
 		t.Errorf("quoting block B was removed:\n%s", local)
 	}
-	home, _ := os.ReadFile(filepath.Join(HomeBankDir(), "decisionLog.md"))
+	home, _ := os.ReadFile(filepath.Join(StoreDir(), "decisionLog.md"))
 	if strings.Contains(string(home), "id:bbbb2222") || !strings.Contains(string(home), "old body") {
 		t.Errorf("home got the wrong block:\n%s", home)
 	}
@@ -60,18 +60,18 @@ func TestPromoteIgnoresQuotedMarker(t *testing.T) {
 func TestPromoteFindsWrappedStackedMarker(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	write(t, filepath.Join(dir, "conventions.md"), "# C\n\n- keep me <!-- id:bbbb2222 -->\n\n"+
+	dir := BankFor(root)
+	write(t, dir.Path("conventions.md"), "# C\n\n- keep me <!-- id:bbbb2222 -->\n\n"+
 		"- long rule that wraps\n  onto a second line <!-- id:cccc3333 -->\n  <!-- id:aaaa1111 -->\n")
 
 	if _, err := Promote(root, "aaaa1111", "home", false, time.Now()); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
-	local, _ := os.ReadFile(filepath.Join(dir, "conventions.md"))
+	local, _ := os.ReadFile(dir.Path("conventions.md"))
 	if strings.Contains(string(local), "long rule") || !strings.Contains(string(local), "keep me") {
 		t.Errorf("source bank not updated correctly:\n%s", local)
 	}
-	home, _ := os.ReadFile(filepath.Join(HomeBankDir(), "conventions.md"))
+	home, _ := os.ReadFile(filepath.Join(StoreDir(), "conventions.md"))
 	if !strings.Contains(string(home), "onto a second line") {
 		t.Errorf("home missing the wrapped block:\n%s", home)
 	}
@@ -148,7 +148,7 @@ func TestPromoteSettleFailureRollsBackBothBanks(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	local, home := filepath.Join(Dir(root), "conventions.md"), filepath.Join(HomeBankDir(), "conventions.md")
+	local, home := BankFor(root).Path("conventions.md"), filepath.Join(StoreDir(), "conventions.md")
 	localBefore, _ := os.ReadFile(local)
 	homeBefore, homeErr := os.ReadFile(home)
 	orig := afterPromoteMove

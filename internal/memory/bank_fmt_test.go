@@ -314,27 +314,26 @@ func TestFormatBankMarkdownIdempotent(t *testing.T) {
 }
 
 // bankFmtRepoStore builds a cut-over store with one registered repo, returning the repo's bank dir.
-func bankFmtRepoStore(t *testing.T) (globalDir, repoDir string) {
+func bankFmtRepoStore(t *testing.T) (globalDir string, repo Bank) {
 	t.Helper()
 	isolatedConfig1(t)
 	initStore(t)
-	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureRepoDir(repo)
-	if err != nil {
+	proot := gitRepo(t, t.TempDir(), "proj")
+	if _, err := Init(proot); err != nil {
 		t.Fatal(err)
 	}
-	return HomeBankDir(), dir
+	return StoreDir(), BankFor(proot)
 }
 
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {
 	global, repo := bankFmtRepoStore(t)
 	for _, name := range bankFiles {
-		write(t, filepath.Join(repo, name), "# "+name+"\nbody\n")
+		write(t, repo.Path(name), "# "+name+"\nbody\n")
 	}
-	write(t, filepath.Join(repo, "archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
-	write(t, filepath.Join(repo, "handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
-	write(t, filepath.Join(repo, "reports", "review.md"), "# report\nbody\n")
-	write(t, filepath.Join(repo, nativeIndexFile), "native MEMORY.md\n")
+	write(t, repo.Sub("archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
+	write(t, repo.Sub("handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
+	write(t, repo.Sub("reports", "review.md"), "# report\nbody\n")
+	write(t, filepath.Join(StoreDir(), nativeIndexFile), "native MEMORY.md\n")
 	write(t, filepath.Join(StoreDir(), catalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
 
@@ -343,16 +342,16 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		filepath.Join(repo, "projectContext.md"):                    true,
-		filepath.Join(repo, "activeContext.md"):                     true,
-		filepath.Join(repo, "progress.md"):                          true,
-		filepath.Join(repo, "decisionLog.md"):                       true,
-		filepath.Join(repo, "conventions.md"):                       true,
-		filepath.Join(repo, "sessionHistory.md"):                    true,
-		filepath.Join(repo, "archive", "sessionHistory-2026-01.md"): true,
-		filepath.Join(repo, "handoffs", "2026-01-01-x.md"):          true,
-		filepath.Join(repo, "reports", "review.md"):                 true,
-		filepath.Join(global, "decisionLog.md"):                     true,
+		repo.Path("projectContext.md"):                   true,
+		repo.Path("activeContext.md"):                    true,
+		repo.Path("progress.md"):                         true,
+		repo.Path("decisionLog.md"):                      true,
+		repo.Path("conventions.md"):                      true,
+		repo.Path("sessionHistory.md"):                   true,
+		repo.Sub("archive", "sessionHistory-2026-01.md"): true,
+		repo.Sub("handoffs", "2026-01-01-x.md"):          true,
+		repo.Sub("reports", "review.md"):                 true,
+		filepath.Join(global, "decisionLog.md"):          true,
 	}
 	got := map[string]bool{}
 	for _, f := range files {
@@ -363,7 +362,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 			t.Errorf("bankFmtTargets missing %s", f)
 		}
 	}
-	for _, never := range []string{filepath.Join(repo, nativeIndexFile), filepath.Join(StoreDir(), catalogFile)} {
+	for _, never := range []string{filepath.Join(StoreDir(), nativeIndexFile), filepath.Join(StoreDir(), catalogFile)} {
 		if got[never] {
 			t.Errorf("bankFmtTargets included %s, want never", never)
 		}
@@ -518,7 +517,7 @@ func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
 func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	t.Helper()
 	if sub == "stat" {
-		file := filepath.Join(HomeBankDir(), "decisionLog.md")
+		file := filepath.Join(StoreDir(), "decisionLog.md")
 		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -527,7 +526,7 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 		}
 		return syscall.ELOOP
 	}
-	dir := filepath.Join(HomeBankDir(), sub)
+	dir := filepath.Join(StoreDir(), sub)
 	write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden\nbody\n")
 	denyBankAccess(t, dir)
 	return fs.ErrPermission
@@ -536,7 +535,7 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
 	home, other := bankFmtRepoStore(t)
 	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
-	otherFile := filepath.Join(other, "reports", "r.md")
+	otherFile := other.Sub("reports", "r.md")
 	homeFile := filepath.Join(home, "decisionLog.md")
 	write(t, otherFile, body)
 	var out strings.Builder
@@ -558,7 +557,7 @@ func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
 func TestFormatOwnWrapsOnlyOwnBanks(t *testing.T) {
 	home, other := bankFmtRepoStore(t)
 	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
-	otherFile := filepath.Join(other, "reports", "r.md")
+	otherFile := other.Sub("reports", "r.md")
 	homeFile := filepath.Join(home, "decisionLog.md")
 	write(t, otherFile, body)
 	write(t, homeFile, body)

@@ -90,7 +90,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {
 		t.Fatalf("update = %+v, spawns=%d; want not blocked and one background worker", res, spawns.Update.Load())
 	}
-	data, err := os.ReadFile(filepath.Join(memory.Dir(main), "worktrees", "wt-h.md"))
+	data, err := os.ReadFile(memory.BankFor(main).Sub("worktrees", "wt-h.md"))
 	if err != nil || !strings.Contains(string(data), "update (") || !strings.Contains(string(data), "3 edits, session s1") {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}

@@ -1,63 +1,39 @@
 package memory
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
-// setStoreFlat forces the store layout for one test, restoring the previous force on cleanup.
-func setStoreFlat(tb testing.TB, flat bool) {
-	tb.Helper()
-	prev := flatForced.Load()
-	v := int32(1)
-	if flat {
-		v = 2
-	}
-	flatForced.Store(v)
-	tb.Cleanup(func() { flatForced.Store(prev) })
-}
-
 func TestBankPaths(t *testing.T) {
 	isolatedConfig(t)
 	s := StoreDir()
-	for _, tc := range []struct {
-		key, legacy, flatPath, flatSub string
-	}{
-		{"claude-code", "claude-code", "claude-code--activeContext.md", "reports/claude-code--x.md"},
-		{"", "home", "activeContext.md", "reports/x.md"},
-		{"digitalbtd-rapid", "digitalbtd-rapid", "digitalbtd-rapid--activeContext.md", "reports/digitalbtd-rapid--x.md"},
+	for _, tc := range []struct{ key, path, sub string }{
+		{"claude-code", "claude-code--activeContext.md", "reports/claude-code--x.md"},
+		{"", "activeContext.md", "reports/x.md"},
+		{"digitalbtd-rapid", "digitalbtd-rapid--activeContext.md", "reports/digitalbtd-rapid--x.md"},
 	} {
 		b := Bank{Key: tc.key}
-		setStoreFlat(t, false)
-		if got, want := b.Path("activeContext.md"), filepath.Join(s, tc.legacy, "activeContext.md"); got != want {
-			t.Errorf("legacy Path(%q) = %s, want %s", tc.key, got, want)
+		if got, want := b.Path("activeContext.md"), filepath.Join(s, tc.path); got != want {
+			t.Errorf("Path(%q) = %s, want %s", tc.key, got, want)
 		}
-		if got, want := b.Sub("reports", "x.md"), filepath.Join(s, tc.legacy, "reports", "x.md"); got != want {
-			t.Errorf("legacy Sub(%q) = %s, want %s", tc.key, got, want)
-		}
-		if got, want := b.NativeIndex(), filepath.Join(s, tc.legacy, "MEMORY.md"); got != want {
-			t.Errorf("legacy NativeIndex(%q) = %s, want %s", tc.key, got, want)
-		}
-		setStoreFlat(t, true)
-		if got, want := b.Path("activeContext.md"), filepath.Join(s, tc.flatPath); got != want {
-			t.Errorf("flat Path(%q) = %s, want %s", tc.key, got, want)
-		}
-		if got, want := b.Sub("reports", "x.md"), filepath.Join(s, filepath.FromSlash(tc.flatSub)); got != want {
-			t.Errorf("flat Sub(%q) = %s, want %s", tc.key, got, want)
+		if got, want := b.Sub("reports", "x.md"), filepath.Join(s, filepath.FromSlash(tc.sub)); got != want {
+			t.Errorf("Sub(%q) = %s, want %s", tc.key, got, want)
 		}
 		if got, want := b.NativeIndex(), filepath.Join(s, "MEMORY.md"); got != want {
-			t.Errorf("flat NativeIndex(%q) = %s, want %s", tc.key, got, want)
+			t.Errorf("NativeIndex(%q) = %s, want %s", tc.key, got, want)
 		}
 	}
 }
 
 func TestBankOfFileFlat(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	s := StoreDir()
 	if err := os.MkdirAll(s, 0o755); err != nil {
 		t.Fatal(err)
@@ -84,23 +60,59 @@ func TestBankOfFileFlat(t *testing.T) {
 func TestStoreFlatReadsStamp(t *testing.T) {
 	isolatedConfig(t)
 	if storeFlat() {
-		t.Fatal("fresh store reads flat")
+		t.Fatal("unstamped store reads flat")
 	}
-	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(StoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, filepath.Join(StoreDir(), layoutFile), layoutFlat+"\n")
 	forgetLayout()
 	if !storeFlat() {
 		t.Fatal("stamped store reads legacy")
 	}
 }
 
+func TestBankKeysIncludesRecordedReportOnlyBank(t *testing.T) {
+	isolatedConfig(t)
+	write(t, filepath.Join(StoreDir(), layoutFile), layoutFlat+"\n")
+	forgetLayout()
+	write(t, filepath.Join(StoreDir(), originsFile), "solo\t/src/solo\n")
+	if got := BankKeys(); !slices.Contains(got, "solo") {
+		t.Fatalf("BankKeys = %v, want the recorded report-only bank solo", got)
+	}
+}
+
+func TestRequireFlatSeesLegacyBankNamedLikeASharedSub(t *testing.T) {
+	isolatedConfig(t)
+	write(t, filepath.Join(StoreDir(), "reports", "progress.md"), "x\n")
+	if err := requireFlat(); !errors.Is(err, errStoreNotFlat) || storeFlat() {
+		t.Fatalf("requireFlat = %v (flat=%v), want errStoreNotFlat and no stamp", err, storeFlat())
+	}
+}
+
+func TestWritersRefuseLegacyStoreAndStampFreshOne(t *testing.T) {
+	isolatedConfig(t)
+	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
+	root := gitRepo(t, t.TempDir(), "proj")
+	if _, err := EnsureBank(root, ""); !errors.Is(err, errStoreNotFlat) {
+		t.Errorf("EnsureBank = %v, want errStoreNotFlat", err)
+	}
+	if _, err := Init(root); !errors.Is(err, errStoreNotFlat) {
+		t.Errorf("Init = %v, want errStoreNotFlat", err)
+	}
+	if err := withFlatLock(BankLockWait, func() error { return nil }); !errors.Is(err, errStoreNotFlat) {
+		t.Errorf("withFlatLock = %v, want errStoreNotFlat", err)
+	}
+	if got := BankKeys(); len(got) != 0 {
+		t.Errorf("BankKeys on a legacy store = %v, want none", got)
+	}
+	if err := os.RemoveAll(filepath.Join(StoreDir(), "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(root); err != nil || !storeFlat() {
+		t.Errorf("Init on a fresh store = %v, flat=%v, want it stamped", err, storeFlat())
+	}
+}
+
 func TestBankOfFileNestedBundle(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	migrateWrite(t, "alpha--progress.md", "p\n")
 	for _, name := range []string{"reports/alpha--bundle/sub/review.md", "archive/alpha--dream-backup/day/MEMORY.md"} {
 		for _, path := range []string{name, filepath.Join(StoreDir(), name)} {
@@ -113,7 +125,6 @@ func TestBankOfFileNestedBundle(t *testing.T) {
 
 func TestBankKeysAndOwnerSplitOnFirstDoubleDash(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	s := StoreDir()
 	for _, n := range []string{"my--progress.md", "my--repo--progress.md"} {
 		write(t, filepath.Join(s, n), "x\n")
@@ -130,7 +141,6 @@ func TestBankKeysAndOwnerSplitOnFirstDoubleDash(t *testing.T) {
 
 func TestBankForCollapsesDashRunsAndSplitsSameBasenameRepos(t *testing.T) {
 	cfg := tempConfig(t)
-	setStoreFlat(t, true)
 	a := gitRepo(t, t.TempDir(), "my--api")
 	hosttest.In(t, a, "remote", "add", "origin", "https://github.com/org-a/my--api.git")
 	b := gitRepo(t, t.TempDir(), "x")
@@ -157,15 +167,11 @@ func TestBankForCollapsesDashRunsAndSplitsSameBasenameRepos(t *testing.T) {
 	}
 }
 
-func TestPrefixIsEmptyOnLegacyLayout(t *testing.T) {
-	isolatedConfig(t)
-	b := Bank{Key: "alpha"}
-	setStoreFlat(t, false)
-	if got := b.Prefix(); got != "" {
-		t.Errorf("legacy Prefix = %q, want empty", got)
+func TestPrefix(t *testing.T) {
+	if got := (Bank{Key: "alpha"}).Prefix(); got != "alpha--" {
+		t.Errorf("Prefix = %q, want alpha--", got)
 	}
-	setStoreFlat(t, true)
-	if got := b.Prefix(); got != "alpha--" {
-		t.Errorf("flat Prefix = %q, want alpha--", got)
+	if got := HomeBank().Prefix(); got != "" {
+		t.Errorf("home Prefix = %q, want empty", got)
 	}
 }

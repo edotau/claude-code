@@ -151,7 +151,7 @@ func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
 // seedHomeRecallBlock writes n id-marked home-bank blocks repeating the query terms so BM25 scores them close.
 func seedHomeRecallBlock(t *testing.T, n int) {
 	t.Helper()
-	if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
@@ -159,7 +159,7 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 	for i := range n {
 		fmt.Fprintf(&b, "- deploy pipeline staging signoff rule %d %s<!-- id:%08x -->\n", i, strings.Repeat("padding ", 40), i+1)
 	}
-	if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(memory.StoreDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

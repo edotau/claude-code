@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // SandboxOwnerFile is the marker in a sandbox root naming the process that created it.
@@ -93,7 +91,7 @@ type SandboxStore struct {
 	Files int    `json:"files"`
 }
 
-// SandboxResult describes a disposable config with an origin-only vault and no embedding cache.
+// SandboxResult describes a disposable flat-store config with no embedding cache.
 type SandboxResult struct {
 	Dir    string            `json:"dir"`
 	Env    map[string]string `json:"env"`
@@ -102,8 +100,7 @@ type SandboxResult struct {
 
 // Sandbox creates a disposable config without writing to the source bank.
 func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
-	stores, origins, err := sandboxSources(opt)
-	if err != nil {
+	if err = requireFlat(); err != nil {
 		return res, err
 	}
 	res.Dir, err = os.MkdirTemp("", "claude-memory-sandbox-")
@@ -122,63 +119,11 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 		return res, err
 	}
 	res.Env = map[string]string{"CLAUDE_CONFIG_DIR": res.Dir}
-	if storeFlat() {
-		res.Stores, err = sandboxFlat(res.Dir, opt)
-		return res, err
-	}
-	var files []string
-	for _, key := range slices.Sorted(maps.Keys(stores)) {
-		names, copyErr := sandboxStore(res.Dir, key, stores[key], opt.Empty)
-		if copyErr != nil {
-			return res, copyErr
-		}
-		files = append(files, names...)
-		res.Stores = append(res.Stores, SandboxStore{key, len(names)})
-	}
-	if err = sandboxOrigins(res.Dir, origins); err != nil {
-		return res, err
-	}
-	err = sandboxSnapshot(filepath.Join(res.Dir, "memory"), files)
+	res.Stores, err = sandboxFlat(res.Dir, opt)
 	return res, err
 }
 
-func sandboxSources(opt SandboxOptions) (map[string]string, []Origin, error) {
-	if storeFlat() { // the flat copy needs no origin rows or store dirs
-		return nil, nil, nil
-	}
-	root, err := ResolveRoot(opt.Repo)
-	if err != nil {
-		return nil, nil, importInput("%v", err)
-	}
-	entries, err := RepoDirs()
-	if err != nil {
-		return nil, nil, err
-	}
-	selected := BankFor(root)
-	stores := map[string]string{"home": HomeBank().SubDir(""), selected.Key: selected.SubDir("")}
-	if opt.All {
-		for _, e := range entries {
-			stores[e.Key] = e.Dir
-		}
-	}
-	var origins []Origin
-	for _, key := range slices.Sorted(maps.Keys(stores)) {
-		if key == "home" {
-			continue
-		}
-		o := Origin{Version: OriginVersion, Key: key, Origin: Resolve(root).Origin}
-		for _, e := range entries {
-			if e.Key == key {
-				o = e.Origin
-				break
-			}
-		}
-		origins = append(origins, o)
-	}
-	return stores, origins, nil
-}
-
-// sandboxFlat copies the selected banks' files (by prefix) into config's flat store, stamped, with no origin rows.
+// sandboxFlat copies the selected banks' files (by prefix) into config's flat store, stamped, .
 func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	_, sel, err := ResolveBank(opt.Repo)
 	if err != nil {
@@ -262,57 +207,6 @@ func ownedStoreRels(b Bank) []string {
 
 // storeLevelFile is a top-level file shared by every bank: the index, the catalog.
 func storeLevelFile(rel string) bool { return rel == nativeIndexFile || rel == catalogFile }
-
-func sandboxStore(config, key, src string, empty bool) ([]string, error) {
-	dst := filepath.Join(config, "memory", key)
-	if err := os.MkdirAll(dst, 0o700); err != nil {
-		return nil, err
-	}
-	p := &importPlan{topics: true}
-	if !empty {
-		if err := p.planStore(importPair{key: key, src: src, tgt: dst}); err != nil {
-			return nil, err
-		}
-	}
-	if empty {
-		for name, body := range templates() {
-			p.changes = append(p.changes, Change{Rel: storeRel(dst, name), Data: []byte(body)})
-		}
-	}
-	changes := slices.DeleteFunc(p.changes, func(c Change) bool { return filepath.Base(c.Rel) == ".git" })
-	var files []string
-	for _, c := range changes {
-		target := filepath.Join(StoreDir(), c.Rel)
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(target, c.Data, 0o600); err != nil {
-			return nil, err
-		}
-		rel, err := filepath.Rel(filepath.Join(config, "memory"), target)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, filepath.ToSlash(rel))
-	}
-	return files, nil
-}
-
-// sandboxOrigins writes the origins into the sandbox vault by path; no source vault bucket is copied.
-func sandboxOrigins(config string, origins []Origin) error {
-	return vault.UpdateAt(filepath.Join(config, "state", "vault.db"), func(tx *vault.Tx) error {
-		for _, o := range origins {
-			data, err := json.Marshal(o)
-			if err != nil {
-				return err
-			}
-			if err := tx.Put(vault.MemoryOrigins, o.Key, string(data)); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
 
 func sandboxSnapshot(dir string, files []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)

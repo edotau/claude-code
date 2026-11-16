@@ -56,7 +56,7 @@ const lease3Bank = "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\
 // The 1h lease end to end: mint, no-op inside it, re-mint after it, the 52m override, the race, partial run, recall.
 func TestEmbedLeaseEndToEnd(t *testing.T) {
 	isolatedConfig1(t)
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"),
+	write(t, filepath.Join(StoreDir(), "decisionLog.md"),
 		"# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\n## 2026-10-02 — delta <!-- id:aaaa0002 -->\n\nb2\n")
 	e := &leaseEnv{t: t, ctx: context.Background(), root: t.TempDir()}
 	e.c = leaseClient(&e.calls, nil)
@@ -99,7 +99,7 @@ func (e *leaseEnv) remintAfterExpiry() {
 		e.t.Fatalf("59m old record must be valid: %v", err)
 	}
 	old := backdate(e.t, embedValidity+time.Second)
-	write(e.t, filepath.Join(HomeBankDir(), "decisionLog.md"), lease3Bank)
+	write(e.t, filepath.Join(StoreDir(), "decisionLog.md"), lease3Bank)
 	before := e.calls
 	if n, _, err := embedChanged(e.ctx, e.root, e.c); err != nil || n != 1 || e.calls != before+1 {
 		e.t.Fatalf("expired record must re-mint the changed rows: n=%d calls=%d err=%v", n, e.calls-before, err)
@@ -186,7 +186,7 @@ func (e *leaseEnv) recallReadsExpired() {
 func leaseFixture(t *testing.T) string {
 	t.Helper()
 	isolatedConfig1(t)
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
+	write(t, filepath.Join(StoreDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
 	return t.TempDir()
 }
 
@@ -368,7 +368,7 @@ func TestEmbedModelChangeIgnoresForeignLease(t *testing.T) {
 
 func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
 	root := leaseFixture(t)
-	bankFile := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
 	write(t, bankFile, lease3Bank[:strings.LastIndex(lease3Bank, "\n\n##")]+"\n")
 	ctx := context.Background()
 	if _, _, err := embedChanged(ctx, root, dimEmbedClient(3, nil)); err != nil {
@@ -501,7 +501,7 @@ func TestReleaseReturnsUpdateFailure(t *testing.T) {
 
 func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
 	root := leaseFixture(t)
-	bankFile := filepath.Join(HomeBankDir(), "decisionLog.md")
+	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
 	backup := bankFile + ".saved"
 	var calls int
 	c := leaseClient(&calls, func() {

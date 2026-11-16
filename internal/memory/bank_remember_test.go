@@ -31,20 +31,16 @@ func TestRememberEmptyFactErrors(t *testing.T) {
 func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
 	tempConfig(t)
 	root := gitRepo(t, canonTemp(t, t.TempDir()), "fresh")
-	dir, err := RepoDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	want := BankFor(root)
 	id, err := Remember(root, "feedback", "keep fresh repository facts discoverable", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := Dir(root); got != dir {
-		t.Fatalf("Remember orphaned its store: directory changed from %s to %s", dir, got)
+	if got := BankFor(root); got != want {
+		t.Fatalf("Remember orphaned its bank: key changed from %s to %s", want.Key, got.Key)
 	}
-	origin, err := readOrigin(dir)
-	if err != nil || !origin.accepts(root) {
-		t.Fatalf("Remember did not record the repository origin: %+v, %v", origin, err)
+	if got := readOrigins()[want.Key]; got == "" {
+		t.Fatal("Remember did not record the repository origin")
 	}
 	hits, err := corpusBlocks(root)
 	if err != nil {
@@ -71,7 +67,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if id == "" {
 		t.Fatal("Remember returned an empty id")
 	}
-	path := filepath.Join(Dir(root), "decisionLog.md")
+	path := BankFor(root).Path("decisionLog.md")
 	if n := reads[path]; n != 2 {
 		t.Errorf("Remember read decisionLog.md %d times, want 2 (its write, then settle)", n)
 	}
@@ -89,7 +85,7 @@ func assertLaterProjectEntryFirst(t *testing.T, root, id string, now time.Time) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(filepath.Join(Dir(root), "decisionLog.md"))
+	data, _ := os.ReadFile(BankFor(root).Path("decisionLog.md"))
 	first := strings.Index(string(data), id2)
 	second := strings.Index(string(data), id)
 	if first == -1 || second == -1 || first > second {
@@ -107,7 +103,7 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 				t.Fatalf("Remember(%s): %v", kind, err)
 			}
 			label := strings.ToUpper(kind[:1]) + kind[1:]
-			body := mustRead(t, filepath.Join(Dir(root), "conventions.md"))
+			body := mustRead(t, BankFor(root).Path("conventions.md"))
 			if !strings.Contains(body, "- "+label+": prefer early returns over deep nesting") {
 				t.Errorf("conventions.md missing the labeled bullet: %q", body)
 			}
@@ -120,7 +116,7 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 
 // TestPrependBlockUnreadableLogIsNotRewritten: a read error other than not-exist leaves decisionLog.md alone.
 func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		p := b.Path("decisionLog.md") // a directory: ReadFile fails with EISDIR
 		if err := os.Mkdir(p, 0o700); err != nil {
 			t.Fatal(err)
@@ -155,7 +151,7 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 	if _, err := Remember(root, "user", "likes tea", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	body := mustRead(t, filepath.Join(Dir(root), "conventions.md"))
+	body := mustRead(t, BankFor(root).Path("conventions.md"))
 	scaffold := strings.TrimRight(templates()["conventions.md"], "\n")
 	if strings.Contains(body, "(archived)") || !strings.HasPrefix(body, scaffold) {
 		t.Errorf("conventions.md = %q, want it to start with the scaffold %q", body, scaffold)
@@ -166,7 +162,7 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	path := filepath.Join(Dir(root), "conventions.md")
+	path := BankFor(root).Path("conventions.md")
 	for _, c := range []struct{ name, body, fact string }{
 		{"unclosed fence above", "# Conventions\n\n- a rule\n\n```go\nx := 1\n", "fact after the fence"},
 		{"id marker in the fact", "# Conventions\n\n- a rule\n", "quote <!-- id:deadbeef --> here"},
@@ -231,7 +227,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	seedConventionBlock(t, root)
-	path := filepath.Join(Dir(root), "conventions.md")
+	path := BankFor(root).Path("conventions.md")
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +259,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	t.Cleanup(func() { now = previousNow })
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
-			eachLayout(t, func(t *testing.T, b Bank) {
+			runBank(t, func(t *testing.T, b Bank) {
 				report := b.Sub("reports", "2026-11-08-review.md")
 				decisions := b.Sub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
@@ -369,7 +365,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 // not a repo: commitStore fails
 
 func TestRememberWritesTheBanksFileInEachLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}

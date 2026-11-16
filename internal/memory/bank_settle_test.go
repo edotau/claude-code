@@ -11,24 +11,19 @@ import (
 	"time"
 )
 
-// eachLayout runs fn once per store layout, on a fresh "repo" bank in an isolated config.
-func eachLayout(t *testing.T, fn func(t *testing.T, b Bank)) {
+// runBank runs fn on a fresh "repo" bank in an isolated flat config.
+func runBank(t *testing.T, fn func(t *testing.T, b Bank)) {
 	t.Helper()
-	for _, flat := range []bool{false, true} {
-		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
-			isolatedConfig(t)
-			setStoreFlat(t, flat)
-			b := Bank{Key: "repo"}
-			if err := b.Ensure(""); err != nil {
-				t.Fatal(err)
-			}
-			fn(t, b)
-		})
+	isolatedConfig(t)
+	b := Bank{Key: "repo"}
+	if err := b.Ensure(""); err != nil {
+		t.Fatal(err)
 	}
+	fn(t, b)
 }
 
 func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
 		entries := make([]string, sessionHistoryMaxEntries+2)
 		for i := range entries {
@@ -55,7 +50,7 @@ func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 }
 
 func TestRotateSessionHistoryReportsReadError(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		if n, err := rotateSessionHistory(b, time.Now()); n != 0 || err != nil {
 			t.Fatalf("missing history: got %d, %v", n, err)
 		}
@@ -79,7 +74,7 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := StoreDir()
 	if _, err := settleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -105,24 +100,28 @@ func fakeCredential() string { return "sk-" + "ant-api03-" + strings.Repeat("x9Y
 func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
 	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	other := filepath.Join(StoreDir(), "otherrepo", "note.md")
+	write(t, Bank{Key: "otherrepo"}.Path("progress.md"), "# P\n")
+	other := Bank{Key: "otherrepo"}.Path("note.md")
 	write(t, other, "key: "+fakeCredential()+"\n")
 
 	if _, err := settleBank(root, time.Now()); err != nil {
 		t.Fatalf("an unrelated repo's credential-shaped file failed this repo's settle: %v", err)
 	}
-	st, err := StoreRepo().Status("otherrepo")
-	if err != nil || len(st) != 1 || st[0].Path != "otherrepo/note.md" {
+	st, err := StoreRepo().Status("otherrepo--note.md")
+	if err != nil || len(st) != 1 || st[0].Path != "otherrepo--note.md" {
 		t.Fatalf("other repo's file must stay uncommitted: %+v, %v", st, err)
 	}
-	if st, _ := StoreRepo().Status(filepath.Base(Dir(root))); len(st) != 0 {
+	if st, _ := StoreRepo().Status(BankFor(root).Prefix() + "*"); len(st) != 0 {
 		t.Fatalf("this repo's settle left its own dir dirty: %+v", st)
 	}
 
-	write(t, filepath.Join(Dir(root), "leak.md"), "key: "+fakeCredential()+"\n")
+	write(t, BankFor(root).Path("leak.md"), "key: "+fakeCredential()+"\n")
 	_, err = settleBank(root, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the settled dir must be refused, got %v", err)
@@ -134,7 +133,7 @@ func TestSettleBankIgnoresAnotherReposCredentialFile(t *testing.T) {
 
 // TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
 func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		long := "- " + strings.Repeat("word ", 40) + "\n"
 		write(t, b.Path("activeContext.md"), "# Active\n\n"+long)
 		write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
@@ -172,7 +171,6 @@ func TestLockPathsKeyOnTheBank(t *testing.T) {
 
 func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	initStore(t)
 	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
 	if _, err := Init(root); err != nil {
@@ -200,7 +198,6 @@ func TestSettleBankFlatCommitsBankFiles(t *testing.T) {
 // Unprefixed files in shared subdirs belong to home and ride along with every settle; prefixed strangers do not.
 func TestCommitBanksFlatCountsUnprefixedSharedFilesAsHome(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	initStore(t)
 	root := gitRepo(t, canonTemp(t, t.TempDir()), "alpha")
 	if _, err := Init(root); err != nil {

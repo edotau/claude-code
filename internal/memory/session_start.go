@@ -182,17 +182,14 @@ func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
 	if err != nil {
 		return ""
 	}
-	keys := []string{}
-	if storeFlat() {
-		keys = BankKeys()
-	}
+	keys := BankKeys()
 	best, bestMod := "", time.Time{}
 	for _, e := range entries {
 		fi, err := e.Info()
 		if err != nil || e.IsDir() || filepath.Ext(e.Name()) != ".md" || now.Sub(fi.ModTime()) > maxAge {
 			continue
 		}
-		if storeFlat() && ownerKey(e.Name(), keys) != b.Key {
+		if ownerKey(e.Name(), keys) != b.Key {
 			continue
 		}
 		if fi.ModTime().After(bestMod) {

@@ -31,7 +31,7 @@ Shard layout audit tests run concurrently.
 func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	path := Dir(root) + "/decisionLog.md"
+	path := BankFor(root).Path("decisionLog.md")
 	write(t, path, reviseLog)
 	if _, err := settleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ Supersedes 9d40e6c1. Embeddings are on.
 func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	path := Dir(root) + "/decisionLog.md"
+	path := BankFor(root).Path("decisionLog.md")
 	write(t, path, partlyStruckLog)
 	if _, err := settleBank(root, time.Now()); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestReviseBlockPosition(t *testing.T) {
 func TestSettleRecoversPendingJournal(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	path := Dir(root) + "/decisionLog.md"
+	path := BankFor(root).Path("decisionLog.md")
 	write(t, path, reviseLog)
 	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
 	rel, err := filepath.Rel(StoreDir(), path)
@@ -203,7 +203,7 @@ func assertReviseCorpus(t *testing.T, root, mode string) {
 	t.Helper()
 	other := repoRoot(t, "projb")
 	old := markReplaced("## Old <!-- id:aaaaaaaa -->\nunique quasar shard layout audit.", "bbbbbbbb", "")
-	write(t, Dir(other)+"/decisionLog.md", rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
+	write(t, BankFor(other).Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
 	hits, _, err := RecallRepo(root, mode == "all", "projb unique quasar shard layout audit", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func assertReviseChain(t *testing.T, root, mode string) {
 		}
 		blocks = append(blocks, b)
 	}
-	path := Dir(root) + "/decisionLog.md"
+	path := BankFor(root).Path("decisionLog.md")
 	write(t, path, rejoin("# Log", blocks))
 	files := []corpusFile{{Bank: "local", Path: path, Mode: segEntries}}
 	if mode == "missing" {

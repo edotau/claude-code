@@ -1,5 +1,5 @@
-// Package memory is the session memory bank: six typed markdown files per git repo under
-// <ConfigDir>/memory/<repo>/ (harness itself memory/claude-code/), home bank in memory/home/.
+// Package memory is the session memory bank: six typed markdown files per git repo in one flat
+// <ConfigDir>/memory/ store, named <repo>--<file>; the home bank's files are unprefixed.
 package memory
 
 import (
@@ -125,25 +125,8 @@ var templates = sync.OnceValue(func() map[string]string {
 // catalogFile is the reserved global catalog at the store root; BuildCatalog is its only writer.
 const catalogFile = "index.md"
 
-// storeReservedDirs are store subdirectories that are never a repo's memory dir.
-var storeReservedDirs = map[string]bool{
-	".git": true, "archive": true, "handoffs": true, "reports": true, "home": true,
-}
-
 // StoreDir is the memory store root and the work tree of the local memory repo.
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
-
-// harnessStoreDir is the harness's own memory dir inside the store; keyed by the same rule as any repo.
-func harnessStoreDir() string { return filepath.Join(StoreDir(), harnessStoreKey()) }
-
-// HandoffsDir is dir's long-form session handoffs.
-func HandoffsDir(dir string) string { return filepath.Join(dir, "handoffs") }
-
-// ReportsDir is dir's command/agent reports (reviews, audits, research briefs).
-func ReportsDir(dir string) string { return filepath.Join(dir, "reports") }
-
-// knowledgeDir is dir's local, near-rules tier: durable lessons kept short of a rule.
-func knowledgeDir(dir string) string { return filepath.Join(dir, "knowledge") }
 
 // JournalDir holds pending commit-transaction journals; state only, never committed.
 func JournalDir() string { return filepath.Join(StateDir(), "journal") }
@@ -167,20 +150,6 @@ func insideStore(p string) (rel string, ok bool) {
 
 // StateDir holds update stamps, results, logs and the session chain.
 func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
-
-// HomeBankDir is the shared bank: store/home.
-func HomeBankDir() string { return filepath.Join(StoreDir(), "home") }
-
-// Dir is root's local bank; an unresolvable repo gets an inert state-dir path, never the home bank.
-func Dir(root string) string {
-	if d, err := RepoDir(root); err == nil { // one dir per repo shared with native memory; the harness is memory/claude-code
-		return d
-	}
-	if Resolve(root).Harness { // a vault failure also resolves to the home tier, which Dir must not follow
-		return harnessStoreDir()
-	}
-	return filepath.Join(StateDir(), "unresolved-store")
-}
 
 // isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
 func isHomeBank(root string) bool { return BankFor(root).Home() }
@@ -306,28 +275,17 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 		return linkResult{}, false
 	}
 	root := filepath.Clean(cwd)
-	top, definitive := gitMain(root)
+	top, _ := gitMain(root)
 	if top != "" {
 		root = paths.CanonDeep(top)
 	}
 	nativeRoots.Store(filepath.Clean(cwd), root)
-	target, err := nativeTarget(cwd, func(string) (string, bool) { return top, definitive }) // no second git probe
-	if err != nil {
-		return linkResult{}, false
-	}
+	target := StoreDir()
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
 		return linkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
 	repairNativeLinks(cwd)
 	return ensureLink(projectsMemory(paths.ProjectSlug(root)), target), true
-}
-
-// nativeTarget is the dir every native link to cwd's project points at: the store root when flat.
-func nativeTarget(cwd string, main func(string) (string, bool)) (string, error) {
-	if storeFlat() {
-		return StoreDir(), nil
-	}
-	return repoDirWith(cwd, main)
 }
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.
@@ -415,24 +373,13 @@ func nativeLinkTargets(root string) map[string]string {
 		}
 		targets[slug] = target
 	}
-	if target, err := nativeTarget(root, gitMain); root != "" && err == nil {
-		add(root, target)
+	if root != "" {
+		add(root, StoreDir())
 	}
 	add(paths.ConfigDir(), Bank{Key: harnessStoreKey()}.SubDir(""))
 	add(StoreDir(), HomeBank().SubDir(""))
 	if home, err := os.UserHomeDir(); err == nil {
 		add(home, HomeBank().SubDir(""))
-	}
-	if storeFlat() {
-		return targets // every slug shares the store root: no per-repo entries to enumerate
-	}
-	entries, _ := RepoDirs()
-	for _, e := range entries {
-		add(e.Dir, e.Dir)
-		add(e.Origin.Origin, e.Dir)
-		for _, alias := range e.Origin.Aliases {
-			add(alias, e.Dir)
-		}
 	}
 	return targets
 }
@@ -447,7 +394,7 @@ func brokenNativeLinks(root string) []linkResult {
 			continue
 		}
 		_, err := os.Stat(link)
-		if !errors.Is(err, fs.ErrNotExist) && (storeFlat() || !paths.SamePath(target, StoreDir())) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if targets == nil {

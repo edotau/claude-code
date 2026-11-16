@@ -16,12 +16,12 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 	clearChildEnv(t)
 	isolatedConfig(t)
 	root := repoRoot(t, "settle-failure")
-	dir, err := Init(root)
+	_, err := Init(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) {
-		path := filepath.Join(dir, "sessionHistory.md")
+		path := BankFor(root).Path("sessionHistory.md")
 		if err := os.Remove(path); err != nil {
 			return "fixture", err
 		}
@@ -54,7 +54,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}
 	initStore(t)
 	ready, release := installSettlementBarrier(t)
-	history := filepath.Join(Dir(root), "sessionHistory.md")
+	history := BankFor(root).Path("sessionHistory.md")
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)

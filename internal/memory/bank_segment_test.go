@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-// A native topic file in HomeBankDir() belongs to a repo's native corpus.
+// A native topic file in StoreDir() belongs to a repo's native corpus.
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
-	if _, err := EnsureRepoDir(root); err != nil {
+	if _, err := EnsureBank(root, ""); err != nil {
 		t.Fatal(err)
 	}
-	topic := filepath.Join(HomeBankDir(), "global-topic.md")
+	topic := filepath.Join(StoreDir(), "global-topic.md")
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
@@ -38,22 +38,20 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 func TestRoutedFilesExcludesOwnStore(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
-	roots, dirs := map[string]string{}, map[string]string{}
+	roots := map[string]string{}
 	for _, name := range []string{"proja", "projb", "projc"} {
 		roots[name] = gitRepo(t, t.TempDir(), name)
-		dir, err := EnsureRepoDir(roots[name])
-		if err != nil {
+		if _, err := Init(roots[name]); err != nil {
 			t.Fatal(err)
 		}
-		dirs[name] = dir
 	}
 	files := routedFiles(roots["proja"], "proja projb")
 	if len(files) == 0 {
 		t.Fatal("routedFiles listed nothing for the named projb")
 	}
 	for _, f := range files {
-		if f.Bank != "projb" || filepath.Dir(f.Path) != dirs["projb"] {
-			t.Errorf("routedFiles listed %+v, want only projb's files under %s", f, dirs["projb"])
+		if f.Bank != "projb" || BankOfFile(f.Path).Key != "projb" {
+			t.Errorf("routedFiles listed %+v, want only projb's files", f)
 		}
 	}
 }
@@ -159,7 +157,7 @@ func pathsOf(files []corpusFile, label string) []string {
 }
 
 func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -192,7 +190,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 }
 
 func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -203,7 +201,7 @@ func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
 			t.Fatal("routedFiles listed nothing for the named bank")
 		}
 		for _, f := range files {
-			if f.Bank != "other" || ownerKey(filepath.Base(f.Path), BankKeys()) != "other" && storeFlat() {
+			if f.Bank != "other" || ownerKey(filepath.Base(f.Path), BankKeys()) != "other" {
 				t.Errorf("routed %+v, want only other's files", f)
 			}
 			if strings.HasPrefix(filepath.Base(f.Path), "other--projectContext") && f.Mode != segEntries {

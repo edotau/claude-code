@@ -827,8 +827,8 @@ func revertFlat(o MigrateOptions) error {
 	if err != nil || o.DryRun {
 		return err
 	}
-	fmt.Fprintln(o.Out, "reverted to the per-repo layout")
-	return Index(o.Out, os.Stderr, IndexOptions{Repo: paths.ConfigDir()})
+	fmt.Fprintln(o.Out, "reverted to the per-repo layout; reinstall a pre-flat binary (before the 8.1 commit) to keep writing memory")
+	return nil
 }
 
 func revertStore(rec migRecord, path string, o MigrateOptions) error {

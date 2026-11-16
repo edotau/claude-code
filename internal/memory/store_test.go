@@ -14,36 +14,18 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-func TestDirUnreadableOriginNeverFallsBackToHome(t *testing.T) {
-	tempConfig(t)
-	resetVaultRetry(t)
-	repo := gitRepo(t, t.TempDir(), "project")
-	if _, err := EnsureRepoDir(repo); err != nil {
-		t.Fatal(err)
-	}
-	write(t, vault.Path(), "not a vault")
-	if entries, err := RepoDirs(); err == nil {
-		t.Fatalf("RepoDirs = %+v, nil; want an unreadable-vault error without a catalog fallback", entries)
-	}
-
-	want := filepath.Join(StateDir(), "unresolved-store")
-	if got := Dir(repo); got != want {
-		t.Fatalf("Dir(repo) = %q; want inert path %q, never home bank %q", got, want, HomeBankDir())
-	}
-}
-
 // The harness store is keyed by the config checkout's origin repo name, else by the config dir's basename.
 func TestStorePaths(t *testing.T) {
 	bare := gitRepo(t, canonTemp(t, t.TempDir()), "cfg-checkout")
 	t.Setenv("CLAUDE_CONFIG_DIR", bare)
-	if got, want := harnessStoreDir(), filepath.Join(bare, "memory", "cfg-checkout"); got != want {
-		t.Errorf("no origin: harnessStoreDir = %q, want %q", got, want)
+	if got, want := harnessStoreKey(), "cfg-checkout"; got != want {
+		t.Errorf("no origin: harnessStoreKey = %q, want %q", got, want)
 	}
 	cloned := gitRepo(t, canonTemp(t, t.TempDir()), "cfg-clone")
 	hosttest.In(t, cloned, "remote", "add", "origin", "git@github.com:someone/claude-code.git")
 	t.Setenv("CLAUDE_CONFIG_DIR", cloned)
-	if got, want := harnessStoreDir(), filepath.Join(cloned, "memory", "claude-code"); got != want {
-		t.Errorf("with origin: harnessStoreDir = %q, want %q (keyed by the remote, not the dir)", got, want)
+	if got, want := harnessStoreKey(), "claude-code"; got != want {
+		t.Errorf("with origin: harnessStoreKey = %q, want %q (keyed by the remote, not the dir)", got, want)
 	}
 }
 
@@ -258,7 +240,7 @@ func write(t testing.TB, path, body string) {
 func repoRoot(t *testing.T, name string) string {
 	t.Helper()
 	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
-	if _, err := EnsureRepoDir(root); err != nil {
+	if _, err := EnsureBank(root, ""); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -391,11 +373,14 @@ func TestEnsureLinkStates(t *testing.T) {
 	}
 }
 
-// TestLinkNativeForNoopBeforeCutover: linkNativeFor reports ok=false before the migration lands.
-func TestLinkNativeForNoopBeforeCutover(t *testing.T) {
+// TestLinkNativeForNoopWithoutStore: linkNativeFor reports ok=false while the store dir does not exist.
+func TestLinkNativeForNoopWithoutStore(t *testing.T) {
 	isolatedConfig(t)
+	if err := os.RemoveAll(StoreDir()); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := linkNativeFor(t.TempDir()); ok {
-		t.Error("linkNativeFor before cutover must report ok=false")
+		t.Error("linkNativeFor without a store must report ok=false")
 	}
 }
 
@@ -414,14 +399,14 @@ func TestEnsureLinkPreservesCorrectRelativeTarget(t *testing.T) {
 	}
 }
 
-// TestLinkNativeForProbesGitOnce: linkNativeFor hands its main-checkout probe to RepoDir instead of running it twice.
+// TestLinkNativeForProbesGitOnce: linkNativeFor probes git once.
 func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; linkNativeFor must resolve afresh
 	probes := countGitProbes(t, "--git-common-dir")
 	res, ok := linkNativeFor(root)
-	if !ok || res.Target != mustRepoDir(t, root) || res.Action != "linked" {
+	if !ok || res.Target != StoreDir() || res.Action != "linked" {
 		t.Fatalf("linkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
 	}
 	if *probes != 1 {
@@ -429,20 +414,15 @@ func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	}
 }
 
-// eachLayoutRoot runs fn per store layout with a fresh git repo "proj" in an isolated config.
-func eachLayoutRoot(t *testing.T, fn func(t *testing.T, root string)) {
+// runRoot runs fn with a fresh git repo "proj" in an isolated flat config.
+func runRoot(t *testing.T, fn func(t *testing.T, root string)) {
 	t.Helper()
-	for _, flat := range []bool{false, true} {
-		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
-			isolatedConfig(t)
-			setStoreFlat(t, flat)
-			fn(t, gitRepo(t, canonTemp(t, t.TempDir()), "proj"))
-		})
-	}
+	isolatedConfig(t)
+	fn(t, gitRepo(t, canonTemp(t, t.TempDir()), "proj"))
 }
 
-func TestInitSeedsTheBankInEachLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+func TestInitSeedsTheBank(t *testing.T) {
+	runRoot(t, func(t *testing.T, root string) {
 		dir, err := Init(root)
 		if err != nil {
 			t.Fatal(err)
@@ -456,14 +436,14 @@ func TestInitSeedsTheBankInEachLayout(t *testing.T) {
 				t.Errorf("Init left %s missing", b.Path(name))
 			}
 		}
-		if flat := storeFlat(); flat != (dir == StoreDir()) || flat != strings.HasPrefix(filepath.Base(b.Path("progress.md")), "proj--") {
-			t.Errorf("flat=%v but dir %s and file %s disagree", flat, dir, b.Path("progress.md"))
+		if dir != StoreDir() || !strings.HasPrefix(filepath.Base(b.Path("progress.md")), "proj--") {
+			t.Errorf("dir %s and file %s disagree with the flat layout", dir, b.Path("progress.md"))
 		}
 	})
 }
 
-func TestNativeLinksShareTheStoreRootWhenFlat(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+func TestNativeLinksShareTheStoreRoot(t *testing.T) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -472,8 +452,8 @@ func TestNativeLinksShareTheStoreRootWhenFlat(t *testing.T) {
 		if !ok || res.Target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
 		}
-		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; storeFlat() && got != StoreDir() {
-			t.Errorf("flat harness slug target = %q, want the store root", got)
+		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; got != StoreDir() {
+			t.Errorf("harness slug target = %q, want the store root", got)
 		}
 		link := projectsMemory("-stale-slug")
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
@@ -483,8 +463,8 @@ func TestNativeLinksShareTheStoreRootWhenFlat(t *testing.T) {
 			t.Fatal(err)
 		}
 		flagged := slices.ContainsFunc(brokenNativeLinks(root), func(r linkResult) bool { return r.Link == link })
-		if flagged == storeFlat() {
-			t.Errorf("store-root link flagged = %v with flat = %v: only the legacy layout flags it", flagged, storeFlat())
+		if flagged {
+			t.Error("a link to the store root was flagged broken")
 		}
 	})
 }
