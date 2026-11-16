@@ -79,6 +79,10 @@ func gitFixCases() []gitFixCase {
 	const foot = "Co-Authored-By: Claude <noreply@anthropic.com>"
 	return []gitFixCase{
 		{"make lint; git push", "make lint && git push"},
+		{"cd /tmp/x && go vet ./a; git push --dry-run origin main", "cd /tmp/x && go vet ./a && git push --dry-run origin main"},
+		{"A=1 make lint; git push", "A=1 make lint && git push"},
+		{"make lint; git push 2>&1", "make lint && git push 2>&1"},
+		{`cd x && git commit -m "feat: y" -m "Generated with Claude Code"`, `cd x && git commit -m "feat: y"`},
 		{"go test ./...\ngit push origin main", "go test ./... && git push origin main"},
 		{`make lint; echo "a;b"; make test; git push`, `make lint; echo "a;b"; make test && git push`},
 		{`make lint; echo "x; git push"`, ""},
@@ -109,6 +113,11 @@ func TestSafetyScanGitRewriteDeniesWithCommand(t *testing.T) {
 	res := Scan(core.ParseInput(strings.NewReader(auto)))
 	if res.Decision != core.Block || res.UpdatedInput != nil || !strings.HasSuffix(res.Reason, "resend exactly: make lint && git push") {
 		t.Errorf("auto mode: %+v", res)
+	}
+	cd := `{"tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"cd /tmp/x && make lint; git push 2>&1"}}`
+	res = Scan(core.ParseInput(strings.NewReader(cd)))
+	if res.Decision != core.Block || !strings.HasSuffix(res.Reason, "resend exactly: cd /tmp/x && make lint && git push 2>&1") {
+		t.Errorf("auto mode with cd: %+v", res)
 	}
 	cop := `{"sessionId":"x","toolName":"Bash","toolArgs":{"command":"make lint; git push"}}`
 	res = Scan(core.ParseInput(strings.NewReader(cop)))
