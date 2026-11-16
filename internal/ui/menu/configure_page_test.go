@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row the menu tests apply to
+	_ "github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -42,14 +42,14 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	cfg, home := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
-	vaulttest.Use(t) // pins are vault-only: seed the openai pin, then assert --check leaves the vault bytes alone
+	vaulttest.Use(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	vaulttest.SetRecord(t, "claude", "profile", "openai")
 	vaultBefore, _ := os.ReadFile(filepath.Join(cfg, "state", "vault.db"))
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("GH_TOKEN", "")
-	t.Setenv("PATH", t.TempDir()) // no gh/codex/copilot on PATH: nothing can look "present" by accident
+	t.Setenv("PATH", t.TempDir())
 	out, rc := runKeysCheck(t, Options{Check: true, Home: home, In: strings.NewReader("")})
 	if rc != 1 {
 		t.Errorf("rc = %d, want 1; output:\n%s", rc, out.String())
@@ -84,11 +84,7 @@ func TestVendorKeyTargetRejectsForeignPassthrough(t *testing.T) {
 	}
 }
 
-// A vendor running on its own stored config (opencode.jsonc sets `model`) is configured, not ABSENT: the runner
-// launches it untouched, so `--check` must not demand a key for it.
-// opencode's own opencode.jsonc "model" setting is no longer a fallback dispatch (DescribeRoute's
-// copilot-login -> anthropic-key -> none chain replaced it): with no credential on
-// that chain, the vendor reads ABSENT and the fix command names `claude-code configure github`.
+// A vendor running on its own stored config.
 func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	cfg, home, xdg := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -117,8 +113,7 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	}
 }
 
-// An absent credential offers BOTH the browser login and a pasted key; piped, each is one [Y/n], so declining
-// the login and accepting the key seals it in the vault without opening a browser.
+// An absent credential offers BOTH the browser login and a pasted key.
 func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("OPENAI_API_KEY", "")
@@ -145,8 +140,7 @@ func TestResolveKeyOffersLoginAndKeyThenStoresPastedKey(t *testing.T) {
 	assertContainsAll(t, out.String(), []string{"Browser login — openai login? [Y/n]", "Paste API key — create at platform.openai.com/api-keys"})
 }
 
-// discardWriter is an io.Writer that throws away everything written to it (dialog.out needs one when
-// a test never asserts on dialog output).
+// discardWriter is an io.Writer that throws away everything written to it.
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
@@ -174,14 +168,13 @@ func assertVaultRecordSealed(t *testing.T, name, secret string) {
 	}
 }
 
-// --check on a present, rotatable credential (codex's ChatGPT login) must stay read-only: no "keep it?"
-// prompt, no rotate CLI invoked, no file write — the new rotate feature must not change --check's contract.
+// --check on a present, rotatable credential.
 func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	cfg, home, codexHome := t.TempDir(), t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", codexHome)
-	t.Setenv("PATH", t.TempDir()) // no codex binary: forces the auth.json file check, never execs a CLI
+	t.Setenv("PATH", t.TempDir())
 	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"tokens":{"access_token":"x"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -200,8 +193,7 @@ func TestCheckStaysReadOnlyWithRotatableCredential(t *testing.T) {
 	}
 }
 
-// `keys` was removed from Sections: naming it as a section now reports "unknown section" and exits 2,
-// never falling through to the key report (that report still runs internally, via Vendor -> runKeysChanged).
+// `keys` was removed from Sections.
 func TestRunUnknownSectionKeysReturnsTwo(t *testing.T) {
 	var out bytes.Buffer
 	rc := Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "keys")
@@ -253,14 +245,13 @@ func TestSecretLineFallbackPreservesInputAndOutput(t *testing.T) {
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
-// servedHarness seeds a hermetic vault with a Databricks row "qa" (served-aware routing set to on) pinned as the
-// session profile, and a TLS listing server; it returns the request counter.
+// servedHarness seeds a hermetic vault with a Databricks row "qa".
 func servedHarness(t *testing.T, on bool) *int {
 	t.Helper()
 	vaulttest.Use(t)
 	var n int
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") { // the identity check, not a listing request
+		if strings.HasSuffix(r.URL.Path, "/scim/v2/Me") {
 			_, _ = w.Write([]byte(`{"id":"u1","active":true}`))
 			return
 		}

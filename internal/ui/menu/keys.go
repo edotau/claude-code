@@ -22,15 +22,15 @@ import (
 // pickKey is the terminal picker seam; tests replace it.
 var pickKey = tui.PickBack
 
-// keysMenu lists every credential with its status; picking one opens its Login / OAuth token / API key actions
-// (or the set-up flow when absent), then returns to the list. Back leaves. Nothing changes unless a row is picked.
+// keysMenu lists every credential with its status.
 func keysMenu(d *dialog) (allOK, changed bool) {
 	start, stale := 0, true
 	var targets []configure.KeyTarget
 	var rows [][2]string
 	var ok bool
 	for {
-		if stale { // re-probe only after a change: each probe can take seconds
+		// re-probe only after a change: each probe can take seconds
+		if stale {
 			var err error
 			if targets, err = configure.KeyTargets(d.reg, d.o.Agent); err != nil {
 				d.println(err)
@@ -48,8 +48,7 @@ func keysMenu(d *dialog) (allOK, changed bool) {
 	}
 }
 
-// keyRows renders one picker row per credential (name, then mode and check aligned) and reports whether every
-// credential is present and accepted.
+// keyRows renders one picker row per credential.
 func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	names := make([]string, len(targets))
 	cols := make([][2]string, len(targets))
@@ -57,7 +56,7 @@ func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	var wg sync.WaitGroup
 	for i, kt := range targets {
 		names[i] = kt.Label
-		wg.Go(func() { cols[i] = keyCols(kt) }) // probes run in parallel, not one 4s cap after another
+		wg.Go(func() { cols[i] = keyCols(kt) })
 	}
 	wg.Wait()
 	for _, c := range cols {
@@ -66,8 +65,7 @@ func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	return withChecks(names, cols), allOK
 }
 
-// keyCols is one credential's mode (how it signs in · how it bills) and check: verified, unverified, rejected or
-// missing. A login counts as verified when its own CLI's status check confirmed it.
+// keyCols is one credential's mode.
 func keyCols(kt configure.KeyTarget) [2]string {
 	if !kt.Present {
 		return [2]string{"not set up", "not verified"}
@@ -87,7 +85,7 @@ func keyCols(kt configure.KeyTarget) [2]string {
 
 var tierRE = regexp.MustCompile(`\((\w+)\)`)
 
-// loginLine is a login credential's mode: "subscription", with the tier when the CLI reports one ("subscription (max)").
+// loginLine is a login credential's mode.
 func loginLine(kt configure.KeyTarget) string {
 	if kt.Label == "claude" {
 		if m := tierRE.FindStringSubmatch(kt.Source); m != nil {
@@ -112,9 +110,7 @@ func changeKey(d *dialog, kt configure.KeyTarget) bool {
 	return runRotate(d, kt)
 }
 
-// replaceKey pastes a new value for kt's keyed credential, probes it live before it overwrites the
-// stored one (a rejected/unreachable paste asks whether to keep the old one instead), and writes it
-// back to the vault.
+// replaceKey pastes a new value for kt's keyed credential.
 func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 	if kt.EnvVar == "" {
 		return false
@@ -164,8 +160,7 @@ func confirmKeep(d *dialog, question string) bool {
 	return tui.ParseYesNo(ans, true)
 }
 
-// readAnswer reads one line after prompt from the same reader the menu's prompts use; ok is false when the
-// input ended or failed, so the caller never mistakes a dead input for an empty answer.
+// readAnswer reads one line after prompt from the same reader the menu's prompts use.
 func readAnswer(d *dialog, prompt string) (string, bool) {
 	fmt.Fprint(d.out, prompt)
 	br := d.br
@@ -192,8 +187,6 @@ func runMint(argv []string) (string, error) {
 }
 
 // regenerate re-runs an agent's own login or mint CLI to rotate a credential that is already present.
-// A login reports the outcome (the session lives in the agent's own file, not the vault).
-// A mint writes the printed token back to the vault.
 func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) bool {
 	if !mint {
 		if err := configure.RunLogin(argv); err != nil {
@@ -222,8 +215,7 @@ func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) boo
 	return storeValue(d, kt.EnvVar, tok)
 }
 
-// runRotate offers kt's rotate options (generate first, else paste) and runs the chosen one; false
-// means skipped, cancelled, or nothing to rotate.
+// runRotate offers kt's rotate options.
 func runRotate(d *dialog, kt configure.KeyTarget) bool {
 	opts := configure.RotateOptions(kt)
 	if len(opts) == 0 {
@@ -247,8 +239,7 @@ func runRotate(d *dialog, kt configure.KeyTarget) bool {
 	}
 }
 
-// chooseRotateOption picks among several rotate options: a picker on a terminal, else a confirm on the first
-// (no selects the second); ok is false when the picker is cancelled.
+// chooseRotateOption picks among several rotate options.
 func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, ok bool) {
 	if !d.onTerminal() {
 		if d.shell().Confirm(opts[0].Label() + "?") {
@@ -267,8 +258,7 @@ func chooseRotateOption(d *dialog, kt configure.KeyTarget, opts []configure.Auth
 	return idx, true
 }
 
-// ensureKey makes sure kt's keyed credential is usable before a sub-picker pins it: absent asks to add
-// one, present defaults to keeping it and only replaces on an explicit no.
+// ensureKey makes sure kt's keyed credential is usable before a sub-picker pins it.
 func ensureKey(d *dialog, kt configure.KeyTarget, present bool) bool {
 	if !present {
 		return resolveKey(d, kt)
@@ -292,8 +282,7 @@ func sourceLabel(src, shadowed string) string {
 	return src
 }
 
-// Secrets is the guided `vault set`: pick a tracked secret (or a new custom one), choose how to satisfy it,
-// and seal it in the vault. Loops until Esc or done.
+// Secrets is the guided `vault set`.
 func Secrets(o Options) int {
 	reg, err := providers.Load()
 	if err != nil {
@@ -305,8 +294,7 @@ func Secrets(o Options) int {
 	return secretsLoop(d)
 }
 
-// secretsLoop is the secrets page on d: standalone it stores at once; inside configure (d.pending set) every
-// value is staged and configure's Submit saves it to the vault.
+// secretsLoop is the secrets page on d.
 func secretsLoop(d *dialog) int {
 	if d.pending != nil {
 		before := maps.Clone(d.pending)
@@ -378,8 +366,7 @@ func deleteSecret(d *dialog, name string) bool {
 	return true
 }
 
-// addCustom reads a NAME (visible) and its value (hidden); a pasted NAME=value or `export NAME="value"` line is
-// parsed, so either half may carry the name.
+// addCustom reads a NAME (visible) and its value.
 func addCustom(d *dialog) {
 	name := strings.TrimSpace(d.shell().Line("Secret name (e.g. NEW_SECRET; blank to take it from the pasted line): "))
 	raw, err := secretLine(d, "Paste the value or a NAME=value line (input hidden, Enter when done): ")
@@ -411,7 +398,8 @@ func storeValue(d *dialog, name, val string) bool {
 		if !d.stage(name, val) {
 			return false
 		}
-		delete(d.pendingDeletes, name) // re-picking a staged delete to paste a new value must cancel the delete
+		// re-picking a staged delete to paste a new value must cancel the delete
+		delete(d.pendingDeletes, name)
 		d.printf("staged %s (%s) · Submit saves it to the secrets manager\n", name, vault.Redact(val))
 		return true
 	}
@@ -423,9 +411,7 @@ func storeValue(d *dialog, name, val string) bool {
 	return true
 }
 
-// confirmPageKeys asks, on leaving the secrets page inside configure, whether to save what the page staged
-// now (y) or drop it (N); keys staged before the page opened are left for configure's own Submit. Staged
-// deletes (editSecret's Delete, in staged mode) are decided in the same prompt.
+// confirmPageKeys asks, on leaving the secrets page inside configure.
 func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	page := changedPageKeys(d, before)
 	deletes := slices.Sorted(maps.Keys(d.pendingDeletes))
@@ -435,7 +421,7 @@ func confirmPageKeys(d *dialog, before map[string]stagedKey) {
 	n := len(page) + len(deletes)
 	for _, name := range deletes {
 		if slices.Contains(page, name) {
-			n-- // a key both staged and staged-for-delete is one change
+			n--
 		}
 	}
 	if !confirmLeave(n, "change(s) to the secrets manager") {
@@ -474,7 +460,7 @@ func storePageKeys(d *dialog, page []string) {
 			continue
 		}
 		d.printf("saved %s to the vault (%s)\n", name, vault.Redact(k.val))
-		delete(d.pending, name) // stored: the env it exported stays, Submit has nothing left to do for it
+		delete(d.pending, name)
 	}
 }
 
@@ -483,7 +469,7 @@ func deletePageKeys(d *dialog, deletes []string) {
 	for _, name := range deletes {
 		if err := vault.Delete(name); err != nil {
 			d.printf("%s: not deleted: %v\n", name, err)
-			d.stageDelete(name) // stays pending: a failed delete is retried, and fails the menu, not dropped
+			d.stageDelete(name)
 			continue
 		}
 		d.printf("deleted %s\n", name)
@@ -506,7 +492,7 @@ func changedPageKeys(d *dialog, before map[string]stagedKey) []string {
 			continue
 		}
 		if v, _, ok := vault.Get(name); ok && v == k.val && k.had && k.prev == v {
-			continue // re-entered the value already stored: not a change
+			continue
 		}
 		page = append(page, name)
 	}

@@ -30,19 +30,32 @@ var SectionNames = []string{"provider", "models", "agents", "github", "remote", 
 
 // Options controls one configure pass; In/Out let tests fully control the dialogue.
 type Options struct {
-	Provider    string    // --profile: pick this one non-interactively (provider section)
-	Agent       string    // --agent: scope keys/agents to one agent CLI
-	Auth        string    // --auth (github page): pin this GitHub account; "" or "follow" clears the pin
-	AuthSet     bool      // --auth was passed (an empty Auth is meaningful)
-	DryRun      bool      // print what would change; write nothing
-	Check       bool      // report only; never writes; Run exits 1 if anything is unset
-	All         bool      // --all (provider page): check every provider's sign-in and log in where needed
-	Profile     string    // --all [<profile>]: check only this registry row
-	JSON        bool      // --format json (provider --all): emit the row verdicts as JSON
-	Interactive bool      // stdin+stderr are both a terminal; the caller decides this
-	Home        string    // agent-config home override (tests); "" -> os.UserHomeDir
-	In          io.Reader // "" -> os.Stdin
-	Out         io.Writer // "" -> os.Stdout
+	// --profile: pick this one non-interactively (provider section)
+	Provider string
+	// --agent: scope keys/agents to one agent CLI
+	Agent string
+	// --auth (github page): pin this GitHub account; "" or "follow" clears the pin
+	Auth string
+	// --auth was passed (an empty Auth is meaningful)
+	AuthSet bool
+	// print what would change; write nothing
+	DryRun bool
+	// report only; never writes; Run exits 1 if anything is unset
+	Check bool
+	// --all (provider page): check every provider's sign-in and log in where needed
+	All bool
+	// --all [<profile>]: check only this registry row
+	Profile string
+	// --format json (provider --all): emit the row verdicts as JSON
+	JSON bool
+	// stdin+stderr are both a terminal; the caller decides this
+	Interactive bool
+	// agent-config home override (tests); "" -> os.UserHomeDir
+	Home string
+	// "" -> os.Stdin
+	In io.Reader
+	// "" -> os.Stdout
+	Out io.Writer
 }
 
 func (o Options) reader() io.Reader {
@@ -59,18 +72,17 @@ func (o Options) writer() io.Writer {
 	return o.Out
 }
 
-// dialog carries one Run's shared state: a single buffered reader so sequential prompts don't lose
-// each other's buffered-ahead bytes, and the loaded registry.
+// dialog carries one Run's shared state.
 type dialog struct {
-	o     Options
-	reg   *providers.Registry
-	br    *bufio.Reader
-	out   io.Writer
-	color bool // out is a terminal and NO_COLOR is unset: headers and status tokens get painted
+	o   Options
+	reg *providers.Registry
+	br  *bufio.Reader
+	out io.Writer
+	// out is a terminal and NO_COLOR is unset: headers and status tokens get painted
+	color bool
 	// pending holds keys entered in the menu until Submit; nil outside the menu (writes go straight through).
 	pending map[string]stagedKey
-	// pendingDeletes holds secret names staged for vault deletion; executed alongside pending on leaving
-	// the secrets page (nil outside a staged session, same lifecycle as pending).
+	// pendingDeletes holds secret names staged for vault deletion.
 	pendingDeletes map[string]bool
 	// changed is set by any home-page action that wrote config; runMenu re-renders settings on exit.
 	changed bool
@@ -122,7 +134,7 @@ func Run(o Options, section string) int {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return 1
 	}
-	o.In = o.reader() // nil → os.Stdin, so the TTY pickers recognise the real terminal
+	o.In = o.reader()
 	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
 	pins, err := agent.AgentPinsContext(context.Background())
 	if err != nil {
@@ -203,9 +215,7 @@ func runSection(d *dialog, s string) bool {
 	return false
 }
 
-// Agent runs the keys then agents sections scoped to name; changed reports whether a login or key
-// write actually happened (telling launch.Agent it is worth re-resolving). Call only after a human
-// has already said yes on a TTY — Agent itself still gates every login/write on o.Interactive.
+// Agent runs the keys then agents sections scoped to name.
 func Agent(name string, out io.Writer) (changed bool, err error) {
 	reg, err := providers.Load()
 	if err != nil {
@@ -229,8 +239,7 @@ func runProvider(d *dialog) bool {
 	if d.o.Provider != "" {
 		return applyNamedProvider(d, d.o.Provider)
 	}
-	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude
-	// row does; --check/--dry-run report only, so they never open a picker that would sit waiting for a key.
+	// `configure provider` on a terminal opens the same claude sub-picker the top-level menu's claude row does.
 	if d.interactive() {
 		return runAgentMenu(d, "claude", claudeMenu(d))
 	}
@@ -313,7 +322,7 @@ func applyProvider(d *dialog, name string) bool {
 
 func runKeysChanged(d *dialog) (allOK, changed bool) {
 	if d.interactive() {
-		return keysMenu(d) // a terminal gets the pick-one menu; piped runs keep the line-by-line pass below
+		return keysMenu(d)
 	}
 	targets, err := configure.KeyTargets(d.reg, d.o.Agent)
 	if err != nil {
@@ -382,8 +391,7 @@ func ageSuffix(age time.Duration) string {
 	}
 }
 
-// resolveKey presents every way to satisfy kt — browser/device login and pasted key side by side — as a picker
-// on a terminal, or one [Y/n] per option when piped; false means skipped, empty, or failed.
+// resolveKey presents every way to satisfy kt.
 func resolveKey(d *dialog, kt configure.KeyTarget) bool {
 	opts := configure.AuthOptions(kt)
 	if len(opts) == 0 {
@@ -411,7 +419,6 @@ func resolveKey(d *dialog, kt configure.KeyTarget) bool {
 }
 
 // pickAuthOption shows the picker: the chosen option's index, or skipped when Skip/Esc was picked.
-// A picker error returns (-1, false) so the caller falls back to one confirm per option.
 func pickAuthOption(d *dialog, kt configure.KeyTarget, opts []configure.AuthOption) (chosen int, skipped bool) {
 	rows := make([][2]string, 0, len(opts)+1)
 	for _, o := range opts {
@@ -493,7 +500,6 @@ func openBrowser(url string) {
 }
 
 // saveConfirmed is the one save prompt every configure page ends with: [Y/n], Enter or blank = yes, Esc = no.
-// Non-terminal runs save.
 var saveConfirmed = func(question string) bool { return confirmTerminal(question, true) }
 
 // confirmLeave asks to save n staged change(s) of what; false (nothing to save, or n/Esc) means discard them.
@@ -503,8 +509,7 @@ func confirmLeave(n int, what string) bool {
 
 func isStdinTTY() bool { return proc.IsTerminal(os.Stdin) }
 
-// runModels is the `configure models` / "Models" row entry: a pick-one menu on a terminal, the plain
-// report otherwise (--check/--dry-run/piped never open a picker that would sit waiting for a choice).
+// runModels is the `configure models` / "Models" row entry.
 func runModels(d *dialog) bool {
 	if d.interactive() {
 		return modelsMenu(d)
@@ -565,10 +570,11 @@ func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
 		d.printf("%-10s FIX: %v; %s\n", name, err, s.CLI.ConfigureHint)
 		return false
 	}
-	if !d.o.DryRun && !d.o.Check { // read-only: Configure would start the router and store its secret
+	// read-only: Configure would start the router and store its secret
+	if !d.o.DryRun && !d.o.Check {
 		_, _, err = s.Configure(context.Background(), target)
 	}
-	if errors.Is(err, agent.ErrOwnLogin) { // e.g. opencode on its own Copilot sign-in: working, nothing to inject
+	if errors.Is(err, agent.ErrOwnLogin) {
 		d.printf("%-10s runs on its own %s login (%s)\n", name, target.Provider.Name, target.Model)
 		return true
 	}
@@ -581,7 +587,6 @@ func reportAgentRoute(d *dialog, name string, sel providers.Selection) bool {
 }
 
 // secretLine reads a hidden value: tui.Secret (echo off) on the terminal, the dialogue reader otherwise.
-// Every paste shows as a masked preview (live on the terminal), so a wrong or doubled paste shows before it is saved.
 func secretLine(d *dialog, prompt string) (string, error) {
 	if d.onTerminal() {
 		return tui.Secret(prompt, pastePreview)

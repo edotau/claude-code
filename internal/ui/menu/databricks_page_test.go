@@ -34,7 +34,7 @@ const dbxDoc = `{"providers":{"databricks":{
 "prod":{"preset":"databricks","host":"https://adb-3.azuredatabricks.net","cliProfile":"prod","auth":{"type":"key","command":"echo x"}}}}}`
 
 type dbxFake struct {
-	picks    []int // popped per menu; exhausted = Back
+	picks    []int
 	titles   []string
 	rows     [][][2]string
 	calls    []string
@@ -48,8 +48,7 @@ type dbxFake struct {
 	authType string
 }
 
-// dbxScreen is the numbered-prompt terminal: it records each menu the page draws into f.titles and f.rows, and
-// answers every prompt from f.picks (0-based; -1 or exhausted = Back).
+// dbxScreen is the numbered-prompt terminal.
 type dbxScreen struct {
 	f   *dbxFake
 	buf strings.Builder
@@ -332,7 +331,7 @@ func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
 	t.Setenv("PATH", bin)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	dbxCopy = clipboard.WriteSecret // real writer, no tool on PATH
+	dbxCopy = clipboard.WriteSecret
 	f.picks = []int{4, -1}
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "no clipboard here; the agents fetch via the proxy") {
@@ -358,7 +357,7 @@ func TestDbxApplyAllSetsAgentProfilePins(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{5, 0, -1} // Apply to agents -> All agents
+	f.picks = []int{5, 0, -1}
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
 		if got := vault.GetAgentRecord(a).Profile; got != "qa" {
@@ -377,7 +376,7 @@ func TestDbxApplyPerAgentSetsOnePin(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{5, 2, -1} // codex is dbxAgents[1] -> picker row 2
+	f.picks = []int{5, 2, -1}
 	runDatabricksEnv(d, "qa")
 	for _, a := range dbxAgents {
 		want := ""
@@ -394,7 +393,7 @@ func TestDbxApplyAlreadyAppliedAndCancel(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{}
 	installDbxFake(t, f)
-	f.picks = []int{5, 2, 5, 2, 5, -1, -1} // codex twice: second is a no-op; then cancel the picker
+	f.picks = []int{5, 2, 5, 2, 5, -1, -1}
 	runDatabricksEnv(d, "qa")
 	if !strings.Contains(dbxOut(d), "qa: already applied") {
 		t.Errorf("missing already applied:\n%s", dbxOut(d))
@@ -457,7 +456,7 @@ func TestDbxLoginFailureReported(t *testing.T) {
 	}
 }
 
-// dbxSetUpEnv is a hermetic dialog over three declared Databricks profiles (dev, qa, prod) in the current overlay shape.
+// dbxSetUpEnv is a hermetic dialog over three declared Databricks profiles.
 func dbxSetUpEnv(t *testing.T) *dialog {
 	t.Helper()
 	row := func(n string) string {
@@ -543,8 +542,7 @@ func TestDbxEnvPageFirstRowIsSetUp(t *testing.T) {
 	}
 }
 
-// Given the Identity action with sp, a client id and a secret, one save writes the row and seals the M2M secret
-// without printing it.
+// Given the Identity action with sp.
 func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 	d := dbxEnv(t)
 	f := &dbxFake{secret: "sp-secret-VALUE"}
@@ -555,7 +553,7 @@ func TestDbxIdentitySavesRowAndSealedSecret(t *testing.T) {
 		}
 		return f.secret, nil
 	}
-	f.picks = []int{6, 2, -1} // Identity -> sp
+	f.picks = []int{6, 2, -1}
 	runDatabricksEnv(d, "dev")
 	p := d.reg.Providers["dev"]
 	if p.Identity != providers.IdentitySP || p.Auth.SPClientID != "sp-client-1" {

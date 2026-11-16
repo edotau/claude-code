@@ -39,7 +39,7 @@ func modelTarget(d *dialog, name string) (p *providers.Provider, claude bool) {
 		return sel.Provider, true
 	}
 	if p := d.reg.Providers[vault.GetAgentRecord(name).Profile]; p != nil && p.Protocol != "" {
-		return p, false // a pinned registry profile (e.g. Databricks dev) owns the pick, not the hub ladder
+		return p, false
 	}
 	p, err := opencode.HubStart(d.reg, name, "")
 	if err != nil {
@@ -68,7 +68,7 @@ func modelRow(d *dialog, name string) *billingRow {
 		desc := copilotRouteDesc(d)
 		return &billingRow{label: "Model", desc: desc, run: func() bool { pickCopilotModel(d); return true }}
 	}
-	if name == "codex" || name == "gemini" { // their own CLI catalogs pick their model
+	if name == "codex" || name == "gemini" {
 		return nil
 	}
 	p, claude := modelTarget(d, name)
@@ -86,7 +86,7 @@ func modelDesc(provider, model string, listed bool) string {
 		return provider
 	}
 	canonical, _, _ := models.Resolve(model)
-	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(canonical), model), 20)) // AliasOf takes canonical ids; the picker aligns the badge column
+	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(canonical), model), 20))
 }
 
 // modelListed reports whether model is in the agent's static catalog, with no network.
@@ -105,8 +105,7 @@ func modelListed(p *providers.Provider, claude bool, model string) bool {
 	return false
 }
 
-// copilotRouteDesc is copilot's Model row detail: its route, then the pinned (else default) model. Listed means the
-// sealed Databricks snapshot or this dialog's already-fetched catalog holds it; it never fetches.
+// copilotRouteDesc is copilot's Model row detail: its route, then the pinned (else default) model.
 func copilotRouteDesc(d *dialog) string {
 	model, _ := providers.CopilotModel(d.reg)
 	name := cmp.Or(vault.GetAgentRecord("copilot").Profile, providers.SessionProfileContext(context.Background()))
@@ -187,7 +186,7 @@ var copilotSourceFn = copilot.CopilotModelSource
 // pickCopilotModel writes only the MODEL pin on the copilot record, never github-copilot's models table.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile) // once: Effort/Context re-show the picker without refetching
+	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile)
 	cancel()
 	if serr != nil {
 		d.printf("copilot: model source unavailable (%v); using the GitHub catalog\n", serr)
@@ -241,8 +240,7 @@ type copilotPick struct {
 	extra []func() bool
 }
 
-// copilotPickRows builds the picker for cat (a Databricks profile's endpoints, else the SDK catalog's enabled models);
-// the error is the SDK catalog being unavailable.
+// copilotPickRows builds the picker for cat.
 func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilotPick, error) {
 	pk := copilotPick{title: modelTitle("copilot — model", "github", "copilot catalog")}
 	if cat.Databricks {
@@ -296,7 +294,7 @@ func appendDatabricksCopilotRows(cat copilot.CopilotCatalog, cur string, rows []
 	for _, r := range cat.Rows {
 		var marks []string
 		if r.Tested {
-			marks = append(marks, "verified") // painted green by ansi.Status
+			marks = append(marks, "verified")
 		}
 		if cur != "" && copilotCanonicalID(cur) == copilotCanonicalID(r.ID) {
 			marks = append(marks, "current")
@@ -359,7 +357,7 @@ func pickModel(d *dialog, name string, p *providers.Provider, claude bool) {
 	if claude {
 		aliases = append(aliases, models.Fable)
 	}
-	choices := sync.OnceValue(func() []string { return pickerChoices(d, p, claude) }) // alias-independent; a fetch takes 20–45s
+	choices := sync.OnceValue(func() []string { return pickerChoices(d, p, claude) })
 	for {
 		rows := make([][2]string, len(aliases))
 		for i, s := range aliases {
@@ -414,7 +412,7 @@ func saveModel(d *dialog, p *providers.Provider, claude bool, alias, id string) 
 // pickerChoices is modelChoices plus the account's saved models; a failed saved-model read is printed on d.
 func pickerChoices(d *dialog, p *providers.Provider, claude bool) []string {
 	choices := modelChoices(p, claude)
-	if p.Provider == "github" { // Copilot keeps its live enabled catalog, not saved history.
+	if p.Provider == "github" {
 		return choices
 	}
 	saved, err := providers.PickerModels(p)
@@ -430,8 +428,7 @@ func pickerChoices(d *dialog, p *providers.Provider, claude bool) []string {
 	return choices
 }
 
-// modelChoices lists ids the account can serve: opencode's catalog for a hub account, the live API (else the
-// registry's own table) for claude's provider.
+// modelChoices lists ids the account can serve.
 var modelChoices = func(p *providers.Provider, claude bool) []string {
 	if !claude && p.OpencodeID != "" {
 		if ids := opencodeModels(p.OpencodeID); len(ids) > 0 {
@@ -463,7 +460,8 @@ func opencodeModels(opencodeID string) []string {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, bin, "models", opencodeID).Output()
 	if err != nil {
-		return nil // a timeout or crash falls through to the caller's live/static catalog
+		// a timeout or crash falls through to the caller's live/static catalog
+		return nil
 	}
 	var ids []string
 	for line := range strings.SplitSeq(string(out), "\n") {
@@ -498,8 +496,7 @@ func offerModels(d *dialog, profile string) {
 	modelsPage(d, sel, false)
 }
 
-// modelsPage loops the alias rows (plus Unpin all when withUnpin); each pass re-resolves the selection so a
-// fresh pin shows at once.
+// modelsPage loops the alias rows.
 func modelsPage(d *dialog, sel providers.Selection, withUnpin bool) {
 	profile := sel.Provider.Name
 	d.shell().Run("models ("+profile+") — pick an alias, or Back to leave", func() []shellRow {
@@ -540,8 +537,7 @@ func modelRowDetail(m providers.ModelInfo, width int) string {
 	return textutil.Truncate(strings.Join(parts, " · "), width)
 }
 
-// pickModelForAlias lists the profile's served models (providers.ListModels; FallbackModels covers the
-// providers whose live listing is known to fail) and pins the choice like `claude-code models --pin <alias>=<id>`.
+// pickModelForAlias lists the profile's served models.
 func pickModelForAlias(d *dialog, sel providers.Selection, alias string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

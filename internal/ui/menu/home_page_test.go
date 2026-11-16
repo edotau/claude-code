@@ -51,7 +51,6 @@ func TestTailscaleStatusCachedWithinTTL(t *testing.T) {
 	}
 }
 
-// TestWebSearchClaudeWiredHonoursConfigDir: the claude client reads CLAUDE_CONFIG_DIR/.claude.json, not $HOME/.claude.json.
 func TestWebSearchClaudeWiredHonoursConfigDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
@@ -65,8 +64,7 @@ func TestWebSearchClaudeWiredHonoursConfigDir(t *testing.T) {
 	}
 }
 
-// fakeTailscaleOnPATH puts a `tailscale` script on PATH that answers `status --json` with a
-// Running fixture (self only, no peers) so tailscale.Status resolves without the real daemon.
+// fakeTailscaleOnPATH puts a `tailscale` script on PATH that answers `status --json` with a Running fixture.
 func fakeTailscaleOnPATH(t *testing.T, dnsName string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -109,11 +107,10 @@ func TestRunRemoteConnectedReportsStatus(t *testing.T) {
 	}
 }
 
-// Tailscale not on PATH: the remote section still reports (not connected), and --check never fails
-// on it — this is the contract the old tailscale key row enforced, now owned by `remote`.
+// Tailscale not on PATH: the remote section still reports.
 func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no `tailscale` CLI at all
+	t.Setenv("PATH", t.TempDir())
 	t.Cleanup(tailscale.StubMacAppCLI(""))
 
 	got := runRemoteOut(t)
@@ -128,8 +125,7 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	}
 }
 
-// hasAdminCredential notes a configured admin credential by name, but never leaks the value, and the
-// remote section's running case reflects it.
+// hasAdminCredential notes a configured admin credential by name.
 func TestRunRemoteNotesConfiguredAdminCredential(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	fakeTailscaleOnPATH(t, "test-mac.tailxxxxx.ts.net.")

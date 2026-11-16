@@ -93,7 +93,7 @@ func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	if err := os.MkdirAll(vault.Path(), 0o700); err != nil { // a directory at the db path makes every vault write fail
+	if err := os.MkdirAll(vault.Path(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	ghDir := t.TempDir()
@@ -139,7 +139,7 @@ func TestRunGithubAuthFlagPinsAndSwitches(t *testing.T) {
 
 func TestRunGithubAuthFlagFollowClearsPinWithoutSwitch(t *testing.T) {
 	d, switched, _ := authFlagDialog(t, "", Options{})
-	d.reg.Providers["follow"].Login = "" // no account is named "follow": the keyword clears the pin
+	d.reg.Providers["follow"].Login = ""
 	if err := vault.SetGitHubAuth("work"); err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +181,7 @@ func TestSignInPrintsVendorBinError(t *testing.T) {
 	}
 }
 
-// The piped `configure github` report prints only booleans, provider/model names and the fix commands —
-// never a token-shaped string, even when a real-looking GitHub token sits in the environment.
+// The piped `configure github` report prints only booleans.
 func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 	hosttest.GithubScratch(t)
 	t.Setenv("GH_TOKEN", "ghp_FAKEtokenlookingvalue1234567890")

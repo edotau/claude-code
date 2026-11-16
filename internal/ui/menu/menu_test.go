@@ -201,7 +201,6 @@ func TestKeepOldKeyOnEOF(t *testing.T) {
 }
 
 // transientModelStore fails storage after a model pick and recovers when its error is reported.
-// The real picker, vault reads/writes and pin cleanup all run; only terminal I/O schedules the outage.
 type transientModelStore struct {
 	t      *testing.T
 	good   string
@@ -268,7 +267,7 @@ func TestRoutingEOFDoesNotResetSavedOverride(t *testing.T) {
 	pickMenu = func(string, []tui.Section, [2]string, int) (int, error) {
 		picks++
 		if picks == 1 {
-			return 0, nil // weights.price is a number/text prompt
+			return 0, nil
 		}
 		return -1, nil
 	}
@@ -331,7 +330,7 @@ func shellOn(script string) (*shell, *bytes.Buffer) {
 	return &shell{Out: &out, In: bufio.NewReader(strings.NewReader(script))}, &out
 }
 
-// Given a page with a counting row and Done, When 1 is entered twice then 2, Then the row ran twice and Run reports done.
+// Given a page with a counting row and Done.
 func TestRunKeepsPageUntilRowDone(t *testing.T) {
 	s, out := shellOn("1\n1\n2\n")
 	n := 0
@@ -362,7 +361,7 @@ func TestPaintAndMark(t *testing.T) {
 	}
 }
 
-// Given two lines typed ahead on the terminal, When Line runs twice, Then the second call sees the first call's look-ahead.
+// Given two lines typed ahead on the terminal.
 func TestLineTTYKeepsLookAhead(t *testing.T) {
 	orig, r := lineReader, bufio.NewReader(strings.NewReader("one\ntwo\n"))
 	lineReader = func() *bufio.Reader { return r }

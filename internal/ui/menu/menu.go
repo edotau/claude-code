@@ -206,8 +206,7 @@ func confirmTerminal(question string, def bool) bool {
 	return tui.ConfirmKey(question+"?", def)
 }
 
-// Run shows rows (rebuilt each pass, cursor kept) and runs the one Enter picks, until a row reports done (true)
-// or Esc/Back/an error dismisses the page (false).
+// Run shows rows (rebuilt each pass, cursor kept) and runs the one Enter picks.
 func (s *shell) Run(title string, rows func() []shellRow) bool {
 	cur := 0
 	for {

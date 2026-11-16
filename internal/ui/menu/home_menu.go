@@ -26,9 +26,7 @@ var pickMenu = tui.PickSections
 // submitRow ends the menu: y saves the keys entered in it to the secrets manager, n discards them like Esc.
 var submitRow = enterRow("save keys to the secrets manager and exit")
 
-// runMenu is `configure`'s interactive entry with no section named: the agents, tools and settings sections;
-// picking a row runs it, then the page re-renders with fresh status, cursor kept, until Submit or Esc. --agent
-// narrows it to that agent's row. Any change made here re-renders the agent configs on exit.
+// runMenu is `configure`'s interactive entry with no section named.
 func runMenu(d *dialog) (code int) {
 	d.pending = map[string]stagedKey{}
 	defer func() {
@@ -48,7 +46,7 @@ func runMenu(d *dialog) (code int) {
 			d.printf("configure: %v\n", err)
 			return 1
 		}
-		if idx < 0 || idx == len(actions) { // Enter, Esc and Left all leave through the one prompt
+		if idx < 0 || idx == len(actions) {
 			return leaveMenu(d)
 		}
 		start = idx
@@ -59,7 +57,8 @@ func runMenu(d *dialog) (code int) {
 // leaveMenu saves or discards the staged keys on leaving; 1 when a key save or a secret deletion failed.
 func leaveMenu(d *dialog) int {
 	if !confirmLeave(len(d.pending), "key(s) to the secrets manager") {
-		discardKeys(d) // saveKeys never ran: nothing was drained, so discard every staged key
+		// saveKeys never ran: nothing was drained, so discard every staged key
+		discardKeys(d)
 		return failedDeletes(d)
 	}
 	ok := saveKeys(d)
@@ -99,7 +98,6 @@ var extraSections = func(d *dialog) ([]tui.Section, []func(*dialog)) {
 }
 
 // menuRows builds one row per agent (name · mode · check) and the submenu each opens, scoped to d.o.Agent when set.
-// Each agent's status checks (CLI auth, gh, key probes) run in their own goroutine; rows keep roster order.
 func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	var names []string
 	for _, name := range append([]string{"claude"}, agent.Names()...) {
@@ -115,9 +113,9 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	wg.Wait()
 	rows := make([]homeRow, len(names))
 	for i, n := range names {
-		m := menus[i] // the page re-renders after every pick, so this build is fresh enough to open
+		m := menus[i]
 		rows[i] = homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
-			if n == "opencode" { // opencode opens a tui.List page instead of runAgentMenu
+			if n == "opencode" {
 				runOpencodePage(d)
 				return
 			}
@@ -161,9 +159,7 @@ func (d *dialog) stage(name, val string) bool {
 	return true
 }
 
-// saveKeys stores every staged key in the vault and reports each redacted; a name that fails to
-// store stays in d.pending (and its shadowing env stays set) instead of being silently dropped.
-// Returns false if any key failed, so the caller can make the menu's exit status reflect it.
+// saveKeys stores every staged key in the vault and reports each redacted.
 func saveKeys(d *dialog) bool {
 	if len(d.pending) == 0 {
 		d.println("keys: nothing to save; no key was entered in this session")
@@ -196,7 +192,7 @@ func discardKeys(d *dialog) {
 	d.pending = nil
 }
 
-// Labels section — an agent's mode column from agentPlans + agentPlanFormat (vault overlay/providers), else today's text.
+// Labels section — an agent's mode column from agentPlans + agentPlanFormat.
 
 // labelMax is the mode column's room in an 80-column row (name 11 · label · check 12, plus gaps).
 const labelMax = 48
@@ -206,8 +202,7 @@ var agentMaker = map[string]string{
 	agentid.Claude: "Anthropic", agentid.Codex: "OpenAI", agentid.Gemini: "Google", agentid.Copilot: "GitHub", agentid.OpenCode: "opencode",
 }
 
-// modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry (tier and provider
-// default to the detected plan and the agent's agent). No entry and no format keeps today's label.
+// modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry.
 func modeLabel(d *dialog, name string, st agentState) string {
 	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
@@ -217,12 +212,12 @@ func modeLabel(d *dialog, name string, st agentState) string {
 		return st.label()
 	}
 	format := d.reg.AgentPlanFormat
-	if format == "" { // default: the mode, then the plan as its provider names it ("subscription (Google AI Pro)")
+	if format == "" {
 		return textutil.Truncate(withTier(st.mode, cmp.Or(plan.Tier, st.tier.Name)), labelMax)
 	}
 	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
 		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
-	out = strings.Join(strings.Fields(out), " ") // an empty placeholder leaves no double space
+	out = strings.Join(strings.Fields(out), " ")
 	return textutil.Truncate(out, labelMax)
 }
 
@@ -230,7 +225,7 @@ func modeLabel(d *dialog, name string, st agentState) string {
 func planFor(d *dialog, name string, st agentState) (id string, plan providers.Plan, matched bool) {
 	plans, ok := d.reg.AgentPlans[name]
 	if !ok {
-		plans = d.reg.AgentPlans[displayLabel(name)] // "antigravity" names gemini too
+		plans = d.reg.AgentPlans[displayLabel(name)]
 	}
 	// a signed-out row holds no plan, whatever a "*" entry says, and needs its id only for the {id} placeholder
 	if st.mode != modeNone || strings.Contains(d.reg.AgentPlanFormat, "{id}") {
@@ -282,8 +277,7 @@ func withTier(mode, tier string) string {
 	return mode + " (" + tier + ")"
 }
 
-// rawPlanID is what the agent's sign-in reports (claude rate tier, ChatGPT plan, copilot_plan); on an API key it
-// is the account's opus model id, so a pattern can match a provider's prefixed ids.
+// rawPlanID is what the agent's sign-in reports.
 func rawPlanID(d *dialog, name string, st agentState) string {
 	if st.mode != modeSubscription {
 		if name == "copilot" && d.reg != nil {

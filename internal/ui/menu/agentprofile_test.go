@@ -28,9 +28,9 @@ func runProfile(t *testing.T, reg *providers.Registry, agent, answer string) str
 // The merged Profile row lists off first then the own login; picking writes the record's Profile and keeps its model.
 func TestProfileRowPicksOffAndOwnLogin(t *testing.T) {
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "claude", "profile", "")     // menuTestEnv's legacy pin would keep re-seeding own logins
-	vaulttest.SetRecord(t, "codex", "model", "keep-me") // a stored record: a pick must change Profile only
-	out := runProfile(t, reg, "codex", "2\n")           // 1) off  2) chatgpt
+	vaulttest.SetRecord(t, "claude", "profile", "")
+	vaulttest.SetRecord(t, "codex", "model", "keep-me")
+	out := runProfile(t, reg, "codex", "2\n")
 	if !strings.Contains(out, "1) off") || !strings.Contains(out, "2) chatgpt") {
 		t.Errorf("picker = %q, want off then the own login chatgpt", out)
 	}
@@ -46,7 +46,7 @@ func TestProfileRowPicksOffAndOwnLogin(t *testing.T) {
 // opencode's menu lists its own login zen-free right after off, which the old Route row omitted.
 func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's legacy pin would keep re-seeding own logins
+	vaulttest.SetRecord(t, "claude", "profile", "")
 	out := runProfile(t, reg, "opencode", "2\n")
 	if !strings.Contains(out, "2) "+opencode.OwnLogin) {
 		t.Errorf("picker = %q, want zen-free as row 2", out)
@@ -59,7 +59,7 @@ func TestProfileRowOpencodeListsZenFree(t *testing.T) {
 // Every agent's Profile row is one line (its page width: TestMenuRowWidthsFitEightyColumns), claude's automatic.
 func TestProfileRowIsOneLineClaudeAutomatic(t *testing.T) {
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's legacy pin would keep re-seeding own logins
+	vaulttest.SetRecord(t, "claude", "profile", "")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	for _, a := range seedAgents() {
 		if r := agentPinRows(d, a)[0]; r.label != "Profile" || strings.Contains(r.desc, "\n") {
@@ -92,7 +92,7 @@ func TestAgentActiveOnSeedsOnlyEmptyProfile(t *testing.T) {
 func seedDialog(t *testing.T, script string) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "claude", "profile", "") // menuTestEnv's claude pin folds into a record
+	vaulttest.SetRecord(t, "claude", "profile", "")
 	if got := vault.AgentRecords(agentpkg.RosterNames())["claude"].Profile; got != "" {
 		t.Fatalf("claude record = %q, want a first-run start", got)
 	}

@@ -36,8 +36,10 @@ const (
 
 // agentState is how an agent bills today and whether that credential checked out.
 type agentState struct {
-	mode     string                 // modeSubscription, modeAPIKey, modeNone, or a non-anthropic backend's label
-	tier     providers.Subscription // plan the sign-in reports (Name "Max 20x", "Plus", "Pro+"; Raw for agentPlans)
+	// modeSubscription, modeAPIKey, modeNone, or a non-anthropic backend's label
+	mode string
+	// plan the sign-in reports (Name "Max 20x", "Plus", "Pro+"; Raw for agentPlans)
+	tier     providers.Subscription
 	verified bool
 }
 
@@ -74,7 +76,7 @@ var agentMenus = map[string]func(d *dialog) agentMenu{
 
 // pickAgent is the submenu picker seam; tests replace it.
 var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int, error) {
-	if !d.shell().TTY { // the numbered prompt paints or strips the span markers itself
+	if !d.shell().TTY {
 		return d.shell().Pick(title, rows, start)
 	}
 	secs, order := agentSections(rows)
@@ -98,7 +100,7 @@ func agentSections(rows [][2]string) ([]tui.Section, []int) {
 		switch {
 		case signInRows[r[0]]:
 			k = 0
-		case r[0] == "Profile", r[0] == "Model", r[0] == "Fallback": // the model belongs to the profile it runs on
+		case r[0] == "Profile", r[0] == "Model", r[0] == "Fallback":
 			k = 2
 		}
 		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)
@@ -354,7 +356,7 @@ var codexKeyLogin = func(key string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // key is piped, no prompt; 60s covers the network check
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "login", "--with-api-key")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = strings.NewReader(key), os.Stdout, os.Stderr
@@ -381,7 +383,7 @@ func codexLogin(d *dialog, ensureKey func() bool) bool {
 
 // codexUseKey points codex's own auth at the stored OPENAI_API_KEY.
 func codexUseKey(d *dialog) bool {
-	staged, ok := d.pending["OPENAI_API_KEY"] // pasted on this page, not yet in the vault
+	staged, ok := d.pending["OPENAI_API_KEY"]
 	key := staged.val
 	if !ok {
 		key, _, ok = vault.Get("OPENAI_API_KEY")
@@ -401,7 +403,7 @@ func codexUseKey(d *dialog) bool {
 func copilotMenu(d *dialog) agentMenu {
 	auth := agent.AuthStatus("copilot")
 	loggedIn := auth.Present
-	ctx := context.Background() // the menu is a command entry: no caller ctx
+	ctx := context.Background()
 	plan := agent.AuthPlan(ctx, "copilot", auth)
 	auth.Account = cmp.Or(auth.Account, plan.Account)
 	st := loginOrKey(d, loggedIn, plan)
@@ -409,7 +411,7 @@ func copilotMenu(d *dialog) agentMenu {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
 	chain := namedRouteChain(ctx, d, auth.Account)
-	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK { // a usable pinned Databricks profile is the route
+	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK {
 		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
 	}
 	who := "gh active"
@@ -443,8 +445,7 @@ func copilotMenu(d *dialog) agentMenu {
 	return agentMenu{st, rows}
 }
 
-// namedRouteChain is copilot's route chain with the GitHub step labelled by account (the offline chain cannot name a
-// token-only account).
+// namedRouteChain is copilot's route chain with the GitHub step labelled by account.
 func namedRouteChain(ctx context.Context, d *dialog, account string) []copilot.RouteStep {
 	chain := copilot.RouteChain(ctx, d.reg)
 	for i := range chain {
@@ -455,14 +456,14 @@ func namedRouteChain(ctx context.Context, d *dialog, account string) []copilot.R
 	return chain
 }
 
-// copilotFallback is the route chain after the first usable step ("GitHub edotau (under 95% of credits) → ..."); "" when none.
+// copilotFallback is the route chain after the first usable step.
 func copilotFallback(chain []copilot.RouteStep) string {
 	first := slices.IndexFunc(chain, func(s copilot.RouteStep) bool { return s.OK })
 	var rest []string
 	for _, s := range chain[first+1:] {
 		if s.OK {
 			label := s.Label
-			if s.When != "fallback" { // a plain fallback step needs no note; a conditional one says when
+			if s.When != "fallback" {
 				label += " (" + s.When + ")"
 			}
 			rest = append(rest, label)
@@ -542,8 +543,7 @@ func choiceLabel(choices [][2]string, val string) string {
 	return val
 }
 
-// clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor, after a
-// copilot model switch; each cleared pin prints the reason on one line.
+// clearIneligibleCopilotPins drops the effort/context pins a newly chosen model can't honor.
 func clearIneligibleCopilotPins(d *dialog, modelID string) {
 	rec := vault.GetAgentRecord("copilot")
 	if cur := rec.Effort; cur != "" {
@@ -601,8 +601,7 @@ func copilotKeyRow(d *dialog) billingRow {
 	}}
 }
 
-// pickGitHubUser lists gh's accounts; a pick is validated (gh has a token GitHub accepts for that user) and pins
-// only the name, COPILOT_PROFILE — launches fetch the token with `gh auth token --user`.
+// pickGitHubUser lists gh's accounts.
 func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 	gh := copilot.GHAccounts()
 	if !d.onTerminal() {
@@ -663,14 +662,14 @@ func pinCopilotProfile(d *dialog, user string) bool {
 		d.printf("copilot: %v\n", err)
 		return false
 	}
-	d.reload() // githubProfile may have added the profile to the registry
+	d.reload()
 	d.printf("%-10s runs as %s\n", "copilot", user)
 	return true
 }
 
 // opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
 func opencodeMenu(d *dialog) agentMenu {
-	if opencode.OpencodeOwnLoginPresent() { // Raw matches the agentPlans entry naming the Go plan
+	if opencode.OpencodeOwnLoginPresent() {
 		return agentMenu{state: agentState{modeSubscription, providers.Subscription{Raw: "opencode-go"}, true}}
 	}
 	if opencode.OpencodeCopilotLoginPresent() {

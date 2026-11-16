@@ -41,12 +41,11 @@ func TestCopilotKeyRowLabelShowsTokenState(t *testing.T) {
 	}
 }
 
-// With no token stored, selecting copilot's API key row pastes straight into COPILOT_GITHUB_TOKEN (the
-// non-TTY dialogue path) — no picker, and it must never touch the anthropic console.
+// With no token stored, selecting copilot's API key row pastes straight into COPILOT_GITHUB_TOKEN.
 func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
 	menuTestEnv(t)
 	var out bytes.Buffer
-	const pasted = "gh" + "p_pastedFAKEtoken1234567890" // valid shape: ValidCopilotToken requires a gh prefix, >=20 chars
+	const pasted = "gh" + "p_pastedFAKEtoken1234567890"
 	in := strings.NewReader(pasted + "\n")
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
 	if !copilotKeyRow(d).run() {
@@ -61,8 +60,7 @@ func TestCopilotKeyRowAbsentPastesDirectlyNoAnthropicConsole(t *testing.T) {
 	}
 }
 
-// A paste that does not look like a real GitHub token is refused: the row reports failure and
-// nothing is written to the vault.
+// A paste that does not look like a real GitHub token is refused.
 func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	menuTestEnv(t)
 	var out bytes.Buffer
@@ -79,9 +77,7 @@ func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	}
 }
 
-// copilotContextEligible is the claude-* model gate for the Context row when the SDK catalog is
-// unreachable (menuTestEnv's PATH has no copilot binary, so copilotCatalogModel always misses): a
-// Claude-backed opus slot is eligible, anything else (an "auto" alias, a GPT id) is not.
+// copilotContextEligible is the claude-* model gate for the Context row when the SDK catalog is unreachable.
 func TestCopilotContextEligible(t *testing.T) {
 	menuTestEnv(t)
 	cases := map[string]bool{"claude-opus-5.5": true, "claude-sonnet-5": true, "auto": false, "gpt-5": false, "": false}
@@ -93,8 +89,7 @@ func TestCopilotContextEligible(t *testing.T) {
 	}
 }
 
-// copilotContextRow is nil for an ineligible model (no long-context tier to pin) and present for one,
-// same claude-* fallback as copilotContextEligible since the SDK catalog is unreachable here.
+// copilotContextRow is nil for an ineligible model.
 func TestCopilotContextRowNilWhenIneligible(t *testing.T) {
 	menuTestEnv(t)
 	d := &dialog{out: discardWriter{}}
@@ -106,8 +101,7 @@ func TestCopilotContextRowNilWhenIneligible(t *testing.T) {
 	}
 }
 
-// copilotEffortRow's desc flips between "unset" and the pinned value as COPILOT_REASONING_EFFORT
-// changes; the SDK catalog is unreachable here, so the row falls back to the fixed effort list.
+// copilotEffortRow's desc flips between "unset" and the pinned value as COPILOT_REASONING_EFFORT changes.
 func TestCopilotEffortRowShowsPinState(t *testing.T) {
 	menuTestEnv(t)
 	d := &dialog{out: discardWriter{}}
@@ -120,13 +114,12 @@ func TestCopilotEffortRowShowsPinState(t *testing.T) {
 	}
 }
 
-// pickCopilotPin, on the non-TTY numbered-prompt path: picking a choice pins its value; picking "unset"
-// clears a previously-set pin. Row 0 is always "unset", so row N+1 is choices[N].
+// pickCopilotPin, on the non-TTY numbered-prompt path.
 func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
 	menuTestEnv(t)
 	choices := [][2]string{{"Low", "low"}, {"High", "high"}}
 
-	in := strings.NewReader("2\n") // row 2 = choices[0] = "low"
+	in := strings.NewReader("2\n")
 	d := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
 	if !pickCopilotPin(d, "effort", "EFFORT", choices, "") {
 		t.Fatal("pickCopilotPin(set) = false")
@@ -135,7 +128,7 @@ func TestPickCopilotPinSetsAndClearsPin(t *testing.T) {
 		t.Errorf("pin = %q, want low", got)
 	}
 
-	in = strings.NewReader("1\n") // row 1 = "unset"
+	in = strings.NewReader("1\n")
 	d = &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
 	if !pickCopilotPin(d, "effort", "EFFORT", choices, "low") {
 		t.Fatal("pickCopilotPin(clear) = false")
@@ -423,11 +416,11 @@ func TestSetUpIsEveryAgentPagesFirstRow(t *testing.T) {
 	}
 }
 
-// runRealRoute drives Set up's real route step (picker + pin write) after a verified agent, answering the picker with in.
+// runRealRoute drives Set up's real route step.
 func runRealRoute(t *testing.T, in string, readOnlyVault bool) string {
 	t.Helper()
 	reg := menuTestEnv(t)
-	vaulttest.SetRecord(t, "codex", "profile", "chatgpt") // codex is on its own login, so picking off is a real write
+	vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
 	if readOnlyVault {
 		if err := os.Chmod(vault.Path(), 0o400); err != nil {
 			t.Fatal(err)
@@ -463,8 +456,7 @@ func TestSetUpRouteCancelIsQuiet(t *testing.T) {
 	}
 }
 
-// fakeAgyCommand replaces agyCommand with a shell script: setup gives it a chance to touch the marker
-// (or not) before it exits, so each case drives runAgy without a real `agy` binary.
+// fakeAgyCommand replaces agyCommand with a shell script.
 func fakeAgyCommand(t *testing.T, script string) {
 	t.Helper()
 	orig := configure.AgyCommand
@@ -472,8 +464,6 @@ func fakeAgyCommand(t *testing.T, script string) {
 	configure.AgyCommand = func() *exec.Cmd { return exec.Command("/bin/sh", "-c", script) }
 }
 
-// TestRunAgySignsInThenStopsIt: agy writes its marker after a beat and then just sits there (a stand-in
-// for its own TUI staying up); runAgy must notice the marker and stop the process, not wait for its exit.
 func TestRunAgySignsInThenStopsIt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -521,8 +511,7 @@ func TestRunAgyReportsNotSignedInWhenItExitsOnItsOwn(t *testing.T) {
 	}
 }
 
-// TestRunAgyStopsOnTimeout: agy never writes the marker and never exits; runAgy must give up at
-// configure.AgySignInTimeout and stop it rather than wait forever.
+// TestRunAgyStopsOnTimeout: agy never writes the marker and never exits.
 func TestRunAgyStopsOnTimeout(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -578,7 +567,7 @@ func TestCopilotEffortRowListsModelsOwnEfforts(t *testing.T) {
 	if r == nil {
 		t.Fatal("copilotEffortRow = nil, want a row (model supports reasoning effort)")
 	}
-	in := strings.NewReader("\n") // blank = cancel; we only need the printed choice list
+	in := strings.NewReader("\n")
 	var out bytes.Buffer
 	d2 := &dialog{o: Options{In: in}, br: bufio.NewReader(in), out: &out}
 	r2 := copilotEffortRow(d2, "claude-sonnet-5")
@@ -617,8 +606,7 @@ func TestClearIneligibleCopilotPinsOnModelSwitch(t *testing.T) {
 	}
 }
 
-// clearIneligibleCopilotPins must leave compatible pins alone: a model that still supports the pinned
-// effort and still has a long-context tier keeps both.
+// clearIneligibleCopilotPins must leave compatible pins alone.
 func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
@@ -639,8 +627,6 @@ func TestClearIneligibleCopilotPinsKeepsCompatiblePins(t *testing.T) {
 	}
 }
 
-// TestRunAgyStopsDescendants: a non-exec shell spawning a background child (stand-in for Node spawning a
-// child process) must have its descendant killed by stopAgy when the sign-in marker appears.
 func TestRunAgyStopsDescendants(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process-group stop needs POSIX signals and a POSIX shell")
@@ -676,7 +662,7 @@ func TestRunAgyStopsDescendants(t *testing.T) {
 	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return // already gone
+		return
 	}
 	t.Cleanup(func() { _ = proc.Kill() })
 	deadline := time.Now().Add(time.Second)
