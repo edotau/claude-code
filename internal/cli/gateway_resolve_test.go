@@ -116,3 +116,30 @@ func TestGatewayResolveAuto(t *testing.T) {
 		t.Errorf("json exit %d (%v): %d ranked, want 1..5: %s", code, err, len(doc.Auto.Ranked), out)
 	}
 }
+
+// A model dev's fresh listing lacks prints "served: no"; under --fallback none it exits 2 naming the served ones.
+func TestGatewayResolveUnservedModel(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-gemini-3-8-flash", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		extra    string
+		code     int
+		out, err string
+	}{
+		{"", 0, "served: no", ""},
+		{"none", 2, "", "databricks-gemini-3-8-flash"},
+	} {
+		args := []string{"gemini", "--profile", "dev", "--model", "gemini-4-argon-high"}
+		if tc.extra != "" {
+			args = append(args, "--fallback", tc.extra)
+		}
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdGatewayResolve(args) })
+		if code != tc.code || !strings.Contains(stdout, tc.out) || !strings.Contains(stderr, tc.err) {
+			t.Errorf("--fallback %q: exit %d, stdout %q, stderr %q; want exit %d with %q / %q", tc.extra, code, stdout, stderr, tc.code, tc.out, tc.err)
+		}
+	}
+}

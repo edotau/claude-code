@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -136,6 +137,30 @@ func TestResolveRunTierNotServed(t *testing.T) {
 	q.Default = "opus"
 	if r, err := ResolveRun(reg, q, now); err != nil || r.Note != "" {
 		t.Errorf("served tier = %+v, %v; want it with no note", r, err)
+	}
+}
+
+// A catalog model the fresh listing lacks is marked unserved (refused under fallback none); no listing is unverified.
+func TestResolveRunUnservedCatalogModel(t *testing.T) {
+	setConfigDir(t)
+	reg := routeRegistry(t)
+	now := time.Now()
+	q := ModelQuery{Agent: "gemini", Profile: "dev", Model: "gemini-4-argon-high"}
+	if r, err := ResolveRun(reg, q, now); err != nil || r.Served != ServedUnverified {
+		t.Errorf("no listing: %+v, %v; want Served %q", r, err, ServedUnverified)
+	}
+	saveListing(t, "dev", []string{"databricks-gemini-3-8-flash"})
+	r, err := ResolveRun(reg, q, now)
+	if err != nil || r.Served != ServedNo || !strings.Contains(r.Note, "databricks-gemini-3-8-flash") {
+		t.Errorf("fresh listing without it: %+v, %v; want Served %q and the served alternative in the note", r, err, ServedNo)
+	}
+	q.Fallback = router.FallbackNone
+	if _, err := ResolveRun(reg, q, now); !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "databricks-gemini-3-8-flash") {
+		t.Errorf("fallback none: err = %v; want ErrModelRoute naming the served alternative", err)
+	}
+	q.Model = "gemini-3-8-flash-high"
+	if r, err := ResolveRun(reg, q, now); err != nil || r.Served != "" {
+		t.Errorf("served model: %+v, %v; want it unmarked", r, err)
 	}
 }
 

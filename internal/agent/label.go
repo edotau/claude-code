@@ -79,8 +79,17 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	return r, err
 }
 
-// ExplainRun is ResolveRun plus the auto choice behind its pick; the choice is nil when no auto ranking ran.
+// ExplainRun is ResolveRun plus the auto choice behind its pick; an unlisted Databricks pick is marked or refused.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
+	r, choice, err := explainRun(reg, q, now)
+	if err != nil {
+		return r, choice, err
+	}
+	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone, now)
+	return r, choice, err
+}
+
+func explainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
 	q, need := autoQuery(q)
 	base, err := autoBase(reg, q, need, now)
 	if err != nil || need.mode == autoOff {
