@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -451,9 +450,6 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	clearTyped(fs, s)
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
-	}
-	if !helptext.Explicit(fs, "fallback") && strings.TrimSpace(proc.Value(ctx, router.EnvFallback)) != "" {
-		*s.Fallback = router.FallbackAll
 	}
 	*prompt, *s.rubric = rec.Request.Prompt, ""
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)

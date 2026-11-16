@@ -122,10 +122,13 @@ func withRubric(o RunOptions) (RunOptions, error) {
 
 // withDefaults fills the agent, fallback and launcher defaults and resolves o.Agent to its agent.
 func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
-	fallback := router.FallbackNone
-	if strings.TrimSpace(proc.Value(valuesContext(context.Background(), o.Values), router.EnvFallback)) != "" ||
-		strings.TrimSpace(providers.CustomEnv()[router.EnvFallback]) != "" {
-		fallback = router.FallbackAll
+	raw := proc.Value(valuesContext(context.Background(), o.Values), router.EnvFallback)
+	if strings.TrimSpace(raw) == "" {
+		raw = providers.CustomEnv()[router.EnvFallback]
+	}
+	fallback := router.ParseFallback(raw)
+	if o.Fallback == "" && !slices.Contains(router.FallbackModes, fallback) {
+		return o, clientUsageError{fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, raw, strings.Join(router.FallbackModes, "|"))}
 	}
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {
