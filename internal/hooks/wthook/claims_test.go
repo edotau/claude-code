@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -38,7 +39,7 @@ const liveOwner, deadOwner, checkerOwner = 100, 200, 300
 func TestWorktreeClaimRecordsEdits(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useClaimOwner(t, liveOwner)
-	dir := core.CanonPath(t.TempDir())
+	dir := paths.Real(t.TempDir())
 	Claim(claimInput(t, map[string]any{"session_id": "", "cwd": dir, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "a.txt"}}))
 	if _, err := os.Stat(worktree.ClaimsDir()); !os.IsNotExist(err) {
@@ -63,7 +64,7 @@ func TestClaimStampsOwnerStart(t *testing.T) {
 		}
 		return "tok", nil
 	}
-	dir := core.CanonPath(t.TempDir())
+	dir := paths.Real(t.TempDir())
 	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": "a.txt"}}))
 	if got := readClaims(t, claimsFile(liveOwner, "S1")); len(got) != 1 || got[0].OwnerStart != "tok" {
@@ -96,7 +97,7 @@ func TestClaimSkipsOwnerLookupWhenNothingToRecord(t *testing.T) {
 	lookups, orig := 0, claimOwner
 	claimOwner = func() int { lookups++; return liveOwner }
 	t.Cleanup(func() { claimOwner = orig })
-	dir := core.CanonPath(t.TempDir())
+	dir := paths.Real(t.TempDir())
 	for _, cmd := range []string{"ls", "git status", "grep add x"} {
 		Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Bash",
 			"tool_input": map[string]any{"command": cmd}}))

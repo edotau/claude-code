@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Given an inherited GIT_DIR naming a bogus dir, Git still reads the repo at dir (-C is not overridden).
@@ -23,7 +25,7 @@ func TestGitScrubsInheritedGitDir(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Git rev-parse = ok %v err %v; GIT_DIR leaked into the call", ok, err)
 	}
-	if got, want := CanonPath(lines[0]), CanonPath(repo); got != want {
+	if got, want := paths.Real(lines[0]), paths.Real(repo); got != want {
 		t.Fatalf("toplevel = %q, want %q", got, want)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -563,5 +564,55 @@ func TestEditedFilesErrors(t *testing.T) {
 	}
 	if _, err := EditedFiles(t.TempDir()); err == nil {
 		t.Fatal("a directory as the transcript must return its read error")
+	}
+}
+
+func editFileLine(file string) string {
+	return `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"` + file + `"}}]}}` + "\n"
+}
+
+func TestEditedFilesFromMatchesFullScan(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	step1 := editFileLine("/r/b.go") + editFileLine("/r/a.go")
+	partial := editFileLine("/r/c.go")
+	appendTranscript(t, tr, step1+partial[:20])
+	first, next, err := EditedFilesFrom(tr, 0)
+	if err != nil || strings.Join(first, ",") != "/r/a.go,/r/b.go" || next != int64(len(step1)) {
+		t.Fatalf("step 1 = %v, %d, %v; want a,b and next %d (partial line left for later)", first, next, err, len(step1))
+	}
+	appendTranscript(t, tr, partial[20:]+editFileLine("/r/a.go")+editFileLine("/r/d.go"))
+	second, next2, err := EditedFilesFrom(tr, next)
+	if err != nil || strings.Join(second, ",") != "/r/a.go,/r/c.go,/r/d.go" {
+		t.Fatalf("step 2 = %v, %v; want only the lines added since offset %d", second, err, next)
+	}
+	full, err := EditedFiles(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := slices.Compact(slices.Sorted(slices.Values(slices.Concat(first, second))))
+	if !slices.Equal(merged, full) {
+		t.Fatalf("incremental union %v != full scan %v", merged, full)
+	}
+	if fi, _ := os.Stat(tr); next2 != fi.Size() {
+		t.Fatalf("next = %d, want file size %d", next2, fi.Size())
+	}
+	if again, n, _ := EditedFilesFrom(tr, next2); len(again) != 0 || n != next2 {
+		t.Fatalf("nothing new: got %v, %d; want none, %d", again, n, next2)
+	}
+}
+
+func TestEditedFilesFromResetsWhenShorter(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	appendTranscript(t, tr, editFileLine("/r/old-one.go")+editFileLine("/r/old-two.go"))
+	_, next, _ := EditedFilesFrom(tr, 0)
+	if err := os.WriteFile(tr, []byte(editFileLine("/r/n.go")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, next2, err := EditedFilesFrom(tr, next)
+	if err != nil || strings.Join(got, ",") != "/r/n.go" || next2 != int64(len(editFileLine("/r/n.go"))) {
+		t.Fatalf("after shrink = %v, %d, %v; want /r/n.go from offset 0", got, next2, err)
+	}
+	if got, n, err := EditedFilesFrom(filepath.Join(t.TempDir(), "missing"), 99); got != nil || n != 0 || err != nil {
+		t.Fatalf("missing file = %v, %d, %v; want none, 0, nil", got, n, err)
 	}
 }
