@@ -194,16 +194,21 @@ func ownedStoreRels(b Bank) []string {
 			case e.Type().IsRegular():
 				rels = append(rels, rel)
 			case e.IsDir() && dir != "":
-				_ = filepath.WalkDir(filepath.Join(StoreDir(), rel), func(p string, d fs.DirEntry, err error) error {
-					if r, rerr := filepath.Rel(StoreDir(), p); err == nil && rerr == nil && d.Type().IsRegular() {
-						rels = append(rels, filepath.ToSlash(r))
-					}
-					return nil
-				})
+				rels = append(rels, regularFilesUnder(rel)...)
 			}
 		}
 	}
 	return rels
+}
+
+func regularFilesUnder(rel string) (rels []string) {
+	_ = filepath.WalkDir(filepath.Join(StoreDir(), rel), func(p string, d fs.DirEntry, err error) error {
+		if r, rerr := filepath.Rel(StoreDir(), p); err == nil && rerr == nil && d.Type().IsRegular() {
+			rels = append(rels, filepath.ToSlash(r))
+		}
+		return nil
+	})
+	return
 }
 
 // storeLevelFile is a top-level file shared by every bank: the index, the catalog.
