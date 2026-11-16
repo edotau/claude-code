@@ -192,7 +192,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
 func RecallExplain(w io.Writer, repo, query string) error {
-	top, err := ResolveRepo(repo)
+	top, err := ResolveRoot(repo)
 	if err != nil {
 		return err
 	}

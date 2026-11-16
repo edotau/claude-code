@@ -452,7 +452,7 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	if n := strings.Count(string(kept), "\n"); n > fileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", n)
 	}
-	arch, err := os.ReadFile(archivePath(local, "decisionLog.md", time.Now()))
+	arch, err := os.ReadFile(archivePath(BankFor(root), "decisionLog.md", time.Now()))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
 		t.Errorf("oldest entry did not land in the archive: %v %q", err, arch)
 	}

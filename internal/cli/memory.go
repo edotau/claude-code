@@ -59,7 +59,7 @@ var memoryPlumbing = map[string][2]string{
 	"search":   {"<terms>", "rank blocks for terms, with scores"},
 	"show":     {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"index":    {"", "settle the bank: rotate and archive over caps; refresh the embedding cache"},
-	"path":     {"", "print the bank directory"},
+	"path":     {"[SUB] [NAME]", "print the bank dir, or its handoffs|reports|knowledge|worktrees path"},
 	"report":   {"--label L [--file F | --stdin]", "append a report and its decisions to the bank reports/"},
 	"digest":   {"", "write the bank digest"},
 	"fmt":      {"", "wrap the bank files"},
@@ -237,32 +237,32 @@ func cmdMemory(args []string) int {
 // memorySpec describes memory subcommands and their completion domains.
 func memorySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"recall": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("all"), helptext.Plain("k"),
+		"recall": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"),
 			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
-		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.ValuedFlag("type", memoryRememberTypes)}},
-		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys)}},
-		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
+		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.ValuedFlag("type", memoryRememberTypes)}},
+		"init":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"review": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates")}},
-		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys),
+		"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets }), helptext.BoolFlag("dry-run")}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical")}},
 		"dream":    {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
-		"search":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
+		"search":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":     {},
-		"digest":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys)}},
-		"index":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
-		"path":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys)}},
-		"report":   {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.RepoKeys)}},
+		"digest":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"index":    {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"path":     {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys)}},
+		"report":   {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag(), helptext.ValuedFlag("repo", memory.BankKeys)}},
 		"fmt":      {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"catchup":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("skip")}},
 		"watch":    {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
-		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("n")}},
-		"sandbox":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
+		"timeline": {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("n")}},
+		"sandbox":  {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.BoolFlag("all"), helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"migrate":  {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("revert"), helptext.CompletionFormatFlag()}},
-		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.RepoKeys), helptext.BoolFlag("dry-run")}},
-		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.RepoKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
-		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.RepoKeys),
+		"alias":    {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.ValuedFlag("into", memory.BankKeys), helptext.BoolFlag("dry-run")}},
+		"revise":   {Flags: []helptext.Flag{helptext.ValuedFlag("repo", memory.BankKeys), helptext.Plain("with"), helptext.BoolFlag("dry-run")}},
+		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"), helptext.ValuedFlag("repo", memory.BankKeys),
 			helptext.BoolFlag("all"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
 	}}
 }
@@ -275,7 +275,7 @@ func cmdMemoryInit(args []string) int {
 	if code, done := memoryParseNoArgs(fs, "init", args); done {
 		return code
 	}
-	root, err := memory.ResolveRepo(*repo)
+	root, err := memory.ResolveRoot(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory init: %v", err)
 	}
@@ -296,7 +296,7 @@ func cmdMemoryRemember(args []string) int {
 	if len(terms) == 0 {
 		return helptext.Fail("memory remember: no fact text (usage: %s)", memorySubPage("remember").Usage)
 	}
-	root, err := memory.ResolveRepo(*repo)
+	root, err := memory.ResolveRoot(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory remember: %v", err)
 	}
@@ -304,7 +304,7 @@ func cmdMemoryRemember(args []string) int {
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memory.Dir(root))
+	fmt.Printf("remembered [%s] -> %s\n", id, memory.BankFor(root).SubDir(""))
 	return 0
 }
 
@@ -391,7 +391,7 @@ func cmdMemoryRevise(args []string) int {
 	if len(ids) != 1 || *with == "" {
 		return helptext.FailUsage("memory revise: give <old-id> --with <new-id> (usage: %s)", memorySubPage("revise").Usage)
 	}
-	root, err := memory.ResolveRepo(*repo)
+	root, err := memory.ResolveRoot(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory revise: %v", err)
 	}
@@ -440,16 +440,33 @@ func cmdMemoryIndex(args []string) int {
 	return 0
 }
 
+// memoryPathSubs are the sub dirs `memory path` resolves; SUB NAME names one file in the bank's.
+var memoryPathSubs = []string{"handoffs", "reports", "knowledge", "worktrees"}
+
 func cmdMemoryPath(args []string) int {
 	fs, repo := memoryRepoFlagSet("path")
-	if code, done := memoryParseNoArgs(fs, "path", args); done {
-		return code
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
-	root, err := memory.ResolveRepo(*repo)
+	if len(pos) > 2 {
+		return helptext.FailUsage("memory path: unexpected argument %q", pos[2])
+	}
+	if len(pos) > 0 && !slices.Contains(memoryPathSubs, pos[0]) {
+		return helptext.FailUsage("memory path: unexpected argument %q (SUB is one of %s)", pos[0], strings.Join(memoryPathSubs, ", "))
+	}
+	_, b, err := memory.ResolveBank(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory path: %v", err)
 	}
-	fmt.Println(memory.Dir(root))
+	switch len(pos) {
+	case 0:
+		fmt.Println(b.SubDir(""))
+	case 1:
+		fmt.Println(b.SubDir(pos[0]))
+	default:
+		fmt.Println(b.Sub(pos[0], pos[1]))
+	}
 	return 0
 }
 
@@ -588,7 +605,7 @@ func cmdMemoryPromote(args []string) int {
 	if len(pos) != 1 || *to == "" {
 		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
 	}
-	root, err := memory.ResolveRepo(*repo)
+	root, err := memory.ResolveRoot(*repo)
 	if err != nil {
 		return helptext.FailUsage("memory promote: %v", err)
 	}

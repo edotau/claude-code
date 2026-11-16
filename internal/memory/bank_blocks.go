@@ -262,11 +262,11 @@ func isLowerHex(s string) bool {
 func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
 
 // assignIDTexts stamps unmarked blocks, collapses stacked markers to the oldest and returns each id file's text.
-func assignIDTexts(dir string, now time.Time) (int, map[string]string, error) {
+func assignIDTexts(b Bank, now time.Time) (int, map[string]string, error) {
 	n := 0
 	texts := map[string]string{}
 	for name, prefix := range idFiles {
-		stamped, text, err := assignFileIDs(dir, name, prefix, now)
+		stamped, text, err := assignFileIDs(b, name, prefix, now)
 		n += stamped
 		if err != nil {
 			return n, texts, err
@@ -279,8 +279,8 @@ func assignIDTexts(dir string, now time.Time) (int, map[string]string, error) {
 }
 
 // assignFileIDs is assignIDs for one typed file, returning its settled text; a missing file is skipped ("" text).
-func assignFileIDs(dir, name, prefix string, now time.Time) (int, string, error) {
-	path := filepath.Join(dir, name)
+func assignFileIDs(b Bank, name, prefix string, now time.Time) (int, string, error) {
+	path := b.Path(name)
 	data, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, "", nil
@@ -288,7 +288,7 @@ func assignFileIDs(dir, name, prefix string, now time.Time) (int, string, error)
 	if err != nil {
 		return 0, "", err
 	}
-	res, n := stampIDs(dir, name, prefix, string(data), now)
+	res, n := stampIDs(b, name, prefix, string(data), now)
 	res = formatBankMarkdown(res) // wrapped here, in memory, so settle never re-reads the file to wrap it
 	if res != string(data) {
 		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
@@ -299,7 +299,7 @@ func assignFileIDs(dir, name, prefix string, now time.Time) (int, string, error)
 }
 
 // stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.
-func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
+func stampIDs(b Bank, name, prefix, text string, now time.Time) (string, int) {
 	n := 0
 	lines := strings.Split(text, "\n")
 	starts := blockStarts(lines, prefix)
@@ -314,9 +314,9 @@ func stampIDs(dir, name, prefix, text string, now time.Time) (string, int) {
 		if k+1 < len(starts) {
 			end = starts[k+1]
 		}
-		block, stamped := settleBlockID(dir, name, i, lines[i:end], now)
+		block, stamped := settleBlockID(b, name, i, lines[i:end], now)
 		for salt := len(lines); stamped == 1 && strings.Contains(text, block[0][len(lines[i])+1:]); salt++ {
-			block, _ = settleBlockID(dir, name, salt, lines[i:end], now) // an id text already carries: redraw past its end
+			block, _ = settleBlockID(b, name, salt, lines[i:end], now) // an id text already carries: redraw past its end
 		}
 		n += stamped
 		out = append(out, block...)
@@ -350,11 +350,11 @@ func fencedLines(block []string) []bool {
 }
 
 // settleBlockID leaves one id marker (the oldest, i.e. the last, else a fresh one); fenced lines are never touched.
-func settleBlockID(dir, name string, idx int, block []string, now time.Time) ([]string, int) {
+func settleBlockID(b Bank, name string, idx int, block []string, now time.Time) ([]string, int) {
 	fenced := fencedLines(block)
 	keepLine, keepSpan, total := lastMarker(block, fenced)
 	if total == 0 {
-		return append([]string{block[0] + freshID(dir, name, idx, block[0], now)}, block[1:]...), 1
+		return append([]string{block[0] + freshID(b, name, idx, block[0], now)}, block[1:]...), 1
 	}
 	if total == 1 {
 		return block, 0
@@ -398,8 +398,8 @@ func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, to
 }
 
 // freshID is the new ` <!-- id:xxxx -->` suffix for a block; idx is in the hash so identical lines never collide.
-func freshID(dir, name string, idx int, line string, now time.Time) string {
-	key := dir + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
+func freshID(b Bank, name string, idx int, line string, now time.Time) string {
+	key := b.Key + "\x00" + name + "\x00" + strconv.Itoa(idx) + "\x00" + line + "\x00" + now.Format(time.RFC3339Nano)
 	return " <!-- id:" + textutil.SHA256Hex([]byte(key))[:8] + " -->"
 }
 
@@ -497,6 +497,11 @@ func logicalName(path string) string {
 	}
 	if m := archiveName.FindStringSubmatch(base); m != nil {
 		return m[1] + ".md"
+	}
+	if _, rest, ok := strings.Cut(base, "--"); ok && rest != "" { // a flat file: <key>--<name>
+		if n := logicalName(rest); n != rest || idFiles[rest] != "" {
+			return n
+		}
 	}
 	return base
 }

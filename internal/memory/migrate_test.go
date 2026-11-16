@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -305,5 +306,253 @@ func TestRewriteLinks(t *testing.T) {
 	}
 	if got, n := rewriteLinks("xmemory/alpha/reports/x.md", "", dirs); n != 0 || got != "xmemory/alpha/reports/x.md" {
 		t.Errorf("a glued token was rewritten: %q", got)
+	}
+}
+
+func migrateWrite(t *testing.T, rel, text string) {
+	t.Helper()
+	if err := paths.AtomicWrite(filepath.Join(StoreDir(), filepath.FromSlash(rel)), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrateCatalogRoundTrip(t *testing.T) {
+	migrateFixture(t)
+	migrateWrite(t, catalogFile, "catalog\n")
+	commitFixture(t, "catalog")
+	want := snapshot(t)
+	mustMigrate(t, MigrateOptions{})
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if !maps.Equal(snapshot(t), want) {
+		t.Fatal("catalog moved or original tree changed")
+	}
+	mustMigrate(t, MigrateOptions{})
+}
+
+func TestMigrateRevertCollisionNoLoss(t *testing.T) {
+	h, _ := migrateFixture(t)
+	mustMigrate(t, MigrateOptions{})
+	migrateWrite(t, h+"--topic.md", "second topic\n")
+	commitFixture(t, "conflicting topic")
+	want := snapshot(t)
+	if err := Migrate(MigrateOptions{Revert: true}); !errors.Is(err, ErrMigrateRefused) {
+		t.Fatalf("revert collision = %v, want refusal", err)
+	}
+	if !maps.Equal(snapshot(t), want) {
+		t.Fatal("collision changed the tree")
+	}
+}
+
+func TestRewriteLinksLeavesCodeAndFlatPaths(t *testing.T) {
+	isolatedConfig(t)
+	text := "archive/tar waves/run.go:294 reports/alpha--x.md memory/alpha/reports/alpha--x.md"
+	if got, n := rewriteLinks(text, "alpha", []string{"alpha"}); got != text || n != 0 {
+		t.Fatalf("rewrote code/flat paths: %q (%d)", got, n)
+	}
+}
+
+func TestMigrateEditedLinksRoundTrip(t *testing.T) {
+	h, files := migrateFixture(t)
+	rel := h + "/reports/r.md"
+	files[rel] += "memory/home/knowledge/k.md memory/" + h + "/topic.md\n"
+	migrateWrite(t, rel, files[rel])
+	commitFixture(t, "links")
+	mustMigrate(t, MigrateOptions{})
+	flat := "reports/" + h + "--r.md"
+	cur, err := readStoreFile(flat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrateWrite(t, flat, string(cur)+"\nuser edit\n")
+	commitFixture(t, "edited report")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got := snapshot(t)[rel]; got != files[rel]+"\nuser edit\n" {
+		t.Fatalf("edited report links = %q, want %q", got, files[rel]+"\nuser edit\n")
+	}
+}
+
+func TestMigrateIndexNonPointerText(t *testing.T) {
+	migrateFixture(t)
+	text := "# Alpha\n<!-- retained -->\nwrapped description\n- [A](a.md)\n  continued\n"
+	migrateWrite(t, "alpha/MEMORY.md", text)
+	migrateWrite(t, "home/MEMORY.md", "# Home\nHome note\n")
+	commitFixture(t, "index prose")
+	mustMigrate(t, MigrateOptions{})
+	idx := snapshot(t)[nativeIndexFile]
+	for _, want := range []string{"## alpha\n# Alpha\n<!-- retained -->\nwrapped description", "  continued", "## home\n# Home\nHome note"} {
+		if !strings.Contains(idx, want) {
+			t.Errorf("index lost %q: %s", want, idx)
+		}
+	}
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if snapshot(t)["alpha/MEMORY.md"] != text {
+		t.Fatal("index revert changed original")
+	}
+}
+
+func TestMigrateNoIndexesRoundTrip(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	migrateWrite(t, "alpha/a.md", "a\n")
+	commitFixture(t, "without indexes")
+	want := snapshot(t)
+	mustMigrate(t, MigrateOptions{})
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if !maps.Equal(snapshot(t), want) {
+		t.Fatal("no-index round trip changed tree")
+	}
+	t.Cleanup(func() { flatForced.Store(0); forgetLayout() })
+}
+
+func TestMigrateIndexExactLineMatch(t *testing.T) {
+	migrateFixture(t)
+	migrateWrite(t, "alpha/MEMORY.md", "- [A](a.md) extended\n")
+	commitFixture(t, "long pointer")
+	mustMigrate(t, MigrateOptions{})
+	cur := snapshot(t)[nativeIndexFile]
+	migrateWrite(t, nativeIndexFile, cur+"\n## alpha\n- [A](alpha--a.md)\n")
+	commitFixture(t, "short pointer")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got := snapshot(t)["alpha/MEMORY.md"]; got != "- [A](a.md) extended\n- [A](a.md)\n" {
+		t.Fatalf("new shorter pointer lost: %q", got)
+	}
+}
+
+func TestMigrateRefusesPendingJournal(t *testing.T) {
+	migrateFixture(t)
+	if err := paths.AtomicWrite(filepath.Join(JournalDir(), "pending.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(MigrateOptions{}); !errors.Is(err, ErrMigrateRefused) {
+		t.Fatalf("pending journal = %v, want refusal", err)
+	}
+}
+
+func TestMigrateDottedWatcher(t *testing.T) {
+	migrateFixture(t)
+	if err := paths.AtomicWrite(watchClaimPath("session.with.dot"), []byte(fmt.Sprint(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(MigrateOptions{}); !errors.Is(err, ErrMigrateRefused) {
+		t.Fatalf("live dotted watcher = %v, want refusal", err)
+	}
+}
+
+func TestMigrateRevertRestoresForce(t *testing.T) {
+	migrateFixture(t)
+	mustMigrate(t, MigrateOptions{})
+	flatForced.Store(0)
+	mustMigrate(t, MigrateOptions{Revert: true, DryRun: true})
+	if got := flatForced.Load(); got != 0 {
+		t.Fatalf("force leaked: %d", got)
+	}
+}
+
+func TestMigrateRefusesAmbiguousNames(t *testing.T) {
+	p := planMigrate([]string{"home/reports/alpha--x.md"}, "claude-code")
+	if len(p.Unplanned) != 1 {
+		t.Fatalf("ambiguous name accepted: %+v", p.migReport)
+	}
+}
+
+func TestMigrateResumesStampedCommit(t *testing.T) {
+	h, _ := migrateFixture(t)
+	link := filepath.Join(paths.ConfigDir(), "projects", "resume", "memory")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(StoreDir(), h)
+	if err := os.Symlink(old, link); err != nil {
+		t.Skip(err)
+	}
+	p, err := planFlat(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pre, err := StoreRepo().head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := migRecord{Pre: pre, Harness: h, Dirs: p.dirs, IndexDirs: p.indexDirs, Moves: p.Moves, Links: []migLink{{Link: link, Old: old}}}
+	if _, err := writeRevertRecord(rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := commitChangesLocked(flatSubject, flatChanges(p)); err != nil {
+		t.Fatal(err)
+	}
+	mustMigrate(t, MigrateOptions{})
+	if got, err := os.Readlink(link); err != nil || got != StoreDir() {
+		t.Fatalf("resume link = %s, %v", got, err)
+	}
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got, err := os.Readlink(link); err != nil || got != old {
+		t.Fatalf("revert link = %s, %v", got, err)
+	}
+}
+
+func TestMigrateRevertLinkErrorRetry(t *testing.T) {
+	migrateFixture(t)
+	link := filepath.Join(paths.ConfigDir(), "projects", "blocked", "memory")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(StoreDir(), "alpha")
+	if err := os.Symlink(old, link); err != nil {
+		t.Skip(err)
+	}
+	mustMigrate(t, MigrateOptions{})
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(link, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(MigrateOptions{Revert: true}); err == nil {
+		t.Fatal("revert swallowed link replacement error")
+	}
+	if err := Migrate(MigrateOptions{}); !errors.Is(err, ErrMigrateRefused) {
+		t.Fatalf("apply during unfinished revert = %v", err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got, err := os.Readlink(link); err != nil || got != old {
+		t.Fatalf("retry link = %s, %v", got, err)
+	}
+}
+
+func TestMigrateEditedMixedLinksRoundTrip(t *testing.T) {
+	h, _ := migrateFixture(t)
+	original := "old handoffs/h1.md already flat handoffs/" + h + "--h1.md\n"
+	migrateWrite(t, h+"/topic.md", original)
+	commitFixture(t, "mixed legacy and flat links")
+	mustMigrate(t, MigrateOptions{})
+	migrateWrite(t, "topic.md", snapshot(t)["topic.md"]+"\nuser edit\n")
+	commitFixture(t, "edited mixed links")
+	mustMigrate(t, MigrateOptions{Revert: true})
+	if got := snapshot(t)[h+"/topic.md"]; got != original+"\nuser edit\n" {
+		t.Fatalf("mixed links changed: %q", got)
+	}
+}
+
+func TestMigrateRetainsUnchangedTargetCollision(t *testing.T) {
+	p := planMigrate([]string{"alpha/a.md", "alpha--a.md"}, "claude-code")
+	if len(p.Collisions) != 1 {
+		t.Fatalf("root collision missed: %+v", p.migReport)
+	}
+}
+
+func TestMigrateRevertRefusesIndexProseLoss(t *testing.T) {
+	migrateFixture(t)
+	mustMigrate(t, MigrateOptions{})
+	migrateWrite(t, nativeIndexFile, snapshot(t)[nativeIndexFile]+"new prose must survive\n")
+	commitFixture(t, "index prose edit")
+	want := snapshot(t)
+	if err := Migrate(MigrateOptions{Revert: true}); !errors.Is(err, ErrMigrateRefused) {
+		t.Fatalf("index prose edit = %v, want safe refusal", err)
+	}
+	if !maps.Equal(snapshot(t), want) {
+		t.Fatal("index prose refusal changed tree")
 	}
 }

@@ -56,11 +56,11 @@ func (p dreamPreview) Report() string {
 
 // previewDream computes dreamPreview for root without writing anything.
 func previewDream(root string) dreamPreview {
-	dir := Dir(root)
-	local := statBank(dir) // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: dir, Oversized: local.Oversized, Unreadable: tiered("local", local.Unreadable)}
+	own := BankFor(root)
+	local := statBank(own) // one read per typed file feeds the cap, archive and rotation checks below
+	p := dreamPreview{Dir: own.SubDir(""), Oversized: local.Oversized, Unreadable: tiered("local", local.Unreadable)}
 	if !isHomeBank(root) {
-		home := statBank(HomeBankDir())
+		home := statBank(HomeBank())
 		p.HomeOversized, p.Unreadable = home.Oversized, append(p.Unreadable, tiered("home", home.Unreadable)...)
 	}
 	for name, capLines := range archiveCaps {
@@ -97,7 +97,7 @@ func isDreamChild() bool {
 
 // dreamStampPath records the last consolidation time.
 func dreamStampPath(root string) string {
-	return filepath.Join(StateDir(), "last-dream-"+filepath.Base(Dir(root)))
+	return filepath.Join(StateDir(), "last-dream-"+stateKey(BankFor(root)))
 }
 
 // dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
@@ -128,7 +128,7 @@ func dreamDue(cwd string, now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	return newestMtime(Dir(cwd)).After(stamp) || newestMtime(HomeBankDir()).After(stamp)
+	return newestMtime(BankFor(cwd)).After(stamp) || newestMtime(HomeBank()).After(stamp)
 }
 
 // dreamOptions drive one consolidation.
@@ -141,11 +141,9 @@ type dreamOptions struct {
 
 // dreamChanged lists the top-level .md files in the home, local and repo stores modified after since (all when zero).
 func dreamChanged(cwd string, since time.Time) []string {
-	dirs := []string{HomeBankDir(), Dir(cwd)}
-	if repos, err := RepoDirs(); err == nil {
-		for _, e := range repos {
-			dirs = append(dirs, e.Dir)
-		}
+	dirs := []string{HomeBank().SubDir(""), BankFor(cwd).SubDir("")}
+	for _, b := range Banks() {
+		dirs = append(dirs, b.SubDir(""))
 	}
 	var out []string
 	for _, d := range dirs {
@@ -169,7 +167,7 @@ func agentDreamPrompt(cwd string, changed []string) (string, error) {
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return fmt.Sprintf(dreamPromptFormat, Dir(cwd), StoreDir()) +
+	return fmt.Sprintf(dreamPromptFormat, BankFor(cwd).SubDir(""), StoreDir()) +
 		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 
@@ -180,8 +178,8 @@ func dream(o dreamOptions) error {
 	}
 	var runErr, archiveErr error
 	notDue := false
-	lockErr := paths.WithFileLock(lockPath(Dir(o.CWD)), func() error {
-		ran, err := withHomeLock(Dir(o.CWD), func() error { // the agent edits both banks, so hold both locks
+	lockErr := paths.WithFileLock(lockPathOf(BankFor(o.CWD)), func() error {
+		ran, err := withHomeLock(BankFor(o.CWD), func() error { // the agent edits both banks, so hold both locks
 			if notDue = o.IfDue && !dreamDue(o.CWD, time.Now()); notDue {
 				fmt.Fprintln(o.Out, "memory dream: not due")
 				return nil

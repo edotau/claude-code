@@ -246,29 +246,30 @@ func readDoc(path string) (*bankDoc, error) {
 	return newBankDoc(path, string(data)), nil
 }
 
-// reviseFilesOf lists the live typed files of each dir, then (archives true) their archive files.
-func reviseFilesOf(dirs []string, archives bool) []string {
+// reviseFilesOf lists the live typed files of each bank, then (archives true) their archive files.
+func reviseFilesOf(banks []Bank, archives bool) []string {
 	var out []string
-	for _, dir := range dirs {
+	for _, b := range banks {
 		for _, name := range reviseFiles {
-			out = append(out, filepath.Join(dir, name))
+			out = append(out, b.Path(name))
 		}
 	}
 	if !archives {
 		return out
 	}
-	for _, dir := range dirs {
+	for _, b := range banks {
 		for _, name := range reviseFiles {
-			out = append(out, globIn(archiveDir(dir), strings.TrimSuffix(name, ".md")+"-*.md")...)
+			p := b.Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
+			out = append(out, globIn(filepath.Dir(p), filepath.Base(p))...)
 		}
 	}
 	return out
 }
 
-// loadBankDocs reads every supersedable file of dirs, archives included, for the revise verb.
-func loadBankDocs(dirs ...string) ([]*bankDoc, error) {
+// loadBankDocs reads every supersedable file of banks, archives included, for the revise verb.
+func loadBankDocs(banks ...Bank) ([]*bankDoc, error) {
 	var docs []*bankDoc
-	for _, p := range reviseFilesOf(dirs, true) {
+	for _, p := range reviseFilesOf(banks, true) {
 		d, err := readDoc(p)
 		if err != nil {
 			return nil, err
@@ -296,11 +297,11 @@ func missingRefs(docs []*bankDoc) []string {
 	return out
 }
 
-// liveDocs is dir's live typed files, from texts when the settle already holds them, else read.
-func liveDocs(dir string, texts map[string]string) ([]*bankDoc, error) {
+// liveDocs is b's live typed files, from texts when the settle already holds them, else read.
+func liveDocs(b Bank, texts map[string]string) ([]*bankDoc, error) {
 	var docs []*bankDoc
 	for _, name := range reviseFiles {
-		p := filepath.Join(dir, name)
+		p := b.Path(name)
 		text, ok := texts[name]
 		if !ok {
 			d, err := readDoc(p)
@@ -336,8 +337,8 @@ func holderDocs(paths, markers []string) ([]*bankDoc, error) {
 }
 
 // reviseDocSet is liveDocs plus, only when a reference names an id they lack, the other files carrying it.
-func reviseDocSet(dir string, texts map[string]string) ([]*bankDoc, error) {
-	docs, err := liveDocs(dir, texts)
+func reviseDocSet(b Bank, texts map[string]string) ([]*bankDoc, error) {
+	docs, err := liveDocs(b, texts)
 	if err != nil {
 		return nil, err
 	}
@@ -345,26 +346,14 @@ func reviseDocSet(dir string, texts map[string]string) ([]*bankDoc, error) {
 	if len(missing) == 0 {
 		return docs, nil
 	}
-	others := []string{dir}
-	if g := HomeBankDir(); !paths.SamePath(dir, g) {
-		others = append(others, g)
+	others := []Bank{b}
+	if !b.Home() {
+		others = append(others, HomeBank())
 	}
-	own := reviseFilesOf([]string{dir}, false)
+	own := reviseFilesOf([]Bank{b}, false)
 	rest := slices.DeleteFunc(reviseFilesOf(others, true), func(p string) bool { return slices.Contains(own, p) })
 	extra, err := holderDocs(rest, missing)
 	return append(docs, extra...), err
-}
-
-// bankDirs is the stores a settle covers: root's own bank when scaffolded, then the home bank.
-func bankDirs(root string) []string {
-	var dirs []string
-	if own := Dir(root); statOK(own) {
-		dirs = append(dirs, own)
-	}
-	if g := HomeBankDir(); len(dirs) == 0 || !paths.SamePath(dirs[0], g) {
-		dirs = append(dirs, g)
-	}
-	return dirs
 }
 
 // statOK reports whether path exists.
@@ -522,9 +511,9 @@ func writeDirtyDocs(docs []*bankDoc) error {
 	return nil
 }
 
-// reviseDir applies every `Supersedes <id>` found in dir as a strike + pointer; texts are the settle's loaded files.
-func reviseDir(dir string, texts map[string]string) error {
-	docs, err := reviseDocSet(dir, texts)
+// reviseDir applies every `Supersedes <id>` found in b as a strike + pointer; texts are the settle's loaded files.
+func reviseDir(b Bank, texts map[string]string) error {
+	docs, err := reviseDocSet(b, texts)
 	if err != nil {
 		return err
 	}
@@ -537,8 +526,8 @@ func reviseDir(dir string, texts map[string]string) error {
 // reviseProblems lists dangling and cyclic `Supersedes` references in root's banks, for `memory review`.
 func reviseProblems(root string) []string {
 	var out []string
-	for _, dir := range bankDirs(root) {
-		docs, err := reviseDocSet(dir, nil)
+	for _, b := range bankSet(root) {
+		docs, err := reviseDocSet(b, nil)
 		if err != nil {
 			continue
 		}
@@ -562,7 +551,7 @@ func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
 		if skipped, err := recoverEach(); err != nil || skipped != nil {
 			return errors.Join(err, skipped)
 		}
-		docs, err := loadBankDocs(bankDirs(root)...)
+		docs, err := loadBankDocs(bankSet(root)...)
 		if err != nil {
 			return err
 		}
@@ -574,16 +563,16 @@ func ReviseEntry(root, oldID, newID string, dryRun bool) (string, error) {
 
 // withReviseLocks takes store, home and bank locks in the worker order, with the foreground wait.
 func withReviseLocks(root string, fn func() error) error {
-	dirs := []string{Dir(root)}
-	if !paths.SamePath(dirs[0], HomeBankDir()) {
-		dirs = append(dirs, HomeBankDir())
+	banks := []Bank{BankFor(root)}
+	if !banks[0].Home() {
+		banks = append(banks, HomeBank())
 	}
 	var lock func(int) error
 	lock = func(i int) error {
-		if i == len(dirs) {
+		if i == len(banks) {
 			return WithBankLock(BankLockWait, fn)
 		}
-		ran, err := paths.TryFileLock(lockPath(dirs[i])+".lock", updateLockWait, func() error { return lock(i + 1) })
+		ran, err := paths.TryFileLock(lockPathOf(banks[i])+".lock", updateLockWait, func() error { return lock(i + 1) })
 		if err == nil && !ran {
 			return errors.New("memory revise: busy: another update or dream holds the bank; retry when it finishes")
 		}
@@ -617,8 +606,15 @@ func checkRevise(docs []*bankDoc, loc map[string]blockLoc, oldID, newID string) 
 
 // revisionVisible preserves visibility wherever the old entry can be recalled.
 func revisionVisible(oldPath, newPath string) bool {
-	home := HomeBankDir() + string(filepath.Separator)
-	return !strings.HasPrefix(oldPath, home) || strings.HasPrefix(newPath, home)
+	return !inHomeBank(oldPath) || inHomeBank(newPath)
+}
+
+// inHomeBank reports whether path is a home-tier file: under home/ legacy, unprefixed when flat.
+func inHomeBank(path string) bool {
+	if storeFlat() {
+		return BankOfFile(path).Home()
+	}
+	return strings.HasPrefix(path, HomeBank().SubDir("")+string(filepath.Separator))
 }
 
 // reviseDocs plans the revision of oldID by newID over docs and commits it unless dryRun.
@@ -760,7 +756,7 @@ func RecallRepo(repo string, all bool, q string, k int) ([]SearchHit, string, er
 		}
 		return hits, root(repo), nil
 	}
-	top, err := ResolveRepo(repo)
+	top, err := ResolveRoot(repo)
 	if err != nil {
 		return nil, "", err
 	}

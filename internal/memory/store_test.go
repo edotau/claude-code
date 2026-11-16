@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -426,4 +427,64 @@ func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	if *probes != 1 {
 		t.Errorf("linkNativeFor ran the main-checkout probe %d times, want 1", *probes)
 	}
+}
+
+// eachLayoutRoot runs fn per store layout with a fresh git repo "proj" in an isolated config.
+func eachLayoutRoot(t *testing.T, fn func(t *testing.T, root string)) {
+	t.Helper()
+	for _, flat := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
+			isolatedConfig(t)
+			setStoreFlat(t, flat)
+			fn(t, gitRepo(t, canonTemp(t, t.TempDir()), "proj"))
+		})
+	}
+}
+
+func TestInitSeedsTheBankInEachLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		dir, err := Init(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := BankFor(root)
+		if b.Key != "proj" || dir != b.SubDir("") {
+			t.Fatalf("Init = %s for bank %+v, want its SubDir", dir, b)
+		}
+		for _, name := range bankFiles {
+			if !statOK(b.Path(name)) {
+				t.Errorf("Init left %s missing", b.Path(name))
+			}
+		}
+		if flat := storeFlat(); flat != (dir == StoreDir()) || flat != strings.HasPrefix(filepath.Base(b.Path("progress.md")), "proj--") {
+			t.Errorf("flat=%v but dir %s and file %s disagree", flat, dir, b.Path("progress.md"))
+		}
+	})
+}
+
+func TestNativeLinksShareTheStoreRootWhenFlat(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		res, ok := linkNativeFor(root)
+		wantTarget := BankFor(root).SubDir("")
+		if !ok || res.Target != wantTarget {
+			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
+		}
+		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; storeFlat() && got != StoreDir() {
+			t.Errorf("flat harness slug target = %q, want the store root", got)
+		}
+		link := projectsMemory("-stale-slug")
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(StoreDir(), link); err != nil {
+			t.Fatal(err)
+		}
+		flagged := slices.ContainsFunc(brokenNativeLinks(root), func(r linkResult) bool { return r.Link == link })
+		if flagged == storeFlat() {
+			t.Errorf("store-root link flagged = %v with flat = %v: only the legacy layout flags it", flagged, storeFlat())
+		}
+	})
 }

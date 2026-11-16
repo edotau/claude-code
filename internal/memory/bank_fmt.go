@@ -29,32 +29,24 @@ var (
 // bankFmtTargetDirs are the bank subdirs whose *.md files get formatted; top-level files come from bankFiles.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// bankFmtTargets lists every markdown file formatBank formats, across every repo store and home/.
+// bankFmtTargets lists every markdown file formatBank formats, across every bank.
 func bankFmtTargets() ([]string, error) {
-	dirs := []string{HomeBankDir()}
-	entries, err := RepoDirs()
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries {
-		dirs = append(dirs, e.Dir)
-	}
 	var files []string
-	for _, dir := range dirs {
-		dirFiles, err := dirFmtTargets(dir)
+	for _, b := range Banks() {
+		own, err := dirFmtTargets(b)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, dirFiles...)
+		files = append(files, own...)
 	}
 	return files, nil
 }
 
-// dirFmtTargets lists one bank dir's typed files plus its archive/, handoffs/ and reports/ markdown.
-func dirFmtTargets(dir string) ([]string, error) {
+// dirFmtTargets lists b's typed files plus its archive/, handoffs/ and reports/ markdown (flat: only b's own).
+func dirFmtTargets(b Bank) ([]string, error) {
 	var files []string
 	for _, name := range bankFiles {
-		p := filepath.Join(dir, name)
+		p := b.Path(name)
 		_, err := os.Stat(p)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -65,9 +57,12 @@ func dirFmtTargets(dir string) ([]string, error) {
 		files = append(files, p)
 	}
 	for _, sub := range bankFmtTargetDirs {
-		matches, err := mdFilesIn(filepath.Join(dir, sub))
+		matches, err := mdFilesIn(b.SubDir(sub))
 		if err != nil {
 			return nil, err
+		}
+		if storeFlat() {
+			matches = slices.DeleteFunc(matches, func(p string) bool { return BankOfFile(p).Key != b.Key })
 		}
 		files = append(files, matches...)
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -135,4 +136,82 @@ func TestReadIfExists(t *testing.T) {
 	if b, err := readIfExists(filepath.Join(dir, "topic.md")); string(b) != "body\n" || err != nil {
 		t.Errorf("present: %q, %v; want its bytes", b, err)
 	}
+}
+
+// otherBank scaffolds a second repo's bank so the flat store has a foreign key to attribute files to.
+func otherBank(t *testing.T) (root string, b Bank) {
+	t.Helper()
+	root = gitRepo(t, canonTemp(t, t.TempDir()), "other")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	return root, BankFor(root)
+}
+
+func pathsOf(files []corpusFile, label string) []string {
+	var out []string
+	for _, f := range files {
+		if f.Bank == label {
+			out = append(out, f.Path)
+		}
+	}
+	return out
+}
+
+func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		_, other := otherBank(t)
+		b := BankFor(root)
+		own, foreign, homeTopic := b.Path("own-topic.md"), other.Path("foreign-topic.md"), HomeBank().Path("home-topic.md")
+		ownArc, foreignArc := b.Sub("archive", "old.md"), other.Sub("archive", "old.md")
+		for _, p := range []string{own, foreign, homeTopic, ownArc, foreignArc} {
+			write(t, p, "---\nname: x\n---\nzebra\n")
+		}
+		files := corpusFiles(root)
+		native, archive := pathsOf(files, "native"), pathsOf(files, "archive")
+		for _, want := range []string{own, homeTopic} {
+			if !slices.Contains(native, want) {
+				t.Errorf("native corpus lacks %s: %v", want, native)
+			}
+		}
+		for _, p := range native {
+			if p == foreign || slices.Contains(bankFiles, strings.TrimPrefix(filepath.Base(p), b.Prefix())) {
+				t.Errorf("native corpus holds %s: a foreign or typed file", p)
+			}
+		}
+		if !slices.Contains(archive, ownArc) || slices.Contains(archive, foreignArc) {
+			t.Errorf("archive corpus = %v, want %s and not %s", archive, ownArc, foreignArc)
+		}
+		if got := pathsOf(files, "local"); len(got) != len(bankFiles) || got[0] != b.Path(bankFiles[0]) {
+			t.Errorf("local typed files = %v", got)
+		}
+	})
+}
+
+func TestRoutedFilesStayInTheNamedBank(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		if _, err := Init(root); err != nil {
+			t.Fatal(err)
+		}
+		_, other := otherBank(t)
+		write(t, other.Path("foreign-topic.md"), "---\nname: x\n---\nzebra\n")
+		files := routedFiles(root, "about other things")
+		if len(files) == 0 {
+			t.Fatal("routedFiles listed nothing for the named bank")
+		}
+		for _, f := range files {
+			if f.Bank != "other" || ownerKey(filepath.Base(f.Path), BankKeys()) != "other" && storeFlat() {
+				t.Errorf("routed %+v, want only other's files", f)
+			}
+			if strings.HasPrefix(filepath.Base(f.Path), "other--projectContext") && f.Mode != segEntries {
+				t.Errorf("typed file %s routed as native", f.Path)
+			}
+		}
+		if len(routedFiles(root, "proj other")) != len(files) {
+			t.Error("routedFiles listed root's own bank")
+		}
+	})
 }

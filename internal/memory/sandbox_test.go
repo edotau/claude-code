@@ -207,3 +207,34 @@ func sandboxExtras(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+func TestSandboxFlatCopiesOwnFilesAndWritesNoOrigins(t *testing.T) {
+	cfg := tempConfig(t)
+	setStoreFlat(t, true)
+	repo := gitRepo(t, t.TempDir(), "checkout")
+	b := BankFor(repo)
+	for _, f := range []string{b.Path("progress.md"), HomeBank().Path("progress.md"), Bank{Key: "other"}.Path("progress.md"),
+		b.Sub("reports", "r.md"), Bank{Key: "other"}.Sub("reports", "r.md")} {
+		write(t, f, "x")
+	}
+	res, err := Sandbox(SandboxOptions{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
+	mem := filepath.Join(res.Dir, "memory")
+	for _, rel := range []string{b.Prefix() + "progress.md", "progress.md", "reports/" + b.Prefix() + "r.md", layoutFile} {
+		if !statOK(filepath.Join(mem, rel)) {
+			t.Errorf("sandbox lacks %s", rel)
+		}
+	}
+	for _, rel := range []string{"other--progress.md", "reports/other--r.md"} {
+		if statOK(filepath.Join(mem, rel)) {
+			t.Errorf("sandbox copied another bank's %s", rel)
+		}
+	}
+	if statOK(filepath.Join(res.Dir, "state", "vault.db")) {
+		t.Error("a flat sandbox must write no origin rows")
+	}
+	_ = cfg
+}

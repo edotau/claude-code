@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,6 +86,7 @@ type flatPlan struct {
 // migRecord is the revert record: everything --revert needs to invert the migration.
 type migRecord struct {
 	Time      string    `json:"time"`
+	Reverting bool      `json:"reverting,omitempty"`
 	Pre       string    `json:"pre"`
 	Post      string    `json:"post"`
 	Harness   string    `json:"harness"`
@@ -126,7 +128,7 @@ func flatTarget(dir, rel string) (string, bool) {
 		pre = ""
 	}
 	parts := strings.Split(rel, "/")
-	if slices.Contains(parts, "") {
+	if ambiguousMigrationPath(rel) {
 		return "", false
 	}
 	if len(parts) == 1 {
@@ -145,6 +147,11 @@ func flatTarget(dir, rel string) (string, bool) {
 	return strings.Join(append([]string{parts[0], pre + parts[1]}, parts[2:]...), "/"), true
 }
 
+func ambiguousMigrationPath(rel string) bool {
+	parts := strings.Split(rel, "/")
+	return slices.Contains(parts, "") || slices.Contains(parts, ".") || slices.Contains(parts, "..") || strings.Contains(rel, "--")
+}
+
 func sharedTop(top string) bool {
 	return top == ".git" || top == "receipts" || slices.Contains(flatSubs, top)
 }
@@ -154,6 +161,12 @@ func planMigrate(files []string, harness string) *flatPlan {
 	p := &flatPlan{harness: harness, writes: map[string][]byte{}}
 	p.Blockers, p.Moves, p.Rewrites, p.Unplanned, p.Collisions = []string{}, []migMove{}, []migRewrite{}, []string{}, []string{}
 	targets := map[string]string{}
+	for _, f := range files {
+		top, _, nested := strings.Cut(f, "/")
+		if !nested || sharedTop(top) {
+			targets[f] = f
+		}
+	}
 	for _, f := range files {
 		top, rel, nested := strings.Cut(f, "/")
 		if !nested || sharedTop(top) {
@@ -217,7 +230,7 @@ func rewriteLinks(text, dir string, dirs []string) (string, int) {
 		text = passA.ReplaceAllStringFunc(text, func(m string) string {
 			sub := passA.FindStringSubmatch(m)
 			rest := strings.TrimRight(sub[3], ".")
-			to, ok := flatTarget(sub[2], rest)
+			to, ok := linkFlatTarget(sub[2], rest)
 			if !ok {
 				return m
 			}
@@ -231,7 +244,7 @@ func rewriteLinks(text, dir string, dirs []string) (string, int) {
 	text = passB.ReplaceAllStringFunc(text, func(m string) string {
 		sub := passB.FindStringSubmatch(m)
 		rest := strings.TrimRight(sub[2], ".")
-		to, ok := flatTarget(dir, rest)
+		to, ok := linkFlatTarget(dir, rest)
 		if !ok {
 			return m
 		}
@@ -239,6 +252,13 @@ func rewriteLinks(text, dir string, dirs []string) (string, int) {
 		return sub[1] + to + sub[2][len(rest):]
 	})
 	return text, n
+}
+
+func linkFlatTarget(dir, rel string) (string, bool) {
+	if !strings.HasSuffix(rel, ".md") {
+		return "", false
+	}
+	return flatTarget(dir, rel)
 }
 
 func relinkIndex(text, dir string) string {
@@ -249,16 +269,6 @@ func relinkIndex(text, dir string) string {
 		}
 		return m
 	})
-}
-
-func pointerLines(text string) []string {
-	var out []string
-	for l := range strings.SplitSeq(text, "\n") {
-		if strings.HasPrefix(l, "- ") {
-			out = append(out, l)
-		}
-	}
-	return out
 }
 
 func ensureNL(s string) string {
@@ -303,14 +313,13 @@ func mergeIndexes(p *flatPlan, read func(string) ([]byte, error), now time.Time)
 		sb.WriteString(region)
 	}
 	sb.WriteString(ensureNL(texts[p.harness]))
-	for _, l := range pointerLines(texts[homeDir]) {
-		if !strings.Contains(texts[p.harness], l) {
-			sb.WriteString(l + "\n")
+	order := append([]string{homeDir}, slices.DeleteFunc(slices.Clone(p.indexDirs), func(d string) bool { return d == homeDir })...)
+	for _, d := range order {
+		if d == p.harness {
+			continue
 		}
-	}
-	for _, d := range p.indexDirs {
-		if lines := pointerLines(texts[d]); len(lines) > 0 && d != p.harness && d != homeDir {
-			sb.WriteString("\n## " + d + "\n" + strings.Join(lines, "\n") + "\n")
+		if text := texts[d]; text != "" {
+			sb.WriteString("\n## " + d + "\n" + ensureNL(text))
 		}
 	}
 	return sb.String(), nil
@@ -396,7 +405,7 @@ func liveMemoryWorkers() []string {
 	var live []string
 	claims, _ := filepath.Glob(filepath.Join(StateDir(), "watch-*"))
 	for _, c := range claims {
-		if filepath.Ext(c) == "" && !watcherDead(c) { // *.log and *.lock are siblings, not claims
+		if !strings.HasSuffix(c, ".log") && !strings.HasSuffix(c, ".lock") && !watcherDead(c) { // *.log and *.lock are siblings, not claims
 			live = append(live, "live memory watcher "+filepath.Base(c))
 		}
 	}
@@ -413,7 +422,23 @@ func liveMemoryWorkers() []string {
 	return live
 }
 
-func preconditions() []string { return append(dirtyBlockers(), liveMemoryWorkers()...) }
+func preconditions() []string {
+	return append(migrateStoreBlockers(), liveMemoryWorkers()...)
+}
+
+func migrateStoreBlockers() []string {
+	b := dirtyBlockers()
+	entries, err := os.ReadDir(JournalDir())
+	if err != nil && !os.IsNotExist(err) {
+		return append(b, "read pending journals: "+err.Error())
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			b = append(b, "pending memory journal "+e.Name()+"; recover it before migrating")
+		}
+	}
+	return b
+}
 
 // withMigrateLocks takes every per-bank lock in order, then the store lock, around fn.
 func withMigrateLocks(dirs []string, fn func() error) error {
@@ -432,8 +457,11 @@ func withMigrateLocks(dirs []string, fn func() error) error {
 }
 
 func applyFlat(o MigrateOptions) error {
+	if rec, _, err := readRevertRecord(); err == nil && rec.Reverting {
+		return fmt.Errorf("%w: unfinished revert; rerun memory migrate --revert", ErrMigrateRefused)
+	}
 	if stampPresent() {
-		return report(o, &migReport{AlreadyFlat: true}, "already flat")
+		return resumeFlat(o)
 	}
 	blockers := preconditions()
 	p, err := planFlat(time.Now())
@@ -457,11 +485,10 @@ func applyFlat(o MigrateOptions) error {
 	return commitFlat(o, p)
 }
 
-// commitFlat re-plans under the locks, applies the journaled commit, re-points links, forces flat, writes the record.
+// The revert record must survive before any store bytes or symlinks change.
 func commitFlat(o MigrateOptions, p *flatPlan) error {
-	var rec migRecord
 	err := withMigrateLocks(p.dirs, func() error {
-		if b := dirtyBlockers(); len(b) > 0 {
+		if b := migrateStoreBlockers(); len(b) > 0 {
 			return refuse(b)
 		}
 		fresh, err := planFlat(time.Now())
@@ -471,30 +498,70 @@ func commitFlat(o MigrateOptions, p *flatPlan) error {
 		if len(fresh.Blockers)+len(fresh.Unplanned)+len(fresh.Collisions) > 0 {
 			return refuse(append(append(fresh.Blockers, fresh.Unplanned...), fresh.Collisions...))
 		}
-		pre, _ := StoreRepo().head()
-		r, err := commitChangesLocked(flatSubject, flatChanges(fresh))
-		if err != nil {
-			return err
-		}
-		rec = migRecord{Time: time.Now().UTC().Format(time.RFC3339), Pre: pre, Post: r.Commit, Harness: fresh.harness,
-			Dirs: fresh.dirs, IndexDirs: fresh.indexDirs, Moves: fresh.Moves}
-		p = fresh
-		return nil
+		return commitFlatPlan(fresh)
 	})
 	if err != nil {
 		return err
 	}
-	rec.Links = repointLinks(StoreDir())
-	flatForced.Store(2)
-	forgetLayout()
-	pruneEmptyDirs(p.dirs)
+	fmt.Fprintf(o.Out, "flattened %d files into one directory (layout %s)\n", len(p.Moves), layoutFlat)
+	fmt.Fprintln(o.Out, "note: run claude-code memory index after the binary is updated (index.md and embeddings are stale)")
+	return nil
+}
+
+func commitFlatPlan(p *flatPlan) error {
+	pre, err := StoreRepo().head()
+	if err != nil {
+		return err
+	}
+	links, err := migrationLinks(StoreDir())
+	if err != nil {
+		return err
+	}
+	rec := migRecord{Time: time.Now().UTC().Format(time.RFC3339Nano), Pre: pre, Harness: p.harness,
+		Dirs: p.dirs, IndexDirs: p.indexDirs, Moves: p.Moves, Links: links}
 	path, err := writeRevertRecord(rec)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(o.Out, "flattened %d files into one directory (layout %s); revert record %s\n", len(p.Moves), layoutFlat, path)
-	fmt.Fprintln(o.Out, "note: run claude-code memory index after the binary is updated (index.md and embeddings are stale)")
+	if _, err = commitChangesLocked(flatSubject, flatChanges(p)); err != nil {
+		return err
+	}
+	return finishFlat(rec, path)
+}
+
+func finishFlat(rec migRecord, path string) error {
+	if err := swapMigrationLinks(rec.Links, false); err != nil {
+		return err
+	}
+	post, err := StoreRepo().head()
+	if err != nil {
+		return err
+	}
+	rec.Post = post
+	if err := saveRevertRecord(path, rec); err != nil {
+		return err
+	}
+	forgetLayout()
+	pruneEmptyDirs(rec.Dirs)
 	return nil
+}
+
+func resumeFlat(o MigrateOptions) error {
+	rec, path, err := readRevertRecord()
+	if err != nil {
+		return err
+	}
+	if rec.Post == "" {
+		if b := preconditions(); len(b) > 0 {
+			return refuse(b)
+		}
+		if !o.DryRun {
+			if err := withMigrateLocks(rec.Dirs, func() error { return finishFlat(rec, path) }); err != nil {
+				return err
+			}
+		}
+	}
+	return report(o, &migReport{AlreadyFlat: true}, "already flat")
 }
 
 func flatChanges(p *flatPlan) []Change {
@@ -531,53 +598,81 @@ func pruneEmptyDirs(dirs []string) {
 	}
 }
 
-// repointLinks sends every projects/*/memory symlink that points into the store at the store root.
-func repointLinks(store string) []migLink {
+func migrationLinks(store string) ([]migLink, error) {
 	var out []migLink
-	links, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
+	links, err := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "memory"))
+	if err != nil {
+		return nil, err
+	}
 	canon := paths.CanonDeep(store)
 	for _, l := range links {
+		info, err := os.Lstat(l)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
 		raw, err := os.Readlink(l)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		t := raw
 		if !filepath.IsAbs(t) {
 			t = filepath.Join(filepath.Dir(l), t)
 		}
 		t = paths.CanonDeep(t)
-		if t == canon || !strings.HasPrefix(t, canon+string(filepath.Separator)) {
-			continue
-		}
-		if os.Remove(l) == nil && os.Symlink(store, l) == nil {
+		if t != canon && strings.HasPrefix(t, canon+string(filepath.Separator)) {
 			out = append(out, migLink{Link: l, Old: raw})
 		}
 	}
-	return out
+	return out, nil
+}
+
+func swapMigrationLinks(links []migLink, revert bool) error {
+	for _, l := range links {
+		target := StoreDir()
+		if revert {
+			target = l.Old
+		}
+		if err := paths.SwapSymlink(target, l.Link); err != nil {
+			return fmt.Errorf("repoint %s: %w", l.Link, err)
+		}
+	}
+	return nil
 }
 
 // writeRevertRecord stores the record --revert reads; a fresh timestamp keeps older records.
 func writeRevertRecord(rec migRecord) (string, error) {
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(StateDir(), "migrate-flat-"+time.Now().UTC().Format("20060102-150405.000")+".json")
-	return path, paths.AtomicWrite(path, data, 0o600)
+	path := filepath.Join(StateDir(), "migrate-flat-"+time.Now().UTC().Format("20060102-150405.000000000")+".json")
+	return path, saveRevertRecord(path, rec)
 }
 
-func newestRecord() (migRecord, error) {
-	recs, _ := filepath.Glob(filepath.Join(StateDir(), "migrate-flat-*.json"))
+func saveRevertRecord(path string, rec migRecord) error {
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return err
+	}
+	return paths.AtomicWrite(path, data, 0o600)
+}
+
+func readRevertRecord() (migRecord, string, error) {
+	recs, err := filepath.Glob(filepath.Join(StateDir(), "migrate-flat-*.json"))
+	if err != nil {
+		return migRecord{}, "", err
+	}
 	if len(recs) == 0 {
-		return migRecord{}, fmt.Errorf("%w: no migrate-flat record under %s", ErrMigrateRefused, StateDir())
+		return migRecord{}, "", fmt.Errorf("%w: no migrate-flat record under %s", ErrMigrateRefused, StateDir())
 	}
 	slices.Sort(recs)
-	data, err := os.ReadFile(recs[len(recs)-1])
+	path := recs[len(recs)-1]
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return migRecord{}, err
+		return migRecord{}, "", err
 	}
 	var rec migRecord
-	return rec, json.Unmarshal(data, &rec)
+	err = json.Unmarshal(data, &rec)
+	return rec, path, err
 }
 
 func report(o MigrateOptions, r *migReport, textNote string) error {
@@ -610,50 +705,70 @@ func gitShow(pre, rel string) ([]byte, error) {
 }
 
 func revertFlat(o MigrateOptions) error {
-	if !stampPresent() {
+	rec, path, err := readRevertRecord()
+	if !stampPresent() && (err != nil || !rec.Reverting) {
 		fmt.Fprintln(o.Out, "already per-repo layout")
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 	if b := preconditions(); len(b) > 0 {
 		return refuse(b)
 	}
-	rec, err := newestRecord()
-	if err != nil {
-		return err
-	}
-	flatForced.Store(2) // BankOfFile reads the flat layout while the stamp is still there
-	err = withMigrateLocks(rec.Dirs, func() error {
-		if b := dirtyBlockers(); len(b) > 0 {
-			return refuse(b)
-		}
-		cs, err := revertChanges(rec)
-		if err != nil || o.DryRun {
-			fmt.Fprintf(o.Out, "revert would apply %d changes\n", len(cs))
-			return err
-		}
-		_, err = commitChangesLocked(unflatSubject, cs)
-		return err
-	})
+	err = withMigrateLocks(rec.Dirs, func() error { return revertStore(rec, path, o) })
 	if err != nil || o.DryRun {
 		return err
 	}
-	for _, l := range rec.Links {
-		if os.Remove(l.Link) == nil {
-			_ = os.Symlink(l.Old, l.Link)
-		}
-	}
-	flatForced.Store(1)
-	forgetLayout()
-	pruneEmptyDirs(flatSubs)
 	fmt.Fprintln(o.Out, "reverted to the per-repo layout")
 	fmt.Fprintln(o.Out, "note: run claude-code memory index to refresh index.md")
+	return nil
+}
+
+func revertStore(rec migRecord, path string, o MigrateOptions) error {
+	if b := migrateStoreBlockers(); len(b) > 0 {
+		return refuse(b)
+	}
+	if stampPresent() {
+		cs, err := revertChanges(rec)
+		if err != nil {
+			return err
+		}
+		if o.DryRun {
+			_, err := fmt.Fprintf(o.Out, "revert would apply %d changes\n", len(cs))
+			return err
+		}
+		rec.Reverting = true
+		if err := saveRevertRecord(path, rec); err != nil {
+			return err
+		}
+		if _, err := commitChangesLocked(unflatSubject, cs); err != nil {
+			return err
+		}
+	}
+	if o.DryRun {
+		return nil
+	}
+	return finishRevert(rec, path)
+}
+
+func finishRevert(rec migRecord, path string) error {
+	if err := swapMigrationLinks(rec.Links, true); err != nil {
+		return err
+	}
+	rec.Reverting = false
+	if err := saveRevertRecord(path, rec); err != nil {
+		return err
+	}
+	forgetLayout()
+	pruneEmptyDirs(flatSubs)
 	return nil
 }
 
 func revertible(f string) bool {
 	top, _, nested := strings.Cut(f, "/")
 	if !nested {
-		return strings.HasSuffix(f, ".md") && f != nativeIndexFile
+		return strings.HasSuffix(f, ".md") && f != nativeIndexFile && f != catalogFile
 	}
 	return slices.Contains(flatSubs, top)
 }
@@ -675,23 +790,119 @@ func revertChanges(rec migRecord) ([]Change, error) {
 		if !revertible(f) {
 			continue
 		}
-		cur, err := readStoreFile(f)
+		to, data, err := revertFile(f, rec, byTo)
 		if err != nil {
 			return nil, err
-		}
-		to, data := invertTarget(f, rec), []byte(unflattenLinks(string(cur), rec))
-		if m, ok := byTo[f]; ok {
-			to = m.From
-			if textutil.SHA256Hex(cur) == m.SHA {
-				if data, err = gitShow(rec.Pre, m.From); err != nil {
-					return nil, err
-				}
-			}
 		}
 		cs = append(cs, Change{Rel: f, Delete: true}, Change{Rel: to, Data: data})
 	}
 	idx, err := revertIndexes(rec)
-	return append(cs, idx...), err
+	if err != nil {
+		return nil, err
+	}
+	cs = append(cs, idx...)
+	return cs, checkRevertTargets(files, cs)
+}
+
+func revertFile(f string, rec migRecord, byTo map[string]migMove) (string, []byte, error) {
+	cur, err := readStoreFile(f)
+	if err != nil {
+		return "", nil, err
+	}
+	to, data := invertTarget(f, rec), cur
+	if strings.HasSuffix(f, ".md") {
+		data = []byte(unflattenLinks(string(cur), rec))
+	}
+	if m, ok := byTo[f]; ok {
+		to = m.From
+		original, err := gitShow(rec.Pre, m.From)
+		if err != nil {
+			return "", nil, err
+		}
+		if textutil.SHA256Hex(cur) == m.SHA {
+			data = original
+		} else {
+			data, err = undoRecordedLinks(cur, original, m.From, rec)
+			if err != nil {
+				return "", nil, fmt.Errorf("%w: revert %s: %w", ErrMigrateRefused, f, err)
+			}
+		}
+	}
+	return to, data, nil
+}
+
+func checkRevertTargets(files []string, cs []Change) error {
+	deleted, writes := map[string]bool{}, map[string]bool{}
+	for _, c := range cs {
+		if c.Delete {
+			deleted[c.Rel] = true
+		}
+	}
+	for _, c := range cs {
+		if c.Delete {
+			continue
+		}
+		if writes[c.Rel] || slices.Contains(files, c.Rel) && !deleted[c.Rel] {
+			return fmt.Errorf("%w: revert target collision: %s", ErrMigrateRefused, c.Rel)
+		}
+		writes[c.Rel] = true
+	}
+	return nil
+}
+
+var migrationChunks = regexp.MustCompile(linkTokenChars + `|[^A-Za-z0-9._@+~/-]`)
+
+func undoRecordedLinks(current, original []byte, from string, rec migRecord) ([]byte, error) {
+	if !strings.HasSuffix(from, ".md") {
+		return current, nil
+	}
+	dir, _, _ := strings.Cut(from, "/")
+	flat, n := rewriteLinks(string(original), dir, rec.Dirs)
+	if n == 0 {
+		return current, nil
+	}
+	return mergeMigrationEdits(string(current), flat, string(original))
+}
+
+// Tokens keep an appended paragraph independent of a rewritten path on the preceding line.
+func mergeMigrationEdits(current, flat, original string) (data []byte, err error) {
+	dir, err := os.MkdirTemp("", "memory-revert-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	args := []string{"merge-file", "-p"}
+	for i, text := range []string{current, flat, original} {
+		path := filepath.Join(dir, strconv.Itoa(i))
+		if err := os.WriteFile(path, []byte(quotedMigrationTokens(text)), 0o600); err != nil {
+			return nil, err
+		}
+		args = append(args, path)
+	}
+	out, err := proc.RunGitRaw(context.Background(), StoreDir(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("edited links conflict; store left unchanged: %w", err)
+	}
+	var sb strings.Builder
+	for l := range strings.SplitSeq(strings.TrimSuffix(out, "\n"), "\n") {
+		if l == "" {
+			continue
+		}
+		token, err := strconv.Unquote(l)
+		if err != nil {
+			return nil, err
+		}
+		sb.WriteString(token)
+	}
+	return []byte(sb.String()), nil
+}
+
+func quotedMigrationTokens(text string) string {
+	var sb strings.Builder
+	for _, token := range migrationChunks.FindAllString(text, -1) {
+		sb.WriteString(strconv.Quote(token) + "\n")
+	}
+	return sb.String()
 }
 
 func ownerOf(name string, rec migRecord) string {
@@ -743,22 +954,87 @@ func unflattenLinks(text string, rec migRecord) string {
 
 // revertIndexes restores each per-bank MEMORY.md from the pre commit and appends pointer lines added since.
 func revertIndexes(rec migRecord) ([]Change, error) {
+	if len(rec.IndexDirs) == 0 {
+		return nil, nil
+	}
 	cur, err := readStoreFile(nativeIndexFile)
 	if err != nil {
 		return nil, err
 	}
-	text := string(cur)
+	sections := revertIndexSections(string(cur), rec)
+	old, err := originalIndexes(rec)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkIndexProse(string(cur), old, rec); err != nil {
+		return nil, err
+	}
+	cs := []Change{{Rel: nativeIndexFile, Delete: true}}
+	for _, d := range rec.IndexDirs {
+		known, lines := old[d], sections[d]
+		if d == rec.Harness {
+			known, lines = known+old[homeDir], sections[""]
+		}
+		var out strings.Builder
+		out.WriteString(ensureNL(old[d]))
+		for _, l := range lines {
+			if l = unrelinkIndex(l, d); !slices.Contains(strings.Split(known, "\n"), l) {
+				out.WriteString(l + "\n")
+			}
+		}
+		cs = append(cs, Change{Rel: d + "/" + nativeIndexFile, Data: []byte(out.String())})
+	}
+	return cs, nil
+}
+
+func checkIndexProse(current string, old map[string]string, rec migRecord) error {
+	p := &flatPlan{harness: rec.Harness, indexDirs: rec.IndexDirs}
+	baseline, err := mergeIndexes(p, func(rel string) ([]byte, error) {
+		dir, _, _ := strings.Cut(rel, "/")
+		return []byte(old[dir]), nil
+	}, time.Time{})
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(indexProse(current, rec), indexProse(baseline, rec)) {
+		return fmt.Errorf("%w: merged MEMORY.md prose changed; reconcile it before reverting", ErrMigrateRefused)
+	}
+	return nil
+}
+
+func indexProse(text string, rec migRecord) []string {
+	if s, e := bankRegionBounds(text); s >= 0 {
+		text = text[:s] + text[e:]
+	}
+	var lines []string
+	for l := range strings.SplitSeq(text, "\n") {
+		if strings.TrimSpace(l) == "" || strings.HasPrefix(l, "- ") {
+			continue
+		}
+		if h, ok := strings.CutPrefix(l, "## "); ok && slices.Contains(rec.IndexDirs, h) {
+			continue
+		}
+		lines = append(lines, l)
+	}
+	return lines
+}
+
+func revertIndexSections(text string, rec migRecord) map[string][]string {
 	if s, e := bankRegionBounds(text); s >= 0 {
 		text = text[:s] + text[e:]
 	}
 	sections, name := map[string][]string{}, ""
 	for l := range strings.SplitSeq(text, "\n") {
-		if h, ok := strings.CutPrefix(l, "## "); ok {
+		if h, ok := strings.CutPrefix(l, "## "); ok && slices.Contains(rec.IndexDirs, h) {
 			name = h
 		} else if strings.HasPrefix(l, "- ") {
 			sections[name] = append(sections[name], l)
 		}
 	}
+	return sections
+}
+
+func originalIndexes(rec migRecord) (map[string]string, error) {
 	old := map[string]string{}
 	for _, d := range rec.IndexDirs {
 		b, err := gitShow(rec.Pre, d+"/"+nativeIndexFile)
@@ -767,21 +1043,7 @@ func revertIndexes(rec migRecord) ([]Change, error) {
 		}
 		old[d] = string(b)
 	}
-	cs := []Change{{Rel: nativeIndexFile, Delete: true}}
-	for _, d := range rec.IndexDirs {
-		known, lines := old[d], sections[d]
-		if d == rec.Harness {
-			known, lines = known+old[homeDir], sections[""]
-		}
-		out := ensureNL(old[d])
-		for _, l := range lines {
-			if l = unrelinkIndex(l, d); !strings.Contains(known, l) {
-				out += l + "\n"
-			}
-		}
-		cs = append(cs, Change{Rel: d + "/" + nativeIndexFile, Data: []byte(out)})
-	}
-	return cs, nil
+	return old, nil
 }
 
 // unrelinkIndex strips bank d's prefix from a pointer line's link target (top level or under a shared subdir).

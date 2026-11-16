@@ -40,6 +40,9 @@ var (
 
 // AliasRepo records an alias and folds its separate store, preserving content, under the bank lock.
 func AliasRepo(opt AliasOptions) (aliasResult, error) {
+	if storeFlat() {
+		return aliasResult{}, errors.New("memory alias records per-repo origins; the flat store keeps none")
+	}
 	if opt.Now.IsZero() {
 		opt.Now = time.Now()
 	}
@@ -385,7 +388,7 @@ func (p *aliasPlan) apply(now time.Time) error {
 	if err := removeEmptyTree(p.source); err != nil {
 		return err
 	}
-	if _, err := settleDir(p.target, now); err != nil {
+	if _, err := settleDir(bankOfDir(p.target), now); err != nil {
 		return err
 	}
 	if err := writeCatalog(now); err != nil {

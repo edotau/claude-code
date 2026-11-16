@@ -878,11 +878,12 @@ func TestDoctorAndCommitGateAgree(t *testing.T) {
 	for _, v := range credentialNegatives() {
 		cases[v] = false
 	}
+	isolatedConfig(t)
+	b := Bank{Key: "repo"}
 	for v, want := range cases {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "progress.md")
+		path := b.Path("progress.md")
 		write(t, path, "- note "+v+"\n")
-		doctorFlags := len(statBank(dir).Credentials) > 0
+		doctorFlags := len(statBank(b).Credentials) > 0
 		gateRefuses := checkStageContent(path, "progress.md") != nil
 		if doctorFlags != want || gateRefuses != want {
 			t.Errorf("%q: doctor flags %v, gate refuses %v, want both %v", v, doctorFlags, gateRefuses, want)

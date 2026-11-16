@@ -200,3 +200,19 @@ func TestPromoteHomeSettlesInsideItsMoveLock(t *testing.T) {
 		t.Fatalf("Promote released the bank lock before settling: rival took it = %v, Promote err = %v", intruded, err)
 	}
 }
+
+func TestPromoteHomeMovesBlockBetweenBankPathsInEachLayout(t *testing.T) {
+	eachLayoutRoot(t, func(t *testing.T, root string) {
+		id := seedConventionBlock(t, root)
+		b := BankFor(root)
+		if _, err := Promote(root, id, "home", false, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(mustRead(t, b.Path("conventions.md")), "id:"+id) {
+			t.Error("the block stayed in the local bank")
+		}
+		if !strings.Contains(mustRead(t, HomeBank().Path("conventions.md")), "id:"+id) {
+			t.Error("the block is not in the home bank file")
+		}
+	})
+}

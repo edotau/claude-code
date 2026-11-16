@@ -229,3 +229,22 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 		t.Errorf("fallback must append to the existing log, got %q", data)
 	}
 }
+
+func TestAccessLogsKeepTheirNamesInEachLayout(t *testing.T) {
+	eachLayout(t, func(t *testing.T, b Bank) {
+		for key, want := range map[string]string{"repo": "repo.log", "": "home.log"} {
+			if got := AccessLogPath(accessDir(Bank{Key: key})); got != filepath.Join(AccessStateDir(), want) {
+				t.Errorf("access log of %q = %s, want %s", key, got, want)
+			}
+		}
+		now := time.Now()
+		write(t, b.Path("projectContext.md"), "# x\n")
+		logShown(b.Path("topic.md"), "aa11bb22", AccessShow, now)
+		if returnCounts([]string{accessDir(b)}, now)["aa11bb22"] != 1 {
+			t.Error("a shown block was not credited to its own bank")
+		}
+		if returnCounts([]string{accessDir(HomeBank())}, now)["aa11bb22"] != 0 {
+			t.Error("a shown block was credited to home")
+		}
+	})
+}

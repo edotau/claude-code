@@ -175,16 +175,24 @@ func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
 	return r, json.Unmarshal(b, &r) == nil
 }
 
-// newestHandoff is the most recently modified handoff in dir within maxAge, or "".
-func newestHandoff(dir string, now time.Time, maxAge time.Duration) string {
+// newestHandoff is the most recently modified handoff of b within maxAge, or "".
+func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
+	dir := b.SubDir("handoffs")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
+	}
+	keys := []string{}
+	if storeFlat() {
+		keys = BankKeys()
 	}
 	best, bestMod := "", time.Time{}
 	for _, e := range entries {
 		fi, err := e.Info()
 		if err != nil || e.IsDir() || filepath.Ext(e.Name()) != ".md" || now.Sub(fi.ModTime()) > maxAge {
+			continue
+		}
+		if storeFlat() && ownerKey(e.Name(), keys) != b.Key {
 			continue
 		}
 		if fi.ModTime().After(bestMod) {
@@ -202,7 +210,7 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 			parts = append(parts, compactedText(r))
 		}
 	}
-	if h := newestHandoff(HandoffsDir(Dir(cwd)), now, 24*time.Hour); h != "" {
+	if h := newestHandoff(BankFor(cwd), now, 24*time.Hour); h != "" {
 		parts = append(parts, "handoff: "+h)
 	}
 	return strings.Join(parts, "; ")
@@ -391,35 +399,35 @@ const (
 
 // sessionSurface is the capped session preload: root's and home's focus sections plus a pointer to other repos.
 func sessionSurface(root string) string {
-	dir := Dir(root)
+	b := BankFor(root)
 	var parts []string
 	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
 		parts = append(parts, "<!-- other repos: `claude-code memory search --all <terms>` -->")
 	}
 	if bankExists(root) { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- THIS REPO (" + dir + ") -->"
-		if focus := repoFocus(dir); len(focus) > 0 {
+		head := "<!-- THIS REPO (" + b.SubDir("") + ") -->"
+		if focus := repoFocus(b); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
 		parts = append(parts, capChars(head, focusCapChars))
 	}
-	if home := HomeBankDir(); !isHomeBank(root) {
+	if home := HomeBank(); !b.Home() {
 		if focus := repoFocus(home); len(focus) > 0 {
-			parts = append(parts, capChars("<!-- HOME BANK ("+home+") -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
+			parts = append(parts, capChars("<!-- HOME BANK ("+home.SubDir("")+") -->\n"+strings.Join(focus, "\n\n"), homeFocusCapChars))
 		}
 	}
-	if !nativeLinked(root, dir) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(filepath.Join(dir, nativeIndexFile)); err == nil && len(data) > 0 {
+	if !nativeLinked(root, b.SubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
+		if data, err := os.ReadFile(b.NativeIndex()); err == nil && len(data) > 0 {
 			parts = append(parts, capChars("<!-- THIS REPO's MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
 	return capChars(strings.Join(parts, "\n\n"), totalCapChars)
 }
 
-// repoFocus is a bank dir's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
-func repoFocus(dir string) []string {
+// repoFocus is a bank's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
+func repoFocus(b Bank) []string {
 	var focus []string
-	if data, err := os.ReadFile(filepath.Join(dir, "activeContext.md")); err == nil {
+	if data, err := os.ReadFile(b.Path("activeContext.md")); err == nil {
 		heads := []string{"Current Focus", "Blockers", "Next Steps"}
 		for i, sec := range sectionBodies(string(data), heads...) {
 			if sec != "" {
@@ -427,7 +435,7 @@ func repoFocus(dir string) []string {
 			}
 		}
 	}
-	if data, err := os.ReadFile(filepath.Join(dir, "progress.md")); err == nil {
+	if data, err := os.ReadFile(b.Path("progress.md")); err == nil {
 		if sec := sectionBody(string(data), "In Progress"); sec != "" {
 			focus = append(focus, "## In Progress\n"+sec)
 		}

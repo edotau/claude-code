@@ -29,15 +29,15 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	}
 	now := time.Now()
 	old := now.Add(-48 * time.Hour)
-	for _, dir := range []string{Dir(root), HomeBankDir()} {
+	for _, b := range []Bank{BankFor(root), HomeBank()} {
 		for name := range templates() {
-			path := filepath.Join(dir, name)
+			path := b.Path(name)
 			write(t, path, templates()[name])
 			if err := os.Chtimes(path, old, old); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if got := newestMtime(dir); got.After(old) {
+		if got := newestMtime(b); got.After(old) {
 			t.Fatalf("bank fixture has recent mtime: %v", got)
 		}
 	}

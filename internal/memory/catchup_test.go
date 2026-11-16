@@ -72,7 +72,7 @@ func TestTranscriptInteractiveSkipsMemoryJobs(t *testing.T) {
 
 func TestTranscriptInteractiveAdversarial(t *testing.T) {
 	const catchupScan = 200 // The former metadata scan limit.
-	update := updatePromptOpen + " The bank directory is /b and the shared home bank is /h; write only there. "
+	update := fmt.Sprintf(updatePromptFormat, "/b", "/h")
 	dream := dreamPromptOpen + " The local bank is /b; the memory root /m holds the home bank and every repo store. "
 	for _, c := range []struct {
 		name, prompt string

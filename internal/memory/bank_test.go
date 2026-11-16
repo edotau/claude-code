@@ -94,3 +94,16 @@ func TestStoreFlatReadsStamp(t *testing.T) {
 		t.Fatal("stamped store reads legacy")
 	}
 }
+
+func TestBankOfFileNestedBundle(t *testing.T) {
+	isolatedConfig(t)
+	setStoreFlat(t, true)
+	migrateWrite(t, "alpha--progress.md", "p\n")
+	for _, name := range []string{"reports/alpha--bundle/sub/review.md", "archive/alpha--dream-backup/day/MEMORY.md"} {
+		for _, path := range []string{name, filepath.Join(StoreDir(), name)} {
+			if got := BankOfFile(path); got.Key != "alpha" {
+				t.Errorf("BankOfFile(%s) = %+v", path, got)
+			}
+		}
+	}
+}
