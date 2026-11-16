@@ -115,9 +115,13 @@ func replaceKey(d *dialog, kt configure.KeyTarget) bool {
 	if kt.EnvVar == "" {
 		return false
 	}
-	if _, src, _ := vault.Get(kt.EnvVar); src == "env" {
+	_, src, shadowed, _ := vault.Effective(kt.EnvVar)
+	if src == "env" && shadowed == "" {
 		d.printf("%s: env-only, not in the vault; edit where exported\n", kt.EnvVar)
 		return false
+	}
+	if src == "env" {
+		d.printf("%s: rotating the vault value; the exported %s still overrides it\n", kt.Label, kt.EnvVar)
 	}
 	if !confirmTerminal("Paste a new "+kt.EnvVar+" to rotate it", false) {
 		return false
@@ -209,7 +213,7 @@ func regenerate(d *dialog, kt configure.KeyTarget, argv []string, mint bool) boo
 		d.printf("%s: no token found in the output; try again or paste one\n", kt.EnvVar)
 		return false
 	}
-	if _, src, _ := vault.Get(kt.EnvVar); src == "env" {
+	if _, src, _, _ := vault.Effective(kt.EnvVar); src == "env" {
 		d.printf("%s: minted a new token, saving it to the vault; the exported %s still overrides it\n", kt.Label, kt.EnvVar)
 	}
 	return storeValue(d, kt.EnvVar, tok)

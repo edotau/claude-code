@@ -177,6 +177,29 @@ func TestRegenerateMintEnvOnlySavesToVault(t *testing.T) {
 	}
 }
 
+// Owner decision 3 (2026-11-16): with env and vault both set, the env wins at runtime, so both paths warn.
+func TestEnvShadowingVaultWarns(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	t.Setenv("PATH", t.TempDir())
+	for name, run := range map[string]func(*dialog, configure.KeyTarget) bool{
+		"regenerate": func(d *dialog, kt configure.KeyTarget) bool {
+			return regenerate(d, kt, []string{"/bin/echo", "sk-ant-oat1-shadowedmint0123456789abcdef"}, true)
+		},
+		"replaceKey": replaceKey,
+	} {
+		env := "ROT_SHADOW_" + strings.ToUpper(name)
+		if err := vault.Store(env, "vault-held-value-0001"); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(env, "set-via-process-env")
+		d, out := newDialog("\n")
+		run(d, configure.KeyTarget{Label: "x", EnvVar: env})
+		if !strings.Contains(out.String(), "still overrides") {
+			t.Errorf("%s: output must warn that the exported var still overrides the vault:\n%s", name, out.String())
+		}
+	}
+}
+
 func TestRegenerateLoginFailurePrintsError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("")

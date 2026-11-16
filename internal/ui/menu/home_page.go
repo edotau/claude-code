@@ -327,7 +327,7 @@ func sameAsSaved(name string, e envEdit) bool {
 	if e.secret == "" {
 		return true
 	}
-	v, _, ok := vault.Get(name)
+	v, _, _, ok := vault.Effective(name)
 	return ok && v == e.secret
 }
 
