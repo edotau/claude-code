@@ -13,7 +13,7 @@ paths:
 | Restart the proxy only when its binary changed (what `make install` runs) | `claude-code gateway proxy --restart --if-changed` |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port, or `--host-browser` opens the host's browser |
 | Least-busy Databricks workspace, requests through the other machine | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"` (what `/coworker` sends); `--host auto` runs the whole ask on that machine |
-| Send Databricks requests out through a host | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart --force` stops the tunnels |
+| Send Databricks requests out through a host | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart` (add `--force` with requests in flight) stops the tunnels after an actual restart |
 
 - `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST`. Requests to
   `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5 tunnel per host

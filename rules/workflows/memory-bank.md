@@ -52,8 +52,9 @@ update`; the rest print none.
 The one copy; each step costs more context. Only `home` writes; the others print the block, target and procedure and
 the agent edits by hand.
 
-1. `promote --to home` — moves the block (no link back) from `<key>--decisionLog.md` to the unprefixed
-   `decisionLog.md` (cross-project). It is the only route to home: `dream` and `import` never move entries there.
+1. `promote --to home` — moves the block (no link back) from `<key>--decisionLog.md`, `<key>--sessionHistory.md` or
+   `<key>--conventions.md` (or their archives) to the unprefixed `decisionLog.md` (cross-project). It is the only route
+   to home: `dream` and `import` never move entries there.
 2. `promote --to rules` — for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md` (enforced), never
    `rules/workflows/` or `CLAUDE.md`; `--to skill` — for `skills/<name>/SKILL.md` or `references/` (how-to).
 3. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on). Gated: 3+ bank entries and a hard prohibition;

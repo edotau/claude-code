@@ -1,7 +1,7 @@
 # Git and Worktrees
 
 1. **Conventional Commits** — `<type>[scope][!]: <description>` (types `feat` `fix` `docs` `style` `refactor` `perf`
-   `test` `chore` `ci`), 2 lines max plus a `BREAKING CHANGE:` line, no AI-attribution footers (`safety-scan` blocks);
+   `test` `chore` `ci`), 2 lines max plus a `BREAKING CHANGE:` line, no AI-attribution footers (`safety-scan` asks);
    `Fixes #42` where an issue exists; a body line only for what the diff cannot show.
 2. **Branches** — `feature/<domain>-<component>`, `fix/<issue>-<description>`, `docs/<component>`,
    `hotfix/<issue>-<description>`, `test/<feature>`; delete after merging.
@@ -12,7 +12,7 @@
 5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;`; a docs
    commit gates on a clean `make lint`.
 
-Executor mechanics (account switching, the `git rm` staging gotcha): `agents/copilot.md` → LAST-MILE.
+Executor mechanics: `agents/copilot.md` → LAST-MILE.
 
 ## Worktrees
 
@@ -21,8 +21,9 @@ current branch with no asks; any other value, including unset, means ask the use
 whether to use a linked worktree, and again when another session joins the checkout. Never create one without the
 user's yes; no answer means keep working in place.
 
-- Never `git stash` in any worktree (the stash list is shared); rewrite history only in your own linked worktree
-  (CLAUDE.md hard rule 4; `safety-scan` blocks). Coordination:
+- Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only
+  in your own linked worktree (CLAUDE.md hard rule 4). `safety-scan` asks on stash|checkout|switch|reset|restore|clean
+  under `~/.claude` and blocks `commit --amend`, `rebase` and `reset <commit>` in a shared checkout. Coordination:
   `skills/using-git-worktrees/references/shared-checkout.md`.
 - **A change you did not make is the owner's.** An uncommitted edit, new file or deletion you did not make in this task
   is the owner's or a peer's: never revert, overwrite, reformat or "clean up" it, even when it fails a gate; build on
