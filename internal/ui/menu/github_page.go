@@ -3,6 +3,7 @@ package menu
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -146,6 +147,9 @@ func githubProfile(reg *providers.Registry, login string) (string, error) {
 			if reg.Providers[n].Login == login {
 				return n, nil
 			}
+		}
+		if p := reg.Providers[login]; p != nil { // profiles are account logins; never rewrite another row into GitHub
+			return "", fmt.Errorf("a %s profile named %q already exists; rename or remove it first", cmp.Or(p.Provider, "provider"), login)
 		}
 	}
 	return login, providers.AddGithubAccount(login)

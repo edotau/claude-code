@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -217,5 +218,24 @@ func TestGithubProfileNeverClaimsLoginlessRow(t *testing.T) {
 	}
 	if reg.Providers["alice"] == nil || reg.Providers["copilot"] == nil {
 		t.Errorf("want rows alice and copilot, got %v", reg.ProfilesOf("github"))
+	}
+}
+
+// Owner decision 9 (2026-11-16): a login naming another provider's profile is refused, not rewritten into GitHub.
+func TestGithubProfileRefusesNameClash(t *testing.T) {
+	hosttest.GithubScratch(t)
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, err := githubProfile(reg, "anthropic"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("githubProfile(anthropic) = %q, %v; want a name-clash refusal", name, err)
+	}
+	if reg, err = providers.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if p := reg.Providers["anthropic"]; p == nil || p.Login != "" || slices.Contains(reg.ProfilesOf("github"), "anthropic") {
+		t.Errorf("anthropic row was rewritten: %+v", p)
 	}
 }
