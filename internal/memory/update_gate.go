@@ -102,7 +102,7 @@ func updateIfNewLocked(r UpdateRequest, trigger string, now time.Time) (blocked,
 	return false, false
 }
 
-// stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, or block up to the cap.
+// stampedStop is the Stop gate for a session that already has a stamp: re-arm, release, retry, or block up to the cap.
 func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (blocked, failedOpen bool) {
 	if st.state == "bg" || st.state == "catchup" {
 		if now.Sub(st.at) < updateRearmCooldown {
@@ -125,10 +125,19 @@ func stampedStop(r UpdateRequest, st updateStamp, stamp string, now time.Time) (
 		}
 		return false, false // fail open
 	}
+	if retryFailedStop(r, st, now) {
+		return false, false
+	}
 	if writeStamp(stamp, st.at, strconv.Itoa(st.blocks+1), st.edits) != nil {
 		return false, true // fail open: the block count cannot persist
 	}
 	return true, false
+}
+
+// retryFailedStop re-spawns a failed Stop's uncovered work once; success writes the "bg" stamp, so no double spawn.
+func retryFailedStop(r UpdateRequest, st updateStamp, now time.Time) bool {
+	work := countSessionEdits(r.SessionID, r.Transcript)
+	return work > st.edits && work >= updateMinEdits && dispatchUpdate(r, TriggerStop, work, now)
 }
 
 // Updatable reports whether a session can be updated: ids present, not an update child, the transcript a file.
