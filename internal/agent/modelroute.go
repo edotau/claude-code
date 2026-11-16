@@ -187,9 +187,19 @@ func implicitRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, st
 	return nil, "", fmt.Errorf("%w: no profile serves %s", ErrModelRoute, q.Agent)
 }
 
-// sessionRow: gemini has no session lead.
+// ownPinRow is the agent's pinned row when it is the agent's own sign-in; that pin decides, never the session.
+func ownPinRow(reg *providers.Registry, q ModelQuery) *providers.Provider {
+	for _, p := range []*providers.Provider{reg.Row(q.PinProfile), accountRow(reg, q.PinAccount)} {
+		if p != nil && p.Auth.Login == q.Agent {
+			return p
+		}
+	}
+	return nil
+}
+
+// sessionRow is the session profile's row, none under an own-login pin.
 func sessionRow(reg *providers.Registry, q ModelQuery) *providers.Provider {
-	if q.Agent == agentid.Gemini {
+	if ownPinRow(reg, q) != nil {
 		return nil
 	}
 	return reg.Row(q.Session)

@@ -107,7 +107,11 @@ func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, accoun
 		}
 	}
 	if reg != nil {
-		if p := reg.Row(providers.SessionProfileContext(ctx)); p != nil {
+		q := QueryFor(ctx, ModelQuery{Agent: s.Name})
+		if p := ownPinRow(reg, q); p != nil {
+			return p.Name, nil
+		}
+		if p := sessionRow(reg, q); p != nil {
 			if ok, _ := rowServes(s.Name, p); ok {
 				return "", nil
 			}

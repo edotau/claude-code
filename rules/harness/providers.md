@@ -20,9 +20,8 @@ paths:
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` |
 
-- Secrets live only in the vault or `auth.command` (CLAUDE.md hard rule 2); `configure provider --list` shows the
-  source, never the value. Built-in providers are `internal/providers/defaults.json`; a vault overlay row replaces one
-  by name.
+- Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Built-in providers are
+  `internal/providers/defaults.json`; a vault overlay row replaces one by name.
 - Agent settings are vault-only, one record per agent (`vault` AGENT table); `--model` beats them; `switch` and
   `<agent> profile` write the record (no last-used profile exists).
 - Agents run on their pins (gemini on Google); per-call routes use the overlay: keys, precedence and fallback in
@@ -40,7 +39,8 @@ paths:
   [--all-profiles [--live]] --format json`.
 - **Profile order:** explicit `<profile>:` or overlay `profile` > unique provider-type prefix > `databricks:<m>` or
   profile `auto` (first valid workspace in vault order dev, prod, qa; least-busy under `auto`) > the session profile
-  (with its model for the agent) > the agent record's profile (the pin).
+  (with its model for the agent) > the agent record's profile (the pin); a pin on the agent's own sign-in row
+  (copilot's GitHub row, gemini's Google row) skips the session.
 - **`--profile` vs a prefix:** an interactive launch errors naming both; `agents ask` and dispatches let the prefix win
   with a note, but an overlay confinement refuses a prefix outside it.
 - **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);

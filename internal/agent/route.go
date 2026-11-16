@@ -410,7 +410,7 @@ func sessionLead(ctx context.Context, agent string) string {
 	if err != nil {
 		return ""
 	}
-	if p := sessionRow(reg, ModelQuery{Agent: agent, Session: providers.SessionProfileContext(ctx)}); p != nil {
+	if p := sessionRow(reg, QueryFor(ctx, ModelQuery{Agent: agent})); p != nil {
 		if ok, _ := rowServes(agent, p); ok {
 			return p.Name
 		}

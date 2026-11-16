@@ -75,12 +75,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
   multi-file edits; verify with the diff stat, since we do not brief those subagents.
 - `ask --agent copilot`: both system-prompt flags are native (passed to the SDK as the system message), `--env`
   honored, no `cost_usd`. Stream, `--host` and the lifecycle verbs: `cost-routing.md` → Ask flags and lifecycle.
-- Dispatches follow the session's `<provider>·<profile>` (BYOK, no Copilot credits); the GitHub login only with
-  credits < 95%, else the Databricks profile (+ a `copilot: … using databricks profile <p>` notice) —
-  `cost-routing.md` → Fallback. On a Databricks profile copilot gets native `/model` across the profile's served
-  models (per-launch registry, private login-free `COPILOT_HOME` at `state/copilot/registry-home`, session-token
-  auth, an unregistered model fails closed); `--direct` keeps the single-model route; macOS skips the registry
-  (Keychain GitHub login still readable). `ask` uses it via the SDK. A pinned copilot GitHub profile at ≥95%
+- Dispatch routing, the GitHub-credit fallback and the Databricks `/model` registry: `rules/harness/agent.md` →
+  copilot; `cost-routing.md` → Fallback. A pinned copilot GitHub profile at ≥95%
   ends as a quota hop instead. Headless quota → handoff file and `KindQuota` (`handoff` in the JSON envelope); the
   next agent in the loop resumes from it.
 
