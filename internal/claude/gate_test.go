@@ -173,9 +173,14 @@ func TestGatePolicyFileDecisions(t *testing.T) {
 func TestGatePolicyShellDecisions(t *testing.T) {
 	wd := t.TempDir()
 	rule, bash := gateRule, gateBash
-	const miss = "continue with an allowed call"
+	const miss = "continue with another allowed call"
 	runGateRows(t, wd, []gateRow{
-		{"unlisted bash", agent.Permissions{}, "Bash", bash("curl --version"), true, miss + "; do not retry", ""},
+		{"unlisted bash", agent.Permissions{}, "Bash", bash("curl --version"), true,
+			"Bash(curl --version) is not on it: " + miss, "do not retry"},
+		{"a near miss names the allowed form", agent.Permissions{}, "Bash", bash("go generate ./..."), true,
+			"Bash(go generate ./...) is not on it: the nearest allowed form is Bash(go build *); rewrite", ""},
+		{"a compound miss names its segment", agent.Permissions{}, "Bash", bash("go vet ./... && curl x"), true,
+			"Bash(curl x) is not on it: " + miss, ""},
 		{"unlisted bash names the rule to add", agent.Permissions{}, "Bash", bash("curl --version"), true,
 			"--allow 'Bash(curl --version)'", ""},
 		{"listed bash", agent.Permissions{}, "Bash", bash("go vet ./..."), false, "", ""},

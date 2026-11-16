@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Decision is a permission verdict; the zero value is Deny so an unset result fails closed.
@@ -234,11 +235,14 @@ func union(a, b []Rule) []Rule {
 }
 
 // Decide applies Deny > Ask > Allow, then the mode fallback: plan denies, other modes ask (auto: the agent's judge).
-func (p Permissions) Decide(tool, arg string) Decision {
+func (p Permissions) Decide(tool, arg string) Decision { return p.DecideAt("", tool, arg) }
+
+// DecideAt is Decide for a command run in cwd: a static relative cd is also judged as its absolute target.
+func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	if tool != "Bash" {
 		return p.decideOne(tool, arg)
 	}
-	return p.decideBash(shellCode(arg), 0) // judge what bash runs: a comment can hide a quote that ends one
+	return p.decideBash(shellCode(arg), 0, cwd) // judge what bash runs: a comment can hide a quote that ends one
 }
 
 // shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
@@ -493,7 +497,7 @@ func runsBody(code string) bool {
 }
 
 // decideBash is the strictest verdict over every segment, substitution and `bash -c` body; redirects never Allow.
-func (p Permissions) decideBash(cmd string, depth int) Decision {
+func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 	if depth > 8 {
 		return Deny
 	}
@@ -503,13 +507,17 @@ func (p Permissions) decideBash(cmd string, depth int) Decision {
 	}
 	worst, seen := Allow, false
 	for _, sub := range subs {
-		worst = min(worst, p.decideBash(sub, depth+1), Ask)
+		worst = min(worst, p.decideBash(sub, depth+1, ""), Ask)
+		cwd = "" // a masked substitution may sit in a cd target
 	}
-	for _, seg := range shell.Segments(outer) {
-		d, ok := p.decideSeg(seg, depth)
-		seen = seen || ok
-		if ok {
-			worst = min(worst, d)
+	segs, seps := shell.SegmentsSep(outer)
+	for i, seg := range segs {
+		next, cdTo := cdDir(seg, cwd)
+		if cwd = next; seps[i] != "&&" { // only an `&&` after a static cd carries a known cwd to the next segment
+			cwd = ""
+		}
+		if d, ok := p.decideSeg(seg, cdTo, depth); ok {
+			seen, worst = true, min(worst, d)
 		}
 	}
 	if !seen { // a bare `$(x)` or backtick command: its substitutions' verdict still counts
@@ -527,24 +535,59 @@ func (p Permissions) spliceReadDenied(cmd string) bool {
 	})
 }
 
-// decideSeg is one segment's verdict with its nested command; heredocs, here-strings and file redirects never Allow.
-func (p Permissions) decideSeg(seg string, depth int) (Decision, bool) {
+// decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
+func (p Permissions) decideSeg(seg, cdTo string, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
 	toks, _ := shell.Unwrap(rawToks, "")
 	if len(toks) == 0 {
 		return Allow, false
 	}
 	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
+	judged := seg
+	if cdTo != "" {
+		judged = "cd " + textutil.ShellQuote(cdTo)
+		d = p.cdVerdict(d, strings.TrimSpace(seg), strings.Join(toks, " "), judged)
+	}
 	if nested, ok := shell.NestedCommand(toks); ok {
-		d = min(d, p.decideBash(nested, depth+1), Ask)
+		d = min(d, p.decideBash(nested, depth+1, ""), Ask)
 	}
 	if d == Allow && (strings.Contains(seg, "<") || shell.FileRedirect(seg)) {
 		d = Ask
 	}
-	if d == Allow && readOnlyReadDenied(p, seg) {
+	if d == Allow && readOnlyReadDenied(p, judged) {
 		d = Deny
 	}
 	return d, true
+}
+
+// cdVerdict joins a relative cd's verdict d with its absolute spelling's: a deny of either wins, then an allow.
+func (p Permissions) cdVerdict(d Decision, raw, norm, abs string) Decision {
+	hit := func(rules []Rule) bool {
+		return anyRule(rules, "Bash", raw, false) || anyRule(rules, "Bash", norm, true)
+	}
+	switch {
+	case anyRule(p.Deny, "Bash", abs, false):
+		return Deny
+	case d == Allow || hit(p.Deny) || hit(p.Ask):
+		return d
+	}
+	return max(d, p.decideOne("Bash", abs))
+}
+
+// cdDir is the cleaned absolute dir a bare `cd <static path>` enters from cwd; cdTo is it for a relative operand.
+func cdDir(seg, cwd string) (dir, cdTo string) {
+	toks := shell.Tokens(seg)
+	if len(toks) != 2 || toks[0] != "cd" || strings.HasPrefix(toks[1], "-") || strings.ContainsAny(toks[1], "$`*?[{~\\") {
+		return "", ""
+	}
+	if path.IsAbs(toks[1]) {
+		return path.Clean(toks[1]), ""
+	}
+	if cwd = filepath.ToSlash(cwd); !path.IsAbs(cwd) {
+		return "", ""
+	}
+	dir = path.Join(cwd, toks[1])
+	return dir, dir
 }
 
 // RedirectFileArg is the Bash deny argument for a file redirect; it reads quotes, so only a raw spelling matches.

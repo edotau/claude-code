@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -499,5 +500,70 @@ func TestPermissionCdCanonicalSpelling(t *testing.T) {
 			"cd /":                              Deny,
 			"cd " + slash(c.spelled) + " /etc":  Deny,
 		})
+	}
+}
+
+// checkBashAt is checkBash with the hook's cwd: each row is {cwd, command} to verdict.
+func checkBashAt(t *testing.T, p Permissions, cases map[[2]string]Decision) {
+	t.Helper()
+	for c, want := range cases {
+		if got := p.DecideAt(c[0], "Bash", c[1]); got != want {
+			t.Errorf("cwd %q %q: got %v, want %v", c[0], c[1], got, want)
+		}
+	}
+}
+
+// Given a cd rule and the hook cwd, Then a relative cd is judged as its absolute target, chains left to right.
+func TestPermissionCdRelativeToCwd(t *testing.T) {
+	p := mustPerms(t, "plan", []string{"Bash(cd:/work/repo)", "Bash(go test *)"}, nil, []string{"Bash(cd:/work/repo/secret)"})
+	const repo = "/work/repo"
+	checkBashAt(t, p, map[[2]string]Decision{
+		{repo, "cd sub"}: Allow, {repo, "cd sub/deeper"}: Allow, {repo, "cd ./sub"}: Allow, {repo, "cd sub/.."}: Allow,
+		{repo, "cd ."}: Allow, {repo, "cd sub && go test ./x"}: Allow, {repo, "cd a && cd b"}: Allow,
+		{repo, `cd "sub dir"`}: Allow, {repo + "/a", "cd .."}: Allow, {"/elsewhere", "cd /work/repo && cd sub"}: Allow,
+		{"/work", "cd repo"}: Allow, {"/work", "cd repo && cd internal"}: Allow, {repo, "cd sub && cd .."}: Allow,
+		{repo + "/", "cd sub"}: Allow, {repo, "cd 'sub'"}: Allow,
+		// controls: escapes, denied targets, dynamic targets, broken chains, no usable cwd
+		{repo, "cd .."}: Deny, {repo, "cd ../other"}: Deny, {repo, "cd sub/../.."}: Deny, {repo, "cd ../repository"}: Deny,
+		{repo, "cd secret"}: Deny, {repo, "cd ./secret/x"}: Deny, {repo, "cd a/../secret"}: Deny,
+		{repo, "cd sub && cd ../secret"}: Deny, {repo, "cd sub && cd ../.."}: Deny,
+		{repo, `cd "$X"`}: Deny, {repo, "cd -"}: Deny, {repo, "cd $(pwd)"}: Deny, {repo, "cd `pwd`"}: Deny,
+		{repo, "cd sub$(pwd)"}: Deny, {repo, "cd ~"}: Deny, {repo, "cd sub*"}: Deny, {repo, "cd"}: Deny,
+		{repo, "cd -P sub"}: Deny, {repo, "env cd sub"}: Deny, {repo, "cd sub; cd b"}: Deny, {repo, "cd x || cd b"}: Deny,
+		{repo, `bash -c "cd sub"`}: Deny, {"repo", "cd sub"}: Deny, {"", "cd sub"}: Deny, {"/work", "cd repo/.."}: Deny,
+	})
+	// outside plan mode a wildcard allow must not let a relative spelling reach a denied directory
+	open := mustPerms(t, "default", []string{"Bash(cd *)"}, nil, []string{"Bash(cd:/work/repo/secret)"})
+	checkBashAt(t, open, map[[2]string]Decision{{repo, "cd secret"}: Deny, {repo, "cd sub/../secret/x"}: Deny,
+		{repo, "cd sub"}: Allow, {"/work/repo/secret", "cd ."}: Deny})
+	// a Read deny binds a relative cd exactly as the absolute one
+	ro := Permissions{Mode: "plan", Allow: []Rule{ReadOnlyAllow, CdRule(repo)}, Deny: []Rule{{"Read", repo + "/secret/**"}}}
+	checkBashAt(t, ro, map[[2]string]Decision{{repo, "cd sub"}: Allow, {repo, "cd secret"}: Deny, {repo, "cd .."}: Deny})
+	if got := ro.Decide("Bash", "cd /work/repo/secret"); got != Deny {
+		t.Errorf("absolute spelling under the Read deny: got %v, want Deny", got)
+	}
+}
+
+// Given symlinked dirs, Then a relative cd through a link lands where the absolute spelling lands, deny included.
+func TestPermissionCdRelativeSymlink(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, other := t.TempDir(), t.TempDir()
+	if err := errors.Join(os.Symlink(real, filepath.Join(other, "link")),
+		os.Symlink(secret, filepath.Join(real, "esc"))); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	slash := filepath.ToSlash
+	p := Permissions{Mode: "plan", Allow: []Rule{CdRule(slash(real))},
+		Deny: []Rule{{"Bash", cdPrefix + slash(secret)}}}
+	checkBashAt(t, p, map[[2]string]Decision{
+		{slash(other), "cd link"}: Allow, {slash(other), "cd link/sub"}: Allow, {slash(other), "cd link && cd sub"}: Allow,
+		{slash(real), "cd esc"}: Deny, {slash(real), "cd esc/x"}: Deny, {slash(other), "cd link/esc"}: Deny,
+		{slash(other), "cd link && cd esc"}: Deny,
+	})
+	if got := p.Decide("Bash", "cd "+slash(real)+"/esc"); got != Deny {
+		t.Errorf("absolute spelling through the link: got %v, want Deny", got)
 	}
 }
