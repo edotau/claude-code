@@ -1240,7 +1240,7 @@ func shrinkHandbackWait(t *testing.T, id string, flip int, final string, readErr
 	calls := 0
 	loadDispatch = func(got string) (agent.Record, error) {
 		if calls++; got == id && calls > 1 && readErr {
-			return agent.Record{}, fmt.Errorf("record unreadable")
+			return agent.Record{}, os.ErrInvalid
 		}
 		if got == id && calls == flip {
 			writeDispatch(t, id, final)

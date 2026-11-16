@@ -250,11 +250,9 @@ func liveDispatchVerdict(in *core.Input, lr leafRead, agentID string) (expired c
 		if rec, err = awaitDispatch(rec, lr.until); err != nil {
 			continue
 		}
-		res, block := core.Result{}, false
+		res, block := endedReceipt(in, rec, "ended while the hand-back waited", ""), false
 		if jobRunning(rec) {
 			res, block = leafStopVerdict(agentID, rec)
-		} else {
-			res = endedReceipt(in, rec, "ended while the hand-back waited", "")
 		}
 		if block {
 			return res, true
