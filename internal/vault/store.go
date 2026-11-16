@@ -320,13 +320,13 @@ func CachedProbe(m SecretMeta, ttl time.Duration, now time.Time) (status string,
 	return "", age, false
 }
 
-// MetaPrefix retains a vendor prefix only when it covers at most a third of the secret.
+// MetaPrefix retains a vendor prefix only when it covers at most a third of the secret; `{"` marks a JSON token set.
 func MetaPrefix(v string) string {
 	if p := keyPrefix(v); p != "" && len(p) <= len(v)/3 {
 		return p
 	}
-	if len(v) >= redactMin { // no vendor scheme: the same first chars Redact shows, never over a third
-		return textutil.CutBytes(v, min(redactShow, len(v)/3))
+	if strings.HasPrefix(v, `{"`) && len(v) >= redactMin { // structure only, for `vault ls`'s json/oauth label
+		return `{"`
 	}
 	return ""
 }
