@@ -126,13 +126,13 @@ var Registry = []Group{
 	{Name: "dispatch", Events: []EventSpec{
 		// One PreToolUse runner: cap, then model pin (Workflow leaves too), then the claim.
 		{Name: "dispatch-effort", Event: EventPreToolUse, Matcher: "Agent|Task|Workflow", Budget: 5 * sec},
-		// A spawn that never ran (PostToolUseFailure) or a finished Workflow releases its tool_use_id's slots.
+		// A never-run spawn or finished Workflow frees its slots; a relay poll that returns on an ended job: hand back.
 		{Name: "dispatch-failure", Event: EventPostToolUseFailure, Matcher: "Agent|Task|Workflow", Budget: 5 * sec},
-		{Name: "dispatch-workflow", Event: EventPostToolUse, Matcher: "Workflow", Budget: 5 * sec},
+		{Name: "dispatch-workflow", Event: EventPostToolUse, Matcher: "Workflow|Bash", Budget: 5 * sec},
 		// Retires the stopping subagent's slot by agent id.
 		{Name: "dispatch-stop", Event: EventSubagentStop, Budget: 15 * sec},
-		// A background leaf ends at SubagentHandback, before SubagentStop: the stop gates run there, waiting on its job.
-		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback", Budget: 15 * sec},
+		// Stop gates at SubagentHandback (ends a background leaf first); on Bash, a reported or second relay poll is refused.
+		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback|Bash", Budget: 15 * sec},
 	}},
 	{Name: "paths", Events: []EventSpec{
 		// A pasted path (Windows, POSIX or client-only) resolves for the model, naming images and large files.

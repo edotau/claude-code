@@ -59,9 +59,18 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
   Write the brief to a file named after its task id with the Write tool and pass it on stdin
   (`claude-code agents ask ... - < file`) so the launch command starts with `claude-code` and matches the allow rule;
   never share one brief file name between leaves.
-- Background only via the `Run:` line's `--background` (never the shell or `run_in_background`): follow with foreground
-  `claude-code agents result -f <id>` (600000 ms, repeated until it ends). No duplicate ask,
+- Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
+- **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
+  1. Run one `claude-code agents result -f <id>` in the foreground (600000 ms Bash timeout). Never start a second
+     poller, a background poller or a sleep loop.
+  2. The moment it returns with the job ended, hand back the job's result as your next action. Do nothing in between.
+  3. If it times out while the job is still running, run it again. After 12 tries, hand back and say the job is still
+     running.
+  4. A message from the manager that arrived while the job ran goes in the hand-back under "Open items (not delivered
+     to the job)". Do not hold it.
+  5. After handing back, stop. If a later notification mentions the same job, reply "already reported" and do not
+     poll again.
 - Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
   in-context or silently pick another agent.
 - Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual
@@ -176,8 +185,8 @@ Checks: `rules/standards/quality.md`; commits only when authorized: `rules/stand
 #### Return to owner
 
 A gap goes back to the same agent with `SendMessage` (the gap, evidence wanted, stop condition). Never poll or
-`sleep` yourself (the one exception is the hook's own `sleep 60` instruction while it runs a never-run `Run:` line for
-a hand-back): a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, repeated;
+`sleep` yourself: a long `ask` runs `--background`, then foreground `result -f <id>` (600000 ms, rerun only on a
+timeout, at most 12 times;
 [agent-verbs.md](references/agent-verbs.md) step 2). Re-dispatch only when the owner is gone; after a restart read
 `git status`; never relaunch a leaf the user stopped. Reports go to
 `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`.

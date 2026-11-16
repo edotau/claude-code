@@ -203,7 +203,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 		return attachAll(in, got), false
 	}
 	if hookRan {
-		return relayRunPending(in, m)
+		return relayRunPending(in, *lr, m)
 	}
 	words := openingAskWords("Run: " + lr.scan.runLine)
 	if lr.scan.edited || len(words) == 0 {
@@ -211,7 +211,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 		return attach(in, fmt.Sprintf("NOTE: the work was done on the relay model (%s), not on %s; re-run the brief's `Run:` "+
 			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
 	}
-	return runBriefLine(in, agentID, words, lr.scan.runLine)
+	return runBriefLine(in, *lr, agentID, words)
 }
 
 // leafDispatch is the jobs this leaf started: its printed ids' records, else the ones its ask calls launched.
@@ -266,8 +266,7 @@ func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (rec
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
 	return receipt{}, &core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
-		"not refused. Run `claude-code agents result -f %s` with a 600000ms Bash timeout, repeating until it finishes, then hand "+
-		"back with its result and `ask: ran on` line.", rec.ID, how, rec.ID)}
+		"not refused. %s", rec.ID, how, pollOnce(rec.ID))}
 }
 
 // endedNote is a finished job's ran-on line and result.
@@ -291,8 +290,8 @@ func attachAll(in *core.Input, rs []receipt) core.Result {
 	return attach(in, rs[len(rs)-1].note, bodies...)
 }
 
-// relayRunPending is the hook's launch with no dispatch record yet: its output decides, else hold while it starts.
-func relayRunPending(in *core.Input, m relayRun) (core.Result, bool) {
+// relayRunPending is the hook's launch with no record yet: its output decides, else its record, else a hold.
+func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool) {
 	out := readEnds(m.Output, resultCap)
 	body := jobResult(nil, m.Output)
 	switch {
@@ -301,12 +300,41 @@ func relayRunPending(in *core.Input, m relayRun) (core.Result, bool) {
 	case didNotRunRe().MatchString(out):
 		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself; it ran no agent.", body), false
 	case time.Since(m.Started) < askLaunchWindow:
+		if rec, ok := hookJob(lr, leafAgentType(in), m.Started); ok {
+			return hookJobReceipt(in, rec, m.Output, lr.until)
+		}
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
-			"so your hand-back is held, not refused. Run `sleep 60`, then hand back again; the hook attaches its result and "+
-			"`ask: ran on` line.", m.Line, m.Output)}, true
+			"so your hand-back is held, not refused. %s", m.Line, m.Output, handBackForID)}, true
 	}
 	return attach(in, fmt.Sprintf("NOTE: the hook ran the brief's `Run:` line itself, but no dispatch record or receipt "+
 		"appeared within %s (output %s).", askLaunchWindow, m.Output), body), false
+}
+
+// handBackForID is the hold's instruction while the hook's launch has no dispatch record to name yet.
+const handBackForID = "Hand back again now, without sleeping: the hook then names its job; run `claude-code agents result " +
+	"-f <id>` once, in the foreground, and hand back when it returns."
+
+// hookJob waits until lr.until for the dispatch record of the hook's launch at started; zero until checks once.
+func hookJob(lr leafRead, st string, started time.Time) (agent.Record, bool) {
+	lr.recs, lr.scan.askTimes = nil, []time.Time{started}
+	for {
+		if recs, _, ok := leafDispatch(lr, st); ok {
+			return recs[0], true
+		}
+		if !time.Now().Add(handbackPoll).Before(lr.until) {
+			return agent.Record{}, false
+		}
+		time.Sleep(handbackPoll)
+	}
+}
+
+// hookJobReceipt is the hook launch's job receipt once it ended, else the hold naming its id.
+func hookJobReceipt(in *core.Input, rec agent.Record, output string, until time.Time) (core.Result, bool) {
+	r, hold := dispatchReceipt(rec, "the hook ran the brief's `Run:` line itself", output, until)
+	if hold != nil {
+		return *hold, true
+	}
+	return attachAll(in, []receipt{r}), false
 }
 
 // ranOnLine is the first `ask: ran on` line of out.
@@ -320,11 +348,12 @@ func ranOnLine(out string) string {
 }
 
 // runBriefLine starts the brief's own Run: command, unchanged and detached, then holds the hand-back for its result.
-func runBriefLine(in *core.Input, agentID string, words []string, line string) (core.Result, bool) {
+func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (core.Result, bool) {
 	fail := func(err error) (core.Result, bool) {
 		return attach(in, fmt.Sprintf("NOTE: the brief's `Run:` line was never run and the hook could not start it (%v); "+
 			"this report was made on the relay model.", err), jobOut{}), false
 	}
+	line := lr.scan.runLine
 	m := relayRun{Started: time.Now(), Line: line, Output: strings.TrimSuffix(relayRunPath(agentID), ".json") + ".output"}
 	if err := os.MkdirAll(filepath.Dir(m.Output), 0o700); err != nil {
 		return fail(err)
@@ -337,7 +366,7 @@ func runBriefLine(in *core.Input, agentID string, words []string, line string) (
 		} else if fi, err := os.Stat(relayRunPath(agentID)); err == nil {
 			m.Started = fi.ModTime() // a marker still being written, or unreadable: its age bounds the hold
 		}
-		return relayRunPending(in, m)
+		return relayRunPending(in, lr, m)
 	}
 	f, err := os.OpenFile(m.Output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err == nil {
@@ -348,9 +377,11 @@ func runBriefLine(in *core.Input, agentID string, words []string, line string) (
 		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
 		return fail(err)
 	}
+	if rec, ok := hookJob(lr, leafAgentType(in), m.Started); ok {
+		return hookJobReceipt(in, rec, m.Output, lr.until)
+	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
-		"unchanged: `%s` (output %s). Your hand-back is held, not refused: run `sleep 60`, then hand back again; the hook "+
-		"attaches its result and `ask: ran on` line.", line, m.Output)}, true
+		"unchanged: `%s` (output %s). Your hand-back is held, not refused. %s", line, m.Output, handBackForID)}, true
 }
 
 // jobOut is the job result a hand-back carries: one summary line and the job's final answer.

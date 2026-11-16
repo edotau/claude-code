@@ -21,7 +21,8 @@ check. LAST-MILE merges verified branches and commits only when authorized. Both
 
 ## Invocation
 
-Follow the relay contract in `skills/subagent-workflows/SKILL.md`; run a leading `Run:` once, exactly as written.
+Follow the relay contract in `skills/subagent-workflows/SKILL.md`, its waiting and hand-back rules included; run a
+leading `Run:` once, exactly as written.
 Otherwise `test` selects TEST and `commit` selects LAST-MILE (brief modes, not CLI verbs); send the mode's
 instructions in one `claude-code copilot ask --tools` task. Owner shortcuts: `rules/workflows/agents.md` → Slash
 commands.

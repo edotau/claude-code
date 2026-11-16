@@ -279,10 +279,31 @@ func chain(all []Bound, agent, flag string) []Bound {
 			bound = append(bound, b)
 		}
 	}
-	if flag == settings.AsyncFlag {
+	switch {
+	case flag == settings.AsyncFlag:
 		return asyncOnly(bound)
+	case agent == core.AgentClaude && flag == "":
+		return syncOnly(bound)
 	}
 	return bound
+}
+
+// syncOnly is Claude's synchronous entry's chain: each module less the Async alternatives its background entry runs.
+func syncOnly(bound []Bound) []Bound {
+	var out []Bound
+	for _, b := range bound {
+		if b.Spec.Async != "" {
+			async := strings.Split(b.Spec.Async, "|")
+			b.Spec.Matcher = strings.Join(slices.DeleteFunc(strings.Split(b.Spec.Matcher, "|"), func(alt string) bool {
+				return slices.Contains(async, alt)
+			}), "|")
+			if b.Spec.Matcher == "" {
+				continue
+			}
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // asyncOnly is the background entry's chain: each module that has Async alternatives, matching on those alone.
@@ -329,7 +350,7 @@ var native = map[string]core.Runner{
 	"codex-routing-result": CodexRoutingResult,
 	"codex-subagent-start": CodexSubagentStart,
 	"dispatch-failure":     Release,
-	"dispatch-workflow":    Release,
+	"dispatch-workflow":    AfterTool,
 	"docs-plan-tick":       docs.Tick,
 	"docs-plan-reminder":   docs.Reminder,
 	"docs-plan-mirror":     viaStderr(docs.Mirror),

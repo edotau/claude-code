@@ -18,11 +18,10 @@ questions across leaves and verifies citations at fan-in; this wrapper never fan
 
 ## Invocation
 
-Follow `skills/subagent-workflows/SKILL.md` → External relay contract; run the brief's `Run:` line once, flags
-unchanged. Otherwise use `claude-code gemini ask --tools --read-only` for a
+Follow `skills/subagent-workflows/SKILL.md` → External relay contract, its waiting and hand-back rules included; run
+the brief's `Run:` line once, flags unchanged. Otherwise use `claude-code gemini ask --tools --read-only` for a
 question or `claude-code gemini review` for a diff. `sweep-review` is a brief mode: the same ask with packed files.
-Owner shortcuts:
-`rules/workflows/agents.md` → Slash commands.
+Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 ## Owns
 

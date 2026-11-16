@@ -262,7 +262,7 @@ func contextBindingProbes() map[string]bindingProbe {
 var pointerBound = map[string]core.Runner{
 	"format-stop": quality.StopFormat, "codex-agent-route": CodexAgentRoute, "codex-routing-start": CodexRoutingStart,
 	"codex-routing-result": CodexRoutingResult, "codex-subagent-start": CodexSubagentStart,
-	"dispatch-failure": Release, "dispatch-workflow": Release, "dispatch-stop": Stop,
+	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": docs.Reminder,
 	"worktree-busy": wthook.Busy, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 }
@@ -820,8 +820,9 @@ func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
 		}
 		stubs = append(stubs, b)
 	}
-	if got, want := postToolRuns(stubs, &mode, &runs, "Bash"), []string{"docs-plan-tick/async", "worktree-claim/async"}; !slices.Equal(got, want) {
-		t.Fatalf("Bash PostToolUse ran %v, want %v (the sync entry must run neither)", got, want)
+	want := []string{"dispatch-workflow/sync", "docs-plan-tick/async", "worktree-claim/async"}
+	if got := postToolRuns(stubs, &mode, &runs, "Bash"); !slices.Equal(got, want) {
+		t.Fatalf("Bash PostToolUse ran %v, want %v (the sync entry runs no Async alternative)", got, want)
 	}
 	for _, tool := range []string{"Write", "Edit", "MultiEdit", "Workflow", "ExitPlanMode"} {
 		var want []string

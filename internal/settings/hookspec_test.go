@@ -160,8 +160,8 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	}
 	checkDispatcherEntries(t, block, ownEntriesPerEvent())
 	post := block[EventPostToolUse]
-	if len(post) != 2 || post[0].Hooks[0].Async || strings.Contains(post[0].Matcher, "Bash") {
-		t.Errorf("PostToolUse: want a synchronous dispatcher without Bash, then the async one: %+v", post)
+	if len(post) != 2 || post[0].Hooks[0].Async {
+		t.Errorf("PostToolUse: want a synchronous dispatcher, then the async one: %+v", post)
 	} else if bg := post[1]; bg.Matcher != "Bash" || !bg.Hooks[0].Async || bg.Hooks[0].Command != DispatcherCommand(EventPostToolUse)+" "+AsyncFlag {
 		t.Errorf("PostToolUse: second entry %+v, want the async Bash dispatcher", bg)
 	}

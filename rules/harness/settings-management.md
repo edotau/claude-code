@@ -29,8 +29,9 @@ paths:
 - `configure --restore` is the one reset (backup, then the clean render); `--check` and `--dry-run` are refused. A hook
   change in `hookspec.go` reaches an existing file only through it or a hand edit.
 - An existing `settings.json` needs the async Bash `PostToolUse` entry added by hand after `make install`, never
-  before the new binary is installed (an older one rejects `--async` and the Bash hooks stop running): remove `Bash`
-  from the sync `PostToolUse` matcher and add this entry. Without it both Bash hooks keep running synchronously.
+  before the new binary is installed (an older one rejects `--async` and the Bash hooks stop running): keep `Bash`
+  in the sync `PostToolUse` matcher (the relay hand-back nudge runs there, about 7 ms) and add this entry. Without it
+  `docs-plan-tick` and `worktree-claim` do not run on Bash calls.
 
   ```json
   {"matcher": "Bash", "hooks": [{"type": "command", "async": true, "timeout": 15,
