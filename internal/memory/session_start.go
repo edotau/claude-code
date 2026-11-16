@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 	mdast "github.com/jeduden/mdsmith/pkg/goldmark/ast"
-	"github.com/jeduden/mdsmith/pkg/goldmark/parser"
 	"github.com/jeduden/mdsmith/pkg/markdown"
 )
 
@@ -458,7 +457,7 @@ func sectionBody(text, heading string) string { return sectionBodies(text, headi
 // sectionBodies is sectionBody per heading from one AST parse, so a "## " line inside a fence never ends a section.
 func sectionBodies(text string, headings ...string) []string {
 	doc := markdown.Parse([]byte(text))
-	heads := level2Headings(doc.Body)
+	heads := level2Headings(doc)
 	out := make([]string, len(headings))
 	for n, heading := range headings {
 		for i, h := range heads {
@@ -482,11 +481,10 @@ type headingSpan struct {
 	lineStart, lineEnd int
 }
 
-// level2Headings returns every "## " heading's title and line span; body is already front-matter-free.
-func level2Headings(body []byte) []headingSpan {
+// level2Headings returns every "## " heading's title and line span, read against the front-matter-free doc.Body.
+func level2Headings(doc *markdown.Document) []headingSpan {
 	var out []headingSpan
-	root := markdown.ParseContext(body, parser.NewContext())
-	_ = mdast.Walk(root, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
+	_ = mdast.Walk(doc.AST, func(n mdast.Node, entering bool) (mdast.WalkStatus, error) { // walker never errors
 		if !entering {
 			return mdast.WalkContinue, nil
 		}
@@ -497,7 +495,7 @@ func level2Headings(body []byte) []headingSpan {
 		if hn.Lines().Len() == 0 { // a bare "## " has no title and no segment to locate it by
 			return mdast.WalkContinue, nil
 		}
-		out = append(out, headingLineSpan(body, hn))
+		out = append(out, headingLineSpan(doc.Body, hn))
 		return mdast.WalkContinue, nil
 	})
 	return out
