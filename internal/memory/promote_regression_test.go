@@ -56,7 +56,7 @@ func TestPromoteIgnoresQuotedMarker(t *testing.T) {
 	}
 }
 
-// Given a block whose marker is wrapped below stacked newer markers, When promoting its oldest id, Then the whole block moves.
+// Given a block whose marker is wrapped below newer markers, When promoting its oldest id, Then the whole block moves.
 func TestPromoteFindsWrappedStackedMarker(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

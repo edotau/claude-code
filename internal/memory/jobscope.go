@@ -16,8 +16,7 @@ const (
 	JobDigest = "digest"
 )
 
-// Scope is a memory job's tool boundary in agent-neutral form: internal/agent imports this package, so the
-// agent.Permissions conversion (Edit/Write allow, NoWrite deny, Bash allow, cd rules) stays with the runner.
+// Scope is a memory job's agent-neutral tool boundary; internal/agent imports this package and converts it.
 type Scope struct {
 	Tools   bool     // false: the job's model call holds no tool at all (digest; also an unknown kind)
 	Write   []string // path globs Edit and Write may touch

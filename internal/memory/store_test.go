@@ -346,8 +346,7 @@ func wantAction(t *testing.T, label string, r linkResult, want string) {
 	}
 }
 
-// TestEnsureLinkStates drives every branch of ensureLink: absent, a correct link, a wrong link, an empty
-// real dir, and a non-empty real dir.
+// TestEnsureLinkStates drives ensureLink over absent, correct, wrong, empty-dir and non-empty-dir states.
 func TestEnsureLinkStates(t *testing.T) {
 	t.Parallel()
 	cfg := canonTemp(t, t.TempDir())

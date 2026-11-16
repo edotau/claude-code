@@ -119,7 +119,7 @@ func effectiveStamp(root string, now time.Time) (t time.Time, failed, ok bool) {
 	return t, failed, ok
 }
 
-// dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its backdated stamp.
+// dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its stamp.
 func dreamDue(cwd string, now time.Time) bool {
 	stamp, failed, ok := effectiveStamp(cwd, now)
 	if ok && now.Sub(stamp) < dreamInterval {

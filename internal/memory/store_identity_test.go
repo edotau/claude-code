@@ -532,7 +532,7 @@ func TestRepoKeyFromRemote(t *testing.T) {
 	}
 }
 
-// The store key comes from the origin remote's basename, never the dir name; a remote naming no repo falls back to the dir.
+// The store key comes from the origin remote's basename, not the dir name; a remote naming no repo uses the dir.
 func TestRepoKeyFromOriginRemoteOrDir(t *testing.T) {
 	for _, c := range []struct{ name, dirName, remote, key string }{
 		{"remote beats dir name", "mismatched-dirname", "https://github.com/tester/claude-dbx.git", "claude-dbx"},

@@ -287,7 +287,7 @@ func (s *boltVectorStore) Release(owner int64) error {
 	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, owner) })
 }
 
-// embedDBBroken reports an open failure that blames the file's bytes: not a lock timeout, a permission or a missing file.
+// embedDBBroken reports an open failure blaming the file's bytes, not a lock timeout, permission or missing file.
 func embedDBBroken(err error) bool {
 	return err != nil && !errors.Is(err, bolterrors.ErrTimeout) && !errors.Is(err, fs.ErrPermission) && !errors.Is(err, os.ErrNotExist)
 }
@@ -520,7 +520,7 @@ type scoredHit struct {
 	cos float64
 }
 
-// hitFor builds the hit for block of file f and its cosine; false for a struck-out block or one with no embedding at floor.
+// hitFor builds the hit for block of file f and its cosine; false for a struck-out or unembedded block at floor.
 func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit, float64, bool) {
 	if isSupersededBlock(block) {
 		return SearchHit{}, 0, false

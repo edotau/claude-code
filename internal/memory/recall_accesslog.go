@@ -79,7 +79,7 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string) 
 	}
 }
 
-// rotateAndAppend rotates, trims and appends under one lock: concurrent hooks and verbs must never interleave the renames.
+// rotateAndAppend rotates, trims and appends under one lock so concurrent hooks and verbs never interleave renames.
 func rotateAndAppend(path string, now time.Time, entries []string, reason, lines string) error {
 	maybeRotateAccessLog(path, now)
 	maybeTrimAccessLog(path, now)

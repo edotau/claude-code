@@ -198,7 +198,7 @@ func assertAliasCommit(t *testing.T, e aliasEnv, decoyHead, before string) {
 
 }
 
-// assertSourceGoneAliasRecorded checks the source store and catalog row are gone and the target's origin accepts the source.
+// assertSourceGoneAliasRecorded checks the source store and catalog row are gone and the target's origin accepts it.
 func assertSourceGoneAliasRecorded(t *testing.T, e aliasEnv) {
 	t.Helper()
 	if pathExists(e.db) {
@@ -374,7 +374,7 @@ func assertAliasLinkSwapRolledBack(t *testing.T, e aliasEnv, first string) {
 	}
 }
 
-// TestRepointRollbackDropsFoldedRowWhenTargetHadNone: a target with no origin row must not keep the folded one after a failed link swap.
+// TestRepointRollbackDropsFoldedRowWhenTargetHadNone: a target with no origin row keeps no folded row on failure.
 func TestRepointRollbackDropsFoldedRowWhenTargetHadNone(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")

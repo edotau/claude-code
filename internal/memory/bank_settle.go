@@ -61,7 +61,7 @@ func rotateSessionHistory(dir string, now time.Time) (int, error) {
 	return len(overflow), nil
 }
 
-// sessionOverflow is the sessionHistory cap check rotateSessionHistory and `dream --dry-run` share: entries past the cap.
+// sessionOverflow counts sessionHistory entries past the cap, shared by rotateSessionHistory and `dream --dry-run`.
 func sessionOverflow(body string) (header string, keep, overflow []string) {
 	header, entries := splitHeadingBlocks(body)
 	if len(entries) <= sessionHistoryMaxEntries {

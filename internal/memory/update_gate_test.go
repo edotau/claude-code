@@ -539,7 +539,7 @@ func TestCountSubagentEditsConcurrentCallsCountOnce(t *testing.T) {
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	hosttest.WriteEdits(t, a, 2)
 
-	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
+	edits0, bytes0 := subagentEdits(tr, 0, 0, true)
 	if edits0 != 2 {
 		t.Fatalf("seed scan edits = %d, want 2", edits0)
 	}
@@ -587,7 +587,7 @@ func TestCountSubagentEditsLockHeldElsewhereReturnsCachedWithoutWriting(t *testi
 	tr, subDir := subagentFixture(t)
 	a := filepath.Join(subDir, "agent-a.jsonl")
 	hosttest.WriteEdits(t, a, 2)
-	edits0, bytes0 := subagentEdits(tr, 0, 0, true) // seed the sidecar
+	edits0, bytes0 := subagentEdits(tr, 0, 0, true)
 	before := readSidecar(sidecarPath(subDir))
 
 	hosttest.WriteEdits(t, a, 9) // grows past the cached size: subagentEdits must attempt the lock

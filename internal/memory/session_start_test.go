@@ -350,7 +350,7 @@ func TestSessionRootForSkipsMainProbeOutsideRepo(t *testing.T) {
 	}
 }
 
-// The catalog leaves the surface (one pointer stays); the Parked section leaves the injected surface (with a count), the other sections stay, and recall can still find it.
+// The catalog and Parked section leave the injected surface (a pointer and a count stay); recall still finds them.
 func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)

@@ -62,10 +62,10 @@ var updateGrace = detachedLockWait + homeLockWait + updateTimeout + time.Minute
 // updateLockWait is a foreground update's wait for a peer's .postupdate lock before giving up as busy; a var for tests.
 var updateLockWait = 5 * time.Second
 
-// detachedLockWait outlasts a dream (updateTimeout) so a detached session-end save is queued, not lost; a var for tests.
+// detachedLockWait outlasts a dream (updateTimeout) so a detached session-end save queues, not lost; a var for tests.
 var detachedLockWait = updateTimeout + time.Minute
 
-// DetachedEnv marks a worker the hooks or sweep spawned (no one is waiting on it), so its update may queue for the lock.
+// DetachedEnv marks a worker spawned by hooks or sweep (no one waits on it), so its update may queue for the lock.
 const DetachedEnv = "CLAUDE_MEMORY_DETACHED"
 
 // lockWait is detachedLockWait for a worker spawned detached, else updateLockWait.
@@ -132,8 +132,7 @@ func (r UpdateResult) needsAttention(now time.Time) bool {
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
 type AgentFunc func(ctx context.Context, prompt, workdir string) (who string, err error)
 
-// agentUpdatePrompt frames `memory update` for an agent without slash commands; procedure: prompts/update.md.
-// The stable procedure leads (prompt-cache prefix); the session's digest, git activity and tags follow.
+// agentUpdatePrompt frames `memory update` for an agent without slash commands; the stable procedure leads for caching.
 func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) {
 	ref, err := Reference("update")
 	if err != nil {
@@ -283,7 +282,7 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 	return out
 }
 
-// tagBlock files the transcript's tags (historical: DECISION only, the one step it keeps); a failure degrades to no block.
+// tagBlock files the transcript's tags (historical: DECISION only); a failure degrades to no block.
 func tagBlock(transcript string, historical bool) string {
 	f, err := os.Open(transcript)
 	if err != nil {

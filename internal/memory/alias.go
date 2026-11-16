@@ -317,7 +317,7 @@ func blocksMissingFrom(blocks, sblocks []string) []string {
 	return add
 }
 
-// sortNewestFirst stably orders dated blocks newest first; an undated block inherits the date above it, so it never moves.
+// sortNewestFirst stably orders dated blocks newest first; an undated block inherits the date above it.
 func sortNewestFirst(all []string) []string {
 	last := "9999-99-99"
 	dates := make([]string, len(all))

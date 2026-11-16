@@ -106,7 +106,7 @@ func rememberedText(path, file, kind, fact, body string, now time.Time) (line, t
 	return line, appendedText(path, body, []string{line})
 }
 
-// lastStampedID finds the id stamped on line's first line in text: the first exact match in a newest-first file, else the last.
+// lastStampedID finds the id stamped on line's first line in text: first match if newest-first, else the last.
 func lastStampedID(text, line string, newestFirst bool) (string, error) {
 	want, _, _ := strings.Cut(line, "\n")
 	want = strings.TrimRight(want, " \t")

@@ -18,8 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks only enter a search's results
-// when the query names that repo.
+// TestSearchBanksSurfacesRoutedReposOnlyWhenNamed: another repo's blocks enter results only when the query names it.
 func TestSearchBanksSurfacesRoutedReposOnlyWhenNamed(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
