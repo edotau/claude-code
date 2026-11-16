@@ -347,7 +347,7 @@ const compoundMinLen = 4
 const compoundWeight = 0.4
 
 // lookupWeighted merges exact postings (weight 1) with compound ones (compoundWeight), deduped per doc by the stronger.
-func (s segView) lookupWeighted(term string, all []string) map[int]float64 {
+func (s segView) lookupWeighted(term string) map[int]float64 {
 	out := map[int]float64{}
 	add := func(t string, weight float64) {
 		posts, n := s.lookup(t)
@@ -361,27 +361,27 @@ func (s segView) lookupWeighted(term string, all []string) map[int]float64 {
 	}
 	add(term, 1)
 	if len(term) >= compoundMinLen {
-		for _, other := range all {
-			if other != term && strings.Contains(other, term) {
-				add(other, compoundWeight)
-			}
+		for _, other := range s.containing(term) {
+			add(other, compoundWeight)
 		}
 	}
 	return out
 }
 
-// terms returns every indexed term in the segment, in their stored (sorted) order.
-func (s segView) terms() []string {
+// containing returns the indexed terms longer than term that contain it, in stored (sorted) order.
+func (s segView) containing(term string) []string {
 	termStart := 12 + s.Docs()*12
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
-	out := make([]string, nterms)
+	var out []string
 	for i := range nterms {
 		off := termStart + 4 + i*16
 		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
-		end := start + int(binary.LittleEndian.Uint32(s[off+4:]))
-		out[i] = string(s[start:end])
+		t := s[start : start+int(binary.LittleEndian.Uint32(s[off+4:]))]
+		if len(t) > len(term) && bytes.Contains(t, []byte(term)) {
+			out = append(out, string(t))
+		}
 	}
 	return out
 }
@@ -412,12 +412,8 @@ func indexSegments(uniq map[string]int, segs []segView) (
 		ndocs += seg.Docs()
 		sumdl += seg.sumDL()
 		wt := map[int][]float64{}
-		var all []string
 		for term, j := range uniq {
-			if all == nil && len(term) >= compoundMinLen {
-				all = seg.terms()
-			}
-			docs := seg.lookupWeighted(term, all)
+			docs := seg.lookupWeighted(term)
 			df[j] += len(docs)
 			for doc, tf := range docs {
 				if wt[doc] == nil {
@@ -436,7 +432,7 @@ func indexSegments(uniq map[string]int, segs []segView) (
 
 // scoreSegmentDocs returns the BM25F-scored hits for every matched doc in one segment.
 func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl float64,
-	seg segView, wt map[int][]float64, file corpusFile) []SearchHit {
+	seg segView, wt map[int][]float64, file corpusFile, dir string) []SearchHit {
 	var hits []SearchHit
 	for doc := 0; doc < seg.Docs(); doc++ {
 		freqs := wt[doc]
@@ -467,7 +463,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		id := blockRef(block, "")
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, Dir: ownerDir(file.Path),
+			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir,
 		})
 	}
 	return hits
@@ -484,8 +480,10 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	}
 	n := float64(ndocs)
 	var hits []SearchHit
+	keys := BankKeys()
 	for _, i := range usable {
-		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i])...)
+		dir := accessDir(bankOfFile(files[i].Path, keys))
+		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
 	if k > 0 && len(hits) > k {
