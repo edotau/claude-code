@@ -192,7 +192,7 @@ func tsAuthKey(d *dialog, s *shell) {
 		d.printf("auth key: %v\n", err)
 		return
 	}
-	fmt.Fprintln(d.out, key.Key) // unpainted: the one place the key is shown
+	fmt.Fprintln(d.out, key.Key)
 	if err := tailscale.SaveAuthKey(key.Key); err != nil {
 		d.printf("auth key: not saved: %v\n", err)
 		return

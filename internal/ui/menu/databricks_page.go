@@ -42,7 +42,7 @@ var (
 )
 
 const (
-	dbxLoginTimeout = 5 * time.Minute // browser sign-in waits on the user
+	dbxLoginTimeout = 5 * time.Minute
 	dbxNetTimeout   = 30 * time.Second
 )
 
@@ -61,7 +61,7 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	}
 	st := allSigninFor(p).Status()
 	exp := st.Expires
-	if e, method, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity); ok { // the profile's own identity record; auto: the latest mint
+	if e, method, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity); ok {
 		exp = e
 		if method == providers.AuthM2M && authType == providers.AuthOAuth {
 			authType = providers.AuthM2M
@@ -96,8 +96,7 @@ func dbxLeft(d time.Duration) string {
 // dbxExpired is the state of a stored credential whose last token ran out; plain text, so the row leaves it grey.
 const dbxExpired = "expired"
 
-// dbxIdentityBadge is the Identity row's check column: the set mode and who signs in now ("[auto → sp]"),
-// green while that credential's token is live.
+// dbxIdentityBadge is the Identity row's check column.
 func dbxIdentityBadge(reg *providers.Registry, env string) string {
 	p := reg.Providers[env]
 	if p == nil {
@@ -122,7 +121,7 @@ func dbxDur(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", m/60, m%60)
 }
 
-// databricksRow is the settings row: the first env holding a login (else the first configured), its authType and expiry.
+// databricksRow is the settings row.
 func databricksRow(d *dialog) homeRow {
 	env, state, check := "", "not configured", "no login"
 	for _, e := range dbxProfileNames(d.reg) {
@@ -150,7 +149,8 @@ func runDatabricks(d *dialog) bool {
 		}
 		d.printf("%-5s %-12s %s\n", e, at, text)
 	}
-	return true // a report; a missing login is not a failed section
+	// a report; a missing login is not a failed section
+	return true
 }
 
 // runDatabricksPage loops the env list until Back.
@@ -335,8 +335,7 @@ func dbxApplyPins(d *dialog, env string) (cancelled bool, err error) {
 	return false, nil
 }
 
-// dbxIdentity picks env's identity mode; a service principal already stored (id and secret) is kept unless the
-// "change service principal" row is picked, otherwise it asks for the id and secret and checks them before saving.
+// dbxIdentity picks env's identity mode.
 func dbxIdentity(d *dialog, env string) {
 	p := d.reg.Providers[env]
 	if p == nil {
@@ -356,7 +355,7 @@ func dbxIdentity(d *dialog, env string) {
 	dbxIdentityApply(d, env, mode, change, kept, p, stored)
 }
 
-// dbxIdentityMode shows the mode picker (plus the change-SP row when kept); mode is cur when change, ok false on cancel.
+// dbxIdentityMode shows the mode picker.
 func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (mode string, change, ok bool) {
 	modes := []string{providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP}
 	cur, _ := providers.ResolveIdentity(p.Identity, "")
@@ -384,7 +383,8 @@ func dbxIdentityMode(d *dialog, env string, p *providers.Provider, kept bool) (m
 // dbxIdentityApply saves a picked mode: user keeps the stored pair, a kept pair is confirmed, anything else prompts.
 func dbxIdentityApply(d *dialog, env, mode string, change, kept bool, p *providers.Provider, stored string) {
 	spID := p.Auth.SPClientID
-	if mode == providers.IdentityUser && !change { // user mode never reads the SP: keep the stored id and secret
+	// user mode never reads the SP: keep the stored id and secret
+	if mode == providers.IdentityUser && !change {
 		saveDbxIdentity(d, env, mode, spID, "", "")
 		return
 	}

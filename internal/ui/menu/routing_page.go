@@ -32,8 +32,7 @@ func countRoutingOverrides(overlay providers.Routing) int {
 	return n
 }
 
-// routingSource reports "vault" when the overlay itself sets f, else "default" — derived from presence
-// in the overlay (providers.RoutingOverlay), never from comparing f's resolved value to the default.
+// routingSource reports "vault" when the overlay itself sets f.
 func routingSource(f configure.RoutingField, overlay providers.Routing) string {
 	if f.IsSet(overlay) {
 		return "vault"
@@ -41,8 +40,7 @@ func routingSource(f configure.RoutingField, overlay providers.Routing) string {
 	return "default"
 }
 
-// runRouting is the "routing" page: interactive on a terminal (edits staged until the page is left, then
-// one confirm writes the overlay); otherwise a read-only report, the same gate every other section uses.
+// runRouting is the "routing" page.
 func runRouting(d *dialog) bool {
 	reg, err := providers.Load()
 	if err != nil {
@@ -60,8 +58,7 @@ func runRouting(d *dialog) bool {
 	return reportRouting(d, reg.Routing, overlay)
 }
 
-// reportRouting prints one line per field under its module's header: key, effective value, source. The
-// core module (Name() "routing") skips its own header — Run's section header already reads "routing".
+// reportRouting prints one line per field under its module's header: key, effective value, source.
 func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 	for _, m := range configure.Modules() {
 		fields := m.Fields()
@@ -78,11 +75,10 @@ func reportRouting(d *dialog, r, overlay providers.Routing) bool {
 	return true
 }
 
-// runRoutingMenu is the interactive page: rows grouped by module, edits staged until the page is left
-// (Esc or the trailing "save and go back" row), then one confirm writes the overlay.
+// runRoutingMenu is the interactive page.
 func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
-	staged := map[string]string{}  // field key -> new typed value, this page
-	resetKeys := map[string]bool{} // field key -> explicit reset to default, this page
+	staged := map[string]string{}
+	resetKeys := map[string]bool{}
 	defer saveRouting(d, staged, resetKeys)
 	start := 0
 	for {
@@ -101,8 +97,7 @@ func runRoutingMenu(d *dialog, r, overlay providers.Routing) bool {
 	}
 }
 
-// routingSections groups the routing fields by module, showing this page's staged and reset values; fields lists
-// the editable rows in order.
+// routingSections groups the routing fields by module.
 func routingSections(r, overlay providers.Routing, staged map[string]string, resetKeys map[string]bool) ([]tui.Section, []configure.RoutingField) {
 	var sections []tui.Section
 	var fields []configure.RoutingField
@@ -126,8 +121,7 @@ func routingSections(r, overlay providers.Routing, staged map[string]string, res
 	return sections, fields
 }
 
-// stageRoutingField records one edit: "" (explicit reset) marks the key reset; otherwise it stages the
-// typed input string, passed verbatim to f.Set on save.
+// stageRoutingField records one edit.
 func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f configure.RoutingField, input string) {
 	delete(staged, f.Key)
 	delete(resetKeys, f.Key)
@@ -138,8 +132,7 @@ func stageRoutingField(staged map[string]string, resetKeys map[string]bool, f co
 	staged[f.Key] = input
 }
 
-// editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise. Returns the raw
-// string to stage ("" means reset); ok is false on cancel or an invalid value (already reported).
+// editRoutingField prompts for a new value: a picker for Bool/Enum, a text line otherwise.
 func editRoutingField(d *dialog, f configure.RoutingField) (string, bool) {
 	switch f.Kind {
 	case configure.RoutingBool:
@@ -177,7 +170,8 @@ func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (st
 func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
 	raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
 	if !ok {
-		return "", false // input ended: a cancel, never an accidental reset
+		// input ended: a cancel, never an accidental reset
+		return "", false
 	}
 	input := strings.TrimSpace(raw)
 	if input == "" {
@@ -190,9 +184,7 @@ func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
 	return input, true
 }
 
-// saveRouting asks to save n staged change(s) on leaving the page; n/Esc discards them. Every module's
-// fields are applied to the overlay's own routing object inside one providers.UpdateRouting transaction, so
-// a reset truly removes the field (falls back to defaults.json) rather than writing the default value.
+// saveRouting asks to save n staged change(s) on leaving the page; n/Esc discards them.
 func saveRouting(d *dialog, staged map[string]string, resetKeys map[string]bool) {
 	n := len(staged) + len(resetKeys)
 	if n == 0 {

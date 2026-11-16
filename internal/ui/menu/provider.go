@@ -74,15 +74,16 @@ func allCheckOne(ctx context.Context, p *providers.Provider) allRowStatus {
 		detail string
 	}
 	ctx, cancel := context.WithTimeout(ctx, allCheckTimeout)
-	defer cancel() // a timed-out probe is cancelled, not abandoned
+	defer cancel()
 	done := make(chan res, 1)
-	si := allSigninFor(p) // resolved before the goroutine: a timed-out check must not read the seam later
+	// resolved before the goroutine: a timed-out check must not read the seam later
+	si := allSigninFor(p)
 	go func() { v, d := si.Check(ctx); done <- res{v, d} }()
 	select {
 	case r := <-done:
 		st.Detail = r.detail
 		switch {
-		case errors.Is(ctx.Err(), context.DeadlineExceeded): // the cap fired while the check was returning
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			st.Status, st.Detail = allTimedOut, ""
 		case r.v == providers.VerdictOK:
 			st.Status = allOK
@@ -131,7 +132,8 @@ func runProviderAll(d *dialog) bool {
 		} else {
 			d.println("no providers configured")
 		}
-		return true // nothing configured is not a failure
+		// nothing configured is not a failure
+		return true
 	}
 	res := allCheckAll(context.Background(), d.reg, rows)
 	if d.o.JSON {

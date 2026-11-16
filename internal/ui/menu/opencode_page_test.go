@@ -19,7 +19,7 @@ type ocFake struct {
 	ints        []opencode.OpencodeIntegration
 	err         error
 	major       int
-	answers     []tui.ListResult // popped per List call; exhausted = Esc
+	answers     []tui.ListResult
 	specs       []tui.ListSpec
 	ran         [][]string
 	cancel      bool
@@ -195,7 +195,7 @@ func TestOpencodePageCtrlDLogout(t *testing.T) {
 		if f.invalidated != 1 || !d.changed || !strings.Contains(out.String(), "Removed account from "+c.name) {
 			t.Errorf("%d.x invalidated=%d changed=%v out=%q", c.major, f.invalidated, d.changed, out.String())
 		}
-		if len(f.specs) != 2 || len(f.asked) != 0 { // re-rendered after the action; ctrl+d needs no [y/N]
+		if len(f.specs) != 2 || len(f.asked) != 0 {
 			t.Errorf("%d.x specs=%d asked=%v", c.major, len(f.specs), f.asked)
 		}
 	}
@@ -251,7 +251,7 @@ func TestOpencodePageSwitchOfferedOnlyOn2xInactive(t *testing.T) {
 	if got := strings.Join(actionLabels(t, 1, v1Data(), 1), ","); got != "Log out" {
 		t.Errorf("1.x actions = %s", got)
 	}
-	if got := strings.Join(actionLabels(t, 2, v2Data(), 0), ","); got != "Log out" { // already active
+	if got := strings.Join(actionLabels(t, 2, v2Data(), 0), ","); got != "Log out" {
 		t.Errorf("2.x active actions = %s", got)
 	}
 	if got := strings.Join(actionLabels(t, 2, v2Data(), 1), ","); got != "Make active,Log out" {
@@ -292,7 +292,7 @@ func TestOpencodePageActionLogOutConfirms(t *testing.T) {
 }
 
 func TestOpencodePageAddAccount(t *testing.T) {
-	addRow := len(v1Data()) + 1 // after the Set up row
+	addRow := len(v1Data()) + 1
 	f := &ocFake{ints: v1Data(), major: 1, cancel: true, answers: []tui.ListResult{{Index: addRow}, {Index: addRow, Action: "logout"}}}
 	installOCFake(t, f)
 	d, out := ocDialog()
@@ -324,7 +324,7 @@ func TestOpencodePageAddAccount(t *testing.T) {
 
 func TestOpencodePageAdapterErrorStillRenders(t *testing.T) {
 	f := &ocFake{ints: v1Data()[:1], major: 2, err: errors.New("opencode auth list: timeout"),
-		answers: []tui.ListResult{{Index: 0}, {Index: -1}}} // Enter → action page → Esc → page again → Esc
+		answers: []tui.ListResult{{Index: 0}, {Index: -1}}}
 	installOCFake(t, f)
 	d, out := ocDialog()
 	runOpencodePage(d)
@@ -373,7 +373,7 @@ func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		profiles int
-		input    string // action-menu answer, then the profile picker's when several
+		input    string
 		want     string
 	}{
 		{"one profile skips the picker", 1, "1\n", "login:dev,mint:dev"},
@@ -384,7 +384,7 @@ func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
 			for _, n := range []string{"qa", "prod"}[:3-c.profiles] {
 				delete(d.reg.Providers, n)
 			}
-			if c.want == "" { // the second listed profile is the one picked
+			if c.want == "" {
 				n := dbxProfileNames(d.reg)[1]
 				c.want = "login:" + n + ",mint:" + n
 			}

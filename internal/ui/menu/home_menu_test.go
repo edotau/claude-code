@@ -20,8 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// menuTestEnv isolates config/home/PATH so keyTargets' vendor probes never touch a real login CLI or
-// the real keyring, and loads the real registry on the subscription provider (no live network calls).
+// menuTestEnv isolates config/home/PATH so keyTargets' vendor probes never touch a real login CLI or the real keyring.
 func menuTestEnv(t *testing.T) *providers.Registry {
 	t.Helper()
 	origExtra := extraSections
@@ -29,12 +28,11 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { return nil, nil }
 	vaulttest.UseKeyring(t)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CODEX_HOME", t.TempDir()) // a foreign tool may export its own codex account home; codex must read unconfigured
+	t.Setenv("CODEX_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	vaulttest.SetRecord(t, "claude", "profile", "ultra") // seed_test clears this pin to start first-run
+	vaulttest.SetRecord(t, "claude", "profile", "ultra")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-	// Copilot/codex/gemini pin env beats the vault pin (providers.Pin); a session running inside one of
-	// these agents exports its own model/effort pin into the process env.
+	// Copilot/codex/gemini pin env beats the vault pin.
 	for _, k := range []string{"GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "GEMINI_API_KEY", "ANTHROPIC_API_KEY",
 		"COPILOT_MODEL", "COPILOT_EFFORT", "COPILOT_CONTEXT", "CODEX_MODEL", "CODEX_EFFORT", "GEMINI_MODEL"} {
 		t.Setenv(k, "")
@@ -46,9 +44,6 @@ func menuTestEnv(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// TestMenuRowsOrderNoSeparateProviderRow: the top-level menu is claude, then every agent.Names() CLI
-// in roster order, then Exit (appended by runMenu, not menuRows); sections are `configure <section>` args — "provider" is
-// folded into the claude row and must not appear again as its own entry.
 func TestMenuRowsOrderNoSeparateProviderRow(t *testing.T) {
 	reg := menuTestEnv(t)
 	rows, actions := menuRows(&dialog{reg: reg, out: discardWriter{}})
@@ -79,8 +74,6 @@ func TestMenuRowsAgentScopeShowsOnlyThatRow(t *testing.T) {
 	}
 }
 
-// TestRunMenuDoneLeavesImmediatelyAndChangesNothing: Esc (, which pickMenu reports the same way
-// as -1) must run no action and leave the pinned provider untouched.
 func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	reg := menuTestEnv(t)
 	origMenu := pickMenu
@@ -88,7 +81,7 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	calls := 0
 	pickMenu = flatPick(func(title string, rows [][2]string, start int) (int, error) {
 		calls++
-		return -1, nil // Esc
+		return -1, nil
 	})
 	cur := vault.GetAgentRecord("claude").Profile
 	rc := runMenu(&dialog{reg: reg, out: discardWriter{}})
@@ -100,8 +93,6 @@ func TestRunMenuDoneLeavesImmediatelyAndChangesNothing(t *testing.T) {
 	}
 }
 
-// TestCheckAndPipedNeverOpenTheMenu: --check and a piped run keep the old Sections walk; the top-level
-// picker must never be invoked, regardless of how pickMenu would answer.
 func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	menuTestEnv(t)
 	origMenu := pickMenu
@@ -121,7 +112,7 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	}
 	_ = rc
 	out.Reset()
-	_ = Run(Options{In: strings.NewReader(""), Out: &out}, "") // piped: Interactive left false
+	_ = Run(Options{In: strings.NewReader(""), Out: &out}, "")
 	if calls != 0 {
 		t.Fatalf("a piped run invoked the menu picker %d times, want 0", calls)
 	}
@@ -130,12 +121,6 @@ func TestCheckAndPipedNeverOpenTheMenu(t *testing.T) {
 	}
 }
 
-// TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick: the mechanism every claude
-// sub-picker row relies on to apply a choice — keepOrPin — must write the pin only when the picked
-// name differs from the one already in effect; picking the current backend again must not re-pin it.
-//
-// This is the closest unit-level proof available for "picking claude pins only on an explicit backend
-// pick": runAgentMenu's picker is now the pickAgent seam (see agentmenu_page_test.go).
 func TestKeepOrPinWritesTheProviderPinOnlyOnAnExplicitDifferentPick(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
@@ -167,14 +152,10 @@ func assertNotInVault(t *testing.T, name string) {
 	}
 }
 
-// TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded: a Store failure (here, a multi-line
-// value vault.Store genuinely refuses — no mock) must leave only the failed name staged, with its
-// shadowing env still set, while every name that did save is dropped from pending and its env restored.
-// Teeth: fixing the bad value and rerunning saveKeys flips it to true with pending left empty.
 func TestSaveKeysPartialFailureKeepsFailedStagedOthersDiscarded(t *testing.T) {
 	vaulttest.Use(t)
 	const bad, good = "CONFIGURE_SAVEKEYS_BAD", "CONFIGURE_SAVEKEYS_GOOD"
-	badVal := "line one\nline two" // vault.Store rejects a multi-line value: a real failure, not a mock
+	badVal := "line one\nline two"
 	t.Setenv(bad, "prior-bad")
 	t.Setenv(good, "prior-good")
 	d := &dialog{out: discardWriter{}, pending: map[string]stagedKey{
@@ -245,8 +226,7 @@ func TestRunMenuReturnKeyState(t *testing.T) {
 	}
 }
 
-// runMenuStagingKeys runs the menu whose picker stages two keys and leaves, with tc's save choice on the leave
-// confirmation; it checks the return code and that the picker and confirmation ran exactly once.
+// runMenuStagingKeys runs the menu whose picker stages two keys and leaves.
 func runMenuStagingKeys(t *testing.T, tc returnKeyCase) (*dialog, *bytes.Buffer) {
 	t.Helper()
 	reg := menuTestEnv(t)
@@ -446,7 +426,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 		_, actions := menuRows(d)
 		origPick, orig := pickMenu, saveConfirmed
 		t.Cleanup(func() { saveConfirmed, pickMenu = orig, origPick })
-		pickMenu = flatPick(func(string, [][2]string, int) (int, error) { // a submenu's key paste, then Submit
+		pickMenu = flatPick(func(string, [][2]string, int) (int, error) {
 			storeValue(d, "GEMINI_API_KEY", "AIzaTestKey-0123456789")
 			return len(actions), nil
 		})
@@ -469,7 +449,7 @@ func TestRunMenuSubmitStoresStagedKeys(t *testing.T) {
 	}
 }
 
-// menuTestEnv pins the claude provider to subscription, so claude reads "subscription"; every other agent is unconfigured.
+// menuTestEnv pins the claude provider to subscription.
 func TestRunMenuStatusColumnsComeFromAgentState(t *testing.T) {
 	reg := menuTestEnv(t)
 	rows, _ := menuRows(&dialog{reg: reg, out: discardWriter{}})

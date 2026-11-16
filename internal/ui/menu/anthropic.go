@@ -9,16 +9,14 @@ import (
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
 
-// The anthropic picker row stands for both anthropic billing modes: the subscription OAuth login
-// (passthrough provider) and a pay-per-token API key (the anthropic provider).
+// The anthropic picker row stands for both anthropic billing modes.
 const (
 	anthropicRow      = "anthropic"
 	anthropicProvider = "anthropic"
 	anthropicKeyEnv   = "ANTHROPIC_API_KEY"
 )
 
-// anthropicLogin memoizes the two anthropic probes for one picker pass — `claude auth status` is a node start,
-// CredentialPresent a keyring call — so the row detail and the billing picker pay for each at most once.
+// anthropicLogin memoizes the two anthropic probes for one picker pass.
 type anthropicLogin struct {
 	reg                *providers.Registry
 	loginDone, keyDone bool
@@ -44,8 +42,7 @@ func (f *anthropicLogin) key() bool {
 	return f.keyOK
 }
 
-// claudeMenu is the claude agent's submenu: the two anthropic billing modes, then Login and OAuth token. Picking a
-// mode pins it as the session provider (after [y/N]); other backends stay reachable via `claude-code switch`.
+// claudeMenu is the claude agent's submenu: the two anthropic billing modes, then Login and OAuth token.
 func claudeMenu(d *dialog) agentMenu {
 	fp := &anthropicLogin{reg: d.reg}
 	cur := configure.CurrentProvider(d.reg)
@@ -114,8 +111,7 @@ func keepOrPin(d *dialog, cur, name string) bool {
 	return applyProvider(d, name)
 }
 
-// switchConfirmed asks before a terminal pick re-points every new Claude Code launch (default No): browsing the
-// backend list must never switch it silently. Scripted and piped runs keep their explicit pick.
+// switchConfirmed asks before a terminal pick re-points every new Claude Code launch.
 func switchConfirmed(d *dialog, cur, name string) bool {
 	if !d.o.Interactive || !d.onTerminal() {
 		return true

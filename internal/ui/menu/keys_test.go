@@ -37,7 +37,7 @@ func TestKeyRows(t *testing.T) {
 func TestKeysMenuBackChangesNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir()) // no real vendor CLIs: building key rows must not exec opencode/codex/gh
+	t.Setenv("PATH", t.TempDir())
 	orig := pickKey
 	t.Cleanup(func() { pickKey = orig })
 	calls := 0
@@ -78,8 +78,7 @@ func TestKeyColsMaxPlanLoginIsVerified(t *testing.T) {
 	}
 }
 
-// fakeKeyedProvider is a provider whose catalog route is a local server; want is the only candidate the
-// server accepts, so probeValue/ProbeCredential drive "verified" vs "rejected" without a real network call.
+// fakeKeyedProvider is a provider whose catalog route is a local server.
 func fakeKeyedProvider(t *testing.T, envVar, want string) *providers.Provider {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,8 +113,7 @@ func TestRunRotateNoOptionsFalse(t *testing.T) {
 	}
 }
 
-// A single login option runs unconditionally (no confirm to pick among one); a missing binary fails fast
-// (LookPath), proving the wiring reaches runLogin without needing a real CLI or hanging.
+// A single login option runs unconditionally.
 func TestRunRotateSingleLoginOptionNoBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("")
@@ -148,7 +146,7 @@ func TestRunRotateTwoOptionsPipedPicksSecondOnDecline(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	d, out := newDialog("n\n")
 	kt := configure.KeyTarget{Label: "claude", LoginArgv: []string{"missing-login-cli"}, MintArgv: []string{"missing-mint-cli"}}
-	runRotate(d, kt) // exercising which branch ran, not the (missing-binary) result
+	runRotate(d, kt)
 	if !strings.Contains(out.String(), "Login") {
 		t.Errorf("expected the first option's confirm prompt in output:\n%s", out.String())
 	}
@@ -173,7 +171,7 @@ func TestRegenerateMintEnvOnlySavesToVault(t *testing.T) {
 	if v := os.Getenv("ROT_MINT_ENV"); v != "set-via-process-env" {
 		t.Errorf("the exported credential must be left untouched, got %q", v)
 	}
-	os.Unsetenv("ROT_MINT_ENV") // t.Setenv restores it; now the vault copy is visible
+	os.Unsetenv("ROT_MINT_ENV")
 	if v, src, _ := vault.Get("ROT_MINT_ENV"); v != minted || src == "env" {
 		t.Errorf("vault must hold the minted token: got %q from %q", v, src)
 	}
@@ -206,8 +204,7 @@ func TestReplaceKeyEnvOnlyRefuses(t *testing.T) {
 	}
 }
 
-// A rejected probe asks to keep the old value; answering yes keeps it, writes nothing, and never echoes
-// either the old or the new raw value — only a 5-char-prefix redaction ever appears.
+// A rejected probe asks to keep the old value.
 func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
@@ -217,7 +214,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	}
 	p := fakeKeyedProvider(t, "ROT_REPLACE_KEY", "the-only-accepted-value")
 	const newVal = "brand-new-but-rejected-value-0002"
-	d, out := newDialog(newVal + "\ny\n") // paste, then "y" to the keep-old prompt
+	d, out := newDialog(newVal + "\ny\n")
 	kt := configure.KeyTarget{Label: "x", EnvVar: "ROT_REPLACE_KEY", Provider: p}
 	if replaceKey(d, kt) {
 		t.Fatalf("replaceKey must report false when the old value is kept:\n%s", out.String())
@@ -233,8 +230,7 @@ func TestReplaceKeyProbeRejectedKeepsOldOnConfirm(t *testing.T) {
 	}
 }
 
-// An accepted probe stores the new value back to the vault, and the transcript shows
-// only its 5-char-prefix redaction, never the full value.
+// An accepted probe stores the new value back to the vault.
 func TestReplaceKeyProbeAcceptedStoresVaultRedacted(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
@@ -306,7 +302,7 @@ func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newRow := len(configure.TrackedSecrets(reg)) + 1 // "+ new" is the row right after every tracked secret
+	newRow := len(configure.TrackedSecrets(reg)) + 1
 	in := strings.NewReader(fmt.Sprintf("%d\nMY_NEW_SECRET\nsk-super-secret-raw-value\n\n", newRow))
 	var out bytes.Buffer
 	rc := Secrets(Options{In: in, Out: &out})
@@ -325,8 +321,7 @@ func TestSecretsAddCustomStoresVaultAndRedacts(t *testing.T) {
 	}
 }
 
-// storeValue refuses a Tailscale credential that doesn't have the documented shape and leaves the
-// vault untouched.
+// storeValue refuses a Tailscale credential that doesn't have the documented shape and leaves the vault untouched.
 func TestStoreValueRefusesMalformedTailscaleCredential(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv("PATH", t.TempDir())
@@ -343,8 +338,7 @@ func TestStoreValueRefusesMalformedTailscaleCredential(t *testing.T) {
 	}
 }
 
-// Re-picking a secret name to paste a new value after staging its delete must cancel the staged
-// delete: pendingDeletes must drop the name, and the new value must land in pending.
+// Re-picking a secret name to paste a new value after staging its delete must cancel the staged delete.
 func TestStoreValueCancelsStagedDelete(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	const name = "CONFIGURE_RESTAGE_AFTER_DELETE"
@@ -410,10 +404,6 @@ func TestEditSecretDeletesVaultValue(t *testing.T) {
 	}
 }
 
-// TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit: inside the menu (d.pending set),
-// deleting a tracked secret that already has a staged Store of the same name drops that staged
-// Store (restoring the env it shadowed) instead of deleting the vault immediately; the vault delete
-// — and its audit entry — only happens when the page's staged changes are later committed.
 func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	const name = "CONFIGURE_STAGED_DELETE"
@@ -421,7 +411,7 @@ func TestEditSecretDeleteStagedDropsStagedStoreAndIsAuditedOnCommit(t *testing.T
 	vaulttest.Secret(t, name, "stored-value")
 	since := time.Now().Add(-time.Second)
 
-	d, out := newDialog("2\ny\n") // pick "Delete" (row 2: Paste API key, Delete), then confirm
+	d, out := newDialog("2\ny\n")
 	d.pending = map[string]stagedKey{}
 	if !d.stage(name, "replacement-value") {
 		t.Fatal("stage failed")
@@ -526,8 +516,6 @@ func assertCustomEnvSecret(t *testing.T, name, kind, want string) {
 	}
 }
 
-// TestEditCustomEnvRejectsInvalidName: a new custom-env NAME must pass the same identifier shape
-// every other secret name does; a bad name is refused before any value is read or stored.
 func TestEditCustomEnvRejectsInvalidName(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	d, out := newDialog("not a valid name!\n")
@@ -540,9 +528,6 @@ func TestEditCustomEnvRejectsInvalidName(t *testing.T) {
 	}
 }
 
-// TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm: clearing an @secret custom-env
-// var offers to delete the sealed secret it pointed at; confirming (y) removes both the vault env
-// entry and the sealed secret, declining (n) leaves the sealed secret alone.
 func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testing.T) {
 	for _, tc := range []struct {
 		name, answer string
@@ -559,7 +544,7 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 			if err := vault.Store(tc.name, "sealed-value"); err != nil {
 				t.Fatal(err)
 			}
-			d, _ := newDialog("\n" + tc.answer) // empty value line (delete), then the confirm answer
+			d, _ := newDialog("\n" + tc.answer)
 			gotName, edit, ok := editCustomEnv(d, tc.name)
 			if !ok || gotName != tc.name || edit.raw != "" || edit.deleteSecret != tc.wantDeleted {
 				t.Fatalf("edit = (%q, %+v, %v), want raw=\"\" deleteSecret=%v", gotName, edit, ok, tc.wantDeleted)
@@ -579,8 +564,7 @@ func TestEditCustomEnvDeletingSecretVarDeletesSealedSecretAfterConfirm(t *testin
 	}
 }
 
-// A key staged before the secrets page opened, then deleted on the page and discarded at the leave prompt,
-// must keep its earlier staged value (and env): the cancel only undoes what the page itself changed.
+// A key staged before the secrets page opened.
 func TestStagedDeleteCancelKeepsPrePageStagedEdit(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	const name = "CONFIGURE_PREPAGE_STAGED"
@@ -638,8 +622,6 @@ func TestConfirmPageKeysCountsStagedAndDeletedKeyOnce(t *testing.T) {
 	}
 }
 
-// TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys: y stores the page's staged keys (Submit has none left),
-// N restores env; a key staged before the page opened is untouched either way.
 func TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys(t *testing.T) {
 	for _, yes := range []bool{true, false} {
 		menuTestEnv(t)

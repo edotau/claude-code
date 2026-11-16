@@ -17,8 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// printRoute prints one agent.DescribeRoute result as a line under 80 columns: provider/model, the reason only
-// on FIX; never a credential.
+// printRoute prints one agent.DescribeRoute result as a line under 80 columns.
 func printRoute(d *dialog, ri agent.RouteInfo) {
 	status, reason := "ok", ""
 	if !ri.OK {
@@ -27,8 +26,7 @@ func printRoute(d *dialog, ri agent.RouteInfo) {
 	d.printf("%-9s route(%-8s) %-4s %s/%s%s\n", ri.Agent, ri.Route, status, ri.Provider, ri.Model, reason)
 }
 
-// githubStatusRows prints every github section status line and reports which are OK, for both the
-// interactive menu (re-run each loop) and the piped report (run once).
+// githubStatusRows prints every github section status line and reports which are OK.
 func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 	gh := configure.GHAuthCheck()
 	switch {
@@ -47,7 +45,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 
 	d.printf("%-16s %s\n", "GitHub auth", githubAuthLine(d))
 
-	ctx := context.Background() // the menu is a command entry: no caller ctx
+	ctx := context.Background()
 	auth := agent.AuthStatus("copilot")
 	copilotOK = auth.Present
 	if copilotOK {
@@ -123,7 +121,7 @@ func pickGitHubAuth(d *dialog) {
 	applyGitHubAccount(d, accounts[idx-1])
 }
 
-// GitHubAccounts are the logins `--auth` and the pickers accept: every github profile's login, then gh's other accounts.
+// GitHubAccounts are the logins `--auth` and the pickers accept.
 func GitHubAccounts(reg *providers.Registry) []string {
 	var out []string
 	if reg != nil {
@@ -196,7 +194,7 @@ func applyGitHubAuth(d *dialog, name string) bool {
 	if err := vault.SetGitHubAuth(name); err != nil {
 		d.printf("github auth: %v\n", err)
 		if name != "" && prev != "" && prev != login {
-			if rerr := copilot.SwitchGH(prev); rerr != nil { // roll gh back so it matches the stale pin
+			if rerr := copilot.SwitchGH(prev); rerr != nil {
 				d.printf("github auth: rollback to %s failed: %v\n", prev, rerr)
 			}
 		}
@@ -207,18 +205,19 @@ func applyGitHubAuth(d *dialog, name string) bool {
 	return true
 }
 
-// runGithubAuthFlag is `configure github --auth ACCOUNT`: "" or "follow" clears the pin; --check verifies, --dry-run is a no-op.
+// runGithubAuthFlag is `configure github --auth ACCOUNT`.
 func runGithubAuthFlag(d *dialog) bool {
 	name := d.o.Auth
 	valid := GitHubAccounts(d.reg)
-	if name == "follow" && !slices.Contains(valid, name) { // a real account named "follow" wins over the keyword
+	if name == "follow" && !slices.Contains(valid, name) {
 		name = ""
 	}
 	if name != "" && !slices.Contains(valid, name) {
 		d.printf("github auth: %q is not a known GitHub account; valid: follow, %s\n", name, strings.Join(valid, ", "))
 		return false
 	}
-	if d.o.Check { // verification: pass only when the pinned account already equals name
+	// verification: pass only when the pinned account already equals name
+	if d.o.Check {
 		cur := providers.GithubAccountLogin(d.reg, vault.GitHubAuth())
 		d.printf("github auth: pin is %q, want %q\n", cur, name)
 		return cur == name
@@ -251,8 +250,7 @@ func runGithub(d *dialog) bool {
 	return !d.o.Check || routesOK
 }
 
-// githubMenu loops a status report + action picker until Back/Esc; each action re-checks live state
-// before the next render, so a login that just succeeded shows "present" immediately.
+// githubMenu loops a status report + action picker until Back/Esc.
 func githubMenu(d *dialog) bool {
 	login := func(name, detail, label string, check func() (bool, string), argv ...string) shellRow {
 		return shellRow{Name: name, Detail: detail, Run: func() bool { runLoginChecked(d, argv, label, check); return false }}

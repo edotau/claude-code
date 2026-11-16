@@ -54,8 +54,10 @@ type ocRow struct {
 	row  tui.ListRow
 	in   opencode.OpencodeIntegration
 	conn *opencode.OpencodeConn
-	run  func(d *dialog) // action rows only
-	back bool            // the trailing Back row
+	// action rows only
+	run func(d *dialog)
+	// the trailing Back row
+	back bool
 }
 
 // ocActionRow is an actions-section row; a trailing "[value]" in desc moves to the aligned status column.
@@ -103,7 +105,7 @@ func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int
 // opencodeAccountRows is one row per signed-in credential (or a "not connected" filler) and the credential count.
 func opencodeAccountRows(ints []opencode.OpencodeIntegration) (rows []ocRow, conns int) {
 	for _, in := range ints {
-		routed := in.ID == opencode.OpencodeCredID("opencode-go") && len(in.Conns) > 0 // the credential routed dispatches use
+		routed := in.ID == opencode.OpencodeCredID("opencode-go") && len(in.Conns) > 0
 		for _, c := range in.Conns {
 			rows = append(rows, ocRow{row: tui.ListRow{
 				Label: opencodeName(in), Detail: ocDetail(c), Status: strings.Join(connStatus(c, routed), " · "),
@@ -206,7 +208,7 @@ func runOpencodeRow(d *dialog, r ocRow, action string) bool {
 		if action == "" {
 			r.run(d)
 		}
-	case r.conn == nil: // "not connected" filler
+	case r.conn == nil:
 	case r.conn.Kind == "env":
 		d.printf("%s: comes from $%s; unset it to disconnect\n", r.row.Label, r.conn.Label)
 	case action == "logout":
@@ -266,7 +268,7 @@ func ocLogout(d *dialog, r ocRow) {
 		return
 	}
 	if ocRunAttached(d, r.row.Label, "logout", argv) {
-		d.changed = true // routing may follow a different login now: configs re-render on exit
+		d.changed = true
 		d.printf("Removed account from %s\n", r.row.Label)
 	}
 }

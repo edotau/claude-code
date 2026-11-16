@@ -35,9 +35,7 @@ func TestTierRowsFitEightyColumns(t *testing.T) {
 	}
 }
 
-// copilot's Model row saves to the COPILOT_MODEL pin (pickCopilotModel): one model list, no alias step,
-// and the github-copilot provider's own models table is left untouched (opencode's fallback ladder reads it).
-// copilotPickerTitle is pickCopilotModel's numbered-prompt title, used to split repeated renders.
+// copilot's Model row saves to the COPILOT_MODEL pin.
 const copilotPickerTitle = "copilot — model (github · copilot catalog)"
 
 func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
@@ -90,14 +88,14 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	if !ok {
 		t.Skip("no copilot (github) profile in the registry")
 	}
-	wantOpus, wantSonnet := gp.Models["opus"], gp.Models["sonnet"] // must survive untouched
+	wantOpus, wantSonnet := gp.Models["opus"], gp.Models["sonnet"]
 
 	d2 := &dialog{reg: reg, out: discardWriter{}}
 	r := modelRow(d2, "copilot")
 	if r == nil {
 		t.Fatal("modelRow(copilot) = nil, want the Model row")
 	}
-	in := strings.NewReader("1\n") // numbered pick, non-TTY: row 1 = the first model id, no alias prompt first
+	in := strings.NewReader("1\n")
 	d2.o, d2.br = Options{In: in}, bufio.NewReader(in)
 	if !r.run() {
 		t.Fatal("copilot Model row run() = false")
@@ -113,8 +111,7 @@ func TestModelRowCopilotSkipsTierPicker(t *testing.T) {
 	}
 }
 
-// runCopilotPicker pins COPILOT_MODEL to modelID (so Effort/Context act on the stub model), then drives
-// pickCopilotModel with the newline-separated answers and returns everything it printed.
+// runCopilotPicker pins COPILOT_MODEL to modelID.
 func runCopilotPicker(t *testing.T, reg *providers.Registry, modelID, answers string) string {
 	t.Helper()
 	vaulttest.SetRecord(t, "copilot", "model", modelID)
@@ -190,8 +187,7 @@ func TestPickCopilotModelHidesContextForIneligibleModel(t *testing.T) {
 	}
 }
 
-// effortStub is a model with Effort (low/high, default low) and no Context row: Effort = row 1, model = row 2;
-// in the Effort sub-picker, 1 = unset, 2 = Low, 3 = High.
+// effortStub is a model with Effort.
 var effortStub = []copilot.SDKModel{
 	{ID: "stub-model-1", Enabled: true, ReasoningEffort: true, Efforts: []string{"low", "high"}, DefaultEffort: "low"},
 }
@@ -267,12 +263,7 @@ func TestPickCopilotModelRowsFitEightyColumns(t *testing.T) {
 	assertFitsEighty(t, "copilot model picker", append(rows, panelBack))
 }
 
-// fakeCopilotBin makes paths.AgentBin("copilot") resolve, so copilotCatalog gets past that check and
-// reaches the stubbed copilotListModelsFn seam instead of erroring out before ever calling it. It never
-// runs: every test here replaces copilotListModelsFn, so nothing execs the real CLI or touches gh/GitHub.
-// Must run after menuTestEnv (it writes under paths.BinDir(), which menuTestEnv's HOME already pins) so
-// the vault/overlay a test's SetPins/Pin calls hit stays the one menuTestEnv set up — never a second,
-// freshly created config dir.
+// fakeCopilotBin makes paths.AgentBin("copilot") resolve.
 func fakeCopilotBin(t *testing.T) {
 	t.Helper()
 	bin := paths.BinDir()
@@ -297,8 +288,7 @@ func stubCatalog(t *testing.T, models []copilot.SDKModel, err error) *int {
 	return &calls
 }
 
-// copilotCatalog fetches the SDK catalog once per dialog: a second call (from a different row) must hit
-// the cache, not re-invoke the seam (re-spawning the copilot runtime on every row would be a real cost).
+// copilotCatalog fetches the SDK catalog once per dialog.
 func TestCopilotCatalogFetchedOncePerDialog(t *testing.T) {
 	menuTestEnv(t)
 	fakeCopilotBin(t)
@@ -351,7 +341,7 @@ func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 		t.Skip("no copilot (github) profile in the registry")
 	}
 
-	in := strings.NewReader("\n") // blank = cancel; we only need the printed row list
+	in := strings.NewReader("\n")
 	var out bytes.Buffer
 	d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: &out}
 	pickCopilotModel(d)
@@ -365,8 +355,7 @@ func TestPickCopilotModelHidesDisabledModels(t *testing.T) {
 	}
 }
 
-// When the SDK catalog call fails, pickCopilotModel falls back to opencode's own catalog (modelChoices)
-// and names the fallback source, instead of leaving the Model row dead.
+// When the SDK catalog call fails.
 func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
@@ -380,7 +369,7 @@ func TestPickCopilotModelFallsBackToOpencodeOnSDKError(t *testing.T) {
 	if !ok {
 		t.Skip("no copilot (github) profile in the registry")
 	}
-	wantOpus := gp.Models["opus"] // must survive untouched: the pick writes only the COPILOT_MODEL pin
+	wantOpus := gp.Models["opus"]
 
 	in := strings.NewReader("1\n")
 	var out bytes.Buffer
@@ -501,10 +490,7 @@ func TestModelTargetHonorsAgentPin(t *testing.T) {
 	}
 }
 
-// subscriptionSelection loads the real registry and resolves the subscription provider (passthrough,
-// no live token): ListModels fails instantly with ErrPassthrough (no network dial at all), so
-// configure.CatalogForAlias falls back to RegistryModels(p) — the provider's own configured per-alias ids, in
-// models.AliasNames order — deterministically and without hitting the network.
+// subscriptionSelection loads the real registry and resolves the subscription provider.
 func subscriptionSelection(t *testing.T) (*providers.Registry, providers.Selection) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -532,8 +518,6 @@ func stubCatalogFn(t *testing.T, infos []providers.ModelInfo) {
 	}
 }
 
-// TestOfferModelsPinsServedModelAudited: after a profile is chosen, its served models are listed per alias and the
-// pick lands as the claude alias pin (unqualified for the session profile, "profile:id" for another).
 func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	reg, _ := subscriptionSelection(t)
 	stubCatalogFn(t, []providers.ModelInfo{{ID: "m-one", Name: "One"}, {ID: "m-two", Name: "Two", UseCase: "chat"}})
@@ -545,7 +529,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 		}
 	}
 	offer := func(profile, answers string) {
-		in := strings.NewReader(answers) // alias 1 (opus) → model 2 → blank leaves the page
+		in := strings.NewReader(answers)
 		d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
 		offerModels(d, profile)
 	}

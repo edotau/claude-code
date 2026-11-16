@@ -70,7 +70,8 @@ func tailscaleStatus(ctx context.Context) (tailscale.Local, error) {
 	}
 	st, err := tsStatusFetch(ctx)
 	if err != nil && ctx.Err() != nil {
-		return st, err // the caller's own deadline, not tailscale's answer: never cached for another caller
+		// the caller's own deadline, not tailscale's answer: never cached for another caller
+		return st, err
 	}
 	tsStatus.st, tsStatus.err, tsStatus.at = st, err, time.Now()
 	return st, err
@@ -81,7 +82,8 @@ const webSearchKey = "TAVILY_API_KEY"
 
 func webSearchRow() homeRow {
 	state := "no key"
-	src, err := vault.HasSecretErr(webSearchKey) // presence only: no decrypt per render
+	// presence only: no decrypt per render
+	src, err := vault.HasSecretErr(webSearchKey)
 	switch {
 	case err != nil:
 		state = "status unknown"
@@ -148,11 +150,10 @@ func runWebSearch(d *dialog) {
 		}
 		d.printf("web search: %s now runs %s network websearch\n", c.name, bin)
 	}
-	d.changed = true // opencode inherits Claude's MCP list on the re-render below
+	d.changed = true
 }
 
-// envEdit stages a vault env change: raw "" deletes; secret holds the value to seal for an @secret ref;
-// deleteSecret asks saveEnvEdits to also delete the sealed secret this name used to point at.
+// envEdit stages a vault env change.
 type envEdit struct {
 	raw, secret  string
 	deleteSecret bool
@@ -269,9 +270,7 @@ func customEnvRows(env map[string]string, names []string) [][2]string {
 	return append(rows, [2]string{"+ New", "NAME, then value, then plain or secret"}, enterRow("save and go back"))
 }
 
-// editCustomEnv reads one change (no confirmation): NAME for a new var, the value (empty deletes), then
-// where it lives. Deleting or switching an @secret var away from secret offers to delete the sealed
-// secret it leaves behind, so it doesn't orphan in the vault.
+// editCustomEnv reads one change.
 func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	isNew := name == ""
 	if isNew {
@@ -292,8 +291,7 @@ func editCustomEnv(d *dialog, name string) (string, envEdit, bool) {
 	return pickEnvStorage(d, name, val, wasSecret)
 }
 
-// pickEnvStorage asks whether the non-empty value val lives plain or sealed as a secret, offering to drop the old
-// sealed secret when the variable moves off @secret.
+// pickEnvStorage asks whether the non-empty value val lives plain or sealed as a secret.
 func pickEnvStorage(d *dialog, name, val string, wasSecret bool) (string, envEdit, bool) {
 	where, err := d.shell().Pick("store "+name+" as", [][2]string{
 		{"plain", "value in the vault env"}, {"secret", "value sealed in vault; vault env name = @secret"}})

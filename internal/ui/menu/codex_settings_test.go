@@ -207,7 +207,7 @@ func TestCodexSettingsCheckDetectsUnappliedReset(t *testing.T) {
 }
 
 func TestWebSearchCodexHomeNoPlaintextBackup(t *testing.T) {
-	cfgDir := vaulttest.Use(t) // the backup is vault-sealed; a hermetic key keeps CI off the OS keyring
+	cfgDir := vaulttest.Use(t)
 	home, codexHome := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", codexHome)
@@ -255,7 +255,7 @@ func plaintextLeftovers(cfgDir, codexHome string) []string {
 	entries, _ := os.ReadDir(codexHome)
 	for _, e := range entries {
 		if e.Name() == "config.toml" || e.Name() == "config.toml.lock" && emptyFile(filepath.Join(codexHome, e.Name())) {
-			continue // the write lock is created empty; anything written into it is a leftover
+			continue
 		}
 		leftovers = append(leftovers, e.Name())
 	}

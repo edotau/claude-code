@@ -27,7 +27,7 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 			provider = p.Provider
 		}
 	}
-	state := checked(cur != "", seedLabel(agent, cur)) // green when a profile is pinned
+	state := checked(cur != "", seedLabel(agent, cur))
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
@@ -94,7 +94,6 @@ func agentProfileChoices(d *dialog, agent string) []string {
 }
 
 // pickAgentProfile lists off (automatic for claude) and the profiles agent can run on; a pick writes the record.
-// A dismissed picker or an unchanged profile is (false, nil); a failed write is (false, err).
 func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 	name, ok := pickProfileName(d, agent, agentProfileChoices(d, agent), cur)
 	if !ok {
@@ -129,7 +128,7 @@ func agentActiveOn(d *dialog, agent string) {
 		d.printf("%s: %v\n", agent, err)
 		return
 	}
-	d.changed = true // the sign-in's profile is recorded; no other field changes
+	d.changed = true
 }
 
 // signInProfile is the profile a sign-in to agent means: its own login's profile, "" when none is registered.
@@ -157,7 +156,7 @@ func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
 	return true, nil
 }
 
-// Seed section — the "Seed agent profiles" dialog: choose, per agent, the profile it runs on (or off); first run opens it.
+// Seed section — the "Seed agent profiles" dialog.
 
 const (
 	seedOff  = "off"
@@ -192,7 +191,7 @@ func seedDefaults(d *dialog) map[string]string {
 	return out
 }
 
-// runSeed shows one row per agent and writes every choice, Profile only, when Save is picked; dismissing writes nothing.
+// runSeed shows one row per agent and writes every choice.
 func runSeed(d *dialog) {
 	choice, agents := seedDefaults(d), seedAgents()
 	d.shell().Run("Seed agent profiles", func() []shellRow {

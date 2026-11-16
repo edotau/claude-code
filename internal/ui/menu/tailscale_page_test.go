@@ -76,7 +76,7 @@ func tsConnected(dns string, advertised, approved bool) {
 
 // Every row the page and its exit-node picker draw is one line that fits an 80-column panel, in both states.
 func TestTailscalePageRowsFitEightyColumns(t *testing.T) {
-	_, out := tsPage(t, "", false) // not connected: login offers the browser sign-in
+	_, out := tsPage(t, "", false)
 	runTailscalePage(&dialog{out: out})
 	rows := numberedRows(out.String())
 	if len(rows) != 5 || rows[0][0] != "login" {
@@ -84,7 +84,7 @@ func TestTailscalePageRowsFitEightyColumns(t *testing.T) {
 	}
 	assertFitsEighty(t, "tailscale page (not connected)", append(rows, panelBack))
 
-	_, out = tsPage(t, "5\n", true) // connected, long host, admin key: open the exit-node picker
+	_, out = tsPage(t, "5\n", true)
 	tsConnected("a-long-hostname-01.tail1234.ts.net.", true, true)
 	runTailscalePage(&dialog{out: out})
 	rows = numberedRows(out.String())
