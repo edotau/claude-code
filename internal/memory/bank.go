@@ -1,0 +1,152 @@
+package memory
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+
+	"github.com/edotau/claude-code/internal/paths"
+)
+
+// layoutFile stamps the store root once migrated; absent means the per-repo layout.
+const layoutFile, layoutFlat = ".layout", "flat 1"
+
+// Bank is one repo's files in the store: <Key>--<name> when flat; Key "" is the home tier (unprefixed).
+type Bank struct{ Key string }
+
+func HomeBank() Bank      { return Bank{} }
+func (b Bank) Home() bool { return b.Key == "" }
+
+func (b Bank) Prefix() string {
+	if b.Key == "" {
+		return ""
+	}
+	return b.Key + "--"
+}
+
+// Path is one of b's top-level files (typed files, native topics of a non-harness repo).
+func (b Bank) Path(name string) string {
+	if !storeFlat() {
+		return filepath.Join(b.legacyDir(), name)
+	}
+	return filepath.Join(StoreDir(), b.Prefix()+name)
+}
+
+func (b Bank) SubDir(sub string) string {
+	if !storeFlat() {
+		return filepath.Join(b.legacyDir(), sub)
+	}
+	return filepath.Join(StoreDir(), sub)
+}
+
+// Sub is name under b's sub dir; name is prefixed only when flat.
+func (b Bank) Sub(sub, name string) string {
+	if !storeFlat() {
+		return filepath.Join(b.SubDir(sub), name)
+	}
+	return filepath.Join(b.SubDir(sub), b.Prefix()+name)
+}
+
+// NativeIndex is b's MEMORY.md: the one shared index when flat.
+func (b Bank) NativeIndex() string {
+	if !storeFlat() {
+		return filepath.Join(b.legacyDir(), "MEMORY.md")
+	}
+	return filepath.Join(StoreDir(), "MEMORY.md")
+}
+
+func (b Bank) Ensure(sub string) error { return os.MkdirAll(b.SubDir(sub), 0o755) }
+
+func (b Bank) legacyDir() string {
+	if b.Key == "" {
+		return HomeBankDir()
+	}
+	return filepath.Join(StoreDir(), b.Key)
+}
+
+// BankFor is root's bank: home for non-repo cwds, else the remote basename (else dir basename) slug.
+func BankFor(root string) Bank {
+	id := Resolve(root)
+	switch {
+	case id.HomeBank:
+		return HomeBank()
+	case id.Harness:
+		return Bank{Key: harnessStoreKey()}
+	}
+	if !storeFlat() {
+		if d, err := RepoDir(root); err == nil {
+			return Bank{Key: filepath.Base(d)}
+		}
+	}
+	base := id.Base
+	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
+		base = rb
+	}
+	return Bank{Key: paths.Slug(base, "._-", 0, "repo")}
+}
+
+// Banks lists home first, then every repo bank sorted by key.
+func Banks() []Bank {
+	out := []Bank{HomeBank()}
+	for _, k := range BankKeys() {
+		out = append(out, Bank{Key: k})
+	}
+	return out
+}
+
+// BankKeys lists the repo bank keys (home excluded), sorted.
+func BankKeys() []string {
+	keys := []string{}
+	if storeFlat() {
+		ents, _ := os.ReadDir(StoreDir())
+		for _, e := range ents {
+			k, name, ok := strings.Cut(e.Name(), "--")
+			if ok && !e.IsDir() && k != "" && slices.Contains(bankFiles, name) {
+				keys = append(keys, k)
+			}
+		}
+	} else {
+		keys = append(keys, harnessStoreKey())
+		entries, _ := RepoDirs()
+		for _, e := range entries {
+			keys = append(keys, e.Key)
+		}
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys)
+}
+
+// BankOfFile is the bank a store file belongs to by its name prefix; unknown or none is home.
+func BankOfFile(path string) Bank {
+	k, _, ok := strings.Cut(filepath.Base(path), "--")
+	if ok && slices.Contains(BankKeys(), k) {
+		return Bank{Key: k}
+	}
+	return HomeBank()
+}
+
+// layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
+var layoutCache sync.Map
+
+// flatForced is 0 when unforced, 1 legacy, 2 flat (setStoreFlat and the migration force it).
+var flatForced atomic.Int32
+
+func storeFlat() bool {
+	if v := flatForced.Load(); v != 0 {
+		return v == 2
+	}
+	d := StoreDir()
+	if v, ok := layoutCache.Load(d); ok {
+		return v.(bool)
+	}
+	b, _ := os.ReadFile(filepath.Join(d, layoutFile))
+	flat := strings.TrimSpace(string(b)) == layoutFlat
+	layoutCache.Store(d, flat)
+	return flat
+}
+
+// forgetLayout drops the memoized stamp for the current store (after migrate or revert writes it).
+func forgetLayout() { layoutCache.Delete(StoreDir()) }
