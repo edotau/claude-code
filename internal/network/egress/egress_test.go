@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -246,4 +247,85 @@ func TestHostContextPinBeatsRun(t *testing.T) {
 	if got := HostContext(WithHost(run, "")); got != "" {
 		t.Errorf("empty pin = %q, want direct", got)
 	}
+}
+
+// TestFakeSSHProcess is the child behind fakeSSH: it blocks until its stdin closes.
+func TestFakeSSHProcess(t *testing.T) {
+	if os.Getenv("EGRESS_FAKE_SSH") != "1" {
+		t.Skip("helper process for TestEnsureReusesOnlyOurOwnTunnel")
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
+}
+
+// fakeSSH runs this test binary with argv[0] "ssh" and addr in argv, as `ssh -N -D addr` would look.
+func fakeSSH(t *testing.T, addr string) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestFakeSSHProcess$", "--", "-N", "-D", addr)
+	cmd.Args[0] = "ssh"
+	cmd.Env = append(os.Environ(), "EGRESS_FAKE_SSH=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stdin.Close(); _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	return cmd.Process.Pid
+}
+
+// Ensure reuses a recorded tunnel only when its pid is our live ssh; any other listener gets a fresh tunnel.
+func TestEnsureReusesOnlyOurOwnTunnel(t *testing.T) {
+	const noPid = 1 << 30 // above every pid_max: its argv cannot be read
+	for _, tc := range []struct {
+		name     string
+		pid      int  // recorded pid; 0 records nothing
+		listener bool // something answers SOCKS5 on the recorded port
+	}{
+		{"live pid that is not our ssh", os.Getpid(), true},
+		{"argv unreadable", noPid, true},
+		{"dead pid", noPid, false},
+		{"no record, then our own tunnel twice", 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			origSpawn := spawn
+			t.Cleanup(func() { spawn = origSpawn })
+			var spawns int
+			spawn = func(_ string, port int, _ string) (int, <-chan struct{}, error) {
+				spawns++
+				s := startSocks(t, port)
+				t.Cleanup(func() { _ = s.l.Close() })
+				return fakeSSH(t, s.l.Addr().String()), nil, nil
+			}
+			stale := ""
+			if tc.pid != 0 {
+				stale = recordImpostor(t, tc.pid, tc.listener)
+			}
+			addr, err := Ensure(t.Context(), "box")
+			if err != nil || (tc.listener && addr == stale) || spawns != 1 {
+				t.Fatalf("Ensure = %q, %v with %d spawns; want a fresh tunnel, not %q", addr, err, spawns, stale)
+			}
+			if again, err := Ensure(t.Context(), "box"); err != nil || again != addr || spawns != 1 {
+				t.Fatalf("second Ensure = %q, %v with %d spawns; want our tunnel %q reused", again, err, spawns, addr)
+			}
+		})
+	}
+}
+
+// recordImpostor records box's tunnel as pid on a loopback port, optionally with a SOCKS5 server there.
+func recordImpostor(t *testing.T, pid int, listen bool) string {
+	t.Helper()
+	s := startSocks(t, 0)
+	t.Cleanup(func() { _ = s.l.Close() })
+	if !listen {
+		_ = s.l.Close()
+	}
+	if err := os.MkdirAll(dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRecord(recordPath("box"), Tunnel{Host: "box", Port: s.l.Addr().(*net.TCPAddr).Port, PID: pid}); err != nil {
+		t.Fatal(err)
+	}
+	return s.l.Addr().String()
 }
