@@ -391,7 +391,7 @@ func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "ultra", Fallback: router.FallbackAll, Preview: true}, "ultra"},
 	}
 	for _, c := range cases {
-		lead, explicit, err := routeLead(c.q)
+		lead, explicit, err := routeLeadContext(context.Background(), c.q)
 		if lead != c.lead || explicit || err != nil {
 			t.Errorf("%+v: got %q, %v, %v; want lead %q", c.q, lead, explicit, err, c.lead)
 		}
@@ -402,7 +402,7 @@ func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 func TestRouteLeadIgnoresRetiredArmEnv(t *testing.T) {
 	leadRegistry(t)
 	t.Setenv("HARNESS_DATABRICKS_ARM", "dev")
-	lead, explicit, err := routeLead(RouteReq{Agent: "codex", Fallback: router.FallbackAll})
+	lead, explicit, err := routeLeadContext(context.Background(), RouteReq{Agent: "codex", Fallback: router.FallbackAll})
 	if lead != "" || explicit || err != nil {
 		t.Errorf("got %q, %v, %v; want no lead", lead, explicit, err)
 	}

@@ -65,7 +65,7 @@ func stateResumeCases(ok func(id, f string) LeafState) []stateResumeCase {
 		{"error leaf relaunches alone", bad("error", "", nil), false, DecideRun, keepRelaunch},
 		{"timeout leaf relaunches", bad("timeout", "", nil), false, DecideRun, keepRelaunch},
 		{"lost leaf (still running) relaunches", bad(WaveStateRunning, "", nil), false, DecideRun, keepRelaunch},
-		{"mismatched leaf relaunches", bad(LeafStateOK, LeafStateMismatch, map[string]string{"b.go": "h2"}),
+		{"mismatched leaf relaunches", bad(LeafStateOK, "failed", map[string]string{"b.go": "h2"}),
 			false, DecideRun, keepRelaunch},
 		{"unrecorded leaf launches", stateWave(WaveStateRunning, ok("p-2.1", "a.go")), false, DecideRun,
 			map[string]DecideAction{"p-2.1": DecideKeep, "p-2.2": DecideLaunch}},

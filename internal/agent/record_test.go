@@ -773,6 +773,7 @@ func TestSessionModel(t *testing.T) {
 		{SessionID: "d", Model: "reported"},
 		{SessionID: "e", Model: "served-sonnet", Invoked: "qa:sonnet"},
 		{SessionID: "f", Agent: "codex", Fallback: "claude", Model: "gpt-6.1-sol", Invoked: "dev:sonnet"},
+		{SessionID: "g", Model: "qwen3:30b", Invoked: "qwen3:30b"},
 	} {
 		r := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Minute))
 		r.Finish(res, nil, time.Second)
@@ -780,7 +781,7 @@ func TestSessionModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for session, want := range map[string]string{"a": "qa:wire-new", "e": "qa:served-sonnet", "b": "sonnet", "c": "", "d": "reported", "z": "", "": ""} {
+	for session, want := range map[string]string{"a": "qa:wire-new", "e": "qa:served-sonnet", "b": "sonnet", "c": "", "d": "reported", "g": "qwen3:30b", "z": "", "": ""} {
 		if got := SessionModel(session); got != want {
 			t.Errorf("SessionModel(%q) = %q, want %q", session, got, want)
 		}

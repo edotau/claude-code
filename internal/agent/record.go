@@ -334,7 +334,7 @@ func SessionModel(session string) string {
 			continue
 		}
 		profile, invoked, pinned := strings.Cut(r.Invoked, ":")
-		if !pinned {
+		if !pinned || r.Model == r.Invoked { // served as typed: a local tag such as qwen3:30b, no profile prefix
 			profile, invoked = "", r.Invoked
 		}
 		m := cmp.Or(r.Model, invoked)  // the served model, not the requested alias

@@ -348,11 +348,7 @@ func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router
 		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
 }
 
-// routeLead is LeadFor, except a preview leads on its pin or the profile of a profile:model, never runs it explicitly.
-func routeLead(q RouteReq) (lead string, explicit bool, err error) {
-	return routeLeadContext(context.Background(), q)
-}
-
+// routeLeadContext is LeadFor, except a preview leads on its pin or a profile:model's profile, never explicitly.
 func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
 	lead, explicit, err = leadForContext(ctx, q)
 	if err != nil || !explicit || !q.Preview {

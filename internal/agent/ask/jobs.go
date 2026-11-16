@@ -289,7 +289,10 @@ func abandonLive(rec *agent.Record, cause error) error {
 			return fmt.Errorf("%w; holder pid %d still running, stop failed: %w", cause, rec.PID, err)
 		}
 	}
-	if rec.Status == "running" || rec.Status == "" {
+	// Cancel's own marks are replaced so the record says why the holder was abandoned.
+	byCancel := rec.Status == "error" &&
+		(rec.Error == "cancelled by claude-code agents cancel" || rec.Error == "process gone")
+	if rec.Status == "running" || rec.Status == "" || byCancel {
 		rec.Status, rec.Error = "error", cause.Error()
 		_ = rec.Save()
 	}
