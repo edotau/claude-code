@@ -46,7 +46,6 @@ func stateActions(t *testing.T, r DecideResult) map[string]DecideAction {
 type stateResumeCase struct {
 	name  string
 	state State
-	fresh bool
 	wave  DecideAction
 	leaf  map[string]DecideAction
 }
@@ -59,29 +58,28 @@ func stateResumeCases(ok func(id, f string) LeafState) []stateResumeCase {
 		return stateWave(WaveStateFailed, ok("p-2.1", "a.go"), stateLeaf("p-2.2", status, verdict, files))
 	}
 	return []stateResumeCase{
-		{"wave passed is skipped", stateWave(WaveStatePassed, both...), false, DecideSkip, nil},
-		{"ok leaves are kept and verifier re-runs", stateWave(WaveStateFailed, both...), false, DecideVerify,
+		{"wave passed is skipped", stateWave(WaveStatePassed, both...), DecideSkip, nil},
+		{"ok leaves are kept and verifier re-runs", stateWave(WaveStateFailed, both...), DecideVerify,
 			map[string]DecideAction{"p-2.1": DecideKeep, "p-2.2": DecideKeep}},
-		{"error leaf relaunches alone", bad("error", "", nil), false, DecideRun, keepRelaunch},
-		{"timeout leaf relaunches", bad("timeout", "", nil), false, DecideRun, keepRelaunch},
-		{"lost leaf (still running) relaunches", bad(WaveStateRunning, "", nil), false, DecideRun, keepRelaunch},
+		{"error leaf relaunches alone", bad("error", "", nil), DecideRun, keepRelaunch},
+		{"timeout leaf relaunches", bad("timeout", "", nil), DecideRun, keepRelaunch},
+		{"lost leaf (still running) relaunches", bad(WaveStateRunning, "", nil), DecideRun, keepRelaunch},
 		{"mismatched leaf relaunches", bad(LeafStateOK, "failed", map[string]string{"b.go": "h2"}),
-			false, DecideRun, keepRelaunch},
-		{"unrecorded leaf launches", stateWave(WaveStateRunning, ok("p-2.1", "a.go")), false, DecideRun,
+			DecideRun, keepRelaunch},
+		{"unrecorded leaf launches", stateWave(WaveStateRunning, ok("p-2.1", "a.go")), DecideRun,
 			map[string]DecideAction{"p-2.1": DecideKeep, "p-2.2": DecideLaunch}},
-		{"no state launches everything", State{}, false, DecideRun, launchAll},
-		{"fresh discards a passed wave", stateWave(WaveStatePassed, both...), true, DecideRun, launchAll},
+		{"no state launches everything", State{}, DecideRun, launchAll},
 	}
 }
 
 func checkStateResume(t *testing.T, tc stateResumeCase, ids []string, fp FingerprintFunc) {
 	t.Helper()
-	r, err := Decide(tc.state, 2, ids, tc.fresh, fp)
+	r, err := Decide(tc.state, 2, ids, fp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Wave != tc.wave || r.Fresh != tc.fresh {
-		t.Fatalf("wave action = %s fresh=%v, want %s fresh=%v", r.Wave, r.Fresh, tc.wave, tc.fresh)
+	if r.Wave != tc.wave {
+		t.Fatalf("wave action = %s, want %s", r.Wave, tc.wave)
 	}
 	got := stateActions(t, r)
 	for id, want := range tc.leaf {
@@ -108,7 +106,7 @@ func TestStateDecideChangedOwnedFileDefeatsKeep(t *testing.T) {
 		"removed": {},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r, err := Decide(s, 2, []string{"p-2.1"}, false, statefp(disk))
+			r, err := Decide(s, 2, []string{"p-2.1"}, statefp(disk))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -118,7 +116,7 @@ func TestStateDecideChangedOwnedFileDefeatsKeep(t *testing.T) {
 		})
 	}
 	same := map[string]string{"a.go": "h1"}
-	if r, _ := Decide(s, 2, []string{"p-2.1"}, false, statefp(same)); stateActions(t, r)["p-2.1"] != DecideKeep {
+	if r, _ := Decide(s, 2, []string{"p-2.1"}, statefp(same)); stateActions(t, r)["p-2.1"] != DecideKeep {
 		t.Fatalf("unchanged files must keep the leaf: %v", r.Leaves)
 	}
 }
@@ -274,7 +272,7 @@ func checkStateKeptUntilEdited(t *testing.T, s State, fp FingerprintFunc, edit f
 	s = s.WithWave(WaveState{N: 1, Status: WaveStateFailed, Leaves: []LeafState{
 		{ID: "p-1.1", Status: LeafStateOK, Owns: []string{"new.go"}, Fingerprints: fps}}})
 	decide := func() DecideAction {
-		r, err := Decide(s, 1, []string{"p-1.1"}, false, fp)
+		r, err := Decide(s, 1, []string{"p-1.1"}, fp)
 		if err != nil {
 			t.Fatal(err)
 		}

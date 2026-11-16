@@ -271,7 +271,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 	for i, s := range specs {
 		ids[i] = s.ID
 	}
-	decision, err := Decide(r.state, w.Number, ids, false, r.fingerprint)
+	decision, err := Decide(r.state, w.Number, ids, r.fingerprint)
 	if err != nil {
 		return nil, WaveState{}, nil, false, err
 	}
