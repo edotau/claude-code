@@ -81,14 +81,12 @@ func catRedirects(toks []string) bool {
 	return false
 }
 
-// RunsWrittenFile matches a command that executes a file (a shell, source, ., exec, an interpreter or chmod +x),
-// bare, by path (/bin/bash), versioned (python3.11) or inside ( ) $( ) and backticks.
+// RunsWrittenFile matches a command that executes a file (shell, source, exec, interpreter, chmod +x).
 var RunsWrittenFile = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?m)(^|[;&|(/\x60\s])((ba|z|da|k)?sh|fish|pwsh|source|exec|python[0-9.]*|node|perl|ruby|deno|bun|php)\s|(^|[;&|])\s*\.[\s/]|chmod\s+[-+=,ugoarwXst0-7]*x`)
 })
 
-// DropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies so hard rule 4 never asks on text written
-// to a file; a command that also runs a file keeps every body (`cat <<'EOF' > f.sh … EOF && bash f.sh`).
+// DropDataHeredocs removes quoted-delimiter `cat > f`/`tee f` heredoc bodies unless the command also runs a file.
 func DropDataHeredocs(cmd string) string {
 	return DropHeredocBodies(cmd, true, func(lines []string, i int) int {
 		delim, ok := dataHeredocStart(lines[i])

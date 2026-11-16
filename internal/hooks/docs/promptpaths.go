@@ -20,8 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// posixPathRE matches an absolute POSIX path token (group 1), not the tail of a relative path like docs/etc/hosts.
-// Deliberately greedy-but-bounded: every hit is then existence-filtered, so over-matching costs a stat.
+// posixPathRE matches an absolute POSIX path token, not the tail of a relative path; hits are existence-filtered.
 var posixPathRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?:^|[^\p{L}\p{N}_.~/])(/(?:\\ |[^\s"'` + "`" + `,;:()\[\]{}])+)`)
 })
@@ -37,8 +36,7 @@ var fetchClient = clipboard.FetchClient
 // bridgeReady reports an SSH session whose forwarded clipboard socket is present and ours; swapped in tests.
 var bridgeReady = clipboard.BridgeReady
 
-// imageExts are the extensions we report as images. Those image.DecodeConfig cannot read (no stdlib
-// decoder) still get a type+size line — the point is telling the user the path was recognized.
+// imageExts are the extensions reported as images; undecodable ones still get a type+size line.
 var imageExts = map[string]string{
 	".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".gif": "GIF",
 	".webp": "WebP", ".bmp": "BMP", ".svg": "SVG", ".tif": "TIFF", ".tiff": "TIFF",
@@ -58,8 +56,7 @@ type pathReport struct {
 // pathToken is a scanned token: raw as written, trimmed with trailing punctuation stripped.
 type pathToken struct{ raw, trimmed string }
 
-// scanTokens extracts unique path tokens matched by bare/quoted, quoted forms first so a path with
-// spaces isn't split by the bareword regex. trim strips trailing punctuation off bareword matches.
+// scanTokens extracts unique path tokens, quoted forms first so spaced paths aren't split by the bareword regex.
 func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathToken {
 	seen := map[string]bool{}
 	var out []pathToken
@@ -96,8 +93,7 @@ func scanPosixTokens(text string) []pathToken {
 // largeFile is the size from which the model is told a file's size before reading it.
 const largeFile = 1 << 20
 
-// describe builds the detail string for an existing file: image type+dimensions when decodable,
-// else type/size. ok=false for non-regular files (a bare directory match is noise, not an attachment).
+// describe is the detail string for an existing file (image type+size, else type/size); ok=false for non-regular files.
 func describe(p string) (detail string, isImage, large, ok bool) {
 	fi, err := os.Stat(p)
 	if err != nil || !fi.Mode().IsRegular() {
@@ -121,8 +117,7 @@ func describe(p string) (detail string, isImage, large, ok bool) {
 	return fmt.Sprintf("%s, %s", kind, size), true, large, true
 }
 
-// collectReports resolves every path token to a report through the mount-table resolver. Ordered
-// foreign forms (Windows, UNC, URL, ~) first, then POSIX, each in prompt order.
+// collectReports resolves each path token via the mount-table resolver, foreign forms first, in prompt order.
 func collectReports(prompt string, res *paths.Resolver) []pathReport {
 	c := &reportCollector{res: res, seen: map[string]bool{}}
 	for _, tok := range scanWinTokens(prompt) {
@@ -200,8 +195,7 @@ func (c *reportCollector) add(orig string, toks ...string) {
 	c.reps = append(c.reps, pathReport{win: orig, path: p, detail: detail, isImage: isImage, large: large})
 }
 
-// feedbackMessage is the user-visible body: one line per resolved path, images first so an
-// attachment is never buried under incidental file mentions.
+// feedbackMessage is one line per resolved path, images first.
 func feedbackMessage(reps []pathReport) string {
 	ordered := append([]pathReport(nil), reps...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].isImage && !ordered[j].isImage })

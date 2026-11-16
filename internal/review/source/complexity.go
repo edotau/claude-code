@@ -452,8 +452,7 @@ func analyzeComplexityFiles(files []string, th ComplexityThresholds, stderr io.W
 	return results, failed
 }
 
-// reportNoFiles ports the "no files matched" branch; unlike the Python CLI it exits 1, so no gate passes on nothing.
-// json.dumps here has no indent= arg (compact, single line) unlike the summary path below.
+// reportNoFiles ports the "no files matched" branch but exits 1; its json.dumps is compact, unlike the summary path.
 func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonOut bool) int {
 	msg := fmt.Sprintf("No files matching %s under %s", pyListRepr(extensions), strings.Join(targets, " "))
 	if jsonOut {

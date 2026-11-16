@@ -1,9 +1,6 @@
 package quality
 
-// `workflow lint` — flag workflow agent() calls without an explicit model: pin or an effort pin (an
-// unpinned leaf inherits the parent session's reasoning tier, a measured cost trap), a pin whose literal
-// value isn't a real tier, and the two script shapes that make the saved-workflow registry skip a file
-// silently. The `lint:opus-ok` marker exempts the effort and pin-value checks — a missing model: pin is always a hit.
+// `workflow lint` flags agent() calls without model:/effort: pins, bad pin values and registry-hiding shapes.
 
 import (
 	"context"
@@ -31,9 +28,7 @@ const lintOpusOK = "lint:opus-ok"
 // pinWindow caps the scan when a call's close paren isn't found; prompt template literals run to thousands of chars.
 const pinWindow = 20000
 
-// RunWorkflowLint lints every workflows/*.js plus every skills/*/scripts/*.js that opens with `export
-// const meta` under root (default: the config dir the caller passes as args[0]; a bare call uses cwd).
-// Exit 1 when anything is flagged.
+// RunWorkflowLint lints workflows/*.js and skills/*/scripts/*.js with `export const meta` under root; exit 1 on a hit.
 func RunWorkflowLint(args []string, stdout, stderr io.Writer) int {
 	root := "."
 	if len(args) > 0 && args[0] != "" {
@@ -162,8 +157,7 @@ func skillScripts(root string) []string {
 	return out
 }
 
-// isWorkflowScript reports whether f's first code after blank lines and // or /* */ comments opens `export const meta`;
-// an unreadable file counts as one so lintScript reports it instead of skipping it.
+// isWorkflowScript reports whether f opens `export const meta`; an unreadable file counts so lintScript reports it.
 func isWorkflowScript(f string) bool {
 	data, err := os.ReadFile(f)
 	if err != nil {
@@ -191,14 +185,12 @@ func lintPins(name, s string, withEffort bool) []string {
 	return append(out, badPinValues(name, s)...)
 }
 
-// unpinnedAgentCalls returns "name:line" for each agent( call missing a model: pin. agentType alone is not
-// one (a built-in type such as Explore carries its own tier); the opus-ok marker never exempts this check.
+// unpinnedAgentCalls returns "name:line" for each agent( call missing a model: pin; agentType alone is not one.
 func unpinnedAgentCalls(name, src string) []string {
 	return agentCallsMissingSrc(name, src, func(window string) bool { return hasTopLevelKey(window, "model") }, false)
 }
 
-// effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin — effort is the
-// second routing axis (skills/subagent-workflows/SKILL.md → Rules); unpinned runs at session effort, over-costing.
+// effortlessAgentCalls returns "name:line" for each agent( call with no effort: pin (unpinned runs at session effort).
 func effortlessAgentCalls(name, src string) []string {
 	return agentCallsMissingSrc(name, src, func(window string) bool { return hasTopLevelKey(window, "effort") }, true)
 }
@@ -228,8 +220,7 @@ var pinAllowed = map[string]map[string]bool{
 
 var quotedLit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`'([^']*)'|"([^"]*)"`) })
 
-// badPinValues returns "name:line: ..." for each agent() pin literal that isn't in pinAllowed[key].
-// Identifier-only values (s.model, a.implModel) pass — they can't be checked statically.
+// badPinValues returns "name:line: ..." for each pin literal not in pinAllowed[key]; identifiers pass.
 func badPinValues(name, src string) []string {
 	var out []string
 	scanAgentCalls(src, func(_, line int, window string, marked bool) {
@@ -293,8 +284,7 @@ func colonValue(masked string, i int) (int, bool) {
 	return 0, false
 }
 
-// inOptionsObject reports whether the innermost bracket is the call's options `{`: directly inside the call's `(`,
-// or inside grouping parens after a comma, as in agent('p', ({model:'sonnet'})).
+// inOptionsObject reports whether the innermost bracket is the call's options `{`, also via grouping parens.
 func inOptionsObject(masked string, open []int) bool {
 	n := len(open)
 	if n < 2 || masked[open[n-1]] != '{' {
@@ -381,9 +371,7 @@ func allowedList(key string) string {
 	return strings.Join(slices.Sorted(maps.Keys(pinAllowed[key])), "|")
 }
 
-// scanAgentCalls calls fn once per agent( call in src — never subagent(/x.agent() — with its byte offset, 1-based
-// line, its option window (through the matching close paren), and whether it carries the opus-ok
-// marker on the line the call closes on.
+// scanAgentCalls calls fn per agent( call (not subagent(/x.agent()) with its offset, line, options and opus-ok marker.
 func scanAgentCalls(src string, fn func(at, line int, window string, marked bool)) {
 	masked := stripStrings(src) // same length as src: an `agent(` inside a string or comment is prose
 	for i := 0; i+5 <= len(src); i++ {
@@ -420,9 +408,7 @@ func skipSpaces(s string, i int) int {
 	return i
 }
 
-// registryHidingDefects returns "file:line: <why>" for the two shapes that make the saved-workflow
-// registry skip a script without any error: a `meta` that is not a pure literal (`+`, a template
-// literal, or an identifier value), and a top-level `throw` — the module is imported to read meta, so it fires.
+// registryHidingDefects returns "file:line: <why>" for a non-literal `meta` or top-level `throw`, which hide a script.
 func registryHidingDefects(path string) []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -628,8 +614,7 @@ func metaLiteralDefects(path, src string) []string {
 
 var identTokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Za-z_$][A-Za-z0-9_$]*`) })
 
-// metaHasNonLiteral reports whether string-masked meta holds a `+`, a template literal, or an identifier that is
-// neither an object key nor true/false/null.
+// metaHasNonLiteral reports whether string-masked meta holds a `+`, a template literal, or a non-key identifier.
 func metaHasNonLiteral(bare string) bool {
 	if strings.ContainsAny(bare, "`+") {
 		return true

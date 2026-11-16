@@ -4,10 +4,7 @@ import (
 	"strings"
 )
 
-// analyzePython is complexity_checker's `analyze_python` PORTED AS AN ESTIMATE: Go has no Python
-// parser (go/ast is Go-only), so this scans indentation + control-flow keywords instead of a real AST.
-// Deviation from the Python original (which uses ast, exact per-function metrics): function order is
-// top-to-bottom source order (ast.walk is BFS).
+// analyzePython ports `analyze_python` as an ESTIMATE (no Python AST in Go): it scans indentation and keywords.
 func analyzePython(text string, lineCount int, th ComplexityThresholds) []Finding {
 	masked := maskPythonSource(text)
 	lines := pythonLines(masked)
@@ -77,8 +74,7 @@ func findPyFunctions(lines []pyLine) []pyFuncSpan {
 				break
 			}
 		}
-		// Trim trailing blank/comment lines: ast's end_lineno is the last real statement, not the gap
-		// before the next sibling def (matters for trailing blank lines before a dedent).
+		// Trim trailing blank/comment lines: ast's end_lineno is the last real statement, not the gap before the next def.
 		last := end - 1
 		for last > i && skipLine(lines[last]) {
 			last--
@@ -245,8 +241,7 @@ func maskPythonSource(src string) string {
 	return string(out)
 }
 
-// pyLiteralEnd scans the comment or string opened at s[i]; it returns the index past it and whether a quote closed it.
-// A comment and an unclosed single-quoted string stop before the newline; a backslash escapes the next byte.
+// pyLiteralEnd scans the comment or string opened at s[i], returning the index past it and whether a quote closed it.
 func pyLiteralEnd(s string, i int) (end int, closed bool) {
 	q := s[i]
 	if q == '#' {

@@ -38,8 +38,7 @@ var deductionWeights = map[string]int{"critical": 15, "high": 8, "medium": 3, "l
 var deductionCaps = map[string]int{"critical": 60, "high": 40, "medium": 20, "low": 10}
 var severityOrder = []string{"critical", "high", "medium", "low"}
 
-// Finding is a report line item; Count is set for pr_analysis risks, Line for quality issues
-// (never both) — pointers so the omitted one matches Python's absent dict key exactly.
+// Finding is a report line item; Count (risks) and Line (quality issues) are pointers so the unset one is omitted.
 type Finding struct {
 	Source   string  `json:"source"`
 	Severity string  `json:"severity"`
@@ -115,8 +114,7 @@ type Report struct {
 	QualitySummary *QualitySummary `json:"quality_summary,omitempty"`
 }
 
-// changedSourceFiles lists the source files added, copied, modified or renamed in base...head, relative to repo.
-// -z keeps non-ASCII and space-containing names unquoted; deleted files are excluded (they have no head content).
+// changedSourceFiles lists source files added, copied, modified or renamed in base...head; deletions are excluded.
 func changedSourceFiles(repo, base, head string) ([]string, error) {
 	exts := map[string]bool{}
 	for _, list := range source.Extensions {

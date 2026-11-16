@@ -11,8 +11,7 @@ type argSpan struct {
 	start, end int
 }
 
-// splitTopLevelArgs splits a call's argument-list text at top-level commas; stripStrings blanks string, template,
-// regex and comment bodies first, so a comma or bracket in those never splits.
+// splitTopLevelArgs splits a call's args at top-level commas, after stripStrings blanks strings, regexes and comments.
 func splitTopLevelArgs(s string) []argSpan {
 	var spans []argSpan
 	depth := 0
@@ -107,12 +106,7 @@ func skipLeadingComments(s string) string {
 	}
 }
 
-// FillModel rewrites every agent() call in src missing a model: pin (agentType alone is not one; opus-ok does NOT
-// exempt this) to carry model: '<model>', inserted into an existing options-object 2nd argument, or
-// appended as a new one. Edits apply back-to-front so offsets stay valid; a call whose options
-// argument isn't a plain object literal (identifier, spread, ternary, call, or an unbalanced window)
-// is left alone and its line reported in ambiguous instead. src is returned unchanged if nothing
-// needed filling.
+// FillModel adds model: '<model>' to each agent() call missing a pin; non-object options are left alone and reported ambiguous.
 func FillModel(src, model string) (string, []string) {
 	var edits []fillEdit
 	var ambiguous []string

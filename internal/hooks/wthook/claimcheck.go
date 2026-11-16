@@ -176,8 +176,7 @@ type claimView struct {
 	claims map[string][]claimHit
 }
 
-// ClaimCheck notes a dirty claimed file before an edit; asks (leaf: blocks) when git add/commit stages one.
-// A Bash sed -i, redirect or tee gets the same note per file; any git command also drains this session's notices.
+// ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	bash := in.ToolName == "Bash"

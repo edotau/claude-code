@@ -209,9 +209,7 @@ func parseNameStatus(out string) []PRFileAnalysis {
 	return files
 }
 
-// patchFor returns the base...head patch for one file; a git failure is an error, never an empty diff.
-// The pathspec is top-relative and literal: name-status paths are repo-root relative, and glob characters match.
-// A rename's oldPath joins the pathspec so git pairs the two sides and a pure rename shows no changed lines.
+// patchFor returns the base...head patch for one file via a literal pathspec incl. a rename's oldPath; git failure errors.
 func patchFor(repo, path, oldPath, base, head string) (string, error) {
 	paths := []string{":(top,literal)" + path}
 	if oldPath != "" {

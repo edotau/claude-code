@@ -22,8 +22,7 @@ type stepResult struct {
 	Level string `json:"level"`
 }
 
-// noStepsResult / stepsResult are two distinct shapes because the Python script returns two different
-// dict literals (different key sets/order) depending on whether any steps were found.
+// noStepsResult/stepsResult are two shapes because the Python script returns dict literals with different keys.
 type noStepsResult struct {
 	Status          string          `json:"status"`
 	Source          string          `json:"source"`

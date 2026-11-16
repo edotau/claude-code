@@ -192,8 +192,7 @@ func draftTarget(in *core.Input) (path string, ok bool) {
 	return path, isUndatedDraft(path)
 }
 
-// planDestination picks <date>-<title>.md, then -2.md, … under the repo's plans dir; adopt reuses a
-// candidate already holding content (fresh=false) — save-plan adopts, a mirror never takes a file it did not create.
+// planDestination picks <date>-<title>.md, then -2.md, …; adopt reuses a candidate already holding content.
 func planDestination(cwd, title string, content []byte, adopt bool) (dest string, fresh bool) {
 	dir := plans.Home(planRepoRoot(cwd))
 	base := time.Now().Format("2006-01-02") + "-" + title
@@ -252,8 +251,7 @@ var planCloseout = []string{
 	"Handoff / `claude-code memory update`",
 }
 
-// withTasks appends a `## Tasks` checklist when the plan has none: the recovery point if a session, agent or
-// worktree is lost. A plan with `- [ ]`/`- [x]` lines or its own `## Tasks` heading is returned unchanged.
+// withTasks appends a `## Tasks` checklist when the plan has none (a recovery point if a session is lost).
 func withTasks(plan []byte) []byte {
 	headings := planHeadings(plan)
 	if checkboxLine().Match(plan) || hasPlanHeading(headings, templateHeading{level: 2, prefix: "Tasks"}) {
@@ -284,14 +282,12 @@ var checkboxLine = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^\s*[-*] \[[ xX]\] `)
 })
 
-// undatedNameRe matches a dated plan file's leading YYYY-MM-DD-; anything else directly under plans/ is a
-// native plan-mode draft (random words), not yet filed under its repo-tagged, dated name.
+// undatedNameRe matches a dated plan file's leading YYYY-MM-DD-; other names directly under plans/ are native drafts.
 var undatedNameRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
 })
 
-// isUndatedDraft reports whether abs is a markdown file sitting directly under <config>/plans/ (not a
-// repo-tagged subdirectory) whose name isn't already dated — the shape plan mode's native Write targets.
+// isUndatedDraft reports whether abs is a markdown file directly under <config>/plans/ whose name isn't dated.
 func isUndatedDraft(abs string) bool {
 	if !isMarkdownPath(abs) {
 		return false
@@ -338,9 +334,7 @@ func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 	return false
 }
 
-// Gate denies the FIRST write to an undated draft under <config>/plans/ that lacks the plan
-// template's required headings (deny-one-call); the message pastes the skeleton so the retry is right.
-// Edit never blocks (it needs an existing file), so only Write, Create and apply_patch Add File matter.
+// Gate denies the FIRST write to an undated draft under <config>/plans/ lacking the template headings.
 func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool == "apply_patch" { // an Add File hunk is a first write; Update is an Edit, which the gate leaves alone
