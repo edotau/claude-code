@@ -49,7 +49,7 @@ paths:
   | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
   | `fallback` | `none\|pin\|agents\|all` | `--fallback`, `AGENT_ERROR_FALLBACK` |
-  | `host` / `remote` | ssh host (not both) | `--host`, remote run |
+  | `host` / `remote` | ssh host (not both, unless `host` names this machine) | `--host`, remote run |
   | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
@@ -115,8 +115,8 @@ paths:
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the plugin's `tool.execute.before` (refused under `--safe-mode`, which loads no plugin), codex and agy
   as a native hook (agy also runs `safety-scan` on `run_command`). Modes: `hooks.md` → Applicability. A live codex or
-  agy home gets the hooks only after the owner runs `configure --restore --agents --agent codex|gemini`; until then
-  those agents refuse a Bash deny.
+  agy home gets the hooks from `agents sync` or `configure --restore --agents --agent codex|gemini`; until then those
+  agents refuse a Bash deny.
 - **Memory jobs (claude, gated).** `memory update`/`dream`/catch-up run claude with `RunOptions.Gate`:
   `bypassPermissions` (off Anthropic, `dontAsk` hard-denies writes under `.claude/`), `--strict-mcp-config`, tools
   limited to `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, and `permission-gate` merged into the launch's one

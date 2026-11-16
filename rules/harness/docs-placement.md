@@ -5,7 +5,7 @@ paths:
 ---
 # Docs Placement — Harness Markdown Never Lands at a Repo Root
 
-**Harness-authored markdown has three homes; a repo root and a gitignored `docs/` are off-limits.** The
+**Harness-authored markdown has four homes; a repo root and a gitignored `docs/` are off-limits.** The
 `docs-placement` gate enforces it (`internal/hooks/docs/docsplacement.go`; plan filing:
 `internal/hooks/docs/plan.go`).
 

@@ -19,7 +19,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `internal/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls`, edited in `configure`), sealed secrets (`vault set\|get`) |
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |
-| `commands/<command>.md` | Slash commands, flat — thin launchers into an agent or skill |
+| `commands/<command>.md` | Slash commands, flat — thin launchers into an agent (`discover-models` into `claude-code models discover`) |
 | `workflows/*.js` | Workflow tool scripts (`skills/subagent-workflows/references/saved-workflows.md`) |
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |

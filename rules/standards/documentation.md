@@ -14,5 +14,6 @@ paths:
   lint` checks docs and auto-wraps own memory banks): 120 columns, one H1, no skipped heading levels, `-`
   bullets, fenced code with a language.
 - **Naming and links** — lowercase-with-hyphens files, except the root anchors (`README.md`, `CLAUDE.md`,
-  `AGENTS.md`); relative intra-repo links. A moved or renamed file means fixing every doc that points at it in the same
-  commit.
+  `AGENTS.md`, the set in `rules/harness/docs-placement.md`), `SKILL.md`, `agents/Plan.md` and the memory bank file
+  names (`activeContext.md`); relative intra-repo links. A moved or renamed file means fixing every doc that points at
+  it in the same commit.
