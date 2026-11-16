@@ -491,7 +491,7 @@ func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	})
 	t.Run("gate carries the ask", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := runEvent("PreToolUse", true, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		if code := runEvent("PreToolUse", settings.AllFlag, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		var doc struct {
@@ -508,7 +508,7 @@ func TestSafetyDispatcherGateVsBare(t *testing.T) {
 	})
 	t.Run("bare dispatcher omits the gate decision", func(t *testing.T) {
 		var out, errb bytes.Buffer
-		if code := runEvent("PreToolUse", false, bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
+		if code := runEvent("PreToolUse", "", bytes.NewReader(payload), &out, &errb); code != core.ExitProceed {
 			t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 		}
 		if strings.Contains(out.String(), "permissionDecision") {
@@ -589,7 +589,7 @@ func TestRtkDispatcherBareRunsRtk(t *testing.T) {
 	run := func(cmd string) map[string]json.RawMessage {
 		t.Helper()
 		var out, errb strings.Builder
-		if rc := runEvent(settings.EventPreToolUse, false, strings.NewReader(hosttest.RTKBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
+		if rc := runEvent(settings.EventPreToolUse, "", strings.NewReader(hosttest.RTKBashIn(cmd)), &out, &errb); rc != core.ExitProceed {
 			t.Fatalf("%q: runEvent rc = %d, want ExitProceed; stderr=%q", cmd, rc, errb.String())
 		}
 		var doc map[string]json.RawMessage
@@ -659,7 +659,7 @@ func TestPathResolverRunMatchesDispatcher(t *testing.T) {
 				t.Fatalf("Run exit = %d (stderr %s)", code, &directErr)
 			}
 			var eventOut, eventErr bytes.Buffer
-			if code := runEvent("UserPromptSubmit", false, strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
+			if code := runEvent("UserPromptSubmit", "", strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
 				t.Fatalf("runEvent exit = %d (stderr %s)", code, &eventErr)
 			}
 			if directOut.String() != eventOut.String() {
@@ -734,7 +734,7 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	spawns := memory.StubSpawn(t, true)
 	payload := `{"hook_event_name":"SessionStart","session_id":"44444444-4444-4444-8444-444444444444","cwd":"` + cwd + `"}`
 	var out, errb strings.Builder
-	if code := runEvent("SessionStart", false, strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
+	if code := runEvent("SessionStart", "", strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("SessionStart exit %d, stderr %q", code, errb.String())
 	}
 	if spawns.Dream.Load() != 1 || spawns.Catchup.Load() != 1 {
@@ -781,5 +781,63 @@ func TestDispatchHookSkip(t *testing.T) {
 				t.Errorf("unexpected note %q", res.SystemMessage)
 			}
 		})
+	}
+}
+
+// hostMatches is Claude Code's matcher test: anchored, and an empty matcher fires on every tool.
+func hostMatches(matcher, tool string) bool {
+	return matcher == "" || regexp.MustCompile("^(?:"+matcher+")$").MatchString(tool)
+}
+
+// postToolRuns fires every rendered PostToolUse entry that matches tool, as the host does; it lists name/mode runs.
+func postToolRuns(stubs []Bound, mode *string, runs *[]string, tool string) []string {
+	*runs = nil
+	in := core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"` + tool + `","tool_input":{}}`))
+	for _, e := range settings.Events()[settings.EventPostToolUse] {
+		if !hostMatches(e.Matcher, tool) {
+			continue
+		}
+		flag := strings.TrimSpace(strings.TrimPrefix(e.Hooks[0].Command, settings.DispatcherCommand(settings.EventPostToolUse)))
+		*mode = map[bool]string{false: "/sync", true: "/async"}[e.Hooks[0].Async]
+		_, _ = Dispatch(chain(stubs, core.AgentClaude, flag), settings.EventPostToolUse, in, io.Discard)
+	}
+	return slices.Sorted(slices.Values(*runs))
+}
+
+// The rendered PostToolUse entries run each module once per tool: Async alternatives (Bash) in the background entry.
+func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
+	var mu sync.Mutex
+	var runs []string
+	mode := ""
+	var stubs []Bound
+	for _, b := range Bind() {
+		name := b.Spec.Name
+		b.Run = func(*core.Input) core.Result {
+			mu.Lock()
+			defer mu.Unlock()
+			runs = append(runs, name+mode)
+			return core.Result{}
+		}
+		stubs = append(stubs, b)
+	}
+	if got, want := postToolRuns(stubs, &mode, &runs, "Bash"), []string{"docs-plan-tick/async", "worktree-claim/async"}; !slices.Equal(got, want) {
+		t.Fatalf("Bash PostToolUse ran %v, want %v (the sync entry must run neither)", got, want)
+	}
+	for _, tool := range []string{"Write", "Edit", "MultiEdit", "Workflow", "ExitPlanMode"} {
+		var want []string
+		for _, s := range settings.SpecsFor(core.AgentClaude, "native") {
+			if s.Event == settings.EventPostToolUse && hostMatches(s.Matcher, tool) {
+				want = append(want, s.Name+"/sync")
+			}
+		}
+		if got := postToolRuns(stubs, &mode, &runs, tool); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
+			t.Errorf("%s PostToolUse ran %v, want %v", tool, got, want)
+		}
+	}
+	runs = nil
+	in := core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{}}`))
+	_, _ = Dispatch(chain(stubs, core.AgentClaude, settings.AsyncFlag), settings.EventPostToolUse, in, io.Discard)
+	if len(runs) != 0 {
+		t.Errorf("an async invocation on Write ran %v; its modules are synchronous there", runs)
 	}
 }

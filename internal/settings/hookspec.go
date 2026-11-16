@@ -50,6 +50,7 @@ type EventSpec struct {
 	Hosted        []string      // agents whose headless host runs the module around a run
 	Plugin        []string      // agents whose in-process plugin runs the module
 	StatusMessage string        // spinner text Claude Code shows while the hook runs
+	Async         string        // Matcher alternatives Claude runs in the background entry, after the tool returns
 }
 
 // Seconds is Budget as the whole-second timeout settings.json carries.
@@ -76,6 +77,9 @@ func DispatcherCommand(event string) string { return hookBin + " hook " + event 
 
 // AllFlag makes `hook <Event>` run every module on the event, own-process ones included.
 const AllFlag = "--all"
+
+// AsyncFlag makes `hook <Event>` run only each module's Async alternatives: the background entry's command.
+const AsyncFlag = "--async"
 
 // Any HARNESS_HOOK_* marker counts, so a renamed marker's stale entries are replaced on render, not kept as foreign.
 var harnessCommand = regexp.MustCompile(`^(?:HARNESS_HOOK_[A-Z]+=\w+ )?` + regexp.QuoteMeta(hookBin) + ` `)
@@ -111,7 +115,7 @@ var Registry = []Group{
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
 		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
-		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Budget: 10 * sec, Hosted: []string{"opencode"}},
+		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Async: "Bash", Budget: 10 * sec, Hosted: []string{"opencode"}},
 		// Commits that only partly landed a task are reported once at Stop (advisory).
 		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Hosted: []string{"opencode"}},
 	}},
@@ -155,7 +159,7 @@ var Registry = []Group{
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec},
+		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
 		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Plugin: []string{"opencode"}},
 	}},
@@ -209,6 +213,7 @@ type dispatcherSlot struct {
 	status   string
 	nstatus  int // modules on the event that set a status; the spinner shows only when exactly one does
 	pos      int
+	async    bool
 }
 
 func (d *dispatcherSlot) add(s EventSpec) {
@@ -229,6 +234,9 @@ func (d *dispatcherSlot) add(s EventSpec) {
 
 func (d *dispatcherSlot) group(event string) MatcherGroup {
 	mg := MatcherGroup{Hooks: []Hook{{Type: "command", Command: DispatcherCommand(event), Timeout: d.seconds}}}
+	if d.async {
+		mg.Hooks[0].Command, mg.Hooks[0].Async = mg.Hooks[0].Command+" "+AsyncFlag, true
+	}
 	if !d.any {
 		mg.Matcher = strings.Join(d.matchers, "|")
 	}
@@ -238,10 +246,36 @@ func (d *dispatcherSlot) group(event string) MatcherGroup {
 	return mg
 }
 
-// Events renders one dispatcher per event plus separate gate entries.
+// asyncSplit is s's synchronous part (Matcher less its Async alternatives) and its async part; empty parts drop.
+func asyncSplit(s EventSpec) []EventSpec {
+	if s.Async == "" {
+		return []EventSpec{s}
+	}
+	async := strings.Split(s.Async, "|")
+	var keep []string
+	for alt := range strings.SplitSeq(s.Matcher, "|") {
+		if !slices.Contains(async, alt) {
+			keep = append(keep, alt)
+		}
+	}
+	sync, bg := s, s
+	sync.Matcher, sync.Async, bg.Matcher = strings.Join(keep, "|"), "", s.Async
+	if len(keep) == 0 {
+		return []EventSpec{bg}
+	}
+	return []EventSpec{sync, bg}
+}
+
+// slotKey keys a dispatcher entry: one synchronous and one async (background) entry per event at most.
+type slotKey struct {
+	event string
+	async bool
+}
+
+// Events renders a synchronous and an async dispatcher per event as needed, plus separate gate entries.
 func Events() map[string][]MatcherGroup {
 	block := map[string][]MatcherGroup{}
-	disp := map[string]*dispatcherSlot{}
+	disp := map[slotKey]*dispatcherSlot{}
 	for _, g := range Registry {
 		if g.AgentOnly {
 			continue
@@ -252,17 +286,20 @@ func Events() map[string][]MatcherGroup {
 				block[s.Event] = append(block[s.Event], MatcherGroup{Matcher: s.Matcher, Hooks: []Hook{h}})
 				continue
 			}
-			d := disp[s.Event]
-			if d == nil {
-				d = &dispatcherSlot{pos: len(block[s.Event])}
-				disp[s.Event] = d
-				block[s.Event] = append(block[s.Event], MatcherGroup{})
+			for _, p := range asyncSplit(s) {
+				k := slotKey{s.Event, p.Async != ""}
+				d := disp[k]
+				if d == nil {
+					d = &dispatcherSlot{pos: len(block[s.Event]), async: k.async}
+					disp[k] = d
+					block[s.Event] = append(block[s.Event], MatcherGroup{})
+				}
+				d.add(p)
 			}
-			d.add(s)
 		}
 	}
-	for event, d := range disp {
-		block[event][d.pos] = d.group(event)
+	for k, d := range disp {
+		block[k.event][d.pos] = d.group(k.event)
 	}
 	return block
 }

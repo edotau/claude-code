@@ -159,8 +159,11 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkDispatcherEntries(t, block, ownEntriesPerEvent())
-	if n := len(block[EventPostToolUse]); n != 1 {
-		t.Errorf("PostToolUse: %d entries, want 1 dispatcher (access-trace, the only async handler, is gone)", n)
+	post := block[EventPostToolUse]
+	if len(post) != 2 || post[0].Hooks[0].Async || strings.Contains(post[0].Matcher, "Bash") {
+		t.Errorf("PostToolUse: want a synchronous dispatcher without Bash, then the async one: %+v", post)
+	} else if bg := post[1]; bg.Matcher != "Bash" || !bg.Hooks[0].Async || bg.Hooks[0].Command != DispatcherCommand(EventPostToolUse)+" "+AsyncFlag {
+		t.Errorf("PostToolUse: second entry %+v, want the async Bash dispatcher", bg)
 	}
 	if n := len(block[EventPreToolUse]); n != 2 {
 		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
@@ -238,24 +241,40 @@ func hasOwnEntry(entries []MatcherGroup, s EventSpec) bool {
 	return false
 }
 
+// dispatcherCovers: each matcher alternative is in the async dispatcher when s.Async names it, else the sync one.
 func dispatcherCovers(entries []MatcherGroup, s EventSpec) bool {
-	for _, e := range entries {
-		if len(e.Hooks) != 1 || e.Hooks[0].Command != DispatcherCommand(s.Event) {
-			continue
-		}
-		if e.Matcher == "" {
-			return true // no matcher matches every tool
-		}
-		if s.Matcher == "" {
+	for alt := range strings.SplitSeq(s.Matcher, "|") {
+		async := s.Async != "" && slices.Contains(strings.Split(s.Async, "|"), alt)
+		if !slices.ContainsFunc(entries, func(e MatcherGroup) bool { return dispatcherHas(e, s.Event, alt, async) }) {
 			return false
 		}
-		covered := true
-		for alt := range strings.SplitSeq(s.Matcher, "|") {
-			covered = covered && slices.Contains(strings.Split(e.Matcher, "|"), alt)
-		}
-		return covered
 	}
-	return false
+	return true
+}
+
+func dispatcherHas(e MatcherGroup, event, alt string, async bool) bool {
+	cmd := DispatcherCommand(event)
+	if async {
+		cmd += " " + AsyncFlag
+	}
+	if len(e.Hooks) != 1 || e.Hooks[0].Command != cmd || e.Hooks[0].Async != async {
+		return false
+	}
+	return e.Matcher == "" || alt != "" && slices.Contains(strings.Split(e.Matcher, "|"), alt) // "" matches every tool
+}
+
+// Async names only alternatives of the spec's own Matcher, so the split never invents a tool.
+func TestAsyncWithinMatcher(t *testing.T) {
+	for _, s := range Specs() {
+		if s.Async == "" {
+			continue
+		}
+		for alt := range strings.SplitSeq(s.Async, "|") {
+			if !slices.Contains(strings.Split(s.Matcher, "|"), alt) {
+				t.Errorf("%s: Async %q is not in Matcher %q", s.Name, alt, s.Matcher)
+			}
+		}
+	}
 }
 
 func TestSpecsFor(t *testing.T) {
