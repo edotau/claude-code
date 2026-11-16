@@ -4,9 +4,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -140,7 +142,25 @@ func LoadPalettes() Palettes {
 			delete(pal.Semantic, role) // Sem then serves the baked tone, not a silent black
 		}
 	}
+	dropUnpaintable(&pal)
 	return pal
+}
+
+// dropUnpaintable removes bad hex from gradient ramps (an emptied ramp goes) and powerline colors, like Semantic.
+func dropUnpaintable(pal *Palettes) {
+	for name, hexes := range pal.Gradients {
+		kept := slices.DeleteFunc(hexes, func(h string) bool { return !paintableHex(h) })
+		if len(kept) == 0 {
+			delete(pal.Gradients, name)
+			continue
+		}
+		pal.Gradients[name] = kept
+	}
+	for _, roles := range pal.Powerline {
+		for _, colors := range roles {
+			maps.DeleteFunc(colors, func(_, h string) bool { return !paintableHex(h) })
+		}
+	}
 }
 
 func paintableHex(h string) bool {

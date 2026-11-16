@@ -115,8 +115,27 @@ var statusCode = func() map[string]string {
 var statusRE = func() *regexp.Regexp {
 	toks := make([]string, len(statusTokens))
 	for i, t := range statusTokens {
-		toks[i] = regexp.QuoteMeta(t.token)
+		toks[i] = t.token
 	}
 	sort.Slice(toks, func(i, j int) bool { return len(toks[i]) > len(toks[j]) })
+	for i, t := range toks {
+		toks[i] = wordBounded(t)
+	}
 	return regexp.MustCompile(strings.Join(toks, "|"))
 }()
+
+// wordBounded quotes tok with \b on each word-character edge, so "pinned" never paints inside "unpinned".
+func wordBounded(tok string) string {
+	q := regexp.QuoteMeta(tok)
+	if isWordByte(tok[0]) {
+		q = `\b` + q
+	}
+	if isWordByte(tok[len(tok)-1]) {
+		q += `\b`
+	}
+	return q
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+}
