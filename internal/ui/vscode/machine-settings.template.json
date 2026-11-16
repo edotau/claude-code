@@ -43,7 +43,7 @@
         "exec __CLAUDE_BIN__/claude-code claude"
       ],
       "env": {
-        "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
+        "CLAUDE_CODE_NO_FLICKER": "1"
       },
       "icon": "sparkle",
       "color": "terminal.ansiYellow"
@@ -100,7 +100,7 @@
         "exec __CLAUDE_BIN__/claude-code claude"
       ],
       "env": {
-        "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN": "1"
+        "CLAUDE_CODE_NO_FLICKER": "1"
       },
       "icon": "sparkle",
       "color": "terminal.ansiYellow"
@@ -160,6 +160,8 @@
   "chat.mcp.discovery.enabled": {"claude-desktop": true},
   "claudeCode.allowDangerouslySkipPermissions": true,
   "github.copilot.enable": {"golang": true, "markdown": true, "python": true},
+  "go.alternateTools": {"go": "~/.local/go/bin/go"},
+  "go.toolsEnvVars": {"GOTOOLCHAIN": "auto"},
   "github.copilot.chat.responsesApiContextManagement.enabled": true,
   "github.copilot.chat.localeOverride": "en",
   "terminal.integrated.cursorBlinking": true,
