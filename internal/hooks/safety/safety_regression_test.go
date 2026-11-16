@@ -72,7 +72,7 @@ func TestInertSegmentScmBodyFileAndRedirectNotInert(t *testing.T) {
 	}
 }
 
-// An inert-text ask (hard-block shape only in quoted text) must not mask a real exfil block later in the command.
+// A hard-block shape only in quoted text is data and must not mask a real exfil block later in the command.
 func TestSafetyInertAskDoesNotMaskExfilBlock(t *testing.T) {
 	hosttest.TierHarness(t)
 	cmd := `echo "rm -rf /"; printenv > /tmp/x`
@@ -81,16 +81,16 @@ func TestSafetyInertAskDoesNotMaskExfilBlock(t *testing.T) {
 	}
 }
 
-// A quoted-text hard-block Ask must keep the rewrite guard's fail-open warning when the ask pass allows.
-func TestHardBlockAskKeepsRewriteWarning(t *testing.T) {
+// A hard-block shape only in quoted text allows, keeping the rewrite guard's fail-open warning.
+func TestHardBlockInertTextKeepsRewriteWarning(t *testing.T) {
 	work, wt := rewriteFixture(t)
 	rewriteSetup(t, rewriteCase{live: true, noGit: true}, map[string]string{"work": work, "wt": wt})
 	cmd := `echo "` + "rm -rf" + ` /"; git commit --amend --no-edit`
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": work,
 		"tool_input": map[string]string{"command": cmd}})
 	r := Scan(core.ParseInput(strings.NewReader(string(payload))))
-	if got := r.Reason + r.Stderr; r.Decision != core.Ask || !strings.Contains(got, "could not check") {
-		t.Fatalf("decision %v, want Ask carrying the could-not-check warning:\n%s", r.Decision, got)
+	if got := r.Reason + r.Stderr; r.Decision != core.Allow || !strings.Contains(got, "could not check") {
+		t.Fatalf("decision %v, want Allow carrying the could-not-check warning:\n%s", r.Decision, got)
 	}
 }
 
@@ -158,15 +158,15 @@ func treeGitSetup(t *testing.T) treeGitDirs {
 func treeGitPathCases(d treeGitDirs) []treeGitCase {
 	harness, worktree, elsewhere, link := d.harness, d.worktree, d.elsewhere, d.link
 	return []treeGitCase{
-		{"git checkout -- foo.go", filepath.Join(harness, "internal"), core.Ask, ""},
-		{"git -C " + harness + " restore x", elsewhere, core.Ask, ""},
-		{"git clean -fd", link, core.Ask, ""},
-		{`git -C "$HOME/.claude" clean -fd`, elsewhere, core.Ask, ""},
-		{"cd ~/.claude && git checkout .", elsewhere, core.Ask, ""},
-		{"git --no-pager reset --hard", harness, core.Ask, ""},
-		{"git -c core.pager=cat checkout .", harness, core.Ask, ""},
-		{"git --git-dir=" + harness + "/.git --work-tree=" + harness + " checkout .", elsewhere, core.Ask, ""},
-		{"git stash list && git stash pop", harness, core.Ask, ""},
+		{"git checkout -- foo.go", filepath.Join(harness, "internal"), core.Block, ""},
+		{"git -C " + harness + " restore x", elsewhere, core.Block, ""},
+		{"git clean -fd", link, core.Block, ""},
+		{`git -C "$HOME/.claude" clean -fd`, elsewhere, core.Block, ""},
+		{"cd ~/.claude && git checkout .", elsewhere, core.Block, ""},
+		{"git --no-pager reset --hard", harness, core.Block, ""},
+		{"git -c core.pager=cat checkout .", harness, core.Block, ""},
+		{"git --git-dir=" + harness + "/.git --work-tree=" + harness + " checkout .", elsewhere, core.Block, ""},
+		{"git stash list && git stash pop", harness, core.Block, ""},
 		{"git stash list", harness, core.Allow, ""},
 		{"git status --short", harness, core.Allow, ""},
 		{"git checkout main", elsewhere, core.Allow, ""},
@@ -175,8 +175,8 @@ func treeGitPathCases(d treeGitDirs) []treeGitCase {
 		{"git checkout .", worktree, core.Allow, ""},
 		{"git -C " + worktree + " reset --hard", elsewhere, core.Allow, ""},
 		{"cd " + worktree + " && git stash", elsewhere, core.Allow, ""},
-		{"git stash", filepath.Join(harness, ".claude"), core.Ask, ""},
-		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), core.Ask, ""},
+		{"git stash", filepath.Join(harness, ".claude"), core.Block, ""},
+		{"git checkout .", filepath.Join(harness, ".claude", "worktrees"), core.Block, ""},
 	}
 }
 
@@ -185,35 +185,35 @@ func treeGitWrapperCases(d treeGitDirs) []treeGitCase {
 	harness, elsewhere := d.harness, d.elsewhere
 	return []treeGitCase{
 		// A git verb hidden inside a shell -c / eval string argument is still a real invocation.
-		{`bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
-		{`sh -c "git -C ` + harness + ` reset --hard"`, elsewhere, core.Ask, ""},
-		{`eval "git -C ` + harness + ` stash"`, elsewhere, core.Ask, ""},
+		{`bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
+		{`sh -c "git -C ` + harness + ` reset --hard"`, elsewhere, core.Block, ""},
+		{`eval "git -C ` + harness + ` stash"`, elsewhere, core.Block, ""},
 		{`bash -c "cd ` + elsewhere + ` && git stash"`, harness, core.Allow, ""},
 		// Absolute wrapper path still resolves via filepath.Base.
-		{`/bin/bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
+		{`/bin/bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
 		// Single-quoted -c argument.
-		{`bash -c 'cd ` + harness + ` && git stash'`, elsewhere, core.Ask, ""},
+		{`bash -c 'cd ` + harness + ` && git stash'`, elsewhere, core.Block, ""},
 		// eval with several unquoted argv words (not one quoted string).
-		{`eval git -C ` + harness + ` stash`, elsewhere, core.Ask, ""},
+		{`eval git -C ` + harness + ` stash`, elsewhere, core.Block, ""},
 		// Negative control: a non-banned verb inside bash -c must proceed.
 		{`bash -c "cd ` + harness + ` && git status"`, elsewhere, core.Allow, ""},
 		// Combined short flags: -lc and -xc must be recognized as -c.
-		{`bash -lc "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
-		{`bash -xc "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
+		{`bash -lc "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
+		{`bash -xc "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
 		// Escaped inner quotes inside the outer "…" must not close it early (doubly-nested bash -c).
-		{`bash -c "bash -c \"cd ` + harness + ` && git stash\""`, elsewhere, core.Ask, ""},
+		{`bash -c "bash -c \"cd ` + harness + ` && git stash\""`, elsewhere, core.Block, ""},
 		// An env-var prefix on the wrapper token must still be recognized as the wrapper.
-		{`BASH_ENV=x bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
+		{`BASH_ENV=x bash -c "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
 		// Quoted separator must not be mis-split: the `;` inside "a;b" is not a segment break.
 		{`echo "a;b" && git status`, harness, core.Allow, ""},
 		// A backslash is literal inside single quotes, so this is one segment ending in `git stash`.
-		{`bash -c 'echo \"x\"; git stash'`, harness, core.Ask, ""},
+		{`bash -c 'echo \"x\"; git stash'`, harness, core.Block, ""},
 		// Escaped quotes around an ordinary argument must not be mistaken for a nested wrapper.
 		{`git commit -m "say \"hi\""`, harness, core.Allow, ""},
 		{`bash -c "cd /tmp && git stash"`, harness, core.Allow, ""},
 		{`FOO=1 make test`, harness, core.Allow, ""},
 		// --login is a long flag distinct from -c; must not block -lc's -c recognition on this wrapper.
-		{`bash --login -c "cd ` + harness + ` && git stash"`, elsewhere, core.Ask, ""},
+		{`bash --login -c "cd ` + harness + ` && git stash"`, elsewhere, core.Block, ""},
 	}
 }
 
@@ -222,14 +222,14 @@ func treeGitSubshellCases(d treeGitDirs) []treeGitCase {
 	harness, elsewhere := d.harness, d.elsewhere
 	return []treeGitCase{
 		// Subshell/group forms: an unquoted trailing `)`/`}` must not glue onto the verb word.
-		{"(cd ~/.claude && git stash)", elsewhere, core.Ask, ""},
-		{"(cd ~/.claude && git restore)", elsewhere, core.Ask, ""},
-		{"(cd ~/.claude ; git stash)", elsewhere, core.Ask, ""},
-		{"((cd ~/.claude && git stash))", elsewhere, core.Ask, ""},
-		{"(cd ~/.claude && git -c x=y stash)", elsewhere, core.Ask, ""},
-		{"git -C ~/.claude stash)", elsewhere, core.Ask, ""},
-		{"pushd ~/.claude && git stash)", elsewhere, core.Ask, ""},
-		{"(cd ~/.claude && git clean -fd)", elsewhere, core.Ask, ""},
+		{"(cd ~/.claude && git stash)", elsewhere, core.Block, ""},
+		{"(cd ~/.claude && git restore)", elsewhere, core.Block, ""},
+		{"(cd ~/.claude ; git stash)", elsewhere, core.Block, ""},
+		{"((cd ~/.claude && git stash))", elsewhere, core.Block, ""},
+		{"(cd ~/.claude && git -c x=y stash)", elsewhere, core.Block, ""},
+		{"git -C ~/.claude stash)", elsewhere, core.Block, ""},
+		{"pushd ~/.claude && git stash)", elsewhere, core.Block, ""},
+		{"(cd ~/.claude && git clean -fd)", elsewhere, core.Block, ""},
 		// Same shapes elsewhere, or with an allowed verb/word, must still proceed (path/verb-gated, not shape-gated).
 		{"(cd /tmp && git stash)", harness, core.Allow, ""},
 		{"(cd ~/.claude && git stash list)", elsewhere, core.Allow, ""},
@@ -246,17 +246,17 @@ func treeGitSubstitutionCases(d treeGitDirs) []treeGitCase {
 	return []treeGitCase{
 		// Command substitutions: `$(...)` and backtick spans are pulled out and checked as their own nested
 		// command with independent cd tracking, masked from the outer segment so neighboring tokens don't glue.
-		{"`cd ~/.claude && git stash`", harness, core.Ask, ""},
+		{"`cd ~/.claude && git stash`", harness, core.Block, ""},
 		{"`cd /tmp && git stash`", harness, core.Allow, ""},
 		{"$(cd /tmp && git stash)", harness, core.Allow, ""},
-		{"$(cd ~/.claude && git stash)", elsewhere, core.Ask, ""},
+		{"$(cd ~/.claude && git stash)", elsewhere, core.Block, ""},
 		// A double-quoted substitution is evaluated by the shell, so it must still be checked.
-		{"echo \"`cd ~/.claude && git stash`\"", harness, core.Ask, ""},
+		{"echo \"`cd ~/.claude && git stash`\"", harness, core.Block, ""},
 		// A single-quoted substitution is literal text; it must stay allowed.
 		{"echo '`cd ~/.claude && git stash`'", harness, core.Allow, ""},
 		{`echo "safe $(echo hi)"`, harness, core.Allow, ""},
-		{`echo "$(cd ~/.claude && git stash)"`, harness, core.Ask, ""},
-		{`echo "$(cd ~/.claude && git stash)"`, elsewhere, core.Ask, ""},
+		{`echo "$(cd ~/.claude && git stash)"`, harness, core.Block, ""},
+		{`echo "$(cd ~/.claude && git stash)"`, elsewhere, core.Block, ""},
 	}
 }
 
@@ -398,17 +398,17 @@ func TestSafetyScanHardeningForcePush(t *testing.T) {
 		name, cwd, cmd string
 		want           core.Decision
 	}{
-		{"no-pager global flag", onFeature, `git --no-pager push -f origin main`, core.Ask},
-		{"short global flag", onFeature, `git -P push --force origin master`, core.Ask},
-		{"global flag with value", onFeature, `git --no-pager -c a=b push --force-with-lease origin main`, core.Ask},
+		{"no-pager global flag", onFeature, `git --no-pager push -f origin main`, core.Block},
+		{"short global flag", onFeature, `git -P push --force origin master`, core.Block},
+		{"global flag with value", onFeature, `git --no-pager -c a=b push --force-with-lease origin main`, core.Block},
 		{"global flag, feature branch", onFeature, `git --no-pager push -f origin feature`, core.Allow},
 		{"global flag, no push", onFeature, `git --no-pager log -f`, core.Allow},
-		{"bare -f on main", onMain, `git push -f`, core.Ask},
-		{"bare --force with remote on main", onMain, `git push --force origin`, core.Ask},
-		{"force-with-lease on main", onMain, `git --no-pager push --force-with-lease`, core.Ask},
-		{"HEAD refspec on main", onMain, `git push -f origin HEAD`, core.Ask},
-		{"-C into a main repo", onFeature, `git -C ` + onMain + ` push -f`, core.Ask},
-		{"after cd into a main repo", onFeature, `cd ` + onMain + ` && git push -f`, core.Ask},
+		{"bare -f on main", onMain, `git push -f`, core.Block},
+		{"bare --force with remote on main", onMain, `git push --force origin`, core.Block},
+		{"force-with-lease on main", onMain, `git --no-pager push --force-with-lease`, core.Block},
+		{"HEAD refspec on main", onMain, `git push -f origin HEAD`, core.Block},
+		{"-C into a main repo", onFeature, `git -C ` + onMain + ` push -f`, core.Block},
+		{"after cd into a main repo", onFeature, `cd ` + onMain + ` && git push -f`, core.Block},
 		{"bare -f on a feature branch", onFeature, `git push -f`, core.Allow},
 		{"bare --force with remote on a feature branch", onFeature, `git push --force origin`, core.Allow},
 		{"-C into a feature repo from main", onMain, `git -C ` + onFeature + ` push -f`, core.Allow},
@@ -430,19 +430,19 @@ func TestSafetyScanHardeningForcePush(t *testing.T) {
 	}
 }
 
-// TestSafetyScanHardeningInertTextDoesNotAsk: sudo or a force-push inside commit or echo text asks nothing; real ones ask.
-func TestSafetyScanHardeningInertTextDoesNotAsk(t *testing.T) {
+// TestSafetyScanHardeningInertTextDoesNotBlock: sudo or a force-push in commit, echo or file text is data.
+func TestSafetyScanHardeningInertTextDoesNotBlock(t *testing.T) {
 	hosttest.TierHarness(t)
 	cases := []hardeningCase{
 		{"sudo in a commit message", `git commit -m "docs: sudo needed for install"`, core.Allow},
 		{"force push in a commit message", `git commit -m "note: git push --force origin main is banned"`, core.Allow},
 		{"sudo in echo", `echo "use sudo apt"`, core.Allow},
 		{"rm .git in a commit message", `git commit -m "never rm -rf .git"`, core.Allow},
-		{"real sudo", `sudo apt install x`, core.Ask},
-		{"sudo after a commit", `git commit -m x && sudo make install`, core.Ask},
-		{"sudo in a substitution inside echo", `echo "$(sudo id)"`, core.Ask},
-		{"real force push", `git push -f origin main`, core.Ask},
-		{"sudo in a data-sink heredoc stays checked", "cat <<'EOF' > n.md\nsudo make install\nEOF", core.Ask},
+		{"real sudo", `sudo apt install x`, core.Block},
+		{"sudo after a commit", `git commit -m x && sudo make install`, core.Block},
+		{"sudo in a substitution inside echo", `echo "$(sudo id)"`, core.Block},
+		{"real force push", `git push -f origin main`, core.Block},
+		{"sudo in a data-sink heredoc is data", "cat <<'EOF' > n.md\nsudo make install\nEOF", core.Allow},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -485,18 +485,18 @@ func TestHardBlockRmNeedsWordBoundary(t *testing.T) {
 	}
 }
 
-func TestBareForcePushAsksWhenGitIsUnrunnable(t *testing.T) {
+func TestBareForcePushBlocksWhenGitIsUnrunnable(t *testing.T) {
 	hosttest.TierHarness(t)
 	t.Setenv("PATH", t.TempDir())
-	if got, msg := safetyScanDecision(t, tierPayload("git push --force", t.TempDir())); got != core.Ask {
-		t.Errorf("decision %v want Ask (%s)", got, msg)
+	if got, msg := safetyScanDecision(t, tierPayload("git push --force", t.TempDir())); got != core.Block {
+		t.Errorf("decision %v want Block (%s)", got, msg)
 	}
 }
 
 func TestBareForcePushWithoutCwdUsesAbsoluteDashC(t *testing.T) {
 	hosttest.TierHarness(t)
 	onMain := hosttest.Repo(t)
-	if got, msg := safetyScanDecision(t, tierPayload("git -C "+onMain+" push --force", "")); got != core.Ask {
-		t.Errorf("decision %v want Ask (%s)", got, msg)
+	if got, msg := safetyScanDecision(t, tierPayload("git -C "+onMain+" push --force", "")); got != core.Block {
+		t.Errorf("decision %v want Block (%s)", got, msg)
 	}
 }

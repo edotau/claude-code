@@ -138,15 +138,15 @@ func TestSafetyTempGitRemoval(t *testing.T) {
 	fx := filepath.Join(tmp, "fixture")
 	runTempCases(t, []tempCase{
 		{"rm -rf a temp fixture's .git", "rm -rf " + filepath.Join(fx, ".git"), core.Allow},
-		{"rm -rf the live tree's .git", "rm -rf " + filepath.Join(liveCfg, ".git"), core.Ask},
-		{"rm -rf through a temp symlink, trailing slash", "rm -rf " + filepath.Join(link, ".git") + "/", core.Ask},
+		{"rm -rf the live tree's .git", "rm -rf " + filepath.Join(liveCfg, ".git"), core.Block},
+		{"rm -rf through a temp symlink, trailing slash", "rm -rf " + filepath.Join(link, ".git") + "/", core.Block},
 		{"ln -s into the config dir, then rm", "ln -s " + liveCfg + " " + filepath.Join(tmp, "l4") + " && rm -rf " +
-			filepath.Join(tmp, "l4", ".git"), core.Ask},
-		{"cd, then a relative .git", "cd " + fx + " && rm -rf .git", core.Ask},
-		{"a glob", "rm -rf " + filepath.Join(tmp, "*", ".git"), core.Ask},
-		{"inside bash -c", "bash -c 'rm -rf " + filepath.Join(fx, ".git") + "'", core.Ask},
+			filepath.Join(tmp, "l4", ".git"), core.Block},
+		{"cd, then a relative .git", "cd " + fx + " && rm -rf .git", core.Block},
+		{"a glob", "rm -rf " + filepath.Join(tmp, "*", ".git"), core.Block},
+		{"inside bash -c", "bash -c 'rm -rf " + filepath.Join(fx, ".git") + "'", core.Block},
 		{"temp .git beside the live one", "rm -rf " + filepath.Join(fx, ".git") + " " + filepath.Join(liveCfg, ".git"),
-			core.Ask},
+			core.Block},
 	})
 }
 

@@ -46,7 +46,7 @@ var pipeBlocks = []*core.Gated{
 	core.Gate(`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`, "python"),
 }
 
-// askRule is an intent-dependent shape matched within one shell segment, its message, alternative and exemption.
+// askRule is an intent-dependent shape matched within one shell segment, its message, allowed route and exemption.
 type askRule struct {
 	what, hint string
 	pats       []*core.Gated
@@ -63,12 +63,10 @@ const protectedBranch = `(.*[\s"':]|.*refs/heads/)?(main|master)["']?(\s|$)`
 
 const (
 	forcePushWhat = "force push to main/master"
-	forcePushHint = "Push a branch and open a PR instead: git push origin HEAD:<branch>."
+	forcePushHint = "Push a branch and open a PR instead: git push origin HEAD:<branch>." + ownerRoute
 )
 
 var askRules = []askRule{
-	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
-		[]*core.Gated{core.Gate(`(^|[^[:alnum:]_])sudo(\s|$)`, "sudo")}, nil},
 	{forcePushWhat, forcePushHint, []*core.Gated{
 		core.Gate(gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch, "push"),
 		core.Gate(gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag, "push"),
@@ -77,7 +75,7 @@ var askRules = []askRule{
 		core.Gate(gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`, "push"),
 	}, nil},
 	{"recursive removal of a .git directory",
-		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
+		"That deletes the repository history; use a fresh worktree instead: claude-code worktree create <name>." + ownerRoute,
 		[]*core.Gated{core.Gate(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`, ".git")},
 		tempGitRemoval},
 }
@@ -142,7 +140,7 @@ var softWarn = []*core.Gated{
 	core.Gate(`git\s+clean\s+-[a-z]*f`, "clean"),
 }
 
-// Scan checks command safety: block and non-Claude ask reject, a Claude ask prompts, soft warnings ride stderr.
+// Scan checks command safety: a block or non-Claude ask rejects, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
@@ -185,8 +183,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
-	d, msg, detail := hardBlockVerdict(in, cmd, scan)
-	if d == core.Block {
+	if d, msg, detail := hardBlockVerdict(in, cmd, scan); d == core.Block {
 		return d, msg, detail
 	}
 	for i, re := range exfilPatterns {
@@ -194,31 +191,27 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
-	ask, askMsg, askDetail := safetyAskVerdict(in, cmd, scan)
-	if d > ask {
-		return d, askMsg + msg, detail
-	}
-	return ask, askMsg, askDetail
+	return safetyAskVerdict(in, cmd)
 }
 
-// safetyAskVerdict reports the first intent-dependent shape; the owner approves it on Claude, others block.
-func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
+// safetyAskVerdict judges the intent rules on real invocations only: most block, destructive SQL and script writes ask.
+func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
 	d, msg, detail, warn := rewriteVerdict(in, cmd)
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
-	// A plain Python stdin script's body is Python, not shell words; interpreterWrite still judges its paths.
-	asked := dropPyScripts(cmd)
-	if asked != cmd {
-		scan = inertStripped(asked)
+	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
+	asked := intentView(dropPyScripts(cmd), false)
+	if sudoInvoked(asked, in.CWD) {
+		return core.Block, warn + core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
 	}
-	// Rules match inside ONE shell segment of inert-blanked text: `git push origin main; readlink -f x` is no force-push.
-	for _, seg := range shell.Segments(blankInert(asked)) {
+	// Rules match inside ONE shell segment: `git push origin main; readlink -f x` is no force-push.
+	for _, seg := range shell.Segments(asked) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats {
 				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
-					return core.Ask, warn + core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
+					return core.Block, warn + core.SafetyMessage(in, core.Block, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
@@ -226,16 +219,16 @@ func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	if d, msg, detail = pushOrScriptVerdict(in, cmd, asked); d != core.Allow {
 		return d, warn + msg, detail
 	}
-	d, msg, detail = askPatternVerdict(in, asked, scan)
+	d, msg, detail = askPatternVerdict(in, asked)
 	return d, warn + msg, detail
 }
 
-// pushOrScriptVerdict asks on a force-push with no refspec and on an interpreter that may write a protected file.
+// pushOrScriptVerdict blocks a force-push with no refspec and asks on an interpreter that may write a protected file.
 func pushOrScriptVerdict(in *core.Input, cmd, asked string) (core.Decision, string, string) {
 	if branch := bareForcePush(asked, in.CWD); branch != "" {
-		return core.Ask, core.SafetyMessage(in, core.Ask, forcePushWhat, "", forcePushHint), "force push of " + branch
+		return core.Block, core.SafetyMessage(in, core.Block, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
-	if p := interpreterWrite(cmd); p != "" {
+	if p := interpreterWrite(intentView(cmd, false)); p != "" {
 		hint := "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
 		what := "an interpreter script that may write a file Edit/Write may never touch"
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, p, hint), "interpreter protected write"
@@ -243,22 +236,24 @@ func pushOrScriptVerdict(in *core.Input, cmd, asked string) (core.Decision, stri
 	return core.Allow, "", ""
 }
 
-// askPatternVerdict asks on hard rule 4 git verbs, hard rule 3 footers and destructive SQL.
-func askPatternVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
+// askPatternVerdict blocks hard rule 4 git verbs and hard rule 3 footers, and asks on destructive SQL.
+func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	if verb := harnessGitVerb(cmd, in.CWD); verb != "" {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		if verb == shell.Uninspectable {
 			what = "command nests too deep to check, inside the shared config tree (CLAUDE.md hard rule 4)"
 		}
-		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
-		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
+		hint := "The live checkout is shared; make a new commit to undo, or work in a linked worktree " +
+			"(`claude-code worktree create <name>`)." + ownerRoute
+		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared config git mutation"
 	}
-	if shell.AttributionFooterCommit(dropPatchBodies(in.ToolCommand())) { // a footer lives in the message body
+	// A footer lives in the message body, so commit text stays; other data does not.
+	if shell.AttributionFooterCommit(intentView(dropPyScripts(dropPatchBodies(in.ToolCommand())), true)) {
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
-		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
-		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "attribution footer"
+		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
+		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
 	}
-	if sqlDestructive().MatchString(strings.ToLower(scan)) {
+	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
 		return core.Ask, core.SafetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
@@ -270,7 +265,7 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 
 // harnessGitVerb is the first banned verb, or shell.Uninspectable, whose target tree is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
-	cmd = dropRemoteHeredocs(core.DropDataHeredocs(cmd))
+	cmd = expandVars(dropRemoteHeredocs(core.DropDataHeredocs(cmd))) // `T=/tmp/x; git -C $T`
 	hit := bannedVerb(cmd, cwd)
 	if hit != shell.Uninspectable {
 		return hit
@@ -304,8 +299,8 @@ func bannedVerb(cmd, cwd string) string {
 var mktempCd = []*core.Gated{
 	core.Gate(`(?:^|[\s;&|(])(?:cd|pushd)\s+(?:-[LPe@]+\s+)*(?:--\s+)?("[^"]*"|\$\([^)]*\)\S*|\S+)`, "cd", "pushd"),
 	core.Gate(`(?:^|[\s;&|(])([A-Za-z_]\w*)=`, "="),
-	core.Gate(`^"?\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)"?(?:[\s;&|)]|$)`, "mktemp"),
-	core.Gate(`^(?:\$\(\s*mktemp(?:\s+[-\w.]+)*\s*\)|\$\{?([A-Za-z_]\w*)\}?)(?:/[-\w./]*)?$`, "$"),
+	core.Gate(`^"?\$\(\s*mktemp(?:\s+[-\w./=]+)*\s*\)"?(?:[\s;&|)]|$)`, "mktemp"),
+	core.Gate(`^(?:\$\(\s*mktemp(?:\s+[-\w./=]+)*\s*\)|\$\{?([A-Za-z_]\w*)\}?)(?:/[-\w./]*)?$`, "$"),
 }
 
 // mktempCdsOnly reports a command whose every dynamic cd lands in a fresh mktemp dir, never the shared tree.
@@ -318,7 +313,7 @@ func mktempCdsOnly(cmd string) bool {
 	for _, m := range re[1].Regexp().FindAllStringSubmatchIndex(cmd, -1) {
 		name := cmd[m[2]:m[3]]
 		if prev, seen := vars[name]; !seen || prev {
-			vars[name] = re[2].MatchString(cmd[m[1]:])
+			vars[name] = re[2].MatchString(cmd[m[1]:]) && freshMktemp(cmd[m[1]:])
 		}
 	}
 	fresh := false
@@ -328,7 +323,7 @@ func mktempCdsOnly(cmd string) bool {
 			continue
 		}
 		t := re[3].Regexp().FindStringSubmatch(arg)
-		if t == nil || strings.Contains(arg, "..") || t[1] != "" && !vars[t[1]] {
+		if t == nil || strings.Contains(arg, "..") || t[1] != "" && !vars[t[1]] || t[1] == "" && !freshMktemp(arg) {
 			return false
 		}
 		fresh = true
@@ -341,10 +336,10 @@ func runsGit(text string) bool {
 	return shell.EachGit(text, "/", func(string, string, []string) bool { return true })
 }
 
-// bannedGit is a hard rule 4 verb that writes the tree; read-only `stash list|show` and `clean -n` are fine.
+// bannedGit is a hard rule 4 verb that writes the tree; `stash list|show`, `clean -n` and harmlessGit forms are fine.
 func bannedGit(verb string, args []string) bool {
 	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show") ||
-		verb == "clean" && cleanDryRun(args)
+		verb == "clean" && cleanDryRun(args) || harmlessGit(verb, args)
 	return (bannedGitVerbs[verb] || verb == shell.Uninspectable) && !readOnly
 }
 
@@ -387,7 +382,7 @@ func gitBannedUnder(target, verb string, args []string) bool {
 		(!paths.InsideDir(target, worktrees) || paths.SameFile(target, worktrees))
 }
 
-// hardBlockVerdict blocks a protected write or a hard shape outside inert text and asks on one only in quoted text.
+// hardBlockVerdict blocks a protected write or a hard shape outside inert text; one only in inert text is data.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	if p := protectedWrite(cmd, in.CWD); p != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
@@ -396,7 +391,7 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	if strings.Contains(cmd, "<<") { // heredoc bodies stay in the scan
 		scan = cmd
 	}
-	if pattern, ok := firstHardBlock(scan); ok {
+	if pattern, ok := firstHardBlock(blankHardData(scan)); ok {
 		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
 	}
 	if pattern, ok := feedHardBlock(cmd); ok { // `printf 'rm -rf /\n' | sh` runs what printf prints
@@ -406,13 +401,6 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 		if pattern, ok := firstHardBlock(s.Text); ok {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
 		}
-	}
-	if scan == cmd {
-		return core.Allow, "", "" // nothing was stripped, so the raw pass would find nothing new
-	}
-	if pattern, ok := firstHardBlock(cmd); ok {
-		what := "destructive command (matched only inside quoted/inert text)"
-		return core.Ask, core.SafetyMessage(in, core.Ask, what, pattern, terminalHint), pattern
 	}
 	return core.Allow, "", ""
 }
