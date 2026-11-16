@@ -520,6 +520,26 @@ func TestPruneSeenSessionRoots(t *testing.T) {
 	}
 }
 
+// Synthesized agent transcripts age out after seenMaxAge; a fresh one stays.
+func TestPruneSeenAgentTranscripts(t *testing.T) {
+	isolatedConfig(t)
+	dir := filepath.Join(StateDir(), "agent-transcripts")
+	oldF, newF := filepath.Join(dir, "old.jsonl"), filepath.Join(dir, "new.jsonl")
+	write(t, oldF, "x")
+	write(t, newF, "x")
+	old := time.Now().Add(-seenMaxAge - 24*time.Hour)
+	if err := os.Chtimes(oldF, old, old); err != nil {
+		t.Fatal(err)
+	}
+	pruneSeen(filepath.Join(StateDir(), "recall-seen"))
+	if _, err := os.Stat(oldF); !os.IsNotExist(err) {
+		t.Errorf("8-day-old agent transcript survived the prune: %v", err)
+	}
+	if _, err := os.Stat(newF); err != nil {
+		t.Errorf("fresh agent transcript was removed: %v", err)
+	}
+}
+
 // Given a bank file session start cannot read, When resetSeen runs, Then its blocks leave the seen set (not shown).
 func TestResetSeenDropsBlocksFromAnUnreadableFile(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
