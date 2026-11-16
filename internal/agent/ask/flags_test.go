@@ -59,8 +59,7 @@ func TestEffortFlagHelpListsTheScale(t *testing.T) {
 	}
 }
 
-// attachFlag.Set resolves a real file to an absolute path and errors on anything else: missing,
-// directory, or a path flag.Abs itself cannot resolve.
+// attachFlag.Set resolves a real file to an absolute path and errors on anything else.
 func TestAttachFlagSet(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "a.txt")

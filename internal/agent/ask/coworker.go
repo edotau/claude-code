@@ -388,8 +388,7 @@ func checkNative(ctx context.Context, native bool) error {
 	return nil
 }
 
-// isArm reports whether profile names the armed workspace in any spelling (dev, databricks:dev, databricks·dev)
-// or the shared pool (databricks:, auto), which resolves to a workspace inside the confinement.
+// isArm reports whether profile names the armed workspace in any spelling, or the shared pool (databricks:, auto).
 func isArm(profile, arm string) bool {
 	row := profile
 	for _, sep := range []string{":", "·"} {

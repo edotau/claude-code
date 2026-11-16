@@ -102,8 +102,7 @@ func dbxRow(t *testing.T, name, sp string) *providers.Provider {
 	return p
 }
 
-// A dead user login fails the local check when no service principal covers it, and names the command; an SP or a
-// healthy login passes.
+// A dead user login fails the local check when no service principal covers it; an SP or a healthy login passes.
 func TestCheckWorkspaceFailsADeadLoginOnlyWithoutAServicePrincipal(t *testing.T) {
 	vaulttest.Use(t)
 	alone, paired, live := dbxRow(t, "dbx-alone", ""), dbxRow(t, "dbx-paired", "sp-client"), dbxRow(t, "dbx-live", "")

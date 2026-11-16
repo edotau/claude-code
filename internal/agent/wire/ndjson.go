@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// DecodeEvents decodes br's JSON lines into E for handle, timing each when tick; blank and non-JSON lines are
-// skipped (non-JSON logged raw), and a valid line that does not fit E runs onBad, then aborts.
+// DecodeEvents decodes br's JSON lines into E for handle; non-JSON lines are skipped, a misfit runs onBad.
 func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
 	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
 	ts := TransportTracker{Start: Clock()}

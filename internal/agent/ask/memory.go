@@ -12,7 +12,6 @@ import (
 )
 
 // memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
-// Gate: only the job's memory.JobScope is writable and only its listed commands run; plan mode denies the rest.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	s := memory.JobScope(memory.JobKind(ctx), workdir)
 	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}

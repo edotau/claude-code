@@ -39,8 +39,7 @@ func loadResult(rec agent.Record) (agent.Record, string, error) {
 	return agent.JobResult(context.Background(), rec.Agent, cwd, rec.ID)
 }
 
-// SaveResult is `agents result <id> --save <path>`: it writes the plain result text to path and prints one summary
-// line (json: {path, bytes, lines}); head > 0 follows it with the first head lines. Exit codes follow the result's.
+// SaveResult is `agents result <id> --save <path>`: writes the plain result text and prints one summary line.
 func SaveResult(rec agent.Record, path string, head int, format string) int {
 	rec, log, err := loadResult(rec)
 	if err != nil {
@@ -81,8 +80,7 @@ func firstLines(text string, n int) string {
 	return text[:end]
 }
 
-// Verdict is `agents result <id> --verdict`: one status line then the last n non-empty answer lines (json: the
-// envelope plus a verdict field). Exit codes follow the result's.
+// Verdict is `agents result <id> --verdict`: one status line then the last n non-empty answer lines.
 func Verdict(rec agent.Record, n int, format string) int {
 	rec, log, err := loadResult(rec)
 	if err != nil {

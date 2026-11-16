@@ -138,7 +138,6 @@ func (w *IdleTimeout) Stop() {
 }
 
 // Err is the classified failure when the window expired, else nil: ErrSilent after Spoke, ErrStalled before.
-// A delivered result makes it nil.
 func (w *IdleTimeout) Err() error {
 	if w == nil {
 		return nil

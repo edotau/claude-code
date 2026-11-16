@@ -137,8 +137,7 @@ func loadRegistryWarn() *providers.Registry {
 	return reg
 }
 
-// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins; a dispatch's
-// context values resolve the account.
+// routePickOpts fills the fallback mode, the account resolver and the roster in o, and loads the pins.
 func routePickOpts(ctx context.Context, o router.PickOpts, mode string) (router.PickOpts, map[string]router.PinSpec, error) {
 	o.Fallback = mode
 	if _, ok := proc.ValuesFromContext(ctx); ok && o.Account == nil {
@@ -235,7 +234,6 @@ func (rc routeCtx) onPin(c router.Candidate) bool {
 	return false
 }
 
-// asPin is rc reading a candidate as the wanted agent's pin: no caller model, no lead.
 func (rc routeCtx) asPin() routeCtx {
 	rc.lead, rc.row, rc.exact, rc.callerModel, rc.explicitModel = "", "", "", "", false
 	rc.dispatchID = router.NonClaudeDispatchID("", false, rc.pins[rc.want].Model)
@@ -301,7 +299,6 @@ func (rc routeCtx) otherRoute(cand router.Candidate) bool {
 	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
 }
 
-// same reports whether o runs the same agent, account, model and effort as d.
 func (d Dispatch) same(o Dispatch) bool {
 	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Model == o.Model && d.Effort == o.Effort
 }
@@ -346,7 +343,6 @@ type LeadError struct{ Err error }
 func (e *LeadError) Error() string { return e.Err.Error() }
 func (e *LeadError) Unwrap() error { return e.Err }
 
-// chainFor builds the routed chain for q with the given alias hint and lead.
 func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router.PickResult, error) {
 	return RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native,
 		router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }})
@@ -487,7 +483,6 @@ func explicitEngine(q RouteReq, pf *Preflight) (Engine, error) {
 // LeadSession is the --profile value naming the session's own profile (CLAUDE_PROFILE, else claude's record).
 const LeadSession = "session"
 
-// routeCtx is the per-pick state routeChain's candidate helpers share.
 type routeCtx struct {
 	ctx                           context.Context
 	tb                            *router.RouteTable
@@ -530,7 +525,6 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != ""
 }
 
-// pinnedCell runs the caller's model on cand's pinned profile, respelled for it.
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
 	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
@@ -611,7 +605,6 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 	return cell, ""
 }
 
-// buildDispatch turns cand's cell into a dispatch; skip is non-empty when it cannot run, err when its agent is unknown.
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
 	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
 	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
