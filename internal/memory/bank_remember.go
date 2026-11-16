@@ -174,7 +174,7 @@ func appendReportLocked(b Bank, label string, in ReportInput) ([]string, error) 
 		return nil, errors.Join(err, report.restore(), decisions.restore())
 	}
 	if err := appendText(reportPath, "", strings.TrimRight(in.Report, "\n")+"\n\n"); err != nil {
-		return nil, err
+		return rollback(err)
 	}
 	if err := appendText(decisionsPath, "# Decisions\n\n", decisionLines(day, label, in.Decisions)); err != nil {
 		return rollback(err)

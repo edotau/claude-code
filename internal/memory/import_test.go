@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,10 +56,9 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	if !errors.As(err, &in) || !strings.Contains(err.Error(), "retired per-repo layout") {
 		t.Errorf("import of a per-repo source into a flat store err = %v, want the migrate hint", err)
 	}
-	if err := os.Remove(filepath.Join(StoreDir(), layoutFile)); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(StoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("import --dry-run stamped the store layout (stat err = %v); it must write nothing", err)
 	}
-	forgetLayout()
 	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
 	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
 	if _, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true}); !errors.Is(err, errStoreNotFlat) {

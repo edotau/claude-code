@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// layoutFile stamps the store root once migrated; absent means the per-repo layout.
+// layoutFile stamps the store root as the flat layout; the first writer on a store with no per-repo dirs writes it.
 const layoutFile, layoutFlat = ".layout", "flat 1"
 
 // Bank is one repo's files in the store: <Key>--<name> when flat; Key "" is the home tier (unprefixed).
@@ -138,7 +138,10 @@ func BankKeys() []string {
 }
 
 // BankOfFile is the bank a store file belongs to by its longest known key prefix; unknown or none is home.
-func BankOfFile(path string) Bank {
+func BankOfFile(path string) Bank { return bankOfFile(path, BankKeys()) }
+
+// bankOfFile is BankOfFile against keys read once, for loops over many files.
+func bankOfFile(path string, keys []string) Bank {
 	name := filepath.ToSlash(path)
 	if filepath.IsAbs(path) {
 		rel, err := filepath.Rel(StoreDir(), path)
@@ -153,7 +156,7 @@ func BankOfFile(path string) Bank {
 	} else {
 		name = parts[0]
 	}
-	return Bank{Key: ownerKey(name, BankKeys())}
+	return Bank{Key: ownerKey(name, keys)}
 }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
@@ -183,6 +186,16 @@ var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout;
 
 // requireFlat is nil on a stamped store and stamps one with no per-repo dirs; any other gets errStoreNotFlat.
 func requireFlat() error {
+	if err := checkFlat(); err != nil || storeFlat() {
+		return err
+	}
+	err := paths.AtomicWrite(filepath.Join(StoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
+	forgetLayout()
+	return err
+}
+
+// checkFlat is requireFlat without the stamp, for read-only paths: errStoreNotFlat only on a per-repo store.
+func checkFlat() error {
 	if storeFlat() {
 		return nil
 	}
@@ -193,9 +206,7 @@ func requireFlat() error {
 	if slices.ContainsFunc(ents, legacyBankDir) {
 		return errStoreNotFlat
 	}
-	err = paths.AtomicWrite(filepath.Join(StoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
-	forgetLayout()
-	return err
+	return nil
 }
 
 // legacyBankDir is a per-repo bank dir: any other dir, or a shared-sub name holding a typed bank file.

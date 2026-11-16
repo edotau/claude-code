@@ -103,7 +103,6 @@ func mayCountEdits(line []byte) bool {
 
 // countLineEdits decodes an assistant tool_use line at most once, counting editor calls and weighted git commits.
 func countLineEdits(line []byte) (n int) {
-	defer func() { _ = recover() }() // malformed command text must not crash the hook; keep edits counted so far
 	if !mayCountEdits(line) {
 		return 0
 	}

@@ -101,8 +101,11 @@ func SessionFile(cwd, session string) (string, error) {
 		}
 		return p, nil
 	}
-	matches, err := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", session+".jsonl"))
-	if err != nil || len(matches) == 0 {
+	var matches []string
+	if !strings.ContainsAny(session, `/\`) { // an id is one file name; a separator would reach another dir
+		matches = globIn(filepath.Join(paths.ConfigDir(), "projects"), "*/"+globLiteral(session)+".jsonl")
+	}
+	if len(matches) == 0 {
 		return "", fmt.Errorf("no transcript for session %q in any project", session)
 	}
 	slices.Sort(matches)

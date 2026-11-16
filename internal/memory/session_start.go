@@ -92,7 +92,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 			hint = " (log: " + res.Log + ")"
 		}
 		note += " NOTE: the previous session's memory update did not complete (" + res.Status + ")" + hint +
-			" — run `claude-code memory update` to recover it."
+			" — run `claude-code memory update --session " + prevID + "` to recover it."
 	}
 	return note
 }
