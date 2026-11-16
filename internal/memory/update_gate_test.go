@@ -138,14 +138,17 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	hosttest.WriteEdits(t, tr, 5)
-	StubSpawn(t, false)
-	blocks := []bool{}
+	calls := &StubSpawn(t, false).Update
+	blocks, spawns := []bool{}, []int64{}
 	for range 5 {
 		g := runGate("s1", tr, cwd, TriggerStop)
-		blocks = append(blocks, g.Blocked)
+		blocks, spawns = append(blocks, g.Blocked), append(spawns, calls.Load())
 	}
 	if fmt.Sprint(blocks) != fmt.Sprint([]bool{true, true, true, false, false}) {
 		t.Errorf("blocks %v", blocks)
+	}
+	if fmt.Sprint(spawns) != fmt.Sprint([]int64{1, 2, 3, 3, 3}) {
+		t.Errorf("cumulative spawns %v: each noted Stop retries once, none past the cap", spawns)
 	}
 
 	// Evidence releases the gate: a bank write after the stamp.
