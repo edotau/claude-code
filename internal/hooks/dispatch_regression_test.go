@@ -408,24 +408,32 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop}
 }
 
-// Stop merges both memory blocks, still formats, and skips only the checkpoint when active.
+// Stop notes the unsaved memory update without blocking, formats, and keeps another module's block when one fires.
 func TestStopCombinesBlocksAndStillFormats(t *testing.T) {
 	f := newStopFormatFixture(t)
 	mine, ugly, stop := f.mine, f.ugly, f.stop
 	code, msg := stop("s1", false)
-	if code != core.ExitBlock {
-		t.Fatalf("the memory update blocks: got %d, want ExitBlock; msg=%q", code, msg)
+	if code != core.ExitProceed || !strings.Contains(msg, "memory update") {
+		t.Fatalf("memory alone must note, not block: got %d, msg=%q", code, msg)
 	}
-	if !strings.Contains(msg, "memory update") {
-		t.Errorf("block message missing the memory update: %q", msg)
+	if b, _ := os.ReadFile(mine); string(b) == ugly {
+		t.Error("the format group must run on Stop")
+	}
+
+	format := native["format-stop"]
+	native["format-stop"] = func(in *core.Input) core.Result {
+		r := format(in)
+		r.Decision, r.Reason = core.Block, "leaf still running"
+		return r
+	}
+	t.Cleanup(func() { native["format-stop"] = format })
+	_ = os.WriteFile(mine, []byte(ugly), 0o644)
+	code, msg = stop("s2", true)
+	if code != core.ExitBlock || !strings.Contains(msg, "leaf still running") || strings.Contains(msg, "Context usage") {
+		t.Errorf("another module's block must survive the memory note: code=%d msg=%q", code, msg)
 	}
 	if b, _ := os.ReadFile(mine); string(b) == ugly {
 		t.Error("the format group must run even when the stop is blocked")
-	}
-
-	code, msg = stop("s2", true)
-	if code != core.ExitBlock || strings.Contains(msg, "Context usage") {
-		t.Errorf("stop_hook_active must skip the checkpoint only: code=%d msg=%q", code, msg)
 	}
 }
 
