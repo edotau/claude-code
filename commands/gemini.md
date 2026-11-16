@@ -18,7 +18,7 @@ Launcher only. Empty `$ARGUMENTS` or `help`: print the block above and stop. Oth
    `<label>:`; empty output means no prefix: use the description alone).
 3. Make ONE Agent tool call: `subagent_type: gemini`, description `<label>: <first ~8 words of the task>`, and a
    prompt whose first line is
-   `Run: claude-code agents ask --agent gemini [the flags from step 1] --tools --autonomous`,
+   `Run: claude-code agents ask --agent gemini [the flags from step 1] --tools --read-only`,
    then a blank line, then the task verbatim.
 
 Relay the leaf's report with its `ran on` line; never do the task yourself. Commands:
