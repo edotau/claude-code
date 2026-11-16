@@ -28,6 +28,21 @@ func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
 	}
 }
 
+// A hook_blocked event without a session id (a probe run) is counted apart from a session's.
+func TestNoSessionCountsOnlySessionlessBlocks(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	Log(HookBlocked, "safety", "destructive command")
+	LogSession(HookBlocked, "s-1", "safety", "destructive command")
+	Log(ProviderSwitch, "gemini", "")
+	ev, err := Read(time.Time{})
+	if err != nil || len(ev) != 3 || ev[1].Session != "s-1" {
+		t.Fatalf("Read = %+v, %v", ev, err)
+	}
+	if n := NoSession(ev); n != 1 {
+		t.Errorf("NoSession = %d, want 1", n)
+	}
+}
+
 // A failed credential seal is a valid action and keeps the vault secret's name and the kind readable.
 func TestSealFailedIsLoggedWithNameAndKind(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

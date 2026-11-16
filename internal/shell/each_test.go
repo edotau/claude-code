@@ -40,6 +40,8 @@ func TestEachGit(t *testing.T) {
 		{"echo $(git commit -m x) `git add y`", []gitCall{{"/w", "commit"}, {"/w", "add"}}},
 		{"eval 'git stash'", []gitCall{{"/w", "stash"}}},
 		{"ssh host git stash", nil},
+		{"git --super-prefix x/ stash", []gitCall{{"/w", "stash"}}},
+		{"git --config-env core.x=HOME stash", []gitCall{{"/w", "stash"}}},
 	}
 	for _, c := range cases {
 		if got := collectGit(c.cmd, "/w"); !reflect.DeepEqual(got, c.want) {
@@ -185,6 +187,7 @@ func TestEachGitHiddenVerbs(t *testing.T) {
 		"git $'checkout' .":                       "checkout",
 		"git $'check\\x6fut' .":                   "checkout",
 		"git -c color.ui=always status":           "status",
+		"git --config-env alias.st=V st":          Uninspectable,
 	}
 	for cmd, want := range cases {
 		got := collectGit(cmd, "/w")

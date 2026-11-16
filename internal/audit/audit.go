@@ -56,6 +56,7 @@ type Event struct {
 	Action   Action    `json:"action"`
 	Resource string    `json:"resource"`
 	Detail   string    `json:"detail,omitempty"`
+	Session  string    `json:"session,omitempty"`
 }
 
 var maxBytes int64 = 1 << 20
@@ -66,13 +67,17 @@ const maxLineBytes = 4 << 10
 func logFile() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
 
 // Log appends one event. Fail-open: callers are hooks and the router hot path, so nothing is returned.
-func Log(a Action, resource, detail string) {
+func Log(a Action, resource, detail string) { LogSession(a, "", resource, detail) }
+
+// LogSession is Log stamped with the hook payload's session id, so a probe run (no session) is told apart.
+func LogSession(a Action, session, resource, detail string) {
 	if !a.Valid() {
 		return
 	}
 	// Every credential-shaped field is redacted so the log can never become a secret store.
 	event := Event{Schema: schemaVersion, Time: time.Now().UTC(), Action: a,
-		Resource: textutil.RedactSecrets(resource), Detail: textutil.RedactSecrets(detail)}
+		Resource: textutil.RedactSecrets(resource), Detail: textutil.RedactSecrets(detail),
+		Session: textutil.RedactSecrets(session)}
 	var line []byte
 	for {
 		var err error
@@ -188,6 +193,17 @@ func Summary(events []Event) map[Action]int {
 	return out
 }
 
+// NoSession counts hook_blocked events with no session id: probe runs, or records from before ids were logged.
+func NoSession(events []Event) int {
+	n := 0
+	for _, e := range events {
+		if e.Action == HookBlocked && e.Session == "" {
+			n++
+		}
+	}
+	return n
+}
+
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{
@@ -208,10 +224,11 @@ func Report(days int, format string) int {
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
-			Days    int            `json:"days"`
-			Summary map[Action]int `json:"summary"`
-			Events  []Event        `json:"events"`
-		}{days, Summary(ev), ev}); err != nil {
+			Days      int            `json:"days"`
+			Summary   map[Action]int `json:"summary"`
+			NoSession int            `json:"hook_blocked_no_session"`
+			Events    []Event        `json:"events"`
+		}{days, Summary(ev), NoSession(ev), ev}); err != nil {
 			return helptext.Fail("doctor --audit: %v", err)
 		}
 		return 0
@@ -222,6 +239,10 @@ func Report(days int, format string) int {
 	}
 	for _, e := range ev {
 		fmt.Printf("%s  %-16s %-22s %s\n", e.Time.Local().Format("2006-01-02 15:04"), e.Action, e.Resource, e.Detail)
+	}
+	if n := NoSession(ev); n > 0 {
+		fmt.Printf("%d of %d hook_blocked had no session id (a probe run, or logged before session ids were)\n",
+			n, Summary(ev)[HookBlocked])
 	}
 	return 0
 }
