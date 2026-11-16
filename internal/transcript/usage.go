@@ -179,8 +179,8 @@ func (a *UsageAggregate) Add(s *FileSummary) {
 	}
 }
 
-// globLiteral escapes s's glob metacharacters as one-rune classes, which filepath.Match reads literally on every OS.
-var globLiteral = strings.NewReplacer(globEscapes()...).Replace
+// GlobLiteral escapes s's glob metacharacters as one-rune classes, which filepath.Match reads literally on every OS.
+var GlobLiteral = strings.NewReplacer(globEscapes()...).Replace
 
 // globEscapes pairs each metacharacter with its class; `\` is an escape only where it is not the path separator.
 func globEscapes() []string {
@@ -191,16 +191,16 @@ func globEscapes() []string {
 	return pairs
 }
 
-// globIn is filepath.Glob(dir/pattern) with dir matched literally.
-func globIn(dir, pattern string) []string {
-	m, _ := filepath.Glob(filepath.Join(globLiteral(dir), pattern))
+// GlobIn is filepath.Glob(dir/pattern) with dir matched literally.
+func GlobIn(dir, pattern string) []string {
+	m, _ := filepath.Glob(filepath.Join(GlobLiteral(dir), pattern))
 	return m
 }
 
 // WorkflowRunDirs lists the subagents/workflows/<runId> dirs of a session dir.
 func WorkflowRunDirs(sessionDir string) []string {
 	var dirs []string
-	for _, m := range globIn(filepath.Join(sessionDir, "subagents", "workflows"), "*") {
+	for _, m := range GlobIn(filepath.Join(sessionDir, "subagents", "workflows"), "*") {
 		if info, err := os.Stat(m); err == nil && info.IsDir() {
 			dirs = append(dirs, m)
 		}
@@ -218,7 +218,7 @@ func SessionAgentFiles(sessionDir string) ([]string, error) {
 	}
 	var files []string
 	for _, dir := range dirs {
-		files = append(files, globIn(filepath.Join(dir, "subagents"), "*.jsonl")...)
+		files = append(files, GlobIn(filepath.Join(dir, "subagents"), "*.jsonl")...)
 		for _, run := range WorkflowRunDirs(dir) {
 			files = append(files, WorkflowAgentFiles(run)...)
 		}
@@ -228,7 +228,7 @@ func SessionAgentFiles(sessionDir string) ([]string, error) {
 
 // WorkflowAgentFiles lists one run dir's agent-*.jsonl transcripts, keeping *.meta.json sidecars out of the scan.
 func WorkflowAgentFiles(runDir string) []string {
-	matches := globIn(runDir, "agent-*.jsonl")
+	matches := GlobIn(runDir, "agent-*.jsonl")
 	slices.Sort(matches)
 	return matches
 }
