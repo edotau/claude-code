@@ -227,12 +227,13 @@ var writeFlags = []string{"--out", "--output", "-o", "--write", "--fix", "--appl
 	"--kill", "--reap", "--clean", "--prune", "--force", "--sync", "--set", "--install", "--restore"}
 
 var readOnlyClaudeVerbs = map[string][]string{
-	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label", "resolve"},
+	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label"},
 	"memory":  {"recall", "search", "show", "path", "timeline"},
 	"review":  {"simplify", "scope", "quality"},
 	"plan":    {"status", "assumptions", "goals"},
 	"models":  {"preflight"},
 	"network": {"websearch"},
+	"gateway": {"resolve"},
 }
 
 // readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag; `agents diff --check` is out.

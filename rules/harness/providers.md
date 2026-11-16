@@ -35,7 +35,7 @@ paths:
 - **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`), `<profile>:` and
   provider-type model prefixes, `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
   records all normalise into one overlay; launch, preflight, labels and `ran on` read only it. Print it:
-  `claude-code agents resolve <agent> --model m [--profile p] [--overlay '{...}']
+  `claude-code gateway resolve <agent> --model m [--profile p] [--overlay '{...}']
   [--all-profiles [--live]] --format json`.
 - **Profile order:** explicit `<profile>:` or overlay `profile` > unique provider-type prefix > `databricks:<m>` or
   profile `auto` (first valid workspace in vault order dev, prod, qa; least-busy under `auto`) > the session profile
@@ -48,7 +48,7 @@ paths:
   Claude 5+ is 1M by default; `[1m]` only for opus/sonnet 4.x.
 - **Fallback** (`AGENT_ERROR_FALLBACK`, `--fallback`, overlay `fallback`): `none` | `pin` | `agents` | `all`
   (`1`/`true`/`yes` = `all`; unset = `none`). `pin` = requested route > agent pin > record `fallback` > stop. Set it in
-  `claude-code configure` or `claude-code agents record <agent> profile=<p> model=<m> fallback=<p>` (empty clears).
+  `claude-code configure` or `claude-code configure agents <agent> profile=<p> model=<m> fallback=<p>` (empty clears).
 - **Labels:** `ran on` names what served, each fallback hop included; dispatch labels and the session-start per-type
   labels come from the same resolver.
 
