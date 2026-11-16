@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -245,35 +246,16 @@ func returnCounts(dirs []string, now time.Time) map[string]int {
 	return counts
 }
 
-// logHits logs access for matching search hits grouped by each hit's owning bank directory.
-func logHits(root string, hits []SearchHit, reason string, now time.Time) {
-	if len(hits) == 0 {
-		return
-	}
-	grouped := map[string][]string{}
+// logHits logs access for the hits that carry an entry id, all in the one bank's log.
+func logHits(hits []SearchHit, reason string, now time.Time) {
+	var ids []string
 	for _, h := range hits {
-		key := h.ID
-		if key == "" {
-			key = entryFromHit(h).ID
+		if id := cmp.Or(h.ID, entryFromHit(h).ID); id != "" {
+			ids = append(ids, id)
 		}
-		if key == "" {
-			continue
-		}
-		dir := h.Dir
-		if dir == "" {
-			switch h.Bank {
-			case "local":
-				dir = accessDir(BankFor(root))
-			case "home", "native", "archive", "knowledge", "":
-				dir = accessDir(HomeBank())
-			default:
-				dir = accessDir(Bank{Key: h.Bank})
-			}
-		}
-		grouped[dir] = append(grouped[dir], key)
 	}
-	for dir, entries := range grouped {
-		logAccessBatch(dir, now, entries, reason)
+	if len(ids) > 0 {
+		logAccessBatch(accessDir(HomeBank()), now, ids, reason)
 	}
 }
 
@@ -282,11 +264,7 @@ func logShown(path, id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
-	dir := accessDir(HomeBank())
-	if _, ok := insideStore(path); ok {
-		dir = accessDir(BankOfFile(path))
-	}
-	logAccess(dir, now, id, reason)
+	logAccess(accessDir(HomeBank()), now, id, reason)
 }
 
 // accessDir is b's access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.

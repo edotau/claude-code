@@ -1,14 +1,10 @@
 package memory
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -17,16 +13,16 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// layoutFile stamps the store root as the flat layout; the first writer on a store with no per-repo dirs writes it.
-const layoutFile, layoutFlat = ".layout", "flat 1"
+// layoutFile stamps the store root; layoutFlat is the one-bank layout, layoutPerKey the retired per-repo one.
+const layoutFile, layoutFlat, layoutPerKey = ".layout", "flat 2", "flat 1"
 
-// Bank is one repo's files in the store: <Key>--<name> when flat; Key "" is the home tier (unprefixed).
+// Bank is the store's one bank; Key is always "" and survives only for callers not yet migrated off it.
 type Bank struct{ Key string }
 
 func HomeBank() Bank      { return Bank{} }
 func (b Bank) Home() bool { return b.Key == "" }
 
-// Prefix is the "<key>--" file prefix; "" for home.
+// Prefix is the file prefix; always "" in the one-bank layout.
 func (b Bank) Prefix() string {
 	if b.Key == "" {
 		return ""
@@ -34,13 +30,16 @@ func (b Bank) Prefix() string {
 	return b.Key + "--"
 }
 
-// Path is one of b's top-level files (typed files, native topics of a non-harness repo).
+// Path is one of the bank's top-level files.
 func (b Bank) Path(name string) string { return filepath.Join(StoreDir(), b.Prefix()+name) }
 
+// SubDir is the store root: a named sub is a filename prefix, not a directory.
 func (b Bank) SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
 
-// Sub is name, prefixed with b's key, under b's sub dir.
-func (b Bank) Sub(sub, name string) string { return filepath.Join(b.SubDir(sub), b.Prefix()+name) }
+// Sub is name inside the store folder sub (archive, handoffs, reports, …); sub "" is a top-level file.
+func (b Bank) Sub(sub, name string) string {
+	return filepath.Join(StoreDir(), sub, filepath.FromSlash(name))
+}
 
 // NativeIndex is the one shared MEMORY.md.
 func (b Bank) NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
@@ -52,114 +51,19 @@ func (b Bank) Ensure(sub string) error {
 	return os.MkdirAll(b.SubDir(sub), 0o755)
 }
 
-// BankFor is root's bank: home for non-repo cwds, else the remote basename (else dir basename) slug.
-func BankFor(root string) Bank {
-	id := Resolve(root)
-	switch {
-	case id.HomeBank:
-		return HomeBank()
-	case id.Harness:
-		return Bank{Key: harnessStoreKey()}
-	}
-	base, origin := id.Base, bankOrigin(id)
-	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
-		base = rb
-	}
-	key := dashRun().ReplaceAllString(paths.Slug(base, "._-", 0, "repo"), "-")
-	if o, ok := readOrigins()[key]; ok && o != origin {
-		sum := sha256.Sum256([]byte(origin))
-		key += "-" + hex.EncodeToString(sum[:4])
-	}
-	return Bank{Key: key}
-}
+// BankFor is the one bank, whatever root is.
+func BankFor(string) Bank { return HomeBank() }
 
-// dashRun collapses "--" runs so no bank key contains the key/name separator.
-var dashRun = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`-{2,}`)
-})
+// Banks is the one bank.
+func Banks() []Bank { return []Bank{HomeBank()} }
 
-// originsFile maps each flat bank key to the origin that first claimed it, one "<key>\t<origin>" line each.
-const originsFile = ".origins"
+// BankKeys is empty: there are no per-repo banks.
+func BankKeys() []string { return nil }
 
-func readOrigins() map[string]string {
-	out := map[string]string{}
-	data, _ := os.ReadFile(filepath.Join(StoreDir(), originsFile))
-	for l := range strings.SplitSeq(string(data), "\n") {
-		if k, o, ok := strings.Cut(l, "\t"); ok {
-			out[k] = o
-		}
-	}
-	return out
-}
+// BankOfFile is the one bank.
+func BankOfFile(string) Bank { return HomeBank() }
 
-// recordOrigin registers a new flat key's origin; the caller holds the bank lock.
-func recordOrigin(key, origin string) error {
-	cur := readOrigins()
-	if _, ok := cur[key]; ok || origin == "" {
-		return nil
-	}
-	cur[key] = origin
-	var sb strings.Builder
-	for _, k := range slices.Sorted(maps.Keys(cur)) {
-		sb.WriteString(k + "\t" + cur[k] + "\n")
-	}
-	return paths.AtomicWrite(filepath.Join(StoreDir(), originsFile), []byte(sb.String()), 0o600)
-}
-
-// bankOrigin is the origin a flat key is claimed by: the remote URL, else the canonical checkout path.
-func bankOrigin(id Identity) string {
-	if url := strings.TrimSpace(originRemoteURL(id.Origin)); repoKeyFromRemote(url) != "" {
-		return url
-	}
-	return id.Origin
-}
-
-// Banks lists home first, then every repo bank sorted by key.
-func Banks() []Bank {
-	out := []Bank{HomeBank()}
-	for _, k := range BankKeys() {
-		out = append(out, Bank{Key: k})
-	}
-	return out
-}
-
-// BankKeys lists the repo bank keys (home excluded), sorted.
-func BankKeys() []string {
-	keys := []string{}
-	ents, _ := os.ReadDir(StoreDir())
-	for _, e := range ents {
-		if k, name, ok := strings.Cut(e.Name(), "--"); ok && k != "" && !e.IsDir() && slices.Contains(bankFiles, name) {
-			keys = append(keys, k)
-		}
-	}
-	for k := range readOrigins() { // a bank with only reports or handoffs has no typed file yet
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	return slices.Compact(keys)
-}
-
-// BankOfFile is the bank a store file belongs to by its longest known key prefix; unknown or none is home.
-func BankOfFile(path string) Bank { return bankOfFile(path, BankKeys()) }
-
-// bankOfFile is BankOfFile against keys read once, for loops over many files.
-func bankOfFile(path string, keys []string) Bank {
-	name := filepath.ToSlash(path)
-	if filepath.IsAbs(path) {
-		rel, err := filepath.Rel(StoreDir(), path)
-		if err != nil || !filepath.IsLocal(rel) {
-			return HomeBank()
-		}
-		name = filepath.ToSlash(rel)
-	}
-	parts := strings.Split(name, "/")
-	if len(parts) > 1 && slices.Contains(flatSubs, parts[0]) {
-		name = parts[1]
-	} else {
-		name = parts[0]
-	}
-	return Bank{Key: ownerKey(name, keys)}
-}
+func bankOfFile(string, []string) Bank { return HomeBank() }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
 var layoutCache sync.Map
@@ -175,16 +79,21 @@ func storeFlat() bool {
 	return flat
 }
 
+func storePerKey() bool {
+	b, _ := os.ReadFile(filepath.Join(StoreDir(), layoutFile))
+	return strings.TrimSpace(string(b)) == layoutPerKey
+}
+
 // forgetLayout drops the memoized stamp for the current store.
 func forgetLayout() { layoutCache.Delete(StoreDir()) }
 
 const homeDir = "home"
 
-// flatSubs are the shared store subdirs whose first path element carries the bank prefix when flat.
-var flatSubs = []string{"archive", "handoffs", "reports", "knowledge", "worktrees", "waves"}
+// flatSubs are the store folders; derived from folderRoles so sandbox and import never miss one.
+var flatSubs = storeFolderNames()
 
 // errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.
-var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout; migrate it with a pre-removal claude-code binary")
+var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout; run `claude-code memory migrate`")
 
 // requireFlat is nil on a stamped store and stamps one with no per-repo dirs; any other gets errStoreNotFlat.
 func requireFlat() error {
@@ -201,6 +110,9 @@ func checkFlat() error {
 	if storeFlat() {
 		return nil
 	}
+	if storePerKey() {
+		return errStoreNotFlat
+	}
 	ents, err := os.ReadDir(StoreDir())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err // an unreadable store must not look empty and get stamped
@@ -211,18 +123,12 @@ func checkFlat() error {
 	return nil
 }
 
-// legacyBankDir is a per-repo bank dir: any other dir, or a shared-sub name holding a typed bank file.
+// legacyBankDir is a per-repo bank dir: any dir other than a leftover shared sub (kept until the one-off move).
 func legacyBankDir(e os.DirEntry) bool {
 	if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 		return false
 	}
-	if !slices.Contains(flatSubs, e.Name()) {
-		return true
-	}
-	return slices.ContainsFunc(bankFiles, func(f string) bool {
-		_, err := os.Stat(filepath.Join(StoreDir(), e.Name(), f))
-		return err == nil
-	})
+	return !slices.Contains(flatSubs, e.Name())
 }
 
 // withFlatLock is WithBankLock for writers: a store without the flat stamp is refused.
@@ -233,12 +139,11 @@ func withFlatLock(wait time.Duration, fn func() error) error {
 	return WithBankLock(wait, fn)
 }
 
-// EnsureBank is root's bank with sub created, its origin recorded so the key is stable.
-func EnsureBank(root, sub string) (Bank, error) {
-	b := BankFor(root)
-	if err := b.Ensure(sub); err != nil || b.Home() || b.Key == harnessStoreKey() {
-		return b, err
-	}
-	origin := bankOrigin(Resolve(root))
-	return b, WithBankLock(BankLockWait, func() error { return recordOrigin(b.Key, origin) })
+// EnsureBank is the one bank with the store root created.
+func EnsureBank(root, sub string) (b Bank, err error) {
+	err = WithBankLock(BankLockWait, func() error {
+		b = BankFor(root)
+		return b.Ensure(sub)
+	})
+	return b, err
 }

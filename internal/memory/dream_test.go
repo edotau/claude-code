@@ -154,7 +154,7 @@ func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
 	}
 	t.Cleanup(func() { readFile = orig })
 	got := previewDream(root).Report()
-	if !strings.Contains(got, "local decisionLog.md: permission denied — unreadable") || strings.Contains(got, "nothing to consolidate") {
+	if !strings.Contains(got, "home decisionLog.md: permission denied — unreadable") || strings.Contains(got, "nothing to consolidate") {
 		t.Errorf("dry run hid the unreadable bank file:\n%s", got)
 	}
 }
@@ -195,10 +195,9 @@ func TestDreamChangedFlatListsEachFileOnce(t *testing.T) {
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), "other--progress.md"), "x\n")
-	write(t, filepath.Join(StoreDir(), "other--topic.md"), "x\n")
+	write(t, filepath.Join(StoreDir(), "knowledge--topic.md"), "x\n")
 	got := dreamChanged(time.Time{})
-	for _, want := range []string{"proj--progress.md", "other--progress.md", "other--topic.md"} {
+	for _, want := range []string{"progress.md", "knowledge--topic.md"} {
 		if n := countBase(got, want); n != 1 {
 			t.Errorf("dreamChanged lists %s %d times, want 1: %v", want, n, got)
 		}

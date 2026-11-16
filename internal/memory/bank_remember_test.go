@@ -28,32 +28,6 @@ func TestRememberEmptyFactErrors(t *testing.T) {
 	}
 }
 
-func TestRememberFreshRepoKeepsItsStore(t *testing.T) {
-	tempConfig(t)
-	root := gitRepo(t, canonTemp(t, t.TempDir()), "fresh")
-	want := BankFor(root)
-	id, err := Remember(root, "feedback", "keep fresh repository facts discoverable", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := BankFor(root); got != want {
-		t.Fatalf("Remember orphaned its bank: key changed from %s to %s", want.Key, got.Key)
-	}
-	if got := readOrigins()[want.Key]; got == "" {
-		t.Fatal("Remember did not record the repository origin")
-	}
-	hits, err := corpusBlocks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, hit := range hits {
-		if blockID(hit.Block) == id {
-			return
-		}
-	}
-	t.Fatalf("remembered id %s is absent from the repository corpus", id)
-}
-
 func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")

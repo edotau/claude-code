@@ -48,11 +48,11 @@ func Search(o SearchOptions) (searchResult, error) {
 			return searchResult{Path: path, Block: block}, nil
 		}
 	}
-	hits, root, err := SearchRepo(o.Repo, o.All, o.Query, o.K)
+	hits, _, err := SearchRepo(o.Repo, o.All, o.Query, o.K)
 	if err != nil {
 		return searchResult{}, err
 	}
-	logHits(root, hits, AccessSearch, now)
+	logHits(hits, AccessSearch, now)
 	return searchResult{Hits: hits}, nil
 }
 

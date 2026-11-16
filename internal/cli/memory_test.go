@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"archive/tar"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -73,29 +71,6 @@ func memFakeGitDir(t *testing.T) string {
 	repo := t.TempDir()
 	memMust(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
 	return repo
-}
-
-// memFakeClaude puts a no-op claude binary on HARNESS_AGENT_BIN_DIR.
-func memFakeClaude(t *testing.T) {
-	t.Helper()
-	bin := t.TempDir()
-	memMust(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755))
-	t.Setenv("HARNESS_AGENT_BIN_DIR", bin)
-}
-
-// memTwoStores makes repos alpha and beta, each with file holding fmt.Sprintf(body, repo base name).
-func memTwoStores(t *testing.T, file, body string) (a, b string) {
-	t.Helper()
-	a = hosttest.RepoAt(t, filepath.Join(t.TempDir(), "alpha"))
-	b = hosttest.RepoAt(t, filepath.Join(t.TempDir(), "beta"))
-	for _, repo := range []string{a, b} {
-		b, err := memory.EnsureBank(repo, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		hosttest.WriteRel(t, memory.StoreDir(), filepath.Base(b.Path(file)), fmt.Sprintf(body, filepath.Base(repo)))
-	}
-	return a, b
 }
 
 func memEngine() helptext.Engine {
@@ -190,9 +165,6 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 	catalog, err := memory.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
-	}
-	if !strings.Contains(catalog, "## Home (unprefixed files)") {
-		t.Errorf("catalog heading not renamed to Home: %q", catalog)
 	}
 	if strings.Contains(strings.ToLower(catalog), "global") {
 		t.Errorf("rendered catalog still names the pre-rename global tier: %q", catalog)
@@ -374,31 +346,6 @@ func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	}
 }
 
-func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
-	memCfg(t)
-	repo := hosttest.Repo(t)
-	memInit(t, repo)
-	id, err := memory.Remember(repo, "feedback", "promote via the CLI", time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	code, out, stderr := memCLI(t, "promote", "--repo", repo, "--dry-run", id, "--to", "home")
-	if code != 0 || !strings.Contains(out, "would move") {
-		t.Fatalf("memory promote --dry-run: code=%d out=%q stderr=%q", code, out, stderr)
-	}
-	home := filepath.Join(memory.StoreDir(), "conventions.md")
-	if data, _ := os.ReadFile(home); strings.Contains(string(data), id) {
-		t.Error("--dry-run via the CLI still wrote the home bank")
-	}
-	code, out, stderr = memCLI(t, "promote", "--repo", repo, id, "--to", "home")
-	if code != 0 || !strings.Contains(out, "promoted ["+id+"]") {
-		t.Fatalf("memory promote: code=%d out=%q stderr=%q", code, out, stderr)
-	}
-	if data, err := os.ReadFile(home); err != nil || !strings.Contains(string(data), id) {
-		t.Fatalf("home bank missing the promoted id after the real run: %v %q", err, data)
-	}
-}
-
 // Without --transcript (a live session) update prints the embedded procedure and exits 0.
 func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 	memCfg(t)
@@ -422,7 +369,7 @@ func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
 		}
 	}
 	subs := memorySubcommands()
-	for _, v := range []string{"search", "show", "index", "path", "fmt", "watch"} {
+	for _, v := range []string{"search", "show", "path", "fmt", "watch"} {
 		if helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage lists private verb %q as if public", v)
 		}
@@ -673,43 +620,6 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 	}
 }
 
-func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
-	memCfg(t)
-	repo := hosttest.Repo(t)
-	b := memory.BankFor(repo)
-	if _, err := os.Stat(b.Path("progress.md")); !os.IsNotExist(err) {
-		t.Fatalf("fresh repo bank must not exist: %v", err)
-	}
-	input := filepath.Join(t.TempDir(), "report.json")
-	memMust(t, os.WriteFile(input, []byte(`{"report":"# Review\n\nFresh repo report.\n","decisions":["Keep reports together."]}`), 0o600))
-	for range 2 {
-		stdout := memCLIOK(t, "report", "--repo", repo, "--label", "origin-regression", "--file", input, "--format", "json")
-		var out struct {
-			Paths []string `json:"paths"`
-		}
-		if err := json.Unmarshal([]byte(stdout), &out); err != nil {
-			t.Fatalf("memory report JSON: %v; stdout=%q", err, stdout)
-		}
-		if len(out.Paths) != 2 {
-			t.Fatalf("memory report paths = %v, want report and decisions", out.Paths)
-		}
-		for _, path := range out.Paths {
-			if filepath.Dir(path) != b.SubDir("reports") || !strings.HasPrefix(filepath.Base(path), b.Prefix()) {
-				t.Fatalf("report path %q is not a %s-prefixed file under the store's reports dir", path, b.Key)
-			}
-			if _, err := os.Stat(path); err != nil {
-				t.Fatalf("reported file %q: %v", path, err)
-			}
-		}
-		if got := memory.BankFor(repo); got != b {
-			t.Fatalf("report split repo bank: got %q, want %q", got.Key, b.Key)
-		}
-	}
-	if origins, err := os.ReadFile(filepath.Join(memory.StoreDir(), ".origins")); err != nil || !strings.HasPrefix(string(origins), b.Key+"\t") {
-		t.Fatalf("report did not register %s's origin: %q, %v", b.Key, origins, err)
-	}
-}
-
 func helpPageHasCommand(page helptext.Page, name string) bool {
 	for _, row := range page.Commands {
 		if words := strings.Fields(row[0]); len(words) > 0 && words[0] == name {
@@ -750,100 +660,6 @@ func TestMemoryNoArgVerbsRejectStray(t *testing.T) {
 	}
 }
 
-// --repo <store name> settles that bank from another checkout's cwd, and only that bank.
-func TestMemoryIndexRepoAcceptsStoreName(t *testing.T) {
-	memCfg(t)
-	t.Setenv("CLAUDE_PROJECT_DIR", "")
-	memFakeClaude(t)
-	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n")
-	var history strings.Builder
-	history.WriteString("# Sessions\n")
-	for i := range 40 { // past the 30-entry cap, so settling rotates the overflow to archive/
-		fmt.Fprintf(&history, "\n## Session %02d\n\nbody\n", i)
-	}
-	bankA, bankB := memory.BankFor(a), memory.BankFor(b)
-	for _, bank := range []memory.Bank{bankA, bankB} {
-		memMust(t, os.WriteFile(bank.Path("sessionHistory.md"), []byte(history.String()), 0o600))
-	}
-	t.Chdir(b)
-	_, out, stderr := memCLI(t, "index", "--repo", bankA.Key)
-	if !strings.Contains(out, "(rotated 10 sessionHistory entries to archive/)") {
-		t.Errorf("memory index --repo %s: stdout=%q stderr=%q, want bank A rotated", bankA.Key, out, stderr)
-	}
-	if got, _ := os.ReadFile(bankA.Path("sessionHistory.md")); strings.Contains(string(got), "Session 39") {
-		t.Errorf("bank A sessionHistory kept the overflow: %q", got)
-	}
-	if got, _ := os.ReadFile(bankB.Path("sessionHistory.md")); string(got) != history.String() {
-		t.Errorf("--repo %s changed bank B (the cwd bank): %q", bankA.Key, got)
-	}
-}
-
-// A --repo that is no path and no store fails and writes nothing.
-func TestMemoryIndexUnknownRepoNamesKnownStores(t *testing.T) {
-	cfg := memCfg(t)
-	t.Setenv("CLAUDE_PROJECT_DIR", "")
-	memFakeClaude(t)
-	repo := hosttest.Repo(t)
-	if _, err := memory.Init(repo); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(repo)
-	before := treeNames(t, cfg)
-	for _, sub := range []string{"index"} {
-		code, _, stderr := memCLI(t, sub, "--repo", "nosuch")
-		if code != 1 || !strings.Contains(stderr, `"nosuch"`) || !strings.Contains(stderr, filepath.Base(repo)) {
-			t.Errorf("memory %s --repo nosuch: code=%d stderr=%q, want exit 1 naming the known store %s", sub, code, stderr, filepath.Base(repo))
-		}
-	}
-	if after := treeNames(t, cfg); !slices.Equal(before, after) {
-		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
-	}
-}
-
-func TestMemoryReviewRepoStoreName(t *testing.T) {
-	cfg := memCfg(t)
-	t.Setenv("CLAUDE_PROJECT_DIR", "")
-	a, b := memTwoStores(t, "activeContext.md", "# %s context\n")
-	stale := time.Now().AddDate(0, 0, -memory.DefaultStaleDays-1)
-	memMust(t, os.Chtimes(memory.BankFor(a).Path("activeContext.md"), stale, stale))
-	t.Chdir(b)
-	name := memory.BankFor(a).Key
-	code, out, stderr := memCLI(t, "review", "--repo", name)
-	if want := "local bank untouched since " + stale.Format("2006-01-02"); code != 0 || !strings.Contains(out, want) {
-		t.Fatalf("memory review --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
-	}
-	for _, args := range [][]string{{"review", "--repo", "nosuch"}, {"review", "--repo", "nosuch", "--notice"}} {
-		checkMemoryUnknownRepo(t, cfg, args, name, memory.BankFor(b).Key)
-	}
-}
-
-func TestMemoryReviewTimelineRepoStoreName(t *testing.T) {
-	cfg := memCfg(t)
-	t.Setenv("CLAUDE_PROJECT_DIR", "")
-	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n\n## %s session\n")
-	t.Chdir(b)
-	name := memory.BankFor(a).Key
-	code, out, stderr := memCLI(t, "review", "--timeline", "--repo", name)
-	want := "-- sessionHistory --\n- " + filepath.Base(a) + " session\n"
-	if code != 0 || out != want || stderr != "" {
-		t.Fatalf("memory review --timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
-	}
-	checkMemoryUnknownRepo(t, cfg, []string{"review", "--timeline", "--repo", "nosuch"}, name, memory.BankFor(b).Key)
-}
-
-func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores ...string) {
-	t.Helper()
-	before := treeNames(t, cfg)
-	code, out, stderr := memCLI(t, args...)
-	if code != 1 || out != "" || !strings.Contains(stderr, `"nosuch"`) ||
-		!strings.Contains(stderr, "known stores: "+strings.Join(knownStores, ", ")) {
-		t.Errorf("memory %v: code=%d stdout=%q stderr=%q, want exit 1 naming known stores", args, code, out, stderr)
-	}
-	if after := treeNames(t, cfg); !slices.Equal(before, after) {
-		t.Errorf("an unknown --repo wrote files: before=%v after=%v", before, after)
-	}
-}
-
 func TestMemorySandboxCLI(t *testing.T) {
 	memCfg(t)
 	repo := t.TempDir()
@@ -860,7 +676,7 @@ func TestMemorySandboxCLI(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if res.Dir == "" || res.Env["CLAUDE_CONFIG_DIR"] != res.Dir || len(res.Stores) != 2 {
+	if res.Dir == "" || res.Env["CLAUDE_CONFIG_DIR"] != res.Dir || len(res.Stores) != 1 {
 		t.Fatalf("sandbox JSON: %+v", res)
 	}
 	for _, s := range res.Stores {
@@ -907,77 +723,6 @@ func TestMemoryPathSubNameAndBareDir(t *testing.T) {
 	}
 	if code, _, _ := memCLI(t, "path", "--repo", repo, "bogus"); code != 2 {
 		t.Errorf("memory path bogus code = %d, want 2", code)
-	}
-}
-
-func TestMemoryFlatKeyVerbs(t *testing.T) {
-	cfg := memCfg(t)
-	store := filepath.Join(cfg, "memory")
-	hosttest.WriteRel(t, store, ".layout", "flat 1\n")
-	hosttest.WriteRel(t, store, "alpha--decisionLog.md", "# Log\n\n## 2026-11-16 — Quasar routing <!-- id:11111111 -->\nAlpha evidence.\n\n## 2026-11-15 — Quasar successor <!-- id:22222222 -->\nNew evidence.\n")
-	hosttest.WriteRel(t, store, "alpha--sessionHistory.md", "# Sessions\n\n## 2026-11-16 — Quasar session\n")
-	hosttest.WriteRel(t, store, "beta--decisionLog.md", "## 2026-11-16 — Quasar unrelated <!-- id:33333333 -->\n")
-	for _, verb := range []string{"search", "recall"} {
-		t.Run(verb, func(t *testing.T) {
-			out := memCLIOK(t, verb, "--repo", "alpha", "--format", "json", "quasar")
-			if !strings.Contains(out, "11111111") || strings.Contains(out, "33333333") {
-				t.Fatal(out)
-			}
-		})
-	}
-	for _, args := range [][]string{
-		{"review", "--repo", "alpha"}, {"review", "--repo", "alpha", "--notice"},
-		{"review", "--timeline", "--repo", "alpha"}, {"init", "--repo", "alpha"},
-		{"index", "--repo", "alpha"}, {"remember", "--repo", "alpha", "quasar durable fact"},
-		{"promote", "--repo", "alpha", "11111111", "--to", "home", "--dry-run"},
-		{"recall", "--repo", "alpha", "--explain", "quasar routing uses durable evidence"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) { memCLIOK(t, args...) })
-	}
-	if _, err := os.Stat(filepath.Join(store, "alpha--conventions.md")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(memory.StateDir(), "doctor-notice-alpha")); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestMemoryFlatImportHost(t *testing.T) {
-	cfg := memCfg(t)
-	store := filepath.Join(cfg, "memory")
-	hosttest.WriteRel(t, store, ".layout", "flat 1\n")
-	hosttest.WriteRel(t, store, "alpha--decisionLog.md", "## 2026-11-01 — local <!-- id:11111111 -->\n")
-	var archive bytes.Buffer
-	tw := tar.NewWriter(&archive)
-	for name, body := range map[string]string{
-		".layout": "flat 1\n", "alpha--decisionLog.md": "## 2026-11-02 — host entry <!-- id:22222222 -->\n",
-		"MEMORY.md": "- [Host topic](alpha--topic.md)\n", "alpha--topic.md": "host topic\n",
-	} {
-		memMust(t, tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(body))}))
-		_, err := tw.Write([]byte(body))
-		memMust(t, err)
-	}
-	memMust(t, tw.Close())
-	bin := t.TempDir()
-	hosttest.WriteRel(t, bin, "source.tar", archive.String())
-	hosttest.WriteRel(t, bin, "ssh", "#!/bin/sh\ncat \"$MEMFLAT_TEST_ARCHIVE\"\n")
-	memMust(t, os.Chmod(filepath.Join(bin, "ssh"), 0o700))
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("MEMFLAT_TEST_ARCHIVE", filepath.Join(bin, "source.tar"))
-	args := []string{"import", "--host", "fixture-host", "--repo", "alpha", "--topics"}
-	memCLIOK(t, args...)
-	data, err := os.ReadFile(filepath.Join(store, "alpha--decisionLog.md"))
-	memMust(t, err)
-	if !strings.Contains(string(data), "11111111") || !strings.Contains(string(data), "22222222") {
-		t.Fatal(string(data))
-	}
-	if got := memCLIOK(t, args...); !strings.Contains(got, "nothing to import") {
-		t.Fatal(got)
-	}
-	data, err = os.ReadFile(filepath.Join(store, "MEMORY.md"))
-	memMust(t, err)
-	if !strings.Contains(string(data), "alpha--topic.md") {
-		t.Fatal(string(data))
 	}
 }
 

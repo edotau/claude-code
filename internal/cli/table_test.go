@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -428,17 +427,6 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		}
 	}
 
-	// memory.BankKeys reads the store's typed files, so the store needs a seeded bank.
-	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(memory.StoreDir(), "fixturerepo--progress.md"), []byte("x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := candidates("memory", "search", "--repo", ""); !slices.Contains(got, "fixturerepo") {
-		t.Errorf("memory search --repo = %v, want it to contain the seeded repo %q", got, "fixturerepo")
-	}
-
 	// CachedMachineNames never calls the network, so a written cache is enough.
 	tailscale.WriteMachinesCache([]string{"fixture-host"})
 	if got := candidates("network", "remote", "--host", ""); !slices.Equal(got, []string{"fixture-host"}) {
@@ -477,7 +465,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
 		"network": {"tailscale", "browser", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"index", "path", "watch", "import", "fmt", "report", "sandbox"},
+			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve", "token"},
 		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},

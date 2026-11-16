@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 // seedConventionBlock plants one id-marked conventions.md bullet in root's local bank and returns its id.
@@ -18,77 +16,6 @@ func seedConventionBlock(t *testing.T, root string) string {
 		t.Fatal(err)
 	}
 	return id
-}
-
-// TestPromoteHomeMovesExactlyOneBlock: --dry-run touches nothing; --to home moves the block, same id, to the home bank.
-func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	id := seedConventionBlock(t, root)
-	localPath := BankFor(root).Path("conventions.md")
-	homePath := filepath.Join(StoreDir(), "conventions.md")
-	localBefore, _ := os.ReadFile(localPath)
-	_, homeErrBefore := os.Stat(homePath)
-
-	out, err := Promote(root, id, "home", true, time.Now())
-	if err != nil {
-		t.Fatalf("Promote --dry-run: %v", err)
-	}
-	if !strings.Contains(out, "would move") || !strings.Contains(out, id) {
-		t.Errorf("dry-run output missing the preview: %q", out)
-	}
-	if localDry, err := os.ReadFile(localPath); err != nil || string(localBefore) != string(localDry) {
-		t.Errorf("--dry-run changed the local file: before=%q after=%q err=%v", localBefore, localDry, err)
-	}
-	if _, err := os.Stat(homePath); (homeErrBefore == nil) != (err == nil) {
-		t.Errorf("--dry-run changed whether the home file exists: before-err=%v after-err=%v", homeErrBefore, err)
-	}
-
-	out, err = Promote(root, id, "home", false, time.Now())
-	if err != nil {
-		t.Fatalf("Promote: %v", err)
-	}
-	if !strings.Contains(out, id) || !strings.Contains(out, "home") {
-		t.Errorf("Promote output missing id/target: %q", out)
-	}
-	localAfter, _ := os.ReadFile(localPath)
-	if strings.Contains(string(localAfter), "<!-- id:"+id+" -->") {
-		t.Errorf("local bank still has the promoted block: %q", localAfter)
-	}
-	if string(localBefore) == string(localAfter) {
-		t.Error("local bank was not rewritten at all")
-	}
-	homeData, err := os.ReadFile(homePath)
-	if err != nil || !strings.Contains(string(homeData), "<!-- id:"+id+" -->") {
-		t.Fatalf("home bank missing the promoted block (id %s): %v %q", id, err, homeData)
-	}
-	// Exactly one block moved: the id appears exactly once across the home file.
-	if n := strings.Count(string(homeData), "<!-- id:"+id+" -->"); n != 1 {
-		t.Errorf("home bank has the block %d times, want 1", n)
-	}
-}
-
-// TestPromoteHomeMovesArchivedBlock: an archived block promotes; the archive keeps its other blocks.
-func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	arch := BankFor(root).Sub("archive", "conventions-2026-11.md")
-	if err := os.MkdirAll(filepath.Dir(arch), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	body := "# Conventions\n\n- keep me <!-- id:aaaa0001 -->\n\n- promote me <!-- id:aaaa0002 -->\n"
-	write(t, arch, body)
-	if _, err := Promote(root, "aaaa0002", "home", false, time.Now()); err != nil {
-		t.Fatalf("Promote archived block: %v", err)
-	}
-	after, _ := os.ReadFile(arch)
-	if strings.Contains(string(after), "id:aaaa0002") || !strings.Contains(string(after), "id:aaaa0001") {
-		t.Errorf("archive should drop only the promoted block: %q", after)
-	}
-	home, _ := os.ReadFile(filepath.Join(StoreDir(), "conventions.md"))
-	if strings.Count(string(home), "id:aaaa0002") != 1 {
-		t.Errorf("home conventions.md should hold the block once: %q", home)
-	}
 }
 
 // judgmentFixture seeds a proj bank with one convention block; before is its conventions.md.
@@ -172,54 +99,7 @@ func TestPromoteUnknownTargetErrors(t *testing.T) {
 func TestPromoteUnknownIDErrors(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj") // scaffolds the bank; the id below is deliberately wrong
-	if _, err := Promote(root, "deadbeef", "home", false, time.Now()); err == nil {
+	if _, err := Promote(root, "deadbeef", "rules", false, time.Now()); err == nil {
 		t.Fatal("Promote with an unknown id = nil error, want one")
 	}
-}
-
-// TestPromoteHomeSettlesInsideItsMoveLock: no second writer can take the bank lock between the move and the settle.
-func TestPromoteHomeSettlesInsideItsMoveLock(t *testing.T) {
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	id := seedConventionBlock(t, root)
-	origWait, origHook := BankLockWait, afterPromoteMove
-	t.Cleanup(func() { BankLockWait, afterPromoteMove = origWait, origHook })
-	BankLockWait = 200 * time.Millisecond
-	release := make(chan struct{})
-	intruded := false
-	afterPromoteMove = func() { // a rival writer that grabs the lock if it is free and holds it past BankLockWait
-		held, refused := make(chan struct{}), make(chan struct{})
-		go func() {
-			hold := func() error { close(held); <-release; return nil }
-			if ran, _ := paths.TryFileLock(BankLockPath(), time.Millisecond, hold); !ran {
-				close(refused)
-			}
-		}()
-		select {
-		case <-held:
-			intruded = true
-		case <-refused:
-		}
-	}
-	_, err := Promote(root, id, "home", false, time.Now())
-	close(release)
-	if intruded || err != nil {
-		t.Fatalf("Promote released the bank lock before settling: rival took it = %v, Promote err = %v", intruded, err)
-	}
-}
-
-func TestPromoteHomeMovesBlockBetweenBankPathsInEachLayout(t *testing.T) {
-	runRoot(t, func(t *testing.T, root string) {
-		id := seedConventionBlock(t, root)
-		b := BankFor(root)
-		if _, err := Promote(root, id, "home", false, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(mustRead(t, b.Path("conventions.md")), "id:"+id) {
-			t.Error("the block stayed in the local bank")
-		}
-		if !strings.Contains(mustRead(t, HomeBank().Path("conventions.md")), "id:"+id) {
-			t.Error("the block is not in the home bank file")
-		}
-	})
 }

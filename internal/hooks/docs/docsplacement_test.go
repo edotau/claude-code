@@ -500,3 +500,26 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 		})
 	}
 }
+
+func TestDocsPlacementFeedbackRedirect(t *testing.T) {
+	cfg, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	store := filepath.Join(cfg, "memory")
+	link := filepath.Join(cfg, "projects", "-x", "memory")
+	if err := errors.Join(os.MkdirAll(filepath.Join(store, "feedback"), 0o755), os.MkdirAll(filepath.Dir(link), 0o755), os.Symlink(store, link)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, c := range []struct{ tool, path, want string }{
+		{"Write", filepath.Join(store, "feedback-x.md"), filepath.Join(store, "feedback", "feedback-x.md")},
+		{"Write", filepath.Join(link, "feedback-y.md"), filepath.Join(store, "feedback", "feedback-y.md")},
+		{"Read", filepath.Join(store, "feedback-r.md"), filepath.Join(store, "feedback", "feedback-r.md")},
+		{"Edit", filepath.Join(store, "feedback", "feedback-z.md"), ""},
+		{"Write", filepath.Join(store, "progress.md"), ""},
+	} {
+		r := Placement(core.ParseInput(strings.NewReader(placementPayload(t, c.tool, c.path))))
+		got, _ := r.UpdatedInput["file_path"].(string)
+		if got != c.want || r.Decision == core.Block {
+			t.Errorf("%s %s: updated %q block=%v, want %q", c.tool, c.path, got, r.Decision == core.Block, c.want)
+		}
+	}
+}

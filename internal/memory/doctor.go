@@ -114,10 +114,7 @@ func doctor(root string, staleDays int, now time.Time) []string {
 
 func doctorBank(root string, b Bank, staleDays int, now time.Time) []string {
 	var problems []string
-	if !b.Home() {
-		problems = append(problems, bankProblems("local", statBank(b), staleDays, now)...)
-	}
-	problems = append(problems, bankProblems("home", statBank(HomeBank()), staleDays, now)...)
+	problems = append(problems, bankProblems("home", statBank(b), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
 	if root != "" {
@@ -297,11 +294,7 @@ func timelineBank(b Bank, limit int) (entries []timelineEntry, sessions []string
 
 func recentSessions(own Bank, limit int) (sessions []string, err error) {
 	seen := map[string]bool{}
-	banks := []Bank{HomeBank()}
-	if !own.Home() {
-		banks = []Bank{own, HomeBank()}
-	}
-	for _, b := range banks {
+	for _, b := range []Bank{own} {
 		heads, err := entriesWithPrefix(b.Path("sessionHistory.md"), "## ")
 		if err != nil {
 			return sessions, err

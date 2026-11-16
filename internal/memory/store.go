@@ -152,10 +152,6 @@ func insideStore(p string) (rel string, ok bool) {
 // StateDir holds update stamps, results, logs and the session chain.
 func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
 
-// isHomeBank reports whether root's local bank is the home bank (read it once, not twice).
-func isHomeBank(root string) bool { return BankFor(root).Home() }
-
-// root resolves --repo → $CLAUDE_PROJECT_DIR (only a repo or config dir: launchers may stamp $HOME) → toplevel → cwd.
 func root(repo string) string {
 	if repo != "" {
 		abs, _ := filepath.Abs(repo)
@@ -191,7 +187,7 @@ var bankFiles = []string{
 // BankFiles exports the six typed filenames for callers outside this package.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 
-// sessionHistoryMaxEntries rotates the oldest sessionHistory entries to archive/<key>--*.
+// sessionHistoryMaxEntries rotates the oldest sessionHistory entries to archive/sessionHistory-<yyyy-mm>.md.
 const sessionHistoryMaxEntries = 30
 
 // bankLockFile is the ONE store-wide lock; every harness write and every memory Git operation runs under it.

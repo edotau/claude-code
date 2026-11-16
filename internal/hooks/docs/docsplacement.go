@@ -32,6 +32,9 @@ var placementTools = map[string]bool{"write": true, "edit": true, "multiedit": t
 
 // Placement is docs-placement: a placement block wins, else the plan path rewrite and template gate decide.
 func Placement(in *core.Input) core.Result {
+	if res, ok := noteRedirect(in); ok {
+		return res
+	}
 	dest, err := planDest(in)
 	var placed core.Result
 	if dest == "" { // a dated plan dest is rewritten (or blocked) below, never placement-denied
@@ -46,6 +49,29 @@ func Placement(in *core.Input) core.Result {
 	gated := planGate(in, dest, err)
 	gated.Stderr = core.JoinNonEmpty("\n", placed.Stderr, gated.Stderr)
 	return gated
+}
+
+// noteRedirect rewrites a top-level native note in the memory store into feedback/ or notes/, never denying.
+func noteRedirect(in *core.Input) (core.Result, bool) {
+	switch strings.ToLower(in.ToolName) {
+	case "write", "edit", "multiedit", "read":
+	default:
+		return core.Result{}, false
+	}
+	from := in.Nested("tool_input", "file_path")
+	abs := core.AnchorPath(from, in.CWD)
+	base := filepath.Base(abs)
+	folder := memory.NoteFolder(base)
+	if from == "" || folder == "" || !paths.SameFile(filepath.Dir(abs), memory.StoreDir()) {
+		return core.Result{}, false
+	}
+	updated := in.CloneToolInput()
+	if updated == nil {
+		return core.Result{}, false
+	}
+	dest := filepath.Join(memory.StoreDir(), folder, base)
+	updated["file_path"] = dest
+	return core.Result{UpdatedInput: updated, SystemMessage: "memory-note-path: " + from + " → " + dest}, true
 }
 
 // placeFiles gates markdown writes at a repo root; fails open on anything unclear — never worth wedging on.
