@@ -874,7 +874,7 @@ func TestPackPromptFileTransport(t *testing.T) {
 	if err := p.pack.write(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := pack.Collect(context.Background(), dir, []string{"."}, nil, 100, 0, 1<<30, true)
+	got, err := pack.Collect(context.Background(), dir, []string{"."}, nil, 100, 0, 1<<30)
 	if err != nil {
 		t.Fatal(err)
 	}

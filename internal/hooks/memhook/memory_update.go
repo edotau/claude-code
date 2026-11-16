@@ -12,8 +12,7 @@ import (
 // updateNotSaved is the visible line when the Stop gate fails open without an update.
 const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
 
-// sessionUpdate (Stop) dispatches a detached `memory update` once a session has substantive work; a failed spawn
-// lets the stop through with the not-saved note (the stamp keeps the work uncovered for SessionEnd and PreCompact).
+// sessionUpdate spawns a detached update; a failed spawn proceeds with a note and SessionEnd/PreCompact retry.
 func sessionUpdate(in *core.Input) (notSaved bool) {
 	memory.RefreshStaleEmbeddings(in.CWD)
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
