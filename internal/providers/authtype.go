@@ -42,10 +42,10 @@ func (e *loginRequiredError) Unwrap() error { return e.err }
 
 func (e *loginRequiredError) Is(target error) bool { return target == ErrNeedsLogin }
 
-var secretIDRE = regexp.MustCompile(`[^A-Z0-9]+`)
+var secretIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Z0-9]+`) })
 
 func secretSegment(s string) string {
-	return strings.Trim(secretIDRE.ReplaceAllString(strings.ToUpper(s), "_"), "_")
+	return strings.Trim(secretIDRE().ReplaceAllString(strings.ToUpper(s), "_"), "_")
 }
 
 // SecretName is the vault name <PROVIDER>_<PROFILE>_<AUTH>; the profile segment is dropped when it equals the provider.
@@ -153,8 +153,8 @@ func checkAuthScheme(p *Provider) error {
 var supportedAuthTypes = []string{AuthOAuth, AuthM2M, AuthPAT}
 
 var (
-	accountIDRE   = regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`)
-	workspaceIDRE = regexp.MustCompile(`^[0-9]+$`)
+	accountIDRE   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`) })
+	workspaceIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]+$`) })
 )
 
 // validateAuthType checks a sealed row's companion fields and the account/workspace ids for one provider.
@@ -175,10 +175,10 @@ func validateAuthType(n string, p *Provider) []string {
 
 func validateAuthIDs(n string, p *Provider) []string {
 	var errs []string
-	if id := p.Auth.AccountID; id != "" && !accountIDRE.MatchString(id) {
+	if id := p.Auth.AccountID; id != "" && !accountIDRE().MatchString(id) {
 		errs = append(errs, fmt.Sprintf("%s: auth.accountId %q must match [0-9a-fA-F-]{8,64}", n, id))
 	}
-	if id := p.Auth.WorkspaceID; id != "" && !workspaceIDRE.MatchString(id) {
+	if id := p.Auth.WorkspaceID; id != "" && !workspaceIDRE().MatchString(id) {
 		errs = append(errs, fmt.Sprintf("%s: auth.workspaceId %q must be digits only", n, id))
 	}
 	return errs
@@ -215,7 +215,7 @@ var refreshLockWait = 2 * time.Minute
 
 var errRefreshLockTimeout = errors.New("timed out waiting for another refresh to finish")
 
-var lockNameRE = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+var lockNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9._-]+`) })
 
 // withRefreshLock serializes a provider's refresh-token use across processes; mintOnce covers goroutines.
 func withRefreshLock(p *Provider, fn func() error) error {
@@ -223,7 +223,7 @@ func withRefreshLock(p *Provider, fn func() error) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("%s: refresh lock: %w", p.Name, err)
 	}
-	lock := filepath.Join(dir, "auth-"+lockNameRE.ReplaceAllString(p.Name, "_")+".lock")
+	lock := filepath.Join(dir, "auth-"+lockNameRE().ReplaceAllString(p.Name, "_")+".lock")
 	ran, err := paths.TryFileLock(lock, refreshLockWait, fn)
 	if err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -66,28 +67,34 @@ func codexCachedModels() ([]ModelInfo, error) {
 }
 
 // modelDeniedRE covers markers meaning this key cannot use this MODEL at all: Gemini free tier, OpenAI quota.
-var modelDeniedRE = regexp.MustCompile(`limit: 0|exceeded your current quota|insufficient_quota|quota exceeded for metric`)
+var modelDeniedRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`limit: 0|exceeded your current quota|insufficient_quota|quota exceeded for metric`)
+})
 
 // accountTail is the account-exhaustion alternation shared by accountRE and hardAccountRE.
 const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
 	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`
 
 // accountRE covers markers meaning this ACCOUNT is exhausted (plan window, credits, a 402), not a rate limit.
-var accountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
+var accountRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|current|weekly) (?:quota|limit)|` + accountTail)
+})
 
 // hardAccountRE is accountRE's subset ModelDenied vetoes on, minus "exceeded your current quota" (Gemini per-model).
-var hardAccountRE = regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
+var hardAccountRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:http|status|code)[ :=]*402\b|payment required|exceeded your (?:monthly|weekly) (?:quota|limit)|` + accountTail)
+})
 
 // ModelDenied reports whether text denies this MODEL on the key (demote); hardAccountRE exhaustion vetoes it.
 func ModelDenied(text string) bool {
 	low := strings.ToLower(text)
-	return modelDeniedRE.MatchString(low) && !hardAccountRE.MatchString(low)
+	return modelDeniedRE().MatchString(low) && !hardAccountRE().MatchString(low)
 }
 
 // IsQuota reports whether text means the account is exhausted (credits, plan window, model denial), not a rate limit.
 func IsQuota(text string) bool {
 	low := strings.ToLower(text)
-	return accountRE.MatchString(low) || modelDeniedRE.MatchString(low)
+	return accountRE().MatchString(low) || modelDeniedRE().MatchString(low)
 }
 
 // Demote returns p's next lower alias target below model (opus → sonnet → haiku); ok is false at the bottom.

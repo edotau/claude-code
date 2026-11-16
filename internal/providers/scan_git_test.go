@@ -354,10 +354,10 @@ func TestLooksLikeSecret(t *testing.T) {
 // secretPattern (raw-text scan) catches every GitHub family at 20+ body characters and not shorter.
 func TestSecretPatternGitHubFamilies(t *testing.T) {
 	for _, p := range []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"} {
-		if !secretPattern.MatchString("x = " + p + strings.Repeat("a", 20)) {
+		if !secretPattern().MatchString("x = " + p + strings.Repeat("a", 20)) {
 			t.Errorf("%s with a 20-char body must be caught", p)
 		}
-		if secretPattern.MatchString("x = " + p + strings.Repeat("a", 19)) {
+		if secretPattern().MatchString("x = " + p + strings.Repeat("a", 19)) {
 			t.Errorf("%s with a 19-char body must not be caught", p)
 		}
 	}

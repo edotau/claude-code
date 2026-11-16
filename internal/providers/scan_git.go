@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -26,7 +27,7 @@ const (
 )
 
 // base64ish catches high-entropy tokens that don't match a known prefix.
-var base64ish = regexp.MustCompile(`^[A-Za-z0-9_+/=-]{32,}$`)
+var base64ish = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_+/=-]{32,}$`) })
 
 // LooksLikeSecret is the credential-shape heuristic for one isolated value; ${ENV} refs and placeholders never match.
 func LooksLikeSecret(val string) bool {
@@ -41,7 +42,7 @@ func LooksLikeSecretGeneric(val string, generic bool) bool {
 	case knownSecretShape(val):
 		return true
 	default:
-		return generic && base64ish.MatchString(val)
+		return generic && base64ish().MatchString(val)
 	}
 }
 
@@ -73,10 +74,12 @@ func knownSecretShape(val string) bool {
 }
 
 // secretPattern scans raw git diff lines; narrower than LooksLikeSecret (no bare base64 rule) to avoid noise.
-var secretPattern = regexp.MustCompile(
-	`(` + textutil.GitHubPattern(20) + `|` +
-		`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
-		`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)
+var secretPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(` + textutil.GitHubPattern(20) + `|` +
+			`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
+			`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)
+})
 
 // gitLogTimeout bounds one history scan; a huge repo with no -n limit must still terminate.
 var gitLogTimeout = 60 * time.Second
@@ -116,7 +119,7 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 		line := string(pending)
 		pending = pending[:0]
 		commit, file, addition, hunk = parseGitLogLine(line, commit, file, hunk)
-		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern.FindAllString(line, -1), tokenShaped) {
+		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern().FindAllString(line, -1), tokenShaped) {
 			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
 		}
 	}

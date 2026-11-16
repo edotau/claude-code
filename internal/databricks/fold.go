@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -20,7 +21,7 @@ import (
 )
 
 // hashCacheRE matches the per-SP token caches 742fa4a3 sealed; the profile's _M2M_ACCESS replaced them.
-var hashCacheRE = regexp.MustCompile(`^DATABRICKS_M2M_[0-9A-F]{16}_ACCESS$`)
+var hashCacheRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^DATABRICKS_M2M_[0-9A-F]{16}_ACCESS$`) })
 
 // foldMove folds the m2m row From into the profile To that pairs the same host and service principal.
 type foldMove struct {
@@ -116,7 +117,7 @@ func planFold(top map[string]json.RawMessage, tx *vault.Tx) (foldPlan, error) {
 func hashCaches(tx *vault.Tx) []string {
 	var out []string
 	for _, n := range tx.Names(vault.Secrets) {
-		if hashCacheRE.MatchString(n) {
+		if hashCacheRE().MatchString(n) {
 			out = append(out, n)
 		}
 	}

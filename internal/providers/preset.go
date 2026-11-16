@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/models"
@@ -20,13 +21,15 @@ import (
 const PresetDatabricks = "databricks"
 
 var (
-	cliProfileRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	cliProfileRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$`) })
 	EnvNameRE    = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-	secretNameRE = regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
+	secretNameRE = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(^|_)(KEY|TOKEN|SECRET|PASSWORD|HEADERS|AUTH|CREDENTIALS?|PAT|BEARER)(_|$)`)
+	})
 )
 
 // IsSecretName reports whether an env name has a credential-shaped segment (KEY, TOKEN, AUTH, ...).
-func IsSecretName(name string) bool { return secretNameRE.MatchString(name) }
+func IsSecretName(name string) bool { return secretNameRE().MatchString(name) }
 
 // DatabricksProfiles lists the profiles under the databricks provider in declared order.
 func DatabricksProfiles(r *Registry) []string { return r.ProfilesOf(GroupDatabricks) }
@@ -101,7 +104,7 @@ func fillDatabricksModelsEnv(p *Provider) {
 
 // applyCLIProfile derives auth.command / auth.refreshCommand from a well-formed cliProfile where unset.
 func applyCLIProfile(p *Provider) {
-	if p.CLIProfile == "" || !cliProfileRE.MatchString(p.CLIProfile) {
+	if p.CLIProfile == "" || !cliProfileRE().MatchString(p.CLIProfile) {
 		return
 	}
 	cmd, refresh := DatabricksCLICommands(p.CLIProfile)
@@ -125,7 +128,7 @@ func tokenFromCLI(cli string) string {
 }
 
 // ValidID reports whether s is a legal provider row id / cliProfile name.
-func ValidID(s string) bool { return cliProfileRE.MatchString(s) }
+func ValidID(s string) bool { return cliProfileRE().MatchString(s) }
 
 func expandServing(p *Provider, host string) {
 	if p.BaseURL == "" {
@@ -170,7 +173,7 @@ func validateDatabricksFields(n string, p *Provider) []string {
 	if PresetHost(p.Host) == "" {
 		errs = append(errs, fmt.Sprintf("%s: preset %s needs host as an absolute https URL with no path", n, p.Preset))
 	}
-	if p.CLIProfile != "" && !cliProfileRE.MatchString(p.CLIProfile) {
+	if p.CLIProfile != "" && !cliProfileRE().MatchString(p.CLIProfile) {
 		errs = append(errs, fmt.Sprintf("%s: cliProfile %q must match [A-Za-z0-9_-]+", n, p.CLIProfile))
 	}
 	if w := p.Options.Wire; w != "" && w != WireServing {
@@ -223,7 +226,7 @@ var WipeKeys = append(slices.Clone(proc.AnthropicStripEnv), []string{
 
 // harnessEnvRE and harnessEnvKeys add the harness-owned names WipeKeys does not list.
 var (
-	harnessEnvRE   = regexp.MustCompile(`^(ANTHROPIC_|HARNESS_)`)
+	harnessEnvRE   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(ANTHROPIC_|HARNESS_)`) })
 	harnessEnvKeys = []string{"CLAUDE_CODE_API_KEY_HELPER_TTL_MS", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 )
 
@@ -236,7 +239,7 @@ func validateEnv(n string, env map[string]string) []string {
 			errs = append(errs, fmt.Sprintf("%s: env key %q must match [A-Z_][A-Z0-9_]*", n, k))
 		case IsSecretName(k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q looks like a credential; secrets belong in auth", n, k))
-		case harnessEnvRE.MatchString(k) || slices.Contains(harnessEnvKeys, k) || slices.Contains(WipeKeys, k):
+		case harnessEnvRE().MatchString(k) || slices.Contains(harnessEnvKeys, k) || slices.Contains(WipeKeys, k):
 			errs = append(errs, fmt.Sprintf("%s: env key %q is owned by the harness", n, k))
 		}
 	}
