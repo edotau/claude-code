@@ -32,7 +32,7 @@ reports never ride a project's commits.
   untracked or ignored name still blocks).
 
 One exception inside a repo: a new plan-named `.md` (`plan`/`plans` as a whole word) at the root or in `docs/`,
-tracked or ignored, is redirected to the dated plans home (`docs-plan-gate`).
+tracked or ignored, is redirected to the dated plans home (`docs-placement`).
 
 ## When the gate blocks
 

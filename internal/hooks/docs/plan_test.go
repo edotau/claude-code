@@ -329,7 +329,7 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 		t.Fatalf("code=%d err=%q, want a block with the skeleton and the template path", code, &gateErr)
 	}
 	var e bytes.Buffer
-	Placement(core.ParseInput(hookJSON(t, payload)), &e)
+	placeFiles(core.ParseInput(hookJSON(t, payload)), &e)
 	if strings.Contains(e.String(), "plan-template") {
 		t.Fatalf("docs-placement still emits plan-template: %q", e.String())
 	}
@@ -700,7 +700,7 @@ func TestPlanGateCodexPatch(t *testing.T) {
 	}
 }
 
-// A first write of a plan-named markdown at the repo root is rewritten to the dated plans home; others pass untouched.
+// A first write of a plan-named markdown at the repo root is rewritten to the dated plans home; others are not.
 func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 	cfg, _ := planGroupEnv(t, true)
 	repo := t.TempDir()
@@ -710,7 +710,7 @@ func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 	run := func(mode, path string) core.Result {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo, "permission_mode": mode,
 			"tool_input": map[string]string{"file_path": path, "content": "x"}})
-		return PlanGate(core.ParseInput(bytes.NewReader(b)))
+		return Placement(core.ParseInput(bytes.NewReader(b)))
 	}
 	res := run("default", filepath.Join(repo, "my-plan.md"))
 	got, _ := res.UpdatedInput["file_path"].(string)
@@ -723,19 +723,19 @@ func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 	}
 	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
 		"tool_input": map[string]string{"file_path": filepath.Join(repo, "my-plan.md"), "content": "x"}})
-	codex := PlanGate(core.ParseInputFor(bytes.NewReader(b), core.AgentCodex)) // codex cannot rewrite: deny names both ways out
+	codex := Placement(core.ParseInputFor(bytes.NewReader(b), core.AgentCodex)) // codex cannot rewrite: deny names both ways out
 	if codex.Decision != core.Block || !strings.Contains(codex.Reason, want) || !strings.Contains(codex.Reason, "touch "+filepath.Join(repo, "my-plan.md")) {
 		t.Errorf("codex deny = %q, want the dated path and the create-it-empty escape", codex.Reason)
 	}
 	for _, p := range []string{filepath.Join(repo, "notes.md"), filepath.Join(repo, "src", "plan.md"), filepath.Join(cfg, "plans", "2026-01-01-x.md")} {
-		if r := run("default", p); r.UpdatedInput != nil || r.Decision == core.Block {
-			t.Errorf("%s = %+v, want untouched", p, r)
+		if r := run("default", p); r.UpdatedInput != nil || strings.Contains(r.Reason, "plan-path") {
+			t.Errorf("%s = %+v, want no plan-path rewrite", p, r)
 		}
 	}
 	bare := t.TempDir() // a cwd in no git repo passes, as docs-placement says
 	b, _ = json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": bare,
 		"tool_input": map[string]string{"file_path": filepath.Join(bare, "my-plan.md"), "content": "x"}})
-	if r := PlanGate(core.ParseInput(bytes.NewReader(b))); r.UpdatedInput != nil || r.Decision == core.Block {
+	if r := Placement(core.ParseInput(bytes.NewReader(b))); r.UpdatedInput != nil || r.Decision == core.Block {
 		t.Errorf("non-repo cwd = %+v, want untouched", r)
 	}
 }
@@ -750,11 +750,11 @@ func TestPlanGateFailsFastAndIgnoresPlanSubstrings(t *testing.T) {
 	run := func(name string) core.Result {
 		b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
 			"tool_input": map[string]string{"file_path": filepath.Join(repo, name), "content": "x"}})
-		return PlanGate(core.ParseInput(bytes.NewReader(b)))
+		return Placement(core.ParseInput(bytes.NewReader(b)))
 	}
 	for _, name := range []string{"explanation.md", "planet.md"} {
-		if r := run(name); r.UpdatedInput != nil || r.Decision == core.Block {
-			t.Errorf("%s = %+v, want untouched", name, r)
+		if r := run(name); r.UpdatedInput != nil || strings.Contains(r.Reason, "plan-path") {
+			t.Errorf("%s = %+v, want no plan-path rewrite", name, r)
 		}
 	}
 	if err := os.WriteFile(filepath.Join(cfg, "plans"), []byte("not a dir"), 0o644); err != nil {
@@ -789,7 +789,7 @@ func TestPlanGateFixesTitleAndTasks(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			cfg, _ := planGroupEnv(t, false)
 			draft := filepath.Join(cfg, "plans", "happy-otter.md")
-			res := PlanGate(core.ParseInputFor(strings.NewReader(writePayload(t, "Write", cfg, draft, c.content)), c.agent))
+			res := Placement(core.ParseInputFor(strings.NewReader(writePayload(t, "Write", cfg, draft, c.content)), c.agent))
 			got, _ := res.UpdatedInput["content"].(string)
 			if !c.fixed {
 				if res.Decision != core.Block || res.UpdatedInput != nil || !strings.Contains(res.Reason, "missing "+c.want) {

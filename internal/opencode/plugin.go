@@ -124,8 +124,8 @@ func withHostedMarker(env []string, h *hookHost) []string {
 // pluginFailClosed are the plugin modules whose timeout or crash blocks the call; the rest fail open with a note.
 var pluginFailClosed = []string{"permission-gate", "safety-scan"}
 
-// pluginAsClaude run untagged: tagged, docs-plan-gate denies the plan-path rewrite the plugin drops (owner decision).
-var pluginAsClaude = []string{"docs-plan-gate"}
+// pluginAsClaude run untagged: tagged, docs-placement denies the plan-path rewrite the plugin drops (owner decision).
+var pluginAsClaude = []string{"docs-placement"}
 
 // pluginModule is one hook the plugin runs before an opencode tool call, as the JS reads it.
 type pluginModule struct {

@@ -198,10 +198,6 @@ func guardBindingProbes() map[string]bindingProbe {
 					return r.Decision == core.Block && strings.Contains(r.Reason, "docs-placement")
 				}
 		},
-		"docs-plan-gate": func(_ *testing.T, cfg string) (string, func(core.Result) bool) {
-			return writeProbe(cfg, filepath.Join(cfg, "plans", "draft.md"), "freeform"),
-				func(r core.Result) bool { return strings.HasPrefix(r.Reason, "plan-template: BLOCKED") }
-		},
 		"dispatch-effort": func(*testing.T, string) (string, func(core.Result) bool) {
 			return `{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`, func(r core.Result) bool {
 				s, _ := r.UpdatedInput["script"].(string)
@@ -399,9 +395,9 @@ func TestHookFlagWrongEventErrors(t *testing.T) {
 	if code, _, _ := runFlags("docs-placement", strings.NewReader(`{}`)); code != core.ExitBlock {
 		t.Errorf("stale bare `hook docs-placement` = %d, want ExitBlock", code)
 	}
-	if code, _, errb := runFlags("PreToolUse", strings.NewReader(`{}`), "--docs-gate"); code != core.ExitBlock ||
+	if code, _, errb := runFlags("PreToolUse", strings.NewReader(`{}`), "--docs-plan-gate"); code != core.ExitBlock ||
 		!strings.Contains(errb, "claude-code agents sync") {
-		t.Errorf("renamed --docs-gate = %d %q, want ExitBlock naming the re-render verb", code, errb)
+		t.Errorf("merged-away --docs-plan-gate = %d %q, want ExitBlock naming the re-render verb", code, errb)
 	}
 	if code, _, _ := runFlags("PreToolUse", strings.NewReader(`{}`), "--no-own"); code != 1 {
 		t.Errorf("removed --no-own = %d, want exit 1", code)

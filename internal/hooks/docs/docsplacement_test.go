@@ -59,7 +59,7 @@ func TestDocsPlacementFirstDenial(t *testing.T) {
 		want string
 		not  string
 	}{
-		{"placement", Placement, "docs-placement: BLOCKED", "plan-template: BLOCKED"},
+		{"placement", placeFiles, "docs-placement: BLOCKED", "plan-template: BLOCKED"},
 		{"gate", Gate, "plan-template: BLOCKED", "docs-placement: BLOCKED"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 						t.Fatal(err)
 					}
 					var stderr bytes.Buffer
-					if code := Placement(core.ParseInput(bytes.NewReader(raw)), &stderr); code != core.ExitBlock {
+					if code := placeFiles(core.ParseInput(bytes.NewReader(raw)), &stderr); code != core.ExitBlock {
 						t.Fatalf("code = %d, want block: %s", code, &stderr)
 					}
 					if !strings.Contains(stderr.String(), "docs-placement: BLOCKED") {
@@ -143,7 +143,7 @@ func TestDocsPlacementGate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, c.tool, c.path))), &stderr)
+			code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, c.tool, c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -165,7 +165,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "NOTES.md")))), &stderr); code != core.ExitBlock {
+	if code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "NOTES.md")))), &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	for _, want := range []string{
@@ -205,7 +205,7 @@ func TestDocsPlacementThroughSymlink(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
+			code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -223,7 +223,7 @@ func TestDocsPlacementGlobShapedNameStillBlocks(t *testing.T) {
 	repo := placementRepo(t)
 
 	var stderr bytes.Buffer
-	if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md")))), &stderr); code != core.ExitBlock {
+	if code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "*.md")))), &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block for a glob-shaped root doc (stderr: %s)", code, stderr.String())
 	}
 }
@@ -281,7 +281,7 @@ func TestDocsPlacementIgnoredDocsDir(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
+			code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr)
 			want := core.ExitProceed
 			if c.block {
 				want = core.ExitBlock
@@ -313,7 +313,7 @@ func TestDocsPlacementExcludedLocalDoc(t *testing.T) {
 		{"DESIGN.md", core.ExitProceed}, {"docs/local.md", core.ExitProceed}, {"NOTES.md", core.ExitBlock}, {"docs/new.md", core.ExitBlock},
 	} {
 		var stderr bytes.Buffer
-		code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path)))), &stderr)
+		code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Edit", filepath.Join(repo, c.path)))), &stderr)
 		if code != c.want {
 			t.Errorf("%s: code = %d, want %d (stderr: %s)", c.path, code, c.want, stderr.String())
 		}
@@ -333,7 +333,7 @@ func TestDocsPlacementHarnessDocsTreeExempt(t *testing.T) {
 	} {
 		var stderr bytes.Buffer
 		p := filepath.Join(harness, "docs", filepath.FromSlash(name))
-		if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", p))), &stderr); code != want {
+		if code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", p))), &stderr); code != want {
 			t.Errorf("%s: code = %d, want %d (stderr: %s)", name, code, want, stderr.String())
 		}
 	}
@@ -362,7 +362,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var stderr bytes.Buffer
-			if code := Placement(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr); code != c.want {
+			if code := placeFiles(core.ParseInput(strings.NewReader(placementPayload(t, "Write", c.path))), &stderr); code != c.want {
 				t.Fatalf("code = %d, want %d (stderr: %s)", code, c.want, stderr.String())
 			}
 		})
@@ -383,7 +383,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 
 	var stderr bytes.Buffer
 	in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, "NOTES.md"))))
-	if code := Placement(in, &stderr); code != core.ExitBlock {
+	if code := placeFiles(in, &stderr); code != core.ExitBlock {
 		t.Fatalf("code = %d, want block", code)
 	}
 	if want := "Plans belong in " + filepath.Join(cfg, "plans") + ","; !strings.Contains(stderr.String(), want) {
@@ -395,7 +395,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	for _, sub := range []string{"handoffs", "reports"} {
 		var e bytes.Buffer
 		in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(repo, sub, "2026-11-07-x.md"))))
-		if code := Placement(in, &e); code != core.ExitProceed {
+		if code := placeFiles(in, &e); code != core.ExitProceed {
 			t.Errorf("%s inside the store = %d, want proceed (%s)", sub, code, e.String())
 		}
 	}
@@ -410,7 +410,7 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 	for _, dir := range []string{store, link} {
 		var e bytes.Buffer
 		in := core.ParseInput(strings.NewReader(placementPayload(t, "Write", filepath.Join(dir, "a-new-note.md"))))
-		if code := Placement(in, &e); code != core.ExitProceed {
+		if code := placeFiles(in, &e); code != core.ExitProceed {
 			t.Errorf("note at store root via %s = %d, want proceed (%s)", dir, code, e.String())
 		}
 	}
@@ -441,21 +441,21 @@ func TestDocsPlacementBlocksShellWrites(t *testing.T) {
 	} {
 		b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": c.cmd}})
 		var stderr bytes.Buffer
-		if got := Placement(core.ParseInput(bytes.NewReader(b)), &stderr); got != c.code {
+		if got := placeFiles(core.ParseInput(bytes.NewReader(b)), &stderr); got != c.code {
 			t.Errorf("%q: code %d, want %d (%s)", c.cmd, got, c.code, &stderr)
 		}
 	}
 }
 
-// A first write PlanGate rewrites passes docs-placement; a non-plan root markdown stays denied.
+// A first plan-named root write is rewritten, not placement-denied; a non-plan root markdown stays denied.
 func TestDocsPlacementYieldsToPlanRewrite(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)
-	for name, want := range map[string]int{"my-plan.md": core.ExitProceed, "notes.md": core.ExitBlock} {
+	for name, rewrite := range map[string]bool{"my-plan.md": true, "notes.md": false} {
 		b, _ := json.Marshal(map[string]any{"tool_name": "Write", "cwd": repo,
 			"tool_input": map[string]string{"file_path": filepath.Join(repo, name), "content": "x"}})
-		if code := Placement(core.ParseInput(bytes.NewReader(b)), io.Discard); code != want {
-			t.Errorf("%s: code = %d, want %d", name, code, want)
+		if r := Placement(core.ParseInput(bytes.NewReader(b))); (r.UpdatedInput != nil) != rewrite || (r.Decision == core.Block) == rewrite {
+			t.Errorf("%s: result = %+v, want rewrite=%v", name, r, rewrite)
 		}
 	}
 }
@@ -489,7 +489,7 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			b, _ := json.Marshal(map[string]any{"tool_name": c.tool, "cwd": repo, "tool_input": c.input})
 			var stderr bytes.Buffer
-			if code := Placement(core.ParseInput(bytes.NewReader(b)), &stderr); code != core.ExitBlock {
+			if code := placeFiles(core.ParseInput(bytes.NewReader(b)), &stderr); code != core.ExitBlock {
 				t.Fatalf("code = %d, want block (%s)", code, &stderr)
 			}
 			exact, generic := strings.Contains(stderr.String(), "Re-issue the write to "+c.want+"."), strings.Contains(stderr.String(), "Plans belong in ")

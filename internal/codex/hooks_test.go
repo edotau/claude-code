@@ -166,7 +166,7 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 			t.Errorf("%s: rendered matcher = %q (present %v), want %q", s.Name, got, ok, want)
 		}
 	}
-	if !strings.Contains(string(raw), `"Write|Edit|apply_patch"`) { // docs-placement and docs-plan-gate
+	if !strings.Contains(string(raw), `"Write|Edit|MultiEdit|Bash|apply_patch"`) { // docs-placement
 		t.Errorf("no file-write gate selects Codex's apply_patch:\n%s", raw)
 	}
 }
