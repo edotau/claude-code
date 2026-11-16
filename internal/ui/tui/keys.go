@@ -82,7 +82,7 @@ func decodeEscape(buf []byte) (Key, int) {
 		return Key{Kind: KeyEsc}, 1
 	}
 	if buf[1] != '[' && buf[1] != 'O' {
-		return dropped, 1
+		return decodeAlt(buf)
 	}
 	if len(buf) < 3 {
 		return Key{}, 0
@@ -100,6 +100,17 @@ func decodeEscape(buf []byte) (Key, int) {
 		return skipCSIParams(buf)
 	}
 	return dropped, 3
+}
+
+// decodeAlt drops an Alt pair (ESC + printable rune) whole; ESC before a control byte drops alone.
+func decodeAlt(buf []byte) (Key, int) {
+	if buf[1] < 0x20 || buf[1] == 0x7f {
+		return dropped, 1
+	}
+	if _, n := decodeRune(buf[1:]); n > 0 {
+		return dropped, 1 + n
+	}
+	return Key{}, 0
 }
 
 // csiArrows maps the final byte of ESC [ <byte> to the arrow key it names.
@@ -142,6 +153,11 @@ func (k Key) Name() string {
 
 // isLoneEsc reports whether buf is a bare Esc, which may open a sequence whose rest has not arrived yet.
 func isLoneEsc(buf []byte) bool { return len(buf) == 1 && buf[0] == 0x1b }
+
+// isHeldEsc reports a pending ESC [ or ESC O that a silent pollTick must release, not leave to eat the next key.
+func isHeldEsc(buf []byte) bool {
+	return len(buf) == 2 && buf[0] == 0x1b && (buf[1] == '[' || buf[1] == 'O')
+}
 
 // drain decodes every complete key in pending, returning them and the still-undecoded tail.
 func drain(pending []byte) ([]Key, []byte) {
@@ -248,7 +264,7 @@ func (t *terminal) Size() (w, h int) {
 	return w, h
 }
 
-// readKeys pumps stdin through drain; a lone Esc is held one pollTick before it counts as the Esc key.
+// readKeys pumps stdin through drain; a held Esc waits one pollTick before it counts as the Esc key.
 func (t *terminal) readKeys() {
 	defer close(t.done)
 	var pending []byte
@@ -259,9 +275,10 @@ func (t *terminal) readKeys() {
 			return
 		default:
 		}
-		if isLoneEsc(pending) && t.escTimedOut() {
-			pending = nil
-			if !t.emit([]Key{{Kind: KeyEsc}}) {
+		lone := isLoneEsc(pending) // unpollable: only a lone Esc times out, a split ESC [ waits for its final byte
+		if (lone || canPoll && isHeldEsc(pending)) && t.escTimedOut() {
+			pending = nil // a stalled ESC [ / ESC O is an Alt pair: dropped
+			if lone && !t.emit([]Key{{Kind: KeyEsc}}) {
 				return
 			}
 		}

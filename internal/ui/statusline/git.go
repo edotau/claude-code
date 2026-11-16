@@ -3,11 +3,13 @@ package statusline
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -87,20 +89,39 @@ func gitfileTarget(path string) (string, bool) {
 	return target, true
 }
 
+// headReadCap bounds the HEAD read; a real HEAD is one short line.
+const headReadCap = 4 << 10
+
 func gitHeadBranch(gitDir string) (string, bool) {
-	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	f, err := os.Open(filepath.Join(gitDir, "HEAD"))
 	if err != nil {
 		return "", false
 	}
+	defer f.Close()
+	head, err := io.ReadAll(io.LimitReader(f, headReadCap+1))
+	if err != nil || len(head) > headReadCap {
+		return "", false
+	}
 	ref := strings.TrimSpace(string(head))
+	if !printableRef(ref) {
+		return "", false
+	}
 	if rest, isRef := strings.CutPrefix(ref, "ref: "); isRef {
 		branch, isHead := strings.CutPrefix(rest, "refs/heads/")
-		if !isHead {
+		if !isHead || branch == ".invalid" { // reftable repos park HEAD on refs/heads/.invalid: ask git
 			return "", false
 		}
 		return branch, true
 	}
 	return "HEAD", true
+}
+
+// printableRef rejects invalid UTF-8 and control characters so HEAD never writes escapes to the terminal.
+func printableRef(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	return !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
 // A slow git (network FS, huge index) must degrade to no velocity, not stall the bar.
@@ -191,8 +212,8 @@ func untrackedLines(ctx context.Context, cwd string) int {
 
 // fileLines counts lines of a small text file; binary (NUL in the head) or oversized counts zero.
 func fileLines(path string) int {
-	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || fi.Size() > untrackedByteCap || fi.Size() == 0 {
+	fi, err := os.Lstat(path) // Lstat: a symlink to an outside file is not untracked lines
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > untrackedByteCap || fi.Size() == 0 {
 		return 0
 	}
 	b, err := os.ReadFile(path)

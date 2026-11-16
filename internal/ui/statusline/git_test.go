@@ -3,6 +3,7 @@ package statusline
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,6 +21,9 @@ func TestGitBranchFast(t *testing.T) {
 		{name: "empty HEAD", head: "", want: "HEAD", ok: true},
 		{name: "other symbolic ref", head: "ref: refs/tags/v1\n"},
 		{name: "missing HEAD", head: "missing"},
+		{name: "reftable HEAD", head: "ref: refs/heads/.invalid\n"},
+		{name: "control character", head: "ref: refs/heads/a\x1b[31mb\n"},
+		{name: "oversized HEAD", head: "ref: refs/heads/" + strings.Repeat("a", headReadCap)},
 		{name: "empty gitfile", gitfile: "empty"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

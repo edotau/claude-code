@@ -23,7 +23,7 @@ type twoData struct {
 	week                int // 7d used percent; -1 when absent
 }
 
-// twoSeg is one painted cell: key picks its powerline.minimal colors ("" = no background).
+// twoSeg is one painted cell: key picks its colors from the cfg.Gradient powerline theme ("" = no background).
 type twoSeg struct {
 	key, text, fg string // fg: fixed hex that overrides the ramp
 	bold, dim     bool
@@ -75,7 +75,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	}
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
-		ctx := "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct)))
+		ctx := "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", clampPct(int(math.Round(d.ctxPct))))
 		toks := textutil.CompactCount(int64(d.tokens)) + "/" + textutil.CompactCount(int64(d.size))
 		row2 = appendSep(row2, twoSeg{key: "context", text: ctx})
 		row2 = appendSep(row2, twoSeg{key: "tokens", text: toks})

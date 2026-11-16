@@ -166,7 +166,7 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 	filled := strings.TrimRight(bar, "─")
 	b.push(filled, "filled")
 	b.push(bar[len(filled):], "empty")
-	b.push(fmt.Sprintf(" %d%%", int(math.Round(d.ctxPct))), "g")
+	b.push(fmt.Sprintf(" %d%%", clampPct(int(math.Round(d.ctxPct)))), "g")
 	b.pushBreakable(twoSep, "g")
 	b.push(textutil.CompactCount(int64(d.tokens))+"/"+textutil.CompactCount(int64(d.size)), "g")
 	if v.limits != "" {
