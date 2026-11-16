@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -194,7 +195,7 @@ func filterProcs(all []procCwd, dir string) []Proc {
 		if p.Comm == "" && commName != nil {
 			p.Comm = commName(p.PID)
 		}
-		procs = append(procs, Proc{PID: p.PID, Comm: p.Comm})
+		procs = append(procs, Proc{PID: p.PID, Comm: agentLabel(p.PID, p.Comm)})
 	}
 	return procs
 }
@@ -265,7 +266,7 @@ func agentAncestors(mine map[int]bool) map[int]bool {
 		return own
 	}
 	for pid := range mine {
-		if agentComms[commName(pid)] {
+		if agentComms[agentLabel(pid, commName(pid))] {
 			own[pid] = true
 		}
 	}
@@ -288,6 +289,14 @@ func isDaemon(pid int) bool {
 	argv, err := argvOf(pid)
 	return err == nil && slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "--hub") })
 }
+
+// agentLabel is comm, or the agent a version-named binary belongs to (Claude Code's kernel name is "2.1.325").
+func agentLabel(pid int, comm string) string {
+	return cmp.Or(proc.AgentName(comm, func() string { return exeOf(pid) }, agentComms), comm)
+}
+
+// exeOf reads a pid's executable path; a seam so tests never read the host's process table.
+var exeOf = proc.Exe
 
 // argvOf reads a pid's argv; a seam so tests never shell out.
 var argvOf = proc.Argv

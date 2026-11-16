@@ -71,3 +71,28 @@ func TestDescendants(t *testing.T) {
 		}
 	}
 }
+
+// A version-named binary is an agent only through its exec path; any other version-named process is not.
+func TestAgentName(t *testing.T) {
+	names := map[string]bool{"claude": true, "codex": true}
+	cases := []struct{ comm, exe, want string }{
+		{"codex", "", "codex"},
+		{"2.1.325", "/Users/u/.local/bin/claude", "claude"},
+		{"2.1.325", "/Users/u/.local/share/claude/versions/2.1.325", "claude"},
+		{"2.1.325", "/opt/tool/2.1.325", ""},
+		{"1.2.3", "/opt/foo/versions/1.2.3", ""},
+		{"2.1.325", "/opt/claude/bin/2.1.325", ""},
+		{"2.1.325", "", ""},
+		{"vim", "/usr/bin/claude", ""},
+	}
+	for _, c := range cases {
+		read := false
+		got := AgentName(c.comm, func() string { read = true; return c.exe }, names)
+		if got != c.want {
+			t.Errorf("AgentName(%q, %q) = %q, want %q", c.comm, c.exe, got, c.want)
+		}
+		if read && !versionLike(c.comm) {
+			t.Errorf("AgentName(%q) read the exec path for a non-version name", c.comm)
+		}
+	}
+}

@@ -45,3 +45,9 @@ func Comm(pid int) string {
 	}
 	return strings.TrimSpace(string(raw))
 }
+
+// Exe is pid's resolved executable path from /proc ("" when unreadable, as for another user's process).
+func Exe(pid int) string {
+	exe, _ := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe")
+	return exe
+}
