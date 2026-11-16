@@ -107,7 +107,8 @@ func TestDocsPlacementPatchArgumentKeys(t *testing.T) {
 func TestDocsPlacementGate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)
-	if err := os.MkdirAll(filepath.Join(repo, ".claude", "docs"), 0o755); err != nil {
+	notes := os.WriteFile(filepath.Join(repo, "NOTES.md"), []byte("owner notes\n"), 0o644) // an existing untracked root doc
+	if err := errors.Join(os.MkdirAll(filepath.Join(repo, ".claude", "docs"), 0o755), notes); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,6 +122,12 @@ func TestDocsPlacementGate(t *testing.T) {
 		{"handoff at repo root", "Write", filepath.Join(repo, "HANDOFF.md"), true},
 		{"markdown ext variant", "Write", filepath.Join(repo, "notes.markdown"), true},
 		{"edit of untracked root doc", "Edit", filepath.Join(repo, "SCRATCH.md"), true},
+		{"edit of existing untracked root doc", "Edit", filepath.Join(repo, "NOTES.md"), false},
+		{"rewrite of existing untracked root doc", "Write", filepath.Join(repo, "NOTES.md"), false},
+		{"claude local memory", "Write", filepath.Join(repo, "CLAUDE.local.md"), false},
+		{"codex override", "Write", filepath.Join(repo, "AGENTS.override.md"), false},
+		{"anchor .markdown ext", "Write", filepath.Join(repo, "README.markdown"), false},
+		{"anchor-prefixed name", "Write", filepath.Join(repo, "README.old.md"), true},
 		{"root anchor", "Write", filepath.Join(repo, "README.md"), false},
 		{"cross-tool render", "Write", filepath.Join(repo, "AGENTS.md"), false},
 		{"tracked repo doc", "Edit", filepath.Join(repo, "ARCHITECTURE.md"), false},
@@ -163,6 +170,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 		"handoffs in ",
 		"reports in ",
 		"HARNESS_HOOK_SKIP=docs-placement",
+		"`touch <file> && git add -N <file>`",
 		"rules/harness/docs-placement.md",
 	} {
 		if !strings.Contains(stderr.String(), want) {

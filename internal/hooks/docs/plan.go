@@ -293,9 +293,9 @@ var undatedNameRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
 })
 
-// isUndatedDraft reports whether abs is a markdown file directly under <config>/plans/ whose name isn't dated.
+// isUndatedDraft reports whether abs is a markdown file directly under <config>/plans/ not dated or a README.
 func isUndatedDraft(abs string) bool {
-	if !isMarkdownPath(abs) {
+	if !isMarkdownPath(abs) || strings.EqualFold(strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)), "readme") {
 		return false
 	}
 	// Canonicalize both sides: a draft spelled through a symlink must still match the real plans dir.
@@ -330,10 +330,13 @@ var planTemplateHeadings = []templateHeading{
 	{2, "Tasks", "## Tasks"},
 }
 
-// hasPlanHeading reports whether headings contains one matching want's level and text prefix.
+// hasPlanHeading reports whether headings contains one matching want's level and text prefix (any case for the title).
 func hasPlanHeading(headings []planHeading, want templateHeading) bool {
 	for _, h := range headings {
-		if h.level == want.level && strings.HasPrefix(h.text, want.prefix) {
+		if h.level != want.level || len(h.text) < len(want.prefix) {
+			continue
+		}
+		if lead := h.text[:len(want.prefix)]; lead == want.prefix || want.level == 1 && strings.EqualFold(lead, want.prefix) {
 			return true
 		}
 	}
@@ -375,7 +378,8 @@ func rewritePlanPath(in *core.Input, dest string) core.Result {
 	from := in.Nested("tool_input", "file_path")
 	if in.Agent() != core.AgentClaude {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("plan-path: %s is not the plans home; "+
-			"resend this write with file_path %q.", from, dest)}
+			"resend this write with file_path %q. A real repo doc: create it empty first (`touch %s`), then re-issue.",
+			from, dest, from)}
 	}
 	updated := in.CloneToolInput()
 	if updated == nil {
@@ -476,9 +480,13 @@ func gateDraft(path, content string, stderr io.Writer) int {
 		if hasPlanHeading(headings, want) {
 			continue
 		}
+		source := "Use the plan template (`docs/templates/plan.md` in the harness repo)"
+		if tpl := plans.TemplatePath(paths.ConfigDir()); paths.IsFile(tpl) {
+			source = "Write the full template from " + tpl
+		}
 		fmt.Fprintf(stderr, "plan-template: BLOCKED — %s is missing %q from the plan template.\n"+
-			"Write the full template from %s before filing a draft; required headings:\n%s",
-			filepath.Base(path), want.label, plans.TemplatePath(paths.ConfigDir()), strings.Join(PlanTemplateHeadings(), "\n")+"\n")
+			"%s before filing a draft; required headings:\n%s",
+			filepath.Base(path), want.label, source, strings.Join(PlanTemplateHeadings(), "\n")+"\n")
 		return core.ExitBlock
 	}
 	return core.ExitProceed

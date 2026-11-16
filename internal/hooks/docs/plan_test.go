@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -324,8 +325,8 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	var gateErr bytes.Buffer
 	code := Gate(core.ParseInput(hookJSON(t, payload)), &gateErr)
 	if code != core.ExitBlock || !strings.Contains(gateErr.String(), "plan-template: BLOCKED") ||
-		!strings.Contains(gateErr.String(), "## Tasks") {
-		t.Fatalf("code=%d err=%q, want a block with the skeleton", code, &gateErr)
+		!strings.Contains(gateErr.String(), "## Tasks") || !strings.Contains(gateErr.String(), plans.TemplatePath(cfg)) {
+		t.Fatalf("code=%d err=%q, want a block with the skeleton and the template path", code, &gateErr)
 	}
 	var e bytes.Buffer
 	Placement(core.ParseInput(hookJSON(t, payload)), &e)
@@ -598,6 +599,10 @@ func planGateCases() []planGateCase {
 		{"other tool", "Bash", "plans/draft.md", "freeform", false, core.ExitProceed},
 		{"dated plan", "Write", "plans/2026-10-20-draft.md", "freeform", false, core.ExitProceed},
 		{"nested plan", "Write", "plans/project/draft.md", "freeform", false, core.ExitProceed},
+		{"lowercase title", "Write", "plans/draft.md", strings.Replace(planTemplate, "# Plan:", "# plan:", 1), false, core.ExitProceed},
+		{"plans README", "Write", "plans/README.md", "index of plans", false, core.ExitProceed},
+		{"plans readme lowercase", "Write", "plans/readme.markdown", "index", false, core.ExitProceed},
+		{"README-named draft", "Write", "plans/README-x.md", "freeform", false, core.ExitBlock},
 		{"outside plans", "Write", "other/draft.md", "freeform", false, core.ExitProceed},
 	}
 }
@@ -619,8 +624,12 @@ func requirePlanGateDenied(t *testing.T, cfg, rel string, stderr *bytes.Buffer) 
 	t.Helper()
 	if !strings.HasPrefix(stderr.String(), "plan-template: BLOCKED") ||
 		!strings.Contains(stderr.String(), `missing "# Plan:"`) ||
-		!strings.Contains(stderr.String(), plans.TemplatePath(cfg)) {
+		!strings.Contains(stderr.String(), "docs/templates/plan.md") {
 		t.Errorf("missing first heading/template diagnostic: %s", stderr)
+	}
+	// An absent template is never named as the file to copy (cfg need not be the harness clone).
+	if tpl := plans.TemplatePath(cfg); paths.IsFile(tpl) != strings.Contains(stderr.String(), tpl) {
+		t.Errorf("template path %s named iff it exists, got: %s", tpl, stderr)
 	}
 	if _, err := os.Stat(filepath.Join(cfg, rel)); !os.IsNotExist(err) {
 		t.Errorf("denied draft must remain absent: %v", err)
@@ -712,13 +721,19 @@ func TestPlanGateRewritesStrandedPlan(t *testing.T) {
 	if r := run("auto", filepath.Join(repo, "my-plan.md")); r.Decision == core.Block || r.UpdatedInput["file_path"] != want {
 		t.Errorf("auto = %+v, want the same rewrite to %s", r, want)
 	}
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": repo,
+		"tool_input": map[string]string{"file_path": filepath.Join(repo, "my-plan.md"), "content": "x"}})
+	codex := PlanGate(core.ParseInputFor(bytes.NewReader(b), core.AgentCodex)) // codex cannot rewrite: deny names both ways out
+	if codex.Decision != core.Block || !strings.Contains(codex.Reason, want) || !strings.Contains(codex.Reason, "touch "+filepath.Join(repo, "my-plan.md")) {
+		t.Errorf("codex deny = %q, want the dated path and the create-it-empty escape", codex.Reason)
+	}
 	for _, p := range []string{filepath.Join(repo, "notes.md"), filepath.Join(repo, "src", "plan.md"), filepath.Join(cfg, "plans", "2026-01-01-x.md")} {
 		if r := run("default", p); r.UpdatedInput != nil || r.Decision == core.Block {
 			t.Errorf("%s = %+v, want untouched", p, r)
 		}
 	}
 	bare := t.TempDir() // a cwd in no git repo passes, as docs-placement says
-	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": bare,
+	b, _ = json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": bare,
 		"tool_input": map[string]string{"file_path": filepath.Join(bare, "my-plan.md"), "content": "x"}})
 	if r := PlanGate(core.ParseInput(bytes.NewReader(b))); r.UpdatedInput != nil || r.Decision == core.Block {
 		t.Errorf("non-repo cwd = %+v, want untouched", r)
