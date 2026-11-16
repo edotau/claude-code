@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestBankFilesReturnsIndependentSlice(t *testing.T) {
@@ -29,9 +27,10 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(dir)
+	own := BankFor(root).Prefix() + "*"
+	entries, _ := filepath.Glob(filepath.Join(dir, own))
 	for _, en := range entries {
-		if err := os.Remove(filepath.Join(dir, en.Name())); err != nil {
+		if err := os.Remove(en); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -44,8 +43,8 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 	if _, err = Init(root); err == nil {
 		t.Fatal("Init succeeded although every write failed")
 	}
-	if left, _ := os.ReadDir(dir); len(left) != 0 {
-		t.Errorf("failed Init left %d file(s) behind, first %q", len(left), left[0].Name())
+	if left, _ := filepath.Glob(filepath.Join(dir, own)); len(left) != 0 {
+		t.Errorf("failed Init left %d file(s) behind, first %q", len(left), left[0])
 	}
 }
 
@@ -54,7 +53,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	const own = "# my own conventions\n"
-	write(t, filepath.Join(Dir(root), "conventions.md"), own)
+	write(t, BankFor(root).Path("conventions.md"), own)
 	dir, err := Init(root)
 	if err != nil {
 		t.Fatal(err)
@@ -63,36 +62,12 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 		if name == "conventions.md" {
 			want = own
 		}
-		if got := mustRead(t, filepath.Join(dir, name)); got != want {
+		if got := mustRead(t, BankFor(root).Path(name)); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}
 	if m, _ := filepath.Glob(filepath.Join(dir, "*.tmp-*")); len(m) != 0 {
 		t.Errorf("Init left temp files behind: %v", m)
-	}
-}
-
-// bankExists resolves root's bank dir once, not per typed file; an unreadable origin read is never memoised.
-func TestHasBankResolvesDirOnce(t *testing.T) {
-	tempConfig(t)
-	resetVaultRetry(t)
-	repo := gitRepo(t, t.TempDir(), "project")
-	if _, err := EnsureRepoDir(repo); err != nil {
-		t.Fatal(err)
-	}
-	orig, reads := originRows, 0
-	originRows = func() (map[string]string, error) { reads++; return nil, errors.New("vault unreadable") }
-	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
-	repoDirsMemo.reset()
-	if bankExists(repo) {
-		t.Fatal("bankExists = true on a bank-less root")
-	}
-	if reads != 1 {
-		t.Errorf("bankExists read origins %d times, want 1 (one Dir resolution)", reads)
-	}
-	write(t, BankFor(repo).Path("progress.md"), "# Progress\n")
-	if !bankExists(repo) {
-		t.Error("bankExists = false with a typed file in the bank")
 	}
 }
 
@@ -117,25 +92,5 @@ func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
 	}
 	if got := aliasRead(t, path); got != "retry\n" {
 		t.Errorf("retry retained partial scaffold: %q", got)
-	}
-}
-
-// Given an unreadable vault, When Dir resolves a non-git workspace, Then it is the inert path, never the home bank.
-func TestDirVaultFailureIsNotHomeBank(t *testing.T) {
-	tempConfig(t)
-	resetVaultRetry(t)
-	if _, err := EnsureRepoDir(gitRepo(t, t.TempDir(), "project")); err != nil { // a store the dead vault cannot resolve
-		t.Fatal(err)
-	}
-	orig := originRows
-	originRows = func() (map[string]string, error) { return nil, errors.New("vault unreadable") }
-	t.Cleanup(func() { originRows = orig; repoDirsMemo.reset() })
-	repoDirsMemo.reset()
-	root := canonTemp(t, t.TempDir())
-	if _, err := RepoDir(root); err == nil {
-		t.Fatal("RepoDir succeeded with an unreadable vault")
-	}
-	if got := Dir(root); paths.SamePath(got, HomeBankDir()) {
-		t.Errorf("Dir(%s) = the home bank %s on a vault failure", root, got)
 	}
 }

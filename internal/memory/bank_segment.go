@@ -63,16 +63,8 @@ func corpusOf(own Bank) []corpusFile {
 	return out
 }
 
-// ownerDir maps a corpus file to the dir whose access log it feeds (a store-key stand-in when flat).
-func ownerDir(bank, path string) string {
-	if storeFlat() {
-		return accessDir(BankOfFile(path))
-	}
-	if bank == "archive" || bank == "knowledge" {
-		return filepath.Dir(filepath.Dir(path))
-	}
-	return filepath.Dir(path)
-}
+// ownerDir maps a corpus file to the dir whose access log it feeds (a store-key stand-in).
+func ownerDir(path string) string { return accessDir(BankOfFile(path)) }
 
 // ownerKey is name's "<key>--" prefix when key is a known bank, else "" (the home tier); keys never hold "--".
 func ownerKey(name string, keys []string) string {
@@ -82,21 +74,15 @@ func ownerKey(name string, keys []string) string {
 	return ""
 }
 
-// ownedFiles lists b's *.md in sub: a legacy dir whole, else the flat dir's names carrying b's prefix.
+// ownedFiles lists b's *.md in sub: the names carrying b's prefix.
 func ownedFiles(b Bank, sub string) []string {
 	files := globIn(b.SubDir(sub), "*.md")
-	if !storeFlat() {
-		return files
-	}
 	keys := BankKeys()
 	return slices.DeleteFunc(files, func(p string) bool { return ownerKey(filepath.Base(p), keys) != b.Key })
 }
 
-// topicFiles are b's native topics: its dir's searchable *.md legacy, else its prefixed top-level non-typed files.
+// topicFiles are b's native topics: its prefixed top-level non-typed files.
 func topicFiles(b Bank) []string {
-	if !storeFlat() {
-		return searchTopicFiles(b.SubDir(""))
-	}
 	keys := BankKeys()
 	var out []string
 	for _, p := range searchTopicFiles(StoreDir()) {
@@ -481,7 +467,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		id := blockRef(block, "")
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, Dir: ownerDir(file.Bank, file.Path),
+			File: filepath.Base(file.Path), Block: block, ID: id, Dir: ownerDir(file.Path),
 		})
 	}
 	return hits
@@ -521,15 +507,9 @@ func routedFilesOf(own Bank, query string) []corpusFile {
 	return out
 }
 
-// routedBanks are the repo banks query names; legacy also matches a store's origin basename.
+// routedBanks are the repo banks query names as a whole word.
 func routedBanks(query string) []Bank {
 	var out []Bank
-	if !storeFlat() {
-		for _, e := range routedRepos(query) {
-			out = append(out, Bank{Key: e.Key})
-		}
-		return out
-	}
 	q := strings.ToLower(query)
 	for _, k := range BankKeys() {
 		if routeMatch(q, k) {

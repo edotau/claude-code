@@ -313,19 +313,14 @@ func logShown(path, id, reason string, now time.Time) {
 		return
 	}
 	dir := accessDir(HomeBank())
-	if rel, ok := insideStore(path); ok && storeFlat() {
+	if _, ok := insideStore(path); ok {
 		dir = accessDir(BankOfFile(path))
-	} else if first, _, _ := strings.Cut(rel, "/"); ok && first != "" && first != "." {
-		dir = filepath.Join(StoreDir(), first)
 	}
 	logAccess(dir, now, id, reason)
 }
 
-// accessDir is b's access-log key dir: its legacy bank dir, else a store-key stand-in (the log lives in state).
+// accessDir is b's access-log key dir: a store-key stand-in (the log lives in state).
 func accessDir(b Bank) string {
-	if !storeFlat() {
-		return b.SubDir("")
-	}
 	return filepath.Join(StoreDir(), cmp.Or(b.Key, "home"))
 }
 

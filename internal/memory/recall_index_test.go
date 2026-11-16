@@ -30,21 +30,21 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	}
 	f := recallIndexFixture{
 		root:    root,
-		source:  filepath.Join(Dir(root), "decisionLog.md"),
-		archive: filepath.Join(Dir(root), "archive", "sessionHistory-old.md"),
+		source:  BankFor(root).Path("decisionLog.md"),
+		archive: BankFor(root).Sub("archive", "sessionHistory-old.md"),
 		stamp:   stamp,
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		filepath.Join(Dir(root), "conventions.md"):     "# Conventions\n\n- commit small\nreview focused changes\n",
-		filepath.Join(HomeBankDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
+		BankFor(root).Path("conventions.md"):        "# Conventions\n\n- commit small\nreview focused changes\n",
+		filepath.Join(StoreDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
-		filepath.Join(Dir(root), "recall.md"): "---\nname: native recall\n" +
+		BankFor(root).Path("recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",
-		filepath.Join(Dir(root), "bank-topic.md"): "---\nname: excludedbanktoken\n" +
+		BankFor(root).Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(knowledgeDir(HomeBankDir()), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(HomeBank().SubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {

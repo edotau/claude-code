@@ -9,7 +9,7 @@ import (
 
 func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
 	root := isolatedConfig1(t)
-	file := filepath.Join(HomeBankDir(), "decisionLog.md")
+	file := filepath.Join(StoreDir(), "decisionLog.md")
 	write(t, file, "## Hidden\nbody\n")
 	denyBankAccess(t, file)
 	hits, err := corpusBlocks(root)

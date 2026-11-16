@@ -530,13 +530,8 @@ func revisionVisible(oldPath, newPath string) bool {
 	return !inHomeBank(oldPath) || inHomeBank(newPath)
 }
 
-// inHomeBank reports whether path is a home-tier file: under home/ legacy, unprefixed when flat.
-func inHomeBank(path string) bool {
-	if storeFlat() {
-		return BankOfFile(path).Home()
-	}
-	return strings.HasPrefix(path, HomeBank().SubDir("")+string(filepath.Separator))
-}
+// inHomeBank reports whether path is an unprefixed home-tier file.
+func inHomeBank(path string) bool { return BankOfFile(path).Home() }
 
 // chainEnd follows h's `Replaced by` pointers to the live entry, within reviseHopCap hops; false when it breaks.
 func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool) {
@@ -568,7 +563,7 @@ func findBlockByID(id string, files []corpusFile, segs []segView) (SearchHit, bo
 		for d := range seg.Docs() {
 			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: ownerDir(f.Bank, f.Path)}, true
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: ownerDir(f.Path)}, true
 			}
 		}
 	}

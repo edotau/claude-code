@@ -3,6 +3,8 @@ package memory
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -10,7 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -24,52 +26,30 @@ type Bank struct{ Key string }
 func HomeBank() Bank      { return Bank{} }
 func (b Bank) Home() bool { return b.Key == "" }
 
-// Prefix is the "<key>--" file prefix; "" for home and for the legacy layout, whose files are never prefixed.
+// Prefix is the "<key>--" file prefix; "" for home.
 func (b Bank) Prefix() string {
-	if b.Key == "" || !storeFlat() {
+	if b.Key == "" {
 		return ""
 	}
 	return b.Key + "--"
 }
 
 // Path is one of b's top-level files (typed files, native topics of a non-harness repo).
-func (b Bank) Path(name string) string {
-	if !storeFlat() {
-		return filepath.Join(b.legacyDir(), name)
-	}
-	return filepath.Join(StoreDir(), b.Prefix()+name)
-}
+func (b Bank) Path(name string) string { return filepath.Join(StoreDir(), b.Prefix()+name) }
 
-func (b Bank) SubDir(sub string) string {
-	if !storeFlat() {
-		return filepath.Join(b.legacyDir(), sub)
-	}
-	return filepath.Join(StoreDir(), sub)
-}
+func (b Bank) SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
 
-// Sub is name under b's sub dir; name is prefixed only when flat.
-func (b Bank) Sub(sub, name string) string {
-	if !storeFlat() {
-		return filepath.Join(b.SubDir(sub), name)
-	}
-	return filepath.Join(b.SubDir(sub), b.Prefix()+name)
-}
+// Sub is name, prefixed with b's key, under b's sub dir.
+func (b Bank) Sub(sub, name string) string { return filepath.Join(b.SubDir(sub), b.Prefix()+name) }
 
-// NativeIndex is b's MEMORY.md: the one shared index when flat.
-func (b Bank) NativeIndex() string {
-	if !storeFlat() {
-		return filepath.Join(b.legacyDir(), "MEMORY.md")
-	}
-	return filepath.Join(StoreDir(), "MEMORY.md")
-}
+// NativeIndex is the one shared MEMORY.md.
+func (b Bank) NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
 
-func (b Bank) Ensure(sub string) error { return os.MkdirAll(b.SubDir(sub), 0o755) }
-
-func (b Bank) legacyDir() string {
-	if b.Key == "" {
-		return HomeBankDir()
+func (b Bank) Ensure(sub string) error {
+	if err := requireFlat(); err != nil {
+		return err
 	}
-	return filepath.Join(StoreDir(), b.Key)
+	return os.MkdirAll(b.SubDir(sub), 0o755)
 }
 
 // BankFor is root's bank: home for non-repo cwds, else the remote basename (else dir basename) slug.
@@ -80,11 +60,6 @@ func BankFor(root string) Bank {
 		return HomeBank()
 	case id.Harness:
 		return Bank{Key: harnessStoreKey()}
-	}
-	if !storeFlat() {
-		if d, err := RepoDir(root); err == nil {
-			return Bank{Key: filepath.Base(d)}
-		}
 	}
 	base, origin := id.Base, bankOrigin(id)
 	if rb := repoKeyFromRemote(originRemoteURL(id.Origin)); rb != "" {
@@ -149,19 +124,14 @@ func Banks() []Bank {
 // BankKeys lists the repo bank keys (home excluded), sorted.
 func BankKeys() []string {
 	keys := []string{}
-	if storeFlat() {
-		ents, _ := os.ReadDir(StoreDir())
-		for _, e := range ents {
-			if k, name, ok := strings.Cut(e.Name(), "--"); ok && k != "" && !e.IsDir() && slices.Contains(bankFiles, name) {
-				keys = append(keys, k)
-			}
+	ents, _ := os.ReadDir(StoreDir())
+	for _, e := range ents {
+		if k, name, ok := strings.Cut(e.Name(), "--"); ok && k != "" && !e.IsDir() && slices.Contains(bankFiles, name) {
+			keys = append(keys, k)
 		}
-	} else {
-		keys = append(keys, harnessStoreKey())
-		entries, _ := RepoDirs()
-		for _, e := range entries {
-			keys = append(keys, e.Key)
-		}
+	}
+	for k := range readOrigins() { // a bank with only reports or handoffs has no typed file yet
+		keys = append(keys, k)
 	}
 	slices.Sort(keys)
 	return slices.Compact(keys)
@@ -189,13 +159,7 @@ func BankOfFile(path string) Bank {
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
 var layoutCache sync.Map
 
-// flatForced is 0 when unforced, 1 legacy, 2 flat (setStoreFlat and the migration force it).
-var flatForced atomic.Int32
-
 func storeFlat() bool {
-	if v := flatForced.Load(); v != 0 {
-		return v == 2
-	}
 	d := StoreDir()
 	if v, ok := layoutCache.Load(d); ok {
 		return v.(bool)
@@ -209,15 +173,52 @@ func storeFlat() bool {
 // forgetLayout drops the memoized stamp for the current store (after migrate or revert writes it).
 func forgetLayout() { layoutCache.Delete(StoreDir()) }
 
-// EnsureBank is root's bank with sub created; on the legacy layout it also records root's origin so the key is stable.
-func EnsureBank(root, sub string) (Bank, error) {
-	if !storeFlat() {
-		if _, err := EnsureRepoDir(root); err != nil {
-			return Bank{}, err
-		}
+// errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.
+var errStoreNotFlat = errors.New("memory store uses the per-repo layout; run `claude-code memory migrate`")
+
+// requireFlat is nil on a stamped store and stamps one with no per-repo dirs; any other gets errStoreNotFlat.
+func requireFlat() error {
+	if storeFlat() {
+		return nil
 	}
+	ents, err := os.ReadDir(StoreDir())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err // an unreadable store must not look empty and get stamped
+	}
+	if slices.ContainsFunc(ents, legacyBankDir) {
+		return errStoreNotFlat
+	}
+	err = paths.AtomicWrite(filepath.Join(StoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
+	forgetLayout()
+	return err
+}
+
+// legacyBankDir is a per-repo bank dir: any other dir, or a shared-sub name holding a typed bank file.
+func legacyBankDir(e os.DirEntry) bool {
+	if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		return false
+	}
+	if !slices.Contains(flatSubs, e.Name()) {
+		return true
+	}
+	return slices.ContainsFunc(bankFiles, func(f string) bool {
+		_, err := os.Stat(filepath.Join(StoreDir(), e.Name(), f))
+		return err == nil
+	})
+}
+
+// withFlatLock is WithBankLock for writers: a store without the flat stamp is refused.
+func withFlatLock(wait time.Duration, fn func() error) error {
+	if err := requireFlat(); err != nil {
+		return err
+	}
+	return WithBankLock(wait, fn)
+}
+
+// EnsureBank is root's bank with sub created, its origin recorded so the key is stable.
+func EnsureBank(root, sub string) (Bank, error) {
 	b := BankFor(root)
-	if err := b.Ensure(sub); err != nil || !storeFlat() || b.Home() || b.Key == harnessStoreKey() {
+	if err := b.Ensure(sub); err != nil || b.Home() || b.Key == harnessStoreKey() {
 		return b, err
 	}
 	origin := bankOrigin(Resolve(root))

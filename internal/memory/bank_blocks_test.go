@@ -147,7 +147,11 @@ func countBankReads(t *testing.T) map[string]int {
 	reads := map[string]int{}
 	orig := readFile
 	readFile = func(p string) ([]byte, error) {
-		if slices.Contains(bankFiles, filepath.Base(p)) {
+		name := filepath.Base(p)
+		if _, rest, ok := strings.Cut(name, "--"); ok {
+			name = rest
+		}
+		if slices.Contains(bankFiles, name) {
 			reads[p]++
 		}
 		return orig(p)
@@ -158,7 +162,7 @@ func countBankReads(t *testing.T) map[string]int {
 
 // TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds archives.
 func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		initStore(t)
 		log := b.Path("decisionLog.md")
 		write(t, log, "# Decision Log\n\n## 2026-10-18 — First\nbody one\n\n## 2026-10-17 — Second\nbody two\n")
@@ -214,7 +218,7 @@ func assertShownFromArchive(t *testing.T, id, archive string) {
 
 // TestAssignIDsSecondPassLeavesExistingIDsByteIdentical: a stamped block must never be re-stamped, even byte-wise.
 func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("decisionLog.md")
 		write(t, path, "## First\nbody one\n\n## Second\nbody two\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -234,7 +238,7 @@ func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
 
 // TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs: three byte-identical block headers must get three distinct IDs.
 func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("decisionLog.md")
 		write(t, path, "## Fix the bug\nbody one\n\n## Fix the bug\nbody two\n\n## Fix the bug\nbody three\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -259,7 +263,7 @@ func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
 
 // TestAssignIDsSameTextDifferentFilesGetDistinctIDs: the same block text stamped in two typed files must not collide.
 func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		write(t, b.Path("decisionLog.md"), "## Fix the bug\nbody\n")
 		write(t, b.Path("sessionHistory.md"), "## Fix the bug\nbody\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -283,7 +287,7 @@ func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 
 // A marker the formatter wrapped onto a later line counts: settling twice adds nothing.
 func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("conventions.md")
 		body := "# C\n\n- long convention wrapped\n  onto two lines <!-- id:aaaa0001 -->\n\n- plain rule\n"
 		write(t, path, body)
@@ -307,7 +311,7 @@ func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
 
 // Stacked markers collapse to the oldest (last) one, idempotently.
 func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("conventions.md")
 		write(t, path, "# C\n\n- a rule that wraps\n  <!-- id:00000005 -->\n  <!-- id:00000004 -->\n  <!-- id:00000003 -->\n  <!-- id:00000002 -->\n  <!-- id:00000001 -->\n\n- next\n")
 		if _, err := assignIDsT(b, time.Now()); err != nil {
@@ -333,7 +337,7 @@ func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
 
 // A fenced example marker is not the block's id: settle keeps the real one and never adopts the example.
 func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("decisionLog.md")
 		write(t, path, "# D\n\n## 2026-10-01 — real heading <!-- id:aaaa0001 -->\n\nexample:\n\n```md\n## x <!-- id:bbbb0002 -->\n```\n")
 		if _, err := assignIDsT(b, time.Now()); err != nil {
@@ -358,7 +362,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 // Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
 func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
-	note := filepath.Join(HomeBankDir(), "knowledge", "wires.md")
+	note := filepath.Join(StoreDir(), "knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
 	hits, err := corpusBlocks(t.TempDir())
 	if err != nil {
@@ -445,14 +449,14 @@ func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 	if err != nil || second == first {
 		t.Fatalf("second Remember = %q, %v; want an id distinct from the first, %q", second, err, first)
 	}
-	if body := mustRead(t, filepath.Join(Dir(root), "decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
+	if body := mustRead(t, BankFor(root).Path("decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
 		t.Errorf("id %s is not unique in decisionLog.md:\n%s", second, body)
 	}
 }
 
 // A long conventions bullet keeps its wrapped marker: a second settle rewrites no byte and the catalog sees its id.
 func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		path := b.Path("conventions.md")
 		write(t, path, "# C\n\n- "+strings.TrimSpace(strings.Repeat("word ", 40))+"\n")
 		settle := func(now time.Time) {

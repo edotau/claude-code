@@ -58,7 +58,7 @@ func TestBuildBankRegionCapsAndPresentPointersOnly(t *testing.T) {
 }
 
 func TestWriteBankRegionInsertsReplacesAndRefuses(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		index := b.NativeIndex()
 
@@ -138,21 +138,20 @@ func TestBuildCatalogListsRepoRowsAndCapsGlobal(t *testing.T) {
 	isolatedConfig1(t)
 	a := gitRepo(t, t.TempDir(), "alpha")
 	b := gitRepo(t, t.TempDir(), "beta")
-	da, err := EnsureRepoDir(a)
-	if err != nil {
-		t.Fatal(err)
+	for _, r := range []string{a, b} {
+		if _, err := Init(r); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := EnsureRepoDir(b); err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(da, "projectContext.md"), "# Project\n\nalpha project, routes ssh deploys\n")
+	ba := BankFor(a)
+	write(t, ba.Path("projectContext.md"), "# Project\n\nalpha project, routes ssh deploys\n")
 
 	var conv strings.Builder
 	conv.WriteString("# Conventions\n\n")
 	for i := 1; i <= 15; i++ {
 		fmt.Fprintf(&conv, "- rule %d\n", i)
 	}
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), conv.String())
+	write(t, filepath.Join(StoreDir(), "conventions.md"), conv.String())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	catalog, err := BuildCatalog(now)
@@ -281,8 +280,8 @@ func TestBuildBankRegionKeepsFiveIDedEntriesAndOnePointer(t *testing.T) {
 	}
 }
 
-func TestKnowledgeNotesAndCatalogByLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+func TestKnowledgeNotesAndCatalog(t *testing.T) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -305,13 +304,10 @@ func TestKnowledgeNotesAndCatalogByLayout(t *testing.T) {
 		if want := "→ " + catalogPointer(b); !strings.Contains(cat, want) {
 			t.Errorf("catalog lacks %q:\n%s", want, cat)
 		}
-		if storeFlat() && !strings.Contains(cat, "proj--projectContext.md") {
-			t.Errorf("flat catalog must point at <key>--projectContext.md:\n%s", cat)
+		if !strings.Contains(cat, "proj--projectContext.md") {
+			t.Errorf("catalog must point at <key>--projectContext.md:\n%s", cat)
 		}
-		row := b.Key + "/knowledge/mine.md"
-		if storeFlat() {
-			row = "knowledge/" + b.Prefix() + "mine.md"
-		}
+		row := "knowledge/" + b.Prefix() + "mine.md"
 		if !strings.Contains(cat, "- "+row+" — ") {
 			t.Errorf("catalog lacks knowledge row %q:\n%s", row, cat)
 		}

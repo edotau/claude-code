@@ -83,7 +83,7 @@ func corpusBlocks(root string) ([]SearchHit, error) {
 		}
 		base := filepath.Base(f.Path)
 		for _, block := range parseBlocks(f.Mode, base, data) {
-			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Bank, f.Path)})
+			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Path)})
 		}
 	}
 	return out, nil

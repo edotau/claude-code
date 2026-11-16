@@ -41,7 +41,7 @@ func Remember(root, kind, fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	var id string
-	err = WithBankLock(BankLockWait, func() error {
+	err = withFlatLock(BankLockWait, func() error {
 		snap, werr := snapshotPaths(b.Path(file))
 		if werr != nil {
 			return werr
@@ -145,7 +145,7 @@ func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
 		return nil, errors.New("--label decisions is reserved")
 	}
 	var out []string
-	err := WithBankLock(BankLockWait, func() error {
+	err := withFlatLock(BankLockWait, func() error {
 		var err error
 		out, err = appendReportLocked(b, label, in)
 		return err

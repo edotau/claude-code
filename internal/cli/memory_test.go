@@ -89,11 +89,11 @@ func memTwoStores(t *testing.T, file, body string) (a, b string) {
 	a = hosttest.RepoAt(t, filepath.Join(t.TempDir(), "alpha"))
 	b = hosttest.RepoAt(t, filepath.Join(t.TempDir(), "beta"))
 	for _, repo := range []string{a, b} {
-		dir, err := memory.EnsureRepoDir(repo)
+		b, err := memory.EnsureBank(repo, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		hosttest.WriteRel(t, dir, file, fmt.Sprintf(body, filepath.Base(repo)))
+		hosttest.WriteRel(t, memory.StoreDir(), filepath.Base(b.Path(file)), fmt.Sprintf(body, filepath.Base(repo)))
 	}
 	return a, b
 }
@@ -146,11 +146,10 @@ func TestMemoryPathHonorsRepoFlag(t *testing.T) {
 			memCfg(t)
 			repo, arg, want := hosttest.Repo(t), "", ""
 			if byStoreName {
-				dir, err := memory.EnsureRepoDir(repo)
-				if err != nil {
+				if _, err := memory.Init(repo); err != nil {
 					t.Fatal(err)
 				}
-				arg, want = filepath.Base(repo), dir
+				arg, want = memory.BankFor(repo).Key, memory.StoreDir()
 			} else {
 				arg, want = repo, memory.BankFor(repo).SubDir("")
 			}
@@ -186,12 +185,12 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
 	}
 
-	hosttest.WriteRel(t, memory.HomeBankDir(), "conventions.md", "# C\n\n- a rule\n")
+	hosttest.WriteRel(t, memory.StoreDir(), "conventions.md", "# C\n\n- a rule\n")
 	catalog, err := memory.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(catalog, "## Home (memory/home/)") {
+	if !strings.Contains(catalog, "## Home (unprefixed files)") {
 		t.Errorf("catalog heading not renamed to Home: %q", catalog)
 	}
 	if strings.Contains(strings.ToLower(catalog), "global") {
@@ -202,9 +201,9 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 // --check reports the over-width file without writing it; the default pass wraps it; the hint lists fmt.
 func TestCmdMemoryFmtRejectsCheckWithOwn(t *testing.T) {
 	memCfg(t)
-	target := filepath.Join(memory.HomeBankDir(), "decisionLog.md")
+	target := filepath.Join(memory.StoreDir(), "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
-	hosttest.WriteRel(t, memory.HomeBankDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
+	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check", "--own"}) }); code != 2 {
 		t.Fatalf("--check --own: code=%d, want 2", code)
 	}
@@ -215,9 +214,9 @@ func TestCmdMemoryFmtRejectsCheckWithOwn(t *testing.T) {
 
 func TestCmdMemoryFmt(t *testing.T) {
 	memCfg(t)
-	target := filepath.Join(memory.HomeBankDir(), "decisionLog.md")
+	target := filepath.Join(memory.StoreDir(), "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
-	hosttest.WriteRel(t, memory.HomeBankDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
+	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
 
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
 	if code != 1 || !strings.Contains(out, target) {
@@ -386,7 +385,7 @@ func TestMemoryPromoteCLIHomeMovesBlockAndDryRunWritesNothing(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "would move") {
 		t.Fatalf("memory promote --dry-run: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	home := filepath.Join(memory.HomeBankDir(), "conventions.md")
+	home := filepath.Join(memory.StoreDir(), "conventions.md")
 	if data, _ := os.ReadFile(home); strings.Contains(string(data), id) {
 		t.Error("--dry-run via the CLI still wrote the home bank")
 	}
@@ -460,7 +459,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Chdir(t.TempDir()) // a non-repo cwd: search rides the home bank
 	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
-	hosttest.WriteRel(t, memory.HomeBankDir(), "decisionLog.md", body)
+	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", body)
 
 	code, out, _ := memCLI(t, "show", "abcd1234")
 	if code != 0 || !strings.Contains(out, "Zebra quota limiter choice") {
@@ -470,7 +469,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "decisionLog.md") {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
-	data, err := os.ReadFile(memory.AccessLogPath(memory.HomeBankDir()))
+	data, err := os.ReadFile(memory.AccessLogPath(memory.StoreDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +614,7 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 		t.Setenv("CLAUDE_PROJECT_DIR", "")
 		t.Chdir(t.TempDir())
 		before := "# Decision Log\n\n- " + strings.Repeat("longword ", 30) + "end\n"
-		hosttest.WriteRel(t, memory.HomeBankDir(), "decisionLog.md", before)
+		hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", before)
 		code, out, stderr := memCLI(t, "fmt", "stray", "--check")
 		if code != 2 {
 			t.Errorf("fmt ignored stray before --check: exit=%d stdout=%q stderr=%q", code, out, stderr)
@@ -623,7 +622,7 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 		if !strings.Contains(stderr, `memory fmt: unexpected argument "stray"`) {
 			t.Errorf("fmt missing positional usage error: %q", stderr)
 		}
-		after, err := os.ReadFile(filepath.Join(memory.HomeBankDir(), "decisionLog.md"))
+		after, err := os.ReadFile(filepath.Join(memory.StoreDir(), "decisionLog.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -676,9 +675,9 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 	memCfg(t)
 	repo := hosttest.Repo(t)
-	dir := memory.BankFor(repo).SubDir("")
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Fatalf("fresh repo store must not exist: %v", err)
+	b := memory.BankFor(repo)
+	if _, err := os.Stat(b.Path("progress.md")); !os.IsNotExist(err) {
+		t.Fatalf("fresh repo bank must not exist: %v", err)
 	}
 	input := filepath.Join(t.TempDir(), "report.json")
 	memMust(t, os.WriteFile(input, []byte(`{"report":"# Review\n\nFresh repo report.\n","decisions":["Keep reports together."]}`), 0o600))
@@ -694,24 +693,19 @@ func TestMemoryReportRegistersFreshRepoOrigin(t *testing.T) {
 			t.Fatalf("memory report paths = %v, want report and decisions", out.Paths)
 		}
 		for _, path := range out.Paths {
-			if filepath.Dir(path) != memory.ReportsDir(dir) {
-				t.Fatalf("report path %q is outside original store %q", path, dir)
+			if filepath.Dir(path) != b.SubDir("reports") || !strings.HasPrefix(filepath.Base(path), b.Prefix()) {
+				t.Fatalf("report path %q is not a %s-prefixed file under the store's reports dir", path, b.Key)
 			}
 			if _, err := os.Stat(path); err != nil {
 				t.Fatalf("reported file %q: %v", path, err)
 			}
 		}
-		if got := memory.BankFor(repo).SubDir(""); got != dir {
-			t.Fatalf("report split repo store: got %q, want %q", got, dir)
+		if got := memory.BankFor(repo); got != b {
+			t.Fatalf("report split repo bank: got %q, want %q", got.Key, b.Key)
 		}
 	}
-	entries, err := memory.RepoDirs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry := memory.FindEntry(entries, memory.Resolve(repo).Origin)
-	if entry == nil || entry.Dir != dir {
-		t.Fatalf("report store %q is not discoverable by RepoDirs: %v", dir, entries)
+	if origins, err := os.ReadFile(filepath.Join(memory.StoreDir(), ".origins")); err != nil || !strings.HasPrefix(string(origins), b.Key+"\t") {
+		t.Fatalf("report did not register %s's origin: %q, %v", b.Key, origins, err)
 	}
 }
 
@@ -755,24 +749,31 @@ func TestMemoryNoArgVerbsRejectStray(t *testing.T) {
 	}
 }
 
-// --repo <store name> targets that store from another checkout's cwd.
+// --repo <store name> settles that bank from another checkout's cwd, and only that bank.
 func TestMemoryIndexRepoAcceptsStoreName(t *testing.T) {
 	memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	memFakeClaude(t)
-	a, b := hosttest.Repo(t), hosttest.Repo(t)
-	dirA, err := memory.EnsureRepoDir(a)
-	if err != nil {
-		t.Fatal(err)
+	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n")
+	var history strings.Builder
+	history.WriteString("# Sessions\n")
+	for i := range 40 { // past the 30-entry cap, so settling rotates the overflow to archive/
+		fmt.Fprintf(&history, "\n## Session %02d\n\nbody\n", i)
 	}
-	if _, err := memory.EnsureRepoDir(b); err != nil {
-		t.Fatal(err)
+	bankA, bankB := memory.BankFor(a), memory.BankFor(b)
+	for _, bank := range []memory.Bank{bankA, bankB} {
+		memMust(t, os.WriteFile(bank.Path("sessionHistory.md"), []byte(history.String()), 0o600))
 	}
 	t.Chdir(b)
-	name := filepath.Base(a)
-	_, out, stderr := memCLI(t, "index", "--repo", name)
-	if !strings.Contains(out, "indexed "+dirA) {
-		t.Errorf("memory index --repo %s: stdout=%q stderr=%q, want it to index %s", name, out, stderr, dirA)
+	_, out, stderr := memCLI(t, "index", "--repo", bankA.Key)
+	if !strings.Contains(out, "(rotated 10 sessionHistory entries to archive/)") {
+		t.Errorf("memory index --repo %s: stdout=%q stderr=%q, want bank A rotated", bankA.Key, out, stderr)
+	}
+	if got, _ := os.ReadFile(bankA.Path("sessionHistory.md")); strings.Contains(string(got), "Session 39") {
+		t.Errorf("bank A sessionHistory kept the overflow: %q", got)
+	}
+	if got, _ := os.ReadFile(bankB.Path("sessionHistory.md")); string(got) != history.String() {
+		t.Errorf("--repo %s changed bank B (the cwd bank): %q", bankA.Key, got)
 	}
 }
 
@@ -782,7 +783,7 @@ func TestMemoryIndexUnknownRepoNamesKnownStores(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	memFakeClaude(t)
 	repo := hosttest.Repo(t)
-	if _, err := memory.EnsureRepoDir(repo); err != nil {
+	if _, err := memory.Init(repo); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(repo)
@@ -803,15 +804,15 @@ func TestMemoryReviewRepoStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	a, b := memTwoStores(t, "activeContext.md", "# %s context\n")
 	stale := time.Now().AddDate(0, 0, -memory.DefaultStaleDays-1)
-	memMust(t, os.Chtimes(filepath.Join(memory.BankFor(a).SubDir(""), "activeContext.md"), stale, stale))
+	memMust(t, os.Chtimes(memory.BankFor(a).Path("activeContext.md"), stale, stale))
 	t.Chdir(b)
-	name := filepath.Base(memory.BankFor(a).SubDir(""))
+	name := memory.BankFor(a).Key
 	code, out, stderr := memCLI(t, "review", "--repo", name)
 	if want := "local bank untouched since " + stale.Format("2006-01-02"); code != 0 || !strings.Contains(out, want) {
 		t.Fatalf("memory review --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
 	for _, args := range [][]string{{"review", "--repo", "nosuch"}, {"review", "--repo", "nosuch", "--notice"}} {
-		checkMemoryUnknownRepo(t, cfg, args, name, filepath.Base(memory.BankFor(b).SubDir("")))
+		checkMemoryUnknownRepo(t, cfg, args, name, memory.BankFor(b).Key)
 	}
 }
 
@@ -820,13 +821,13 @@ func TestMemoryReviewTimelineRepoStoreName(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	a, b := memTwoStores(t, "sessionHistory.md", "# Sessions\n\n## %s session\n")
 	t.Chdir(b)
-	name := filepath.Base(memory.BankFor(a).SubDir(""))
+	name := memory.BankFor(a).Key
 	code, out, stderr := memCLI(t, "review", "--timeline", "--repo", name)
 	want := "-- sessionHistory --\n- " + filepath.Base(a) + " session\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("memory review --timeline --repo %s: code=%d stdout=%q stderr=%q, want %q", name, code, out, stderr, want)
 	}
-	checkMemoryUnknownRepo(t, cfg, []string{"review", "--timeline", "--repo", "nosuch"}, name, filepath.Base(memory.BankFor(b).SubDir("")))
+	checkMemoryUnknownRepo(t, cfg, []string{"review", "--timeline", "--repo", "nosuch"}, name, memory.BankFor(b).Key)
 }
 
 func checkMemoryUnknownRepo(t *testing.T, cfg string, args []string, knownStores ...string) {

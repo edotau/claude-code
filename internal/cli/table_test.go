@@ -427,12 +427,11 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		}
 	}
 
-	// memory.RepoKeys reads the catalog, so the repo store needs a seeded repo.
-	repoDir := filepath.Join(memory.StoreDir(), "fixturerepo")
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+	// memory.BankKeys reads the store's typed files, so the store needs a seeded bank.
+	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := memory.WriteOrigin(repoDir, memory.Origin{Version: memory.OriginVersion, Key: "fixturerepo", Origin: "/fixture/origin"}); err != nil {
+	if err := os.WriteFile(filepath.Join(memory.StoreDir(), "fixturerepo--progress.md"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := candidates("memory", "search", "--repo", ""); !slices.Contains(got, "fixturerepo") {

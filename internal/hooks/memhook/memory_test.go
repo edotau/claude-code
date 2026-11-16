@@ -111,7 +111,7 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	vaulttest.Use(t)
 	memory.StubSpawn(t, true)
 	cwd = t.TempDir()
-	dir := memory.HandoffsDir(memory.Dir(cwd))
+	dir := memory.BankFor(cwd).SubDir("handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -234,10 +234,10 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
-		if err := os.MkdirAll(memory.HomeBankDir(), 0o755); err != nil {
+		if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memory.HomeBankDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(memory.StoreDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -262,7 +262,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(memory.HomeBankDir(), rel)
+	p := filepath.Join(memory.StoreDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}

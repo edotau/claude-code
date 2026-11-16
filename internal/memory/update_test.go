@@ -19,8 +19,7 @@ import (
 
 func writeTranscript(t *testing.T, lines ...string) string {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "session.jsonl")
+	path := filepath.Join(t.TempDir(), "session.jsonl")
 	write(t, path, strings.Join(lines, "\n"))
 	return path
 }
@@ -82,38 +81,38 @@ func TestAgentUpdatePrompt_WithCWDAppendsGitActivity(t *testing.T) {
 func TestDirSlug(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
-	if got := Dir(root); filepath.Dir(got) != StoreDir() || !strings.HasPrefix(filepath.Base(got), "my-repo.v2") {
-		t.Errorf("Dir = %s want a my-repo.v2 store under %s", got, StoreDir())
+	if got := BankFor(root).Key; got != "my-repo.v2" {
+		t.Errorf("BankFor key = %q want my-repo.v2", got)
 	}
 	if isHomeBank(root) {
 		t.Error("a repo's bank must not be the home bank")
 	}
 	if plain := t.TempDir(); !isHomeBank(plain) {
-		t.Errorf("a non-repo root must collapse to the global bank, got %s", Dir(plain))
+		t.Errorf("a non-repo root must collapse to the global bank, got %q", BankFor(plain).Key)
 	}
 }
 
 func TestInitNoOverwrite(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "My Repo.v2")
-	dir, err := Init(root)
+	_, err := Init(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+		if _, err := os.Stat(BankFor(root).Path(name)); err != nil {
 			t.Errorf("missing %s", name)
 		}
 	}
-	write(t, filepath.Join(dir, "activeContext.md"), "mine\n")
-	_ = os.Remove(filepath.Join(dir, "progress.md"))
+	write(t, BankFor(root).Path("activeContext.md"), "mine\n")
+	_ = os.Remove(BankFor(root).Path("progress.md"))
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "activeContext.md")); string(b) != "mine\n" {
+	if b, _ := os.ReadFile(BankFor(root).Path("activeContext.md")); string(b) != "mine\n" {
 		t.Error("Init overwrote an existing file")
 	}
-	if !bankExists(root) || !fileExists(filepath.Join(dir, "progress.md")) {
+	if !bankExists(root) || !fileExists(BankFor(root).Path("progress.md")) {
 		t.Error("Init did not re-seed a missing file")
 	}
 }
@@ -137,10 +136,10 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	write(t, filepath.Join(dir, "decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- keep commits small\n")
-	write(t, filepath.Join(dir, "archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
+	dir := BankFor(root)
+	write(t, dir.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
+	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
+	write(t, dir.Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := searchBanks(root, "the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "local" {
 		t.Fatalf("hits %+v", hits)
@@ -157,48 +156,36 @@ func TestSearchBanksRanking(t *testing.T) {
 }
 
 func TestRotateAndSettle(t *testing.T) {
-	for _, flat := range []bool{false, true} {
-		t.Run(map[bool]string{false: "legacy", true: "flat"}[flat], func(t *testing.T) {
-			tempConfig(t)
-			setStoreFlat(t, flat)
-			root := repoRoot(t, "proj")
-			if _, err := Init(root); err != nil {
-				t.Fatal(err)
-			}
-			bank := BankFor(root)
-			var sb strings.Builder
-			sb.WriteString("# Session History\n\n> newest first\n")
-			for i := 35; i >= 1; i-- {
-				fmt.Fprintf(&sb, "\n## entry %02d\n\n- did %d\n", i, i)
-			}
-			write(t, bank.Path("sessionHistory.md"), sb.String())
-			now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
-			rotated, err := settleBank(root, now)
-			if err != nil || rotated != 5 {
-				t.Fatalf("rotated %d err %v", rotated, err)
-			}
-			assertRotated(t, bank)
-			if n, _ := rotateSessionHistory(bank, now); n != 0 {
-				t.Error("rotation under cap must be a no-op")
-			}
-		})
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(root); err != nil {
+		t.Fatal(err)
+	}
+	bank := BankFor(root)
+	var sb strings.Builder
+	sb.WriteString("# Session History\n\n> newest first\n")
+	for i := 35; i >= 1; i-- {
+		fmt.Fprintf(&sb, "\n## entry %02d\n\n- did %d\n", i, i)
+	}
+	write(t, bank.Path("sessionHistory.md"), sb.String())
+	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	rotated, err := settleBank(root, now)
+	if err != nil || rotated != 5 {
+		t.Fatalf("rotated %d err %v", rotated, err)
+	}
+	assertRotated(t, bank)
+	if n, _ := rotateSessionHistory(bank, now); n != 0 {
+		t.Error("rotation under cap must be a no-op")
 	}
 }
 
-// assertRotated checks the history kept its newest entries and the oldest went to the archive; legacy checks the index.
+// assertRotated checks the history kept its newest entries and the oldest went to the archive.
 func assertRotated(t *testing.T, b Bank) {
 	t.Helper()
 	_, kept := splitHeadingBlocks(mustRead(t, b.Path("sessionHistory.md")))
 	arch := mustRead(t, b.Sub("archive", "sessionHistory-2026-09.md"))
 	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
-	}
-	if storeFlat() { // the shared index is rebuilt from per-dir files until Phase 5.1 converts writeBankRegion
-		return
-	}
-	idx := mustRead(t, b.NativeIndex())
-	if !strings.Contains(idx, "- sessionHistory: entry 35") || strings.Contains(idx, "entry 01") {
-		t.Errorf("index %q", idx)
 	}
 }
 
@@ -212,13 +199,13 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir, _ := Init(root)
+	_, _ = Init(root)
 	ok := func(ctx context.Context, _, _ string) (string, error) {
 		if !slices.Contains(ChildEnv(ctx), UpdateChildEnv+"=1") {
 			return "fake", errors.New("update child env not passed")
 		}
 		time.Sleep(10 * time.Millisecond)
-		f, err := os.OpenFile(filepath.Join(dir, "sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(BankFor(root).Path("sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return "fake", err
 		}
@@ -235,8 +222,8 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.needsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if !strings.Contains(mustRead(t, filepath.Join(dir, nativeIndexFile)), "updated-by-child") {
-		t.Error("update did not settle/index the bank")
+	if st, err := StoreRepo().Status(BankFor(root).Prefix() + "*"); err != nil || len(st) != 0 {
+		t.Errorf("update did not settle the bank: %+v, %v", st, err)
 	}
 	assertUpdateFailure(t, root)
 	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-updateGrace - time.Minute)}
@@ -263,12 +250,12 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := Dir(root)
-	write(t, filepath.Join(native, "gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
-	write(t, filepath.Join(native, "MEMORY.md"), "- [gateway](gw.md) — home gateway over ssh status\n")
-	write(t, filepath.Join(native, "loose.md"), "gateway ssh status without frontmatter\n")
+	native := BankFor(root)
+	write(t, native.Path("gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
+	write(t, native.NativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
+	write(t, native.Path("loose.md"), "gateway ssh status without frontmatter\n")
 	hits := searchBanks(root, "gateway ssh status", 0)
-	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
+	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != native.Prefix()+"gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
 	}
 	if !strings.HasPrefix(hits[0].Block, "gateway — home gateway over ssh\n") {
@@ -279,7 +266,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
 	root := t.TempDir()
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
 	resetSeen("11111111-1111-1111-1111-111111111111", root, "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := seenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {
@@ -316,11 +303,11 @@ func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "routing")
-	dir, err := EnsureRepoDir(repo)
+	dir, err := EnsureBank(repo, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(dir, "decisionLog.md"), "# Decisions\n\n"+
+	write(t, dir.Path("decisionLog.md"), "# Decisions\n\n"+
 		"## compound candidate\nSubagent routing stays on the local classifier\n\n"+
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
@@ -503,12 +490,12 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
-	write(t, filepath.Join(dir, "activeContext.md"), "live focus\n")
+	dir := BankFor(root)
+	write(t, dir.Path("activeContext.md"), "live focus\n")
 	var prompt string
 	run := func(_ context.Context, p, _ string) (string, error) {
 		prompt = p
-		write(t, filepath.Join(dir, "activeContext.md"), "(NOW, newest) stale\n")
+		write(t, dir.Path("activeContext.md"), "(NOW, newest) stale\n")
 		return "fake", nil
 	}
 	var out bytes.Buffer
@@ -714,7 +701,7 @@ func TestExtractTags_EmptyTranscript(t *testing.T) {
 
 // warnChanged lists every changed file in sorted order, every run, so map iteration order never leaks out.
 func TestWarnChangedSortedOrder(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) { testWarnChangedSortedOrder(t, b) })
+	runBank(t, func(t *testing.T, b Bank) { testWarnChangedSortedOrder(t, b) })
 }
 
 func testWarnChangedSortedOrder(t *testing.T, b Bank) {
@@ -766,13 +753,13 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 			tempConfig(t)
 			t.Setenv(DetachedEnv, "1")
 			root := repoRoot(t, "proj")
-			dir, _ := Init(root)
+			_, _ = Init(root)
 			runs := 0
 			agent := func(ctx context.Context, _, _ string) (string, error) {
 				runs++
 				NoteGateBlocks(ctx, tc.blocks[runs-1])
 				if runs == tc.writeOn {
-					f := filepath.Join(dir, "sessionHistory.md")
+					f := BankFor(root).Path("sessionHistory.md")
 					future := time.Now().Add(time.Hour)
 					if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
 						return "fake", err
@@ -798,7 +785,7 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 }
 
 func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -816,19 +803,16 @@ func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 	})
 }
 
-func TestUpdateJobScopeFollowsTheLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+func TestUpdateJobScopeIsThePrefixedFiles(t *testing.T) {
+	runRoot(t, func(t *testing.T, root string) {
 		s := JobScope(JobUpdate, root)
 		store := StoreDir()
-		want := []string{filepath.Join(store, "proj") + "/**", filepath.Join(store, "home") + "/**"}
-		if storeFlat() {
-			want = []string{store + "/proj--*.md", store + "/archive/proj--*"}
-			for _, name := range bankFiles {
-				want = append(want, filepath.Join(store, name))
-			}
-			if !slices.Contains(s.CdDirs, store) {
-				t.Errorf("flat CdDirs = %v, want the store root", s.CdDirs)
-			}
+		want := []string{store + "/proj--*.md", store + "/archive/proj--*"}
+		for _, name := range bankFiles {
+			want = append(want, filepath.Join(store, name))
+		}
+		if !slices.Contains(s.CdDirs, store) {
+			t.Errorf("CdDirs = %v, want the store root", s.CdDirs)
 		}
 		slices.Sort(want)
 		if got := slices.Sorted(slices.Values(s.Write)); !slices.Equal(got, want) {

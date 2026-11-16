@@ -25,8 +25,8 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
 	id := seedConventionBlock(t, root)
-	localPath := filepath.Join(Dir(root), "conventions.md")
-	homePath := filepath.Join(HomeBankDir(), "conventions.md")
+	localPath := BankFor(root).Path("conventions.md")
+	homePath := filepath.Join(StoreDir(), "conventions.md")
 	localBefore, _ := os.ReadFile(localPath)
 	_, homeErrBefore := os.Stat(homePath)
 
@@ -72,7 +72,7 @@ func TestPromoteHomeMovesExactlyOneBlock(t *testing.T) {
 func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	arch := filepath.Join(Dir(root), "archive", "conventions-2026-11.md")
+	arch := BankFor(root).Sub("archive", "conventions-2026-11.md")
 	if err := os.MkdirAll(filepath.Dir(arch), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -85,49 +85,57 @@ func TestPromoteHomeMovesArchivedBlock(t *testing.T) {
 	if strings.Contains(string(after), "id:aaaa0002") || !strings.Contains(string(after), "id:aaaa0001") {
 		t.Errorf("archive should drop only the promoted block: %q", after)
 	}
-	home, _ := os.ReadFile(filepath.Join(HomeBankDir(), "conventions.md"))
+	home, _ := os.ReadFile(filepath.Join(StoreDir(), "conventions.md"))
 	if strings.Count(string(home), "id:aaaa0002") != 1 {
 		t.Errorf("home conventions.md should hold the block once: %q", home)
 	}
 }
 
-// TestPromoteJudgmentTargets: rules/skill/claude-md only print the block and procedure; claude-md needs a dream run.
-func TestPromoteJudgmentTargets(t *testing.T) {
+// judgmentFixture seeds a proj bank with one convention block; before is its conventions.md.
+func judgmentFixture(t *testing.T) (root, id, localPath string, before []byte) {
+	t.Helper()
+	tempConfig(t)
+	root = repoRoot(t, "proj")
+	id = seedConventionBlock(t, root)
+	localPath = BankFor(root).Path("conventions.md")
+	before, _ = os.ReadFile(localPath)
+	return root, id, localPath, before
+}
+
+// TestPromoteJudgmentTargetsPrintOnly: rules/skill only print the block and procedure.
+func TestPromoteJudgmentTargetsPrintOnly(t *testing.T) {
 	ref, err := Reference("promote")
 	if err != nil {
 		t.Fatalf("Reference(\"promote\"): %v", err)
 	}
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	id := seedConventionBlock(t, root)
-	localPath := filepath.Join(Dir(root), "conventions.md")
-	before, _ := os.ReadFile(localPath)
-	homePath := filepath.Join(HomeBankDir(), "conventions.md")
+	root, id, localPath, before := judgmentFixture(t)
+	homePath := filepath.Join(StoreDir(), "conventions.md")
 	_, homeErrBefore := os.Stat(homePath)
-
-	t.Run("WriteNothingAndPrintTheProcedure", func(t *testing.T) {
-		for _, to := range []string{"rules", "skill"} {
-			out, err := Promote(root, id, to, false, time.Now())
-			if err != nil {
-				t.Fatalf("Promote --to %s: %v", to, err)
-			}
-			if !strings.Contains(out, "target: ") {
-				t.Errorf("--to %s output missing the target line: %q", to, out)
-			}
-			if !strings.Contains(out, ref) {
-				t.Errorf("--to %s output missing the embedded promote procedure:\n%s", to, out)
-			}
-			after, err := os.ReadFile(localPath)
-			if err != nil || string(before) != string(after) {
-				t.Errorf("--to %s rewrote the local bank: before=%q after=%q err=%v", to, before, after, err)
-			}
-			if _, err := os.Stat(homePath); homeErrBefore != nil && err == nil {
-				t.Errorf("--to %s wrote the home bank file that didn't exist before", to)
-			}
+	for _, to := range []string{"rules", "skill"} {
+		out, err := Promote(root, id, to, false, time.Now())
+		if err != nil {
+			t.Fatalf("Promote --to %s: %v", to, err)
 		}
-	})
+		if !strings.Contains(out, "target: ") {
+			t.Errorf("--to %s output missing the target line: %q", to, out)
+		}
+		if !strings.Contains(out, ref) {
+			t.Errorf("--to %s output missing the embedded promote procedure:\n%s", to, out)
+		}
+		after, err := os.ReadFile(localPath)
+		if err != nil || string(before) != string(after) {
+			t.Errorf("--to %s rewrote the local bank: before=%q after=%q err=%v", to, before, after, err)
+		}
+		if _, err := os.Stat(homePath); homeErrBefore != nil && err == nil {
+			t.Errorf("--to %s wrote the home bank file that didn't exist before", to)
+		}
+	}
+}
 
-	t.Run("ClaudeMDRefusedOutsideDream", func(t *testing.T) {
+// TestPromoteClaudeMDNeedsADreamRun: claude-md is refused outside a dream run and printed inside one.
+func TestPromoteClaudeMDNeedsADreamRun(t *testing.T) {
+	root, id, localPath, before := judgmentFixture(t)
+	t.Run("RefusedOutsideDream", func(t *testing.T) {
 		t.Setenv(dreamChildEnv, "")
 		_, err := Promote(root, id, "claude-md", false, time.Now())
 		if err == nil {
@@ -141,8 +149,7 @@ func TestPromoteJudgmentTargets(t *testing.T) {
 			t.Errorf("--to claude-md rewrote the local bank: before=%q after=%q err=%v", before, after, rerr)
 		}
 	})
-
-	t.Run("ClaudeMDAllowedInsideDream", func(t *testing.T) {
+	t.Run("AllowedInsideDream", func(t *testing.T) {
 		t.Setenv(dreamChildEnv, "1")
 		out, err := Promote(root, id, "claude-md", false, time.Now())
 		if err != nil {
@@ -202,7 +209,7 @@ func TestPromoteHomeSettlesInsideItsMoveLock(t *testing.T) {
 }
 
 func TestPromoteHomeMovesBlockBetweenBankPathsInEachLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+	runRoot(t, func(t *testing.T, root string) {
 		id := seedConventionBlock(t, root)
 		b := BankFor(root)
 		if _, err := Promote(root, id, "home", false, time.Now()); err != nil {

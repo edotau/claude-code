@@ -33,31 +33,6 @@ func importTar(t *testing.T, files map[string]string) *bytes.Buffer {
 	return &buf
 }
 
-// importFixture seeds the local store and returns a source root extracted from a hostile tar.
-func importFixture(t *testing.T, e aliasEnv) string {
-	t.Helper()
-	entry := func(id, day, body string) string {
-		return "## " + day + " — T <!-- id:" + id + " -->\n" + body + "\n\n"
-	}
-	hdr := "# Decision Log\n\n"
-	local := map[string]string{"decisionLog.md": hdr + entry("11111111", "2026-11-01", "local"), "activeContext.md": "local focus\n"}
-	for name, body := range local {
-		if err := os.WriteFile(filepath.Join(e.da, name), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	src := t.TempDir()
-	skipped, err := ExtractStoreTar(importTar(t, map[string]string{
-		e.ka + "/decisionLog.md":   hdr + entry("22222222", "2026-11-02", "remote") + entry("11111111", "2026-11-01", "local"),
-		e.ka + "/activeContext.md": "remote focus\n", e.ka + "/new-topic.md": "topic\n",
-		e.ka + "/link.md": "->/etc/passwd", "../escape.md": "x", "index.md": "catalog",
-	}), src)
-	if err != nil || len(skipped) != 2 || pathExists(filepath.Join(filepath.Dir(src), "escape.md")) {
-		t.Fatalf("extract: skipped=%v err=%v", skipped, err)
-	}
-	return src
-}
-
 // wantFile asserts path holds want; an empty want means the file must not exist.
 func wantFile(t *testing.T, path, want string) {
 	t.Helper()
@@ -72,75 +47,28 @@ func wantFile(t *testing.T, path, want string) {
 	}
 }
 
-// importDryRunLogsOnly asserts the default dry run writes nothing and leaves the non-log files out of the plan.
-func importDryRunLogsOnly(t *testing.T, src, repo, logPath string) {
-	t.Helper()
-	dry, err := ImportBank(ImportOptions{From: src, Repo: repo, DryRun: true})
-	if err != nil || strings.Contains(aliasRead(t, logPath)+strings.Join(dry.Lines, "\n"), "remote focus") ||
-		!strings.HasSuffix(dry.Summary, "(--topics imports them)") {
-		t.Fatalf("default dry run (err=%v): %v", err, dry)
-	}
-	if strings.Contains(aliasRead(t, logPath), "remote") || strings.Contains(strings.Join(dry.Lines, "\n"), "new-topic") {
-		t.Fatalf("dry run wrote, or planned a topic file: %v", dry)
-	}
-}
-
-func TestImportBankMergesOnceAndNeverOverwrites(t *testing.T) {
-	e := newAliasEnv(t)
-	src := importFixture(t, e)
-	logPath := filepath.Join(e.da, "decisionLog.md")
-	importDryRunLogsOnly(t, src, e.a, logPath)
-	opt := ImportOptions{From: src, Repo: e.a, Label: "test", Topics: true}
-	res, err := ImportBank(opt)
-	log := aliasRead(t, logPath)
-	if err != nil || strings.Count(log, "remote") != 1 || strings.Count(log, "local") != 1 || !strings.HasPrefix(res.Summary, "imported") {
-		t.Fatalf("import: %v\n%v\n%s", err, res, log)
-	}
-	for name, want := range map[string]string{"new-topic.md": "topic\n", "activeContext.md": "local focus\n", "link.md": ""} {
-		wantFile(t, filepath.Join(e.da, name), want)
-	}
-	if again, err := ImportBank(opt); err != nil || again.Summary != "nothing to import" {
-		t.Fatalf("second run: %v %v", err, again)
-	}
-}
-
-// TestImportBankSkipsEntriesAlreadyArchived: an entry the local store rotated into its archive is not imported again.
-func TestImportBankSkipsEntriesAlreadyArchived(t *testing.T) {
-	e := newAliasEnv(t)
-	const hdr, block = "# Decision Log\n\n", "## 2026-11-02 — T <!-- id:33333333 -->\nrotated\n\n"
-	src := filepath.Join(t.TempDir(), e.ka)
-	for path, body := range map[string]string{
-		filepath.Join(e.da, "decisionLog.md"): hdr, filepath.Join(e.da, "archive", "decisionLog-2026-11.md"): hdr + block,
-		filepath.Join(src, "decisionLog.md"): hdr + block,
-	} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	res, err := ImportBank(ImportOptions{From: src, Repo: e.a, DryRun: true})
-	if err != nil || !strings.HasPrefix(res.Summary, "nothing to import") {
-		t.Fatalf("an archived entry was planned again: %v %v", err, res)
-	}
-}
-
 func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	tempConfig(t)
 	from := t.TempDir()
-	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
 	_, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true})
 	var in *ImportInputError
 	if !errors.As(err, &in) || !strings.Contains(err.Error(), "memory migrate") {
-		t.Errorf("import of a flat source into a per-repo store err = %v, want the migrate hint", err)
+		t.Errorf("import of a per-repo source into a flat store err = %v, want the migrate hint", err)
+	}
+	if err := os.Remove(filepath.Join(StoreDir(), layoutFile)); err != nil {
+		t.Fatal(err)
+	}
+	forgetLayout()
+	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
+	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
+	if _, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true}); !errors.Is(err, errStoreNotFlat) {
+		t.Errorf("import into a per-repo store err = %v, want errStoreNotFlat", err)
 	}
 }
 
 func flatImportFixture(t *testing.T) (string, Bank) {
 	t.Helper()
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	initStore(t)
 	b := Bank{Key: "alpha"}
 	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
@@ -243,30 +171,6 @@ func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
 	}
 }
 
-type aliasEnv struct {
-	cfg, a, b, ka, kb string // config dir, checkouts, store keys
-	da, db            string // store dirs
-}
-
-// newAliasEnv builds an isolated config (itself a decoy git repo), a cut-over store and two repo stores.
-func newAliasEnv(t *testing.T) aliasEnv {
-	t.Helper()
-	cfg, _ := isolatedConfig(t)
-	gitRepo(t, filepath.Dir(cfg), filepath.Base(cfg))
-	initStore(t)
-	parent := canonTemp(t, t.TempDir())
-	e := aliasEnv{cfg: cfg, a: gitRepo(t, parent, "alpha"), b: gitRepo(t, parent, "beta")}
-	var err error
-	if e.da, err = EnsureRepoDir(e.a); err != nil {
-		t.Fatal(err)
-	}
-	if e.db, err = EnsureRepoDir(e.b); err != nil {
-		t.Fatal(err)
-	}
-	e.ka, e.kb = filepath.Base(e.da), filepath.Base(e.db)
-	return e
-}
-
 func aliasRead(t *testing.T, p string) string {
 	t.Helper()
 	b, err := os.ReadFile(p)
@@ -278,12 +182,12 @@ func aliasRead(t *testing.T, p string) string {
 
 func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
-func TestFlatSourceStoresCutsKeyAtFirstDoubleDash(t *testing.T) {
+func TestSourceStoresCutsKeyAtFirstDoubleDash(t *testing.T) {
 	from := t.TempDir()
 	for _, n := range []string{"my-repo--progress.md", "my--repo--progress.md", "progress.md"} {
 		write(t, filepath.Join(from, n), "x\n")
 	}
-	stores, _, err := flatSourceStores(from)
+	stores, err := sourceStores(from)
 	if err != nil {
 		t.Fatal(err)
 	}

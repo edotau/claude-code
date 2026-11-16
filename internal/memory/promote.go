@@ -80,7 +80,7 @@ func overflowSplit(base, body string, capLines int) (header string, keep, overfl
 // archiveFile prunes b's typed file name under the bank lock, archiving the oldest overflow first so nothing is lost.
 func archiveFile(b Bank, name string, capLines int, now time.Time) (moved int, err error) {
 	path := b.Path(name)
-	err = WithBankLock(BankLockWait, func() error {
+	err = withFlatLock(BankLockWait, func() error {
 		header, keep, overflow, err := splitOverflow(path, capLines)
 		if err != nil || len(overflow) == 0 {
 			return err
@@ -146,7 +146,7 @@ func promoteBlockToHome(b Bank, id string, dryRun bool, now time.Time) (string, 
 		return "", errors.New("root's bank IS the home bank — nothing to promote")
 	}
 	var file, block, src string
-	moveErr := WithBankLock(BankLockWait, func() error {
+	moveErr := withFlatLock(BankLockWait, func() error {
 		var err error
 		if file, block, src, err = findBlock(b, id); err != nil {
 			return err

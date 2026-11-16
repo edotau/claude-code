@@ -98,7 +98,7 @@ func lockPathOf(b Bank) string { return filepath.Join(storeLockDir(b), ".postupd
 
 // settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
 func settleBank(root string, now time.Time) (rotated int, err error) {
-	err = WithBankLock(BankLockWait, func() error {
+	err = withFlatLock(BankLockWait, func() error {
 		rotated, err = settleBankLocked(root, now)
 		return err
 	})
@@ -131,29 +131,23 @@ func settleOwnLocked(own Bank, now time.Time) (rotated int, err error) {
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
 func commitBanks(subject string, banks []Bank) error {
 	var scope []string
-	if !storeFlat() {
-		for _, b := range banks {
-			scope = append(scope, storeRels([]string{b.SubDir("")})...)
-		}
-	} else {
-		if !StoreRepo().Exists() {
-			if err := StoreRepo().Ensure(); err != nil {
-				return err
-			}
-			scope = append(scope, ".gitignore")
-		}
-		dirty, err := StoreRepo().Status()
-		if err != nil {
+	if !StoreRepo().Exists() {
+		if err := StoreRepo().Ensure(); err != nil {
 			return err
 		}
-		for _, e := range dirty {
-			owner := BankOfFile(e.Path)
-			if owner.Home() && strings.Contains(e.Path, "--") {
-				continue
-			}
-			if e.Path == nativeIndexFile || slices.Contains(banks, owner) && !strings.HasPrefix(e.Path, ".") {
-				scope = append(scope, e.Path)
-			}
+		scope = append(scope, ".gitignore")
+	}
+	dirty, err := StoreRepo().Status()
+	if err != nil {
+		return err
+	}
+	for _, e := range dirty {
+		owner := BankOfFile(e.Path)
+		if owner.Home() && strings.Contains(e.Path, "--") {
+			continue
+		}
+		if e.Path == nativeIndexFile || slices.Contains(banks, owner) && !strings.HasPrefix(e.Path, ".") {
+			scope = append(scope, e.Path)
 		}
 	}
 	return commitStore(subject, append(scope, catalogFile)...)
@@ -168,11 +162,8 @@ func bankSet(own Bank) []Bank {
 	return append(out, HomeBank())
 }
 
-// scaffolded reports whether b has a store: its dir, or any typed file when flat.
+// scaffolded reports whether b has any typed file.
 func scaffolded(b Bank) bool {
-	if !storeFlat() {
-		return statOK(b.SubDir(""))
-	}
 	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
 }
 

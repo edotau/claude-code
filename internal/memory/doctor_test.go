@@ -165,6 +165,9 @@ type e2eRun struct {
 	factID  string
 }
 
+// file is the repo bank's top-level file name in the flat store.
+func (x *e2eRun) file(name string) string { return BankFor(x.repo).Path(name) }
+
 const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
 
 // TestE2EMemoryLifecycle drives init, session-start, remember, recall, promote and index through the real binary.
@@ -212,7 +215,7 @@ func (x *e2eRun) init(t *testing.T) {
 		t.Fatalf("bank dir %s is not under the store %s", x.bankDir, StoreDir())
 	}
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(filepath.Join(x.bankDir, name)); err != nil {
+		if _, err := os.Stat(x.file(name)); err != nil {
 			t.Errorf("bank file %s missing: %v", name, err)
 		}
 	}
@@ -223,8 +226,8 @@ func (x *e2eRun) sessionStart(t *testing.T) {
 	in := `{"session_id":"e2e-session-start","cwd":"` + x.repo + `","hook_event_name":"SessionStart"}`
 	out := x.e.mustRun(t, in, "hook", "SessionStart", "--memory-start")
 	ctx := hookContext(t, out)
-	if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, filepath.Base(x.bankDir)) {
-		t.Errorf("additionalContext does not name the bank %s:\n%s", filepath.Base(x.bankDir), ctx)
+	if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, StoreDir()) {
+		t.Errorf("additionalContext does not name the store %s:\n%s", StoreDir(), ctx)
 	}
 	link := filepath.Join(x.cfg, "projects", paths.ProjectSlug(x.repo), "memory")
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
@@ -251,7 +254,7 @@ func (x *e2eRun) remember(t *testing.T) {
 	if _, errs, code := x.e.run(t, "", "memory", "remember", "--type", "convention", "x y z"); code == 0 {
 		t.Errorf("--type convention accepted; the flag help lists only user/feedback/project/reference (stderr %q)", errs)
 	}
-	data, err := os.ReadFile(filepath.Join(x.bankDir, "conventions.md"))
+	data, err := os.ReadFile(x.file("conventions.md"))
 	if err != nil || !strings.Contains(string(data), "zebrafish kestrel") {
 		t.Errorf("fact not in conventions.md (err %v)", err)
 	}
@@ -282,7 +285,7 @@ func (x *e2eRun) reviewCandidates(t *testing.T) {
 }
 
 func (x *e2eRun) promote(t *testing.T) {
-	homeBank := HomeBankDir()
+	homeBank := StoreDir()
 	beforeLocal, beforeHome := dirHashes(t, x.bankDir), dirHashes(t, homeBank)
 	x.e.mustRun(t, "", "memory", "promote", x.factID, "--to", "home", "--dry-run")
 	if got := dirHashes(t, x.bankDir); !equalSnap(got, beforeLocal) {
@@ -296,7 +299,7 @@ func (x *e2eRun) promote(t *testing.T) {
 	if err != nil || !strings.Contains(string(homeConv), "zebrafish kestrel") {
 		t.Errorf("promoted fact missing from home conventions.md (err %v)", err)
 	}
-	local, _ := os.ReadFile(filepath.Join(x.bankDir, "conventions.md"))
+	local, _ := os.ReadFile(x.file("conventions.md"))
 	if strings.Contains(string(local), "zebrafish kestrel") {
 		t.Error("promoted fact still in the local conventions.md")
 	}
@@ -327,7 +330,7 @@ func (x *e2eRun) fakeTranscriptUpdate(t *testing.T, marker string) (string, stri
 	script := "#!/bin/sh\n" +
 		"for a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + argvLog + "'; done\n" +
 		"while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done > '" + stdinLog + "'\n" + // PATH has no cat
-		"printf '\\n- " + marker + "\\n' >> '" + filepath.Join(x.bankDir, "sessionHistory.md") + "'\n" +
+		"printf '\\n- " + marker + "\\n' >> '" + x.file("sessionHistory.md") + "'\n" +
 		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"updated\"}]}}'\n" +
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"updated\"}'\n"
 	write(t, filepath.Join(x.cfg, "bin", "claude"), script)
@@ -358,7 +361,7 @@ func assertUpdateInvocation(t *testing.T, transcript, argvLog, stdinLog, out str
 
 func (x *e2eRun) assertTranscriptUpdateResult(t *testing.T, marker, session string) {
 	t.Helper()
-	if hist, _ := os.ReadFile(filepath.Join(x.bankDir, "sessionHistory.md")); !strings.Contains(string(hist), marker) {
+	if hist, _ := os.ReadFile(x.file("sessionHistory.md")); !strings.Contains(string(hist), marker) {
 		t.Error("the fake reply's sessionHistory write is missing from the bank")
 	}
 	res, ok := readUpdateResult(session)
@@ -439,16 +442,16 @@ func decisionLogOver(t *testing.T, path string, n int) {
 func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	local := Dir(root)
-	decisionLogOver(t, filepath.Join(local, "decisionLog.md"), 80)
-	homePath := filepath.Join(HomeBankDir(), "decisionLog.md")
+	local := BankFor(root)
+	decisionLogOver(t, local.Path("decisionLog.md"), 80)
+	homePath := filepath.Join(StoreDir(), "decisionLog.md")
 	homeBefore, _ := os.ReadFile(homePath)
 
 	n, err := archiveOverflow(root, time.Now())
 	if err != nil || n == 0 {
 		t.Fatalf("archived %d err %v", n, err)
 	}
-	kept, _ := os.ReadFile(filepath.Join(local, "decisionLog.md"))
+	kept, _ := os.ReadFile(local.Path("decisionLog.md"))
 	if n := strings.Count(string(kept), "\n"); n > fileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", n)
 	}
@@ -466,12 +469,12 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 
 func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
+	decisionLogOver(t, filepath.Join(StoreDir(), "decisionLog.md"), 80)
 	old := time.Now().AddDate(0, 0, -(DefaultStaleDays + 1))
-	if err := os.Chtimes(filepath.Join(HomeBankDir(), "decisionLog.md"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(StoreDir(), "decisionLog.md"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	problems := doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	problems := doctor(StoreDir(), DefaultStaleDays, time.Now())
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "decisionLog.md: over") {
 		t.Errorf("want an over-cap finding, got %v", problems)
@@ -483,8 +486,8 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(HomeBankDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
-	problems := doctor(HomeBankDir(), DefaultStaleDays, time.Now())
+	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
+	problems := doctor(StoreDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
 	}
@@ -492,20 +495,20 @@ func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(HomeBankDir(), "decisionLog.md"), 80)
-	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	decisionLogOver(t, filepath.Join(StoreDir(), "decisionLog.md"), 80)
+	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	notice := mustRead(t, doctorNoticePath(HomeBankDir()))
+	notice := mustRead(t, doctorNoticePath(StoreDir()))
 	if !strings.Contains(notice, "decisionLog.md: over") {
 		t.Errorf("notice %q", notice)
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
-	write(t, filepath.Join(HomeBankDir(), "decisionLog.md"), "# D\n")
-	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	write(t, filepath.Join(StoreDir(), "decisionLog.md"), "# D\n")
+	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, doctorNoticePath(HomeBankDir())); notice != "" {
+	if notice := mustRead(t, doctorNoticePath(StoreDir())); notice != "" {
 		t.Errorf("want an empty cached notice, got %q", notice)
 	}
 }
@@ -527,7 +530,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	root := repoRoot(t, "proj")
 	_ = writeUpdateResult("s1", UpdateResult{Status: updateOK, Time: time.Now(), BankUpdated: true})
 	_ = writeUpdateResult("s2", UpdateResult{Status: updateFailed, Time: time.Now()})
-	write(t, filepath.Join(Dir(root), "sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
+	write(t, BankFor(root).Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := collectBankStats()
 	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
@@ -557,7 +560,7 @@ func TestDoctorFlagsLocalBankOverCap(t *testing.T) {
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	decisionLogOver(t, filepath.Join(Dir(root), "decisionLog.md"), 80)
+	decisionLogOver(t, BankFor(root).Path("decisionLog.md"), 80)
 	joined := strings.Join(doctor(root, DefaultStaleDays, time.Now()), "\n")
 	if !strings.Contains(joined, "local decisionLog.md: over") {
 		t.Errorf("want a local over-cap finding, got %q", joined)
@@ -590,7 +593,7 @@ func TestJournalProblemsNamesStaleJournal(t *testing.T) {
 
 func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	isolatedConfig(t)
-	root := HomeBankDir()
+	root := StoreDir()
 	if err := os.MkdirAll(filepath.Join(root, "conventions.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +618,7 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 	if _, err := Init(root); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(Dir(root), "progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
+	write(t, BankFor(root).Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
 	reads := countBankReads(t)
 	got := doctor(root, DefaultStaleDays, time.Now())
 	want := "local progress.md: possible credential-shaped value — scrub before promoting"

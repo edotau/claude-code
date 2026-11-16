@@ -63,7 +63,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		return p.result(opt), err
 	}
 	var res ImportResult
-	err := WithBankLock(BankLockWait, func() error {
+	err := withFlatLock(BankLockWait, func() error {
 		p, err := planImport(opt)
 		if err != nil {
 			return err
@@ -144,52 +144,22 @@ func (p *importPlan) apply(opt ImportOptions) error {
 	return commitBanks("settle: import "+label, p.touched)
 }
 
-// sourceStores maps store key to dir: a dir with typed bank files is one store (single), else its store subdirs.
-func sourceStores(from string) (stores map[string]string, single bool, err error) {
-	if storeFlat() {
-		return flatSourceStores(from)
-	}
-	if hasTypedFile(from) {
-		return map[string]string{filepath.Base(from): from}, true, nil
-	}
-	ents, err := os.ReadDir(from)
-	if err != nil {
-		return nil, false, importInput("--from %s: %v", from, err)
-	}
-	stores = map[string]string{}
-	for _, e := range ents {
-		if d := filepath.Join(from, e.Name()); e.IsDir() && e.Name() != ".git" && hasTypedFile(d) {
-			stores[e.Name()] = d
-		}
-	}
-	if len(stores) == 0 {
-		return nil, false, importInput("--from %s is neither a memory root nor a store (no typed bank files)", from)
-	}
-	return stores, false, nil
-}
-
-func hasTypedFile(dir string) bool {
-	return slices.ContainsFunc(bankFiles, func(f string) bool {
-		fi, err := os.Lstat(filepath.Join(dir, f))
-		return err == nil && fi.Mode().IsRegular()
-	})
-}
-
 // Mixed layouts cannot share file attribution safely.
 func checkImportLayout(from string) error {
-	stamp, _ := os.ReadFile(filepath.Join(from, layoutFile))
-	srcFlat := strings.TrimSpace(string(stamp)) == layoutFlat
-	if srcFlat != storeFlat() {
-		return importInput("--from %s has a %s layout and this host's store is %s: run `claude-code memory migrate` on the older host first",
-			from, layoutName(srcFlat), layoutName(storeFlat()))
+	if err := requireFlat(); err != nil {
+		return err
+	}
+	if stamp, _ := os.ReadFile(filepath.Join(from, layoutFile)); strings.TrimSpace(string(stamp)) != layoutFlat {
+		return importInput("--from %s has a per-repo layout and this host's store is flat: run `claude-code memory migrate` on the older host first", from)
 	}
 	return nil
 }
 
-func flatSourceStores(from string) (map[string]string, bool, error) {
+// sourceStores maps each store key in the flat source to the source dir; home is the unprefixed files.
+func sourceStores(from string) (map[string]string, error) {
 	ents, err := os.ReadDir(from)
 	if err != nil {
-		return nil, false, importInput("--from %s: %v", from, err)
+		return nil, importInput("--from %s: %v", from, err)
 	}
 	stores := map[string]string{homeDir: from}
 	for _, e := range ents {
@@ -204,13 +174,10 @@ func flatSourceStores(from string) (map[string]string, bool, error) {
 			stores[key] = from
 		}
 	}
-	return stores, false, nil
+	return stores, nil
 }
 
 func importName(rel string) string {
-	if !storeFlat() {
-		return rel
-	}
 	parts := strings.Split(rel, "/")
 	i := 0
 	if len(parts) > 1 {
@@ -260,13 +227,6 @@ func localNativePointers(data []byte) []byte {
 	return []byte(strings.Join(lines, "\n"))
 }
 
-func layoutName(flat bool) string {
-	if flat {
-		return "flat"
-	}
-	return "per-repo"
-}
-
 // localStores limits imports to banks already known on this host.
 func localStores() (map[string]string, error) {
 	out := map[string]string{}
@@ -285,14 +245,11 @@ func (p *importPlan) skipStore(key, why string) {
 
 // selectPairs pairs source and local stores; a store missing on either side is skipped and listed.
 func selectPairs(opt ImportOptions, p *importPlan) ([]importPair, error) {
-	stores, single, err := sourceStores(opt.From)
+	stores, err := sourceStores(opt.From)
 	if err != nil {
 		return nil, err
 	}
 	if opt.All {
-		if single {
-			return nil, importInput("--all needs a memory root; --from %s is one store", opt.From)
-		}
 		return allPairs(stores, p)
 	}
 	root, own, err := ResolveBank(opt.Repo)
@@ -305,7 +262,7 @@ func selectPairs(opt ImportOptions, p *importPlan) ([]importPair, error) {
 	}
 	src, ok := stores[key]
 	switch fi, serr := os.Stat(tgt); {
-	case serr != nil || !fi.IsDir() || (storeFlat() && !own.Home() && !slices.Contains(BankKeys(), own.Key)):
+	case serr != nil || !fi.IsDir() || (!own.Home() && !slices.Contains(BankKeys(), own.Key)):
 		p.skipStore(key, "no local store")
 	case !ok:
 		p.skipStore(key, "no store in the source")
@@ -343,12 +300,12 @@ func (p *importPlan) planStore(pr importPair) error {
 		switch {
 		case err != nil:
 			p.skipFile(pr, rel, err.Error())
-		case d.IsDir() && (d.Name() == ".git" || storeFlat() && (d.Name() == "locks" || d.Name() == ".locks")):
+		case d.IsDir() && (d.Name() == ".git" || d.Name() == "locks" || d.Name() == ".locks"):
 			return fs.SkipDir
-		case storeFlat() && d.IsDir() && rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0]):
+		case d.IsDir() && rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0]):
 			return fs.SkipDir
 		case d.IsDir(), foldSkips(rel), rel == layoutFile:
-		case storeFlat() && !p.flatImportFile(pr, rel):
+		case !p.flatImportFile(pr, rel):
 		case !filepath.IsLocal(filepath.FromSlash(rel)):
 			p.skipFile(pr, rel, "path escapes the store")
 		case !d.Type().IsRegular():
@@ -393,7 +350,7 @@ func (p *importPlan) importFile(pr importPair, root *os.Root, rel string) {
 		p.skipFile(pr, rel, err.Error())
 		return
 	}
-	if storeFlat() && rel == nativeIndexFile {
+	if rel == nativeIndexFile {
 		data = localNativePointers(data)
 	}
 	if appendOnly[name] {

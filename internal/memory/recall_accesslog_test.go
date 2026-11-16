@@ -17,7 +17,7 @@ import (
 func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := HomeBankDir()
+	home := StoreDir()
 	old := now.AddDate(0, 0, -(accessRotateDays + 1))
 	logAccess(home, old, "aa000001", accessRecall)
 	logAccess(home, old, "cc000003", AccessSearch)
@@ -52,7 +52,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 func assertHotNomination(t *testing.T, now time.Time) {
 	t.Helper()
 	root := repoRoot(t, "proj")
-	dir := Dir(root)
+	dir := accessDir(BankFor(root))
 	for d := range hotMinDays {
 		logAccess(dir, now.AddDate(0, 0, -d), "dd000004", accessRecall)
 	}
@@ -66,7 +66,7 @@ func assertHotNomination(t *testing.T, now time.Time) {
 func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := HomeBankDir()
+	home := StoreDir()
 	logAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", accessRecall)
 	const writers = 16
 	var wg sync.WaitGroup
@@ -88,19 +88,19 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	a := gitRepo(t, t.TempDir(), "proja")
-	da, err := EnsureRepoDir(a)
-	if err != nil {
+	if _, err := Init(a); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(da, "archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
-	write(t, filepath.Join(da, "notes.md"), "---\nname: n\n---\nzebra native quota <!-- id:bbbb0002 -->\n")
-	harness := Dir(paths.ConfigDir())
-	write(t, filepath.Join(harness, "decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
+	ba := BankFor(a)
+	da := accessDir(ba)
+	write(t, ba.Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
+	write(t, ba.Path("notes.md"), "---\nname: n\n---\nzebra native quota <!-- id:bbbb0002 -->\n")
+	write(t, BankFor(paths.ConfigDir()).Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra local quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 
 	now := time.Now()
 	logHits(a, searchBanks(a, "zebra quota", 0), AccessSearch, now)
 	got := returnCounts([]string{da}, now)
-	home := returnCounts([]string{HomeBankDir()}, now)
+	home := returnCounts([]string{StoreDir()}, now)
 	for _, id := range []string{"bbbb0001", "bbbb0002"} {
 		if got[id] == 0 || home[id] != 0 {
 			t.Errorf("%s must be credited to the repo store, not home: repo=%d home=%d", id, got[id], home[id])
@@ -108,7 +108,7 @@ func TestLogHitsCreditsOwningStore(t *testing.T) {
 	}
 
 	logHits(a, searchAll("zebra quota", 0), AccessSearch, now)
-	if c := returnCounts([]string{harness}, now); c["bbbb0003"] == 0 {
+	if c := returnCounts([]string{accessDir(BankFor(paths.ConfigDir()))}, now); c["bbbb0003"] == 0 {
 		t.Errorf("--all's local hit must credit the harness store: %v", c)
 	}
 	if c := returnCounts([]string{da}, now); c["bbbb0003"] != 0 {
@@ -139,7 +139,7 @@ func TestLogAccessAndAccessStatsAt(t *testing.T) {
 func TestAccessNominationsHotAndCold(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := HomeBankDir()
+	dir := StoreDir()
 	for d := range 5 {
 		logAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", accessRecall)
 	}
@@ -196,7 +196,7 @@ func TestMaybeTrimAccessLogDropsByAge(t *testing.T) {
 func TestAccessNominationsSurviveBusyDays(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := HomeBankDir()
+	dir := StoreDir()
 	logAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", accessRecall)
 	for d := range hotMinDays {
 		for range 50 {
@@ -231,7 +231,7 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 }
 
 func TestAccessLogsKeepTheirNamesInEachLayout(t *testing.T) {
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		for key, want := range map[string]string{"repo": "repo.log", "": "home.log"} {
 			if got := AccessLogPath(accessDir(Bank{Key: key})); got != filepath.Join(AccessStateDir(), want) {
 				t.Errorf("access log of %q = %s, want %s", key, got, want)

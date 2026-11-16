@@ -531,6 +531,6 @@ func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit,
 	if h.ID == "" || !ok || cos < floor {
 		return h, 0, false
 	}
-	h.Dir = ownerDir(f.Bank, f.Path)
+	h.Dir = ownerDir(f.Path)
 	return h, cos, true
 }

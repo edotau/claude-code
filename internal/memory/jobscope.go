@@ -45,17 +45,14 @@ func JobScope(kind, workdir string) Scope {
 			s.CdDirs = append(s.CdDirs, dir)
 		}
 	}
-	if kind == JobUpdate && storeFlat() {
+	if kind == JobUpdate {
 		s.CdDirs = append(s.CdDirs, StoreDir(), filepath.Join(StoreDir(), "archive"))
 	}
 	return s
 }
 
-// updateWriteScope is where an update may write: both banks' files, never another repo's when flat.
+// updateWriteScope is where an update may write: both banks' files, never another repo's.
 func updateWriteScope(workdir string) []string {
-	if !storeFlat() {
-		return []string{BankFor(workdir).SubDir("") + "/**", HomeBank().SubDir("") + "/**"}
-	}
 	b := BankFor(workdir)
 	var w []string
 	for _, name := range bankFiles {

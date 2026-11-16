@@ -74,7 +74,7 @@ func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 
 // ResolveBank maps --repo (bank key, checkout path or "") to root and bank; a flat key has root "".
 func ResolveBank(repo string) (string, Bank, error) {
-	if repo != "" && storeFlat() && slices.Contains(BankKeys(), repo) {
+	if repo != "" && slices.Contains(BankKeys(), repo) {
 		if repo == harnessStoreKey() {
 			return paths.ConfigDir(), Bank{Key: repo}, nil
 		}
@@ -85,10 +85,12 @@ func ResolveBank(repo string) (string, Bank, error) {
 			return repo, BankFor(repo), nil
 		}
 	}
-	top, err := ResolveRepo(repo)
-	if err != nil {
-		return "", Bank{}, err
+	if repo != "" {
+		if _, err := os.Stat(repo); err != nil {
+			return "", Bank{}, fmt.Errorf("--repo %q is neither an existing path nor a known store (known stores: %s); pass a checkout path or a store name", repo, strings.Join(BankKeys(), ", "))
+		}
 	}
+	top := root(repo)
 	return top, BankFor(top), nil
 }
 
@@ -168,7 +170,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	}
 	hasStore := scaffolded(own)
 	var rotated int
-	err = WithBankLock(BankLockWait, func() error {
+	err = withFlatLock(BankLockWait, func() error {
 		var serr error
 		rotated, serr = settleOwnLocked(own, time.Now())
 		return serr
@@ -324,12 +326,8 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 
 // isOwnBankFile reports whether f sits in the harness's or the home bank.
 func isOwnBankFile(f string) bool {
-	if storeFlat() {
-		k := BankOfFile(f).Key
-		return k == "" || k == harnessStoreKey()
-	}
-	return slices.ContainsFunc([]string{Bank{Key: harnessStoreKey()}.SubDir(""), HomeBank().SubDir("")},
-		func(d string) bool { return strings.HasPrefix(f, d+string(filepath.Separator)) })
+	k := BankOfFile(f).Key
+	return k == "" || k == harnessStoreKey()
 }
 
 // FormatOwn wraps only this repo's and the home bank, listing what it wrapped; other banks keep the check note.
@@ -340,7 +338,7 @@ func FormatOwn(w io.Writer) error {
 	}
 	own := slices.DeleteFunc(slices.Clone(targets), func(f string) bool { return !isOwnBankFile(f) })
 	var changed []string
-	err = WithBankLock(BankLockWait, func() (ferr error) {
+	err = withFlatLock(BankLockWait, func() (ferr error) {
 		changed, ferr = formatFiles(own, false)
 		if len(changed) > 0 { // commit what was written even when a later file failed
 			if cerr := commitStore("fmt: wrap bank lines", StoreRepo().dropCredentialShaped(storeRels(changed), nil)...); cerr != nil {

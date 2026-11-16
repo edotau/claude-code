@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -176,10 +177,10 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	long := "- " + strings.TrimSpace(strings.Repeat("word ", 40)) + "\n"
-	writeRepoFile(t, cfg, "memory/home/activeContext.md", "# Focus\n\n"+long)
-	writeRepoFile(t, cfg, "memory/claude-code/activeContext.md", "# Focus\n\n- short\n")
+	writeRepoFile(t, cfg, "memory/activeContext.md", "# Focus\n\n"+long)
+	writeRepoFile(t, cfg, "memory/"+filepath.Base(cfg)+"--activeContext.md", "# Focus\n\n- short\n")
 	changed := func(rel string) []DiffFile { return []DiffFile{{Path: rel, Status: "M"}} }
-	dirty, clean := "memory/home/activeContext.md", "memory/claude-code/activeContext.md"
+	dirty, clean := "memory/activeContext.md", "memory/"+filepath.Base(cfg)+"--activeContext.md"
 
 	for _, lint := range []bool{true, false} { // the memory check does not depend on mdsmith being installed
 		(&fakeGates{lint: lint}).install(t)
@@ -188,7 +189,7 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 			return rs[len(rs)-1]
 		}
 		r := last(dirty)
-		if r.Name != "docs" || r.Status != "FAIL" || !strings.Contains(r.OutputHead, "home/activeContext.md") {
+		if r.Name != "docs" || r.Status != "FAIL" || !strings.Contains(r.OutputHead, dirty) {
 			t.Errorf("lint=%t dirty changed bank file: %+v, want a docs FAIL naming the file", lint, r)
 		}
 		if r := last(clean); r.Status == "FAIL" {

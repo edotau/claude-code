@@ -78,16 +78,16 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return nil, errors.New("stub") }
-	decisionLog := filepath.Join(HomeBankDir(), "decisionLog.md")
+	decisionLog := filepath.Join(StoreDir(), "decisionLog.md")
 	decisionLogOver(t, decisionLog, 80)
-	if err := writeDoctorNotice(HomeBankDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	write(t, decisionLog, "# D\n")
-	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{Repo: HomeBankDir()}); err != nil {
+	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{Repo: StoreDir()}); err != nil {
 		t.Fatal(err)
 	}
-	if notice := mustRead(t, doctorNoticePath(HomeBankDir())); notice != "" {
+	if notice := mustRead(t, doctorNoticePath(StoreDir())); notice != "" {
 		t.Errorf("cached notice after the fix and an index = %q, want it cleared", notice)
 	}
 }
@@ -109,7 +109,7 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 	prev := now
 	now = func() time.Time { return time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { now = prev })
-	eachLayout(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T, b Bank) {
 		got, err := appendReport(b, "rev", ReportInput{Report: "# R\n", Decisions: []string{"d"}})
 		if err != nil {
 			t.Fatal(err)
@@ -118,14 +118,14 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("appendReport = %v, want %v", got, want)
 		}
-		if storeFlat() && !strings.HasPrefix(filepath.Base(got[0]), "repo--") {
-			t.Errorf("flat report %s is not key-prefixed", got[0])
+		if !strings.HasPrefix(filepath.Base(got[0]), "repo--") {
+			t.Errorf("report %s is not key-prefixed", got[0])
 		}
 	})
 }
 
-func TestResolveBankKeyAndPathInEachLayout(t *testing.T) {
-	eachLayoutRoot(t, func(t *testing.T, root string) {
+func TestResolveBankKeyAndPath(t *testing.T) {
+	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(root); err != nil {
 			t.Fatal(err)
 		}
@@ -134,11 +134,11 @@ func TestResolveBankKeyAndPathInEachLayout(t *testing.T) {
 			t.Fatalf("ResolveBank(path) = %q %+v %v", top, b, err)
 		}
 		top, b, err = ResolveBank("proj")
-		if err != nil || b.Key != "proj" || (top == "") != storeFlat() {
-			t.Errorf("ResolveBank(key) = %q %+v %v; flat keys carry no checkout", top, b, err)
+		if err != nil || b.Key != "proj" || top != "" {
+			t.Errorf("ResolveBank(key) = %q %+v %v; a key carries no checkout", top, b, err)
 		}
-		if _, err := ResolveRoot("proj"); (err != nil) != storeFlat() {
-			t.Errorf("ResolveRoot(key) err = %v, want one only when flat", err)
+		if _, err := ResolveRoot("proj"); err == nil {
+			t.Error("ResolveRoot(key) must err: a key names no checkout")
 		}
 		if _, _, err := ResolveBank("nosuch-bank"); err == nil {
 			t.Error("an unknown key that is not a path must err")
@@ -148,7 +148,6 @@ func TestResolveBankKeyAndPathInEachLayout(t *testing.T) {
 
 func TestIndexFlatKeyEmbedsSelectedBank(t *testing.T) {
 	isolatedConfig(t)
-	setStoreFlat(t, true)
 	b := Bank{Key: "alpha"}
 	write(t, b.Path("decisionLog.md"), "## 2026-11-16 — Quasar alpha <!-- id:11111111 -->\nSelected evidence.\n")
 	write(t, Bank{Key: "beta"}.Path("decisionLog.md"), "## 2026-11-16 — Quasar beta <!-- id:22222222 -->\nUnrelated evidence.\n")

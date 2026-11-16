@@ -34,24 +34,36 @@ func permissions(s memory.Scope) agent.Permissions {
 
 func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	work := t.TempDir()
 	store := memory.StoreDir()
-	bank := memory.Dir(work)
-	home := memory.HomeBankDir()
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, ".layout"), []byte("flat 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(t.TempDir(), "proj")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	bank := memory.BankFor(work)
+	home := memory.StoreDir()
 	claudeMD := filepath.Join(paths.ConfigDir(), "CLAUDE.md")
 	other := filepath.Join(store, "other-repo", "progress.md")
 	tests := []struct {
 		kind, tool, arg string
 		want            agent.Decision
 	}{
-		{memory.JobUpdate, "Write", filepath.Join(bank, "progress.md"), agent.Allow},
-		{memory.JobUpdate, "Edit", filepath.Join(home, "profile.md"), agent.Allow},
+		{memory.JobUpdate, "Write", bank.Path("progress.md"), agent.Allow},
+		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), agent.Allow},
 		{memory.JobUpdate, "Write", other, agent.Deny},
 		{memory.JobUpdate, "Write", claudeMD, agent.Deny},
 		{memory.JobUpdate, "Write", filepath.Join(store, ".git", "config"), agent.Deny},
 		{memory.JobUpdate, "Bash", "claude-code memory promote x", agent.Deny},
-		{memory.JobUpdate, "Bash", "cd " + bank, agent.Allow},
-		{memory.JobUpdate, "Bash", "cd " + store, agent.Deny},
+		{memory.JobUpdate, "Bash", "cd " + store, agent.Allow},
+		{memory.JobUpdate, "Bash", "cd " + t.TempDir(), agent.Deny},
 		{memory.JobDream, "Write", other, agent.Allow},
 		{memory.JobDream, "Edit", claudeMD, agent.Allow},
 		{memory.JobDream, "Write", filepath.Join(store, ".git", "config"), agent.Deny},

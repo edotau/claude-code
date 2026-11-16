@@ -61,9 +61,7 @@ func dirFmtTargets(b Bank) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if storeFlat() {
-			matches = slices.DeleteFunc(matches, func(p string) bool { return BankOfFile(p).Key != b.Key })
-		}
+		matches = slices.DeleteFunc(matches, func(p string) bool { return BankOfFile(p).Key != b.Key })
 		files = append(files, matches...)
 	}
 	return files, nil
@@ -92,7 +90,7 @@ func formatBank(check bool) (changed []string, err error) {
 	if check {
 		return formatBankLocked(true)
 	}
-	err = WithBankLock(BankLockWait, func() error {
+	err = withFlatLock(BankLockWait, func() error {
 		changed, err = formatBankLocked(false)
 		return err
 	})
