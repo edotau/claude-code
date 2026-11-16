@@ -83,7 +83,7 @@ var gitLogTimeout = 60 * time.Second
 
 // gitLogArgs builds the `git log -p` argv for dir, limited to since commits and/or rev when set.
 func gitLogArgs(dir, rev string, since int) []string {
-	args := []string{"-C", dir, "log", "-p", "--no-color", "--no-textconv", "--"}
+	args := []string{"-C", dir, "-c", "core.quotepath=false", "log", "-p", "--no-color", "--no-textconv", "--"}
 	if since > 0 {
 		args = append(args[:len(args)-1], "-n", strconv.Itoa(since), "--")
 	}
@@ -132,9 +132,7 @@ func parseGitLogLine(line, commit, file string, hunk bool) (string, string, bool
 		}
 		return commit, file, false, false
 	case strings.HasPrefix(line, "diff --git "):
-		if _, b, ok := strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/"); ok {
-			file = b
-		}
+		_, file, _ = strings.Cut(strings.TrimPrefix(line, "diff --git "), " b/")
 		return commit, file, false, false
 	case strings.HasPrefix(line, "@@"):
 		return commit, file, false, true
