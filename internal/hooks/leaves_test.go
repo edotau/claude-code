@@ -1319,69 +1319,48 @@ func TestHandbackWaitsOnReceiptJob(t *testing.T) {
 	}
 }
 
-// The hand-back wait is most of dispatch-handback's 15 s budget, ending a HookMargin before the dispatcher cuts it.
+// The hand-back wait ends a HookMargin before the dispatcher cuts dispatch-handback.
 func TestHandbackWaitBudget(t *testing.T) {
 	spec, _ := core.SpecOf("dispatch-handback")
-	if handbackWait < 10*time.Second || handbackWait > spec.Budget-core.HookMargin {
-		t.Fatalf("handbackWait = %s with budget %s, want 10s..budget-%s", handbackWait, spec.Budget, core.HookMargin)
+	if handbackWait <= 0 || handbackWait+core.HookMargin > spec.Budget {
+		t.Fatalf("handbackWait = %s with budget %s, want 0 < wait <= budget-%s", handbackWait, spec.Budget, core.HookMargin)
 	}
 }
 
-// Two jobs, the second ending while the hand-back waits: both answers ride along in order, the waited one named on top.
+// stubTwoJobs serves job "first" (ok) and "second" (running on its first read and while *hold), each with its answer.
+func stubTwoJobs(t *testing.T, in *core.Input) (reads *int, hold *bool) {
+	orig := loadDispatch
+	t.Cleanup(func() { loadDispatch = orig })
+	reads, hold = new(int), new(bool)
+	loadDispatch = func(id string) (agent.Record, error) {
+		status := "ok"
+		if id == "second" {
+			if *reads++; *reads == 1 || *hold {
+				status = "running"
+			}
+		}
+		log := filepath.Join(filepath.Dir(in.AgentTranscriptPath), id+".log")
+		if err := os.WriteFile(log, []byte("FINAL ANSWER "+id), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return agent.Record{Log: log, ID: id, Agent: "codex", Status: status, PID: os.Getpid(), Time: time.Now().Add(-time.Minute)}, nil
+	}
+	return reads, hold
+}
+
+// Two jobs, one ending in the wait, with or without a ran-on line: both answers ride along in order, the waited on top.
 func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
-	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
-	orig := loadDispatch
-	t.Cleanup(func() { loadDispatch = orig })
-	reads := 0
-	loadDispatch = func(id string) (agent.Record, error) {
-		status := "ok"
-		if id == "second" {
-			if reads++; reads == 1 {
-				status = "running"
-			}
+	for _, ranOn := range []bool{false, true} {
+		in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
+		reads, _ := stubTwoJobs(t, in)
+		lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+		lr.scan.ranOn, lr.ids, lr.until = ranOn, []string{"first", "second"}, time.Now().Add(time.Second)
+		r, blocked := leafGate(in, "a1", lr)
+		msg, _ := r.UpdatedInput["message"].(string)
+		first, second := strings.Index(msg, "FINAL ANSWER first"), strings.Index(msg, "FINAL ANSWER second")
+		if blocked || *reads < 2 || first < 0 || second < first || !strings.HasPrefix(msg, "NOTE: dispatch second ") {
+			t.Fatalf("ranOn=%v: got %+v (reads=%d), want both answers in dispatch order under the second's receipt", ranOn, r, *reads)
 		}
-		log := filepath.Join(filepath.Dir(in.AgentTranscriptPath), id+".log")
-		if err := os.WriteFile(log, []byte("FINAL ANSWER "+id), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return agent.Record{Log: log, ID: id, Agent: "codex", Status: status, PID: os.Getpid(), Time: time.Now().Add(-time.Minute)}, nil
-	}
-	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
-	lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Second)
-	r, blocked := leafGate(in, "a1", lr)
-	msg, _ := r.UpdatedInput["message"].(string)
-	first, second := strings.Index(msg, "FINAL ANSWER first"), strings.Index(msg, "FINAL ANSWER second")
-	if blocked || reads < 2 || first < 0 || second < first || !strings.HasPrefix(msg, "NOTE: dispatch second ") {
-		t.Fatalf("got %+v (reads=%d), want both answers in dispatch order under the second job's receipt", r, reads)
-	}
-}
-
-// Regression (2026-11-16): a leaf's report already showing a ran-on line still gets an earlier finished job's answer.
-func TestHandbackKeepsFinishedAnswerWithRanOn(t *testing.T) {
-	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
-	orig := loadDispatch
-	t.Cleanup(func() { loadDispatch = orig })
-	reads := 0
-	loadDispatch = func(id string) (agent.Record, error) {
-		status := "ok"
-		if id == "second" {
-			if reads++; reads == 1 {
-				status = "running"
-			}
-		}
-		log := filepath.Join(filepath.Dir(in.AgentTranscriptPath), id+".log")
-		if err := os.WriteFile(log, []byte("FINAL ANSWER "+id), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return agent.Record{Log: log, ID: id, Agent: "codex", Status: status, PID: os.Getpid(), Time: time.Now().Add(-time.Minute)}, nil
-	}
-	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
-	lr.scan.ranOn = true
-	lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Second)
-	r, blocked := leafGate(in, "a1", lr)
-	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || !strings.Contains(msg, "FINAL ANSWER first") || !strings.Contains(msg, "FINAL ANSWER second") {
-		t.Fatalf("got %+v, want both finished answers attached despite the ran-on line", r)
 	}
 }
 
@@ -1430,5 +1409,88 @@ func TestHandbackIgnoresForeignDispatches(t *testing.T) {
 				t.Fatalf("got %+v message %q, want a hold on %s naming neither %s nor %s", r, msg2, own, b, c)
 			}
 		})
+	}
+}
+
+// Regression (2026-11-16): a hold on a running job saves the finished one's answer; the later pass attaches both in order.
+func TestHandbackHoldKeepsFinishedAnswer(t *testing.T) {
+	in := handbackOf(leafTx(t, "claude", "Objective: x\n", "ls output"), "relay report")
+	in.CWD = t.TempDir()
+	_, hold := stubTwoJobs(t, in)
+	*hold = true
+	gate := func() (core.Result, bool) {
+		lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+		lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Millisecond)
+		return leafGate(in, "a1", lr)
+	}
+	r, blocked := gate()
+	_, path, _ := strings.Cut(r.Reason, "is saved at ")
+	saved, _ := os.ReadFile(strings.TrimSuffix(path, "."))
+	if !blocked || !strings.Contains(string(saved), "FINAL ANSWER first") {
+		t.Fatalf("hold = %+v blocked=%v, saved %q: want the finished answer saved with the report", r, blocked, saved)
+	}
+	*hold = false
+	r, blocked = gate()
+	msg, _ := r.UpdatedInput["message"].(string)
+	if first := strings.Index(msg, "FINAL ANSWER first"); blocked || first < 0 || strings.Index(msg, "FINAL ANSWER second") < first {
+		t.Fatalf("pass = %+v blocked=%v, want both answers in dispatch order", r, blocked)
+	}
+}
+
+// Regression (2026-11-16): only an ask's own launch, envelope or exit line names its job; ids in its answer never do.
+func TestLeafJobIDsIgnoreAnswerBody(t *testing.T) {
+	const own, bg, f = "20261116T100000.000-codex", "20261116T100001.000-codex", "20261116T100002.000-codex"
+	quoted := "answer\nask: dispatch " + f + "3\njob " + f + "2 started\n{\"jobs\":[{\"id\":\"" + f + "1\"}]}\n"
+	tx := leafEnv(t, quoted+"ask: ran on codex · x\nask: dispatch "+own+"\n", bgNotice(bgOutputFile(t, "job "+bg+" started — x\n"+quoted)))
+	if got := readLeaf(tx, leafWant{ids: true}).ids; fmt.Sprint(got) != fmt.Sprint([]string{own, bg}) {
+		t.Fatalf("ids = %v, want only [%s %s]", got, own, bg)
+	}
+}
+
+// Regression (2026-11-16): two hand-backs both past the marker check launch the Run: line once; the later one holds.
+func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
+	spawned := stubSpawn(t)
+	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
+	words := []string{"claude-code", "agents", "ask", "--agent", "codex", "x"}
+	_, firstHeld := runBriefLine(in, "a1", words, "x")
+	second, held := runBriefLine(in, "a1", words, "x")
+	if !firstHeld || !held || len(*spawned) != 1 || !strings.Contains(second.Reason, "The hook is running your brief's `Run:` line") {
+		t.Fatalf("spawns %v, second = %+v: want one launch and the later claimant held on it", *spawned, second)
+	}
+}
+
+// Regression (2026-11-16): an exit line the terminal wrapped, or coloured, still names the ask's job.
+func TestLeafJobIDsWrappedExitLine(t *testing.T) {
+	for _, out := range []string{"a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m"} {
+		if got := readLeaf(leafEnv(t, out), leafWant{ids: true}).ids; fmt.Sprint(got) != fmt.Sprint([]string{leafJob}) {
+			t.Errorf("%q: ids = %v, want [%s]", out, got, leafJob)
+		}
+	}
+}
+
+// A hand-back while the hook's own launch is inside askLaunchWindow with no receipt yet is held, not released.
+func TestRanOnHookLaunchPendingHolds(t *testing.T) {
+	spawned := stubSpawn(t)
+	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
+	leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in))) // the hook launches; its output stays empty
+	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	if !blocked || len(*spawned) != 1 || r.UpdatedInput != nil ||
+		!strings.Contains(r.Reason, "The hook is running your brief's `Run:` line") || !strings.Contains(r.Reason, "held, not refused") {
+		t.Fatalf("got %+v blocked=%v spawns %v, want a hold on the pending launch and no new launch", r, blocked, *spawned)
+	}
+}
+
+// A hand-back whose job is still running past leafStopMaxWait passes with the limit note instead of holding.
+func TestHandbackReleasesPastWaitLimit(t *testing.T) {
+	const id = "20261116T120000.000-codex"
+	at := time.Now().Add(-leafStopMaxWait - time.Hour).Truncate(time.Second)
+	in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+	writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"running","pid":%d}`,
+		id, at.Add(3*time.Second).Format(time.RFC3339), os.Getpid()))
+	r := Handback(in)
+	msg, _ := r.UpdatedInput["message"].(string)
+	if r.Decision == core.Block || !strings.Contains(msg, "still running at the "+leafStopMaxWait.String()+" limit") ||
+		!strings.Contains(msg, "early report") {
+		t.Fatalf("got %+v, want the hand-back through with the limit note and the report", r)
 	}
 }
