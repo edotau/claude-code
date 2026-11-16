@@ -216,13 +216,13 @@ audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyrin
 		$(BIN) test ramdisk -- $(MAKE) audit-test TEST_PKGS="$$(echo $$pkgs)"
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go shell yaml help docs js
+LINT_WHAT := go quality shell yaml help docs js
 
 WHAT    ?= all
 AGENT   ?= $(or $(HARNESS_LINT_AGENT),on)
 MAX     ?= 3
 LINT_AGENT := $(patsubst on,copilot,$(filter-out off,$(AGENT)))
-LINT_KINDS := $(or $(if $(filter go,$(WHAT)),go),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT))
+LINT_KINDS := $(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT))
 .PHONY: fmt
 fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
@@ -248,6 +248,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
 		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
 			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)golangci-lint: warning only (make lint fails): what is left has no auto-fix; AGENT=on hands it to copilot") ;; \
+	quality) $(BIN) review simplify --fail$(if $(filter 1,$(CHECK)),, || true) ;; \
 	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
 		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \

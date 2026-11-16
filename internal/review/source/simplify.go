@@ -21,6 +21,7 @@ type simplifyArgs struct {
 	base      string
 	threshold string
 	jsonOut   bool
+	fail      bool
 }
 
 type simplifyQuality struct {
@@ -57,6 +58,7 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 	base := fs.String("base", "", "diff base ref, used only when no paths are given (default: merge-base with upstream, else HEAD~1)")
 	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	fail := fs.Bool("fail", false, "exit 1 on NEW comment/size violations in changed Go lines (quality.md)")
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()
@@ -71,7 +73,7 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 		fmt.Fprintf(stderr, "review simplify: argument --threshold: invalid choice: %q\n", *threshold)
 		return simplifyArgs{}, 2, true
 	}
-	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut}, 0, false
+	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail}, 0, false
 }
 
 // GitInherit runs git in repo with the caller's env under a 30s timeout; proc trims the output's trailing newlines.
@@ -268,6 +270,9 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		paths = changed
 	}
 	files, unreadable := simplifyTargets(paths, stderr)
+	if parsed.fail {
+		return failOnNewViolations(files, simplifyBase(parsed.base), stdout, stderr)
+	}
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)
 	if parsed.jsonOut {

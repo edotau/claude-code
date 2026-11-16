@@ -14,13 +14,15 @@ Language specifics: `rules/software/<lang>/`.
 ## Code Quality Checklist
 
 Functions < 50 lines, files < 1200 (test files < 1500), ≤ 25 imports per file, nesting ≤ 4 (early returns); no
-hardcoded values, secrets or leftover debug prints. `review-simplicity` flags overruns; trim comments first.
+hardcoded values, secrets or leftover debug prints. Enforced on new Go lines by `make lint` (`claude-code review
+simplify --fail`); trim comments first.
 
 ## Comments
 
 **1 line MAX, ≤120 chars, per section**, any language, code comments and docstrings alike. Exempt: provenance/audit
 blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped; a paragraph belongs in the
-repo's docs, never in source. `review-simplicity` flags stacked blocks.
+repo's docs, never in source. Enforced by the same gate; whole-tree cleanup list: `claude-code review quality
+--comments --format tsv <paths>`.
 
 - **No narration** — nothing that restates the next line, the name or the signature. Comment only a why, a gotcha, a
   unit or an invariant the code cannot show.

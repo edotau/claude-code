@@ -19,7 +19,7 @@ var pyTripleQuotes = []string{`"""`, "'''"}
 
 var commentTags = []string{"@param", "@returns", "@return", "@throws", "@example", "@type"}
 
-var commentExemptStarts = []string{"provenance", "audit", "gotcha", "note:", "warning:"}
+var commentExemptStarts = []string{"provenance", "audit", "gotcha", "note:", "warning:", "deprecated", "output:", "regression"}
 
 var commentSectionHeader = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)^(args|arguments|parameters|params|returns?|yields|raises|throws|usage|examples?|attributes):`)
