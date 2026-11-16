@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -93,7 +95,8 @@ func settleForeign(in func(string) ([]Proc, error), real string) (string, error)
 			return "", err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Sprintf("in use by pid %d (%s)", busy.PID, busy.Comm), nil
+			return fmt.Sprintf("in use by pid %d (%s) with its cwd inside %s; stop it or wait for it to exit, then retry",
+				busy.PID, busy.Comm, real), nil
 		}
 		time.Sleep(inUsePoll)
 	}
@@ -213,14 +216,34 @@ func PeerAgents(checkout string, linked []string) ([]Proc, error) {
 	skip := pidsWithin(all, append([]string{filepath.Join(checkout, ".git")}, linked...))
 	mine := ancestry(os.Getpid())
 	own := agentAncestors(mine)
+	jobs := sync.OnceValue(func() map[int]bool { return ownJobs(mine) })
 	var out []Proc
 	for _, p := range filterProcs(all, checkout) {
 		if !agentComms[p.Comm] || skip[p.PID] || mine[p.PID] || descendsFrom(p.PID, own) || isDaemon(p.PID) {
 			continue
 		}
+		// a background dispatch detaches (Setsid) and reparents, so ancestry alone misses this session's own jobs
+		if descendsFrom(p.PID, jobs()) {
+			continue
+		}
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// ownJobs is the pids of live dispatch jobs owned by a pid in mine (never init); a seam so tests skip host records.
+var ownJobs = func(mine map[int]bool) map[int]bool {
+	jobs := map[int]bool{}
+	for _, r := range agent.RecentRecords(agent.AllRecords) {
+		if r.PID <= 0 || r.Owner <= 1 || !mine[r.Owner] || !r.Alive() || r.PIDStart == "" {
+			continue
+		}
+		// a reused pid is not the job: its start time differs from the one recorded at spawn
+		if start, err := proc.StartTime(r.PID); err == nil && start == r.PIDStart {
+			jobs[r.PID] = true
+		}
+	}
+	return jobs
 }
 
 // agentAncestors returns the caller's ancestors that are themselves agents by name.

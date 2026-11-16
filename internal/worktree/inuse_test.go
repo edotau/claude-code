@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // stubProcesses swaps processesIn/parentOf and restores the platform originals on cleanup.
@@ -301,5 +303,127 @@ func TestAgentCommsTieToAgentid(t *testing.T) {
 	want := map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
 	if !maps.Equal(agentComms, want) {
 		t.Errorf("agentComms = %v, want %v", agentComms, want)
+	}
+}
+
+// A busy worktree's refusal names the process and the next step; any non-excluded process still refuses (hookperm-20).
+func TestInUseByRefusalNamesProcessAndNextStep(t *testing.T) {
+	self := os.Getpid()
+	cases := []struct {
+		name  string
+		procs []Proc
+		want  string // "" = clear; else a substring of the reason
+	}{
+		{"foreign process names pid, dir and next step", []Proc{{PID: 4242, Comm: "sleep"}}, "then retry"},
+		{"this session's own child still refuses", []Proc{{PID: 501, Comm: "go"}}, "in use by pid 501 (go)"},
+		{"another session's agent still refuses", []Proc{{PID: 4343, Comm: "codex"}}, "in use by pid 4343 (codex)"},
+		{"caller excluded", []Proc{{PID: self, Comm: "self"}}, ""},
+		{"caller's agent ancestor excluded", []Proc{{PID: 100, Comm: "claude"}}, ""},
+		{"ancestor listed before a foreign process", []Proc{{PID: 100, Comm: "claude"}, {PID: 4242, Comm: "sleep"}},
+			"in use by pid 4242 (sleep)"},
+		{"empty dir clear", nil, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dest := t.TempDir()
+			stubProcesses(t, func(string) ([]Proc, error) { return c.procs, nil })
+			parents := map[int]int{self: 100, 100: 1, 501: 100}
+			parentOf = func(pid int) (int, error) { return parents[pid], nil }
+			reason, err := InUseBy(dest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.want == "" {
+				if reason != "" {
+					t.Fatalf("reason = %q, want clear", reason)
+				}
+				return
+			}
+			if !strings.Contains(reason, c.want) || !strings.Contains(reason, paths.CanonDeep(dest)) ||
+				!strings.Contains(reason, "stop it or wait for it to exit, then retry") {
+				t.Fatalf("reason = %q, want %q, the dir and the next step", reason, c.want)
+			}
+		})
+	}
+}
+
+// PeerAgents skips agents under this session's detached background jobs, and only those (hookperm-22).
+func TestPeerAgentsSkipsOwnBackgroundJobs(t *testing.T) {
+	co, linked := "/co", "/co/wt"
+	self := os.Getpid()
+	// self -> 100 (claude, this session); 900/910 are detached jobs reparented to 1, 900 owned by 100
+	parents := map[int]int{self: 100, 100: 1, 800: 900, 900: 1, 810: 910, 910: 1, 820: 1, 830: 100, 840: 900}
+	cases := []struct {
+		name string
+		proc procCwd
+		want bool // reported as a peer
+	}{
+		{"agent under own background job", procCwd{800, co, "codex"}, false},
+		{"agent under another session's job", procCwd{810, co, "codex"}, true},
+		{"reparented agent with no job", procCwd{820, co, "claude"}, true},
+		{"agent under own agent ancestor", procCwd{830, co, "opencode"}, false},
+		{"own job's agent in a linked worktree", procCwd{840, linked, "codex"}, false},
+		{"non-agent under nothing", procCwd{820, co, "vim"}, false},
+		{"peer agent elsewhere", procCwd{820, "/elsewhere", "claude"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stubProcesses(t, nil)
+			parentOf = func(pid int) (int, error) { return parents[pid], nil }
+			origScan, origArgs, origName, origJobs := scanProcs, argvOf, commName, ownJobs
+			t.Cleanup(func() { scanProcs, argvOf, commName, ownJobs = origScan, origArgs, origName, origJobs })
+			scanProcs = func() ([]procCwd, error) { return []procCwd{c.proc}, nil }
+			argvOf = func(int) ([]string, error) { return []string{"agent"}, nil }
+			commName = func(pid int) string {
+				if pid == 100 {
+					return "claude"
+				}
+				return ""
+			}
+			ownJobs = func(mine map[int]bool) map[int]bool {
+				if mine[100] {
+					return map[int]bool{900: true}
+				}
+				return nil
+			}
+			got, err := PeerAgents(co, []string{linked})
+			if err != nil || (len(got) == 1) != c.want {
+				t.Fatalf("PeerAgents = %v, %v; want reported=%v", got, err, c.want)
+			}
+		})
+	}
+}
+
+// ownJobs keeps only live records owned by the caller's ancestry whose pid still has its recorded start time.
+func TestOwnJobsFiltersRecords(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	self := os.Getpid()
+	start, err := proc.StartTime(self)
+	if err != nil {
+		t.Fatalf("StartTime: %v", err)
+	}
+	now := time.Now()
+	recs := []agent.Record{
+		{ID: "a-own", Status: "running", PID: self, PIDStart: start, Owner: 100, Time: now},
+		{ID: "b-foreign", Status: "running", PID: self, PIDStart: start, Owner: 200, Time: now},
+		{ID: "c-done", Status: "ok", PID: self, PIDStart: start, Owner: 100, Time: now},
+		{ID: "d-reused", Status: "running", PID: self, PIDStart: "x" + start, Owner: 100, Time: now},
+		{ID: "e-nopid", Status: "running", Owner: 100, Time: now},
+		{ID: "f-init", Status: "running", PID: self, PIDStart: start, Owner: 1, Time: now},
+	}
+	for _, want := range []bool{true, false} {
+		dir := paths.DispatchDir()
+		_ = os.RemoveAll(dir)
+		for _, r := range recs {
+			if want == (r.ID == "a-own") {
+				if err := r.Save(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		got := ownJobs(map[int]bool{self: true, 100: true, 1: true})
+		if got[self] != want || len(got) > 1 {
+			t.Errorf("with a-own saved=%v: ownJobs = %v, want self included=%v", want, got, want)
+		}
 	}
 }

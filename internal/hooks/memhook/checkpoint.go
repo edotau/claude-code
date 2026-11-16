@@ -128,7 +128,7 @@ func createFlag(flag string) bool {
 	return true
 }
 
-// Stop runs the context checkpoint and memory update; it never blocks, an unsaved update shows a note.
+// Stop runs the checkpoint and memory update; never blocks, but the steward's handoff context continues the turn once.
 func Stop(in *core.Input) core.Result {
 	var r core.Result
 	in = AgentInput(sessionRootInput(in)) // once per Stop: the checkpoint and the update share it
