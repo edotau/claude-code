@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -186,13 +187,17 @@ func truncateLine(s string) string {
 }
 
 // idMarker is a block's persisted ID: assigned once at settle, carried by the block through edits and archive moves.
-var idMarker = regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
+var idMarker = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\s*<!-- id:([0-9a-f]{8}) -->`)
+})
 
 // contentRefPrefix leads a derived block ref; 'z' is never hex, so it cannot collide with a real id marker.
 const contentRefPrefix = "z"
 
 // derivedRef matches a contentRef: the prefix and a non-empty run of lowercase hex digits.
-var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
+var derivedRef = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
+})
 
 // contentRef is the stable ref for an unmarked block: the prefix plus 4 bytes of sha256 of its normalized text.
 func contentRef(block string) string {
@@ -215,7 +220,7 @@ var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "#
 
 // blockID is the persisted ID on line ("" when it has none).
 func blockID(line string) string {
-	if m := idMarker.FindStringSubmatch(line); m != nil {
+	if m := idMarker().FindStringSubmatch(line); m != nil {
 		return m[1]
 	}
 	return ""
@@ -259,7 +264,7 @@ func isLowerHex(s string) bool {
 }
 
 // stripID removes the ID marker for display.
-func stripID(s string) string { return idMarker.ReplaceAllString(s, "") }
+func stripID(s string) string { return idMarker().ReplaceAllString(s, "") }
 
 // assignIDTexts stamps unmarked blocks, collapses stacked markers to the oldest and returns each id file's text.
 func assignIDTexts(b Bank, now time.Time) (int, map[string]string, error) {
@@ -371,7 +376,7 @@ func settleBlockID(b Bank, name string, idx int, block []string, now time.Time) 
 func dropMarkers(block []string, fenced []bool, keepLine int, keepSpan []int) []string {
 	out := make([]string, 0, len(block))
 	for i, l := range block {
-		if !fenced[i] && idMarker.MatchString(l) {
+		if !fenced[i] && idMarker().MatchString(l) {
 			res := stripMarkers(l, i == 0 && i == keepLine, keepSpan) // a first-line survivor stays where it is
 			if strings.TrimSpace(res) == "" && i != 0 {
 				continue
@@ -390,7 +395,7 @@ func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, to
 		if fenced[i] {
 			continue
 		}
-		for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+		for _, sp := range idMarker().FindAllStringIndex(l, -1) {
 			keepLine, keepSpan, total = i, sp, total+1
 		}
 	}
@@ -407,7 +412,7 @@ func freshID(b Bank, name string, idx int, line string, now time.Time) string {
 func stripMarkers(l string, keepHere bool, keepSpan []int) string {
 	var b strings.Builder
 	prev := 0
-	for _, sp := range idMarker.FindAllStringIndex(l, -1) {
+	for _, sp := range idMarker().FindAllStringIndex(l, -1) {
 		b.WriteString(l[prev:sp[0]])
 		if keepHere && sp[0] == keepSpan[0] {
 			b.WriteString(l[sp[0]:sp[1]])
@@ -423,7 +428,7 @@ var errNoBlock = errors.New("no memory block with that id")
 
 // ShowBlock finds the block for ref (an id marker or a contentRef) anywhere in the store, archives included.
 func ShowBlock(ref string) (string, string, error) {
-	derived := derivedRef.MatchString(ref)
+	derived := derivedRef().MatchString(ref)
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) { // no store yet: nothing to find
@@ -482,7 +487,9 @@ func blockWithRef(p, ref string, derived bool) (found string, ok bool, err error
 	return found, ok, nil
 }
 
-var archiveName = regexp.MustCompile(`^(decisionLog|sessionHistory|conventions)-\d{4}-\d{2}\.md$`)
+var archiveName = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(decisionLog|sessionHistory|conventions)-\d{4}-\d{2}\.md$`)
+})
 
 // logicalName maps an archive file (decisionLog-2026-10.md) back to its typed file's grammar.
 func logicalName(path string) string {
@@ -490,7 +497,7 @@ func logicalName(path string) string {
 	if _, ok := idFiles[base]; ok {
 		return base
 	}
-	if m := archiveName.FindStringSubmatch(base); m != nil {
+	if m := archiveName().FindStringSubmatch(base); m != nil {
 		return m[1] + ".md"
 	}
 	if _, rest, ok := strings.Cut(base, "--"); ok && rest != "" { // a flat file: <key>--<name>
