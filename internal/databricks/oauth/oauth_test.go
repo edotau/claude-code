@@ -787,7 +787,7 @@ func TestRefreshU2MFollowsNoRedirect(t *testing.T) {
 	}
 }
 
-// Forward moves the redirect to the port it returns, is closed when the login ends, and an error from it ends the login.
+// Forward moves the redirect to the port it returns, is closed when the login ends, and its error ends the login.
 func TestLoginU2MForwardRedirectsToItsPortAndCloses(t *testing.T) {
 	var form url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

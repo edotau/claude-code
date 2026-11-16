@@ -137,7 +137,7 @@ func maskSlices(oa, na []any, secret bool, key string) (any, any) {
 	return oo, nn
 }
 
-// maskLeaf masks any scalar under a credential key and a string shaped like one; a differing new value is marked changed.
+// maskLeaf masks a scalar under a credential key and a string shaped like one; a differing new value is marked changed.
 func maskLeaf(o, n any, secret bool, key string) (any, any) {
 	keyed := secret || credLeaf(key)
 	oMask, nMask := leafMasked(o, keyed), leafMasked(n, keyed)

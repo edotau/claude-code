@@ -228,7 +228,7 @@ func loginSP(p *providers.Provider, dryRun bool) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	ctx = providers.WithNotes(providers.WithIdentity(ctx, providers.IdentitySP), func(string) {}) // the line below says it
+	ctx = providers.WithNotes(providers.WithIdentity(ctx, providers.IdentitySP), func(string) {})
 	tok, err := providers.Refresh(ctx, p)
 	if err != nil {
 		if oauth.IsRejected(err) {

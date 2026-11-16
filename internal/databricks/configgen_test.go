@@ -132,7 +132,7 @@ func TestCodexModelAndName(t *testing.T) {
 	}
 }
 
-// An unlisted id keeps its prefix, a chat-only catalog id is refused for codex, and claude seeds every alias from the row.
+// An unlisted id keeps its prefix, codex refuses a chat-only catalog id, and claude seeds every alias from the row.
 func TestCodexKeepsCustomIDAndRefusesChatOnly(t *testing.T) {
 	o := base(t, targetCodex)
 	o.Model = "databricks-my-custom-gpt"

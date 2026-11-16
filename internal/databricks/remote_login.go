@@ -29,7 +29,7 @@ func (h headless) remoteRange(local int) (first, last int) {
 	return local, oauth.DefaultPort + oauth.PortSpan
 }
 
-// remoteOptions is the oauth.LoginOptions of a --remote login: the browser opens on h.via and its callback is forwarded here.
+// remoteOptions is the oauth.LoginOptions of a --remote login: the browser opens on h.via, its callback forwarded here.
 func (h headless) remoteOptions() oauth.LoginOptions {
 	o := oauth.LoginOptions{Out: os.Stderr}
 	if h.port > 0 {
@@ -61,7 +61,7 @@ func (h headless) remoteOptions() oauth.LoginOptions {
 	return o
 }
 
-// remoteForwardError is the one-line failure of a reverse forward: a taken port, or ssh itself, with the --paste way out.
+// remoteForwardError is the one-line failure of a reverse forward (taken port or ssh itself), with the --paste way out.
 func remoteForwardError(host string, err error) error {
 	if taken, ok := errors.AsType[*remote.PortTakenError](err); ok {
 		return fmt.Errorf("%w; pass --port N for another port, or --paste to sign in without the forward", taken)

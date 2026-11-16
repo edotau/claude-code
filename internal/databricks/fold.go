@@ -76,7 +76,7 @@ func planFold(top map[string]json.RawMessage, tx *vault.Tx) (foldPlan, error) {
 		return foldPlan{}, err
 	}
 	var plan foldPlan
-	claimed := map[string]bool{} // destinations an earlier move in this plan fills
+	claimed := map[string]bool{}
 	for _, id := range slices.Sorted(maps.Keys(rows)) {
 		if row := rows[id]; row.Auth.Type != providers.AuthM2M || row.Preset != providers.PresetDatabricks {
 			continue
