@@ -2,13 +2,13 @@ package memory
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -444,7 +444,7 @@ func TestMigrateRefusesPendingJournal(t *testing.T) {
 
 func TestMigrateDottedWatcher(t *testing.T) {
 	migrateFixture(t)
-	if err := paths.AtomicWrite(watchClaimPath("session.with.dot"), []byte(fmt.Sprint(os.Getpid())), 0o600); err != nil {
+	if err := paths.AtomicWrite(watchClaimPath("session.with.dot"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := Migrate(MigrateOptions{}); !errors.Is(err, ErrMigrateRefused) {

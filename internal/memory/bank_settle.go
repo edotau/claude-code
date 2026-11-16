@@ -176,9 +176,6 @@ func scaffolded(b Bank) bool {
 	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
 }
 
-// settleLocked is settleBankLocked for a writer that rolls back on its error, which names the settle.
-func settleLocked(root string, now time.Time) error { return settleLockedBank(BankFor(root), now) }
-
 func settleLockedBank(b Bank, now time.Time) error {
 	if _, err := settleOwnLocked(b, now); err != nil {
 		return fmt.Errorf("settle: %w", err)

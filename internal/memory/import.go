@@ -220,7 +220,7 @@ func (p *importPlan) flatImportFile(pr importPair, rel string) bool {
 		return true
 	}
 	key := homeDir
-	name := strings.Split(rel, "/")[0]
+	name, _, _ := strings.Cut(rel, "/")
 	if parts := strings.Split(rel, "/"); len(parts) > 1 {
 		name = parts[1]
 	}
