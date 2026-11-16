@@ -173,14 +173,15 @@ func loadRelayRun(agentID string) (relayRun, bool) {
 }
 
 // receiptFix: a job it started is held or attached; a never-run Run: line runs here; relay work passes with a note.
-func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
+func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
 	st := leafAgentType(in)
 	m, hookRan := loadRelayRun(agentID)
 	if hookRan {
 		lr.scan.askTimes = append(lr.scan.askTimes, m.Started)
 	}
-	if recs, how, ok := leafDispatch(lr, st); ok {
+	if recs, how, ok := leafDispatch(*lr, st); ok {
 		var got []receipt
+		var held *core.Result
 		for _, rec := range recs {
 			how, output := how, m.Output
 			if hookRan && launchedBy(rec.Time, []time.Time{m.Started}) {
@@ -190,9 +191,14 @@ func receiptFix(in *core.Input, agentID string, lr leafRead) (core.Result, bool)
 			}
 			r, hold := dispatchReceipt(rec, how, output, lr.until)
 			if hold != nil {
-				return *hold, true
+				held = cmp.Or(held, hold) // the wait is spent, so later jobs are read at once
+				continue
 			}
 			got = append(got, r)
+		}
+		if held != nil { // keep the finished answers: the hold saves them and the later pass attaches them
+			lr.held = got
+			return *held, true
 		}
 		return attachAll(in, got), false
 	}
@@ -474,8 +480,11 @@ func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 	return res
 }
 
-// preserveReport saves the report a held hand-back or stop carried to the reports home and names it in the reason.
+// preserveReport saves a held hand-back's or stop's report and finished answers, naming the file in the reason.
 func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result) core.Result {
+	if len(lr.held) > 0 {
+		markHeld(agentID)
+	}
 	text := cmp.Or(in.Nested("tool_input", "message"), in.Nested("last_assistant_message"), lr.scan.lastText)
 	var sb strings.Builder
 	sb.WriteString(text)

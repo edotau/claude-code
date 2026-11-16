@@ -223,12 +223,9 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	lr.recs = loadRecords(lr.ids)
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
-		if len(lr.held) > 0 {
-			markHeld(agentID)
-		}
 		return preserveReport(in, agentID, lr, expired), true
 	}
-	res, block := ranOnVerdict(in, agentID, lr)
+	res, block := ranOnVerdict(in, agentID, &lr)
 	if block {
 		return preserveReport(in, agentID, lr, res), true
 	}
@@ -664,7 +661,7 @@ var externalTypes = func() map[string]bool {
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
 // ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, runs, attaches or notes, and never drops the report.
-func ranOnVerdict(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
+func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
 	// only leaves that call an external agent (codex|copilot|gemini|opencode) and show no ran-on receipt
 	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
