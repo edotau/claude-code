@@ -23,6 +23,13 @@ blocks to one line that names what the code does.
 Exempt: provenance/audit blocks, file-header runbooks, gotcha notes. Prose over the cap is cut, not rewrapped: a
 paragraph belongs in the repo's own docs (`docs/`, `ARCHITECTURE.md`, `README.md`), never in source.
 
+- **No line-by-line narration**: no comment that restates the next line, the name, or the signature; no trailing
+  comments explaining ordinary code. Comment only a why, a gotcha, a unit or an invariant the code cannot show.
+- **Doc strings are short**: a function, method, struct or field gets one concise line (≤ ~80 chars) only when it
+  adds meaning; unexported ones usually get none. Never list parameters, returns or cases the code already shows.
+- **Shorten in place**: an over-long comment becomes one complete sentence that keeps its point, never a truncated
+  first line; when touching a file, trim the verbose comments you pass.
+
 ## Simplify — the gate behind `skills/simplify`
 
 `skills/simplify` (overrides the built-in `/simplify`) applies these rules as its apply-gate:
