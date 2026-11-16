@@ -435,7 +435,7 @@ func ShowBlock(ref string) (string, string, error) {
 		if d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		if d.IsDir() || !strings.HasSuffix(p, ".md") {
+		if d.IsDir() {
 			return nil
 		}
 		b, ok, err := blockWithRef(p, ref, derived)
@@ -459,6 +459,9 @@ func ShowBlock(ref string) (string, string, error) {
 
 // blockWithRef returns the last block in file p carrying ref (an id marker, or a contentRef when derived).
 func blockWithRef(p, ref string, derived bool) (found string, ok bool, err error) {
+	if !strings.HasSuffix(p, ".md") {
+		return "", false, nil
+	}
 	data, err := readFile(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false, nil
