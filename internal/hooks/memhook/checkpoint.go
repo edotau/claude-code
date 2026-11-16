@@ -1,7 +1,6 @@
 package memhook
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -129,14 +128,12 @@ func createFlag(flag string) bool {
 	return true
 }
 
-// Stop runs the context checkpoint and memory update; only the memory update can block the stop.
+// Stop runs the context checkpoint and memory update; it never blocks, an unsaved update shows a note.
 func Stop(in *core.Input) core.Result {
-	var hv bytes.Buffer
+	var r core.Result
 	in = AgentInput(sessionRootInput(in)) // once per Stop: the checkpoint and the update share it
 	steward := contextCheckpoint(in)
-	code, failedOpen := sessionUpdate(in, &hv)
-	r := core.ExitResult(code, hv.String())
-	if failedOpen {
+	if sessionUpdate(in) {
 		r.SystemMessage = updateNotSaved
 	}
 	r.Context = core.JoinContext(r.Context, steward.Context)

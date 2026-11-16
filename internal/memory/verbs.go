@@ -287,16 +287,54 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 	return false, nil
 }
 
+// isOwnBankFile reports whether f sits in this repo's or the home bank.
+func isOwnBankFile(f string) bool {
+	return slices.ContainsFunc([]string{harnessStoreDir(), HomeBankDir()},
+		func(d string) bool { return strings.HasPrefix(f, d+string(filepath.Separator)) })
+}
+
+// FormatOwn wraps only this repo's and the home bank, listing what it wrapped; other banks keep the check note.
+func FormatOwn(w io.Writer) error {
+	targets, err := bankFmtTargets()
+	if err != nil {
+		return err
+	}
+	own := slices.DeleteFunc(slices.Clone(targets), func(f string) bool { return !isOwnBankFile(f) })
+	var changed []string
+	err = WithBankLock(BankLockWait, func() (ferr error) {
+		changed, ferr = formatFiles(own, false)
+		if len(changed) > 0 { // commit what was written even when a later file failed
+			if cerr := commitStore("fmt: wrap bank lines", StoreRepo().dropCredentialShaped(storeRels(changed), nil)...); cerr != nil {
+				ferr = errors.Join(ferr, cerr)
+			}
+		}
+		return ferr
+	})
+	for _, f := range changed {
+		fmt.Fprintln(w, f)
+	}
+	if err != nil {
+		return err
+	}
+	if len(changed) > 0 {
+		fmt.Fprintf(w, "memory fmt: wrapped %d file(s) in this repo's and the home bank\n", len(changed))
+	}
+	others := slices.DeleteFunc(slices.Clone(targets), isOwnBankFile)
+	if n, _ := formatFiles(others, true); len(n) > 0 {
+		fmt.Fprintf(w, "note: %d file(s) in other repos' banks would wrap (not a failure)\n", len(n))
+	}
+	return nil
+}
+
 // FormatCheck writes nothing and fails only for this repo's and the home bank.
 func FormatCheck(w io.Writer) (dirty bool, err error) {
 	changed, err := formatBank(true)
 	if err != nil {
 		return false, err
 	}
-	own := []string{harnessStoreDir(), HomeBankDir()}
 	var inScope, other int
 	for _, f := range changed {
-		if slices.ContainsFunc(own, func(d string) bool { return strings.HasPrefix(f, d+string(filepath.Separator)) }) {
+		if isOwnBankFile(f) {
 			inScope++
 			fmt.Fprintln(w, f)
 		} else {

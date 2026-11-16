@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -551,5 +552,27 @@ func TestFormatCheckFailsOnlyForOwnBanksAndWritesNothing(t *testing.T) {
 		if got, _ := os.ReadFile(f); string(got) != body {
 			t.Errorf("FormatCheck rewrote %s", f)
 		}
+	}
+}
+
+func TestFormatOwnWrapsOnlyOwnBanks(t *testing.T) {
+	home, other := bankFmtRepoStore(t)
+	body := "# decisionLog\n\n- " + strings.Join(repeatWords(15), " ") + "\n"
+	otherFile := filepath.Join(other, "reports", "r.md")
+	homeFile := filepath.Join(home, "decisionLog.md")
+	write(t, otherFile, body)
+	write(t, homeFile, body)
+	var out strings.Builder
+	if err := FormatOwn(&out); err != nil || !strings.Contains(out.String(), homeFile) || !strings.Contains(out.String(), "note: 1 file(s)") {
+		t.Fatalf("FormatOwn err=%v out=%q, want the home file wrapped and a note for the other bank", err, out.String())
+	}
+	if got, _ := os.ReadFile(homeFile); string(got) == body {
+		t.Error("home bank file was not wrapped")
+	}
+	if got, _ := os.ReadFile(otherFile); string(got) != body {
+		t.Error("another repo's bank was rewritten")
+	}
+	if dirty, err := FormatCheck(io.Discard); err != nil || dirty {
+		t.Fatalf("after FormatOwn: dirty=%v err=%v, want clean", dirty, err)
 	}
 }
