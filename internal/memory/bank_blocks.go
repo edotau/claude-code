@@ -196,7 +196,7 @@ var derivedRef = regexp.MustCompile("^" + contentRefPrefix + "[0-9a-f]+$")
 
 // contentRef is the stable ref for an unmarked block: the prefix plus 4 bytes of sha256 of its normalized text.
 func contentRef(block string) string {
-	return contentRefPrefix + textutil.SHA256Hex([]byte(strings.Join(strings.Fields(block), " ")))[:8]
+	return contentRefPrefix + textutil.SHA256Hex(appendFields(nil, block))[:8]
 }
 
 // blockRef is the block's persisted id, else fallback, else its contentRef.
