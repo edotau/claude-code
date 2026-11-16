@@ -287,6 +287,33 @@ func TestNukeLeavesCredentialShapedUntrackedInPlace(t *testing.T) {
 	}
 }
 
+// A credential-shaped git-ignored file under a user tree is left in place and out of the archive; other ignored files archive.
+func TestNukeLeavesCredentialShapedIgnoredInPlace(t *testing.T) {
+	dir := fixtureNukeDir(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mustWrite(t, filepath.Join(dir, ".gitignore"), "skills/mine/.env\nskills/mine/cache.txt\n")
+	mustWrite(t, filepath.Join(dir, "skills", "mine", ".env"), "TOKEN=x\n")
+	mustWrite(t, filepath.Join(dir, "skills", "mine", "cache.txt"), "cache\n")
+	var out bytes.Buffer
+	if err := nuke(nukeOpts{Dir: dir, Apply: true, Confirm: dir, Out: &out}); err != nil {
+		t.Fatal(err)
+	}
+	entries := tarEntries(t, findTarball(t, home))
+	if _, ok := entries["skills/mine/.env"]; ok {
+		t.Error("tarball archived the credential-shaped ignored file")
+	}
+	if _, ok := entries["skills/mine/cache.txt"]; !ok {
+		t.Errorf("tarball missing the plain ignored file: %v", tarNames(entries))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "skills", "mine", ".env")); err != nil {
+		t.Errorf("ignored credential-shaped file must be left in place: %v", err)
+	}
+	if !strings.Contains(out.String(), "  skills/mine/.env\n") {
+		t.Errorf("plan must name the file as left in place:\n%s", out.String())
+	}
+}
+
 // assertManifest checks the manifest names the secrets, carries the vault identity and never a secret value.
 func assertManifest(t *testing.T, raw []byte, id, kid string) (secretNames []string) {
 	t.Helper()
