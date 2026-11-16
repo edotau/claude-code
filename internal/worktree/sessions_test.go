@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
@@ -91,5 +93,53 @@ func TestDrainKeepsNoticesAfterOversizedLine(t *testing.T) {
 	got, err := DrainErr("big")
 	if err != nil || len(got) != 3 || got[0].Text != "A" || got[2].Text != "C" {
 		t.Fatalf("drain returned %d notices, want 3 (A, oversized, C)", len(got))
+	}
+}
+
+// TestScanClaimsDropsReusedOwnerPid: a token-stamped file whose pid now runs another process is dead; doubt stays live.
+func TestScanClaimsDropsReusedOwnerPid(t *testing.T) {
+	const stale, fresh = `{"path":"a.go","ts":1,"owner_start":"T1"}`, `{"path":"b.go","ts":2,"owner_start":"T2"}`
+	const legacy = `{"path":"c.go","ts":3}`
+	probeErr := errors.New("ps: timed out")
+	cases := []struct {
+		name, pid, lines string
+		token            string
+		err              error
+		want             []string
+		removed          bool
+	}{
+		{"reused pid", "4242", stale, "T9", nil, nil, true},
+		{"pid 1 reads alive by EPERM", "1", stale, "boot", nil, nil, true},
+		{"owner exited after the signal probe", "4242", stale, "", proc.ErrNoProcess, nil, true},
+		{"live owner, matching token", "4242", stale, "T1", nil, []string{"a.go"}, false},
+		{"old-format line, pid reused", "4242", legacy, "T9", nil, []string{"c.go"}, false},
+		{"old-format line, pid gone", "4242", legacy, "", proc.ErrNoProcess, []string{"c.go"}, false},
+		{"token unreadable", "4242", stale, "", probeErr, []string{"a.go"}, false},
+		{"permission denied", "1", stale, "", os.ErrPermission, []string{"a.go"}, false},
+		{"resumed on the same pid", "4242", stale + "\n" + fresh, "T2", nil, []string{"a.go", "b.go"}, false},
+		{"old line beside a stale one", "4242", legacy + "\n" + stale, "T9", nil, []string{"c.go"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			orig := claimStart
+			claimStart = func(int) (string, error) { return tc.token, tc.err }
+			t.Cleanup(func() { claimStart = orig })
+			file := filepath.Join(ClaimsDir(), tc.pid+"-peer.jsonl")
+			if err := os.MkdirAll(ClaimsDir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(tc.lines+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			err := ScanClaims(func(int) bool { return true }, func(_ int, _ string, c Claim) { got = append(got, c.Path) })
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("ScanClaims = %v, %v; want %v", got, err, tc.want)
+			}
+			if _, err := os.Stat(file); os.IsNotExist(err) != tc.removed {
+				t.Errorf("claims file removed = %v, want %v", os.IsNotExist(err), tc.removed)
+			}
+		})
 	}
 }

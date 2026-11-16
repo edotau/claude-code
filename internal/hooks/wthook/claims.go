@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -35,6 +36,9 @@ var _ = schemas.Register(schemas.Format{
 
 // claimOwner is the session's Claude Code pid; a var seam so tests pick the owner.
 var claimOwner = inflight.SessionOwner
+
+// ownerStart reads the owner's start token each claim line carries; a var seam beside claimOwner.
+var ownerStart = proc.StartTime
 
 // sessionSlug is the session id as the file-name slug every per-session state file uses.
 func sessionSlug(session string) string { return paths.Slug(session, "", 80, "session") }
@@ -66,7 +70,15 @@ func Claim(in *core.Input) core.Result {
 	if staged {
 		lines = append(lines, stagedClaims(in, now)...) // external-agent edits are claimed when staged
 	}
-	appendClaims(claimsFile(owner, in.SessionID), stillDirty(lines))
+	lines = stillDirty(lines)
+	if len(lines) == 0 {
+		return core.Result{}
+	}
+	start, _ := ownerStart(owner) // "" on failure: the line then reads as live while the pid is
+	for i := range lines {
+		lines[i].OwnerStart = start
+	}
+	appendClaims(claimsFile(owner, in.SessionID), lines)
 	return core.Result{}
 }
 

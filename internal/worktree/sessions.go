@@ -11,19 +11,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // Claim is one line of the hooks' claims ledger (written by internal/hooks/wthook/claims.go): a path.
 type Claim struct {
-	Path  string `json:"path,omitempty"`
-	Agent string `json:"agent_id,omitempty"`
-	TS    int64  `json:"ts"`
+	Path       string `json:"path,omitempty"`
+	Agent      string `json:"agent_id,omitempty"`
+	TS         int64  `json:"ts"`
+	OwnerStart string `json:"owner_start,omitempty"` // proc.StartTime of the owner pid: tells a reused pid apart
 }
+
+// claimStart reads a pid's start token; a var seam so tests play a reused, vanished or unreadable owner.
+var claimStart = proc.StartTime
+
+// retireWait bounds a scan's wait on a stale claims file's lock; a busy lock leaves the file for the next scan.
+const retireWait = 100 * time.Millisecond
 
 // claimTail is how much of each claims file a scan reads: the newest lines are the ones that matter.
 const claimTail = 1 << 20
@@ -52,11 +62,58 @@ func ScanClaims(alive func(int) bool, fn func(pid int, slug string, c Claim)) er
 			_ = os.Remove(file + ".lock")
 			continue
 		}
-		if err := scanFile(file, func(c Claim) { fn(pid, slug, c) }); err != nil {
+		claims, stale, err := ownedClaims(file, pid)
+		if err != nil {
 			errs = append(errs, err)
+		}
+		if stale {
+			retire(file, pid)
+		}
+		for _, c := range claims {
+			fn(pid, slug, c)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ownedClaims is file's claims minus those a dead process at a now-reused pid wrote; stale means none are left.
+func ownedClaims(file string, pid int) ([]Claim, bool, error) {
+	var all []Claim
+	if err := scanFile(file, func(c Claim) { all = append(all, c) }); err != nil {
+		return all, false, err // a partial read may miss the newest token
+	}
+	newest := ""
+	for _, c := range all {
+		if c.OwnerStart != "" {
+			newest = c.OwnerStart
+		}
+	}
+	if newest == "" || !reused(pid, newest) {
+		return all, false, nil // the newest writer still holds pid: every older line stays too
+	}
+	kept := slices.DeleteFunc(all, func(c Claim) bool { return c.OwnerStart != "" }) // a line with no token stays
+	return kept, len(kept) == 0, nil
+}
+
+// reused reports that pid is gone or now another process than the one started at token; any probe error is false.
+func reused(pid int, token string) bool {
+	got, err := claimStart(pid)
+	return errors.Is(err, proc.ErrNoProcess) || (err == nil && got != token)
+}
+
+// retire removes a stale claims file under its lock, re-checked there so a just-appended live claim survives.
+func retire(file string, pid int) {
+	removed := false
+	_ = paths.WithFileLockWithin(file, retireWait, func() error {
+		if _, stale, err := ownedClaims(file, pid); err != nil || !stale {
+			return err
+		}
+		removed = os.Remove(file) == nil
+		return nil
+	})
+	if removed {
+		_ = os.Remove(file + ".lock")
+	}
 }
 
 // claimsOwner parses <pid>-<slug>.jsonl.

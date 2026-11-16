@@ -2,6 +2,7 @@ package wthook
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,12 +22,13 @@ func claimInput(t *testing.T, doc map[string]any) *core.Input {
 	return core.ParseInput(strings.NewReader(string(b)))
 }
 
-// useClaimOwner pins the session owner pid the claims ledger files under.
+// useClaimOwner pins the session owner pid the claims ledger files under, with no start token (old-format lines).
 func useClaimOwner(t *testing.T, pid int) {
 	t.Helper()
-	orig := claimOwner
+	orig, origStart := claimOwner, ownerStart
 	claimOwner = func() int { return pid }
-	t.Cleanup(func() { claimOwner = orig })
+	ownerStart = func(int) (string, error) { return "", errors.New("no token in tests") }
+	t.Cleanup(func() { claimOwner, ownerStart = orig, origStart })
 }
 
 // liveOwner and deadOwner are the fake session owner pids the claims tests file under; checkerOwner runs the check.
@@ -48,6 +50,24 @@ func TestWorktreeClaimRecordsEdits(t *testing.T) {
 	want := []claim{{Schema: claimsSchema, Path: filepath.Join(dir, "a.txt"), Agent: "leaf1"}}
 	if len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("claims = %+v; want %+v (ts aside)", got, want)
+	}
+}
+
+// TestClaimStampsOwnerStart: each line carries the owner's start token, so a reused owner pid reads as dead.
+func TestClaimStampsOwnerStart(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	useClaimOwner(t, liveOwner)
+	ownerStart = func(pid int) (string, error) {
+		if pid != liveOwner {
+			t.Errorf("ownerStart(%d), want the owner pid %d", pid, liveOwner)
+		}
+		return "tok", nil
+	}
+	dir := core.CanonPath(t.TempDir())
+	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": dir, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "a.txt"}}))
+	if got := readClaims(t, claimsFile(liveOwner, "S1")); len(got) != 1 || got[0].OwnerStart != "tok" {
+		t.Fatalf("claims = %+v; want one line with owner_start tok", got)
 	}
 }
 
