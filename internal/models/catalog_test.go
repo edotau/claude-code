@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"testing" // tests refuse real DNS: mock API calls
 
 	_ "github.com/edotau/claude-code/internal/nonet"
@@ -18,6 +19,9 @@ var spellings = []struct {
 		"databricks-serving": "databricks-gpt-6-1-sol", "dotted": "gpt-6.1-sol"}},
 	{"gemini-3-8-flash", map[string]string{
 		"databricks-serving": "databricks-gemini-3-8-flash", "dotted": "gemini-3.8-flash"}},
+	{"claude-sonnet-5-5", map[string]string{"agy": "claude-sonnet-5-5"}},
+	{"gpt-oss-120b", map[string]string{"agy": "gpt-oss-120b"}},
+	{"gemini-3-8-flash", map[string]string{"agy": "gemini-3.8-flash"}},
 	{"claude-haiku-4-5-20251001", map[string]string{"anthropic": "claude-haiku-4-5-20251001"}},
 	{"kimi-k3-1-pro", map[string]string{"dotted": "kimi-k3.1-pro"}},
 	{"glm-5-3", map[string]string{"anthropic": "glm-5-3", "dotted": "glm-5.3"}},
@@ -37,6 +41,15 @@ func TestWireAndResolveRoundTrip(t *testing.T) {
 					t.Errorf("Resolve(%q) = %q,%v,%v; want %q", in, got, oneM, ok, m.canonical)
 				}
 			}
+		}
+	}
+}
+
+func TestAcceptedEfforts(t *testing.T) {
+	for id, want := range map[string]string{"gemini-4-hydrogen": "low medium high xhigh", "gemini-3.8-flash": "low medium high",
+		"claude-sonnet-5-5": "low medium high", "gpt-oss-120b": "medium", "gpt-6-1-sol": ""} {
+		if got := strings.Join(AcceptedEfforts("gemini", id), " "); got != want {
+			t.Errorf("AcceptedEfforts(gemini, %s) = %q, want %q", id, got, want)
 		}
 	}
 }

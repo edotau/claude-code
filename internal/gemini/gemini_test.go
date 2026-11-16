@@ -25,27 +25,13 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// agyArgv maps Autonomous onto "--mode auto"
-func TestAgyArgvAutonomous(t *testing.T) {
-	cases := []struct {
-		name               string
-		tools, autonomous  bool
-		wantMode, wantSkip bool
-	}{
-		{"neither", false, false, false, false},
-		{"tools only", true, false, false, true},
-		{"autonomous only", false, true, true, false},
-		{"both", true, true, true, true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			argv := agyArgv(agyRequest{Model: "m", Tools: c.tools, Autonomous: c.autonomous})
-			hasMode := strings.Contains(strings.Join(argv, " "), "--mode auto")
-			hasSkip := slices.Contains(argv, "--dangerously-skip-permissions")
-			if hasMode != c.wantMode || hasSkip != c.wantSkip {
-				t.Errorf("argv = %q, mode=%v skip=%v, want mode=%v skip=%v", argv, hasMode, hasSkip, c.wantMode, c.wantSkip)
-			}
-		})
+// A tools run skips agy's permission prompts; agy's account-gated "--mode auto" is never passed.
+func TestAgyArgvToolsPermissions(t *testing.T) {
+	for _, tools := range []bool{false, true} {
+		argv := agyArgv(agyRequest{Model: "m", Tools: tools})
+		if slices.Contains(argv, "--mode") || slices.Contains(argv, "--dangerously-skip-permissions") != tools {
+			t.Errorf("tools=%v argv = %q, want no --mode and the permission skip only with tools", tools, argv)
+		}
 	}
 }
 

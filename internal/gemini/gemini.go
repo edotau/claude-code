@@ -328,7 +328,7 @@ func agyGatewayModels(p *providers.Provider, base string, now time.Time) (list, 
 type agyRequest struct {
 	Prompt, Model, Cwd, SessionID string
 	Effort                        string // a gateway pin's effort suffix; a --effort in SettingsArgv wins
-	Tools, Autonomous             bool
+	Tools                         bool
 	DebugFile                     string   // --log-file
 	OutputSchema                  string   // --json-schema
 	SettingsArgv                  []string // RenderSettings' --effort and --settings fragment, inserted before -p=
@@ -366,9 +366,6 @@ func agyArgv(r agyRequest) []string {
 	}
 	if r.Tools {
 		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
-	}
-	if r.Autonomous {
-		argv = append(argv, "--mode", "auto")
 	}
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
@@ -661,7 +658,7 @@ func agyArgEffort(base, arg string) string {
 func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
 	model, effort := agyModelEffort(req, p.Target)
 	return agyRequest{
-		Prompt: p.Prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools, Autonomous: req.Autonomous,
+		Prompt: p.Prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools,
 		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
 		SettingsArgv: p.Argv, Permissions: req.Permissions,
 	}
@@ -739,7 +736,7 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	PackVia: agent.PackFile,
 	Binary:  "agy",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
-		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.Native, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
+		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated,
 		Permissions: agent.Native},
 	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventResult, wire.EventError}, Cost: true,
