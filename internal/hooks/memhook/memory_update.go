@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
-// updateNotSaved is the visible line when the Stop gate fails open without an update.
+// updateNotSaved is the visible line when the Stop hook proceeds without an update.
 const updateNotSaved = "memory update NOT saved; run `claude-code memory update`"
 
 // sessionUpdate spawns a detached update; a failed spawn proceeds with a note and SessionEnd/PreCompact retry.

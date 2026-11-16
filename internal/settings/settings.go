@@ -204,6 +204,7 @@ type Key struct {
 	addl       *Key   // additionalProperties schema applied to unlisted properties
 	ref        bool   // uses $ref, which is not resolved: childRef and validateProperty read it
 	untyped    bool   // no type, enum or not of its own (a bare $ref or {}): any value passes
+	nullable   bool   // the type list names "null"
 }
 
 // schemaType is a JSON-Schema "type": one name or a list, kept whole so unions validate every branch.
@@ -329,6 +330,7 @@ func (n schemaNode) key(name string, env bool) Key {
 	k.ref = n.Ref != "" || k.childRef()
 	k.Kind = n.kind()
 	k.untyped = n.Type.first() == "" && len(n.Enum) == 0 && len(n.Not) == 0
+	k.nullable = slices.Contains(n.Type, "null")
 	if n.Pattern != "" {
 		k.pattern, k.patternErr = regexp.Compile(n.Pattern)
 	}
@@ -412,6 +414,9 @@ func (k Key) Validate(raw json.RawMessage) error {
 		return fmt.Errorf("%s: schema pattern does not compile: %w", k.Name, k.patternErr)
 	}
 	if strings.TrimSpace(string(raw)) == "null" {
+		if k.nullable {
+			return nil
+		}
 		return fmt.Errorf("%s: want a value, got null", k.Name)
 	}
 	if len(k.constVal) > 0 {
