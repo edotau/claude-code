@@ -1141,3 +1141,91 @@ func TestHandbackHeldUntilJobDone(t *testing.T) {
 		t.Fatalf("finished = %+v blocked=%v, want the hand-back through with note, receipt, report and result", r, blocked)
 	}
 }
+
+// writeJobFiles writes record id's log and, when events is set, its events file beside the record.
+func writeJobFiles(t *testing.T, id, logText, events string) string {
+	t.Helper()
+	logPath := filepath.Join(t.TempDir(), "job.log")
+	if err := os.WriteFile(logPath, []byte(logText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if events != "" {
+		p := filepath.Join(paths.StateDir(), "dispatch", id+paths.DispatchEventsSuffix)
+		if err := os.WriteFile(p, []byte(events), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return logPath
+}
+
+// The attached job result is the job's last message and one summary line: no heartbeat or per-step lines.
+func TestHandbackJobResultIsTheAnswer(t *testing.T) {
+	const id = "20261116T120000.000-codex"
+	noise := "▸ heartbeat: codex still running, no output for 30s\n▸ result: step finished (tool-calls), tokens in=2 out=40\n"
+	var tools strings.Builder
+	for i := range 25 {
+		fmt.Fprintf(&tools, "▸ tool: t%02d\n%s", i, noise)
+	}
+	events := `{"type":"text","text":"first turn\n"}` + "\n" + `{"type":"text","text":"FINAL line1\n","sep":true}` + "\n" +
+		`{"type":"text","text":"line2\n"}` + "\n" + `{"type":"result","envelope":{"answer":"first turn\nFINAL line1\nline2",` +
+		`"duration_ms":90000,"usage":{"input_tokens":10,"cache_read_tokens":90,"output_tokens":7}}}` + "\n"
+	for _, tc := range []struct {
+		name, report, log, events string
+		want, never               []string
+		answers                   int // times the answer appears in the message
+	}{
+		{"events last message", "my report", noise + noise + noise + "▸ assistant: draft\n", events,
+			[]string{"--- job result ---\ncodex ok · 3 steps · 1m30s · tokens in=100 out=7\n\nFINAL line1\nline2"},
+			[]string{"heartbeat", "step finished", "first turn", "draft"}, 1},
+		{"plain log answer", "my report", noise + "plain answer\nask: ran on codex · x · y · fallback none\n", "",
+			[]string{"codex ok · 1 steps", "plain answer"}, []string{"heartbeat", "step finished", "ask: ran on codex · x"}, 0},
+		{"no final text keeps 20 lines", "my report", tools.String(), "",
+			[]string{"▸ tool: t05", "▸ tool: t24"}, []string{"heartbeat", "step finished", "▸ tool: t04"}, 0},
+		{"report already quotes it", "my report\n\nFINAL line1\nline2\n", noise, events,
+			[]string{"(final answer already in the report above)"}, []string{"heartbeat"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			at := time.Now().Add(-time.Minute).Truncate(time.Second)
+			in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), tc.report)
+			writeDispatch(t, id, "{}")
+			logPath := writeJobFiles(t, id, tc.log, tc.events)
+			writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"duration_ms":90000,"log":%q}`,
+				id, at.Add(3*time.Second).Format(time.RFC3339), os.Getpid(), logPath))
+			r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+			msg, _ := r.UpdatedInput["message"].(string)
+			for _, w := range tc.want {
+				if blocked || !strings.Contains(msg, w) {
+					t.Errorf("message lacks %q (blocked=%v):\n%s", w, blocked, msg)
+				}
+			}
+			for _, n := range tc.never {
+				if strings.Contains(msg, n) {
+					t.Errorf("message carries %q:\n%s", n, msg)
+				}
+			}
+			if tc.answers > 0 && strings.Count(msg, "FINAL line1\nline2") != tc.answers {
+				t.Errorf("answer appears %d times, want %d:\n%s", strings.Count(msg, "FINAL line1\nline2"), tc.answers, msg)
+			}
+		})
+	}
+}
+
+// A relay that changed files through Bash did the work: the Run: line is not run again; a read-only relay's is.
+func TestRanOnRelayBashWrites(t *testing.T) {
+	for cmd, wrote := range map[string]bool{
+		"echo x > /repo/a.go": true, "sed -i 's/a/b/' a.go": true, "printf x | tee a.go": true, "cp a.go b.go": true,
+		"mv a.go b.go": true, "rm -f a.go": true, "git apply fix.patch": true, "cd /repo && git -C /repo rm a.go": true,
+		"apply_patch <<'EOF'\n*** Begin Patch\nEOF": true, "gofmt -l -w a.go": true, "timeout 60 go fmt ./...": true,
+		"ls -la": false, "cat a.go | grep x": false, "git status && git diff && git log -3": false,
+		"go build ./... 2>&1": false, "go test ./... >/dev/null 2>&1": false, "git apply --check fix.patch": false,
+		"go test ./... > /tmp/t.out 2>&1": false, "gofmt -l a.go": false,
+	} {
+		spawned := stubSpawn(t)
+		in := handbackOf(leafTxCmd(t, "codex", cmd, "Run: claude-code agents ask --agent codex 'fix it'\n", "out"), "fixed it")
+		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+		msg, _ := r.UpdatedInput["message"].(string)
+		if relay := !blocked && len(*spawned) == 0 && strings.HasPrefix(msg, relayNote); relay != wrote {
+			t.Errorf("%q: relay note %v (blocked=%v spawns %v), want %v", cmd, relay, blocked, *spawned, wrote)
+		}
+	}
+}
