@@ -75,8 +75,9 @@ func (t *recallTrace) scores(c recallPick, boost float64) {
 	if t == nil {
 		return
 	}
+	key := blockKey(c.Hit.Block)
 	for i := range t.Rows {
-		if t.Rows[i].key == blockKey(c.Hit.Block) {
+		if t.Rows[i].key == key {
 			t.Rows[i].Blended = c.Score
 			t.Rows[i].AccessBoost = boost
 			t.Rows[i].Final = c.Score + boost
