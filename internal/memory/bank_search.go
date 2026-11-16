@@ -72,6 +72,7 @@ func corpusBlocks(root string) ([]SearchHit, error) {
 	if err != nil {
 		return nil, err
 	}
+	keys := BankKeys()
 	var out []SearchHit
 	for _, f := range corpusOf(b) {
 		data, err := os.ReadFile(f.Path)
@@ -82,8 +83,9 @@ func corpusBlocks(root string) ([]SearchHit, error) {
 			return nil, err
 		}
 		base := filepath.Base(f.Path)
+		dir := accessDir(bankOfFile(f.Path, keys))
 		for _, block := range parseBlocks(f.Mode, base, data) {
-			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: ownerDir(f.Path)})
+			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: dir})
 		}
 	}
 	return out, nil
